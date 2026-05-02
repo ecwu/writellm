@@ -5,6 +5,9 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 const ipcChannels = {
   createWorkspace: 'paperlab:createWorkspace',
   openWorkspace: 'paperlab:openWorkspace',
+  listRecentWorkspaces: 'paperlab:listRecentWorkspaces',
+  pickWorkspaceFolder: 'paperlab:pickWorkspaceFolder',
+  pickNewWorkspacePath: 'paperlab:pickNewWorkspacePath',
   getState: 'paperlab:getState',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
@@ -27,6 +30,9 @@ const ipcChannels = {
 const api: PaperLabIpc = {
   createWorkspace: (path) => ipcRenderer.invoke(ipcChannels.createWorkspace, path),
   openWorkspace: (path) => ipcRenderer.invoke(ipcChannels.openWorkspace, path),
+  listRecentWorkspaces: () => ipcRenderer.invoke(ipcChannels.listRecentWorkspaces),
+  pickWorkspaceFolder: () => ipcRenderer.invoke(ipcChannels.pickWorkspaceFolder),
+  pickNewWorkspacePath: () => ipcRenderer.invoke(ipcChannels.pickNewWorkspacePath),
   getState: (focusSectionId) => ipcRenderer.invoke(ipcChannels.getState, focusSectionId),
   createNode: (payload) => ipcRenderer.invoke(ipcChannels.createNode, payload),
   updateNode: (nodeId, payload) => ipcRenderer.invoke(ipcChannels.updateNode, nodeId, payload),

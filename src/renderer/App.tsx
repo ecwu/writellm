@@ -20,7 +20,9 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   FileText,
+  FolderOpen,
   FolderPlus,
   GitBranch,
   Library,
@@ -38,6 +40,13 @@ import { getApi } from './api';
 import { LatexEditor } from './components/LatexEditor';
 import { Outline } from './components/Outline';
 import { Button } from './components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from './components/ui/dialog';
 import { Input } from './components/ui/input';
 import {
   Menubar,
@@ -91,6 +100,7 @@ import type {
   NodeRecord,
   NodeStats,
   PublicLlmSettings,
+  RecentWorkspace,
   SectionNodeRecord,
   UpdateNodeLayoutPayload
 } from '../shared/types';
@@ -167,6 +177,8 @@ export function App() {
   const [selection, setSelection] = useState<Selection>(null);
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspace[]>([]);
   const [llmSettings, setLlmSettings] = useState<PublicLlmSettings | null>(null);
   const [llmDraft, setLlmDraft] = useState<LlmDraftState>(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
@@ -215,6 +227,7 @@ export function App() {
       return;
     }
     void refresh();
+    void refreshRecentWorkspaces();
     void getApi().getLlmSettings().then(setLlmSettings).catch((caught) => {
       notifyError(caught instanceof Error ? caught.message : String(caught));
     });
@@ -278,6 +291,14 @@ export function App() {
     }
   }
 
+  async function refreshRecentWorkspaces() {
+    try {
+      setRecentWorkspaces(await getApi().listRecentWorkspaces());
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   async function run(action: () => Promise<FocusedWorkspaceState | void>, message?: string) {
     try {
       const next = await action();
@@ -336,20 +357,53 @@ export function App() {
     });
   }
 
-  async function createOrOpenWorkspace(mode: 'create' | 'open') {
-    if (!workspacePath.trim()) {
+  async function createOrOpenWorkspace(mode: 'create' | 'open', pathOverride?: string) {
+    const targetPath = pathOverride ?? workspacePath;
+    if (!targetPath.trim()) {
       notifyError('Workspace path is required.');
       return;
     }
-    await run(async () => {
+    try {
       const summary =
         mode === 'create'
-          ? await getApi().createWorkspace(workspacePath.trim())
-          : await getApi().openWorkspace(workspacePath.trim());
+          ? await getApi().createWorkspace(targetPath.trim())
+          : await getApi().openWorkspace(targetPath.trim());
       const next = await getApi().getState(summary.rootNodeId);
       setSelection({ type: 'node', id: summary.rootNodeId });
-      return next;
-    }, mode === 'create' ? 'Workspace created.' : 'Workspace opened.');
+      setState(next);
+      setWorkspacePath(summary.path);
+      setWorkspaceChooserOpen(false);
+      await refreshRecentWorkspaces();
+      notifyStatus(mode === 'create' ? 'Workspace created.' : 'Workspace opened.');
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function pickWorkspaceFolder() {
+    try {
+      const pickedPath = await getApi().pickWorkspaceFolder();
+      if (!pickedPath) {
+        return;
+      }
+      setWorkspacePath(pickedPath);
+      await createOrOpenWorkspace('open', pickedPath);
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function pickNewWorkspacePath() {
+    try {
+      const pickedPath = await getApi().pickNewWorkspacePath();
+      if (!pickedPath) {
+        return;
+      }
+      setWorkspacePath(pickedPath);
+      await createOrOpenWorkspace('create', pickedPath);
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
   }
 
   async function focusSectionById(sectionId: string) {
@@ -620,11 +674,10 @@ export function App() {
           <SiteHeader
             apiAvailable={apiAvailable}
             llmSettings={llmSettings}
-            workspacePath={workspacePath}
             workspaceTitle={state.workspace ? formatWorkspaceTitle(state.workspace.path) : 'No workspace'}
-            onWorkspacePath={setWorkspacePath}
-            onCreateWorkspace={() => void createOrOpenWorkspace('create')}
-            onOpenWorkspace={() => void createOrOpenWorkspace('open')}
+            onCreateWorkspace={() => void pickNewWorkspacePath()}
+            onOpenWorkspace={() => void pickWorkspaceFolder()}
+            onSwitchWorkspace={() => setWorkspaceChooserOpen(true)}
             onRefresh={() => void refresh()}
             onExport={() => void exportLatex()}
             onClearSelection={() => setSelection(null)}
@@ -650,6 +703,24 @@ export function App() {
             onSaved={setLlmSettings}
             onError={notifyError}
             onStatus={notifyStatus}
+          />
+          <WorkspaceChooserDialog
+            open={workspaceChooserOpen}
+            apiAvailable={apiAvailable}
+            canClose={Boolean(state.workspace)}
+            recentWorkspaces={recentWorkspaces}
+            workspacePath={workspacePath}
+            onOpenChange={(open) => {
+              if (!open && !state.workspace) {
+                return;
+              }
+              setWorkspaceChooserOpen(open);
+            }}
+            onWorkspacePath={setWorkspacePath}
+            onOpenWorkspace={(path) => void createOrOpenWorkspace('open', path)}
+            onCreateWorkspace={(path) => void createOrOpenWorkspace('create', path)}
+            onPickWorkspace={() => void pickWorkspaceFolder()}
+            onPickNewWorkspace={() => void pickNewWorkspacePath()}
           />
 
           <div className="flex min-h-0 flex-1">
@@ -780,14 +851,149 @@ export function App() {
   );
 }
 
+function WorkspaceChooserDialog({
+  open,
+  apiAvailable,
+  canClose,
+  recentWorkspaces,
+  workspacePath,
+  onOpenChange,
+  onWorkspacePath,
+  onOpenWorkspace,
+  onCreateWorkspace,
+  onPickWorkspace,
+  onPickNewWorkspace
+}: {
+  open: boolean;
+  apiAvailable: boolean;
+  canClose: boolean;
+  recentWorkspaces: RecentWorkspace[];
+  workspacePath: string;
+  onOpenChange: (open: boolean) => void;
+  onWorkspacePath: (path: string) => void;
+  onOpenWorkspace: (path: string) => void;
+  onCreateWorkspace: (path: string) => void;
+  onPickWorkspace: () => void;
+  onPickNewWorkspace: () => void;
+}) {
+  const canUsePath = apiAvailable && Boolean(workspacePath.trim());
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="workspace-dialog"
+        showCloseButton={canClose}
+        onEscapeKeyDown={(event) => {
+          if (!canClose) {
+            event.preventDefault();
+          }
+        }}
+        onPointerDownOutside={(event) => {
+          if (!canClose) {
+            event.preventDefault();
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Choose a PaperLab workspace</DialogTitle>
+          <DialogDescription>
+            Open a recent project, create a new .paperlab workspace, or select one from the system.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="workspace-dialog-actions">
+          <Button onClick={onPickNewWorkspace} disabled={!apiAvailable}>
+            <FolderPlus />
+            New project
+          </Button>
+          <Button variant="outline" onClick={onPickWorkspace} disabled={!apiAvailable}>
+            <FolderOpen />
+            Choose folder
+          </Button>
+        </div>
+
+        <section className="workspace-dialog-section">
+          <div className="workspace-dialog-section-header">
+            <h2>Recent projects</h2>
+          </div>
+          {recentWorkspaces.length > 0 ? (
+            <div className="workspace-recent-list">
+              {recentWorkspaces.map((workspace) => (
+                <button
+                  key={workspace.path}
+                  className="workspace-recent-item"
+                  type="button"
+                  onClick={() => onOpenWorkspace(workspace.path)}
+                  disabled={!apiAvailable}
+                >
+                  <span className="workspace-recent-icon">
+                    <FileText />
+                  </span>
+                  <span className="workspace-recent-main">
+                    <strong>{workspace.name}</strong>
+                    <span>{workspace.path}</span>
+                  </span>
+                  <span className="workspace-recent-time">
+                    <Clock />
+                    {formatRecentWorkspaceDate(workspace.openedAt)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="workspace-dialog-empty">No recent projects yet.</p>
+          )}
+        </section>
+
+        <section className="workspace-dialog-section">
+          <div className="workspace-dialog-section-header">
+            <h2>Path</h2>
+          </div>
+          <div className="workspace-path-row">
+            <Input
+              value={workspacePath}
+              onChange={(event) => onWorkspacePath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && canUsePath) {
+                  onOpenWorkspace(workspacePath);
+                }
+              }}
+              placeholder="/path/to/project.paperlab"
+              aria-label="Workspace path"
+            />
+            <Button variant="outline" onClick={() => onOpenWorkspace(workspacePath)} disabled={!canUsePath}>
+              Open
+            </Button>
+            <Button onClick={() => onCreateWorkspace(workspacePath)} disabled={!canUsePath}>
+              Create
+            </Button>
+          </div>
+        </section>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function formatRecentWorkspaceDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
+}
+
 function SiteHeader({
   apiAvailable,
   llmSettings,
-  workspacePath,
   workspaceTitle,
-  onWorkspacePath,
   onCreateWorkspace,
   onOpenWorkspace,
+  onSwitchWorkspace,
   onRefresh,
   onExport,
   onClearSelection,
@@ -800,11 +1006,10 @@ function SiteHeader({
 }: {
   apiAvailable: boolean;
   llmSettings: PublicLlmSettings | null;
-  workspacePath: string;
   workspaceTitle: string;
-  onWorkspacePath: (path: string) => void;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
+  onSwitchWorkspace: () => void;
   onRefresh: () => void;
   onExport: () => void;
   onClearSelection: () => void;
@@ -835,31 +1040,19 @@ function SiteHeader({
       <Menubar className="shrink-0 border-0 bg-transparent p-0">
         <MenubarMenu>
           <MenubarTrigger>File</MenubarTrigger>
-          <MenubarContent className="w-[min(28rem,calc(100vw-2rem))]">
-            <MenubarLabel>Workspace path</MenubarLabel>
-            <div className="px-1.5 pb-1.5">
-              <Input
-                value={workspacePath}
-                onChange={(event) => onWorkspacePath(event.target.value)}
-                onKeyDown={(event) => {
-                  event.stopPropagation();
-                  if (event.key === 'Enter' && apiAvailable) {
-                    onOpenWorkspace();
-                  }
-                }}
-                aria-label="Workspace path"
-                className="h-8 w-full bg-background"
-              />
-            </div>
-            <MenubarSeparator />
+          <MenubarContent>
             <MenubarGroup>
               <MenubarItem onSelect={onCreateWorkspace} disabled={!apiAvailable}>
                 <Plus />
                 New workspace
               </MenubarItem>
               <MenubarItem onSelect={onOpenWorkspace} disabled={!apiAvailable}>
-                <FileText />
+                <FolderOpen />
                 Open workspace
+              </MenubarItem>
+              <MenubarItem onSelect={onSwitchWorkspace} disabled={!apiAvailable}>
+                <FolderOpen />
+                Switch workspace...
               </MenubarItem>
             </MenubarGroup>
             <MenubarSeparator />

@@ -66,6 +66,12 @@ export type WorkspaceSummary = {
   rootNodeId: string;
 };
 
+export type RecentWorkspace = {
+  path: string;
+  name: string;
+  openedAt: string;
+};
+
 export type FocusedWorkspaceState = {
   workspace: WorkspaceSummary | null;
   compositionTree: CompositionTreeNode[];

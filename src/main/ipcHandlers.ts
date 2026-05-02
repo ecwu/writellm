@@ -1,4 +1,5 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import path from 'node:path';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
   CompositionTreeNode,
@@ -13,7 +14,13 @@ import type {
 import { exportLatex } from './exportLatex.js';
 import { streamLlmText } from './llmRunner.js';
 import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llmSettings.js';
-import { createWorkspace, getActiveDb, getState, openWorkspace } from './workspace.js';
+import {
+  createWorkspace,
+  getActiveDb,
+  getState,
+  listRecentWorkspaces,
+  openWorkspace
+} from './workspace.js';
 
 const llmRuns = new Map<string, AbortController>();
 
@@ -169,6 +176,43 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.openWorkspace, (_event, workspacePath: string) =>
     openWorkspace(workspacePath)
   );
+
+  ipcMain.handle(ipcChannels.listRecentWorkspaces, () => listRecentWorkspaces());
+
+  ipcMain.handle(ipcChannels.pickWorkspaceFolder, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: 'Open PaperLab workspace',
+      properties: ['openDirectory'] as Electron.OpenDialogOptions['properties']
+    };
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    const workspacePath = result.filePaths[0];
+    if (path.extname(workspacePath) !== '.paperlab') {
+      throw new Error('Choose a .paperlab folder.');
+    }
+    return workspacePath;
+  });
+
+  ipcMain.handle(ipcChannels.pickNewWorkspacePath, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: 'Create PaperLab workspace',
+      defaultPath: 'Untitled.paperlab',
+      filters: [{ name: 'PaperLab Workspace', extensions: ['paperlab'] }]
+    };
+    const result = owner
+      ? await dialog.showSaveDialog(owner, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+    return result.filePath.endsWith('.paperlab') ? result.filePath : `${result.filePath}.paperlab`;
+  });
 
   ipcMain.handle(ipcChannels.getState, (_event, focusSectionId?: string) =>
     getState(focusSectionId)

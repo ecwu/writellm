@@ -6,6 +6,7 @@ import type {
   LlmStreamEvent,
   NodeEdgeRecord,
   PublicLlmSettings,
+  RecentWorkspace,
   SaveLlmGenerationPayload,
   UpdateLlmSettingsPayload,
   UpdateNodeLayoutPayload,
@@ -16,6 +17,9 @@ import type {
 export const ipcChannels = {
   createWorkspace: 'paperlab:createWorkspace',
   openWorkspace: 'paperlab:openWorkspace',
+  listRecentWorkspaces: 'paperlab:listRecentWorkspaces',
+  pickWorkspaceFolder: 'paperlab:pickWorkspaceFolder',
+  pickNewWorkspacePath: 'paperlab:pickNewWorkspacePath',
   getState: 'paperlab:getState',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
@@ -38,6 +42,9 @@ export const ipcChannels = {
 export type PaperLabIpc = {
   createWorkspace(path: string): Promise<WorkspaceSummary>;
   openWorkspace(path: string): Promise<WorkspaceSummary>;
+  listRecentWorkspaces(): Promise<RecentWorkspace[]>;
+  pickWorkspaceFolder(): Promise<string | null>;
+  pickNewWorkspacePath(): Promise<string | null>;
   getState(focusSectionId?: string): Promise<FocusedWorkspaceState>;
   createNode(payload: CreateNodePayload): Promise<FocusedWorkspaceState>;
   updateNode(nodeId: string, payload: UpdateNodePayload): Promise<FocusedWorkspaceState>;
