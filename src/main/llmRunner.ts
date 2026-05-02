@@ -39,8 +39,7 @@ export async function* streamLlmText(
       : defaultWritingSystemPrompt,
     prompt: payload.prompt,
     abortSignal,
-    maxRetries: 0,
-    timeout: { totalMs: 45_000 }
+    maxRetries: 0
   });
 
   for await (const textPart of result.textStream) {

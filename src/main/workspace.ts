@@ -22,20 +22,19 @@ export function getActiveDb(): PaperLabDatabase {
   return activeDb;
 }
 
-export function getState(focusContainerId?: string): FocusedWorkspaceState {
+export function getState(focusSectionId?: string): FocusedWorkspaceState {
   if (!activeDb) {
     return {
       workspace: null,
       compositionTree: [],
-      focusContainerId: null,
-      containers: [],
-      artifacts: [],
-      authorTexts: [],
-      reviewComments: [],
-      containerStats: {},
+      focusSectionId: null,
+      nodes: [],
+      visibleNodes: [],
+      contextNodes: [],
+      nodeStats: {},
       edges: [],
       nodeLayouts: []
     };
   }
-  return activeDb.getState(focusContainerId);
+  return activeDb.getState(focusSectionId);
 }

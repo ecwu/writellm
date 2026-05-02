@@ -1,18 +1,15 @@
 import type {
-  CreateArtifactPayload,
-  CreateContainerPayload,
-  CreateReviewCommentPayload,
+  CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
   GenerateLlmPayload,
   LlmStreamEvent,
-  ProcessEdgeRecord,
+  NodeEdgeRecord,
   PublicLlmSettings,
-  ReviewCommentRecord,
   SaveLlmGenerationPayload,
-  TextRange,
-  UpdateCanvasNodeLayoutPayload,
   UpdateLlmSettingsPayload,
+  UpdateNodeLayoutPayload,
+  UpdateNodePayload,
   WorkspaceSummary
 } from './types.js';
 
@@ -20,21 +17,15 @@ export const ipcChannels = {
   createWorkspace: 'paperlab:createWorkspace',
   openWorkspace: 'paperlab:openWorkspace',
   getState: 'paperlab:getState',
-  createContainer: 'paperlab:createContainer',
-  updateContainer: 'paperlab:updateContainer',
-  deleteContainer: 'paperlab:deleteContainer',
-  moveContainer: 'paperlab:moveContainer',
-  createSourceNote: 'paperlab:createSourceNote',
-  createAuthorText: 'paperlab:createAuthorText',
-  deleteArtifact: 'paperlab:deleteArtifact',
-  updateArtifactContent: 'paperlab:updateArtifactContent',
-  updateAuthorTextContent: 'paperlab:updateAuthorTextContent',
-  setActiveAuthorText: 'paperlab:setActiveAuthorText',
-  createReviewComment: 'paperlab:createReviewComment',
-  updateReviewCommentStatus: 'paperlab:updateReviewCommentStatus',
-  createProcessEdge: 'paperlab:createProcessEdge',
-  updateProcessEdge: 'paperlab:updateProcessEdge',
-  updateCanvasNodeLayout: 'paperlab:updateCanvasNodeLayout',
+  createNode: 'paperlab:createNode',
+  updateNode: 'paperlab:updateNode',
+  deleteNode: 'paperlab:deleteNode',
+  moveNode: 'paperlab:moveNode',
+  setActiveMainNode: 'paperlab:setActiveMainNode',
+  createNodeEdge: 'paperlab:createNodeEdge',
+  updateNodeEdge: 'paperlab:updateNodeEdge',
+  deleteNodeEdge: 'paperlab:deleteNodeEdge',
+  updateNodeLayout: 'paperlab:updateNodeLayout',
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
@@ -47,60 +38,21 @@ export const ipcChannels = {
 export type PaperLabIpc = {
   createWorkspace(path: string): Promise<WorkspaceSummary>;
   openWorkspace(path: string): Promise<WorkspaceSummary>;
-  getState(focusContainerId?: string): Promise<FocusedWorkspaceState>;
-  createContainer(
-    parentId: string | null,
-    payload: CreateContainerPayload
+  getState(focusSectionId?: string): Promise<FocusedWorkspaceState>;
+  createNode(payload: CreateNodePayload): Promise<FocusedWorkspaceState>;
+  updateNode(nodeId: string, payload: UpdateNodePayload): Promise<FocusedWorkspaceState>;
+  deleteNode(nodeId: string): Promise<FocusedWorkspaceState>;
+  moveNode(nodeId: string, newParentId: string | null, index: number): Promise<FocusedWorkspaceState>;
+  setActiveMainNode(sectionId: string, contentNodeId: string | null): Promise<FocusedWorkspaceState>;
+  createNodeEdge(fromNodeId: string, toNodeId: string, relationType: EdgeKind): Promise<NodeEdgeRecord>;
+  updateNodeEdge(
+    edgeId: string,
+    relationType: EdgeKind,
+    focusSectionId?: string | null
   ): Promise<FocusedWorkspaceState>;
-  updateContainer(
-    containerId: string,
-    payload: Partial<CreateContainerPayload>
-  ): Promise<FocusedWorkspaceState>;
-  deleteContainer(containerId: string): Promise<FocusedWorkspaceState>;
-  moveContainer(
-    containerId: string,
-    newParentId: string | null,
-    index: number
-  ): Promise<FocusedWorkspaceState>;
-  createSourceNote(
-    containerId: string,
-    payload: CreateArtifactPayload
-  ): Promise<FocusedWorkspaceState>;
-  createAuthorText(
-    containerId: string,
-    content: string,
-    createdFromArtifactId?: string
-  ): Promise<FocusedWorkspaceState>;
-  deleteArtifact(artifactId: string): Promise<FocusedWorkspaceState>;
-  updateArtifactContent(
-    artifactId: string,
-    content: string
-  ): Promise<FocusedWorkspaceState>;
-  updateAuthorTextContent(
-    authorTextId: string,
-    content: string
-  ): Promise<FocusedWorkspaceState>;
-  setActiveAuthorText(
-    containerId: string,
-    authorTextId: string
-  ): Promise<FocusedWorkspaceState>;
-  createReviewComment(
-    authorTextId: string,
-    range: TextRange,
-    payload: CreateReviewCommentPayload
-  ): Promise<FocusedWorkspaceState>;
-  updateReviewCommentStatus(
-    commentId: string,
-    status: ReviewCommentRecord['status']
-  ): Promise<FocusedWorkspaceState>;
-  createProcessEdge(
-    fromArtifactId: string,
-    toArtifactId: string,
-    relationType: EdgeKind
-  ): Promise<ProcessEdgeRecord>;
-  updateProcessEdge(edgeId: string, relationType: EdgeKind): Promise<FocusedWorkspaceState>;
-  updateCanvasNodeLayout(payload: UpdateCanvasNodeLayoutPayload): Promise<FocusedWorkspaceState>;
-  exportLatex(rootContainerId: string): Promise<{ path: string }>;
+  deleteNodeEdge(edgeId: string, focusSectionId?: string | null): Promise<FocusedWorkspaceState>;
+  updateNodeLayout(payload: UpdateNodeLayoutPayload): Promise<FocusedWorkspaceState>;
+  exportLatex(rootNodeId: string): Promise<{ path: string }>;
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;
   generateWithLlm(payload: GenerateLlmPayload): Promise<{ runId: string; content: string; canceled: boolean }>;

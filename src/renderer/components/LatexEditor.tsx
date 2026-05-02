@@ -4,16 +4,20 @@ import { StreamLanguage } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import type { TextRange } from '../../shared/types';
+
+type EditorSelectionRange = {
+  startOffset: number;
+  endOffset: number;
+};
 
 export function LatexEditor({
   value,
   onChange,
   onSelectionChange
 }: {
-  value: string;
-  onChange: (value: string) => void;
-  onSelectionChange: (range: TextRange) => void;
+	  value: string;
+	  onChange: (value: string) => void;
+	  onSelectionChange?: (range: EditorSelectionRange) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -49,12 +53,12 @@ export function LatexEditor({
                 onChangeRef.current(next);
               }
             }
-            if (update.selectionSet) {
-              const range = update.state.selection.main;
-              onSelectionChangeRef.current({
-                startOffset: range.from,
-                endOffset: range.to
-              });
+	            if (update.selectionSet) {
+	              const range = update.state.selection.main;
+	              onSelectionChangeRef.current?.({
+	                startOffset: range.from,
+	                endOffset: range.to
+	              });
             }
           })
         ]

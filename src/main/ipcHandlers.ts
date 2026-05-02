@@ -1,14 +1,14 @@
 import { ipcMain } from 'electron';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
-  CreateArtifactPayload,
-  CreateContainerPayload,
-  CreateReviewCommentPayload,
+  CompositionTreeNode,
+  ContentNodeRecord,
+  CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
   SaveLlmGenerationPayload,
-  TextRange,
-  UpdateCanvasNodeLayoutPayload
+  UpdateNodeLayoutPayload,
+  UpdateNodePayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
 import { streamLlmText } from './llmRunner.js';
@@ -17,15 +17,148 @@ import { createWorkspace, getActiveDb, getState, openWorkspace } from './workspa
 
 const llmRuns = new Map<string, AbortController>();
 
-function buildSectionSystemPrompt(title: string, intent: string | null): string {
-  const trimmedIntent = intent?.trim();
+function formatArticleStructure(
+  nodes: CompositionTreeNode[],
+  focusSectionId: string,
+  targetSectionId: string
+): string {
+  const lines: string[] = [];
+
+  const visit = (node: CompositionTreeNode, depth: number): void => {
+    const prefix = '  '.repeat(depth);
+    const markers = [
+      node.id === focusSectionId ? 'focused section' : null,
+      node.id === targetSectionId && node.id !== focusSectionId ? 'generation target' : null
+    ].filter(Boolean);
+    const markerText = markers.length > 0 ? ` (${markers.join(', ')})` : '';
+    lines.push(`${prefix}- ${node.title}${markerText}`);
+    node.children.forEach((child) => visit(child, depth + 1));
+  };
+
+  nodes.forEach((node) => visit(node, 0));
+  return lines.join('\n') || '- No sections';
+}
+
+function formatSectionContext(label: string, section: CompositionTreeNode): string {
+  const trimmedIntent = section.intent?.trim();
 
   return [
-    'Current section context:',
-    `- Section name: ${title}`,
-    `- Section intent: ${trimmedIntent || 'Not provided'}`,
-    'Use this section context to scope the generation. Do not include these metadata labels in the output unless explicitly requested.'
+    `${label}:`,
+    `- Section title: ${section.title}`,
+    `- Section intent: ${trimmedIntent || 'Not provided'}`
   ].join('\n');
+}
+
+function buildArticleSectionContext(
+  focusSection: CompositionTreeNode,
+  targetSection: CompositionTreeNode,
+  articleStructure: CompositionTreeNode[]
+): string {
+  const sections = [
+    'Article structure:',
+    formatArticleStructure(articleStructure, focusSection.id, targetSection.id),
+    '',
+    formatSectionContext('Focused section context', focusSection)
+  ];
+
+  if (targetSection.id !== focusSection.id) {
+    sections.push('', formatSectionContext('Generation target section context', targetSection));
+  }
+
+  sections.push(
+    '',
+    'Use the article structure, focused section context, and generation target context to scope the generation. Do not include these metadata labels in the output unless explicitly requested.'
+  );
+
+  return sections.join('\n');
+}
+
+function findSectionInTree(
+  nodes: CompositionTreeNode[],
+  sectionId: string
+): CompositionTreeNode | null {
+  for (const node of nodes) {
+    if (node.id === sectionId) {
+      return node;
+    }
+    const child = findSectionInTree(node.children, sectionId);
+    if (child) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
+function buildArticleSectionContextFromDb(
+  db: ReturnType<typeof getActiveDb>,
+  targetSectionId: string,
+  focusSectionId?: string | null
+): string {
+  const resolvedFocusSectionId = focusSectionId ?? targetSectionId;
+  const state = db.getState(resolvedFocusSectionId);
+  const targetSection = findSectionInTree(state.compositionTree, targetSectionId);
+  if (!targetSection) {
+    throw new Error(`Section not found: ${targetSectionId}`);
+  }
+  const focusSection = findSectionInTree(state.compositionTree, resolvedFocusSectionId) ?? targetSection;
+
+  return buildArticleSectionContext(focusSection, targetSection, state.compositionTree);
+}
+
+function getSelectedContextNodes(
+  db: ReturnType<typeof getActiveDb>,
+  nodeIds: string[] | undefined
+): ContentNodeRecord[] {
+  const selectedIds = new Set(nodeIds ?? []);
+  if (selectedIds.size === 0) {
+    return [];
+  }
+
+  return db
+    .listNodes()
+    .filter(
+      (node): node is ContentNodeRecord =>
+        node.kind === 'content' &&
+        selectedIds.has(node.id) &&
+        Boolean(node.content.trim())
+    );
+}
+
+function buildContextPrompt(
+  basePrompt: string,
+  contextNodes: ContentNodeRecord[],
+  articleSectionContext: string
+): string {
+  const promptSections = [
+    'Use the following article and section context for this generation.',
+    articleSectionContext
+  ];
+
+  if (contextNodes.length > 0) {
+    const contextText = contextNodes
+      .map((node, index) => {
+        const flags = [
+          node.isMain ? 'main' : null,
+          node.isArtifact ? 'artifact' : null,
+          node.isLlm ? 'llm' : null
+        ].filter(Boolean).join(', ') || 'content';
+        return [
+          `[${index + 1}] ${node.title} (${flags})`,
+          node.content.trim() || '(empty)'
+        ].join('\n');
+      })
+      .join('\n\n---\n\n');
+
+    promptSections.push(
+      '',
+      'Use the following selected content nodes as additional context. Do not copy them verbatim unless the user asks for it.',
+      contextText
+    );
+  }
+
+  promptSections.push('', 'User prompt:', basePrompt);
+  return promptSections.join('\n');
 }
 
 export function registerIpcHandlers(): void {
@@ -37,131 +170,80 @@ export function registerIpcHandlers(): void {
     openWorkspace(workspacePath)
   );
 
-  ipcMain.handle(ipcChannels.getState, (_event, focusContainerId?: string) =>
-    getState(focusContainerId)
+  ipcMain.handle(ipcChannels.getState, (_event, focusSectionId?: string) =>
+    getState(focusSectionId)
   );
 
-  ipcMain.handle(
-    ipcChannels.createContainer,
-    (_event, parentId: string | null, payload: CreateContainerPayload) => {
-      getActiveDb().createContainer(parentId, payload.title, payload.intent);
-      return getState(parentId ?? undefined);
-    }
-  );
-
-  ipcMain.handle(
-    ipcChannels.updateContainer,
-    (_event, containerId: string, payload: Partial<CreateContainerPayload>) => {
-      getActiveDb().updateContainer(containerId, payload);
-      return getState(containerId);
-    }
-  );
-
-  ipcMain.handle(ipcChannels.deleteContainer, (_event, containerId: string) => {
-    const db = getActiveDb();
-    const nextFocusId = db.getContainerParentId(containerId) ?? db.rootContainerId;
-    db.deleteContainer(containerId);
-    return getState(nextFocusId);
+  ipcMain.handle(ipcChannels.createNode, (_event, payload: CreateNodePayload) => {
+    const node = getActiveDb().createNode(payload);
+    return getState(node.kind === 'section' ? node.parentId ?? node.id : node.parentId);
   });
 
   ipcMain.handle(
-    ipcChannels.moveContainer,
-    (_event, containerId: string, newParentId: string | null, index: number) => {
-      getActiveDb().moveContainer(containerId, newParentId, index);
+    ipcChannels.updateNode,
+    (_event, nodeId: string, payload: UpdateNodePayload) => {
+      const db = getActiveDb();
+      db.updateNode(nodeId, payload);
+      const node = db.getNode(nodeId);
+      return getState(node?.kind === 'section' ? node.id : node?.parentId ?? undefined);
+    }
+  );
+
+  ipcMain.handle(ipcChannels.deleteNode, (_event, nodeId: string) => {
+    const db = getActiveDb();
+    const parentSectionId = db.getParentSectionId(nodeId) ?? db.rootNodeId;
+    db.deleteNode(nodeId);
+    return getState(parentSectionId);
+  });
+
+  ipcMain.handle(
+    ipcChannels.moveNode,
+    (_event, nodeId: string, newParentId: string | null, index: number) => {
+      getActiveDb().moveNode(nodeId, newParentId, index);
       return getState(newParentId ?? undefined);
     }
   );
 
   ipcMain.handle(
-    ipcChannels.createSourceNote,
-    (_event, containerId: string, payload: CreateArtifactPayload) => {
-      getActiveDb().createSourceNote(containerId, payload.title, payload.content);
-      return getState(containerId);
+    ipcChannels.setActiveMainNode,
+    (_event, sectionId: string, contentNodeId: string | null) => {
+      getActiveDb().setActiveMainNode(sectionId, contentNodeId);
+      return getState(sectionId);
     }
   );
 
   ipcMain.handle(
-    ipcChannels.createAuthorText,
-    (_event, containerId: string, content: string, createdFromArtifactId?: string) => {
-      getActiveDb().createAuthorText(containerId, content, createdFromArtifactId);
-      return getState(containerId);
-    }
-  );
-
-  ipcMain.handle(ipcChannels.deleteArtifact, (_event, artifactId: string) => {
-    getActiveDb().deleteArtifact(artifactId);
-    return getState();
-  });
-
-  ipcMain.handle(
-    ipcChannels.updateArtifactContent,
-    (_event, artifactId: string, content: string) => {
-      getActiveDb().updateArtifactContent(artifactId, content);
-      return getState();
+    ipcChannels.updateNodeLayout,
+    (_event, payload: UpdateNodeLayoutPayload) => {
+      getActiveDb().updateNodeLayout(payload);
+      return getState(payload.canvasSectionId);
     }
   );
 
   ipcMain.handle(
-    ipcChannels.updateAuthorTextContent,
-    (_event, authorTextId: string, content: string) => {
-      getActiveDb().updateAuthorTextContent(authorTextId, content);
-      return getState();
+    ipcChannels.createNodeEdge,
+    (_event, fromNodeId: string, toNodeId: string, relationType: EdgeKind) =>
+      getActiveDb().createNodeEdge(fromNodeId, toNodeId, relationType)
+  );
+
+  ipcMain.handle(
+    ipcChannels.updateNodeEdge,
+    (_event, edgeId: string, relationType: EdgeKind, focusSectionId?: string | null) => {
+      getActiveDb().updateNodeEdge(edgeId, relationType);
+      return getState(focusSectionId ?? undefined);
     }
   );
 
   ipcMain.handle(
-    ipcChannels.setActiveAuthorText,
-    (_event, containerId: string, authorTextId: string) => {
-      getActiveDb().setActiveAuthorText(containerId, authorTextId);
-      return getState(containerId);
+    ipcChannels.deleteNodeEdge,
+    (_event, edgeId: string, focusSectionId?: string | null) => {
+      getActiveDb().deleteNodeEdge(edgeId);
+      return getState(focusSectionId ?? undefined);
     }
   );
 
-  ipcMain.handle(
-    ipcChannels.createReviewComment,
-    (
-      _event,
-      authorTextId: string,
-      range: TextRange,
-      payload: CreateReviewCommentPayload
-    ) => {
-      getActiveDb().createReviewComment(authorTextId, range, payload);
-      return getState();
-    }
-  );
-
-  ipcMain.handle(
-    ipcChannels.updateReviewCommentStatus,
-    (_event, commentId: string, status: 'open' | 'addressed' | 'wont_fix') => {
-      getActiveDb().updateReviewCommentStatus(commentId, status);
-      return getState();
-    }
-  );
-
-  ipcMain.handle(
-    ipcChannels.updateCanvasNodeLayout,
-    (_event, payload: UpdateCanvasNodeLayoutPayload) => {
-      getActiveDb().updateCanvasNodeLayout(payload);
-      return getState(payload.canvasContainerId);
-    }
-  );
-
-  ipcMain.handle(
-    ipcChannels.createProcessEdge,
-    (_event, fromArtifactId: string, toArtifactId: string, relationType: EdgeKind) =>
-      getActiveDb().createProcessEdge(fromArtifactId, toArtifactId, relationType)
-  );
-
-  ipcMain.handle(
-    ipcChannels.updateProcessEdge,
-    (_event, edgeId: string, relationType: EdgeKind) => {
-      getActiveDb().updateProcessEdge(edgeId, relationType);
-      return getState();
-    }
-  );
-
-  ipcMain.handle(ipcChannels.exportLatex, (_event, rootContainerId: string) => ({
-    path: exportLatex(getActiveDb(), rootContainerId)
+  ipcMain.handle(ipcChannels.exportLatex, (_event, rootNodeId: string) => ({
+    path: exportLatex(getActiveDb(), rootNodeId)
   }));
 
   ipcMain.handle(ipcChannels.getLlmSettings, () => readPublicLlmSettings());
@@ -173,16 +255,22 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
     const db = getActiveDb();
-    const container = db.getContainer(payload.containerId);
-    if (!container) {
-      throw new Error(`Container not found: ${payload.containerId}`);
+    const section = db.getSection(payload.sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${payload.sectionId}`);
     }
-    const sectionSystemPrompt = buildSectionSystemPrompt(container.title, container.intent);
+    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+    const articleSectionContext = buildArticleSectionContextFromDb(
+      db,
+      payload.sectionId,
+      payload.focusSectionId
+    );
     const generationPayload: GenerateLlmPayload = {
       ...payload,
+      prompt: buildContextPrompt(payload.prompt, contextNodes, articleSectionContext),
       systemPrompt: payload.systemPrompt?.trim()
-        ? `${sectionSystemPrompt}\n\n${payload.systemPrompt.trim()}`
-        : sectionSystemPrompt
+        ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`
+        : articleSectionContext
     };
     const controller = new AbortController();
     llmRuns.set(payload.runId, controller);
@@ -190,7 +278,7 @@ export function registerIpcHandlers(): void {
     event.sender.send(ipcChannels.llmStream, {
       type: 'started',
       runId: payload.runId,
-      containerId: payload.containerId
+      sectionId: payload.sectionId
     });
 
     let content = '';
@@ -218,10 +306,7 @@ export function registerIpcHandlers(): void {
         return { runId: payload.runId, content, canceled: true };
       }
 
-      const rawMessage = caught instanceof Error ? caught.message : String(caught);
-      const message = /timeout|timed out/i.test(rawMessage)
-        ? 'LLM request timed out after 45 seconds. Check the URL, model name, API key, and network access.'
-        : rawMessage;
+      const message = caught instanceof Error ? caught.message : String(caught);
       event.sender.send(ipcChannels.llmStream, {
         type: 'error',
         runId: payload.runId,
@@ -244,12 +329,41 @@ export function registerIpcHandlers(): void {
     if (!prompt) {
       throw new Error('LLM generation prompt is required.');
     }
-    db.createGenerationCandidate(payload.containerId, 'LLM generation', payload.content, {
-      provider: settings.provider,
-      baseURL: settings.baseURL,
-      model: settings.model,
-      prompt
+    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+    const articleSectionContext = buildArticleSectionContextFromDb(
+      db,
+      payload.sectionId,
+      payload.focusSectionId
+    );
+    const resolvedPrompt = buildContextPrompt(prompt, contextNodes, articleSectionContext);
+    const generated = db.createNode({
+      kind: 'content',
+      parentId: payload.sectionId,
+      title: 'LLM generation',
+      content: payload.content,
+      isLlm: true,
+      isMain: false,
+      isArtifact: false,
+      metadata: {
+        provider: settings.provider,
+        baseURL: settings.baseURL,
+        model: settings.model,
+        prompt: resolvedPrompt,
+        rawPrompt: prompt,
+        focusSectionId: payload.focusSectionId ?? null,
+        targetSectionId: payload.sectionId,
+        contextNodeIds: contextNodes.map((node) => node.id)
+      }
     });
-    return getState(payload.containerId);
+
+    if (generated.kind !== 'content') {
+      throw new Error('LLM generation did not create a content node.');
+    }
+
+    const contextRelationType = payload.contextRelationType ?? 'informs';
+    contextNodes.forEach((node) => {
+      db.createNodeEdge(node.id, generated.id, contextRelationType, 'llm');
+    });
+    return getState(payload.sectionId);
   });
 }

@@ -6,21 +6,15 @@ const ipcChannels = {
   createWorkspace: 'paperlab:createWorkspace',
   openWorkspace: 'paperlab:openWorkspace',
   getState: 'paperlab:getState',
-  createContainer: 'paperlab:createContainer',
-  updateContainer: 'paperlab:updateContainer',
-  deleteContainer: 'paperlab:deleteContainer',
-  moveContainer: 'paperlab:moveContainer',
-  createSourceNote: 'paperlab:createSourceNote',
-  createAuthorText: 'paperlab:createAuthorText',
-  deleteArtifact: 'paperlab:deleteArtifact',
-  updateArtifactContent: 'paperlab:updateArtifactContent',
-  updateAuthorTextContent: 'paperlab:updateAuthorTextContent',
-  setActiveAuthorText: 'paperlab:setActiveAuthorText',
-  createReviewComment: 'paperlab:createReviewComment',
-  updateReviewCommentStatus: 'paperlab:updateReviewCommentStatus',
-  createProcessEdge: 'paperlab:createProcessEdge',
-  updateProcessEdge: 'paperlab:updateProcessEdge',
-  updateCanvasNodeLayout: 'paperlab:updateCanvasNodeLayout',
+  createNode: 'paperlab:createNode',
+  updateNode: 'paperlab:updateNode',
+  deleteNode: 'paperlab:deleteNode',
+  moveNode: 'paperlab:moveNode',
+  setActiveMainNode: 'paperlab:setActiveMainNode',
+  createNodeEdge: 'paperlab:createNodeEdge',
+  updateNodeEdge: 'paperlab:updateNodeEdge',
+  deleteNodeEdge: 'paperlab:deleteNodeEdge',
+  updateNodeLayout: 'paperlab:updateNodeLayout',
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
@@ -33,36 +27,22 @@ const ipcChannels = {
 const api: PaperLabIpc = {
   createWorkspace: (path) => ipcRenderer.invoke(ipcChannels.createWorkspace, path),
   openWorkspace: (path) => ipcRenderer.invoke(ipcChannels.openWorkspace, path),
-  getState: (focusContainerId) => ipcRenderer.invoke(ipcChannels.getState, focusContainerId),
-  createContainer: (parentId, payload) =>
-    ipcRenderer.invoke(ipcChannels.createContainer, parentId, payload),
-  updateContainer: (containerId, payload) =>
-    ipcRenderer.invoke(ipcChannels.updateContainer, containerId, payload),
-  deleteContainer: (containerId) => ipcRenderer.invoke(ipcChannels.deleteContainer, containerId),
-  moveContainer: (containerId, newParentId, index) =>
-    ipcRenderer.invoke(ipcChannels.moveContainer, containerId, newParentId, index),
-  createSourceNote: (containerId, payload) =>
-    ipcRenderer.invoke(ipcChannels.createSourceNote, containerId, payload),
-  createAuthorText: (containerId, content, createdFromArtifactId) =>
-    ipcRenderer.invoke(ipcChannels.createAuthorText, containerId, content, createdFromArtifactId),
-  deleteArtifact: (artifactId) => ipcRenderer.invoke(ipcChannels.deleteArtifact, artifactId),
-  updateArtifactContent: (artifactId, content) =>
-    ipcRenderer.invoke(ipcChannels.updateArtifactContent, artifactId, content),
-  updateAuthorTextContent: (authorTextId, content) =>
-    ipcRenderer.invoke(ipcChannels.updateAuthorTextContent, authorTextId, content),
-  setActiveAuthorText: (containerId, authorTextId) =>
-    ipcRenderer.invoke(ipcChannels.setActiveAuthorText, containerId, authorTextId),
-  createReviewComment: (authorTextId, range, payload) =>
-    ipcRenderer.invoke(ipcChannels.createReviewComment, authorTextId, range, payload),
-  updateReviewCommentStatus: (commentId, status) =>
-    ipcRenderer.invoke(ipcChannels.updateReviewCommentStatus, commentId, status),
-  createProcessEdge: (fromArtifactId, toArtifactId, relationType) =>
-    ipcRenderer.invoke(ipcChannels.createProcessEdge, fromArtifactId, toArtifactId, relationType),
-  updateProcessEdge: (edgeId, relationType) =>
-    ipcRenderer.invoke(ipcChannels.updateProcessEdge, edgeId, relationType),
-  updateCanvasNodeLayout: (payload) =>
-    ipcRenderer.invoke(ipcChannels.updateCanvasNodeLayout, payload),
-  exportLatex: (rootContainerId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootContainerId),
+  getState: (focusSectionId) => ipcRenderer.invoke(ipcChannels.getState, focusSectionId),
+  createNode: (payload) => ipcRenderer.invoke(ipcChannels.createNode, payload),
+  updateNode: (nodeId, payload) => ipcRenderer.invoke(ipcChannels.updateNode, nodeId, payload),
+  deleteNode: (nodeId) => ipcRenderer.invoke(ipcChannels.deleteNode, nodeId),
+  moveNode: (nodeId, newParentId, index) =>
+    ipcRenderer.invoke(ipcChannels.moveNode, nodeId, newParentId, index),
+  setActiveMainNode: (sectionId, contentNodeId) =>
+    ipcRenderer.invoke(ipcChannels.setActiveMainNode, sectionId, contentNodeId),
+  createNodeEdge: (fromNodeId, toNodeId, relationType) =>
+    ipcRenderer.invoke(ipcChannels.createNodeEdge, fromNodeId, toNodeId, relationType),
+  updateNodeEdge: (edgeId, relationType, focusSectionId) =>
+    ipcRenderer.invoke(ipcChannels.updateNodeEdge, edgeId, relationType, focusSectionId),
+  deleteNodeEdge: (edgeId, focusSectionId) =>
+    ipcRenderer.invoke(ipcChannels.deleteNodeEdge, edgeId, focusSectionId),
+  updateNodeLayout: (payload) => ipcRenderer.invoke(ipcChannels.updateNodeLayout, payload),
+  exportLatex: (rootNodeId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootNodeId),
   getLlmSettings: () => ipcRenderer.invoke(ipcChannels.getLlmSettings),
   updateLlmSettings: (payload) => ipcRenderer.invoke(ipcChannels.updateLlmSettings, payload),
   generateWithLlm: (payload) => ipcRenderer.invoke(ipcChannels.generateWithLlm, payload),

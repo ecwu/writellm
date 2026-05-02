@@ -1,105 +1,58 @@
-export type NodeKind =
-  | 'container'
-  | 'author_text'
-  | 'generation_candidate'
-  | 'revision_candidate'
-  | 'review_comment'
-  | 'source_note';
+export type NodeKind = 'section' | 'content';
 
-export type EdgeKind =
-  | 'informs'
-  | 'generates'
-  | 'reviews'
-  | 'revises'
-  | 'addresses'
-  | 'related-to';
+export type EdgeKind = 'informs' | 'generates' | 'revises' | 'related-to';
 
-export type AuthorTextLifecycleStatus = 'draft' | 'active' | 'archived';
-
-export type ReviewStatus =
-  | 'not_reviewed'
-  | 'review_passed'
-  | 'review_warnings'
-  | 'review_stale';
-
-export type ReviewCommentSource = 'manual' | 'llm';
-
-export type ReviewCommentStatus = 'open' | 'addressed' | 'wont_fix';
-
-export type ReviewCommentSeverity = 'note' | 'minor' | 'major';
-
-export type ContainerRecord = {
+export type BaseNodeRecord = {
   id: string;
-  title: string;
-  intent: string | null;
+  kind: NodeKind;
   parentId: string | null;
-  activeAuthorTextId: string | null;
+  title: string;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ContainerTreeNode = ContainerRecord & {
-  children: ContainerTreeNode[];
+export type SectionNodeRecord = BaseNodeRecord & {
+  kind: 'section';
+  intent: string | null;
+  activeMainNodeId: string | null;
 };
 
-export type ContainerStats = {
-  artifactCount: number;
-  authorTextVersionCount: number;
-  reviewCommentCount: number;
-};
-
-export type ArtifactRecord = {
-  id: string;
-  kind: Exclude<NodeKind, 'container'>;
-  containerId: string | null;
-  title: string | null;
-  content: string | null;
+export type ContentNodeRecord = BaseNodeRecord & {
+  kind: 'content';
+  parentId: string;
+  content: string;
+  isMain: boolean;
+  isLlm: boolean;
+  isArtifact: boolean;
   metadata: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type AuthorTextRecord = {
-  artifactId: string;
-  containerId: string;
-  content: string;
-  lifecycleStatus: AuthorTextLifecycleStatus;
-  reviewStatus: ReviewStatus;
-  createdFromArtifactId: string | null;
-  createdAt: string;
-  updatedAt: string;
+export type NodeRecord = SectionNodeRecord | ContentNodeRecord;
+
+export type CompositionTreeNode = SectionNodeRecord & {
+  children: CompositionTreeNode[];
 };
 
-export type ReviewCommentRecord = {
+export type NodeStats = {
+  sectionCount: number;
+  contentCount: number;
+  mainContentCount: number;
+  artifactCount: number;
+  llmCount: number;
+};
+
+export type NodeEdgeRecord = {
   id: string;
-  artifactId: string;
-  targetAuthorTextId: string;
-  startOffset: number | null;
-  endOffset: number | null;
-  quotedText: string | null;
-  prefixText: string | null;
-  suffixText: string | null;
-  source: ReviewCommentSource;
-  reviewerLabel: string | null;
-  content: string;
-  status: ReviewCommentStatus;
-  severity: ReviewCommentSeverity | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ProcessEdgeRecord = {
-  id: string;
-  fromArtifactId: string;
-  toArtifactId: string;
+  fromNodeId: string;
+  toNodeId: string;
   relationType: EdgeKind;
   createdBy: 'user' | 'llm' | 'system';
   createdAt: string;
 };
 
 export type CanvasNodeLayout = {
-  canvasContainerId: string;
-  nodeKind: NodeKind;
+  canvasSectionId: string;
   nodeId: string;
   x: number;
   y: number;
@@ -110,45 +63,59 @@ export type CanvasNodeLayout = {
 
 export type WorkspaceSummary = {
   path: string;
-  rootContainerId: string;
+  rootNodeId: string;
 };
 
 export type FocusedWorkspaceState = {
   workspace: WorkspaceSummary | null;
-  compositionTree: ContainerTreeNode[];
-  focusContainerId: string | null;
-  containers: ContainerRecord[];
-  artifacts: ArtifactRecord[];
-  authorTexts: AuthorTextRecord[];
-  reviewComments: ReviewCommentRecord[];
-  containerStats: Record<string, ContainerStats>;
-  edges: ProcessEdgeRecord[];
+  compositionTree: CompositionTreeNode[];
+  focusSectionId: string | null;
+  nodes: NodeRecord[];
+  visibleNodes: NodeRecord[];
+  contextNodes: ContentNodeRecord[];
+  nodeStats: Record<string, NodeStats>;
+  edges: NodeEdgeRecord[];
   nodeLayouts: CanvasNodeLayout[];
 };
 
-export type CreateContainerPayload = {
+export type CreateSectionNodePayload = {
+  kind: 'section';
+  parentId: string | null;
   title: string;
   intent?: string;
 };
 
-export type CreateArtifactPayload = {
+export type CreateContentNodePayload = {
+  kind: 'content';
+  parentId: string;
+  title: string;
+  content: string;
+  isMain?: boolean;
+  isLlm?: boolean;
+  isArtifact?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type CreateNodePayload = CreateSectionNodePayload | CreateContentNodePayload;
+
+export type UpdateSectionNodePayload = {
   title?: string;
-  content: string;
+  intent?: string | null;
+  activeMainNodeId?: string | null;
 };
 
-export type CreateReviewCommentPayload = {
-  source: ReviewCommentSource;
-  reviewerLabel?: string;
-  content: string;
-  severity?: ReviewCommentSeverity;
+export type UpdateContentNodePayload = {
+  title?: string;
+  content?: string;
+  isMain?: boolean;
+  isLlm?: boolean;
+  isArtifact?: boolean;
+  metadata?: Record<string, unknown>;
 };
 
-export type UpdateCanvasNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
+export type UpdateNodePayload = UpdateSectionNodePayload | UpdateContentNodePayload;
 
-export type TextRange = {
-  startOffset?: number;
-  endOffset?: number;
-};
+export type UpdateNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
 
 export type LlmProviderKind = 'openai-compatible' | 'anthropic-compatible';
 
@@ -172,22 +139,27 @@ export type UpdateLlmSettingsPayload = {
 
 export type GenerateLlmPayload = {
   runId: string;
-  containerId: string;
+  sectionId: string;
+  focusSectionId?: string | null;
   prompt: string;
+  contextNodeIds?: string[];
   systemPrompt?: string;
 };
 
 export type SaveLlmGenerationPayload = {
-  containerId: string;
+  sectionId: string;
+  focusSectionId?: string | null;
   prompt: string;
   content: string;
+  contextNodeIds?: string[];
+  contextRelationType?: EdgeKind;
 };
 
 export type LlmStreamEvent =
   | {
       type: 'started';
       runId: string;
-      containerId: string;
+      sectionId: string;
     }
   | {
       type: 'chunk';

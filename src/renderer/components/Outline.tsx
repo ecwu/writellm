@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import { GripVertical } from 'lucide-react';
-import type { ContainerTreeNode } from '../../shared/types';
+import type { CompositionTreeNode } from '../../shared/types';
 
 type DropPosition = 'before' | 'after';
 
@@ -21,7 +21,7 @@ export function Outline({
   onSelect,
   onMove
 }: {
-  nodes: ContainerTreeNode[];
+	  nodes: CompositionTreeNode[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onMove: (id: string, parentId: string | null, index: number) => void;
@@ -34,11 +34,11 @@ export function Outline({
     return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
   }
 
-  function canDropOn(node: ContainerTreeNode) {
+  function canDropOn(node: CompositionTreeNode) {
     return Boolean(dragState && dragState.id !== node.id && dragState.parentId === node.parentId);
   }
 
-  function onDragOver(event: DragEvent<HTMLElement>, node: ContainerTreeNode) {
+  function onDragOver(event: DragEvent<HTMLElement>, node: CompositionTreeNode) {
     if (!canDropOn(node)) {
       return;
     }
@@ -47,7 +47,7 @@ export function Outline({
     setDropState({ id: node.id, position: getDropPosition(event) });
   }
 
-  function onDrop(event: DragEvent<HTMLElement>, node: ContainerTreeNode, targetIndex: number) {
+  function onDrop(event: DragEvent<HTMLElement>, node: CompositionTreeNode, targetIndex: number) {
     if (!canDropOn(node) || !dragState) {
       return;
     }
@@ -112,7 +112,7 @@ function OutlineNode({
   onDragOver,
   onDrop
 }: {
-  node: ContainerTreeNode;
+	  node: CompositionTreeNode;
   activeId: string | null;
   onSelect: (id: string) => void;
   onMove: (id: string, parentId: string | null, index: number) => void;
@@ -123,8 +123,8 @@ function OutlineNode({
   dropState: DropState | null;
   onDragStart: (state: DragState) => void;
   onDragEnd: () => void;
-  onDragOver: (event: DragEvent<HTMLElement>, node: ContainerTreeNode) => void;
-  onDrop: (event: DragEvent<HTMLElement>, node: ContainerTreeNode, targetIndex: number) => void;
+	  onDragOver: (event: DragEvent<HTMLElement>, node: CompositionTreeNode) => void;
+	  onDrop: (event: DragEvent<HTMLElement>, node: CompositionTreeNode, targetIndex: number) => void;
 }) {
   const canMove = node.parentId !== null;
   const isDragging = dragState?.id === node.id;
@@ -149,7 +149,7 @@ function OutlineNode({
           title={node.title}
         >
           <span>{node.title}</span>
-          {node.activeAuthorTextId ? <span className="active-dot" title="Has active AuthorText" /> : null}
+	          {node.activeMainNodeId ? <span className="active-dot" title="Has active main content" /> : null}
         </button>
         <div className="outline-actions" aria-label={`${node.title} drag controls`}>
           <button
