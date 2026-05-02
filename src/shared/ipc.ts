@@ -11,6 +11,7 @@ import type {
   ReviewCommentRecord,
   SaveLlmGenerationPayload,
   TextRange,
+  UpdateCanvasNodeLayoutPayload,
   UpdateLlmSettingsPayload,
   WorkspaceSummary
 } from './types.js';
@@ -33,6 +34,7 @@ export const ipcChannels = {
   updateReviewCommentStatus: 'paperlab:updateReviewCommentStatus',
   createProcessEdge: 'paperlab:createProcessEdge',
   updateProcessEdge: 'paperlab:updateProcessEdge',
+  updateCanvasNodeLayout: 'paperlab:updateCanvasNodeLayout',
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
@@ -97,6 +99,7 @@ export type PaperLabIpc = {
     relationType: EdgeKind
   ): Promise<ProcessEdgeRecord>;
   updateProcessEdge(edgeId: string, relationType: EdgeKind): Promise<FocusedWorkspaceState>;
+  updateCanvasNodeLayout(payload: UpdateCanvasNodeLayoutPayload): Promise<FocusedWorkspaceState>;
   exportLatex(rootContainerId: string): Promise<{ path: string }>;
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;

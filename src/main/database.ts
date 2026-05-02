@@ -5,13 +5,17 @@ import { createId, nowIso } from './ids.js';
 import type {
   ArtifactRecord,
   AuthorTextRecord,
+  CanvasNodeLayout,
   ContainerRecord,
+  ContainerStats,
   ContainerTreeNode,
   EdgeKind,
   FocusedWorkspaceState,
+  NodeKind,
   ProcessEdgeRecord,
   ReviewCommentRecord,
   ReviewCommentStatus,
+  UpdateCanvasNodeLayoutPayload,
   WorkspaceSummary
 } from '../shared/types.js';
 
@@ -72,6 +76,17 @@ type SqlEdgeRow = {
   relation_type: EdgeKind;
   created_by: ProcessEdgeRecord['createdBy'];
   created_at: string;
+};
+
+type SqlCanvasNodeLayoutRow = {
+  canvas_container_id: string;
+  node_kind: NodeKind;
+  node_id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  updated_at: string;
 };
 
 export class PaperLabDatabase {
@@ -180,10 +195,18 @@ export class PaperLabDatabase {
            WHERE parent_id IN (${placeholders}) OR child_id IN (${placeholders})`
         )
         .run(...containerIds, ...containerIds);
+      this.db
+        .prepare(
+          `DELETE FROM canvas_node_layouts
+           WHERE canvas_container_id IN (${placeholders})
+              OR (node_kind = 'container' AND node_id IN (${placeholders}))`
+        )
+        .run(...containerIds, ...containerIds);
 
       if (artifactIds.length > 0) {
         this.softDeleteReviewCommentsForArtifacts(artifactIds, timestamp);
         this.softDeleteEdgesForArtifacts(artifactIds, timestamp);
+        this.deleteCanvasNodeLayoutsForArtifacts(artifactIds);
       }
     });
     remove();
@@ -279,6 +302,7 @@ export class PaperLabDatabase {
         )
         .run(timestamp, artifactId);
       this.softDeleteEdgesForArtifacts(affectedArtifactIds, timestamp);
+      this.deleteCanvasNodeLayoutsForArtifacts(affectedArtifactIds);
     });
     remove();
   }
@@ -433,6 +457,38 @@ export class PaperLabDatabase {
     }
   }
 
+  updateCanvasNodeLayout(payload: UpdateCanvasNodeLayoutPayload): void {
+    const values = [payload.x, payload.y, payload.width, payload.height];
+    if (!values.every(Number.isFinite) || payload.width <= 0 || payload.height <= 0) {
+      throw new Error('Canvas node layout dimensions must be finite positive numbers.');
+    }
+
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO canvas_node_layouts
+         (canvas_container_id, node_kind, node_id, x, y, width, height, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(canvas_container_id, node_kind, node_id)
+         DO UPDATE SET
+           x = excluded.x,
+           y = excluded.y,
+           width = excluded.width,
+           height = excluded.height,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        payload.canvasContainerId,
+        payload.nodeKind,
+        payload.nodeId,
+        payload.x,
+        payload.y,
+        payload.width,
+        payload.height,
+        timestamp
+      );
+  }
+
   getContainerParentId(containerId: string): string | null {
     return this.getContainer(containerId)?.parentId ?? null;
   }
@@ -444,10 +500,13 @@ export class PaperLabDatabase {
       focusId,
       ...containers.filter((container) => container.parentId === focusId).map((container) => container.id)
     ]);
-    const artifacts = this.listArtifacts().filter((artifact) => artifact.containerId === focusId);
+    const allArtifacts = this.listArtifacts();
+    const allAuthorTexts = this.listAuthorTexts();
+    const allReviewComments = this.listReviewComments();
+    const artifacts = allArtifacts.filter((artifact) => artifact.containerId === focusId);
     const artifactIds = new Set(artifacts.map((artifact) => artifact.id));
-    const authorTexts = this.listAuthorTexts().filter((text) => artifactIds.has(text.artifactId));
-    const reviewComments = this.listReviewComments().filter(
+    const authorTexts = allAuthorTexts.filter((text) => artifactIds.has(text.artifactId));
+    const reviewComments = allReviewComments.filter(
       (comment) =>
         artifactIds.has(comment.artifactId) || artifactIds.has(comment.targetAuthorTextId)
     );
@@ -465,7 +524,9 @@ export class PaperLabDatabase {
       artifacts,
       authorTexts,
       reviewComments,
-      edges
+      containerStats: this.buildContainerStats(visibleContainerIds, allArtifacts, allAuthorTexts, allReviewComments),
+      edges,
+      nodeLayouts: this.listCanvasNodeLayouts(focusId)
     };
   }
 
@@ -525,6 +586,17 @@ export class PaperLabDatabase {
       )
       .all()
       .map((row) => mapEdge(row as SqlEdgeRow));
+  }
+
+  listCanvasNodeLayouts(canvasContainerId: string): CanvasNodeLayout[] {
+    return this.db
+      .prepare(
+        `SELECT canvas_container_id, node_kind, node_id, x, y, width, height, updated_at
+         FROM canvas_node_layouts
+         WHERE canvas_container_id = ?`
+      )
+      .all(canvasContainerId)
+      .map((row) => mapCanvasNodeLayout(row as SqlCanvasNodeLayoutRow));
   }
 
   getExportRows(rootContainerId: string): { container: ContainerRecord; text: AuthorTextRecord | null }[] {
@@ -625,6 +697,18 @@ export class PaperLabDatabase {
         deleted_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS canvas_node_layouts (
+        canvas_container_id TEXT NOT NULL,
+        node_kind TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        x REAL NOT NULL,
+        y REAL NOT NULL,
+        width REAL NOT NULL,
+        height REAL NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (canvas_container_id, node_kind, node_id)
+      );
+
       CREATE TABLE IF NOT EXISTS llm_runs (
         id TEXT PRIMARY KEY,
         target_container_id TEXT,
@@ -687,7 +771,7 @@ export class PaperLabDatabase {
     return id;
   }
 
-  private getContainer(containerId: string): ContainerRecord | null {
+  getContainer(containerId: string): ContainerRecord | null {
     const row = this.db
       .prepare(
         `SELECT id, title, intent, parent_id, active_author_text_id, created_at, updated_at
@@ -762,6 +846,19 @@ export class PaperLabDatabase {
       .run(timestamp, ...artifactIds, ...artifactIds);
   }
 
+  private deleteCanvasNodeLayoutsForArtifacts(artifactIds: string[]): void {
+    if (artifactIds.length === 0) {
+      return;
+    }
+    const placeholders = artifactIds.map(() => '?').join(', ');
+    this.db
+      .prepare(
+        `DELETE FROM canvas_node_layouts
+         WHERE node_kind <> 'container' AND node_id IN (${placeholders})`
+      )
+      .run(...artifactIds);
+  }
+
   private buildCompositionTree(): ContainerTreeNode[] {
     const containers = new Map(this.listContainers().map((container) => [container.id, container]));
     const roots = [...containers.values()].filter((container) => container.parentId === null);
@@ -775,6 +872,50 @@ export class PaperLabDatabase {
     });
 
     return roots.map(build);
+  }
+
+  private buildContainerStats(
+    visibleContainerIds: Set<string>,
+    artifacts: ArtifactRecord[],
+    authorTexts: AuthorTextRecord[],
+    reviewComments: ReviewCommentRecord[]
+  ): Record<string, ContainerStats> {
+    const stats = Object.fromEntries(
+      [...visibleContainerIds].map((containerId) => [
+        containerId,
+        {
+          artifactCount: 0,
+          authorTextVersionCount: 0,
+          reviewCommentCount: 0
+        }
+      ])
+    ) as Record<string, ContainerStats>;
+
+    const artifactContainerIds = new Map<string, string | null>();
+    artifacts.forEach((artifact) => {
+      artifactContainerIds.set(artifact.id, artifact.containerId);
+      if (artifact.containerId && stats[artifact.containerId]) {
+        stats[artifact.containerId].artifactCount += 1;
+      }
+    });
+
+    const authorTextContainerIds = new Map<string, string>();
+    authorTexts.forEach((text) => {
+      authorTextContainerIds.set(text.artifactId, text.containerId);
+      if (stats[text.containerId]) {
+        stats[text.containerId].authorTextVersionCount += 1;
+      }
+    });
+
+    reviewComments.forEach((comment) => {
+      const containerId =
+        artifactContainerIds.get(comment.artifactId) ?? authorTextContainerIds.get(comment.targetAuthorTextId);
+      if (containerId && stats[containerId]) {
+        stats[containerId].reviewCommentCount += 1;
+      }
+    });
+
+    return stats;
   }
 
   private nextChildOrder(parentId: string): number {
@@ -876,5 +1017,18 @@ function mapEdge(row: SqlEdgeRow): ProcessEdgeRecord {
     relationType: row.relation_type,
     createdBy: row.created_by,
     createdAt: row.created_at
+  };
+}
+
+function mapCanvasNodeLayout(row: SqlCanvasNodeLayoutRow): CanvasNodeLayout {
+  return {
+    canvasContainerId: row.canvas_container_id,
+    nodeKind: row.node_kind,
+    nodeId: row.node_id,
+    x: row.x,
+    y: row.y,
+    width: row.width,
+    height: row.height,
+    updatedAt: row.updated_at
   };
 }

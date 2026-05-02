@@ -7,7 +7,8 @@ import type {
   EdgeKind,
   GenerateLlmPayload,
   SaveLlmGenerationPayload,
-  TextRange
+  TextRange,
+  UpdateCanvasNodeLayoutPayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
 import { streamLlmText } from './llmRunner.js';
@@ -15,6 +16,17 @@ import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llm
 import { createWorkspace, getActiveDb, getState, openWorkspace } from './workspace.js';
 
 const llmRuns = new Map<string, AbortController>();
+
+function buildSectionSystemPrompt(title: string, intent: string | null): string {
+  const trimmedIntent = intent?.trim();
+
+  return [
+    'Current section context:',
+    `- Section name: ${title}`,
+    `- Section intent: ${trimmedIntent || 'Not provided'}`,
+    'Use this section context to scope the generation. Do not include these metadata labels in the output unless explicitly requested.'
+  ].join('\n');
+}
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.createWorkspace, (_event, workspacePath: string) =>
@@ -127,6 +139,14 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle(
+    ipcChannels.updateCanvasNodeLayout,
+    (_event, payload: UpdateCanvasNodeLayoutPayload) => {
+      getActiveDb().updateCanvasNodeLayout(payload);
+      return getState(payload.canvasContainerId);
+    }
+  );
+
+  ipcMain.handle(
     ipcChannels.createProcessEdge,
     (_event, fromArtifactId: string, toArtifactId: string, relationType: EdgeKind) =>
       getActiveDb().createProcessEdge(fromArtifactId, toArtifactId, relationType)
@@ -152,6 +172,18 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
+    const db = getActiveDb();
+    const container = db.getContainer(payload.containerId);
+    if (!container) {
+      throw new Error(`Container not found: ${payload.containerId}`);
+    }
+    const sectionSystemPrompt = buildSectionSystemPrompt(container.title, container.intent);
+    const generationPayload: GenerateLlmPayload = {
+      ...payload,
+      systemPrompt: payload.systemPrompt?.trim()
+        ? `${sectionSystemPrompt}\n\n${payload.systemPrompt.trim()}`
+        : sectionSystemPrompt
+    };
     const controller = new AbortController();
     llmRuns.set(payload.runId, controller);
 
@@ -163,7 +195,7 @@ export function registerIpcHandlers(): void {
 
     let content = '';
     try {
-      for await (const chunk of streamLlmText(settings, payload, controller.signal)) {
+      for await (const chunk of streamLlmText(settings, generationPayload, controller.signal)) {
         content += chunk;
         event.sender.send(ipcChannels.llmStream, {
           type: 'chunk',
@@ -208,11 +240,15 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.saveLlmGeneration, (_event, payload: SaveLlmGenerationPayload) => {
     const settings = readLlmSettings();
     const db = getActiveDb();
+    const prompt = payload.prompt.trim();
+    if (!prompt) {
+      throw new Error('LLM generation prompt is required.');
+    }
     db.createGenerationCandidate(payload.containerId, 'LLM generation', payload.content, {
       provider: settings.provider,
       baseURL: settings.baseURL,
       model: settings.model,
-      prompt: payload.prompt
+      prompt
     });
     return getState(payload.containerId);
   });

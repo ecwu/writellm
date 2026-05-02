@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Background,
   Controls,
   Handle,
   MarkerType,
+  NodeResizeControl,
   Position,
   ReactFlow,
   applyNodeChanges,
   type Connection,
   type Edge,
   type Node,
-  type NodeChange
+  type NodeChange,
+  type NodeProps
 } from '@xyflow/react';
 import {
   Bot,
   Check,
+  ChevronDown,
+  ChevronRight,
   FileText,
   FolderPlus,
   GitBranch,
@@ -32,14 +36,18 @@ import { toast } from 'sonner';
 import { getApi } from './api';
 import { LatexEditor } from './components/LatexEditor';
 import { Outline } from './components/Outline';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
-} from './components/ui/breadcrumb';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
+import {
+  Menubar,
+  MenubarContent,
+  MenubarGroup,
+  MenubarItem,
+  MenubarLabel,
+  MenubarMenu,
+  MenubarSeparator,
+  MenubarTrigger
+} from './components/ui/menubar';
 import {
   Select,
   SelectContent,
@@ -58,7 +66,6 @@ import { Toaster } from './components/ui/sonner';
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -78,12 +85,16 @@ import type {
   ArtifactRecord,
   AuthorTextRecord,
   ContainerRecord,
+  ContainerTreeNode,
+  ContainerStats,
   EdgeKind,
   FocusedWorkspaceState,
   LlmProviderKind,
+  NodeKind,
   PublicLlmSettings,
   ReviewCommentRecord,
-  TextRange
+  TextRange,
+  UpdateCanvasNodeLayoutPayload
 } from '../shared/types';
 
 const emptyState: FocusedWorkspaceState = {
@@ -94,7 +105,9 @@ const emptyState: FocusedWorkspaceState = {
   artifacts: [],
   authorTexts: [],
   reviewComments: [],
-  edges: []
+  containerStats: {},
+  edges: [],
+  nodeLayouts: []
 };
 
 type Selection =
@@ -104,6 +117,8 @@ type Selection =
   | null;
 
 type QuickArtifactKind = 'author_text' | 'source_note';
+
+type ChildViewMode = 'graph' | 'list';
 
 type LlmDraftState = {
   open: boolean;
@@ -127,14 +142,24 @@ const emptyLlmDraft: LlmDraftState = {
 type PaperNodeData = Record<string, unknown> & {
   artifactId?: string;
   containerId?: string;
+  canvasContainerId: string;
+  nodeKind: NodeKind;
+  nodeRecordId: string;
   eyebrow: string;
   title: string;
   meta?: string;
+  content?: string;
   tone: 'container' | 'child-container' | 'author_text' | 'source_note' | 'review_comment' | 'artifact';
   layoutKey: string;
+  onLayoutChange: (payload: UpdateCanvasNodeLayoutPayload) => void;
 };
 
 type PaperNode = Node<PaperNodeData, 'paper'>;
+
+const DEFAULT_NODE_WIDTH = 210;
+const DEFAULT_NODE_HEIGHT = 96;
+const DEFAULT_CONTENT_NODE_WIDTH = 280;
+const DEFAULT_CONTENT_NODE_HEIGHT = 180;
 
 function formatWorkspaceTitle(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
@@ -154,6 +179,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmSettings, setLlmSettings] = useState<PublicLlmSettings | null>(null);
   const [llmDraft, setLlmDraft] = useState<LlmDraftState>(emptyLlmDraft);
+  const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
 
   const apiAvailable = Boolean(window.paperlab);
   const focusContainer = state.containers.find((container) => container.id === state.focusContainerId);
@@ -171,6 +197,24 @@ export function App() {
       : null;
   const selectedEdge =
     selection?.type === 'edge' ? state.edges.find((edge) => edge.id === selection.id) : null;
+  const currentChildViewMode = state.focusContainerId
+    ? getChildViewMode(state.focusContainerId)
+    : 'graph';
+
+  function getChildViewMode(containerId: string): ChildViewMode {
+    return childViewModes[containerId] ?? (containerId === state.workspace?.rootContainerId ? 'list' : 'graph');
+  }
+
+  function setFocusedChildViewMode(mode: ChildViewMode) {
+    const focusId = state.focusContainerId;
+    if (!focusId) {
+      return;
+    }
+    setChildViewModes((current) => ({ ...current, [focusId]: mode }));
+    if (mode === 'list' && selection?.type !== 'container') {
+      setSelection({ type: 'container', id: focusId });
+    }
+  }
 
   useEffect(() => {
     if (!apiAvailable) {
@@ -247,7 +291,22 @@ export function App() {
     }
   }
 
-  const graph = useMemo(() => buildGraph(state, selection), [state, selection]);
+  const persistCanvasNodeLayout = useCallback(
+    async (payload: UpdateCanvasNodeLayoutPayload) => {
+      try {
+        const next = await getApi().updateCanvasNodeLayout(payload);
+        setState(next);
+      } catch (caught) {
+        notifyError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    []
+  );
+
+  const graph = useMemo(
+    () => buildGraph(state, selection, (payload) => void persistCanvasNodeLayout(payload)),
+    [persistCanvasNodeLayout, state, selection]
+  );
   const nodeTypes = useMemo(() => ({ paper: PaperFlowNode }), []);
 
   useEffect(() => {
@@ -261,6 +320,28 @@ export function App() {
 
   function onNodesChange(changes: NodeChange[]) {
     setFlowNodes((current) => applyNodeChanges(changes, current));
+  }
+
+  function persistNodeLayoutFromNode(node: Node) {
+    const data = node.data as PaperNodeData;
+    if (!data.canvasContainerId || !data.nodeKind || !data.nodeRecordId) {
+      return;
+    }
+    const width = node.width ?? node.measured?.width;
+    const height = node.height ?? node.measured?.height;
+    if (!width || !height) {
+      return;
+    }
+
+    void persistCanvasNodeLayout({
+      canvasContainerId: data.canvasContainerId,
+      nodeKind: data.nodeKind,
+      nodeId: data.nodeRecordId,
+      x: node.position.x,
+      y: node.position.y,
+      width,
+      height
+    });
   }
 
   async function createOrOpenWorkspace(mode: 'create' | 'open') {
@@ -524,14 +605,26 @@ export function App() {
             apiAvailable={apiAvailable}
             workspacePath={workspacePath}
             workspaceTitle={state.workspace ? formatWorkspaceTitle(state.workspace.path) : 'No workspace'}
-            focusTitle={focusContainer?.title ?? 'PaperLab workspace'}
             onWorkspacePath={setWorkspacePath}
             onCreateWorkspace={() => void createOrOpenWorkspace('create')}
             onOpenWorkspace={() => void createOrOpenWorkspace('open')}
             onRefresh={() => void refresh()}
             onExport={() => void exportLatex()}
+            onClearSelection={() => setSelection(null)}
+            onSelectFocus={() => {
+              if (focusContainer) {
+                setSelection({ type: 'container', id: focusContainer.id });
+              }
+            }}
+            onGenerateFromFocus={() => {
+              if (focusContainer) {
+                openGenerateComposer(focusContainer.id);
+              }
+            }}
             onSettings={() => setSettingsOpen(true)}
             canExport={Boolean(state.workspace)}
+            canSelectFocus={Boolean(focusContainer)}
+            hasSelection={Boolean(selection)}
           />
           <SettingsSheet
             open={settingsOpen}
@@ -544,7 +637,6 @@ export function App() {
 
           <div className="flex min-h-0 flex-1">
             <SidebarLeft
-              activeContainerTitle={focusContainer?.title ?? 'No focus'}
               nodes={state.compositionTree}
               activeId={state.focusContainerId}
               onSelectContainer={(id) => void focusContainerById(id)}
@@ -562,102 +654,110 @@ export function App() {
             />
 
             <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-              <section className="canvas-pane">
-                <div className="canvas-toolbar">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <GitBranch className="size-4 text-muted-foreground" />
-                    <span className="truncate">
-                      {focusContainer ? `Focused: ${focusContainer.title}` : 'Focused canvas'}
-                    </span>
+              {currentChildViewMode === 'graph' ? (
+                <section className="canvas-pane">
+                  <div className="canvas-toolbar">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Edge</span>
+                      <Select value={edgeKind} onValueChange={(value) => setEdgeKind(value as EdgeKind)}>
+                        <SelectTrigger size="sm" className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="informs">informs</SelectItem>
+                          <SelectItem value="generates">generates</SelectItem>
+                          <SelectItem value="reviews">reviews</SelectItem>
+                          <SelectItem value="revises">revises</SelectItem>
+                          <SelectItem value="addresses">addresses</SelectItem>
+                          <SelectItem value="related-to">related-to</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">Edge</span>
-                    <Select value={edgeKind} onValueChange={(value) => setEdgeKind(value as EdgeKind)}>
-                      <SelectTrigger size="sm" className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="informs">informs</SelectItem>
-                        <SelectItem value="generates">generates</SelectItem>
-                        <SelectItem value="reviews">reviews</SelectItem>
-                        <SelectItem value="revises">revises</SelectItem>
-                        <SelectItem value="addresses">addresses</SelectItem>
-                        <SelectItem value="related-to">related-to</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <ReactFlow
-                  nodes={flowNodes}
-                  edges={graph.edges}
-                  nodeTypes={nodeTypes}
-                  fitView
-                  nodesDraggable
-                  onNodesChange={onNodesChange}
-                  onConnect={(connection) => void onConnect(connection)}
-                  onEdgeClick={(_event, edge) => {
-                    if (state.edges.some((processEdge) => processEdge.id === edge.id)) {
-                      setSelection({ type: 'edge', id: edge.id });
+                  <ReactFlow
+                    nodes={flowNodes}
+                    edges={graph.edges}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    nodesDraggable
+                    onNodesChange={onNodesChange}
+                    onNodeDragStop={(_event, node) => persistNodeLayoutFromNode(node)}
+                    onConnect={(connection) => void onConnect(connection)}
+                    onEdgeClick={(_event, edge) => {
+                      if (state.edges.some((processEdge) => processEdge.id === edge.id)) {
+                        setSelection({ type: 'edge', id: edge.id });
+                      }
+                    }}
+                    onNodeClick={(_event, node) => {
+                      const artifactId = graph.nodeIdToArtifactId.get(node.id);
+                      const containerId = graph.nodeIdToContainerId.get(node.id);
+                      if (artifactId) {
+                        setSelection({ type: 'artifact', id: artifactId });
+                      } else if (containerId) {
+                        setSelection({ type: 'container', id: containerId });
+                      }
+                    }}
+                    onNodeDoubleClick={(_event, node) => {
+                      const containerId = graph.nodeIdToContainerId.get(node.id);
+                      if (containerId) {
+                        void focusContainerById(containerId);
+                      }
+                    }}
+                  >
+                    <Background />
+                    <Controls />
+                  </ReactFlow>
+                  <FloatingActionToolbar
+                    selection={selection}
+                    selectedContainer={selectedContainer ?? null}
+                    selectedArtifact={selectedArtifact ?? null}
+                    selectedAuthorText={selectedAuthorText ?? null}
+                    selectedEdge={selectedEdge ?? null}
+                    focusContainer={focusContainer ?? null}
+                    commentComposerOpen={commentComposerOpen}
+                    commentDraft={commentDraft}
+                    llmDraft={llmDraft}
+                    onCreateInContainer={(containerId, artifactKind) =>
+                      void createArtifactInContainer(containerId, artifactKind)
                     }
-                  }}
-                  onNodeClick={(_event, node) => {
-                    const artifactId = graph.nodeIdToArtifactId.get(node.id);
-                    const containerId = graph.nodeIdToContainerId.get(node.id);
-                    if (artifactId) {
-                      setSelection({ type: 'artifact', id: artifactId });
-                    } else if (containerId) {
-                      setSelection({ type: 'container', id: containerId });
+                    onCreateConnectedArtifact={(artifactId, artifactKind) =>
+                      void createConnectedArtifact(artifactId, artifactKind)
                     }
-                  }}
-                  onNodeDoubleClick={(_event, node) => {
-                    const containerId = graph.nodeIdToContainerId.get(node.id);
-                    if (containerId) {
-                      void focusContainerById(containerId);
-                    }
-                  }}
-                >
-                  <Background />
-                  <Controls />
-                </ReactFlow>
-                <FloatingActionToolbar
+                    onDeleteArtifact={() => void deleteSelectedArtifact()}
+                    onToggleCommentComposer={() => {
+                      if (llmDraft.status === 'running' && llmDraft.runId) {
+                        void getApi().cancelLlmGeneration(llmDraft.runId);
+                      }
+                      setLlmDraft(emptyLlmDraft);
+                      setCommentComposerOpen((open) => !open);
+                    }}
+                    onCommentDraftChange={setCommentDraft}
+                    onCreateComment={() => void createSelectedReviewComment()}
+                    onOpenGenerate={openGenerateComposer}
+                    onPromptChange={(prompt) => setLlmDraft((current) => ({ ...current, prompt }))}
+                    onGenerate={(prompt, containerId) => void startLlmGeneration(prompt, containerId)}
+                    onRegenerate={() => {
+                      if (llmDraft.targetContainerId && llmDraft.prompt.trim()) {
+                        void startLlmGeneration(llmDraft.prompt.trim(), llmDraft.targetContainerId);
+                      }
+                    }}
+                    onCancelGenerate={() => void cancelLlmDraft()}
+                    onSaveGenerate={() => void saveLlmDraft()}
+                    onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
+                  />
+                </section>
+              ) : (
+                <SectionListView
+                  state={state}
+                  focusContainerId={state.focusContainerId}
+                  rootContainerId={state.workspace?.rootContainerId ?? null}
                   selection={selection}
-                  selectedContainer={selectedContainer ?? null}
-                  selectedArtifact={selectedArtifact ?? null}
-                  selectedAuthorText={selectedAuthorText ?? null}
-                  selectedEdge={selectedEdge ?? null}
-                  focusContainer={focusContainer ?? null}
-                  commentComposerOpen={commentComposerOpen}
-                  commentDraft={commentDraft}
-                  llmDraft={llmDraft}
-                  onCreateInContainer={(containerId, artifactKind) =>
-                    void createArtifactInContainer(containerId, artifactKind)
-                  }
-                  onCreateConnectedArtifact={(artifactId, artifactKind) =>
-                    void createConnectedArtifact(artifactId, artifactKind)
-                  }
-                  onDeleteArtifact={() => void deleteSelectedArtifact()}
-                  onToggleCommentComposer={() => {
-                    if (llmDraft.status === 'running' && llmDraft.runId) {
-                      void getApi().cancelLlmGeneration(llmDraft.runId);
-                    }
-                    setLlmDraft(emptyLlmDraft);
-                    setCommentComposerOpen((open) => !open);
-                  }}
-                  onCommentDraftChange={setCommentDraft}
-                  onCreateComment={() => void createSelectedReviewComment()}
-                  onOpenGenerate={openGenerateComposer}
-                  onPromptChange={(prompt) => setLlmDraft((current) => ({ ...current, prompt }))}
-                  onGenerate={(prompt, containerId) => void startLlmGeneration(prompt, containerId)}
-                  onRegenerate={() => {
-                    if (llmDraft.targetContainerId && llmDraft.prompt.trim()) {
-                      void startLlmGeneration(llmDraft.prompt.trim(), llmDraft.targetContainerId);
-                    }
-                  }}
-                  onCancelGenerate={() => void cancelLlmDraft()}
-                  onSaveGenerate={() => void saveLlmDraft()}
-                  onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
+                  onSelection={setSelection}
+                  onFocusContainer={(id) => void focusContainerById(id)}
+                  onState={setState}
+                  onError={notifyError}
                 />
-              </section>
+              )}
             </SidebarInset>
 
             <SidebarRight>
@@ -667,7 +767,9 @@ export function App() {
                 selectedContainer={selectedContainer ?? null}
                 selectedArtifact={selectedArtifact ?? null}
                 selectedAuthorText={selectedAuthorText ?? null}
+                childViewMode={currentChildViewMode}
                 range={range}
+                onChildViewMode={setFocusedChildViewMode}
                 onRangeChange={setRange}
                 onState={setState}
                 onSelection={setSelection}
@@ -687,31 +789,39 @@ function SiteHeader({
   apiAvailable,
   workspacePath,
   workspaceTitle,
-  focusTitle,
   onWorkspacePath,
   onCreateWorkspace,
   onOpenWorkspace,
   onRefresh,
   onExport,
+  onClearSelection,
+  onSelectFocus,
+  onGenerateFromFocus,
   onSettings,
-  canExport
+  canExport,
+  canSelectFocus,
+  hasSelection
 }: {
   apiAvailable: boolean;
   workspacePath: string;
   workspaceTitle: string;
-  focusTitle: string;
   onWorkspacePath: (path: string) => void;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
   onRefresh: () => void;
   onExport: () => void;
+  onClearSelection: () => void;
+  onSelectFocus: () => void;
+  onGenerateFromFocus: () => void;
   onSettings: () => void;
   canExport: boolean;
+  canSelectFocus: boolean;
+  hasSelection: boolean;
 }) {
   return (
     <header className="sticky top-0 z-50 flex h-(--header-height) shrink-0 items-center gap-3 border-b bg-background px-3">
       <SidebarTrigger />
-      <Separator orientation="vertical" className="data-[orientation=vertical]:h-4" />
+      <Separator orientation="vertical" className="data-vertical:h-6 data-vertical:self-center" />
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Library className="size-4" />
@@ -721,42 +831,80 @@ function SiteHeader({
           <div className="truncate text-xs text-muted-foreground">{workspaceTitle}</div>
         </div>
       </div>
-      <Separator orientation="vertical" className="hidden data-[orientation=vertical]:h-4 md:block" />
-      <Breadcrumb className="hidden min-w-0 flex-1 lg:block">
-        <BreadcrumbList className="flex-nowrap">
-          <BreadcrumbItem>
-            <BreadcrumbPage className="line-clamp-1">{focusTitle}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2 lg:max-w-3xl">
-        <Input
-          value={workspacePath}
-          onChange={(event) => onWorkspacePath(event.target.value)}
-          aria-label="Workspace path"
-          className="hidden h-8 min-w-0 flex-1 bg-background md:flex"
-        />
-        <Button variant="outline" size="sm" onClick={onCreateWorkspace} disabled={!apiAvailable}>
-          <Plus />
-          <span className="hidden sm:inline">Create</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={onOpenWorkspace} disabled={!apiAvailable}>
-          <FileText />
-          <span className="hidden sm:inline">Open</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={!apiAvailable}>
-          <RefreshCw />
-          <span className="hidden xl:inline">Refresh</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={onSettings} disabled={!apiAvailable}>
-          <Settings />
-          <span className="hidden xl:inline">Settings</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={onExport} disabled={!canExport}>
-          <Upload />
-          <span className="hidden xl:inline">Export main.tex</span>
-        </Button>
-      </div>
+      <Menubar className="shrink-0 border-0 bg-transparent p-0">
+        <MenubarMenu>
+          <MenubarTrigger>File</MenubarTrigger>
+          <MenubarContent className="w-[min(28rem,calc(100vw-2rem))]">
+            <MenubarLabel>Workspace path</MenubarLabel>
+            <div className="px-1.5 pb-1.5">
+              <Input
+                value={workspacePath}
+                onChange={(event) => onWorkspacePath(event.target.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === 'Enter' && apiAvailable) {
+                    onOpenWorkspace();
+                  }
+                }}
+                aria-label="Workspace path"
+                className="h-8 w-full bg-background"
+              />
+            </div>
+            <MenubarSeparator />
+            <MenubarGroup>
+              <MenubarItem onSelect={onCreateWorkspace} disabled={!apiAvailable}>
+                <Plus />
+                New workspace
+              </MenubarItem>
+              <MenubarItem onSelect={onOpenWorkspace} disabled={!apiAvailable}>
+                <FileText />
+                Open workspace
+              </MenubarItem>
+            </MenubarGroup>
+            <MenubarSeparator />
+            <MenubarGroup>
+              <MenubarItem onSelect={onRefresh} disabled={!apiAvailable}>
+                <RefreshCw />
+                Refresh
+              </MenubarItem>
+              <MenubarItem onSelect={onExport} disabled={!canExport}>
+                <Upload />
+                Export main.tex
+              </MenubarItem>
+            </MenubarGroup>
+          </MenubarContent>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger>Edit</MenubarTrigger>
+          <MenubarContent>
+            <MenubarGroup>
+              <MenubarItem onSelect={onSelectFocus} disabled={!canSelectFocus}>
+                <GitBranch />
+                Select focused section
+              </MenubarItem>
+              <MenubarItem onSelect={onClearSelection} disabled={!hasSelection}>
+                <X />
+                Clear selection
+              </MenubarItem>
+            </MenubarGroup>
+          </MenubarContent>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger>LLM</MenubarTrigger>
+          <MenubarContent>
+            <MenubarGroup>
+              <MenubarItem onSelect={onGenerateFromFocus} disabled={!apiAvailable || !canSelectFocus}>
+                <Bot />
+                Generate for focused section
+              </MenubarItem>
+              <MenubarItem onSelect={onSettings} disabled={!apiAvailable}>
+                <Settings />
+                Settings
+              </MenubarItem>
+            </MenubarGroup>
+          </MenubarContent>
+        </MenubarMenu>
+      </Menubar>
     </header>
   );
 }
@@ -876,14 +1024,12 @@ function SettingsSheet({
 }
 
 function SidebarLeft({
-  activeContainerTitle,
   nodes,
   activeId,
   onSelectContainer,
   onMoveContainer,
   onAddChild
 }: {
-  activeContainerTitle: string;
   nodes: FocusedWorkspaceState['compositionTree'];
   activeId: string | null;
   onSelectContainer: (id: string) => void;
@@ -910,12 +1056,6 @@ function SidebarLeft({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <div className="rounded-lg border bg-background p-2 text-xs text-muted-foreground">
-          <div className="font-medium text-foreground">Focus</div>
-          <div className="mt-1 truncate">{activeContainerTitle}</div>
-        </div>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
@@ -949,13 +1089,308 @@ function SidebarRight({ children }: { children: React.ReactNode }) {
   );
 }
 
+type SectionListItem = {
+  node: ContainerTreeNode;
+  depth: number;
+};
+
+function SectionListView({
+  state,
+  focusContainerId,
+  rootContainerId,
+  selection,
+  onSelection,
+  onFocusContainer,
+  onState,
+  onError
+}: {
+  state: FocusedWorkspaceState;
+  focusContainerId: string | null;
+  rootContainerId: string | null;
+  selection: Selection;
+  onSelection: (selection: Selection) => void;
+  onFocusContainer: (containerId: string) => void;
+  onState: (state: FocusedWorkspaceState) => void;
+  onError: (message: string) => void;
+}) {
+  const focusNode = useMemo(
+    () => (focusContainerId ? findContainerTreeNode(state.compositionTree, focusContainerId) : null),
+    [focusContainerId, state.compositionTree]
+  );
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!focusNode) {
+      setExpandedIds(new Set());
+      return;
+    }
+    setExpandedIds(new Set(collectContainerTreeIds(focusNode.children)));
+  }, [focusNode?.id]);
+
+  const rows = useMemo(() => {
+    if (!focusNode) {
+      return [];
+    }
+    const nextRows: SectionListItem[] = [];
+    appendVisibleSectionRows(focusNode.children, expandedIds, nextRows, 0);
+    return nextRows;
+  }, [expandedIds, focusNode]);
+
+  if (!focusContainerId || !focusNode) {
+    return (
+      <section className="section-list-view empty">
+        <p className="muted">Open a workspace to manage sections.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="section-list-view">
+      <div className="section-list-header">
+        <div>
+          <h1>{focusNode.title}</h1>
+          <p className="muted">
+            {rows.length} visible section{rows.length === 1 ? '' : 's'}
+          </p>
+        </div>
+      </div>
+      {focusNode.children.length === 0 ? (
+        <div className="section-list-empty">
+          <p className="muted">This section has no child sections yet.</p>
+        </div>
+      ) : (
+        <div className="section-list-table" role="treegrid" aria-label="Section list">
+          <div className="section-list-heading" role="row">
+            <div>Section</div>
+            <div>Intent</div>
+            <div>Metadata</div>
+            <div />
+          </div>
+          <div className="section-list-body">
+            {rows.map(({ node, depth }) => (
+              <SectionListRow
+                key={node.id}
+                node={node}
+                depth={depth}
+                selected={selection?.type === 'container' && selection.id === node.id}
+                expanded={expandedIds.has(node.id)}
+                rootContainerId={rootContainerId}
+                stats={state.containerStats[node.id]}
+                focusContainerId={focusContainerId}
+                onSelection={onSelection}
+                onFocusContainer={onFocusContainer}
+                onToggleExpanded={(id) => {
+                  setExpandedIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) {
+                      next.delete(id);
+                    } else {
+                      next.add(id);
+                    }
+                    return next;
+                  });
+                }}
+                onState={onState}
+                onError={onError}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SectionListRow({
+  node,
+  depth,
+  selected,
+  expanded,
+  rootContainerId,
+  stats,
+  focusContainerId,
+  onSelection,
+  onFocusContainer,
+  onToggleExpanded,
+  onState,
+  onError
+}: {
+  node: ContainerTreeNode;
+  depth: number;
+  selected: boolean;
+  expanded: boolean;
+  rootContainerId: string | null;
+  stats: ContainerStats | undefined;
+  focusContainerId: string;
+  onSelection: (selection: Selection) => void;
+  onFocusContainer: (containerId: string) => void;
+  onToggleExpanded: (containerId: string) => void;
+  onState: (state: FocusedWorkspaceState) => void;
+  onError: (message: string) => void;
+}) {
+  const [title, setTitle] = useState(node.title);
+  const [intent, setIntent] = useState(node.intent ?? '');
+  const [editingField, setEditingField] = useState<'title' | 'intent' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const hasChildren = node.children.length > 0;
+
+  useEffect(() => {
+    setTitle(node.title);
+    setIntent(node.intent ?? '');
+    setEditingField(null);
+    setError(null);
+  }, [node.id]);
+
+  async function saveContainerDraft(): Promise<boolean> {
+    if (!title.trim()) {
+      setError('Title is required.');
+      setEditingField('title');
+      return false;
+    }
+
+    const trimmedTitle = title.trim();
+    setTitle(trimmedTitle);
+    if (trimmedTitle === node.title && intent === (node.intent ?? '')) {
+      setError(null);
+      return true;
+    }
+
+    try {
+      setError(null);
+      setSaving(true);
+      await getApi().updateContainer(node.id, {
+        title: trimmedTitle,
+        intent
+      });
+      onState(await getApi().getState(focusContainerId));
+      return true;
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function commitEditingField(field: 'title' | 'intent') {
+    const saved = await saveContainerDraft();
+    if (saved) {
+      setEditingField((current) => (current === field ? null : current));
+    }
+  }
+
+  return (
+    <div
+      className={`section-list-row${selected ? ' selected' : ''}${error ? ' invalid' : ''}`}
+      role="row"
+      onClick={() => onSelection({ type: 'container', id: node.id })}
+    >
+      <div className="section-list-title-cell" style={{ '--section-depth': depth } as React.CSSProperties}>
+        <button
+          type="button"
+          className="section-list-expander"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasChildren) {
+              onToggleExpanded(node.id);
+            }
+          }}
+          disabled={!hasChildren}
+          title={hasChildren ? (expanded ? 'Collapse section' : 'Expand section') : 'No child sections'}
+        >
+          {hasChildren ? expanded ? <ChevronDown /> : <ChevronRight /> : <span aria-hidden="true" />}
+        </button>
+        {editingField === 'title' ? (
+          <Input
+            value={title}
+            autoFocus
+            aria-label={`${node.title} title`}
+            className="section-list-title-input"
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              const nextTitle = event.target.value;
+              setTitle(nextTitle);
+              if (nextTitle.trim()) {
+                setError(null);
+              }
+            }}
+            onBlur={() => void commitEditingField('title')}
+          />
+        ) : (
+          <button
+            type="button"
+            className="section-list-title-display"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelection({ type: 'container', id: node.id });
+              setEditingField('title');
+            }}
+          >
+            {title || node.title}
+          </button>
+        )}
+      </div>
+      <div className="section-list-intent-cell">
+        {editingField === 'intent' ? (
+          <Textarea
+            value={intent}
+            autoFocus
+            aria-label={`${node.title} intent`}
+            className="section-list-intent-input"
+            placeholder="Intent"
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              setIntent(event.target.value);
+            }}
+            onBlur={() => void commitEditingField('intent')}
+          />
+        ) : (
+          <button
+            type="button"
+            className={`section-list-intent-display${intent.trim() ? '' : ' empty'}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelection({ type: 'container', id: node.id });
+              setEditingField('intent');
+            }}
+          >
+            {intent.trim() ? intent : 'No intent'}
+          </button>
+        )}
+        {error ? <span className="section-list-error">{error}</span> : null}
+      </div>
+      <div className="section-list-meta-cell">
+        <span>{node.children.length} child sections</span>
+        <span>{formatContainerStats(stats)}</span>
+        {node.id === rootContainerId ? <span>Root</span> : null}
+        {saving ? <span>Saving</span> : null}
+      </div>
+      <div className="section-list-action-cell">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            onFocusContainer(node.id);
+          }}
+        >
+          Enter
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type InspectorProps = {
   state: FocusedWorkspaceState;
   focusContainer: ContainerRecord | null;
   selectedContainer: ContainerRecord | null;
   selectedArtifact: ArtifactRecord | null;
   selectedAuthorText: AuthorTextRecord | null;
+  childViewMode: ChildViewMode;
   range: TextRange;
+  onChildViewMode: (mode: ChildViewMode) => void;
   onRangeChange: (range: TextRange) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onSelection: (selection: Selection) => void;
@@ -970,7 +1405,9 @@ function Inspector(props: InspectorProps) {
     selectedContainer,
     selectedArtifact,
     selectedAuthorText,
+    childViewMode,
     range,
+    onChildViewMode,
     onRangeChange,
     onState,
     onSelection,
@@ -1098,9 +1535,33 @@ function Inspector(props: InspectorProps) {
   const comments = selectedAuthorText
     ? state.reviewComments.filter((comment) => comment.targetAuthorTextId === selectedAuthorText.artifactId)
     : [];
+  const selectedGenerationPrompt = getGenerationPrompt(selectedArtifact);
 
   return (
     <div className="inspector">
+      {focusContainer ? (
+        <section className="panel">
+          <h2>Children view</h2>
+          <p className="muted">{focusContainer.title}</p>
+          <div className="view-mode-toggle" role="group" aria-label="Children view mode">
+            <Button
+              variant={childViewMode === 'graph' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onChildViewMode('graph')}
+            >
+              Graph
+            </Button>
+            <Button
+              variant={childViewMode === 'list' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onChildViewMode('list')}
+            >
+              List
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
       {focusContainer ? (
         <div className="button-row">
           <Button variant="outline" size="sm" onClick={() => void createSourceNote()}>
@@ -1184,20 +1645,28 @@ function Inspector(props: InspectorProps) {
           {selectedArtifact.kind === 'review_comment' ? (
             <p>{selectedArtifact.content}</p>
           ) : (
-            <LatexEditor
-              key={selectedArtifact.id}
-              value={draft}
-              onChange={scheduleSave}
-              onSelectionChange={onRangeChange}
-            />
+            <>
+              {selectedGenerationPrompt ? (
+                <div className="artifact-prompt">
+                  <span>Input prompt</span>
+                  <p>{selectedGenerationPrompt}</p>
+                </div>
+              ) : null}
+              <LatexEditor
+                key={selectedArtifact.id}
+                value={draft}
+                onChange={scheduleSave}
+                onSelectionChange={onRangeChange}
+              />
+            </>
           )}
         </section>
-      ) : (
+      ) : !selectedContainer ? (
         <section className="panel">
-          <h2>{focusContainer?.title ?? 'No selection'}</h2>
+          <h2>No selection</h2>
           <p className="muted">Select a node on the canvas or in the outline.</p>
         </section>
-      )}
+      ) : null}
 
       {selectedAuthorText && comments.length > 0 ? (
         <section className="panel comments-panel">
@@ -1312,13 +1781,6 @@ function FloatingActionToolbar({
   onSaveGenerate: () => void;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
 }) {
-  const title =
-    selectedContainer?.title ??
-    selectedArtifact?.title ??
-    selectedArtifact?.kind ??
-    selectedEdge?.relationType ??
-    'Select a node';
-  const context = selectedContainer ? 'Section' : selectedArtifact ? selectedArtifact.kind : selectedEdge ? 'Edge' : 'Canvas';
   const generateTargetId = selectedContainer?.id ?? selectedArtifact?.containerId ?? focusContainer?.id ?? null;
   const generationComplete = llmDraft.status === 'done' && llmDraft.content.trim().length > 0;
   const generationRunning = llmDraft.status === 'running';
@@ -1401,10 +1863,6 @@ function FloatingActionToolbar({
           </div>
         </div>
       ) : null}
-      <div className="floating-action-context">
-        <span>{context}</span>
-        <strong>{title}</strong>
-      </div>
       <div className="floating-action-buttons">
         {selectedContainer ? (
           <>
@@ -1510,9 +1968,28 @@ function FloatingActionToolbar({
   );
 }
 
-function PaperFlowNode({ data }: { data: PaperNodeData; selected?: boolean }) {
+function PaperFlowNode({ data, selected }: NodeProps<PaperNode>) {
   return (
-    <div className={`paper-flow-node tone-${data.tone}`}>
+    <div className={`paper-flow-node tone-${data.tone}${selected ? ' selected' : ''}`}>
+      <NodeResizeControl
+        position="bottom-right"
+        className="paper-node-resize-overlay"
+        minWidth={160}
+        minHeight={88}
+        onResizeEnd={(_event, params) => {
+          data.onLayoutChange({
+            canvasContainerId: data.canvasContainerId,
+            nodeKind: data.nodeKind,
+            nodeId: data.nodeRecordId,
+            x: params.x,
+            y: params.y,
+            width: params.width,
+            height: params.height
+          });
+        }}
+      >
+        <span className="paper-node-resize-grip" aria-hidden="true" />
+      </NodeResizeControl>
       <Handle
         id="top-target"
         type="target"
@@ -1528,6 +2005,7 @@ function PaperFlowNode({ data }: { data: PaperNodeData; selected?: boolean }) {
       <div className="paper-node-eyebrow">{data.eyebrow}</div>
       <div className="paper-node-title">{data.title}</div>
       {data.meta ? <div className="paper-node-meta">{data.meta}</div> : null}
+      {data.content ? <div className="paper-node-content">{data.content}</div> : null}
       <Handle
         id="right-source"
         type="source"
@@ -1544,9 +2022,41 @@ function PaperFlowNode({ data }: { data: PaperNodeData; selected?: boolean }) {
   );
 }
 
+function findContainerTreeNode(nodes: ContainerTreeNode[], id: string): ContainerTreeNode | null {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node;
+    }
+    const child = findContainerTreeNode(node.children, id);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function collectContainerTreeIds(nodes: ContainerTreeNode[]): string[] {
+  return nodes.flatMap((node) => [node.id, ...collectContainerTreeIds(node.children)]);
+}
+
+function appendVisibleSectionRows(
+  nodes: ContainerTreeNode[],
+  expandedIds: Set<string>,
+  rows: SectionListItem[],
+  depth: number
+) {
+  nodes.forEach((node) => {
+    rows.push({ node, depth });
+    if (expandedIds.has(node.id)) {
+      appendVisibleSectionRows(node.children, expandedIds, rows, depth + 1);
+    }
+  });
+}
+
 function buildGraph(
   state: FocusedWorkspaceState,
-  selection: Selection
+  selection: Selection,
+  onLayoutChange: (payload: UpdateCanvasNodeLayoutPayload) => void
 ): {
   nodes: PaperNode[];
   edges: Edge[];
@@ -1559,82 +2069,100 @@ function buildGraph(
   const childContainers = state.containers.filter((container) => container.parentId === focusId);
   const nodes: PaperNode[] = [];
   const edges: Edge[] = [];
+  const layoutByKey = new Map(
+    state.nodeLayouts.map((layout) => [getCanvasNodeLayoutKey(layout.nodeKind, layout.nodeId), layout])
+  );
 
-  if (focusId) {
-    const focus = state.containers.find((container) => container.id === focusId);
-    if (focus) {
-      const id = `container:${focus.id}`;
-      nodeIdToContainerId.set(id, focus.id);
-      nodes.push({
-        id,
-        type: 'paper',
-        position: { x: 40, y: 40 },
-        selected: selection?.type === 'container' && selection.id === focus.id,
-        data: {
-          containerId: focus.id,
-          eyebrow: 'Focus container',
-          title: focus.title,
-          meta: focus.intent ?? undefined,
-          tone: 'container',
-          layoutKey: `container:${focus.id}:0`
-        }
-      });
-    }
+  if (!focusId) {
+    return { nodes, edges, nodeIdToArtifactId, nodeIdToContainerId };
   }
+
+  const getNodeLayout = (
+    nodeKind: NodeKind,
+    nodeId: string,
+    defaultPosition: { x: number; y: number },
+    defaultSize: { width: number; height: number }
+  ) => {
+    const layout = layoutByKey.get(getCanvasNodeLayoutKey(nodeKind, nodeId));
+    const width = layout?.width ?? defaultSize.width;
+    const height = layout?.height ?? defaultSize.height;
+
+    return {
+      position: layout ? { x: layout.x, y: layout.y } : defaultPosition,
+      width,
+      height,
+      style: { width, height }
+    };
+  };
 
   childContainers.forEach((container, index) => {
     const id = `container:${container.id}`;
+    const stats = state.containerStats[container.id];
     nodeIdToContainerId.set(id, container.id);
     nodes.push({
       id,
       type: 'paper',
-      position: { x: 40 + index * 260, y: 190 },
+      ...getNodeLayout(
+        'container',
+        container.id,
+        { x: 40 + index * 260, y: 80 },
+        { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT }
+      ),
       selected: selection?.type === 'container' && selection.id === container.id,
       data: {
         containerId: container.id,
+        canvasContainerId: focusId,
+        nodeKind: 'container',
+        nodeRecordId: container.id,
         eyebrow: `Section ${index + 1}`,
         title: container.title,
-        meta: container.intent ?? undefined,
+        meta: formatContainerStats(stats),
         tone: 'child-container',
-        layoutKey: `child:${container.id}:${index}`
+        layoutKey: `child:${container.id}:${index}`,
+        onLayoutChange
       }
     });
-
-    if (focusId) {
-      edges.push({
-        id: `composition:${focusId}:${container.id}`,
-        source: `container:${focusId}`,
-        sourceHandle: 'bottom-source',
-        target: id,
-        targetHandle: 'top-target',
-        label: `section ${index + 1}`,
-        markerEnd: { type: MarkerType.ArrowClosed },
-        type: 'smoothstep',
-        className: 'composition-edge'
-      });
-    }
   });
 
   const orderedArtifacts = orderArtifacts(state.artifacts, state.edges);
 
   orderedArtifacts.forEach((artifact, index) => {
     const id = `artifact:${artifact.id}`;
+    const showsFullContent = isFullContentArtifactKind(artifact.kind);
+    const generationPrompt = getGenerationPrompt(artifact);
     nodeIdToArtifactId.set(id, artifact.id);
     nodes.push({
       id,
       type: 'paper',
-      position: { x: 80 + index * 280, y: 360 },
+      ...getNodeLayout(
+        artifact.kind,
+        artifact.id,
+        { x: 80 + index * 280, y: 220 },
+        {
+          width: showsFullContent ? DEFAULT_CONTENT_NODE_WIDTH : DEFAULT_NODE_WIDTH,
+          height: showsFullContent ? DEFAULT_CONTENT_NODE_HEIGHT : DEFAULT_NODE_HEIGHT
+        }
+      ),
       selected: selection?.type === 'artifact' && selection.id === artifact.id,
       data: {
         artifactId: artifact.id,
+        canvasContainerId: focusId,
+        nodeKind: artifact.kind,
+        nodeRecordId: artifact.id,
         eyebrow: artifact.kind,
         title: artifact.title ?? 'Untitled',
-        meta: formatArtifactMeta(artifact),
+        meta: generationPrompt
+          ? formatGenerationPromptMeta(generationPrompt)
+          : showsFullContent
+            ? undefined
+            : formatArtifactMeta(artifact),
+        content: showsFullContent ? artifact.content ?? undefined : undefined,
         tone:
           artifact.kind === 'generation_candidate' || artifact.kind === 'revision_candidate'
             ? 'artifact'
             : artifact.kind,
-        layoutKey: `artifact:${artifact.id}:${index}`
+        layoutKey: `artifact:${artifact.id}:${index}`,
+        onLayoutChange
       }
     });
   });
@@ -1718,6 +2246,55 @@ function formatArtifactMeta(artifact: ArtifactRecord) {
   return content.length > 90 ? `${content.slice(0, 90)}...` : content;
 }
 
+function getGenerationPrompt(artifact: ArtifactRecord | null | undefined) {
+  if (artifact?.kind !== 'generation_candidate') {
+    return undefined;
+  }
+  const prompt = artifact.metadata.prompt;
+  if (typeof prompt !== 'string') {
+    return undefined;
+  }
+  const trimmed = prompt.trim();
+  return trimmed || undefined;
+}
+
+function formatGenerationPromptMeta(prompt: string) {
+  const summary = prompt.length > 96 ? `${prompt.slice(0, 96)}...` : prompt;
+  return `Prompt: ${summary}`;
+}
+
+function formatContainerStats(stats?: ContainerStats) {
+  const counts = stats ?? {
+    artifactCount: 0,
+    authorTextVersionCount: 0,
+    reviewCommentCount: 0
+  };
+
+  return [
+    formatCount(counts.artifactCount, 'artifact'),
+    formatCount(counts.authorTextVersionCount, 'author text'),
+    formatCount(counts.reviewCommentCount, 'review')
+  ].join(' · ');
+}
+
+function formatCount(count: number, label: string) {
+  return `${count} ${label}${count === 1 ? '' : 's'}`;
+}
+
+function isFullContentArtifactKind(kind: ArtifactRecord['kind']) {
+  return (
+    kind === 'author_text' ||
+    kind === 'source_note' ||
+    kind === 'review_comment' ||
+    kind === 'generation_candidate' ||
+    kind === 'revision_candidate'
+  );
+}
+
+function getCanvasNodeLayoutKey(nodeKind: NodeKind, nodeId: string) {
+  return `${nodeKind}:${nodeId}`;
+}
+
 function reconcileNodes(nextNodes: Node[], currentNodes: Node[]): Node[] {
   const currentById = new Map(currentNodes.map((node) => [node.id, node]));
 
@@ -1727,14 +2304,20 @@ function reconcileNodes(nextNodes: Node[], currentNodes: Node[]): Node[] {
       return nextNode;
     }
 
+    const keepInteractiveLayout =
+      currentNode.data?.layoutKey === nextNode.data?.layoutKey ||
+      currentNode.dragging ||
+      currentNode.resizing;
+
     return {
       ...nextNode,
-      position:
-        currentNode.data?.layoutKey === nextNode.data?.layoutKey || currentNode.dragging
-          ? currentNode.position
-          : nextNode.position,
+      position: keepInteractiveLayout ? currentNode.position : nextNode.position,
+      width: keepInteractiveLayout ? currentNode.width ?? nextNode.width : nextNode.width,
+      height: keepInteractiveLayout ? currentNode.height ?? nextNode.height : nextNode.height,
+      style: keepInteractiveLayout ? currentNode.style ?? nextNode.style : nextNode.style,
       selected: nextNode.selected,
-      dragging: currentNode.dragging
+      dragging: currentNode.dragging,
+      resizing: currentNode.resizing
     };
   });
 }

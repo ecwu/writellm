@@ -20,6 +20,7 @@ const ipcChannels = {
   updateReviewCommentStatus: 'paperlab:updateReviewCommentStatus',
   createProcessEdge: 'paperlab:createProcessEdge',
   updateProcessEdge: 'paperlab:updateProcessEdge',
+  updateCanvasNodeLayout: 'paperlab:updateCanvasNodeLayout',
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
@@ -59,6 +60,8 @@ const api: PaperLabIpc = {
     ipcRenderer.invoke(ipcChannels.createProcessEdge, fromArtifactId, toArtifactId, relationType),
   updateProcessEdge: (edgeId, relationType) =>
     ipcRenderer.invoke(ipcChannels.updateProcessEdge, edgeId, relationType),
+  updateCanvasNodeLayout: (payload) =>
+    ipcRenderer.invoke(ipcChannels.updateCanvasNodeLayout, payload),
   exportLatex: (rootContainerId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootContainerId),
   getLlmSettings: () => ipcRenderer.invoke(ipcChannels.getLlmSettings),
   updateLlmSettings: (payload) => ipcRenderer.invoke(ipcChannels.updateLlmSettings, payload),

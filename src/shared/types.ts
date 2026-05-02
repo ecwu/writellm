@@ -42,6 +42,12 @@ export type ContainerTreeNode = ContainerRecord & {
   children: ContainerTreeNode[];
 };
 
+export type ContainerStats = {
+  artifactCount: number;
+  authorTextVersionCount: number;
+  reviewCommentCount: number;
+};
+
 export type ArtifactRecord = {
   id: string;
   kind: Exclude<NodeKind, 'container'>;
@@ -91,6 +97,17 @@ export type ProcessEdgeRecord = {
   createdAt: string;
 };
 
+export type CanvasNodeLayout = {
+  canvasContainerId: string;
+  nodeKind: NodeKind;
+  nodeId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  updatedAt: string;
+};
+
 export type WorkspaceSummary = {
   path: string;
   rootContainerId: string;
@@ -104,7 +121,9 @@ export type FocusedWorkspaceState = {
   artifacts: ArtifactRecord[];
   authorTexts: AuthorTextRecord[];
   reviewComments: ReviewCommentRecord[];
+  containerStats: Record<string, ContainerStats>;
   edges: ProcessEdgeRecord[];
+  nodeLayouts: CanvasNodeLayout[];
 };
 
 export type CreateContainerPayload = {
@@ -123,6 +142,8 @@ export type CreateReviewCommentPayload = {
   content: string;
   severity?: ReviewCommentSeverity;
 };
+
+export type UpdateCanvasNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
 
 export type TextRange = {
   startOffset?: number;

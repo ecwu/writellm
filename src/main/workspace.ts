@@ -32,7 +32,9 @@ export function getState(focusContainerId?: string): FocusedWorkspaceState {
       artifacts: [],
       authorTexts: [],
       reviewComments: [],
-      edges: []
+      containerStats: {},
+      edges: [],
+      nodeLayouts: []
     };
   }
   return activeDb.getState(focusContainerId);
