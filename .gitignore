@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-electron/
+.pnpm-store/
+*.paperlab/
+*.sqlite
+*.sqlite-*
+.DS_Store
