@@ -23,6 +23,7 @@ import {
   FolderPlus,
   GitBranch,
   Library,
+  List,
   Plus,
   RefreshCw,
   Save,
@@ -79,7 +80,7 @@ import {
   SidebarTrigger
 } from './components/ui/sidebar';
 import { Textarea } from './components/ui/textarea';
-import { TooltipProvider } from './components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip';
 import type {
   CompositionTreeNode,
   ContentNodeRecord,
@@ -151,6 +152,7 @@ const DEFAULT_NODE_WIDTH = 210;
 const DEFAULT_NODE_HEIGHT = 96;
 const DEFAULT_CONTENT_NODE_WIDTH = 280;
 const DEFAULT_CONTENT_NODE_HEIGHT = 180;
+const DEFAULT_EDGE_KIND: EdgeKind = 'related-to';
 
 function formatWorkspaceTitle(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
@@ -163,7 +165,6 @@ export function App() {
   );
   const [selection, setSelection] = useState<Selection>(null);
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
-  const [edgeKind, setEdgeKind] = useState<EdgeKind>('informs');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmSettings, setLlmSettings] = useState<PublicLlmSettings | null>(null);
   const [llmDraft, setLlmDraft] = useState<LlmDraftState>(emptyLlmDraft);
@@ -364,7 +365,7 @@ export function App() {
       return;
     }
     await run(async () => {
-      const edge = await getApi().createNodeEdge(source.id, target.id, edgeKind);
+      const edge = await getApi().createNodeEdge(source.id, target.id, DEFAULT_EDGE_KIND);
       setSelection({ type: 'edge', id: edge.id });
       return getApi().getState(state.focusSectionId ?? undefined);
     }, 'Process edge created.');
@@ -470,7 +471,7 @@ export function App() {
       if (!created) {
         return createdState;
       }
-      await getApi().createNodeEdge(fromNodeId, created.id, edgeKind);
+      await getApi().createNodeEdge(fromNodeId, created.id, DEFAULT_EDGE_KIND);
       const next = await getApi().getState(state.focusSectionId ?? source.parentId);
       setSelection({ type: 'node', id: created.id });
       return next;
@@ -553,7 +554,7 @@ export function App() {
         prompt: llmDraft.prompt,
         content: llmDraft.content,
         contextNodeIds: llmDraft.contextNodeIds,
-        contextRelationType: edgeKind
+        contextRelationType: DEFAULT_EDGE_KIND
       });
       const created = next.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
       if (created) {
@@ -591,6 +592,7 @@ export function App() {
         >
           <SiteHeader
             apiAvailable={apiAvailable}
+            llmSettings={llmSettings}
             workspacePath={workspacePath}
             workspaceTitle={state.workspace ? formatWorkspaceTitle(state.workspace.path) : 'No workspace'}
             onWorkspacePath={setWorkspacePath}
@@ -635,22 +637,12 @@ export function App() {
             <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
               {currentChildViewMode === 'graph' ? (
                 <section className="canvas-pane">
-                  <div className="canvas-toolbar">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">Edge</span>
-                      <Select value={edgeKind} onValueChange={(value) => setEdgeKind(value as EdgeKind)}>
-                        <SelectTrigger size="sm" className="w-[140px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="informs">informs</SelectItem>
-                          <SelectItem value="generates">generates</SelectItem>
-                          <SelectItem value="revises">revises</SelectItem>
-                          <SelectItem value="related-to">related-to</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  <ChildrenViewHeader
+                    title={focusSection?.title ?? 'No focused section'}
+                    detail={`${graph.nodes.length} visible node${graph.nodes.length === 1 ? '' : 's'}`}
+                    mode={currentChildViewMode}
+                    onModeChange={setFocusedChildViewMode}
+                  />
                   <ReactFlow
                     nodes={flowNodes}
                     edges={graph.edges}
@@ -723,6 +715,8 @@ export function App() {
                   selection={selection}
                   onSelection={setSelection}
                   onFocusSection={(id) => void focusSectionById(id)}
+                  childViewMode={currentChildViewMode}
+                  onChildViewMode={setFocusedChildViewMode}
                   onState={setState}
                   onError={notifyError}
                 />
@@ -735,8 +729,6 @@ export function App() {
                 focusSection={focusSection ?? null}
                 selectedSection={selectedSection}
                 selectedContent={selectedContent}
-                childViewMode={currentChildViewMode}
-                onChildViewMode={setFocusedChildViewMode}
                 onState={setState}
                 onSelection={setSelection}
                 onStatus={notifyStatus}
@@ -753,6 +745,7 @@ export function App() {
 
 function SiteHeader({
   apiAvailable,
+  llmSettings,
   workspacePath,
   workspaceTitle,
   onWorkspacePath,
@@ -769,6 +762,7 @@ function SiteHeader({
   hasSelection
 }: {
   apiAvailable: boolean;
+  llmSettings: PublicLlmSettings | null;
   workspacePath: string;
   workspaceTitle: string;
   onWorkspacePath: (path: string) => void;
@@ -784,6 +778,10 @@ function SiteHeader({
   canSelectFocus: boolean;
   hasSelection: boolean;
 }) {
+  const llmConfigured = Boolean(llmSettings?.hasApiKey);
+  const llmModel = llmSettings?.model.trim() ?? '';
+  const llmStatus = llmConfigured ? `Configured: ${llmModel}` : 'Not configured';
+
   return (
     <header className="sticky top-0 z-50 flex h-(--header-height) shrink-0 items-center gap-3 border-b bg-background px-3">
       <SidebarTrigger />
@@ -856,8 +854,26 @@ function SiteHeader({
           </MenubarContent>
         </MenubarMenu>
         <MenubarMenu>
-          <MenubarTrigger>LLM</MenubarTrigger>
+          <MenubarTrigger className="llm-menu-trigger" title={llmStatus}>
+            <span>LLM</span>
+            <span className={`llm-status-dot ${llmConfigured ? 'configured' : 'missing'}`} aria-hidden="true" />
+            {llmConfigured && llmModel ? <span className="llm-menu-model">{llmModel}</span> : null}
+          </MenubarTrigger>
           <MenubarContent>
+            <MenubarLabel>
+              <span className="llm-menu-summary">
+                <span className={`llm-status-dot ${llmConfigured ? 'configured' : 'missing'}`} aria-hidden="true" />
+                <span>
+                  <span className="llm-menu-summary-title">
+                    {llmConfigured ? 'Configured' : 'Not configured'}
+                  </span>
+                  <span className="llm-menu-summary-detail">
+                    {llmConfigured && llmModel ? llmModel : 'Add an API key in Settings'}
+                  </span>
+                </span>
+              </span>
+            </MenubarLabel>
+            <MenubarSeparator />
             <MenubarGroup>
               <MenubarItem onSelect={onGenerateFromFocus} disabled={!apiAvailable || !canSelectFocus}>
                 <Bot />
@@ -1055,6 +1071,71 @@ function SidebarRight({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ViewModeToggle({
+  mode,
+  onModeChange
+}: {
+  mode: ChildViewMode;
+  onModeChange: (mode: ChildViewMode) => void;
+}) {
+  return (
+    <div className="view-mode-toggle" role="group" aria-label="Children view mode">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={mode === 'graph' ? 'default' : 'outline'}
+            size="icon-sm"
+            onClick={() => onModeChange('graph')}
+            aria-label="Graph view"
+            title="Graph view"
+          >
+            <GitBranch />
+            <span className="sr-only">Graph</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Graph</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={mode === 'list' ? 'default' : 'outline'}
+            size="icon-sm"
+            onClick={() => onModeChange('list')}
+            aria-label="List view"
+            title="List view"
+          >
+            <List />
+            <span className="sr-only">List</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>List</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+function ChildrenViewHeader({
+  title,
+  detail,
+  mode,
+  onModeChange
+}: {
+  title: string;
+  detail: string;
+  mode: ChildViewMode;
+  onModeChange: (mode: ChildViewMode) => void;
+}) {
+  return (
+    <div className="children-view-header">
+      <div className="children-view-title">
+        <h1>{title}</h1>
+        <p className="muted">{detail}</p>
+      </div>
+      <ViewModeToggle mode={mode} onModeChange={onModeChange} />
+    </div>
+  );
+}
+
 type SectionListItem = {
   node: CompositionTreeNode;
   depth: number;
@@ -1067,6 +1148,8 @@ function SectionListView({
   selection,
   onSelection,
   onFocusSection,
+  childViewMode,
+  onChildViewMode,
   onState,
   onError
 }: {
@@ -1076,6 +1159,8 @@ function SectionListView({
   selection: Selection;
   onSelection: (selection: Selection) => void;
   onFocusSection: (sectionId: string) => void;
+  childViewMode: ChildViewMode;
+  onChildViewMode: (mode: ChildViewMode) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
 }) {
@@ -1112,14 +1197,12 @@ function SectionListView({
 
   return (
     <section className="section-list-view">
-      <div className="section-list-header">
-        <div>
-          <h1>{focusNode.title}</h1>
-          <p className="muted">
-            {rows.length} visible section{rows.length === 1 ? '' : 's'}
-          </p>
-        </div>
-      </div>
+      <ChildrenViewHeader
+        title={focusNode.title}
+        detail={`${rows.length} visible section${rows.length === 1 ? '' : 's'}`}
+        mode={childViewMode}
+        onModeChange={onChildViewMode}
+      />
       {focusNode.children.length === 0 ? (
         <div className="section-list-empty">
           <p className="muted">This section has no child sections yet.</p>
@@ -1353,8 +1436,6 @@ type InspectorProps = {
   focusSection: SectionNodeRecord | null;
   selectedSection: SectionNodeRecord | null;
   selectedContent: ContentNodeRecord | null;
-  childViewMode: ChildViewMode;
-  onChildViewMode: (mode: ChildViewMode) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onSelection: (selection: Selection) => void;
   onStatus: (message: string) => void;
@@ -1367,8 +1448,6 @@ function Inspector(props: InspectorProps) {
     focusSection,
     selectedSection,
     selectedContent,
-    childViewMode,
-    onChildViewMode,
     onState,
     onSelection,
     onStatus,
@@ -1473,29 +1552,6 @@ function Inspector(props: InspectorProps) {
 
   return (
     <div className="inspector">
-      {focusSection ? (
-        <section className="panel">
-          <h2>Children view</h2>
-          <p className="muted">{focusSection.title}</p>
-          <div className="view-mode-toggle" role="group" aria-label="Children view mode">
-            <Button
-              variant={childViewMode === 'graph' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => onChildViewMode('graph')}
-            >
-              Graph
-            </Button>
-            <Button
-              variant={childViewMode === 'list' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => onChildViewMode('list')}
-            >
-              List
-            </Button>
-          </div>
-        </section>
-      ) : null}
-
       {selectedSection ? (
         <section className="panel">
           <h2>Section</h2>
