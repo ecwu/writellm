@@ -1,0 +1,58 @@
+.llm-menu-trigger {
+  gap: 0.375rem;
+  max-width: min(15rem, 36vw);
+}
+
+.llm-status-dot {
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 0.45rem;
+  width: 0.45rem;
+}
+
+.llm-status-dot.configured {
+  background: oklch(0.55 0.13 155);
+}
+
+.llm-status-dot.missing {
+  background: var(--muted-foreground);
+  opacity: 0.55;
+}
+
+.llm-menu-model {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-menu-summary {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.llm-menu-summary-title,
+.llm-menu-summary-detail {
+  display: block;
+  min-width: 0;
+}
+
+.llm-menu-summary-title {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.llm-menu-summary-detail {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

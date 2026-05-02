@@ -1,0 +1,125 @@
+.outline-tree {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.outline-item {
+  align-items: center;
+  border-radius: var(--radius);
+  display: flex;
+  gap: 0.25rem;
+  justify-content: space-between;
+  min-height: 2rem;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.outline-item.active {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+.outline-item.dragging {
+  opacity: 0.48;
+}
+
+.outline-item.drop-before::before,
+.outline-item.drop-after::after {
+  background: var(--ring);
+  border-radius: 999px;
+  content: "";
+  height: 2px;
+  left: 0.375rem;
+  pointer-events: none;
+  position: absolute;
+  right: 0.375rem;
+  z-index: 2;
+}
+
+.outline-item.drop-before::before {
+  top: 0;
+}
+
+.outline-item.drop-after::after {
+  bottom: 0;
+}
+
+.outline-select {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.5rem;
+  justify-content: space-between;
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 0.375rem;
+  padding-right: 0.375rem;
+  padding-top: 0.375rem;
+  text-align: left;
+}
+
+.outline-select:hover {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+.outline-select span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.125rem;
+  padding-right: 0.25rem;
+}
+
+.outline-drag {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius) * 0.8);
+  color: var(--muted-foreground);
+  cursor: grab;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 1.5rem;
+  justify-content: center;
+  padding: 0;
+  width: 1.5rem;
+}
+
+.outline-drag:hover {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+.outline-drag:active {
+  cursor: grabbing;
+}
+
+.outline-drag:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.outline-drag svg {
+  height: 0.85rem;
+  width: 0.85rem;
+}
+
+.active-dot {
+  background: oklch(0.55 0.13 155);
+  border-radius: 999px;
+  display: block;
+  flex: 0 0 auto;
+  height: 0.45rem;
+  width: 0.45rem;
+}
