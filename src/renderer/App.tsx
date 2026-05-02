@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Background,
   Controls,
@@ -15,6 +15,7 @@ import {
   type NodeProps
 } from '@xyflow/react';
 import {
+  ArrowLeft,
   Bot,
   Check,
   ChevronDown,
@@ -169,6 +170,7 @@ export function App() {
   const [llmSettings, setLlmSettings] = useState<PublicLlmSettings | null>(null);
   const [llmDraft, setLlmDraft] = useState<LlmDraftState>(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
+  const [writingNodeId, setWritingNodeId] = useState<string | null>(null);
 
   const apiAvailable = Boolean(window.paperlab);
   const focusSection = state.nodes.find(
@@ -178,6 +180,14 @@ export function App() {
     selection?.type === 'node' ? state.nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedSection = selectedNode?.kind === 'section' ? selectedNode : null;
   const selectedContent = selectedNode?.kind === 'content' ? selectedNode : null;
+  const writingContent = writingNodeId
+    ? state.nodes.find((node): node is ContentNodeRecord => node.kind === 'content' && node.id === writingNodeId) ?? null
+    : null;
+  const writingSection = writingContent
+    ? state.nodes.find(
+        (node): node is SectionNodeRecord => node.kind === 'section' && node.id === writingContent.parentId
+      ) ?? null
+    : null;
   const selectedEdge =
     selection?.type === 'edge' ? state.edges.find((edge) => edge.id === selection.id) : null;
   const currentChildViewMode = state.focusSectionId
@@ -241,6 +251,12 @@ export function App() {
     });
     return unsubscribe;
   }, [apiAvailable]);
+
+  useEffect(() => {
+    if (writingNodeId && !writingContent) {
+      setWritingNodeId(null);
+    }
+  }, [writingNodeId, writingContent]);
 
   function notifyStatus(message: string) {
     toast.success(message);
@@ -339,6 +355,17 @@ export function App() {
   async function focusSectionById(sectionId: string) {
     await run(async () => getApi().getState(sectionId));
     setSelection({ type: 'node', id: sectionId });
+  }
+
+  function openWritingView(content: ContentNodeRecord) {
+    setSelection({ type: 'node', id: content.id });
+    setWritingNodeId(content.id);
+  }
+
+  async function closeWritingView(content: ContentNodeRecord) {
+    await run(async () => getApi().getState(content.parentId));
+    setWritingNodeId(null);
+    setSelection({ type: 'node', id: content.id });
   }
 
   async function moveSectionInOutline(sectionId: string, parentId: string | null, index: number) {
@@ -635,7 +662,15 @@ export function App() {
             />
 
             <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-              {currentChildViewMode === 'graph' ? (
+              {writingContent ? (
+                <WritingView
+                  contentNode={writingContent}
+                  parentSection={writingSection}
+                  onBack={() => closeWritingView(writingContent)}
+                  onState={setState}
+                  onError={notifyError}
+                />
+              ) : currentChildViewMode === 'graph' ? (
                 <section className="canvas-pane">
                   <ChildrenViewHeader
                     title={focusSection?.title ?? 'No focused section'}
@@ -662,6 +697,8 @@ export function App() {
                       const record = state.nodes.find((candidate) => candidate.id === node.id);
                       if (record?.kind === 'section') {
                         void focusSectionById(record.id);
+                      } else if (record?.kind === 'content') {
+                        openWritingView(record);
                       }
                     }}
                   >
@@ -1428,6 +1465,143 @@ function SectionListRow({
         </Button>
       </div>
     </div>
+  );
+}
+
+function WritingView({
+  contentNode,
+  parentSection,
+  onBack,
+  onState,
+  onError
+}: {
+  contentNode: ContentNodeRecord;
+  parentSection: SectionNodeRecord | null;
+  onBack: () => Promise<void>;
+  onState: (state: FocusedWorkspaceState) => void;
+  onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState(contentNode.content);
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const timerRef = useRef<number | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const draftRef = useRef(contentNode.content);
+  const lastSavedRef = useRef(contentNode.content);
+  const contentRef = useRef(contentNode);
+  const onStateRef = useRef(onState);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    contentRef.current = contentNode;
+    onStateRef.current = onState;
+    onErrorRef.current = onError;
+  }, [contentNode, onState, onError]);
+
+  useEffect(() => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    draftRef.current = contentNode.content;
+    lastSavedRef.current = contentNode.content;
+    setDraft(contentNode.content);
+    setSaveState('saved');
+  }, [contentNode.id]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (draftRef.current !== lastSavedRef.current) {
+        void persistDraft(draftRef.current, true);
+      }
+    };
+  }, []);
+
+  function persistDraft(value: string, silent = false) {
+    if (value === lastSavedRef.current) {
+      return saveChainRef.current;
+    }
+
+    saveChainRef.current = saveChainRef.current.then(async () => {
+      const content = contentRef.current;
+      if (value === lastSavedRef.current) {
+        return;
+      }
+
+      try {
+        if (!silent) {
+          setSaveState('saving');
+        }
+        const next = await getApi().updateNode(content.id, { content: value });
+        lastSavedRef.current = value;
+        onStateRef.current(next);
+        if (!silent) {
+          setSaveState(draftRef.current === value ? 'saved' : 'saving');
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        if (!silent) {
+          setSaveState(draftRef.current === value ? 'error' : 'saving');
+          onErrorRef.current(message);
+        }
+      }
+    });
+
+    return saveChainRef.current;
+  }
+
+  function scheduleDraftSave(value: string) {
+    setDraft(value);
+    draftRef.current = value;
+    setSaveState(value === lastSavedRef.current ? 'saved' : 'saving');
+
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      void persistDraft(value);
+    }, 700);
+  }
+
+  async function flushPendingSave() {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    await persistDraft(draftRef.current);
+  }
+
+  async function handleBack() {
+    await flushPendingSave();
+    await onBack();
+  }
+
+  return (
+    <section className="writing-view">
+      <header className="writing-view-header">
+        <Button variant="outline" size="sm" onClick={() => void handleBack()}>
+          <ArrowLeft />
+          Back
+        </Button>
+        <div className="writing-view-title">
+          <p>{parentSection?.title ?? 'Section'}</p>
+          <h1>{contentNode.title}</h1>
+        </div>
+        <div className="writing-view-meta" aria-live="polite">
+          <span>{formatContentFlags(contentNode)}</span>
+          <span>{saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
+        </div>
+      </header>
+      <div className="writing-view-body">
+        <div className="writing-editor-shell">
+          <LatexEditor key={contentNode.id} value={draft} onChange={scheduleDraftSave} />
+        </div>
+      </div>
+    </section>
   );
 }
 
