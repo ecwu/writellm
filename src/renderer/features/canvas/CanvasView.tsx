@@ -41,6 +41,7 @@ export function CanvasView({
   onOpenGenerate,
   onPromptChange,
   onContextNodeToggle,
+  onExcludeKnowledgeSource,
   onGenerate,
   onRegenerate,
   onCancelGenerate,
@@ -74,6 +75,7 @@ export function CanvasView({
   onOpenGenerate: (sectionId: string) => void;
   onPromptChange: (prompt: string) => void;
   onContextNodeToggle: (nodeId: string, checked: boolean) => void;
+  onExcludeKnowledgeSource: (itemId: string, chunkId: string) => void;
   onGenerate: (prompt: string, sectionId: string, contextNodeIds: string[]) => void;
   onRegenerate: () => void;
   onCancelGenerate: () => void;
@@ -119,6 +121,7 @@ export function CanvasView({
         onOpenGenerate={onOpenGenerate}
         onPromptChange={onPromptChange}
         onContextNodeToggle={onContextNodeToggle}
+        onExcludeKnowledgeSource={onExcludeKnowledgeSource}
         onGenerate={onGenerate}
         onRegenerate={onRegenerate}
         onCancelGenerate={onCancelGenerate}

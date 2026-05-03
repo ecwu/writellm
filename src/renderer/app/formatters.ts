@@ -37,18 +37,16 @@ export function getGenerationPrompt(node: ContentNodeRecord | null | undefined) 
 
 export function formatNodeStats(stats?: NodeStats) {
   const counts = stats ?? {
-    sectionCount: 0,
-    contentCount: 0,
-    mainContentCount: 0,
-    artifactCount: 0,
-    llmCount: 0
+      sectionCount: 0,
+      contentCount: 0,
+      mainContentCount: 0,
+      llmCount: 0
   };
 
   return [
     formatCount(counts.sectionCount, 'section'),
     formatCount(counts.contentCount, 'content'),
     formatCount(counts.mainContentCount, 'main'),
-    formatCount(counts.artifactCount, 'artifact'),
     formatCount(counts.llmCount, 'LLM')
   ].join(' · ');
 }
@@ -56,7 +54,6 @@ export function formatNodeStats(stats?: NodeStats) {
 export function formatContentFlags(node: ContentNodeRecord) {
   const flags = [
     node.isMain ? 'main' : null,
-    node.isArtifact ? 'artifact' : null,
     node.isLlm ? 'LLM' : null
   ].filter(Boolean);
   return flags.length > 0 ? flags.join(' · ') : 'content';

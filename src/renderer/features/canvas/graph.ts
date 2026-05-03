@@ -102,7 +102,7 @@ export function buildGraph(
         eyebrow: formatContentFlags(content),
         title: content.title,
         content: content.content || undefined,
-        tone: content.isLlm ? 'artifact' : content.isArtifact ? 'source_note' : 'author_text',
+        tone: content.isLlm ? 'llm' : 'author_text',
         layoutKey: `content:${content.id}:${index}`,
         onLayoutChange
       }

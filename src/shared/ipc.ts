@@ -1,13 +1,17 @@
 import type {
+  CreateKnowledgeItemPayload,
   CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
   GenerateLlmPayload,
+  KnowledgeSearchPayload,
   LlmStreamEvent,
   NodeEdgeRecord,
   PublicLlmSettings,
   RecentWorkspace,
+  RetrievedKnowledgeSource,
   SaveLlmGenerationPayload,
+  UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
@@ -33,6 +37,11 @@ export const ipcChannels = {
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
+  createKnowledgeItem: 'paperlab:createKnowledgeItem',
+  updateKnowledgeItem: 'paperlab:updateKnowledgeItem',
+  deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
+  reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
+  searchKnowledge: 'paperlab:searchKnowledge',
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
@@ -62,7 +71,14 @@ export type PaperLabIpc = {
   exportLatex(rootNodeId: string): Promise<{ path: string }>;
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;
-  generateWithLlm(payload: GenerateLlmPayload): Promise<{ runId: string; content: string; canceled: boolean }>;
+  createKnowledgeItem(payload: CreateKnowledgeItemPayload): Promise<FocusedWorkspaceState>;
+  updateKnowledgeItem(itemId: string, payload: UpdateKnowledgeItemPayload): Promise<FocusedWorkspaceState>;
+  deleteKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
+  reindexKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
+  searchKnowledge(payload: KnowledgeSearchPayload): Promise<RetrievedKnowledgeSource[]>;
+  generateWithLlm(
+    payload: GenerateLlmPayload
+  ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;
   cancelLlmGeneration(runId: string): Promise<void>;
   saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
   onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;

@@ -1,5 +1,5 @@
 
-import { Bot, Check, FileText, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Check, NotebookPen, PlusCircle, RefreshCw, Trash2, WandSparkles, X } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -8,7 +8,7 @@ import {
   SelectValue
 } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
-import { formatContentFlags, formatContentPreview } from '../../app/formatters';
+import { formatContentFlags } from '../../app/formatters';
 import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
 import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
 
@@ -20,6 +20,7 @@ export function FloatingActionToolbar({
   focusSection,
   llmDraft,
   contextNodes,
+  onExcludeKnowledgeSource,
   onCreateInSection,
   onCreateConnectedContent,
   onDeleteNode,
@@ -40,6 +41,7 @@ export function FloatingActionToolbar({
   focusSection: SectionNodeRecord | null;
   llmDraft: LlmDraftState;
   contextNodes: ContentNodeRecord[];
+  onExcludeKnowledgeSource: (itemId: string, chunkId: string) => void;
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
   onDeleteNode: () => void;
@@ -61,7 +63,7 @@ export function FloatingActionToolbar({
     : generationRunning
       ? 'Waiting for the first token...'
       : llmDraft.error;
-  const availableContextNodes = llmDraft.targetSectionId ? contextNodes : [];
+  const availableSources = llmDraft.retrievedSources;
 
   return (
     <div className="floating-action-toolbar" aria-label="Node actions">
@@ -75,33 +77,34 @@ export function FloatingActionToolbar({
           />
           <div className="floating-generation-context">
             <div className="floating-generation-context-heading">
-              <span>Context</span>
-              <span>{availableContextNodes.length} node{availableContextNodes.length === 1 ? '' : 's'}</span>
+              <span>Sources</span>
+              <span>{availableSources.length} source{availableSources.length === 1 ? '' : 's'}</span>
             </div>
-            {availableContextNodes.length > 0 ? (
+            {availableSources.length > 0 ? (
               <div className="floating-generation-context-list">
-                {availableContextNodes.map((node) => {
-                  const checked = llmDraft.contextNodeIds.includes(node.id);
-                  const disabled = generationRunning || !node.content.trim();
+                {availableSources.map((source) => {
                   return (
-                    <label key={node.id} className="floating-generation-context-item">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={disabled}
-                        onChange={(event) => onContextNodeToggle(node.id, event.target.checked)}
-                      />
+                    <div key={source.chunkId} className="floating-generation-context-item">
+                      <button
+                        type="button"
+                        title="Exclude source"
+                        disabled={generationRunning}
+                        onClick={() => onExcludeKnowledgeSource(source.itemId, source.chunkId)}
+                      >
+                        <X />
+                        <span className="sr-only">Exclude source</span>
+                      </button>
                       <span>
-                        <strong>{node.title}</strong>
-                        <em>{formatContentFlags(node)}</em>
-                        <small>{formatContentPreview(node)}</small>
+                        <strong>{source.label} {source.itemTitle}</strong>
+                        <em>{source.score.toFixed(3)} relevance</em>
+                        <small>{source.snippet}</small>
                       </span>
-                    </label>
+                    </div>
                   );
                 })}
               </div>
             ) : (
-              <p>No content nodes in this workspace.</p>
+              <p>Sources will appear after retrieval starts.</p>
             )}
           </div>
           {generationMessage ? (
@@ -140,7 +143,7 @@ export function FloatingActionToolbar({
                 }}
                 disabled={generationRunning || !llmDraft.prompt.trim() || !llmDraft.targetSectionId}
               >
-                <Bot />
+                <WandSparkles />
                 <span className="sr-only">Generate</span>
               </button>
             )}
@@ -153,26 +156,20 @@ export function FloatingActionToolbar({
             <button
               type="button"
               title="Create main content"
+              aria-label="Create main content"
               onClick={() => onCreateInSection(selectedSection.id, 'main')}
             >
-              <FileText />
+              <NotebookPen />
               <span className="sr-only">Create main content</span>
-            </button>
-            <button
-              type="button"
-              title="Create artifact content"
-              onClick={() => onCreateInSection(selectedSection.id, 'artifact')}
-            >
-              <Plus />
-              <span className="sr-only">Create artifact content</span>
             </button>
             <button
               type="button"
               className={llmDraft.open ? 'active' : undefined}
               title="Generate with LLM"
+              aria-label="Generate with LLM"
               onClick={() => onOpenGenerate(selectedSection.id)}
             >
-              <Bot />
+              <WandSparkles />
               <span className="sr-only">Generate with LLM</span>
             </button>
           </>
@@ -181,35 +178,35 @@ export function FloatingActionToolbar({
           <>
             <button
               type="button"
-              title="Create connected artifact content"
-              onClick={() => onCreateConnectedContent(selectedContent.id, 'artifact')}
-            >
-              <Plus />
-              <span className="sr-only">Create connected artifact content</span>
-            </button>
-            <button
-              type="button"
               title="Create connected main content"
+              aria-label="Create connected main content"
               onClick={() => onCreateConnectedContent(selectedContent.id, 'main')}
             >
-              <FileText />
+              <NotebookPen />
               <span className="sr-only">Create connected main content</span>
-            </button>
-            <button type="button" className="danger" title="Delete content" onClick={onDeleteNode}>
-              <Trash2 />
-              <span className="sr-only">Delete content</span>
             </button>
             {generateTargetId ? (
               <button
                 type="button"
                 className={llmDraft.open ? 'active' : undefined}
                 title="Generate with LLM"
+                aria-label="Generate with LLM"
                 onClick={() => onOpenGenerate(generateTargetId)}
               >
-                <Bot />
+                <WandSparkles />
                 <span className="sr-only">Generate with LLM</span>
               </button>
             ) : null}
+            <button
+              type="button"
+              className="danger"
+              title="Delete content"
+              aria-label="Delete content"
+              onClick={onDeleteNode}
+            >
+              <Trash2 />
+              <span className="sr-only">Delete content</span>
+            </button>
           </>
         ) : null}
         {selectedEdge ? (
@@ -233,8 +230,8 @@ export function FloatingActionToolbar({
           </div>
         ) : null}
         {!selection ? (
-          <button type="button" disabled title="Select a node">
-            <Plus />
+          <button type="button" disabled title="Select a node" aria-label="Select a node">
+            <PlusCircle />
             <span className="sr-only">Select a node</span>
           </button>
         ) : null}

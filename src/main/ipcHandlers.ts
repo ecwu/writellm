@@ -4,16 +4,21 @@ import { ipcChannels } from '../shared/ipc.js';
 import type {
   CompositionTreeNode,
   ContentNodeRecord,
+  CreateKnowledgeItemPayload,
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
+  KnowledgeSearchPayload,
+  RetrievedKnowledgeSource,
   SaveLlmGenerationPayload,
+  UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
 import { streamLlmText } from './llmRunner.js';
 import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llmSettings.js';
+import { formatSourcesForPrompt, indexKnowledgeItem, retrieveKnowledgeSources } from './knowledgeIndex.js';
 import {
   createWorkspace,
   getActiveDb,
@@ -135,19 +140,31 @@ function getSelectedContextNodes(
 function buildContextPrompt(
   basePrompt: string,
   contextNodes: ContentNodeRecord[],
-  articleSectionContext: string
+  articleSectionContext: string,
+  retrievedSources: RetrievedKnowledgeSource[] = [],
+  requireInlineCitations = true
 ): string {
   const promptSections = [
     'Use the following article and section context for this generation.',
     articleSectionContext
   ];
 
+  const sourcesPrompt = formatSourcesForPrompt(retrievedSources);
+  if (sourcesPrompt) {
+    promptSections.push('', sourcesPrompt);
+    if (requireInlineCitations) {
+      promptSections.push(
+        '',
+        'Inline citations are required for source-backed claims. Keep citation markers in the generated text.'
+      );
+    }
+  }
+
   if (contextNodes.length > 0) {
     const contextText = contextNodes
       .map((node, index) => {
         const flags = [
           node.isMain ? 'main' : null,
-          node.isArtifact ? 'artifact' : null,
           node.isLlm ? 'llm' : null
         ].filter(Boolean).join(', ') || 'content';
         return [
@@ -296,6 +313,50 @@ export function registerIpcHandlers(): void {
     updateLlmSettings(payload)
   );
 
+  ipcMain.handle(ipcChannels.createKnowledgeItem, async (_event, payload: CreateKnowledgeItemPayload) => {
+    const db = getActiveDb();
+    const item = db.createKnowledgeItem(payload.title, payload.content);
+    try {
+      await indexKnowledgeItem(db, item.id, readLlmSettings().embedding);
+    } catch {
+      // The item remains editable with an error status so the user can fix settings and reindex.
+    }
+    return getState();
+  });
+
+  ipcMain.handle(
+    ipcChannels.updateKnowledgeItem,
+    async (_event, itemId: string, payload: UpdateKnowledgeItemPayload) => {
+      const db = getActiveDb();
+      const item = db.updateKnowledgeItem(itemId, payload);
+      try {
+        await indexKnowledgeItem(db, item.id, readLlmSettings().embedding);
+      } catch {
+        // Keep the item and expose its indexing state through workspace state.
+      }
+      return getState();
+    }
+  );
+
+  ipcMain.handle(ipcChannels.deleteKnowledgeItem, (_event, itemId: string) => {
+    getActiveDb().deleteKnowledgeItem(itemId);
+    return getState();
+  });
+
+  ipcMain.handle(ipcChannels.reindexKnowledgeItem, async (_event, itemId: string) => {
+    const db = getActiveDb();
+    await indexKnowledgeItem(db, itemId, readLlmSettings().embedding);
+    return getState();
+  });
+
+  ipcMain.handle(ipcChannels.searchKnowledge, async (_event, payload: KnowledgeSearchPayload) =>
+    retrieveKnowledgeSources(getActiveDb(), readLlmSettings().embedding, payload.query, {
+      excludedItemIds: payload.excludedItemIds,
+      excludedChunkIds: payload.excludedChunkIds,
+      maxChunks: payload.maxChunks
+    })
+  );
+
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
     const db = getActiveDb();
@@ -309,9 +370,25 @@ export function registerIpcHandlers(): void {
       payload.sectionId,
       payload.focusSectionId
     );
+    const retrievedSources = await retrieveKnowledgeSources(
+      db,
+      settings.embedding,
+      `${articleSectionContext}\n\n${payload.prompt}`,
+      {
+        excludedItemIds: payload.excludedKnowledgeItemIds,
+        excludedChunkIds: payload.excludedKnowledgeChunkIds,
+        maxChunks: payload.maxKnowledgeChunks
+      }
+    );
     const generationPayload: GenerateLlmPayload = {
       ...payload,
-      prompt: buildContextPrompt(payload.prompt, contextNodes, articleSectionContext),
+      prompt: buildContextPrompt(
+        payload.prompt,
+        contextNodes,
+        articleSectionContext,
+        retrievedSources,
+        payload.requireInlineCitations ?? true
+      ),
       systemPrompt: payload.systemPrompt?.trim()
         ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`
         : articleSectionContext
@@ -327,7 +404,7 @@ export function registerIpcHandlers(): void {
 
     let content = '';
     try {
-      for await (const chunk of streamLlmText(settings, generationPayload, controller.signal)) {
+      for await (const chunk of streamLlmText(settings.chat, generationPayload, controller.signal)) {
         content += chunk;
         event.sender.send(ipcChannels.llmStream, {
           type: 'chunk',
@@ -338,9 +415,10 @@ export function registerIpcHandlers(): void {
       event.sender.send(ipcChannels.llmStream, {
         type: 'done',
         runId: payload.runId,
-        content
+        content,
+        sources: retrievedSources
       });
-      return { runId: payload.runId, content, canceled: false };
+      return { runId: payload.runId, content, canceled: false, sources: retrievedSources };
     } catch (caught) {
       if (controller.signal.aborted) {
         event.sender.send(ipcChannels.llmStream, {
@@ -379,7 +457,13 @@ export function registerIpcHandlers(): void {
       payload.sectionId,
       payload.focusSectionId
     );
-    const resolvedPrompt = buildContextPrompt(prompt, contextNodes, articleSectionContext);
+    const resolvedPrompt = buildContextPrompt(
+      prompt,
+      contextNodes,
+      articleSectionContext,
+      payload.retrievedSources ?? [],
+      true
+    );
     const generated = db.createNode({
       kind: 'content',
       parentId: payload.sectionId,
@@ -387,16 +471,17 @@ export function registerIpcHandlers(): void {
       content: payload.content,
       isLlm: true,
       isMain: false,
-      isArtifact: false,
       metadata: {
-        provider: settings.provider,
-        baseURL: settings.baseURL,
-        model: settings.model,
+        provider: settings.chat.provider,
+        baseURL: settings.chat.baseURL,
+        model: settings.chat.model,
+        embeddingModel: settings.embedding.model,
         prompt: resolvedPrompt,
         rawPrompt: prompt,
         focusSectionId: payload.focusSectionId ?? null,
         targetSectionId: payload.sectionId,
-        contextNodeIds: contextNodes.map((node) => node.id)
+        contextNodeIds: contextNodes.map((node) => node.id),
+        retrievedSources: payload.retrievedSources ?? []
       }
     });
 
@@ -408,6 +493,16 @@ export function registerIpcHandlers(): void {
     contextNodes.forEach((node) => {
       db.createNodeEdge(node.id, generated.id, contextRelationType, 'llm');
     });
+    db.saveGenerationCitations(
+      generated.id,
+      (payload.retrievedSources ?? []).map((source) => ({
+        knowledgeItemId: source.itemId,
+        knowledgeChunkId: source.chunkId,
+        label: source.label,
+        snippet: source.snippet,
+        score: source.score
+      }))
+    );
     return getState(payload.sectionId);
   });
 }

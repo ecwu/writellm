@@ -9,6 +9,10 @@ import type {
   CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
+  KnowledgeChunkRecord,
+  KnowledgeCitationRecord,
+  KnowledgeIndexStatus,
+  KnowledgeItemRecord,
   NodeEdgeRecord,
   NodeRecord,
   NodeStats,
@@ -18,7 +22,7 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 type SqlNodeRow = {
   id: string;
@@ -30,7 +34,6 @@ type SqlNodeRow = {
   content: string | null;
   is_main: number;
   is_llm: number;
-  is_artifact: number;
   metadata_json: string | null;
   sort_order: number;
   created_at: string;
@@ -54,6 +57,40 @@ type SqlCanvasNodeLayoutRow = {
   width: number;
   height: number;
   updated_at: string;
+};
+
+type SqlKnowledgeItemRow = {
+  id: string;
+  title: string;
+  content: string;
+  source_type: KnowledgeItemRecord['sourceType'];
+  index_status: KnowledgeIndexStatus;
+  metadata_json: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SqlKnowledgeChunkRow = {
+  id: string;
+  item_id: string;
+  item_title: string;
+  chunk_index: number;
+  content: string;
+  embedding_json: string | null;
+  embedding_model: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SqlKnowledgeCitationRow = {
+  id: string;
+  generation_node_id: string;
+  knowledge_item_id: string;
+  knowledge_chunk_id: string;
+  label: string;
+  snippet: string;
+  score: number | null;
+  created_at: string;
 };
 
 export class PaperLabDatabase {
@@ -124,12 +161,11 @@ export class PaperLabDatabase {
     const content = 'content' in payload ? payload.content ?? node.content : node.content;
     const isMain = 'isMain' in payload ? Boolean(payload.isMain) : node.isMain;
     const isLlm = 'isLlm' in payload ? Boolean(payload.isLlm) : node.isLlm;
-    const isArtifact = 'isArtifact' in payload ? Boolean(payload.isArtifact) : node.isArtifact;
     const metadata = 'metadata' in payload ? payload.metadata ?? node.metadata : node.metadata;
     this.db
       .prepare(
         `UPDATE nodes
-         SET title = ?, content = ?, is_main = ?, is_llm = ?, is_artifact = ?,
+         SET title = ?, content = ?, is_main = ?, is_llm = ?,
              metadata_json = ?, updated_at = ?
          WHERE id = ? AND kind = 'content' AND deleted_at IS NULL`
       )
@@ -138,7 +174,6 @@ export class PaperLabDatabase {
         content,
         isMain ? 1 : 0,
         isLlm ? 1 : 0,
-        isArtifact ? 1 : 0,
         JSON.stringify(metadata),
         timestamp,
         nodeId
@@ -335,6 +370,209 @@ export class PaperLabDatabase {
       );
   }
 
+  listKnowledgeItems(): KnowledgeItemRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, title, content, source_type, index_status, metadata_json, created_at, updated_at
+         FROM knowledge_items
+         WHERE deleted_at IS NULL
+         ORDER BY updated_at DESC, created_at DESC`
+      )
+      .all()
+      .map((row) => mapKnowledgeItem(row as SqlKnowledgeItemRow));
+  }
+
+  getKnowledgeItem(itemId: string): KnowledgeItemRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, title, content, source_type, index_status, metadata_json, created_at, updated_at
+         FROM knowledge_items
+         WHERE id = ? AND deleted_at IS NULL`
+      )
+      .get(itemId) as SqlKnowledgeItemRow | undefined;
+    return row ? mapKnowledgeItem(row) : null;
+  }
+
+  createKnowledgeItem(title: string, content: string): KnowledgeItemRecord {
+    const id = createId('knw');
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO knowledge_items
+         (id, title, content, source_type, index_status, metadata_json, created_at, updated_at)
+         VALUES (?, ?, ?, 'text', 'pending', '{}', ?, ?)`
+      )
+      .run(id, title.trim() || 'Knowledge source', content, timestamp, timestamp);
+    return this.getKnowledgeItem(id)!;
+  }
+
+  updateKnowledgeItem(itemId: string, payload: { title?: string; content?: string }): KnowledgeItemRecord {
+    const item = this.getKnowledgeItem(itemId);
+    if (!item) {
+      throw new Error(`Knowledge item not found: ${itemId}`);
+    }
+    const nextTitle = payload.title?.trim() || item.title;
+    const nextContent = payload.content ?? item.content;
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `UPDATE knowledge_items
+         SET title = ?, content = ?, index_status = 'pending', updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`
+      )
+      .run(nextTitle, nextContent, timestamp, itemId);
+    return this.getKnowledgeItem(itemId)!;
+  }
+
+  deleteKnowledgeItem(itemId: string): void {
+    if (!this.getKnowledgeItem(itemId)) {
+      throw new Error(`Knowledge item not found: ${itemId}`);
+    }
+    const timestamp = nowIso();
+    const remove = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE knowledge_items SET deleted_at = ?, updated_at = ? WHERE id = ?')
+        .run(timestamp, timestamp, itemId);
+      this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
+    });
+    remove();
+  }
+
+  replaceKnowledgeChunks(
+    itemId: string,
+    chunks: Array<{ content: string; embedding: number[]; embeddingModel: string }>
+  ): KnowledgeChunkRecord[] {
+    if (!this.getKnowledgeItem(itemId)) {
+      throw new Error(`Knowledge item not found: ${itemId}`);
+    }
+    const timestamp = nowIso();
+    const replace = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
+      const insert = this.db.prepare(
+        `INSERT INTO knowledge_chunks
+         (id, item_id, chunk_index, content, embedding_json, embedding_model, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      chunks.forEach((chunk, index) => {
+        insert.run(
+          createId('chk'),
+          itemId,
+          index,
+          chunk.content,
+          JSON.stringify(chunk.embedding),
+          chunk.embeddingModel,
+          timestamp,
+          timestamp
+        );
+      });
+      this.db
+        .prepare("UPDATE knowledge_items SET index_status = 'indexed', updated_at = ? WHERE id = ?")
+        .run(timestamp, itemId);
+    });
+    replace();
+    return this.listKnowledgeChunks(itemId);
+  }
+
+  markKnowledgeItemIndexError(itemId: string, message: string): void {
+    const item = this.getKnowledgeItem(itemId);
+    if (!item) {
+      return;
+    }
+    const metadata = { ...item.metadata, indexError: message };
+    this.db
+      .prepare(
+        `UPDATE knowledge_items
+         SET index_status = 'error', metadata_json = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`
+      )
+      .run(JSON.stringify(metadata), nowIso(), itemId);
+  }
+
+  listKnowledgeChunks(itemId?: string): KnowledgeChunkRecord[] {
+    const sql = `SELECT chunks.id, chunks.item_id, items.title AS item_title, chunks.chunk_index,
+                       chunks.content, chunks.embedding_json, chunks.embedding_model,
+                       chunks.created_at, chunks.updated_at
+                FROM knowledge_chunks chunks
+                JOIN knowledge_items items ON items.id = chunks.item_id
+                WHERE items.deleted_at IS NULL${itemId ? ' AND chunks.item_id = ?' : ''}
+                ORDER BY items.updated_at DESC, chunks.chunk_index ASC`;
+    return (itemId ? this.db.prepare(sql).all(itemId) : this.db.prepare(sql).all())
+      .map((row) => mapKnowledgeChunk(row as SqlKnowledgeChunkRow));
+  }
+
+  searchKnowledgeChunks(options: {
+    embedding: number[];
+    excludedItemIds?: string[];
+    excludedChunkIds?: string[];
+    maxChunks?: number;
+  }): KnowledgeChunkRecord[] {
+    const excludedItemIds = new Set(options.excludedItemIds ?? []);
+    const excludedChunkIds = new Set(options.excludedChunkIds ?? []);
+    const maxChunks = Math.max(1, Math.min(options.maxChunks ?? 6, 12));
+
+    return this.listKnowledgeChunks()
+      .filter((chunk) => !excludedItemIds.has(chunk.itemId) && !excludedChunkIds.has(chunk.id))
+      .map((chunk) => ({
+        ...chunk,
+        score: cosineSimilarity(options.embedding, readEmbedding(chunk.id, this.db))
+      }))
+      .filter((chunk) => Number.isFinite(chunk.score))
+      .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+      .slice(0, maxChunks);
+  }
+
+  saveGenerationCitations(
+    generationNodeId: string,
+    citations: Array<{
+      knowledgeItemId: string;
+      knowledgeChunkId: string;
+      label: string;
+      snippet: string;
+      score: number | null;
+    }>
+  ): KnowledgeCitationRecord[] {
+    const node = this.getNode(generationNodeId);
+    if (!node || node.kind !== 'content') {
+      throw new Error(`Generated content node not found: ${generationNodeId}`);
+    }
+    const timestamp = nowIso();
+    const save = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM generation_citations WHERE generation_node_id = ?').run(generationNodeId);
+      const insert = this.db.prepare(
+        `INSERT INTO generation_citations
+         (id, generation_node_id, knowledge_item_id, knowledge_chunk_id, label, snippet, score, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      citations.forEach((citation) => {
+        insert.run(
+          createId('cite'),
+          generationNodeId,
+          citation.knowledgeItemId,
+          citation.knowledgeChunkId,
+          citation.label,
+          citation.snippet,
+          citation.score,
+          timestamp
+        );
+      });
+    });
+    save();
+    return this.listGenerationCitations(generationNodeId);
+  }
+
+  listGenerationCitations(generationNodeId: string): KnowledgeCitationRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, generation_node_id, knowledge_item_id, knowledge_chunk_id,
+                label, snippet, score, created_at
+         FROM generation_citations
+         WHERE generation_node_id = ?
+         ORDER BY label ASC, created_at ASC`
+      )
+      .all(generationNodeId)
+      .map((row) => mapKnowledgeCitation(row as SqlKnowledgeCitationRow));
+  }
+
   getParentSectionId(nodeId: string): string | null {
     const node = this.getNode(nodeId);
     return node?.parentId ?? null;
@@ -358,6 +596,7 @@ export class PaperLabDatabase {
       contextNodes: nodes.filter(
         (node): node is ContentNodeRecord => node.kind === 'content' && Boolean(node.content.trim())
       ),
+      knowledgeItems: this.listKnowledgeItems(),
       nodeStats: this.buildNodeStats(nodes),
       edges,
       nodeLayouts: this.listCanvasNodeLayouts(focusId)
@@ -368,7 +607,7 @@ export class PaperLabDatabase {
     return this.db
       .prepare(
         `SELECT id, kind, parent_id, title, intent, active_main_node_id, content,
-                is_main, is_llm, is_artifact, metadata_json, sort_order, created_at, updated_at
+                is_main, is_llm, metadata_json, sort_order, created_at, updated_at
          FROM nodes
          WHERE deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC`
@@ -428,7 +667,7 @@ export class PaperLabDatabase {
     const row = this.db
       .prepare(
         `SELECT id, kind, parent_id, title, intent, active_main_node_id, content,
-                is_main, is_llm, is_artifact, metadata_json, sort_order, created_at, updated_at
+                is_main, is_llm, metadata_json, sort_order, created_at, updated_at
          FROM nodes
          WHERE id = ? AND deleted_at IS NULL`
       )
@@ -455,6 +694,9 @@ export class PaperLabDatabase {
         DROP TABLE IF EXISTS nodes;
         DROP TABLE IF EXISTS node_edges;
         DROP TABLE IF EXISTS llm_runs;
+        DROP TABLE IF EXISTS knowledge_items;
+        DROP TABLE IF EXISTS knowledge_chunks;
+        DROP TABLE IF EXISTS generation_citations;
       `);
     }
 
@@ -469,7 +711,6 @@ export class PaperLabDatabase {
         content TEXT,
         is_main INTEGER NOT NULL DEFAULT 0,
         is_llm INTEGER NOT NULL DEFAULT 0,
-        is_artifact INTEGER NOT NULL DEFAULT 0,
         metadata_json TEXT,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -501,6 +742,52 @@ export class PaperLabDatabase {
         PRIMARY KEY (canvas_section_id, node_id)
       );
     `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS knowledge_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'text',
+        index_status TEXT NOT NULL DEFAULT 'pending',
+        metadata_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_knowledge_items_status
+      ON knowledge_items(index_status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        embedding_json TEXT,
+        embedding_model TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item
+      ON knowledge_chunks(item_id, chunk_index);
+
+      CREATE TABLE IF NOT EXISTS generation_citations (
+        id TEXT PRIMARY KEY,
+        generation_node_id TEXT NOT NULL,
+        knowledge_item_id TEXT NOT NULL,
+        knowledge_chunk_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        snippet TEXT NOT NULL,
+        score REAL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_generation_citations_node
+      ON generation_citations(generation_node_id);
+    `);
+
     this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -556,9 +843,9 @@ export class PaperLabDatabase {
     this.db
       .prepare(
         `INSERT INTO nodes
-         (id, kind, parent_id, title, content, is_main, is_llm, is_artifact,
+         (id, kind, parent_id, title, content, is_main, is_llm,
           metadata_json, sort_order, created_at, updated_at)
-         VALUES (?, 'content', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, 'content', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -567,7 +854,6 @@ export class PaperLabDatabase {
         payload.content,
         payload.isMain ? 1 : 0,
         payload.isLlm ? 1 : 0,
-        payload.isArtifact ? 1 : 0,
         JSON.stringify(payload.metadata ?? {}),
         sortOrder,
         timestamp,
@@ -627,7 +913,6 @@ export class PaperLabDatabase {
             sectionCount: 0,
             contentCount: 0,
             mainContentCount: 0,
-            artifactCount: 0,
             llmCount: 0
           }
         ])
@@ -644,9 +929,6 @@ export class PaperLabDatabase {
       stats[node.parentId].contentCount += 1;
       if (node.isMain) {
         stats[node.parentId].mainContentCount += 1;
-      }
-      if (node.isArtifact) {
-        stats[node.parentId].artifactCount += 1;
       }
       if (node.isLlm) {
         stats[node.parentId].llmCount += 1;
@@ -722,7 +1004,6 @@ function mapNode(row: SqlNodeRow): NodeRecord {
     content: row.content ?? '',
     isMain: Boolean(row.is_main),
     isLlm: Boolean(row.is_llm),
-    isArtifact: Boolean(row.is_artifact),
     metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {}
   };
 }
@@ -748,6 +1029,74 @@ function mapCanvasNodeLayout(row: SqlCanvasNodeLayoutRow): CanvasNodeLayout {
     height: row.height,
     updatedAt: row.updated_at
   };
+}
+
+function mapKnowledgeItem(row: SqlKnowledgeItemRow): KnowledgeItemRecord {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    sourceType: row.source_type,
+    indexStatus: row.index_status,
+    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapKnowledgeChunk(row: SqlKnowledgeChunkRow): KnowledgeChunkRecord {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    itemTitle: row.item_title,
+    chunkIndex: row.chunk_index,
+    content: row.content,
+    embeddingModel: row.embedding_model,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapKnowledgeCitation(row: SqlKnowledgeCitationRow): KnowledgeCitationRecord {
+  return {
+    id: row.id,
+    generationNodeId: row.generation_node_id,
+    knowledgeItemId: row.knowledge_item_id,
+    knowledgeChunkId: row.knowledge_chunk_id,
+    label: row.label,
+    snippet: row.snippet,
+    score: row.score,
+    createdAt: row.created_at
+  };
+}
+
+function readEmbedding(chunkId: string, db: Database.Database): number[] {
+  const row = db
+    .prepare('SELECT embedding_json FROM knowledge_chunks WHERE id = ?')
+    .get(chunkId) as { embedding_json: string | null } | undefined;
+  if (!row?.embedding_json) {
+    return [];
+  }
+  const parsed = JSON.parse(row.embedding_json) as unknown;
+  return Array.isArray(parsed) ? parsed.filter((value): value is number => typeof value === 'number') : [];
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || left.length !== right.length) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+    leftMagnitude += left[index] * left[index];
+    rightMagnitude += right[index] * right[index];
+  }
+  if (leftMagnitude === 0 || rightMagnitude === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
 }
 
 function compareNodeOrder(left: NodeRecord, right: NodeRecord): number {

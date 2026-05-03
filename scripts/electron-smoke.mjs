@@ -1,7 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from 'electron';
 import { PaperLabDatabase } from '../dist-electron/main/database.js';
 import { exportLatex } from '../dist-electron/main/exportLatex.js';
 
@@ -31,8 +30,7 @@ try {
     kind: 'content',
     parentId: intro.id,
     title: 'Source note',
-    content: 'Background source.',
-    isArtifact: true
+    content: 'Background source.'
   });
   if (main.kind !== 'content' || source.kind !== 'content') {
     throw new Error('Content nodes were not created.');
@@ -48,6 +46,31 @@ try {
   db.createNodeEdge(source.id, main.id, 'informs');
   if (db.listEdges().length !== 1) {
     throw new Error('Content edge was not created.');
+  }
+
+  const knowledge = db.createKnowledgeItem('Background source', 'Background source.');
+  db.replaceKnowledgeChunks(knowledge.id, [
+    {
+      content: 'Background source.',
+      embedding: [1, 0, 0],
+      embeddingModel: 'test-embedding'
+    }
+  ]);
+  const chunks = db.searchKnowledgeChunks({ embedding: [1, 0, 0], maxChunks: 1 });
+  if (chunks.length !== 1 || chunks[0].itemId !== knowledge.id) {
+    throw new Error('Knowledge chunk search did not return the indexed source.');
+  }
+  db.saveGenerationCitations(main.id, [
+    {
+      knowledgeItemId: knowledge.id,
+      knowledgeChunkId: chunks[0].id,
+      label: '[S1]',
+      snippet: chunks[0].content,
+      score: chunks[0].score ?? null
+    }
+  ]);
+  if (db.listGenerationCitations(main.id).length !== 1) {
+    throw new Error('Generation citation was not saved.');
   }
 
   db.updateNodeLayout({
@@ -122,5 +145,4 @@ try {
   console.log('electron-smoke ok');
 } finally {
   rmSync(workspacePath, { recursive: true, force: true });
-  app.quit();
 }

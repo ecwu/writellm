@@ -3,7 +3,7 @@ import { applyNodeChanges, type Connection, type Node, type NodeChange, type Nod
 import { toast } from 'sonner';
 import { getApi } from '../api';
 import { emptyLlmDraft, emptyState, DEFAULT_EDGE_KIND } from './constants';
-import type { ChildViewMode, ContentPreset, PaperNodeData, Selection } from './types';
+import type { AppPage, ChildViewMode, ContentPreset, PaperNodeData, Selection } from './types';
 import { PaperFlowNode } from '../features/canvas/PaperFlowNode';
 import { buildGraph, reconcileNodes } from '../features/canvas/graph';
 import type {
@@ -30,6 +30,7 @@ export function usePaperLabApp() {
   const [llmDraft, setLlmDraft] = useState(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
   const [writingNodeId, setWritingNodeId] = useState<string | null>(null);
+  const [activePage, setActivePageState] = useState<AppPage>('workspace');
 
   const apiAvailable = Boolean(window.paperlab);
   const focusSection = state.nodes.find(
@@ -68,6 +69,17 @@ export function usePaperLabApp() {
     }
   }
 
+  function setActivePage(page: AppPage) {
+    setActivePageState(page);
+    if (page === 'knowledge') {
+      setWritingNodeId(null);
+      if (llmDraft.status === 'running' && llmDraft.runId) {
+        void getApi().cancelLlmGeneration(llmDraft.runId);
+      }
+      setLlmDraft(emptyLlmDraft);
+    }
+  }
+
   useEffect(() => {
     if (!apiAvailable) {
       notifyError('Run this app through Electron to use local workspace features.');
@@ -92,7 +104,8 @@ export function usePaperLabApp() {
             ? {
                 ...current,
                 content: event.content,
-                status: event.type === 'done' ? 'done' : 'running'
+                status: event.type === 'done' ? 'done' : 'running',
+                retrievedSources: event.type === 'done' ? event.sources ?? current.retrievedSources : current.retrievedSources
               }
             : current
         );
@@ -219,6 +232,7 @@ export function usePaperLabApp() {
       setSelection({ type: 'node', id: summary.rootNodeId });
       setState(next);
       setWorkspacePath(summary.path);
+      setActivePageState('workspace');
       setWorkspaceChooserOpen(false);
       await refreshRecentWorkspaces();
       notifyStatus(mode === 'create' ? 'Workspace created.' : 'Workspace opened.');
@@ -345,26 +359,14 @@ export function usePaperLabApp() {
 
   async function createContentInSection(sectionId: string, preset: ContentPreset) {
     const existingIds = new Set(state.nodes.map((node) => node.id));
-    const payload =
-      preset === 'main'
-        ? {
-            kind: 'content' as const,
-            parentId: sectionId,
-            title: 'Main draft',
-            content: 'Write confirmed LaTeX text here.',
-            isMain: true,
-            isArtifact: false,
-            isLlm: false
-          }
-        : {
-            kind: 'content' as const,
-            parentId: sectionId,
-            title: 'Source material',
-            content: 'Paste source material or informal context here.',
-            isMain: false,
-            isArtifact: true,
-            isLlm: false
-          };
+    const payload = {
+      kind: 'content' as const,
+      parentId: sectionId,
+      title: 'Main draft',
+      content: 'Write confirmed LaTeX text here.',
+      isMain: true,
+      isLlm: false
+    };
 
     await run(async () => {
       const next = await getApi().createNode(payload);
@@ -373,7 +375,7 @@ export function usePaperLabApp() {
         setSelection({ type: 'node', id: created.id });
       }
       return next;
-    }, preset === 'main' ? 'Main content created.' : 'Artifact content created.');
+    }, 'Main content created.');
   }
 
   async function createConnectedContent(fromNodeId: string, preset: ContentPreset) {
@@ -387,12 +389,9 @@ export function usePaperLabApp() {
       const createdState = await getApi().createNode({
         kind: 'content',
         parentId: source.parentId,
-        title: preset === 'main' ? 'Main draft' : 'Source material',
-        content: preset === 'main'
-          ? 'Write confirmed LaTeX text here.'
-          : 'Paste source material or informal context here.',
+        title: 'Main draft',
+        content: 'Write confirmed LaTeX text here.',
         isMain: preset === 'main',
-        isArtifact: preset === 'artifact',
         isLlm: false
       });
       const created = createdState.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
@@ -428,6 +427,9 @@ export function usePaperLabApp() {
       targetSectionId: sectionId,
       prompt: '',
       contextNodeIds: [],
+      retrievedSources: [],
+      excludedKnowledgeItemIds: [],
+      excludedKnowledgeChunkIds: [],
       content: '',
       status: 'idle'
     });
@@ -435,12 +437,21 @@ export function usePaperLabApp() {
 
   async function startLlmGeneration(prompt: string, sectionId: string, contextNodeIds: string[]) {
     const runId = globalThis.crypto.randomUUID();
+    const previewSources = await getApi().searchKnowledge({
+      query: prompt,
+      excludedItemIds: llmDraft.excludedKnowledgeItemIds,
+      excludedChunkIds: llmDraft.excludedKnowledgeChunkIds,
+      maxChunks: 6
+    }).catch(() => []);
     setLlmDraft({
       open: true,
       runId,
       targetSectionId: sectionId,
       prompt,
       contextNodeIds,
+      retrievedSources: previewSources,
+      excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
+      excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
       content: '',
       status: 'running'
     });
@@ -451,7 +462,11 @@ export function usePaperLabApp() {
         sectionId,
         focusSectionId: state.focusSectionId ?? sectionId,
         prompt,
-        contextNodeIds
+        contextNodeIds,
+        excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
+        excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
+        maxKnowledgeChunks: 6,
+        requireInlineCitations: true
       });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -482,6 +497,7 @@ export function usePaperLabApp() {
         prompt: llmDraft.prompt,
         content: llmDraft.content,
         contextNodeIds: llmDraft.contextNodeIds,
+        retrievedSources: llmDraft.retrievedSources,
         contextRelationType: DEFAULT_EDGE_KIND
       });
       const created = next.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
@@ -491,6 +507,55 @@ export function usePaperLabApp() {
       setLlmDraft(emptyLlmDraft);
       return next;
     }, 'LLM generation saved.');
+  }
+
+  async function createKnowledgeItem(title: string, content: string) {
+    await run(
+      async () => {
+        await getApi().createKnowledgeItem({ title, content });
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge source saved.'
+    );
+  }
+
+  async function updateKnowledgeItem(itemId: string, title: string, content: string) {
+    await run(
+      async () => {
+        await getApi().updateKnowledgeItem(itemId, { title, content });
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge source updated.'
+    );
+  }
+
+  async function deleteKnowledgeItem(itemId: string) {
+    await run(
+      async () => {
+        await getApi().deleteKnowledgeItem(itemId);
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge source deleted.'
+    );
+  }
+
+  async function reindexKnowledgeItem(itemId: string) {
+    await run(
+      async () => {
+        await getApi().reindexKnowledgeItem(itemId);
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge source reindexed.'
+    );
+  }
+
+  function excludeKnowledgeSource(itemId: string, chunkId: string) {
+    setLlmDraft((current) => ({
+      ...current,
+      retrievedSources: current.retrievedSources.filter((source) => source.chunkId !== chunkId),
+      excludedKnowledgeItemIds: [...new Set([...current.excludedKnowledgeItemIds, itemId])],
+      excludedKnowledgeChunkIds: [...new Set([...current.excludedKnowledgeChunkIds, chunkId])]
+    }));
   }
 
   async function exportLatex() {
@@ -520,6 +585,8 @@ export function usePaperLabApp() {
     workspaceChooserOpen,
     setWorkspaceChooserOpen,
     recentWorkspaces,
+    activePage,
+    setActivePage,
     llmSettings,
     setLlmSettings,
     llmDraft,
@@ -554,6 +621,11 @@ export function usePaperLabApp() {
     startLlmGeneration,
     cancelLlmDraft,
     saveLlmDraft,
+    createKnowledgeItem,
+    updateKnowledgeItem,
+    deleteKnowledgeItem,
+    reindexKnowledgeItem,
+    excludeKnowledgeSource,
     exportLatex,
     setFocusedChildViewMode,
     onNodesChange,

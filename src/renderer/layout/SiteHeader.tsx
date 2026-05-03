@@ -13,11 +13,14 @@ import {
 import { Separator } from '../components/ui/separator';
 import { SidebarTrigger } from '../components/ui/sidebar';
 import type { PublicLlmSettings } from '../../shared/types';
+import type { AppPage } from '../app/types';
 
 export function SiteHeader({
   apiAvailable,
   llmSettings,
   workspaceTitle,
+  activePage,
+  onPageChange,
   onCreateWorkspace,
   onOpenWorkspace,
   onSwitchWorkspace,
@@ -34,6 +37,8 @@ export function SiteHeader({
   apiAvailable: boolean;
   llmSettings: PublicLlmSettings | null;
   workspaceTitle: string;
+  activePage: AppPage;
+  onPageChange: (page: AppPage) => void;
   onCreateWorkspace: () => void;
   onOpenWorkspace: () => void;
   onSwitchWorkspace: () => void;
@@ -47,8 +52,8 @@ export function SiteHeader({
   canSelectFocus: boolean;
   hasSelection: boolean;
 }) {
-  const llmConfigured = Boolean(llmSettings?.hasApiKey);
-  const llmModel = llmSettings?.model.trim() ?? '';
+  const llmConfigured = Boolean(llmSettings?.chat.hasApiKey && llmSettings.embedding.hasApiKey);
+  const llmModel = llmSettings?.chat.model.trim() ?? '';
   const llmStatus = llmConfigured ? `Configured: ${llmModel}` : 'Not configured';
 
   return (
@@ -63,6 +68,22 @@ export function SiteHeader({
           <div className="truncate text-sm font-semibold">PaperLab</div>
           <div className="truncate text-xs text-muted-foreground">{workspaceTitle}</div>
         </div>
+      </div>
+      <div className="app-page-switcher" aria-label="Primary navigation">
+        <button
+          type="button"
+          className={activePage === 'workspace' ? 'active' : undefined}
+          onClick={() => onPageChange('workspace')}
+        >
+          Workspace
+        </button>
+        <button
+          type="button"
+          className={activePage === 'knowledge' ? 'active' : undefined}
+          onClick={() => onPageChange('knowledge')}
+        >
+          Knowledge
+        </button>
       </div>
       <Menubar className="shrink-0 border-0 bg-transparent p-0">
         <MenubarMenu>

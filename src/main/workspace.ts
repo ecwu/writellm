@@ -46,6 +46,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
       nodes: [],
       visibleNodes: [],
       contextNodes: [],
+      knowledgeItems: [],
       nodeStats: {},
       edges: [],
       nodeLayouts: []

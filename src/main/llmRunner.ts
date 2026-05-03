@@ -1,12 +1,12 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
-import type { GenerateLlmPayload, LlmSettings } from '../shared/types.js';
+import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
 
 const defaultWritingSystemPrompt =
   'You are a writing assistant. Generate only the specific section or fragment requested by the user. Do not generate unrelated sections, surrounding document content, explanations, commentary, notes, introductions, conclusions, or meta text.';
 
-function createModel(settings: LlmSettings) {
+function createModel(settings: ModelEndpointSettings) {
   if (settings.provider === 'anthropic-compatible') {
     const anthropic = createAnthropic({
       baseURL: settings.baseURL,
@@ -24,7 +24,7 @@ function createModel(settings: LlmSettings) {
 }
 
 export async function* streamLlmText(
-  settings: LlmSettings,
+  settings: ModelEndpointSettings,
   payload: GenerateLlmPayload,
   abortSignal?: AbortSignal
 ) {

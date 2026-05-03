@@ -33,15 +33,31 @@ export function SettingsSheet({
   const [baseURL, setBaseURL] = useState('https://api.openai.com/v1');
   const [model, setModel] = useState('gpt-5');
   const [apiKey, setApiKey] = useState('');
+  const [embeddingProvider, setEmbeddingProvider] = useState<LlmProviderKind>('openai-compatible');
+  const [embeddingBaseURL, setEmbeddingBaseURL] = useState('https://api.openai.com/v1');
+  const [embeddingModel, setEmbeddingModel] = useState('text-embedding-3-small');
+  const [embeddingApiKey, setEmbeddingApiKey] = useState('');
+  const [visionProvider, setVisionProvider] = useState<LlmProviderKind>('openai-compatible');
+  const [visionBaseURL, setVisionBaseURL] = useState('https://api.openai.com/v1');
+  const [visionModel, setVisionModel] = useState('gpt-5');
+  const [visionApiKey, setVisionApiKey] = useState('');
 
   useEffect(() => {
     if (!settings) {
       return;
     }
-    setProvider(settings.provider);
-    setBaseURL(settings.baseURL);
-    setModel(settings.model);
+    setProvider(settings.chat.provider);
+    setBaseURL(settings.chat.baseURL);
+    setModel(settings.chat.model);
     setApiKey('');
+    setEmbeddingProvider(settings.embedding.provider);
+    setEmbeddingBaseURL(settings.embedding.baseURL);
+    setEmbeddingModel(settings.embedding.model);
+    setEmbeddingApiKey('');
+    setVisionProvider(settings.vision.provider);
+    setVisionBaseURL(settings.vision.baseURL);
+    setVisionModel(settings.vision.model);
+    setVisionApiKey('');
   }, [settings, open]);
 
   function updateProvider(nextProvider: LlmProviderKind) {
@@ -62,10 +78,20 @@ export function SettingsSheet({
         provider,
         baseURL,
         model,
-        apiKey: apiKey.trim() ? apiKey : undefined
+        apiKey: apiKey.trim() ? apiKey : undefined,
+        embeddingProvider,
+        embeddingBaseURL,
+        embeddingModel,
+        embeddingApiKey: embeddingApiKey.trim() ? embeddingApiKey : undefined,
+        visionProvider,
+        visionBaseURL,
+        visionModel,
+        visionApiKey: visionApiKey.trim() ? visionApiKey : undefined
       });
       onSaved(next);
       setApiKey('');
+      setEmbeddingApiKey('');
+      setVisionApiKey('');
       onStatus('LLM settings saved.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
@@ -80,10 +106,10 @@ export function SettingsSheet({
         </SheetHeader>
         <div className="settings-form">
           <section className="panel">
-            <div className="artifact-heading">
+            <div className="panel-heading">
               <div>
                 <h2>LLM</h2>
-                <p className="muted">{settings?.hasApiKey ? 'API key saved' : 'API key missing'}</p>
+                <p className="muted">{settings?.chat.hasApiKey ? 'API key saved' : 'API key missing'}</p>
               </div>
             </div>
             <label className="field-label">
@@ -112,11 +138,81 @@ export function SettingsSheet({
                 value={apiKey}
                 type="password"
                 onChange={(event) => setApiKey(event.target.value)}
-                placeholder={settings?.hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
+                placeholder={settings?.chat.hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
+              />
+            </label>
+            <div className="settings-subsection">
+              <h3>Embedding</h3>
+              <p className="muted">{settings?.embedding.hasApiKey ? 'API key saved' : 'API key missing'}</p>
+            </div>
+            <label className="field-label">
+              Provider
+              <Select value={embeddingProvider} onValueChange={(value) => setEmbeddingProvider(value as LlmProviderKind)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai-compatible">OpenAI compatible</SelectItem>
+                  <SelectItem value="anthropic-compatible">Anthropic compatible</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="field-label">
+              URL
+              <Input value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} />
+            </label>
+            <label className="field-label">
+              Model
+              <Input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} />
+            </label>
+            <label className="field-label">
+              API Key
+              <Input
+                value={embeddingApiKey}
+                type="password"
+                onChange={(event) => setEmbeddingApiKey(event.target.value)}
+                placeholder={settings?.embedding.hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
+              />
+            </label>
+            <div className="settings-subsection">
+              <h3>Vision</h3>
+              <p className="muted">Configured for later image support</p>
+            </div>
+            <label className="field-label">
+              Provider
+              <Select value={visionProvider} onValueChange={(value) => setVisionProvider(value as LlmProviderKind)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai-compatible">OpenAI compatible</SelectItem>
+                  <SelectItem value="anthropic-compatible">Anthropic compatible</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="field-label">
+              URL
+              <Input value={visionBaseURL} onChange={(event) => setVisionBaseURL(event.target.value)} />
+            </label>
+            <label className="field-label">
+              Model
+              <Input value={visionModel} onChange={(event) => setVisionModel(event.target.value)} />
+            </label>
+            <label className="field-label">
+              API Key
+              <Input
+                value={visionApiKey}
+                type="password"
+                onChange={(event) => setVisionApiKey(event.target.value)}
+                placeholder={settings?.vision.hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
               />
             </label>
             <div className="button-row">
-              <Button size="sm" onClick={() => void saveSettings()} disabled={!baseURL.trim() || !model.trim()}>
+              <Button
+                size="sm"
+                onClick={() => void saveSettings()}
+                disabled={!baseURL.trim() || !model.trim() || !embeddingBaseURL.trim() || !embeddingModel.trim()}
+              >
                 <Save />
                 Save
               </Button>

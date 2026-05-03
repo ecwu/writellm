@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider } from './components/ui/sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { CanvasView } from './features/canvas/CanvasView';
 import { Inspector } from './features/inspector/Inspector';
+import { KnowledgePage } from './features/knowledge/KnowledgePage';
 import { SectionListView } from './features/sections/SectionListView';
 import { SettingsSheet } from './features/settings/SettingsSheet';
 import { WritingView } from './features/writing/WritingView';
@@ -28,6 +29,8 @@ export function App() {
     workspaceChooserOpen,
     setWorkspaceChooserOpen,
     recentWorkspaces,
+    activePage,
+    setActivePage,
     llmSettings,
     setLlmSettings,
     llmDraft,
@@ -62,6 +65,11 @@ export function App() {
     startLlmGeneration,
     cancelLlmDraft,
     saveLlmDraft,
+    createKnowledgeItem,
+    updateKnowledgeItem,
+    deleteKnowledgeItem,
+    reindexKnowledgeItem,
+    excludeKnowledgeSource,
     exportLatex,
     setFocusedChildViewMode,
     onNodesChange,
@@ -83,6 +91,8 @@ export function App() {
             apiAvailable={apiAvailable}
             llmSettings={llmSettings}
             workspaceTitle={state.workspace ? formatWorkspaceTitle(state.workspace.path) : 'No workspace'}
+            activePage={activePage}
+            onPageChange={setActivePage}
             onCreateWorkspace={() => void pickNewWorkspacePath()}
             onOpenWorkspace={() => void pickWorkspaceFolder()}
             onSwitchWorkspace={() => setWorkspaceChooserOpen(true)}
@@ -131,116 +141,127 @@ export function App() {
             onPickNewWorkspace={() => void pickNewWorkspacePath()}
           />
 
-          <div className="flex min-h-0 flex-1">
-            <SidebarLeft
-              nodes={state.compositionTree}
-              activeId={state.focusSectionId}
-              onSelectSection={(id) => void focusSectionById(id)}
-              onMoveSection={(id, parentId, index) => void moveSectionInOutline(id, parentId, index)}
-              onAddChild={() => void createSection(state.focusSectionId)}
+          {activePage === 'knowledge' ? (
+            <KnowledgePage
+              items={state.knowledgeItems}
+              onCreate={(title, content) => void createKnowledgeItem(title, content)}
+              onUpdate={(itemId, title, content) => void updateKnowledgeItem(itemId, title, content)}
+              onDelete={(itemId) => void deleteKnowledgeItem(itemId)}
+              onReindex={(itemId) => void reindexKnowledgeItem(itemId)}
             />
+          ) : (
+            <div className="flex min-h-0 flex-1">
+              <SidebarLeft
+                nodes={state.compositionTree}
+                activeId={state.focusSectionId}
+                onSelectSection={(id) => void focusSectionById(id)}
+                onMoveSection={(id, parentId, index) => void moveSectionInOutline(id, parentId, index)}
+                onAddChild={() => void createSection(state.focusSectionId)}
+              />
 
-            <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-              {writingContent ? (
-                <WritingView
-                  contentNode={writingContent}
-                  parentSection={writingSection}
-                  onBack={() => closeWritingView(writingContent)}
-                  onState={setState}
-                  onError={notifyError}
-                />
-              ) : currentChildViewMode === 'graph' ? (
-                <CanvasView
-                  title={focusSection?.title ?? 'No focused section'}
-                  visibleNodeCount={graph.nodes.length}
-                  mode={currentChildViewMode}
-                  onModeChange={setFocusedChildViewMode}
-                  nodes={flowNodes}
-                  edges={graph.edges}
-                  nodeTypes={nodeTypes}
-                  onNodesChange={onNodesChange}
-                  onNodeDragStop={persistNodeLayoutFromNode}
-                  onConnect={(connection) => void onConnect(connection)}
-                  onEdgeClick={(edge) => {
-                    if (state.edges.some((processEdge) => processEdge.id === edge.id)) {
-                      setSelection({ type: 'edge', id: edge.id });
+              <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
+                {writingContent ? (
+                  <WritingView
+                    contentNode={writingContent}
+                    parentSection={writingSection}
+                    onBack={() => closeWritingView(writingContent)}
+                    onState={setState}
+                    onError={notifyError}
+                  />
+                ) : currentChildViewMode === 'graph' ? (
+                  <CanvasView
+                    title={focusSection?.title ?? 'No focused section'}
+                    visibleNodeCount={graph.nodes.length}
+                    mode={currentChildViewMode}
+                    onModeChange={setFocusedChildViewMode}
+                    nodes={flowNodes}
+                    edges={graph.edges}
+                    nodeTypes={nodeTypes}
+                    onNodesChange={onNodesChange}
+                    onNodeDragStop={persistNodeLayoutFromNode}
+                    onConnect={(connection) => void onConnect(connection)}
+                    onEdgeClick={(edge) => {
+                      if (state.edges.some((processEdge) => processEdge.id === edge.id)) {
+                        setSelection({ type: 'edge', id: edge.id });
+                      }
+                    }}
+                    onNodeClick={(node) => setSelection({ type: 'node', id: node.id })}
+                    onNodeDoubleClick={(node) => {
+                      const record = state.nodes.find((candidate) => candidate.id === node.id);
+                      if (record?.kind === 'section') {
+                        void focusSectionById(record.id);
+                      } else if (record?.kind === 'content') {
+                        openWritingView(record);
+                      }
+                    }}
+                    selection={selection}
+                    selectedSection={selectedSection}
+                    selectedContent={selectedContent}
+                    selectedEdge={selectedEdge ?? null}
+                    focusSection={focusSection ?? null}
+                    llmDraft={llmDraft}
+                    contextNodes={state.contextNodes}
+                    onCreateInSection={(sectionId, preset) => void createContentInSection(sectionId, preset)}
+                    onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
+                    onDeleteNode={() => void deleteSelectedNode()}
+                    onOpenGenerate={openGenerateComposer}
+                    onPromptChange={(prompt) => setLlmDraft((current) => ({ ...current, prompt }))}
+                    onContextNodeToggle={(nodeId, checked) =>
+                      setLlmDraft((current) => ({
+                        ...current,
+                        contextNodeIds: checked
+                          ? [...new Set([...current.contextNodeIds, nodeId])]
+                          : current.contextNodeIds.filter((id) => id !== nodeId)
+                      }))
                     }
-                  }}
-                  onNodeClick={(node) => setSelection({ type: 'node', id: node.id })}
-                  onNodeDoubleClick={(node) => {
-                    const record = state.nodes.find((candidate) => candidate.id === node.id);
-                    if (record?.kind === 'section') {
-                      void focusSectionById(record.id);
-                    } else if (record?.kind === 'content') {
-                      openWritingView(record);
+                    onExcludeKnowledgeSource={excludeKnowledgeSource}
+                    onGenerate={(prompt, sectionId, contextNodeIds) =>
+                      void startLlmGeneration(prompt, sectionId, contextNodeIds)
                     }
-                  }}
-                  selection={selection}
+                    onRegenerate={() => {
+                      if (llmDraft.targetSectionId && llmDraft.prompt.trim()) {
+                        void startLlmGeneration(
+                          llmDraft.prompt.trim(),
+                          llmDraft.targetSectionId,
+                          llmDraft.contextNodeIds
+                        );
+                      }
+                    }}
+                    onCancelGenerate={() => void cancelLlmDraft()}
+                    onSaveGenerate={() => void saveLlmDraft()}
+                    onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
+                    onDeleteEdge={() => void deleteSelectedEdge()}
+                  />
+                ) : (
+                  <SectionListView
+                    state={state}
+                    focusSectionId={state.focusSectionId}
+                    rootNodeId={state.workspace?.rootNodeId ?? null}
+                    selection={selection}
+                    onSelection={setSelection}
+                    onFocusSection={(id) => void focusSectionById(id)}
+                    childViewMode={currentChildViewMode}
+                    onChildViewMode={setFocusedChildViewMode}
+                    onState={setState}
+                    onError={notifyError}
+                  />
+                )}
+              </SidebarInset>
+
+              <SidebarRight>
+                <Inspector
+                  state={state}
+                  focusSection={focusSection ?? null}
                   selectedSection={selectedSection}
                   selectedContent={selectedContent}
-                  selectedEdge={selectedEdge ?? null}
-                  focusSection={focusSection ?? null}
-                  llmDraft={llmDraft}
-                  contextNodes={state.contextNodes}
-                  onCreateInSection={(sectionId, preset) => void createContentInSection(sectionId, preset)}
-                  onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
-                  onDeleteNode={() => void deleteSelectedNode()}
-                  onOpenGenerate={openGenerateComposer}
-                  onPromptChange={(prompt) => setLlmDraft((current) => ({ ...current, prompt }))}
-                  onContextNodeToggle={(nodeId, checked) =>
-                    setLlmDraft((current) => ({
-                      ...current,
-                      contextNodeIds: checked
-                        ? [...new Set([...current.contextNodeIds, nodeId])]
-                        : current.contextNodeIds.filter((id) => id !== nodeId)
-                    }))
-                  }
-                  onGenerate={(prompt, sectionId, contextNodeIds) =>
-                    void startLlmGeneration(prompt, sectionId, contextNodeIds)
-                  }
-                  onRegenerate={() => {
-                    if (llmDraft.targetSectionId && llmDraft.prompt.trim()) {
-                      void startLlmGeneration(
-                        llmDraft.prompt.trim(),
-                        llmDraft.targetSectionId,
-                        llmDraft.contextNodeIds
-                      );
-                    }
-                  }}
-                  onCancelGenerate={() => void cancelLlmDraft()}
-                  onSaveGenerate={() => void saveLlmDraft()}
-                  onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
-                  onDeleteEdge={() => void deleteSelectedEdge()}
-                />
-              ) : (
-                <SectionListView
-                  state={state}
-                  focusSectionId={state.focusSectionId}
-                  rootNodeId={state.workspace?.rootNodeId ?? null}
-                  selection={selection}
-                  onSelection={setSelection}
-                  onFocusSection={(id) => void focusSectionById(id)}
-                  childViewMode={currentChildViewMode}
-                  onChildViewMode={setFocusedChildViewMode}
                   onState={setState}
+                  onSelection={setSelection}
+                  onStatus={notifyStatus}
                   onError={notifyError}
                 />
-              )}
-            </SidebarInset>
-
-            <SidebarRight>
-              <Inspector
-                state={state}
-                focusSection={focusSection ?? null}
-                selectedSection={selectedSection}
-                selectedContent={selectedContent}
-                onState={setState}
-                onSelection={setSelection}
-                onStatus={notifyStatus}
-                onError={notifyError}
-              />
-            </SidebarRight>
-          </div>
+              </SidebarRight>
+            </div>
+          )}
         </SidebarProvider>
         <Toaster richColors position="top-center" />
       </div>

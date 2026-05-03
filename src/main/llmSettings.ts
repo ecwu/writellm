@@ -1,13 +1,33 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { LlmSettings, PublicLlmSettings, UpdateLlmSettingsPayload } from '../shared/types.js';
+import type {
+  LlmSettings,
+  ModelEndpointSettings,
+  PublicLlmSettings,
+  PublicModelEndpointSettings,
+  UpdateLlmSettingsPayload
+} from '../shared/types.js';
 
 const defaultSettings: LlmSettings = {
-  provider: 'openai-compatible',
-  baseURL: 'https://api.openai.com/v1',
-  model: 'gpt-5',
-  apiKey: ''
+  chat: {
+    provider: 'openai-compatible',
+    baseURL: 'https://api.openai.com/v1',
+    model: 'gpt-5',
+    apiKey: ''
+  },
+  embedding: {
+    provider: 'openai-compatible',
+    baseURL: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+    apiKey: ''
+  },
+  vision: {
+    provider: 'openai-compatible',
+    baseURL: 'https://api.openai.com/v1',
+    model: 'gpt-5',
+    apiKey: ''
+  }
 };
 
 function settingsPath(): string {
@@ -16,12 +36,33 @@ function settingsPath(): string {
   return path.join(directory, 'paperlab-settings.json');
 }
 
-function toPublic(settings: LlmSettings): PublicLlmSettings {
+function toPublicEndpoint(settings: ModelEndpointSettings): PublicModelEndpointSettings {
   return {
     provider: settings.provider,
     baseURL: settings.baseURL,
     model: settings.model,
     hasApiKey: settings.apiKey.trim().length > 0
+  };
+}
+
+function toPublic(settings: LlmSettings): PublicLlmSettings {
+  return {
+    chat: toPublicEndpoint(settings.chat),
+    embedding: toPublicEndpoint(settings.embedding),
+    vision: toPublicEndpoint(settings.vision)
+  };
+}
+
+function readEndpoint(
+  parsed: Partial<ModelEndpointSettings> | undefined,
+  fallback: ModelEndpointSettings
+): ModelEndpointSettings {
+  return {
+    provider:
+      parsed?.provider === 'anthropic-compatible' ? 'anthropic-compatible' : 'openai-compatible',
+    baseURL: parsed?.baseURL?.trim() || fallback.baseURL,
+    model: parsed?.model?.trim() || fallback.model,
+    apiKey: parsed?.apiKey ?? fallback.apiKey
   };
 }
 
@@ -34,11 +75,9 @@ export function readLlmSettings(): LlmSettings {
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<LlmSettings>;
     return {
-      provider:
-        parsed.provider === 'anthropic-compatible' ? 'anthropic-compatible' : 'openai-compatible',
-      baseURL: parsed.baseURL?.trim() || defaultSettings.baseURL,
-      model: parsed.model?.trim() || defaultSettings.model,
-      apiKey: parsed.apiKey ?? ''
+      chat: readEndpoint(parsed.chat, defaultSettings.chat),
+      embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
+      vision: readEndpoint(parsed.vision, defaultSettings.vision)
     };
   } catch {
     return defaultSettings;
@@ -52,16 +91,31 @@ export function readPublicLlmSettings(): PublicLlmSettings {
 export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmSettings {
   const current = readLlmSettings();
   const next: LlmSettings = {
-    provider: payload.provider,
-    baseURL: payload.baseURL.trim(),
-    model: payload.model.trim(),
-    apiKey: payload.apiKey === undefined ? current.apiKey : payload.apiKey
+    chat: {
+      provider: payload.provider,
+      baseURL: payload.baseURL.trim(),
+      model: payload.model.trim(),
+      apiKey: payload.apiKey === undefined ? current.chat.apiKey : payload.apiKey
+    },
+    embedding: {
+      provider: payload.embeddingProvider ?? current.embedding.provider,
+      baseURL: payload.embeddingBaseURL?.trim() || current.embedding.baseURL,
+      model: payload.embeddingModel?.trim() || current.embedding.model,
+      apiKey:
+        payload.embeddingApiKey === undefined ? current.embedding.apiKey : payload.embeddingApiKey
+    },
+    vision: {
+      provider: payload.visionProvider ?? current.vision.provider,
+      baseURL: payload.visionBaseURL?.trim() || current.vision.baseURL,
+      model: payload.visionModel?.trim() || current.vision.model,
+      apiKey: payload.visionApiKey === undefined ? current.vision.apiKey : payload.visionApiKey
+    }
   };
 
-  if (!next.baseURL) {
+  if (!next.chat.baseURL || !next.embedding.baseURL || !next.vision.baseURL) {
     throw new Error('LLM base URL is required.');
   }
-  if (!next.model) {
+  if (!next.chat.model || !next.embedding.model || !next.vision.model) {
     throw new Error('LLM model name is required.');
   }
 

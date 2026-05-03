@@ -9,6 +9,7 @@ export const emptyState: FocusedWorkspaceState = {
   nodes: [],
   visibleNodes: [],
   contextNodes: [],
+  knowledgeItems: [],
   nodeStats: {},
   edges: [],
   nodeLayouts: []
@@ -20,6 +21,9 @@ export const emptyLlmDraft: LlmDraftState = {
   targetSectionId: null,
   prompt: '',
   contextNodeIds: [],
+  retrievedSources: [],
+  excludedKnowledgeItemIds: [],
+  excludedKnowledgeChunkIds: [],
   content: '',
   status: 'idle'
 };

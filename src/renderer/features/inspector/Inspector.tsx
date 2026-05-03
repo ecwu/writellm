@@ -8,7 +8,12 @@ import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { formatContentFlags, getGenerationPrompt } from '../../app/formatters';
 import type { Selection } from '../../app/types';
-import type { ContentNodeRecord, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
+import type {
+  ContentNodeRecord,
+  FocusedWorkspaceState,
+  RetrievedKnowledgeSource,
+  SectionNodeRecord
+} from '../../../shared/types';
 
 type InspectorProps = {
   state: FocusedWorkspaceState;
@@ -57,7 +62,7 @@ export function Inspector(props: InspectorProps) {
   }
 
   async function persistContent(
-    patch: Partial<Pick<ContentNodeRecord, 'title' | 'content' | 'isMain' | 'isLlm' | 'isArtifact'>>
+    patch: Partial<Pick<ContentNodeRecord, 'title' | 'content' | 'isMain' | 'isLlm'>>
   ) {
     if (!selectedContent) {
       return;
@@ -128,6 +133,7 @@ export function Inspector(props: InspectorProps) {
   }
 
   const selectedGenerationPrompt = getGenerationPrompt(selectedContent);
+  const selectedGenerationSources = getGenerationSources(selectedContent);
 
   return (
     <div className="inspector">
@@ -175,7 +181,7 @@ export function Inspector(props: InspectorProps) {
 
       {selectedContent ? (
         <section className="panel editor-panel">
-          <div className="artifact-heading">
+          <div className="panel-heading">
             <div>
               <h2>{selectedContent.title}</h2>
               <p className="muted">{formatContentFlags(selectedContent)}</p>
@@ -218,14 +224,6 @@ export function Inspector(props: InspectorProps) {
             <label className="inline-flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
-                checked={selectedContent.isArtifact}
-                onChange={(event) => void persistContent({ isArtifact: event.target.checked })}
-              />
-              Artifact
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
                 checked={selectedContent.isLlm}
                 onChange={(event) => void persistContent({ isLlm: event.target.checked })}
               />
@@ -233,9 +231,19 @@ export function Inspector(props: InspectorProps) {
             </label>
           </div>
           {selectedGenerationPrompt ? (
-            <div className="artifact-prompt">
+            <div className="generation-prompt">
               <span>Input prompt</span>
               <p>{selectedGenerationPrompt}</p>
+            </div>
+          ) : null}
+          {selectedGenerationSources.length > 0 ? (
+            <div className="generation-prompt">
+              <span>Sources</span>
+              {selectedGenerationSources.map((source) => (
+                <p key={source.chunkId}>
+                  {source.label} {source.itemTitle}: {source.snippet}
+                </p>
+              ))}
             </div>
           ) : null}
           <LatexEditor
@@ -252,4 +260,25 @@ export function Inspector(props: InspectorProps) {
       ) : null}
     </div>
   );
+}
+
+function getGenerationSources(node: ContentNodeRecord | null): RetrievedKnowledgeSource[] {
+  const sources = node?.metadata.retrievedSources;
+  if (!Array.isArray(sources)) {
+    return [];
+  }
+  return sources.filter((source): source is RetrievedKnowledgeSource => {
+    if (!source || typeof source !== 'object') {
+      return false;
+    }
+    const candidate = source as Partial<RetrievedKnowledgeSource>;
+    return Boolean(
+      candidate.label &&
+      candidate.itemId &&
+      candidate.itemTitle &&
+      candidate.chunkId &&
+      typeof candidate.snippet === 'string' &&
+      typeof candidate.score === 'number'
+    );
+  });
 }

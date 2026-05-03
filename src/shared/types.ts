@@ -24,7 +24,6 @@ export type ContentNodeRecord = BaseNodeRecord & {
   content: string;
   isMain: boolean;
   isLlm: boolean;
-  isArtifact: boolean;
   metadata: Record<string, unknown>;
 };
 
@@ -38,7 +37,6 @@ export type NodeStats = {
   sectionCount: number;
   contentCount: number;
   mainContentCount: number;
-  artifactCount: number;
   llmCount: number;
 };
 
@@ -79,6 +77,7 @@ export type FocusedWorkspaceState = {
   nodes: NodeRecord[];
   visibleNodes: NodeRecord[];
   contextNodes: ContentNodeRecord[];
+  knowledgeItems: KnowledgeItemRecord[];
   nodeStats: Record<string, NodeStats>;
   edges: NodeEdgeRecord[];
   nodeLayouts: CanvasNodeLayout[];
@@ -98,7 +97,6 @@ export type CreateContentNodePayload = {
   content: string;
   isMain?: boolean;
   isLlm?: boolean;
-  isArtifact?: boolean;
   metadata?: Record<string, unknown>;
 };
 
@@ -115,7 +113,6 @@ export type UpdateContentNodePayload = {
   content?: string;
   isMain?: boolean;
   isLlm?: boolean;
-  isArtifact?: boolean;
   metadata?: Record<string, unknown>;
 };
 
@@ -125,22 +122,109 @@ export type UpdateNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
 
 export type LlmProviderKind = 'openai-compatible' | 'anthropic-compatible';
 
-export type LlmSettings = {
+export type UpdateLlmSettingsPayload = {
+  provider: LlmProviderKind;
+  baseURL: string;
+  model: string;
+  apiKey?: string;
+  embeddingProvider?: LlmProviderKind;
+  embeddingBaseURL?: string;
+  embeddingModel?: string;
+  embeddingApiKey?: string;
+  visionProvider?: LlmProviderKind;
+  visionBaseURL?: string;
+  visionModel?: string;
+  visionApiKey?: string;
+};
+
+export type ModelEndpointSettings = {
   provider: LlmProviderKind;
   baseURL: string;
   model: string;
   apiKey: string;
 };
 
-export type PublicLlmSettings = Omit<LlmSettings, 'apiKey'> & {
+export type PublicModelEndpointSettings = Omit<ModelEndpointSettings, 'apiKey'> & {
   hasApiKey: boolean;
 };
 
-export type UpdateLlmSettingsPayload = {
-  provider: LlmProviderKind;
-  baseURL: string;
-  model: string;
-  apiKey?: string;
+export type ModelSettingsProfile = {
+  chat: ModelEndpointSettings;
+  embedding: ModelEndpointSettings;
+  vision: ModelEndpointSettings;
+};
+
+export type PublicModelSettingsProfile = {
+  chat: PublicModelEndpointSettings;
+  embedding: PublicModelEndpointSettings;
+  vision: PublicModelEndpointSettings;
+};
+
+export type LlmSettings = ModelSettingsProfile;
+
+export type PublicLlmSettings = PublicModelSettingsProfile;
+
+export type KnowledgeIndexStatus = 'pending' | 'indexed' | 'error';
+
+export type KnowledgeItemRecord = {
+  id: string;
+  title: string;
+  content: string;
+  sourceType: 'text';
+  indexStatus: KnowledgeIndexStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeChunkRecord = {
+  id: string;
+  itemId: string;
+  itemTitle: string;
+  chunkIndex: number;
+  content: string;
+  embeddingModel: string | null;
+  score?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeCitationRecord = {
+  id: string;
+  generationNodeId: string;
+  knowledgeItemId: string;
+  knowledgeChunkId: string;
+  label: string;
+  snippet: string;
+  score: number | null;
+  createdAt: string;
+};
+
+export type RetrievedKnowledgeSource = {
+  label: string;
+  itemId: string;
+  itemTitle: string;
+  chunkId: string;
+  chunkIndex: number;
+  snippet: string;
+  score: number;
+};
+
+export type CreateKnowledgeItemPayload = {
+  title: string;
+  content: string;
+};
+
+export type UpdateKnowledgeItemPayload = {
+  title?: string;
+  content?: string;
+};
+
+export type KnowledgeSearchPayload = {
+  query: string;
+  excludedItemIds?: string[];
+  excludedChunkIds?: string[];
+  maxChunks?: number;
 };
 
 export type GenerateLlmPayload = {
@@ -149,6 +233,10 @@ export type GenerateLlmPayload = {
   focusSectionId?: string | null;
   prompt: string;
   contextNodeIds?: string[];
+  excludedKnowledgeItemIds?: string[];
+  excludedKnowledgeChunkIds?: string[];
+  maxKnowledgeChunks?: number;
+  requireInlineCitations?: boolean;
   systemPrompt?: string;
 };
 
@@ -158,6 +246,7 @@ export type SaveLlmGenerationPayload = {
   prompt: string;
   content: string;
   contextNodeIds?: string[];
+  retrievedSources?: RetrievedKnowledgeSource[];
   contextRelationType?: EdgeKind;
 };
 
@@ -176,6 +265,7 @@ export type LlmStreamEvent =
       type: 'done';
       runId: string;
       content: string;
+      sources?: RetrievedKnowledgeSource[];
     }
   | {
       type: 'canceled';
