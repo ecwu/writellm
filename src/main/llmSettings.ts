@@ -2,10 +2,12 @@ import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
+  AppearanceSettings,
   LlmSettings,
   ModelEndpointSettings,
   PublicLlmSettings,
   PublicModelEndpointSettings,
+  UpdateAppearanceSettingsPayload,
   UpdateLlmSettingsPayload
 } from '../shared/types.js';
 
@@ -27,6 +29,9 @@ const defaultSettings: LlmSettings = {
     baseURL: 'https://api.openai.com/v1',
     model: 'gpt-5',
     apiKey: ''
+  },
+  appearance: {
+    theme: 'light'
   }
 };
 
@@ -49,7 +54,8 @@ function toPublic(settings: LlmSettings): PublicLlmSettings {
   return {
     chat: toPublicEndpoint(settings.chat),
     embedding: toPublicEndpoint(settings.embedding),
-    vision: toPublicEndpoint(settings.vision)
+    vision: toPublicEndpoint(settings.vision),
+    appearance: settings.appearance
   };
 }
 
@@ -66,6 +72,15 @@ function readEndpoint(
   };
 }
 
+function readAppearance(
+  parsed: Partial<AppearanceSettings> | undefined,
+  fallback: AppearanceSettings
+): AppearanceSettings {
+  return {
+    theme: parsed?.theme === 'dark' ? 'dark' : fallback.theme
+  };
+}
+
 export function readLlmSettings(): LlmSettings {
   const filePath = settingsPath();
   if (!existsSync(filePath)) {
@@ -77,7 +92,8 @@ export function readLlmSettings(): LlmSettings {
     return {
       chat: readEndpoint(parsed.chat, defaultSettings.chat),
       embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
-      vision: readEndpoint(parsed.vision, defaultSettings.vision)
+      vision: readEndpoint(parsed.vision, defaultSettings.vision),
+      appearance: readAppearance(parsed.appearance, defaultSettings.appearance)
     };
   } catch {
     return defaultSettings;
@@ -109,7 +125,8 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
       baseURL: payload.visionBaseURL?.trim() || current.vision.baseURL,
       model: payload.visionModel?.trim() || current.vision.model,
       apiKey: payload.visionApiKey === undefined ? current.vision.apiKey : payload.visionApiKey
-    }
+    },
+    appearance: current.appearance
   };
 
   if (!next.chat.baseURL || !next.embedding.baseURL || !next.vision.baseURL) {
@@ -118,6 +135,21 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
   if (!next.chat.model || !next.embedding.model || !next.vision.model) {
     throw new Error('LLM model name is required.');
   }
+
+  writeFileSync(settingsPath(), `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  return toPublic(next);
+}
+
+export function updateAppearanceSettings(
+  payload: UpdateAppearanceSettingsPayload
+): PublicLlmSettings {
+  const current = readLlmSettings();
+  const next: LlmSettings = {
+    ...current,
+    appearance: {
+      theme: payload.theme
+    }
+  };
 
   writeFileSync(settingsPath(), `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   return toPublic(next);

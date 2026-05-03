@@ -4,11 +4,19 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '../../components/ui/table';
 import { Textarea } from '../../components/ui/textarea';
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
-import { formatNodeStats } from '../../app/formatters';
 import type { ChildViewMode, Selection } from '../../app/types';
 import type { CompositionTreeNode, FocusedWorkspaceState, NodeStats } from '../../../shared/types';
+import { cn } from '../../lib/utils';
 
 type SectionListItem = {
   node: CompositionTreeNode;
@@ -82,14 +90,17 @@ export function SectionListView({
           <p className="muted">This section has no child sections yet.</p>
         </div>
       ) : (
-        <div className="section-list-table" role="treegrid" aria-label="Section list">
-          <div className="section-list-heading" role="row">
-            <div>Section</div>
-            <div>Intent</div>
-            <div>Metadata</div>
-            <div />
-          </div>
-          <div className="section-list-body">
+        <div className="section-list-table">
+          <Table aria-label="Section list">
+            <TableHeader>
+              <TableRow className="section-list-heading">
+                <TableHead className="section-list-title-column">Section</TableHead>
+                <TableHead className="section-list-intent-column">Intent</TableHead>
+                <TableHead className="section-list-meta-column">Metadata</TableHead>
+                <TableHead className="section-list-action-column" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
             {rows.map(({ node, depth }) => (
               <SectionListRow
                 key={node.id}
@@ -117,7 +128,8 @@ export function SectionListView({
                 onError={onError}
               />
             ))}
-          </div>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>
@@ -204,92 +216,97 @@ function SectionListRow({
   }
 
   return (
-    <div
-      className={`section-list-row${selected ? ' selected' : ''}${error ? ' invalid' : ''}`}
-      role="row"
+    <TableRow
+      className={cn('section-list-row', error && 'invalid')}
+      data-state={selected ? 'selected' : undefined}
       onClick={() => onSelection({ type: 'node', id: node.id })}
     >
-      <div className="section-list-title-cell" style={{ '--section-depth': depth } as CSSProperties}>
-        <button
-          type="button"
-          className="section-list-expander"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (hasChildren) {
-              onToggleExpanded(node.id);
-            }
-          }}
-          disabled={!hasChildren}
-          title={hasChildren ? (expanded ? 'Collapse section' : 'Expand section') : 'No child sections'}
-        >
-          {hasChildren ? expanded ? <ChevronDown /> : <ChevronRight /> : <span aria-hidden="true" />}
-        </button>
-        {editingField === 'title' ? (
-          <Input
-            value={title}
-            autoFocus
-            aria-label={`${node.title} title`}
-            className="section-list-title-input"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => {
-              const nextTitle = event.target.value;
-              setTitle(nextTitle);
-              if (nextTitle.trim()) {
-                setError(null);
-              }
-            }}
-            onBlur={() => void commitEditingField('title')}
-          />
-        ) : (
-          <button
-            type="button"
-            className="section-list-title-display"
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelection({ type: 'node', id: node.id });
-              setEditingField('title');
-            }}
-          >
-            {title || node.title}
-          </button>
-        )}
-      </div>
-      <div className="section-list-intent-cell">
-        {editingField === 'intent' ? (
-          <Textarea
-            value={intent}
-            autoFocus
-            aria-label={`${node.title} intent`}
-            className="section-list-intent-input"
-            placeholder="Intent"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => {
-              setIntent(event.target.value);
-            }}
-            onBlur={() => void commitEditingField('intent')}
-          />
-        ) : (
-          <button
-            type="button"
-            className={`section-list-intent-display${intent.trim() ? '' : ' empty'}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelection({ type: 'node', id: node.id });
-              setEditingField('intent');
-            }}
-          >
-            {intent.trim() ? intent : 'No intent'}
-          </button>
-        )}
-        {error ? <span className="section-list-error">{error}</span> : null}
-      </div>
-      <div className="section-list-meta-cell">
-        <span>{node.children.length} child sections</span>
-        <span>{formatNodeStats(stats)}</span>
-        {node.id === rootNodeId ? <span>Root</span> : null}
-        {saving ? <span>Saving</span> : null}
-      </div>
-      <div className="section-list-action-cell">
+      <TableCell>
+        <div className="section-list-title-cell" style={{ '--section-depth': depth } as CSSProperties}>
+          {hasChildren ? (
+            <button
+              type="button"
+              className="section-list-expander"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleExpanded(node.id);
+              }}
+              title={expanded ? 'Collapse section' : 'Expand section'}
+            >
+              {expanded ? <ChevronDown /> : <ChevronRight />}
+            </button>
+          ) : null}
+          {editingField === 'title' ? (
+            <Input
+              value={title}
+              autoFocus
+              aria-label={`${node.title} title`}
+              className="section-list-title-input"
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => {
+                const nextTitle = event.target.value;
+                setTitle(nextTitle);
+                if (nextTitle.trim()) {
+                  setError(null);
+                }
+              }}
+              onBlur={() => void commitEditingField('title')}
+            />
+          ) : (
+            <button
+              type="button"
+              className="section-list-title-display"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelection({ type: 'node', id: node.id });
+                setEditingField('title');
+              }}
+            >
+              {title || node.title}
+            </button>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="section-list-intent-cell">
+          {editingField === 'intent' ? (
+            <Textarea
+              value={intent}
+              autoFocus
+              aria-label={`${node.title} intent`}
+              className="section-list-intent-input"
+              placeholder="Intent"
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => {
+                setIntent(event.target.value);
+              }}
+              onBlur={() => void commitEditingField('intent')}
+            />
+          ) : (
+            <button
+              type="button"
+              className={`section-list-intent-display${intent.trim() ? '' : ' empty'}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelection({ type: 'node', id: node.id });
+                setEditingField('intent');
+              }}
+            >
+              {intent.trim() ? intent : 'No intent'}
+            </button>
+          )}
+          {error ? <span className="section-list-error">{error}</span> : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="section-list-meta-cell">
+          <span>{formatSectionStatsLine(stats)}</span>
+          <span>{formatContentStatsLine(stats)}</span>
+          {node.id === rootNodeId ? <span>Root</span> : null}
+          {saving ? <span>Saving</span> : null}
+        </div>
+      </TableCell>
+      <TableCell className="section-list-action-cell">
         <Button
           variant="ghost"
           size="sm"
@@ -300,9 +317,25 @@ function SectionListRow({
         >
           Enter
         </Button>
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   );
+}
+
+function formatSectionStatsLine(stats?: NodeStats) {
+  return formatCount(stats?.sectionCount ?? 0, 'section');
+}
+
+function formatContentStatsLine(stats?: NodeStats) {
+  return [
+    formatCount(stats?.contentCount ?? 0, 'content'),
+    formatCount(stats?.mainContentCount ?? 0, 'main'),
+    formatCount(stats?.llmCount ?? 0, 'LLM')
+  ].join(' · ');
+}
+
+function formatCount(count: number, label: string) {
+  return `${count} ${label}${count === 1 || label === 'LLM' ? '' : 's'}`;
 }
 
 

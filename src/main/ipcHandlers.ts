@@ -23,7 +23,12 @@ import {
   startKnowledgeIngestWorker
 } from './knowledgeIngest.js';
 import { streamLlmText } from './llmRunner.js';
-import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llmSettings.js';
+import {
+  readLlmSettings,
+  readPublicLlmSettings,
+  updateAppearanceSettings,
+  updateLlmSettings
+} from './llmSettings.js';
 import {
   formatSourcesForPrompt,
   getKnowledgeChunkingDebugConfig,
@@ -345,6 +350,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.updateLlmSettings, (_event, payload) =>
     updateLlmSettings(payload)
+  );
+
+  ipcMain.handle(ipcChannels.updateAppearanceSettings, (_event, payload) =>
+    updateAppearanceSettings(payload)
   );
 
   ipcMain.handle(ipcChannels.createKnowledgeItem, async (_event, payload: CreateKnowledgeItemPayload) => {

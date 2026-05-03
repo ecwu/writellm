@@ -138,6 +138,16 @@ export type UpdateLlmSettingsPayload = {
   visionApiKey?: string;
 };
 
+export type ThemeMode = 'light' | 'dark';
+
+export type AppearanceSettings = {
+  theme: ThemeMode;
+};
+
+export type UpdateAppearanceSettingsPayload = {
+  theme: ThemeMode;
+};
+
 export type ModelEndpointSettings = {
   provider: LlmProviderKind;
   baseURL: string;
@@ -161,9 +171,13 @@ export type PublicModelSettingsProfile = {
   vision: PublicModelEndpointSettings;
 };
 
-export type LlmSettings = ModelSettingsProfile;
+export type LlmSettings = ModelSettingsProfile & {
+  appearance: AppearanceSettings;
+};
 
-export type PublicLlmSettings = PublicModelSettingsProfile;
+export type PublicLlmSettings = PublicModelSettingsProfile & {
+  appearance: AppearanceSettings;
+};
 
 export type KnowledgeIndexStatus = 'pending' | 'indexed' | 'error';
 

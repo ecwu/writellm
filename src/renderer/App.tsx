@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { formatWorkspaceTitle } from './app/formatters';
 import { usePaperLabApp } from './app/usePaperLabApp';
 import { Toaster } from './components/ui/sonner';
@@ -13,6 +13,12 @@ import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
+import type { PublicLlmSettings, ThemeMode } from '../shared/types';
+
+function applyTheme(theme: ThemeMode) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.documentElement.style.colorScheme = theme;
+}
 
 export function App() {
   const [debugEnabled, setDebugEnabled] = useState(false);
@@ -79,6 +85,23 @@ export function App() {
     onNodesChange,
     persistNodeLayoutFromNode
   } = usePaperLabApp();
+  const theme = llmSettings?.appearance.theme ?? 'light';
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  function handleSettingsSaved(settings: PublicLlmSettings) {
+    setLlmSettings(settings);
+  }
+
+  function handleThemePreview(themeMode: ThemeMode) {
+    applyTheme(themeMode);
+    setLlmSettings((current) =>
+      current ? { ...current, appearance: { theme: themeMode } } : current
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={0}>
       <div className="[--header-height:calc(--spacing(14))]">
@@ -123,7 +146,8 @@ export function App() {
             settings={llmSettings}
             debugEnabled={debugEnabled}
             onOpenChange={setSettingsOpen}
-            onSaved={setLlmSettings}
+            onSaved={handleSettingsSaved}
+            onThemePreview={handleThemePreview}
             onDebugEnabledChange={setDebugEnabled}
             onError={notifyError}
             onStatus={notifyStatus}

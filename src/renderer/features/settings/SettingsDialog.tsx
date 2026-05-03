@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bug, Cpu, Database, Eye, KeyRound, MessageSquareText, Save, Settings2, SlidersHorizontal } from 'lucide-react';
+import {
+  Bug,
+  Cpu,
+  Database,
+  Eye,
+  KeyRound,
+  MessageSquareText,
+  Moon,
+  Save,
+  Settings2,
+  SlidersHorizontal,
+  Sun
+} from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import {
@@ -28,7 +40,7 @@ import {
   SidebarProvider
 } from '../../components/ui/sidebar';
 import { cn } from '../../lib/utils';
-import type { LlmProviderKind, PublicLlmSettings } from '../../../shared/types';
+import type { LlmProviderKind, PublicLlmSettings, ThemeMode } from '../../../shared/types';
 
 type SettingsSectionId = 'general' | 'chat' | 'embedding' | 'vision';
 
@@ -122,6 +134,7 @@ export function SettingsDialog({
   debugEnabled,
   onOpenChange,
   onSaved,
+  onThemePreview,
   onDebugEnabledChange,
   onError,
   onStatus
@@ -131,6 +144,7 @@ export function SettingsDialog({
   debugEnabled: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (settings: PublicLlmSettings) => void;
+  onThemePreview: (theme: ThemeMode) => void;
   onDebugEnabledChange: (enabled: boolean) => void;
   onError: (message: string) => void;
   onStatus: (message: string) => void;
@@ -139,13 +153,30 @@ export function SettingsDialog({
   const [chat, setChat] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'chat'));
   const [embedding, setEmbedding] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'embedding'));
   const [vision, setVision] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'vision'));
+  const [theme, setTheme] = useState<ThemeMode>(settings?.appearance.theme ?? 'light');
+  const [themeSaving, setThemeSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setChat(endpointFromSettings(settings, 'chat'));
     setEmbedding(endpointFromSettings(settings, 'embedding'));
     setVision(endpointFromSettings(settings, 'vision'));
-  }, [settings, open]);
+  }, [
+    settings?.chat.provider,
+    settings?.chat.baseURL,
+    settings?.chat.model,
+    settings?.embedding.provider,
+    settings?.embedding.baseURL,
+    settings?.embedding.model,
+    settings?.vision.provider,
+    settings?.vision.baseURL,
+    settings?.vision.model,
+    open
+  ]);
+
+  useEffect(() => {
+    setTheme(settings?.appearance.theme ?? 'light');
+  }, [settings?.appearance.theme, open]);
 
   const canSave = useMemo(() => {
     return [chat, embedding, vision].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim());
@@ -200,6 +231,26 @@ export function SettingsDialog({
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function updateTheme(nextTheme: ThemeMode) {
+    const previousTheme = theme;
+    setTheme(nextTheme);
+    onThemePreview(nextTheme);
+    try {
+      setThemeSaving(true);
+      const next = await getApi().updateAppearanceSettings({ theme: nextTheme });
+      if (!settings) {
+        onSaved(next);
+      }
+      onStatus('Theme updated.');
+    } catch (caught) {
+      setTheme(previousTheme);
+      onThemePreview(previousTheme);
+      onError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setThemeSaving(false);
     }
   }
 
@@ -265,7 +316,13 @@ export function SettingsDialog({
 
             <div className="flex-1 overflow-y-auto p-4">
               {activeSection === 'general' ? (
-                <GeneralSettings debugEnabled={debugEnabled} onDebugEnabledChange={onDebugEnabledChange} />
+                <GeneralSettings
+                  debugEnabled={debugEnabled}
+                  theme={theme}
+                  themeSaving={themeSaving}
+                  onDebugEnabledChange={onDebugEnabledChange}
+                  onThemeChange={(nextTheme) => void updateTheme(nextTheme)}
+                />
               ) : activeSection === 'chat' ? (
                 <EndpointSettings
                   title="Chat"
@@ -318,13 +375,43 @@ export function SettingsDialog({
 
 function GeneralSettings({
   debugEnabled,
-  onDebugEnabledChange
+  theme,
+  themeSaving,
+  onDebugEnabledChange,
+  onThemeChange
 }: {
   debugEnabled: boolean;
+  theme: ThemeMode;
+  themeSaving: boolean;
   onDebugEnabledChange: (enabled: boolean) => void;
+  onThemeChange: (theme: ThemeMode) => void;
 }) {
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
+      <section className="grid gap-4 border-b pb-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <h3 className="text-sm font-medium">Dark theme</h3>
+            <p className="text-sm text-muted-foreground">Use the dark color scheme across the app.</p>
+          </div>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              className="peer sr-only"
+              type="checkbox"
+              role="switch"
+              checked={theme === 'dark'}
+              disabled={themeSaving}
+              onChange={(event) => onThemeChange(event.target.checked ? 'dark' : 'light')}
+            />
+            <span className="h-6 w-10 rounded-full bg-muted ring-1 ring-border transition-colors peer-checked:bg-primary peer-disabled:opacity-60" />
+            <span className="absolute left-1 size-4 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-4" />
+          </label>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
+          <span>{themeSaving ? 'Saving theme...' : theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</span>
+        </div>
+      </section>
       <section className="grid gap-4 border-b pb-6">
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-1">

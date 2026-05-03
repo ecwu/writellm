@@ -22,6 +22,7 @@ const ipcChannels = {
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
+  updateAppearanceSettings: 'paperlab:updateAppearanceSettings',
   createKnowledgeItem: 'paperlab:createKnowledgeItem',
   enqueueKnowledgeFiles: 'paperlab:enqueueKnowledgeFiles',
   retryKnowledgeIngestJob: 'paperlab:retryKnowledgeIngestJob',
@@ -63,6 +64,8 @@ const api: PaperLabIpc = {
   exportLatex: (rootNodeId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootNodeId),
   getLlmSettings: () => ipcRenderer.invoke(ipcChannels.getLlmSettings),
   updateLlmSettings: (payload) => ipcRenderer.invoke(ipcChannels.updateLlmSettings, payload),
+  updateAppearanceSettings: (payload) =>
+    ipcRenderer.invoke(ipcChannels.updateAppearanceSettings, payload),
   createKnowledgeItem: (payload) => ipcRenderer.invoke(ipcChannels.createKnowledgeItem, payload),
   enqueueKnowledgeFiles: (payload) => ipcRenderer.invoke(ipcChannels.enqueueKnowledgeFiles, payload),
   retryKnowledgeIngestJob: (jobId) => ipcRenderer.invoke(ipcChannels.retryKnowledgeIngestJob, jobId),

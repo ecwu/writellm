@@ -13,6 +13,7 @@ import type {
   RecentWorkspace,
   RetrievedKnowledgeSource,
   SaveLlmGenerationPayload,
+  UpdateAppearanceSettingsPayload,
   UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
   UpdateNodeLayoutPayload,
@@ -40,6 +41,7 @@ export const ipcChannels = {
   exportLatex: 'paperlab:exportLatex',
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
+  updateAppearanceSettings: 'paperlab:updateAppearanceSettings',
   createKnowledgeItem: 'paperlab:createKnowledgeItem',
   enqueueKnowledgeFiles: 'paperlab:enqueueKnowledgeFiles',
   retryKnowledgeIngestJob: 'paperlab:retryKnowledgeIngestJob',
@@ -80,6 +82,7 @@ export type PaperLabIpc = {
   exportLatex(rootNodeId: string): Promise<{ path: string }>;
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;
+  updateAppearanceSettings(payload: UpdateAppearanceSettingsPayload): Promise<PublicLlmSettings>;
   createKnowledgeItem(payload: CreateKnowledgeItemPayload): Promise<FocusedWorkspaceState>;
   enqueueKnowledgeFiles(payload: EnqueueKnowledgeFilesPayload): Promise<FocusedWorkspaceState>;
   retryKnowledgeIngestJob(jobId: string): Promise<FocusedWorkspaceState>;
