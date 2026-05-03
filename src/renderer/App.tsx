@@ -66,9 +66,12 @@ export function App() {
     cancelLlmDraft,
     saveLlmDraft,
     createKnowledgeItem,
+    importKnowledgeFiles,
     updateKnowledgeItem,
     deleteKnowledgeItem,
     reindexKnowledgeItem,
+    retryKnowledgeIngestJob,
+    deleteKnowledgeIngestJob,
     excludeKnowledgeSource,
     exportLatex,
     setFocusedChildViewMode,
@@ -144,10 +147,14 @@ export function App() {
           {activePage === 'knowledge' ? (
             <KnowledgePage
               items={state.knowledgeItems}
+              ingestJobs={state.knowledgeIngestJobs}
               onCreate={(title, content) => void createKnowledgeItem(title, content)}
+              onImportFiles={() => void importKnowledgeFiles()}
               onUpdate={(itemId, title, content) => void updateKnowledgeItem(itemId, title, content)}
               onDelete={(itemId) => void deleteKnowledgeItem(itemId)}
               onReindex={(itemId) => void reindexKnowledgeItem(itemId)}
+              onRetryIngest={(jobId) => void retryKnowledgeIngestJob(jobId)}
+              onDeleteIngest={(jobId) => void deleteKnowledgeIngestJob(jobId)}
             />
           ) : (
             <div className="flex min-h-0 flex-1">

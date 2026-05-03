@@ -78,6 +78,7 @@ export type FocusedWorkspaceState = {
   visibleNodes: NodeRecord[];
   contextNodes: ContentNodeRecord[];
   knowledgeItems: KnowledgeItemRecord[];
+  knowledgeIngestJobs: KnowledgeIngestJobRecord[];
   nodeStats: Record<string, NodeStats>;
   edges: NodeEdgeRecord[];
   nodeLayouts: CanvasNodeLayout[];
@@ -170,11 +171,28 @@ export type KnowledgeItemRecord = {
   id: string;
   title: string;
   content: string;
-  sourceType: 'text';
+  sourceType: 'text' | 'file';
   indexStatus: KnowledgeIndexStatus;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+};
+
+export type KnowledgeIngestStatus = 'queued' | 'extracting' | 'indexing' | 'indexed' | 'error';
+
+export type KnowledgeIngestJobRecord = {
+  id: string;
+  filePath: string;
+  fileName: string;
+  fileExt: string;
+  fileSize: number;
+  knowledgeItemId: string | null;
+  status: KnowledgeIngestStatus;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
 };
 
 export type KnowledgeChunkRecord = {
@@ -213,6 +231,10 @@ export type RetrievedKnowledgeSource = {
 export type CreateKnowledgeItemPayload = {
   title: string;
   content: string;
+};
+
+export type EnqueueKnowledgeFilesPayload = {
+  filePaths: string[];
 };
 
 export type UpdateKnowledgeItemPayload = {

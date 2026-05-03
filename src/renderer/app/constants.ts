@@ -10,6 +10,7 @@ export const emptyState: FocusedWorkspaceState = {
   visibleNodes: [],
   contextNodes: [],
   knowledgeItems: [],
+  knowledgeIngestJobs: [],
   nodeStats: {},
   edges: [],
   nodeLayouts: []

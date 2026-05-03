@@ -90,7 +90,7 @@ export function usePaperLabApp() {
     void getApi().getLlmSettings().then(setLlmSettings).catch((caught) => {
       notifyError(caught instanceof Error ? caught.message : String(caught));
     });
-    const unsubscribe = getApi().onLlmStream((event) => {
+    const unsubscribeLlm = getApi().onLlmStream((event) => {
       if (event.type === 'started') {
         setLlmDraft((current) =>
           current.runId === event.runId ? { ...current, status: 'running', content: '', error: undefined } : current
@@ -122,7 +122,15 @@ export function usePaperLabApp() {
       );
       notifyError(event.message);
     });
-    return unsubscribe;
+    const unsubscribeKnowledgeIngest = getApi().onKnowledgeIngestUpdated(() => {
+      void getApi().getState().then(setState).catch((caught) => {
+        notifyError(caught instanceof Error ? caught.message : String(caught));
+      });
+    });
+    return () => {
+      unsubscribeLlm();
+      unsubscribeKnowledgeIngest();
+    };
   }, [apiAvailable]);
 
   useEffect(() => {
@@ -519,6 +527,34 @@ export function usePaperLabApp() {
     );
   }
 
+  async function importKnowledgeFiles() {
+    try {
+      const filePaths = await getApi().pickKnowledgeFiles();
+      if (filePaths.length === 0) {
+        return;
+      }
+      await run(
+        async () => {
+          await getApi().enqueueKnowledgeFiles({ filePaths });
+          return getApi().getState(state.focusSectionId ?? undefined);
+        },
+        `${filePaths.length} knowledge file${filePaths.length === 1 ? '' : 's'} queued.`
+      );
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function retryKnowledgeIngestJob(jobId: string) {
+    await run(
+      async () => {
+        await getApi().retryKnowledgeIngestJob(jobId);
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge import queued.'
+    );
+  }
+
   async function updateKnowledgeItem(itemId: string, title: string, content: string) {
     await run(
       async () => {
@@ -526,6 +562,16 @@ export function usePaperLabApp() {
         return getApi().getState(state.focusSectionId ?? undefined);
       },
       'Knowledge source updated.'
+    );
+  }
+
+  async function deleteKnowledgeIngestJob(jobId: string) {
+    await run(
+      async () => {
+        await getApi().deleteKnowledgeIngestJob(jobId);
+        return getApi().getState(state.focusSectionId ?? undefined);
+      },
+      'Knowledge import deleted.'
     );
   }
 
@@ -622,9 +668,12 @@ export function usePaperLabApp() {
     cancelLlmDraft,
     saveLlmDraft,
     createKnowledgeItem,
+    importKnowledgeFiles,
     updateKnowledgeItem,
     deleteKnowledgeItem,
     reindexKnowledgeItem,
+    retryKnowledgeIngestJob,
+    deleteKnowledgeIngestJob,
     excludeKnowledgeSource,
     exportLatex,
     setFocusedChildViewMode,

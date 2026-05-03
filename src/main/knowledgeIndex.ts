@@ -3,6 +3,7 @@ import type { PaperLabDatabase } from './database.js';
 
 const CHUNK_TARGET_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 180;
+const EMBEDDING_BATCH_SIZE = 64;
 
 export function chunkKnowledgeText(content: string): string[] {
   const normalized = content
@@ -122,6 +123,16 @@ async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Pro
     throw new Error('Knowledge embeddings currently require an OpenAI-compatible embedding endpoint.');
   }
 
+  const embeddings: number[][] = [];
+  for (let offset = 0; offset < texts.length; offset += EMBEDDING_BATCH_SIZE) {
+    const batch = texts.slice(offset, offset + EMBEDDING_BATCH_SIZE);
+    embeddings.push(...await embedTextBatch(settings, batch));
+  }
+
+  return embeddings;
+}
+
+async function embedTextBatch(settings: ModelEndpointSettings, texts: string[]): Promise<number[][]> {
   const response = await fetch(`${settings.baseURL.replace(/\/$/, '')}/embeddings`, {
     method: 'POST',
     headers: {

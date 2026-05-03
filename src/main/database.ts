@@ -11,6 +11,8 @@ import type {
   FocusedWorkspaceState,
   KnowledgeChunkRecord,
   KnowledgeCitationRecord,
+  KnowledgeIngestJobRecord,
+  KnowledgeIngestStatus,
   KnowledgeIndexStatus,
   KnowledgeItemRecord,
   NodeEdgeRecord,
@@ -22,7 +24,7 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 type SqlNodeRow = {
   id: string;
@@ -91,6 +93,21 @@ type SqlKnowledgeCitationRow = {
   snippet: string;
   score: number | null;
   created_at: string;
+};
+
+type SqlKnowledgeIngestJobRow = {
+  id: string;
+  file_path: string;
+  file_name: string;
+  file_ext: string;
+  file_size: number;
+  knowledge_item_id: string | null;
+  status: KnowledgeIngestStatus;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 export class PaperLabDatabase {
@@ -393,34 +410,59 @@ export class PaperLabDatabase {
     return row ? mapKnowledgeItem(row) : null;
   }
 
-  createKnowledgeItem(title: string, content: string): KnowledgeItemRecord {
+  createKnowledgeItem(
+    title: string,
+    content: string,
+    options: {
+      sourceType?: KnowledgeItemRecord['sourceType'];
+      metadata?: Record<string, unknown>;
+    } = {}
+  ): KnowledgeItemRecord {
     const id = createId('knw');
     const timestamp = nowIso();
     this.db
       .prepare(
         `INSERT INTO knowledge_items
          (id, title, content, source_type, index_status, metadata_json, created_at, updated_at)
-         VALUES (?, ?, ?, 'text', 'pending', '{}', ?, ?)`
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
       )
-      .run(id, title.trim() || 'Knowledge source', content, timestamp, timestamp);
+      .run(
+        id,
+        title.trim() || 'Knowledge source',
+        content,
+        options.sourceType ?? 'text',
+        JSON.stringify(options.metadata ?? {}),
+        timestamp,
+        timestamp
+      );
     return this.getKnowledgeItem(id)!;
   }
 
-  updateKnowledgeItem(itemId: string, payload: { title?: string; content?: string }): KnowledgeItemRecord {
+  updateKnowledgeItem(
+    itemId: string,
+    payload: {
+      title?: string;
+      content?: string;
+      sourceType?: KnowledgeItemRecord['sourceType'];
+      metadata?: Record<string, unknown>;
+    }
+  ): KnowledgeItemRecord {
     const item = this.getKnowledgeItem(itemId);
     if (!item) {
       throw new Error(`Knowledge item not found: ${itemId}`);
     }
     const nextTitle = payload.title?.trim() || item.title;
     const nextContent = payload.content ?? item.content;
+    const nextSourceType = payload.sourceType ?? item.sourceType;
+    const nextMetadata = payload.metadata ?? item.metadata;
     const timestamp = nowIso();
     this.db
       .prepare(
         `UPDATE knowledge_items
-         SET title = ?, content = ?, index_status = 'pending', updated_at = ?
+         SET title = ?, content = ?, source_type = ?, index_status = 'pending', metadata_json = ?, updated_at = ?
          WHERE id = ? AND deleted_at IS NULL`
       )
-      .run(nextTitle, nextContent, timestamp, itemId);
+      .run(nextTitle, nextContent, nextSourceType, JSON.stringify(nextMetadata), timestamp, itemId);
     return this.getKnowledgeItem(itemId)!;
   }
 
@@ -474,11 +516,15 @@ export class PaperLabDatabase {
   }
 
   markKnowledgeItemIndexError(itemId: string, message: string): void {
+    this.markKnowledgeItemError(itemId, 'indexError', message);
+  }
+
+  markKnowledgeItemError(itemId: string, metadataKey: string, message: string): void {
     const item = this.getKnowledgeItem(itemId);
     if (!item) {
       return;
     }
-    const metadata = { ...item.metadata, indexError: message };
+    const metadata = { ...item.metadata, [metadataKey]: message };
     this.db
       .prepare(
         `UPDATE knowledge_items
@@ -486,6 +532,136 @@ export class PaperLabDatabase {
          WHERE id = ? AND deleted_at IS NULL`
       )
       .run(JSON.stringify(metadata), nowIso(), itemId);
+  }
+
+  listKnowledgeIngestJobs(): KnowledgeIngestJobRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
+                error_message, created_at, updated_at, started_at, finished_at
+         FROM knowledge_ingest_jobs
+         ORDER BY created_at DESC`
+      )
+      .all()
+      .map((row) => mapKnowledgeIngestJob(row as SqlKnowledgeIngestJobRow));
+  }
+
+  getKnowledgeIngestJob(jobId: string): KnowledgeIngestJobRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
+                error_message, created_at, updated_at, started_at, finished_at
+         FROM knowledge_ingest_jobs
+         WHERE id = ?`
+      )
+      .get(jobId) as SqlKnowledgeIngestJobRow | undefined;
+    return row ? mapKnowledgeIngestJob(row) : null;
+  }
+
+  enqueueKnowledgeIngestJob(file: {
+    filePath: string;
+    fileName: string;
+    fileExt: string;
+    fileSize: number;
+  }): KnowledgeIngestJobRecord {
+    const id = createId('ing');
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO knowledge_ingest_jobs
+         (id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
+          error_message, created_at, updated_at, started_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, NULL, 'queued', NULL, ?, ?, NULL, NULL)`
+      )
+      .run(id, file.filePath, file.fileName, file.fileExt, file.fileSize, timestamp, timestamp);
+    return this.getKnowledgeIngestJob(id)!;
+  }
+
+  listRunnableKnowledgeIngestJobs(): KnowledgeIngestJobRecord[] {
+    return this.db
+      .prepare(
+        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
+                error_message, created_at, updated_at, started_at, finished_at
+         FROM knowledge_ingest_jobs
+         WHERE status IN ('queued', 'extracting', 'indexing')
+         ORDER BY created_at ASC`
+      )
+      .all()
+      .map((row) => mapKnowledgeIngestJob(row as SqlKnowledgeIngestJobRow));
+  }
+
+  updateKnowledgeIngestJob(
+    jobId: string,
+    payload: {
+      status?: KnowledgeIngestStatus;
+      errorMessage?: string | null;
+      knowledgeItemId?: string | null;
+      startedAt?: string | null;
+      finishedAt?: string | null;
+    }
+  ): KnowledgeIngestJobRecord {
+    const job = this.getKnowledgeIngestJob(jobId);
+    if (!job) {
+      throw new Error(`Knowledge ingest job not found: ${jobId}`);
+    }
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `UPDATE knowledge_ingest_jobs
+         SET status = ?, error_message = ?, knowledge_item_id = ?, updated_at = ?,
+             started_at = ?, finished_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        payload.status ?? job.status,
+        Object.prototype.hasOwnProperty.call(payload, 'errorMessage') ? payload.errorMessage : job.errorMessage,
+        Object.prototype.hasOwnProperty.call(payload, 'knowledgeItemId') ? payload.knowledgeItemId : job.knowledgeItemId,
+        timestamp,
+        Object.prototype.hasOwnProperty.call(payload, 'startedAt') ? payload.startedAt : job.startedAt,
+        Object.prototype.hasOwnProperty.call(payload, 'finishedAt') ? payload.finishedAt : job.finishedAt,
+        jobId
+      );
+    return this.getKnowledgeIngestJob(jobId)!;
+  }
+
+  retryKnowledgeIngestJob(jobId: string): KnowledgeIngestJobRecord {
+    const job = this.getKnowledgeIngestJob(jobId);
+    if (!job) {
+      throw new Error(`Knowledge ingest job not found: ${jobId}`);
+    }
+    if (job.status !== 'error') {
+      return job;
+    }
+    const item = job.knowledgeItemId ? this.getKnowledgeItem(job.knowledgeItemId) : null;
+    if (item) {
+      this.updateKnowledgeItem(item.id, {
+        metadata: {
+          ...item.metadata,
+          extractionError: null,
+          indexError: null
+        }
+      });
+    }
+    return this.updateKnowledgeIngestJob(jobId, {
+      status: 'queued',
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null
+    });
+  }
+
+  deleteKnowledgeIngestJob(jobId: string): void {
+    const job = this.getKnowledgeIngestJob(jobId);
+    if (!job) {
+      throw new Error(`Knowledge ingest job not found: ${jobId}`);
+    }
+    const remove = this.db.transaction(() => {
+      if (job.knowledgeItemId && this.getKnowledgeItem(job.knowledgeItemId)) {
+        this.deleteKnowledgeItem(job.knowledgeItemId);
+      }
+      this.db.prepare('DELETE FROM knowledge_ingest_jobs WHERE id = ?').run(jobId);
+    });
+    remove();
   }
 
   listKnowledgeChunks(itemId?: string): KnowledgeChunkRecord[] {
@@ -597,6 +773,7 @@ export class PaperLabDatabase {
         (node): node is ContentNodeRecord => node.kind === 'content' && Boolean(node.content.trim())
       ),
       knowledgeItems: this.listKnowledgeItems(),
+      knowledgeIngestJobs: this.listKnowledgeIngestJobs(),
       nodeStats: this.buildNodeStats(nodes),
       edges,
       nodeLayouts: this.listCanvasNodeLayouts(focusId)
@@ -681,25 +858,6 @@ export class PaperLabDatabase {
   }
 
   private migrate(): void {
-    const version = this.db.pragma('user_version', { simple: true }) as number;
-    if (version !== SCHEMA_VERSION) {
-      this.db.exec(`
-        DROP TABLE IF EXISTS containers;
-        DROP TABLE IF EXISTS container_children;
-        DROP TABLE IF EXISTS artifacts;
-        DROP TABLE IF EXISTS author_text_versions;
-        DROP TABLE IF EXISTS review_comments;
-        DROP TABLE IF EXISTS edges;
-        DROP TABLE IF EXISTS canvas_node_layouts;
-        DROP TABLE IF EXISTS nodes;
-        DROP TABLE IF EXISTS node_edges;
-        DROP TABLE IF EXISTS llm_runs;
-        DROP TABLE IF EXISTS knowledge_items;
-        DROP TABLE IF EXISTS knowledge_chunks;
-        DROP TABLE IF EXISTS generation_citations;
-      `);
-    }
-
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
@@ -786,6 +944,24 @@ export class PaperLabDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_generation_citations_node
       ON generation_citations(generation_node_id);
+
+      CREATE TABLE IF NOT EXISTS knowledge_ingest_jobs (
+        id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_ext TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        knowledge_item_id TEXT,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_knowledge_ingest_jobs_status
+      ON knowledge_ingest_jobs(status, created_at);
     `);
 
     this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
@@ -1067,6 +1243,23 @@ function mapKnowledgeCitation(row: SqlKnowledgeCitationRow): KnowledgeCitationRe
     snippet: row.snippet,
     score: row.score,
     createdAt: row.created_at
+  };
+}
+
+function mapKnowledgeIngestJob(row: SqlKnowledgeIngestJobRow): KnowledgeIngestJobRecord {
+  return {
+    id: row.id,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    fileExt: row.file_ext,
+    fileSize: row.file_size,
+    knowledgeItemId: row.knowledge_item_id,
+    status: row.status,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at
   };
 }
 

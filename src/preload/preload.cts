@@ -8,6 +8,7 @@ const ipcChannels = {
   listRecentWorkspaces: 'paperlab:listRecentWorkspaces',
   pickWorkspaceFolder: 'paperlab:pickWorkspaceFolder',
   pickNewWorkspacePath: 'paperlab:pickNewWorkspacePath',
+  pickKnowledgeFiles: 'paperlab:pickKnowledgeFiles',
   getState: 'paperlab:getState',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
@@ -22,6 +23,9 @@ const ipcChannels = {
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
   createKnowledgeItem: 'paperlab:createKnowledgeItem',
+  enqueueKnowledgeFiles: 'paperlab:enqueueKnowledgeFiles',
+  retryKnowledgeIngestJob: 'paperlab:retryKnowledgeIngestJob',
+  deleteKnowledgeIngestJob: 'paperlab:deleteKnowledgeIngestJob',
   updateKnowledgeItem: 'paperlab:updateKnowledgeItem',
   deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
@@ -29,7 +33,8 @@ const ipcChannels = {
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
-  llmStream: 'paperlab:llmStream'
+  llmStream: 'paperlab:llmStream',
+  knowledgeIngestUpdated: 'paperlab:knowledgeIngestUpdated'
 } as const;
 
 const api: PaperLabIpc = {
@@ -38,6 +43,7 @@ const api: PaperLabIpc = {
   listRecentWorkspaces: () => ipcRenderer.invoke(ipcChannels.listRecentWorkspaces),
   pickWorkspaceFolder: () => ipcRenderer.invoke(ipcChannels.pickWorkspaceFolder),
   pickNewWorkspacePath: () => ipcRenderer.invoke(ipcChannels.pickNewWorkspacePath),
+  pickKnowledgeFiles: () => ipcRenderer.invoke(ipcChannels.pickKnowledgeFiles),
   getState: (focusSectionId) => ipcRenderer.invoke(ipcChannels.getState, focusSectionId),
   createNode: (payload) => ipcRenderer.invoke(ipcChannels.createNode, payload),
   updateNode: (nodeId, payload) => ipcRenderer.invoke(ipcChannels.updateNode, nodeId, payload),
@@ -57,6 +63,9 @@ const api: PaperLabIpc = {
   getLlmSettings: () => ipcRenderer.invoke(ipcChannels.getLlmSettings),
   updateLlmSettings: (payload) => ipcRenderer.invoke(ipcChannels.updateLlmSettings, payload),
   createKnowledgeItem: (payload) => ipcRenderer.invoke(ipcChannels.createKnowledgeItem, payload),
+  enqueueKnowledgeFiles: (payload) => ipcRenderer.invoke(ipcChannels.enqueueKnowledgeFiles, payload),
+  retryKnowledgeIngestJob: (jobId) => ipcRenderer.invoke(ipcChannels.retryKnowledgeIngestJob, jobId),
+  deleteKnowledgeIngestJob: (jobId) => ipcRenderer.invoke(ipcChannels.deleteKnowledgeIngestJob, jobId),
   updateKnowledgeItem: (itemId, payload) =>
     ipcRenderer.invoke(ipcChannels.updateKnowledgeItem, itemId, payload),
   deleteKnowledgeItem: (itemId) => ipcRenderer.invoke(ipcChannels.deleteKnowledgeItem, itemId),
@@ -72,6 +81,15 @@ const api: PaperLabIpc = {
     ipcRenderer.on(ipcChannels.llmStream, listener);
     return () => {
       ipcRenderer.removeListener(ipcChannels.llmStream, listener);
+    };
+  },
+  onKnowledgeIngestUpdated: (callback) => {
+    const listener = () => {
+      callback();
+    };
+    ipcRenderer.on(ipcChannels.knowledgeIngestUpdated, listener);
+    return () => {
+      ipcRenderer.removeListener(ipcChannels.knowledgeIngestUpdated, listener);
     };
   }
 };

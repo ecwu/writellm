@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PaperLabDatabase } from './database.js';
 import { nowIso } from './ids.js';
+import { startKnowledgeIngestWorker, stopKnowledgeIngestWorker } from './knowledgeIngest.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
 let activeDb: PaperLabDatabase | null = null;
@@ -47,6 +48,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
       visibleNodes: [],
       contextNodes: [],
       knowledgeItems: [],
+      knowledgeIngestJobs: [],
       nodeStats: {},
       edges: [],
       nodeLayouts: []
@@ -56,11 +58,13 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
 }
 
 function setActiveWorkspace(workspacePath: string): WorkspaceSummary {
+  stopKnowledgeIngestWorker();
   const nextDb = new PaperLabDatabase(workspacePath);
   if (activeDb) {
     activeDb.close();
   }
   activeDb = nextDb;
+  startKnowledgeIngestWorker(activeDb);
   return activeDb.summary();
 }
 

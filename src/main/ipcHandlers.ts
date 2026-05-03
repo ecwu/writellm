@@ -5,6 +5,7 @@ import type {
   CompositionTreeNode,
   ContentNodeRecord,
   CreateKnowledgeItemPayload,
+  EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
@@ -16,6 +17,11 @@ import type {
   UpdateNodePayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
+import {
+  enqueueKnowledgeFiles,
+  setKnowledgeIngestUpdateNotifier,
+  startKnowledgeIngestWorker
+} from './knowledgeIngest.js';
 import { streamLlmText } from './llmRunner.js';
 import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llmSettings.js';
 import { formatSourcesForPrompt, indexKnowledgeItem, retrieveKnowledgeSources } from './knowledgeIndex.js';
@@ -186,6 +192,12 @@ function buildContextPrompt(
 }
 
 export function registerIpcHandlers(): void {
+  setKnowledgeIngestUpdateNotifier(() => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(ipcChannels.knowledgeIngestUpdated);
+    }
+  });
+
   ipcMain.handle(ipcChannels.createWorkspace, (_event, workspacePath: string) =>
     createWorkspace(workspacePath)
   );
@@ -229,6 +241,23 @@ export function registerIpcHandlers(): void {
       return null;
     }
     return result.filePath.endsWith('.paperlab') ? result.filePath : `${result.filePath}.paperlab`;
+  });
+
+  ipcMain.handle(ipcChannels.pickKnowledgeFiles, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: 'Import knowledge files',
+      properties: ['openFile', 'multiSelections'] as Electron.OpenDialogOptions['properties'],
+      filters: [
+        { name: 'Knowledge files', extensions: ['txt', 'md', 'pdf'] },
+        { name: 'Text and Markdown', extensions: ['txt', 'md'] },
+        { name: 'PDF', extensions: ['pdf'] }
+      ]
+    };
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? [] : result.filePaths;
   });
 
   ipcMain.handle(ipcChannels.getState, (_event, focusSectionId?: string) =>
@@ -321,6 +350,25 @@ export function registerIpcHandlers(): void {
     } catch {
       // The item remains editable with an error status so the user can fix settings and reindex.
     }
+    return getState();
+  });
+
+  ipcMain.handle(ipcChannels.enqueueKnowledgeFiles, async (_event, payload: EnqueueKnowledgeFilesPayload) => {
+    const db = getActiveDb();
+    await enqueueKnowledgeFiles(db, payload.filePaths);
+    startKnowledgeIngestWorker(db);
+    return getState();
+  });
+
+  ipcMain.handle(ipcChannels.retryKnowledgeIngestJob, async (_event, jobId: string) => {
+    const db = getActiveDb();
+    db.retryKnowledgeIngestJob(jobId);
+    startKnowledgeIngestWorker(db);
+    return getState();
+  });
+
+  ipcMain.handle(ipcChannels.deleteKnowledgeIngestJob, (_event, jobId: string) => {
+    getActiveDb().deleteKnowledgeIngestJob(jobId);
     return getState();
   });
 

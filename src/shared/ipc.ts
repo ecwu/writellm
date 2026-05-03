@@ -1,5 +1,6 @@
 import type {
   CreateKnowledgeItemPayload,
+  EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
@@ -24,6 +25,7 @@ export const ipcChannels = {
   listRecentWorkspaces: 'paperlab:listRecentWorkspaces',
   pickWorkspaceFolder: 'paperlab:pickWorkspaceFolder',
   pickNewWorkspacePath: 'paperlab:pickNewWorkspacePath',
+  pickKnowledgeFiles: 'paperlab:pickKnowledgeFiles',
   getState: 'paperlab:getState',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
@@ -38,6 +40,9 @@ export const ipcChannels = {
   getLlmSettings: 'paperlab:getLlmSettings',
   updateLlmSettings: 'paperlab:updateLlmSettings',
   createKnowledgeItem: 'paperlab:createKnowledgeItem',
+  enqueueKnowledgeFiles: 'paperlab:enqueueKnowledgeFiles',
+  retryKnowledgeIngestJob: 'paperlab:retryKnowledgeIngestJob',
+  deleteKnowledgeIngestJob: 'paperlab:deleteKnowledgeIngestJob',
   updateKnowledgeItem: 'paperlab:updateKnowledgeItem',
   deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
@@ -45,7 +50,8 @@ export const ipcChannels = {
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
-  llmStream: 'paperlab:llmStream'
+  llmStream: 'paperlab:llmStream',
+  knowledgeIngestUpdated: 'paperlab:knowledgeIngestUpdated'
 } as const;
 
 export type PaperLabIpc = {
@@ -54,6 +60,7 @@ export type PaperLabIpc = {
   listRecentWorkspaces(): Promise<RecentWorkspace[]>;
   pickWorkspaceFolder(): Promise<string | null>;
   pickNewWorkspacePath(): Promise<string | null>;
+  pickKnowledgeFiles(): Promise<string[]>;
   getState(focusSectionId?: string): Promise<FocusedWorkspaceState>;
   createNode(payload: CreateNodePayload): Promise<FocusedWorkspaceState>;
   updateNode(nodeId: string, payload: UpdateNodePayload): Promise<FocusedWorkspaceState>;
@@ -72,6 +79,9 @@ export type PaperLabIpc = {
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;
   createKnowledgeItem(payload: CreateKnowledgeItemPayload): Promise<FocusedWorkspaceState>;
+  enqueueKnowledgeFiles(payload: EnqueueKnowledgeFilesPayload): Promise<FocusedWorkspaceState>;
+  retryKnowledgeIngestJob(jobId: string): Promise<FocusedWorkspaceState>;
+  deleteKnowledgeIngestJob(jobId: string): Promise<FocusedWorkspaceState>;
   updateKnowledgeItem(itemId: string, payload: UpdateKnowledgeItemPayload): Promise<FocusedWorkspaceState>;
   deleteKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   reindexKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
@@ -82,4 +92,5 @@ export type PaperLabIpc = {
   cancelLlmGeneration(runId: string): Promise<void>;
   saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
   onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;
+  onKnowledgeIngestUpdated(callback: () => void): () => void;
 };
