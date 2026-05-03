@@ -8,7 +8,7 @@ import { CanvasView } from './features/canvas/CanvasView';
 import { Inspector } from './features/inspector/Inspector';
 import { KnowledgePage } from './features/knowledge/KnowledgePage';
 import { SectionListView } from './features/sections/SectionListView';
-import { SettingsSheet } from './features/settings/SettingsSheet';
+import { SettingsDialog } from './features/settings/SettingsDialog';
 import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
@@ -118,7 +118,7 @@ export function App() {
             canSelectFocus={Boolean(focusSection)}
             hasSelection={Boolean(selection)}
           />
-          <SettingsSheet
+          <SettingsDialog
             open={settingsOpen}
             settings={llmSettings}
             debugEnabled={debugEnabled}
