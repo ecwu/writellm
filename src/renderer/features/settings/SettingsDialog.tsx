@@ -4,6 +4,7 @@ import {
   Cpu,
   Database,
   Eye,
+  FileText,
   KeyRound,
   MessageSquareText,
   Moon,
@@ -40,15 +41,31 @@ import {
   SidebarProvider
 } from '../../components/ui/sidebar';
 import { cn } from '../../lib/utils';
-import type { LlmProviderKind, PublicLlmSettings, ThemeMode } from '../../../shared/types';
+import type {
+  LlmProviderKind,
+  MineruModelVersion,
+  PdfExtractionEngine,
+  PublicLlmSettings,
+  ThemeMode
+} from '../../../shared/types';
 
-type SettingsSectionId = 'general' | 'chat' | 'embedding' | 'vision';
+type SettingsSectionId = 'general' | 'knowledge' | 'chat' | 'embedding' | 'vision';
 
 type EndpointDraft = {
   provider: LlmProviderKind;
   baseURL: string;
   model: string;
   apiKey: string;
+};
+
+type KnowledgeDraft = {
+  pdfExtractionEngine: PdfExtractionEngine;
+  mineruApiKey: string;
+  mineruModelVersion: MineruModelVersion;
+  mineruLanguage: string;
+  mineruIsOcr: boolean;
+  mineruEnableTable: boolean;
+  mineruEnableFormula: boolean;
 };
 
 const providerOptions: { value: LlmProviderKind; label: string }[] = [
@@ -66,7 +83,10 @@ const navGroups: {
 }[] = [
   {
     label: 'Global',
-    items: [{ id: 'general', label: 'General', icon: <Settings2 /> }]
+    items: [
+      { id: 'general', label: 'General', icon: <Settings2 /> },
+      { id: 'knowledge', label: 'Knowledge', icon: <FileText /> }
+    ]
   },
   {
     label: 'LLM',
@@ -80,6 +100,7 @@ const navGroups: {
 
 const sectionTitles: Record<SettingsSectionId, string> = {
   general: 'General',
+  knowledge: 'Knowledge',
   chat: 'Chat model',
   embedding: 'Embedding model',
   vision: 'Vision model'
@@ -128,6 +149,18 @@ function defaultsForProvider(provider: LlmProviderKind, currentModel: string) {
   };
 }
 
+function knowledgeFromSettings(settings: PublicLlmSettings | null): KnowledgeDraft {
+  return {
+    pdfExtractionEngine: settings?.knowledge.pdfExtractionEngine ?? 'pdfjs',
+    mineruApiKey: '',
+    mineruModelVersion: settings?.knowledge.mineru.modelVersion ?? 'vlm',
+    mineruLanguage: settings?.knowledge.mineru.language ?? 'ch',
+    mineruIsOcr: settings?.knowledge.mineru.isOcr ?? false,
+    mineruEnableTable: settings?.knowledge.mineru.enableTable ?? true,
+    mineruEnableFormula: settings?.knowledge.mineru.enableFormula ?? true
+  };
+}
+
 export function SettingsDialog({
   open,
   settings,
@@ -153,6 +186,7 @@ export function SettingsDialog({
   const [chat, setChat] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'chat'));
   const [embedding, setEmbedding] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'embedding'));
   const [vision, setVision] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'vision'));
+  const [knowledge, setKnowledge] = useState<KnowledgeDraft>(() => knowledgeFromSettings(settings));
   const [theme, setTheme] = useState<ThemeMode>(settings?.appearance.theme ?? 'light');
   const [themeSaving, setThemeSaving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -161,6 +195,7 @@ export function SettingsDialog({
     setChat(endpointFromSettings(settings, 'chat'));
     setEmbedding(endpointFromSettings(settings, 'embedding'));
     setVision(endpointFromSettings(settings, 'vision'));
+    setKnowledge(knowledgeFromSettings(settings));
   }, [
     settings?.chat.provider,
     settings?.chat.baseURL,
@@ -171,6 +206,12 @@ export function SettingsDialog({
     settings?.vision.provider,
     settings?.vision.baseURL,
     settings?.vision.model,
+    settings?.knowledge.pdfExtractionEngine,
+    settings?.knowledge.mineru.modelVersion,
+    settings?.knowledge.mineru.language,
+    settings?.knowledge.mineru.isOcr,
+    settings?.knowledge.mineru.enableTable,
+    settings?.knowledge.mineru.enableFormula,
     open
   ]);
 
@@ -179,8 +220,9 @@ export function SettingsDialog({
   }, [settings?.appearance.theme, open]);
 
   const canSave = useMemo(() => {
-    return [chat, embedding, vision].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim());
-  }, [chat, embedding, vision]);
+    return [chat, embedding, vision].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim())
+      && knowledge.mineruLanguage.trim();
+  }, [chat, embedding, vision, knowledge.mineruLanguage]);
 
   function updateEndpoint(
     section: Exclude<SettingsSectionId, 'general'>,
@@ -220,12 +262,20 @@ export function SettingsDialog({
         visionProvider: vision.provider,
         visionBaseURL: vision.baseURL,
         visionModel: vision.model,
-        visionApiKey: vision.apiKey.trim() ? vision.apiKey : undefined
+        visionApiKey: vision.apiKey.trim() ? vision.apiKey : undefined,
+        knowledgePdfExtractionEngine: knowledge.pdfExtractionEngine,
+        mineruApiKey: knowledge.mineruApiKey.trim() ? knowledge.mineruApiKey : undefined,
+        mineruModelVersion: knowledge.mineruModelVersion,
+        mineruLanguage: knowledge.mineruLanguage,
+        mineruIsOcr: knowledge.mineruIsOcr,
+        mineruEnableTable: knowledge.mineruEnableTable,
+        mineruEnableFormula: knowledge.mineruEnableFormula
       });
       onSaved(next);
       setChat((current) => ({ ...current, apiKey: '' }));
       setEmbedding((current) => ({ ...current, apiKey: '' }));
       setVision((current) => ({ ...current, apiKey: '' }));
+      setKnowledge((current) => ({ ...current, mineruApiKey: '' }));
       onStatus('Settings saved.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
@@ -322,6 +372,12 @@ export function SettingsDialog({
                   themeSaving={themeSaving}
                   onDebugEnabledChange={onDebugEnabledChange}
                   onThemeChange={(nextTheme) => void updateTheme(nextTheme)}
+                />
+              ) : activeSection === 'knowledge' ? (
+                <KnowledgeSettings
+                  knowledge={knowledge}
+                  hasMineruApiKey={settings?.knowledge.mineru.hasApiKey ?? false}
+                  onChange={setKnowledge}
                 />
               ) : activeSection === 'chat' ? (
                 <EndpointSettings
@@ -435,6 +491,121 @@ function GeneralSettings({
           <span>{debugEnabled ? 'Debug details are visible.' : 'Debug details are hidden.'}</span>
         </div>
       </section>
+    </div>
+  );
+}
+
+function KnowledgeSettings({
+  knowledge,
+  hasMineruApiKey,
+  onChange
+}: {
+  knowledge: KnowledgeDraft;
+  hasMineruApiKey: boolean;
+  onChange: (next: KnowledgeDraft) => void;
+}) {
+  function update(partial: Partial<KnowledgeDraft>) {
+    onChange({ ...knowledge, ...partial });
+  }
+
+  return (
+    <div className="mx-auto grid w-full max-w-3xl gap-6">
+      <section className="grid gap-1 border-b pb-4">
+        <div className="flex items-center gap-2">
+          <FileText className="size-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">PDF extraction</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">Choose how imported PDF files are converted before text indexing.</p>
+      </section>
+
+      <div className="grid gap-5">
+        <label className="grid gap-2 text-sm font-medium">
+          Engine
+          <Select
+            value={knowledge.pdfExtractionEngine}
+            onValueChange={(value) => update({ pdfExtractionEngine: value as PdfExtractionEngine })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pdfjs">pdfjs local text extraction</SelectItem>
+              <SelectItem value="mineru">MinerU precise extraction</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+
+        <section className="settings-subsection">
+          <h3>MinerU</h3>
+          <label className="grid gap-2 text-sm font-medium">
+            API key
+            <div className="relative">
+              <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-8"
+                value={knowledge.mineruApiKey}
+                type="password"
+                onChange={(event) => update({ mineruApiKey: event.target.value })}
+                placeholder={hasMineruApiKey ? 'Stored; enter a new key to replace' : 'MinerU API key'}
+              />
+            </div>
+            <span className={cn('text-xs font-normal', hasMineruApiKey ? 'text-muted-foreground' : 'text-destructive')}>
+              {hasMineruApiKey ? 'API key saved' : 'API key missing'}
+            </span>
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium">
+            Model version
+            <Select
+              value={knowledge.mineruModelVersion}
+              onValueChange={(value) => update({ mineruModelVersion: value as MineruModelVersion })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="vlm">vlm</SelectItem>
+                <SelectItem value="pipeline">pipeline</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium">
+            Language
+            <Input
+              value={knowledge.mineruLanguage}
+              onChange={(event) => update({ mineruLanguage: event.target.value })}
+            />
+          </label>
+
+          <label className="settings-debug-toggle">
+            <input
+              type="checkbox"
+              checked={knowledge.mineruIsOcr}
+              onChange={(event) => update({ mineruIsOcr: event.target.checked })}
+            />
+            <span>OCR mode</span>
+          </label>
+
+          <label className="settings-debug-toggle">
+            <input
+              type="checkbox"
+              checked={knowledge.mineruEnableTable}
+              onChange={(event) => update({ mineruEnableTable: event.target.checked })}
+            />
+            <span>Extract tables</span>
+          </label>
+
+          <label className="settings-debug-toggle">
+            <input
+              type="checkbox"
+              checked={knowledge.mineruEnableFormula}
+              onChange={(event) => update({ mineruEnableFormula: event.target.checked })}
+            />
+            <span>Extract formulas</span>
+          </label>
+        </section>
+      </div>
     </div>
   );
 }

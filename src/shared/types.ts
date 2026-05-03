@@ -136,6 +136,13 @@ export type UpdateLlmSettingsPayload = {
   visionBaseURL?: string;
   visionModel?: string;
   visionApiKey?: string;
+  knowledgePdfExtractionEngine?: PdfExtractionEngine;
+  mineruApiKey?: string;
+  mineruModelVersion?: MineruModelVersion;
+  mineruLanguage?: string;
+  mineruIsOcr?: boolean;
+  mineruEnableTable?: boolean;
+  mineruEnableFormula?: boolean;
 };
 
 export type ThemeMode = 'light' | 'dark';
@@ -159,6 +166,33 @@ export type PublicModelEndpointSettings = Omit<ModelEndpointSettings, 'apiKey'> 
   hasApiKey: boolean;
 };
 
+export type PdfExtractionEngine = 'pdfjs' | 'mineru';
+
+export type MineruModelVersion = 'pipeline' | 'vlm';
+
+export type MineruSettings = {
+  apiKey: string;
+  modelVersion: MineruModelVersion;
+  language: string;
+  isOcr: boolean;
+  enableTable: boolean;
+  enableFormula: boolean;
+};
+
+export type PublicMineruSettings = Omit<MineruSettings, 'apiKey'> & {
+  hasApiKey: boolean;
+};
+
+export type KnowledgeSettings = {
+  pdfExtractionEngine: PdfExtractionEngine;
+  mineru: MineruSettings;
+};
+
+export type PublicKnowledgeSettings = {
+  pdfExtractionEngine: PdfExtractionEngine;
+  mineru: PublicMineruSettings;
+};
+
 export type ModelSettingsProfile = {
   chat: ModelEndpointSettings;
   embedding: ModelEndpointSettings;
@@ -173,16 +207,19 @@ export type PublicModelSettingsProfile = {
 
 export type LlmSettings = ModelSettingsProfile & {
   appearance: AppearanceSettings;
+  knowledge: KnowledgeSettings;
 };
 
 export type PublicLlmSettings = PublicModelSettingsProfile & {
   appearance: AppearanceSettings;
+  knowledge: PublicKnowledgeSettings;
 };
 
 export type KnowledgeIndexStatus = 'pending' | 'indexed' | 'error';
 
 export type KnowledgeItemRecord = {
   id: string;
+  publicRef: string;
   title: string;
   content: string;
   sourceType: 'text' | 'file';
@@ -192,7 +229,7 @@ export type KnowledgeItemRecord = {
   updatedAt: string;
 };
 
-export type KnowledgeIngestStatus = 'queued' | 'extracting' | 'indexing' | 'indexed' | 'error';
+export type KnowledgeIngestStatus = 'queued' | 'uploading' | 'extracting' | 'downloading' | 'indexing' | 'indexed' | 'error';
 
 export type KnowledgeIngestJobRecord = {
   id: string;
@@ -203,6 +240,7 @@ export type KnowledgeIngestJobRecord = {
   knowledgeItemId: string | null;
   status: KnowledgeIngestStatus;
   errorMessage: string | null;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -211,7 +249,9 @@ export type KnowledgeIngestJobRecord = {
 
 export type KnowledgeChunkRecord = {
   id: string;
+  publicRef: string;
   itemId: string;
+  itemPublicRef: string;
   itemTitle: string;
   chunkIndex: number;
   content: string;
@@ -224,6 +264,7 @@ export type KnowledgeChunkRecord = {
 export type KnowledgeCitationRecord = {
   id: string;
   generationNodeId: string;
+  publicRef: string;
   knowledgeItemId: string;
   knowledgeChunkId: string;
   label: string;
@@ -234,7 +275,9 @@ export type KnowledgeCitationRecord = {
 
 export type RetrievedKnowledgeSource = {
   label: string;
+  publicRef: string;
   itemId: string;
+  itemPublicRef: string;
   itemTitle: string;
   chunkId: string;
   chunkIndex: number;
@@ -271,6 +314,7 @@ export type KnowledgeChunkingDebugConfig = {
 
 export type KnowledgeChunkDebugRecord = {
   id: string;
+  publicRef: string;
   chunkIndex: number;
   content: string;
   contentLength: number;
@@ -284,6 +328,7 @@ export type KnowledgeChunkDebugRecord = {
 
 export type KnowledgeItemDebugRecord = {
   itemId: string;
+  publicRef: string;
   title: string;
   sourceType: KnowledgeItemRecord['sourceType'];
   indexStatus: KnowledgeIndexStatus;

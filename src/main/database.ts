@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { createId, nowIso } from './ids.js';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { createId, createShortRef, nowIso } from './ids.js';
 import type {
   CanvasNodeLayout,
   CompositionTreeNode,
@@ -26,7 +26,7 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 6;
 
 type SqlNodeRow = {
   id: string;
@@ -65,6 +65,7 @@ type SqlCanvasNodeLayoutRow = {
 
 type SqlKnowledgeItemRow = {
   id: string;
+  public_ref: string;
   title: string;
   content: string;
   source_type: KnowledgeItemRecord['sourceType'];
@@ -76,7 +77,9 @@ type SqlKnowledgeItemRow = {
 
 type SqlKnowledgeChunkRow = {
   id: string;
+  public_ref: string;
   item_id: string;
+  item_public_ref: string;
   item_title: string;
   chunk_index: number;
   content: string;
@@ -86,11 +89,22 @@ type SqlKnowledgeChunkRow = {
   updated_at: string;
 };
 
-type SqlKnowledgeDebugChunkRow = Omit<SqlKnowledgeChunkRow, 'item_title'>;
+type SqlKnowledgeDebugChunkRow = {
+  id: string;
+  public_ref: string;
+  item_id: string;
+  chunk_index: number;
+  content: string;
+  embedding_json: string | null;
+  embedding_model: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 type SqlKnowledgeCitationRow = {
   id: string;
   generation_node_id: string;
+  public_ref: string | null;
   knowledge_item_id: string;
   knowledge_chunk_id: string;
   label: string;
@@ -108,6 +122,7 @@ type SqlKnowledgeIngestJobRow = {
   knowledge_item_id: string | null;
   status: KnowledgeIngestStatus;
   error_message: string | null;
+  metadata_json: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -131,6 +146,7 @@ export class PaperLabDatabase {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
+    this.backfillMineruMarkdownContent();
     this.rootNodeId = this.ensureRootSection();
   }
 
@@ -394,7 +410,7 @@ export class PaperLabDatabase {
   listKnowledgeItems(): KnowledgeItemRecord[] {
     return this.db
       .prepare(
-        `SELECT id, title, content, source_type, index_status, metadata_json, created_at, updated_at
+        `SELECT id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at
          FROM knowledge_items
          WHERE deleted_at IS NULL
          ORDER BY updated_at DESC, created_at DESC`
@@ -406,7 +422,7 @@ export class PaperLabDatabase {
   getKnowledgeItem(itemId: string): KnowledgeItemRecord | null {
     const row = this.db
       .prepare(
-        `SELECT id, title, content, source_type, index_status, metadata_json, created_at, updated_at
+        `SELECT id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at
          FROM knowledge_items
          WHERE id = ? AND deleted_at IS NULL`
       )
@@ -423,15 +439,17 @@ export class PaperLabDatabase {
     } = {}
   ): KnowledgeItemRecord {
     const id = createId('knw');
+    const publicRef = this.createUniqueKnowledgeItemPublicRef();
     const timestamp = nowIso();
     this.db
       .prepare(
         `INSERT INTO knowledge_items
-         (id, title, content, source_type, index_status, metadata_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
+         (id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
       )
       .run(
         id,
+        publicRef,
         title.trim() || 'Knowledge source',
         content,
         options.sourceType ?? 'text',
@@ -488,7 +506,8 @@ export class PaperLabDatabase {
     itemId: string,
     chunks: Array<{ content: string; embedding: number[]; embeddingModel: string }>
   ): KnowledgeChunkRecord[] {
-    if (!this.getKnowledgeItem(itemId)) {
+    const item = this.getKnowledgeItem(itemId);
+    if (!item) {
       throw new Error(`Knowledge item not found: ${itemId}`);
     }
     const timestamp = nowIso();
@@ -496,12 +515,13 @@ export class PaperLabDatabase {
       this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
       const insert = this.db.prepare(
         `INSERT INTO knowledge_chunks
-         (id, item_id, chunk_index, content, embedding_json, embedding_model, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, public_ref, item_id, chunk_index, content, embedding_json, embedding_model, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       chunks.forEach((chunk, index) => {
         insert.run(
           createId('chk'),
+          createKnowledgeChunkPublicRef(item.publicRef, index),
           itemId,
           index,
           chunk.content,
@@ -542,7 +562,7 @@ export class PaperLabDatabase {
     return this.db
       .prepare(
         `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, created_at, updated_at, started_at, finished_at
+                error_message, metadata_json, created_at, updated_at, started_at, finished_at
          FROM knowledge_ingest_jobs
          ORDER BY created_at DESC`
       )
@@ -554,7 +574,7 @@ export class PaperLabDatabase {
     const row = this.db
       .prepare(
         `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, created_at, updated_at, started_at, finished_at
+                error_message, metadata_json, created_at, updated_at, started_at, finished_at
          FROM knowledge_ingest_jobs
          WHERE id = ?`
       )
@@ -567,6 +587,7 @@ export class PaperLabDatabase {
     fileName: string;
     fileExt: string;
     fileSize: number;
+    metadata?: Record<string, unknown>;
   }): KnowledgeIngestJobRecord {
     const id = createId('ing');
     const timestamp = nowIso();
@@ -574,10 +595,19 @@ export class PaperLabDatabase {
       .prepare(
         `INSERT INTO knowledge_ingest_jobs
          (id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-          error_message, created_at, updated_at, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'queued', NULL, ?, ?, NULL, NULL)`
+          error_message, metadata_json, created_at, updated_at, started_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, NULL, 'queued', NULL, ?, ?, ?, NULL, NULL)`
       )
-      .run(id, file.filePath, file.fileName, file.fileExt, file.fileSize, timestamp, timestamp);
+      .run(
+        id,
+        file.filePath,
+        file.fileName,
+        file.fileExt,
+        file.fileSize,
+        JSON.stringify(file.metadata ?? {}),
+        timestamp,
+        timestamp
+      );
     return this.getKnowledgeIngestJob(id)!;
   }
 
@@ -585,9 +615,9 @@ export class PaperLabDatabase {
     return this.db
       .prepare(
         `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, created_at, updated_at, started_at, finished_at
+                error_message, metadata_json, created_at, updated_at, started_at, finished_at
          FROM knowledge_ingest_jobs
-         WHERE status IN ('queued', 'extracting', 'indexing')
+         WHERE status IN ('queued', 'uploading', 'extracting', 'downloading', 'indexing')
          ORDER BY created_at ASC`
       )
       .all()
@@ -599,6 +629,7 @@ export class PaperLabDatabase {
     payload: {
       status?: KnowledgeIngestStatus;
       errorMessage?: string | null;
+      metadata?: Record<string, unknown>;
       knowledgeItemId?: string | null;
       startedAt?: string | null;
       finishedAt?: string | null;
@@ -612,13 +643,14 @@ export class PaperLabDatabase {
     this.db
       .prepare(
         `UPDATE knowledge_ingest_jobs
-         SET status = ?, error_message = ?, knowledge_item_id = ?, updated_at = ?,
+         SET status = ?, error_message = ?, metadata_json = ?, knowledge_item_id = ?, updated_at = ?,
              started_at = ?, finished_at = ?
          WHERE id = ?`
       )
       .run(
         payload.status ?? job.status,
         Object.prototype.hasOwnProperty.call(payload, 'errorMessage') ? payload.errorMessage : job.errorMessage,
+        Object.prototype.hasOwnProperty.call(payload, 'metadata') ? JSON.stringify(payload.metadata) : JSON.stringify(job.metadata),
         Object.prototype.hasOwnProperty.call(payload, 'knowledgeItemId') ? payload.knowledgeItemId : job.knowledgeItemId,
         timestamp,
         Object.prototype.hasOwnProperty.call(payload, 'startedAt') ? payload.startedAt : job.startedAt,
@@ -646,9 +678,11 @@ export class PaperLabDatabase {
         }
       });
     }
+    const nextMetadata = resetRetryableIngestMetadata(job.metadata);
     return this.updateKnowledgeIngestJob(jobId, {
       status: 'queued',
       errorMessage: null,
+      metadata: nextMetadata,
       startedAt: null,
       finishedAt: null
     });
@@ -669,7 +703,8 @@ export class PaperLabDatabase {
   }
 
   listKnowledgeChunks(itemId?: string): KnowledgeChunkRecord[] {
-    const sql = `SELECT chunks.id, chunks.item_id, items.title AS item_title, chunks.chunk_index,
+    const sql = `SELECT chunks.id, chunks.public_ref, chunks.item_id, items.public_ref AS item_public_ref,
+                       items.title AS item_title, chunks.chunk_index,
                        chunks.content, chunks.embedding_json, chunks.embedding_model,
                        chunks.created_at, chunks.updated_at
                 FROM knowledge_chunks chunks
@@ -684,7 +719,7 @@ export class PaperLabDatabase {
     return this.listKnowledgeItems().map((item) => {
       const chunks = this.db
         .prepare(
-          `SELECT id, item_id, chunk_index, content, embedding_json, embedding_model,
+          `SELECT id, public_ref, item_id, chunk_index, content, embedding_json, embedding_model,
                   created_at, updated_at
            FROM knowledge_chunks
            WHERE item_id = ?
@@ -695,6 +730,7 @@ export class PaperLabDatabase {
 
       return {
         itemId: item.id,
+        publicRef: item.publicRef,
         title: item.title,
         sourceType: item.sourceType,
         indexStatus: item.indexStatus,
@@ -729,6 +765,7 @@ export class PaperLabDatabase {
   saveGenerationCitations(
     generationNodeId: string,
     citations: Array<{
+      publicRef: string;
       knowledgeItemId: string;
       knowledgeChunkId: string;
       label: string;
@@ -745,13 +782,14 @@ export class PaperLabDatabase {
       this.db.prepare('DELETE FROM generation_citations WHERE generation_node_id = ?').run(generationNodeId);
       const insert = this.db.prepare(
         `INSERT INTO generation_citations
-         (id, generation_node_id, knowledge_item_id, knowledge_chunk_id, label, snippet, score, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, generation_node_id, public_ref, knowledge_item_id, knowledge_chunk_id, label, snippet, score, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       citations.forEach((citation) => {
         insert.run(
           createId('cite'),
           generationNodeId,
+          citation.publicRef,
           citation.knowledgeItemId,
           citation.knowledgeChunkId,
           citation.label,
@@ -768,7 +806,7 @@ export class PaperLabDatabase {
   listGenerationCitations(generationNodeId: string): KnowledgeCitationRecord[] {
     return this.db
       .prepare(
-        `SELECT id, generation_node_id, knowledge_item_id, knowledge_chunk_id,
+        `SELECT id, generation_node_id, public_ref, knowledge_item_id, knowledge_chunk_id,
                 label, snippet, score, created_at
          FROM generation_citations
          WHERE generation_node_id = ?
@@ -887,6 +925,8 @@ export class PaperLabDatabase {
   }
 
   private migrate(): void {
+    const previousSchemaVersion = Number(this.db.pragma('user_version', { simple: true }) ?? 0);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
@@ -933,6 +973,7 @@ export class PaperLabDatabase {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS knowledge_items (
         id TEXT PRIMARY KEY,
+        public_ref TEXT NOT NULL,
         title TEXT NOT NULL,
         content TEXT NOT NULL,
         source_type TEXT NOT NULL DEFAULT 'text',
@@ -948,6 +989,7 @@ export class PaperLabDatabase {
 
       CREATE TABLE IF NOT EXISTS knowledge_chunks (
         id TEXT PRIMARY KEY,
+        public_ref TEXT NOT NULL,
         item_id TEXT NOT NULL,
         chunk_index INTEGER NOT NULL,
         content TEXT NOT NULL,
@@ -963,6 +1005,7 @@ export class PaperLabDatabase {
       CREATE TABLE IF NOT EXISTS generation_citations (
         id TEXT PRIMARY KEY,
         generation_node_id TEXT NOT NULL,
+        public_ref TEXT,
         knowledge_item_id TEXT NOT NULL,
         knowledge_chunk_id TEXT NOT NULL,
         label TEXT NOT NULL,
@@ -983,6 +1026,7 @@ export class PaperLabDatabase {
         knowledge_item_id TEXT,
         status TEXT NOT NULL,
         error_message TEXT,
+        metadata_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         started_at TEXT,
@@ -993,7 +1037,115 @@ export class PaperLabDatabase {
       ON knowledge_ingest_jobs(status, created_at);
     `);
 
+    this.addColumnIfMissing('knowledge_ingest_jobs', 'metadata_json', 'TEXT');
+    this.addColumnIfMissing('knowledge_items', 'public_ref', 'TEXT');
+    this.addColumnIfMissing('knowledge_chunks', 'public_ref', 'TEXT');
+    this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
+
+    if (previousSchemaVersion < 6) {
+      this.clearLegacyKnowledgeData();
+    }
+
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_items_public_ref
+      ON knowledge_items(public_ref);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_public_ref
+      ON knowledge_chunks(public_ref);
+    `);
+
     this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }
+
+  private addColumnIfMissing(tableName: string, columnName: string, columnDefinition: string): void {
+    const columns = this.db.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
+    if (columns.some((column) => column.name === columnName)) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+
+  private backfillMineruMarkdownContent(): void {
+    const rows = this.db
+      .prepare(
+        `SELECT id, content, metadata_json
+         FROM knowledge_items
+         WHERE deleted_at IS NULL
+           AND source_type = 'file'
+           AND metadata_json LIKE '%"mineru"%'
+           AND content NOT LIKE '%![](%'`
+      )
+      .all() as Array<{ id: string; content: string; metadata_json: string | null }>;
+    if (rows.length === 0) {
+      return;
+    }
+
+    const update = this.db.prepare(
+      `UPDATE knowledge_items
+       SET content = ?, metadata_json = ?, updated_at = ?
+       WHERE id = ? AND deleted_at IS NULL`
+    );
+    const timestamp = nowIso();
+    const backfill = this.db.transaction(() => {
+      for (const row of rows) {
+        const metadata = parseMetadata(row.metadata_json);
+        const mineru = metadata.mineru && typeof metadata.mineru === 'object'
+          ? metadata.mineru as Record<string, unknown>
+          : null;
+        if (!mineru || mineru.markdownBackfilledAt) {
+          continue;
+        }
+        const markdownPath = typeof mineru.markdownPath === 'string' ? mineru.markdownPath : null;
+        if (!markdownPath) {
+          continue;
+        }
+        const absoluteMarkdownPath = path.resolve(this.workspacePath, markdownPath);
+        if (!existsSync(absoluteMarkdownPath)) {
+          continue;
+        }
+        const markdown = readFileSync(absoluteMarkdownPath, 'utf8');
+        if (!markdown.trim() || !markdown.includes('![](')) {
+          continue;
+        }
+        update.run(
+          markdown,
+          JSON.stringify({
+            ...metadata,
+            mineru: {
+              ...mineru,
+              markdownBackfilledAt: timestamp
+            }
+          }),
+          timestamp,
+          row.id
+        );
+      }
+    });
+    backfill();
+  }
+
+  private clearLegacyKnowledgeData(): void {
+    const clear = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM generation_citations').run();
+      this.db.prepare('DELETE FROM knowledge_chunks').run();
+      this.db.prepare('DELETE FROM knowledge_ingest_jobs').run();
+      this.db.prepare('DELETE FROM knowledge_items').run();
+    });
+    clear();
+    rmSync(path.join(this.workspacePath, 'assets', 'knowledge'), { recursive: true, force: true });
+  }
+
+  private createUniqueKnowledgeItemPublicRef(): string {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const publicRef = createShortRef();
+      const existing = this.db
+        .prepare('SELECT 1 FROM knowledge_items WHERE public_ref = ? LIMIT 1')
+        .get(publicRef);
+      if (!existing) {
+        return publicRef;
+      }
+    }
+    throw new Error('Could not create a unique knowledge item reference.');
   }
 
   private ensureRootSection(): string {
@@ -1239,6 +1391,7 @@ function mapCanvasNodeLayout(row: SqlCanvasNodeLayoutRow): CanvasNodeLayout {
 function mapKnowledgeItem(row: SqlKnowledgeItemRow): KnowledgeItemRecord {
   return {
     id: row.id,
+    publicRef: row.public_ref,
     title: row.title,
     content: row.content,
     sourceType: row.source_type,
@@ -1252,7 +1405,9 @@ function mapKnowledgeItem(row: SqlKnowledgeItemRow): KnowledgeItemRecord {
 function mapKnowledgeChunk(row: SqlKnowledgeChunkRow): KnowledgeChunkRecord {
   return {
     id: row.id,
+    publicRef: row.public_ref,
     itemId: row.item_id,
+    itemPublicRef: row.item_public_ref,
     itemTitle: row.item_title,
     chunkIndex: row.chunk_index,
     content: row.content,
@@ -1266,6 +1421,7 @@ function mapKnowledgeChunkDebug(row: SqlKnowledgeDebugChunkRow): KnowledgeChunkD
   const embedding = parseEmbedding(row.embedding_json);
   return {
     id: row.id,
+    publicRef: row.public_ref,
     chunkIndex: row.chunk_index,
     content: row.content,
     contentLength: row.content.length,
@@ -1284,6 +1440,7 @@ function mapKnowledgeCitation(row: SqlKnowledgeCitationRow): KnowledgeCitationRe
   return {
     id: row.id,
     generationNodeId: row.generation_node_id,
+    publicRef: row.public_ref ?? row.label,
     knowledgeItemId: row.knowledge_item_id,
     knowledgeChunkId: row.knowledge_chunk_id,
     label: row.label,
@@ -1303,11 +1460,45 @@ function mapKnowledgeIngestJob(row: SqlKnowledgeIngestJobRow): KnowledgeIngestJo
     knowledgeItemId: row.knowledge_item_id,
     status: row.status,
     errorMessage: row.error_message,
+    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,
     finishedAt: row.finished_at
   };
+}
+
+function parseMetadata(raw: string | null): Record<string, unknown> {
+  if (!raw) {
+    return {};
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
+}
+
+function resetRetryableIngestMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  if (metadata.extractionEngine !== 'mineru') {
+    return metadata;
+  }
+  const mineru = metadata.mineru && typeof metadata.mineru === 'object'
+    ? metadata.mineru as Record<string, unknown>
+    : {};
+  return {
+    ...metadata,
+    mineru: {
+      modelVersion: mineru.modelVersion,
+      language: mineru.language,
+      isOcr: mineru.isOcr,
+      enableTable: mineru.enableTable,
+      enableFormula: mineru.enableFormula
+    }
+  };
+}
+
+function createKnowledgeChunkPublicRef(itemPublicRef: string, chunkIndex: number): string {
+  return `${itemPublicRef}.c${chunkIndex + 1}`;
 }
 
 function readEmbedding(chunkId: string, db: Database.Database): number[] {

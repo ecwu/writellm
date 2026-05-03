@@ -241,7 +241,7 @@ export function Inspector(props: InspectorProps) {
               <span>Sources</span>
               {selectedGenerationSources.map((source) => (
                 <p key={source.chunkId}>
-                  {source.label} {source.itemTitle}: {source.snippet}
+                  [{source.publicRef}] {source.itemTitle}: {source.snippet}
                 </p>
               ))}
             </div>
@@ -274,7 +274,9 @@ function getGenerationSources(node: ContentNodeRecord | null): RetrievedKnowledg
     const candidate = source as Partial<RetrievedKnowledgeSource>;
     return Boolean(
       candidate.label &&
+      candidate.publicRef &&
       candidate.itemId &&
+      candidate.itemPublicRef &&
       candidate.itemTitle &&
       candidate.chunkId &&
       typeof candidate.snippet === 'string' &&

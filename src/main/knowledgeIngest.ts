@@ -3,9 +3,10 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api.js';
-import type { ModelEndpointSettings } from '../shared/types.js';
+import type { KnowledgeSettings, ModelEndpointSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
 import { indexKnowledgeItem } from './knowledgeIndex.js';
+import { extractPdfWithMineru } from './mineru.js';
 import type { PaperLabDatabase } from './database.js';
 
 const SUPPORTED_FILE_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
@@ -23,7 +24,8 @@ export function setKnowledgeIngestUpdateNotifier(notifier: () => void): void {
 
 export async function enqueueKnowledgeFiles(
   db: PaperLabDatabase,
-  filePaths: string[]
+  filePaths: string[],
+  knowledgeSettings?: KnowledgeSettings
 ): Promise<void> {
   for (const filePath of filePaths) {
     const resolvedPath = path.resolve(filePath);
@@ -39,7 +41,8 @@ export async function enqueueKnowledgeFiles(
       filePath: resolvedPath,
       fileName: path.basename(resolvedPath),
       fileExt,
-      fileSize: fileStat.size
+      fileSize: fileStat.size,
+      metadata: createIngestJobMetadata(fileExt, knowledgeSettings)
     });
   }
 }
@@ -63,13 +66,18 @@ export async function processKnowledgeIngestJob(
   db: PaperLabDatabase,
   jobId: string,
   embeddingSettings?: ModelEndpointSettings,
-  indexItem: typeof indexKnowledgeItem = indexKnowledgeItem
+  indexItem: typeof indexKnowledgeItem = indexKnowledgeItem,
+  knowledgeSettings?: KnowledgeSettings
 ): Promise<void> {
-  const resolvedEmbeddingSettings = embeddingSettings ?? (await import('./llmSettings.js')).readLlmSettings().embedding;
   let job = db.getKnowledgeIngestJob(jobId);
   if (!job) {
     throw new Error(`Knowledge ingest job not found: ${jobId}`);
   }
+  const currentSettings = (embeddingSettings && (knowledgeSettings || jobDoesNotNeedMineru(job)))
+    ? null
+    : (await import('./llmSettings.js')).readLlmSettings();
+  const resolvedEmbeddingSettings = embeddingSettings ?? currentSettings!.embedding;
+  const resolvedKnowledgeSettings = knowledgeSettings ?? currentSettings?.knowledge;
 
   let phase: 'extraction' | 'indexing' = 'extraction';
   let itemId = job.knowledgeItemId;
@@ -85,12 +93,13 @@ export async function processKnowledgeIngestJob(
       return;
     }
 
-    const baseMetadata = {
+    const baseMetadata: Record<string, unknown> = {
       sourcePath: job.filePath,
       fileName: job.fileName,
       fileExt: job.fileExt,
       fileSize: job.fileSize,
-      ingestJobId: job.id
+      ingestJobId: job.id,
+      extractionEngine: readExtractionEngine(job)
     };
     const item = itemId && db.getKnowledgeItem(itemId)
       ? db.updateKnowledgeItem(itemId, {
@@ -109,7 +118,13 @@ export async function processKnowledgeIngestJob(
       return;
     }
 
-    const content = await extractKnowledgeFileText(job.filePath, job.fileExt);
+    const extraction = await extractKnowledgeFileContent(
+      db,
+      job,
+      item.id,
+      resolvedKnowledgeSettings
+    );
+    const content = extraction.content;
     if (!content.trim()) {
       throw new Error('No extractable text was found in this file.');
     }
@@ -120,7 +135,10 @@ export async function processKnowledgeIngestJob(
       title: job.fileName,
       content,
       sourceType: 'file',
-      metadata: baseMetadata
+      metadata: {
+        ...baseMetadata,
+        ...extraction.metadata
+      }
     });
 
     phase = 'indexing';
@@ -165,6 +183,80 @@ export async function extractKnowledgeFileText(filePath: string, fileExt = path.
     return extractPdfText(filePath);
   }
   throw new Error(`Unsupported knowledge file type: ${fileExt || '(none)'}`);
+}
+
+async function extractKnowledgeFileContent(
+  db: PaperLabDatabase,
+  job: NonNullable<ReturnType<PaperLabDatabase['getKnowledgeIngestJob']>>,
+  itemId: string,
+  knowledgeSettings?: KnowledgeSettings
+): Promise<{ content: string; metadata: Record<string, unknown> }> {
+  if (job.fileExt === '.pdf' && readExtractionEngine(job) === 'mineru') {
+    const settings = knowledgeSettings ?? (await import('./llmSettings.js')).readLlmSettings().knowledge;
+    const result = await extractPdfWithMineru({
+      db,
+      job,
+      itemId,
+      settings: applyJobMineruSnapshot(settings, job),
+      onUpdate: notifyKnowledgeIngestUpdated
+    });
+    return result;
+  }
+  return {
+    content: await extractKnowledgeFileText(job.filePath, job.fileExt),
+    metadata: {}
+  };
+}
+
+function createIngestJobMetadata(
+  fileExt: string,
+  knowledgeSettings?: KnowledgeSettings
+): Record<string, unknown> {
+  const extractionEngine = fileExt === '.pdf' ? knowledgeSettings?.pdfExtractionEngine ?? 'pdfjs' : 'pdfjs';
+  if (extractionEngine !== 'mineru' || !knowledgeSettings) {
+    return { extractionEngine };
+  }
+  return {
+    extractionEngine,
+    mineru: {
+      modelVersion: knowledgeSettings.mineru.modelVersion,
+      language: knowledgeSettings.mineru.language,
+      isOcr: knowledgeSettings.mineru.isOcr,
+      enableTable: knowledgeSettings.mineru.enableTable,
+      enableFormula: knowledgeSettings.mineru.enableFormula
+    }
+  };
+}
+
+function readExtractionEngine(job: { metadata: Record<string, unknown> }): 'pdfjs' | 'mineru' {
+  return job.metadata.extractionEngine === 'mineru' ? 'mineru' : 'pdfjs';
+}
+
+function jobDoesNotNeedMineru(job: { metadata: Record<string, unknown> } | null): boolean {
+  return readExtractionEngine(job ?? { metadata: {} }) !== 'mineru';
+}
+
+function applyJobMineruSnapshot(settings: KnowledgeSettings, job: { metadata: Record<string, unknown> }): KnowledgeSettings {
+  const metadata = job.metadata.mineru;
+  if (!metadata || typeof metadata !== 'object') {
+    return settings;
+  }
+  const snapshot = metadata as Record<string, unknown>;
+  return {
+    ...settings,
+    mineru: {
+      ...settings.mineru,
+      modelVersion: snapshot.modelVersion === 'pipeline' ? 'pipeline' : settings.mineru.modelVersion,
+      language: typeof snapshot.language === 'string' && snapshot.language.trim()
+        ? snapshot.language
+        : settings.mineru.language,
+      isOcr: typeof snapshot.isOcr === 'boolean' ? snapshot.isOcr : settings.mineru.isOcr,
+      enableTable: typeof snapshot.enableTable === 'boolean' ? snapshot.enableTable : settings.mineru.enableTable,
+      enableFormula: typeof snapshot.enableFormula === 'boolean'
+        ? snapshot.enableFormula
+        : settings.mineru.enableFormula
+    }
+  };
 }
 
 async function runKnowledgeIngestWorker(db: PaperLabDatabase): Promise<void> {

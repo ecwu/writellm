@@ -175,6 +175,7 @@ export function App() {
             <KnowledgePage
               items={state.knowledgeItems}
               ingestJobs={state.knowledgeIngestJobs}
+              workspacePath={state.workspace?.path ?? null}
               onCreate={(title, content) => void createKnowledgeItem(title, content)}
               onImportFiles={() => void importKnowledgeFiles()}
               onUpdate={(itemId, title, content) => void updateKnowledgeItem(itemId, title, content)}

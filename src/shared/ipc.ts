@@ -51,6 +51,7 @@ export const ipcChannels = {
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
   searchKnowledge: 'paperlab:searchKnowledge',
   getKnowledgeDebugDetails: 'paperlab:getKnowledgeDebugDetails',
+  getWorkspaceAssetDataUrl: 'paperlab:getWorkspaceAssetDataUrl',
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
@@ -92,6 +93,7 @@ export type PaperLabIpc = {
   reindexKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   searchKnowledge(payload: KnowledgeSearchPayload): Promise<RetrievedKnowledgeSource[]>;
   getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
+  getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
   generateWithLlm(
     payload: GenerateLlmPayload
   ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;

@@ -1,6 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { PaperLabDatabase } from '../dist-electron/main/database.js';
 import { exportLatex } from '../dist-electron/main/exportLatex.js';
 import {
@@ -125,6 +126,257 @@ try {
   if (!pdfText.includes('PDF source text')) {
     throw new Error('PDF extraction did not return expected text.');
   }
+
+  const mineruSettings = {
+    pdfExtractionEngine: 'mineru',
+    mineru: {
+      apiKey: 'mineru-test-key',
+      modelVersion: 'vlm',
+      language: 'ch',
+      isOcr: false,
+      enableTable: true,
+      enableFormula: true
+    }
+  };
+  process.env.PAPERLAB_MINERU_POLL_INTERVAL_MS = '0';
+  const originalFetch = globalThis.fetch;
+  try {
+    const mineruPdfPath = path.join(workspacePath, 'mineru.pdf');
+    writeFileSync(mineruPdfPath, createSamplePdf('MinerU PDF source'));
+    await enqueueKnowledgeFiles(db, [mineruPdfPath], mineruSettings);
+    const mineruJob = db.listKnowledgeIngestJobs().find((job) => job.fileName === 'mineru.pdf');
+    if (!mineruJob || mineruJob.metadata.extractionEngine !== 'mineru') {
+      throw new Error('MinerU import did not snapshot the extraction engine.');
+    }
+
+    let uploadSeen = false;
+    let pollCount = 0;
+    const mineruZip = createStoredZip({
+      'full.md': '# MinerU Markdown\n\nMarkdown should be primary.\n\n![Figure caption text.](images/fig1.png)',
+      'sample_content_list.json': JSON.stringify([
+        { type: 'text', text: 'MinerU primary text block.', page_idx: 0 },
+        {
+          type: 'image',
+          img_path: 'images/fig1.png',
+          image_caption: ['Figure caption text.'],
+          image_footnote: ['Figure footnote text.'],
+          page_idx: 0,
+          bbox: [1, 2, 3, 4]
+        }
+      ]),
+      'images/fig1.png': Buffer.from([137, 80, 78, 71])
+    });
+    globalThis.fetch = async (url, init = {}) => {
+      const href = String(url);
+      if (href.endsWith('/api/v4/file-urls/batch')) {
+        const body = JSON.parse(String(init.body));
+        if (body.files?.[0]?.data_id !== mineruJob.id || body.model_version !== 'vlm') {
+          throw new Error('MinerU batch request did not include expected task data.');
+        }
+        return jsonResponse({
+          code: 0,
+          data: {
+            batch_id: 'batch-smoke',
+            file_urls: ['https://upload.mineru.test/file.pdf']
+          }
+        });
+      }
+      if (href === 'https://upload.mineru.test/file.pdf') {
+        if (init.method !== 'PUT') {
+          throw new Error('MinerU upload did not use PUT.');
+        }
+        uploadSeen = true;
+        return new Response(null, { status: 200 });
+      }
+      if (href.endsWith('/api/v4/extract-results/batch/batch-smoke')) {
+        pollCount += 1;
+        return jsonResponse({
+          code: 0,
+          data: {
+            extract_result: [
+              pollCount === 1
+                ? { data_id: mineruJob.id, state: 'running', progress: 50 }
+                : { data_id: mineruJob.id, state: 'done', progress: 100, full_zip_url: 'https://download.mineru.test/result.zip' }
+            ]
+          }
+        });
+      }
+      if (href === 'https://download.mineru.test/result.zip') {
+        return new Response(mineruZip, { status: 200 });
+      }
+      throw new Error(`Unexpected MinerU fetch URL: ${href}`);
+    };
+    await processKnowledgeIngestJob(db, mineruJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    const mineruItemId = db.getKnowledgeIngestJob(mineruJob.id)?.knowledgeItemId;
+    const mineruItem = mineruItemId ? db.getKnowledgeItem(mineruItemId) : null;
+    if (!uploadSeen || pollCount !== 2) {
+      throw new Error('MinerU import did not upload and poll as expected.');
+    }
+    if (!mineruItem?.content.includes('# MinerU Markdown') || mineruItem.content.includes('MinerU primary text block.')) {
+      throw new Error('MinerU full markdown was not used as primary indexed text.');
+    }
+    const mineruMetadata = mineruItem.metadata.mineru;
+    if (!mineruMetadata || !Array.isArray(mineruMetadata.images) || !mineruMetadata.images[0]?.relativePath) {
+      throw new Error('MinerU image asset metadata was not stored.');
+    }
+
+    const fallbackJob = db.enqueueKnowledgeIngestJob({
+      filePath: mineruPdfPath,
+      fileName: 'mineru-fallback.pdf',
+      fileExt: '.pdf',
+      fileSize: 1,
+      metadata: {
+        extractionEngine: 'mineru',
+        mineru: {
+          modelVersion: 'vlm',
+          language: 'ch',
+          isOcr: false,
+          enableTable: true,
+          enableFormula: true
+        }
+      }
+    });
+    globalThis.fetch = async (url, init = {}) => {
+      const href = String(url);
+      if (href.endsWith('/api/v4/file-urls/batch')) {
+        return jsonResponse({ code: 0, data: { batch_id: 'batch-fallback', file_urls: ['https://upload.mineru.test/fallback.pdf'] } });
+      }
+      if (href === 'https://upload.mineru.test/fallback.pdf') {
+        return new Response(null, { status: 200 });
+      }
+      if (href.endsWith('/api/v4/extract-results/batch/batch-fallback')) {
+        return jsonResponse({
+          code: 0,
+          data: { extract_result: [{ data_id: fallbackJob.id, state: 'done', full_zip_url: 'https://download.mineru.test/fallback.zip' }] }
+        });
+      }
+      if (href === 'https://download.mineru.test/fallback.zip') {
+        return new Response(createStoredZip({ 'full.md': 'Fallback markdown text.' }), { status: 200 });
+      }
+      throw new Error(`Unexpected MinerU fallback fetch URL: ${href}`);
+    };
+    await processKnowledgeIngestJob(db, fallbackJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    const fallbackItemId = db.getKnowledgeIngestJob(fallbackJob.id)?.knowledgeItemId;
+    const fallbackItem = fallbackItemId ? db.getKnowledgeItem(fallbackItemId) : null;
+    if (fallbackItem?.content !== 'Fallback markdown text.') {
+      throw new Error('MinerU fallback markdown was not used when content list was missing.');
+    }
+
+    const mineruFailedJob = db.enqueueKnowledgeIngestJob({
+      filePath: mineruPdfPath,
+      fileName: 'mineru-failed.pdf',
+      fileExt: '.pdf',
+      fileSize: 1,
+      metadata: {
+        extractionEngine: 'mineru',
+        mineru: {
+          modelVersion: 'vlm',
+          language: 'ch',
+          isOcr: false,
+          enableTable: true,
+          enableFormula: true
+        }
+      }
+    });
+    globalThis.fetch = async (url, init = {}) => {
+      const href = String(url);
+      if (href.endsWith('/api/v4/file-urls/batch')) {
+        return jsonResponse({ code: 0, data: { batch_id: 'batch-failed', file_urls: ['https://upload.mineru.test/failed.pdf'] } });
+      }
+      if (href === 'https://upload.mineru.test/failed.pdf') {
+        return new Response(null, { status: 200 });
+      }
+      if (href.endsWith('/api/v4/extract-results/batch/batch-failed')) {
+        return jsonResponse({
+          code: 0,
+          data: { extract_result: [{ data_id: mineruFailedJob.id, state: 'failed', err_msg: 'remote parse failed' }] }
+        });
+      }
+      throw new Error(`Unexpected MinerU failed fetch URL: ${href}`);
+    };
+    await processKnowledgeIngestJob(db, mineruFailedJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    if (db.getKnowledgeIngestJob(mineruFailedJob.id)?.status !== 'error') {
+      throw new Error('MinerU failed remote state did not mark the ingest job as error.');
+    }
+
+    const missingKeyJob = db.enqueueKnowledgeIngestJob({
+      filePath: mineruPdfPath,
+      fileName: 'mineru-missing-key.pdf',
+      fileExt: '.pdf',
+      fileSize: 1,
+      metadata: { extractionEngine: 'mineru' }
+    });
+    await processKnowledgeIngestJob(
+      db,
+      missingKeyJob.id,
+      fakeEmbeddingSettings,
+      fakeIndexKnowledgeItem,
+      { ...mineruSettings, mineru: { ...mineruSettings.mineru, apiKey: '' } }
+    );
+    if (!db.getKnowledgeIngestJob(missingKeyJob.id)?.errorMessage?.includes('API key')) {
+      throw new Error('MinerU missing API key did not surface a clear error.');
+    }
+
+    const missingZipJob = db.enqueueKnowledgeIngestJob({
+      filePath: mineruPdfPath,
+      fileName: 'mineru-missing-zip.pdf',
+      fileExt: '.pdf',
+      fileSize: 1,
+      metadata: { extractionEngine: 'mineru' }
+    });
+    globalThis.fetch = async (url, init = {}) => {
+      const href = String(url);
+      if (href.endsWith('/api/v4/file-urls/batch')) {
+        return jsonResponse({ code: 0, data: { batch_id: 'batch-missing-zip', file_urls: ['https://upload.mineru.test/missing-zip.pdf'] } });
+      }
+      if (href === 'https://upload.mineru.test/missing-zip.pdf') {
+        return new Response(null, { status: 200 });
+      }
+      if (href.endsWith('/api/v4/extract-results/batch/batch-missing-zip')) {
+        return jsonResponse({ code: 0, data: { extract_result: [{ data_id: missingZipJob.id, state: 'done' }] } });
+      }
+      throw new Error(`Unexpected MinerU missing zip fetch URL: ${href}`);
+    };
+    await processKnowledgeIngestJob(db, missingZipJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    if (!db.getKnowledgeIngestJob(missingZipJob.id)?.errorMessage?.includes('full_zip_url')) {
+      throw new Error('MinerU done without full_zip_url did not surface a clear error.');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.PAPERLAB_MINERU_POLL_INTERVAL_MS;
+  }
+
+  const legacyWorkspacePath = path.join(workspacePath, 'legacy.paperlab');
+  mkdirSync(legacyWorkspacePath, { recursive: true });
+  const legacyRawDb = new Database(path.join(legacyWorkspacePath, 'project.sqlite'));
+  legacyRawDb.exec(`
+    CREATE TABLE knowledge_ingest_jobs (
+      id TEXT PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_ext TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      knowledge_item_id TEXT,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    );
+    INSERT INTO knowledge_ingest_jobs
+      (id, file_path, file_name, file_ext, file_size, knowledge_item_id, status, error_message, created_at, updated_at, started_at, finished_at)
+    VALUES
+      ('legacy-ingest', '/tmp/legacy.pdf', 'legacy.pdf', '.pdf', 10, NULL, 'queued', NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, NULL);
+    PRAGMA user_version = 4;
+  `);
+  legacyRawDb.close();
+  const legacyDb = new PaperLabDatabase(legacyWorkspacePath);
+  const legacyJob = legacyDb.getKnowledgeIngestJob('legacy-ingest');
+  if (legacyJob && (typeof legacyJob.metadata !== 'object' || Array.isArray(legacyJob.metadata))) {
+    throw new Error('Legacy ingest job metadata migration did not produce readable metadata.');
+  }
+  legacyDb.close();
 
   const missingJob = db.enqueueKnowledgeIngestJob({
     filePath: path.join(workspacePath, 'missing.txt'),
@@ -257,4 +509,69 @@ function createSamplePdf(text) {
   }
   output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return output;
+}
+
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function createStoredZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const [name, value] of Object.entries(entries)) {
+    const nameBuffer = Buffer.from(name);
+    const data = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt32LE(0, 10);
+    localHeader.writeUInt32LE(0, 14);
+    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    localParts.push(localHeader, nameBuffer, data);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt32LE(0, 12);
+    centralHeader.writeUInt32LE(0, 16);
+    centralHeader.writeUInt32LE(data.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(nameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, nameBuffer);
+
+    offset += localHeader.length + nameBuffer.length + data.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const centralOffset = offset;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(centralOffset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, centralDirectory, end]);
 }

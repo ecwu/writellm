@@ -95,7 +95,7 @@ export function FloatingActionToolbar({
                         <span className="sr-only">Exclude source</span>
                       </button>
                       <span>
-                        <strong>{source.label} {source.itemTitle}</strong>
+                        <strong>[{source.publicRef}] {source.itemTitle}</strong>
                         <em>{source.score.toFixed(3)} relevance</em>
                         <small>{source.snippet}</small>
                       </span>

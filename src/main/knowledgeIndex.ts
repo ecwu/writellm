@@ -106,7 +106,7 @@ export async function retrieveKnowledgeSources(
       excludedChunkIds: options.excludedChunkIds,
       maxChunks: options.maxChunks
     })
-    .map((chunk, index) => toRetrievedSource(chunk, index));
+    .map((chunk) => toRetrievedSource(chunk));
 }
 
 export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): string {
@@ -118,13 +118,13 @@ export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): str
     'Retrieved knowledge sources:',
     ...sources.map((source) =>
       [
-        `${source.label} ${source.itemTitle}`,
+        `[${source.publicRef}] ${source.itemTitle}`,
         `Relevance: ${source.score.toFixed(3)}`,
         source.snippet
       ].join('\n')
     ),
     '',
-    'Use these sources when they are relevant. Cite source-backed claims inline with the source label, for example [S1]. Do not invent citations and do not cite sources you did not use.'
+    'Use these sources when they are relevant. Cite source-backed claims inline with the source reference, for example [a3f91c8.c1]. Do not invent citations and do not cite sources you did not use.'
   ].join('\n\n');
 }
 
@@ -180,10 +180,12 @@ async function embedTextBatch(settings: ModelEndpointSettings, texts: string[]):
   return embeddings;
 }
 
-function toRetrievedSource(chunk: KnowledgeChunkRecord, index: number): RetrievedKnowledgeSource {
+function toRetrievedSource(chunk: KnowledgeChunkRecord): RetrievedKnowledgeSource {
   return {
-    label: `[S${index + 1}]`,
+    label: `[${chunk.publicRef}]`,
+    publicRef: chunk.publicRef,
     itemId: chunk.itemId,
+    itemPublicRef: chunk.itemPublicRef,
     itemTitle: chunk.itemTitle,
     chunkId: chunk.id,
     chunkIndex: chunk.chunkIndex,

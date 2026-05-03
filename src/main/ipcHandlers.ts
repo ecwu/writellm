@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
@@ -369,7 +370,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.enqueueKnowledgeFiles, async (_event, payload: EnqueueKnowledgeFilesPayload) => {
     const db = getActiveDb();
-    await enqueueKnowledgeFiles(db, payload.filePaths);
+    await enqueueKnowledgeFiles(db, payload.filePaths, readLlmSettings().knowledge);
     startKnowledgeIngestWorker(db);
     return getState();
   });
@@ -424,6 +425,18 @@ export function registerIpcHandlers(): void {
     items: getActiveDb().listKnowledgeDebugItems(),
     generatedAt: new Date().toISOString()
   }));
+
+  ipcMain.handle(ipcChannels.getWorkspaceAssetDataUrl, async (_event, relativePath: string) => {
+    const db = getActiveDb();
+    const normalizedRelativePath = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const assetsRoot = path.resolve(db.workspacePath, 'assets');
+    const resolvedPath = path.resolve(db.workspacePath, normalizedRelativePath);
+    if (!resolvedPath.startsWith(`${assetsRoot}${path.sep}`)) {
+      throw new Error('Workspace asset path must be inside the workspace assets directory.');
+    }
+    const data = await readFile(resolvedPath);
+    return `data:${mimeTypeForPath(resolvedPath)};base64,${data.toString('base64')}`;
+  });
 
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
@@ -564,13 +577,36 @@ export function registerIpcHandlers(): void {
     db.saveGenerationCitations(
       generated.id,
       (payload.retrievedSources ?? []).map((source) => ({
+        publicRef: source.publicRef,
         knowledgeItemId: source.itemId,
         knowledgeChunkId: source.chunkId,
-        label: source.label,
+        label: source.publicRef,
         snippet: source.snippet,
         score: source.score
       }))
     );
     return getState(payload.sectionId);
   });
+}
+
+function mimeTypeForPath(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.apng':
+      return 'image/apng';
+    case '.avif':
+      return 'image/avif';
+    case '.gif':
+      return 'image/gif';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.webp':
+      return 'image/webp';
+    default:
+      return 'application/octet-stream';
+  }
 }
