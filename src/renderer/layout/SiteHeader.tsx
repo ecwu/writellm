@@ -69,22 +69,6 @@ export function SiteHeader({
           <div className="truncate text-xs text-muted-foreground">{workspaceTitle}</div>
         </div>
       </div>
-      <div className="app-page-switcher" aria-label="Primary navigation">
-        <button
-          type="button"
-          className={activePage === 'workspace' ? 'active' : undefined}
-          onClick={() => onPageChange('workspace')}
-        >
-          Workspace
-        </button>
-        <button
-          type="button"
-          className={activePage === 'knowledge' ? 'active' : undefined}
-          onClick={() => onPageChange('knowledge')}
-        >
-          Knowledge
-        </button>
-      </div>
       <Menubar className="shrink-0 border-0 bg-transparent p-0">
         <MenubarMenu>
           <MenubarTrigger>File</MenubarTrigger>
@@ -165,6 +149,22 @@ export function SiteHeader({
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
+      <div className="app-page-switcher ml-auto" aria-label="Primary navigation">
+        <button
+          type="button"
+          className={activePage === 'workspace' ? 'active' : undefined}
+          onClick={() => onPageChange('workspace')}
+        >
+          Workspace
+        </button>
+        <button
+          type="button"
+          className={activePage === 'knowledge' ? 'active' : undefined}
+          onClick={() => onPageChange('knowledge')}
+        >
+          Knowledge
+        </button>
+      </div>
     </header>
   );
 }
