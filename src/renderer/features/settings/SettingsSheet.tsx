@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { Save } from 'lucide-react';
+import { Bug, Save } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -17,15 +17,19 @@ import type { LlmProviderKind, PublicLlmSettings } from '../../../shared/types';
 export function SettingsSheet({
   open,
   settings,
+  debugEnabled,
   onOpenChange,
   onSaved,
+  onDebugEnabledChange,
   onError,
   onStatus
 }: {
   open: boolean;
   settings: PublicLlmSettings | null;
+  debugEnabled: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (settings: PublicLlmSettings) => void;
+  onDebugEnabledChange: (enabled: boolean) => void;
   onError: (message: string) => void;
   onStatus: (message: string) => void;
 }) {
@@ -206,6 +210,21 @@ export function SettingsSheet({
                 onChange={(event) => setVisionApiKey(event.target.value)}
                 placeholder={settings?.vision.hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
               />
+            </label>
+            <div className="settings-subsection">
+              <h3>Debug</h3>
+              <p className="muted">Expose internal indexing details for this session.</p>
+            </div>
+            <label className="settings-debug-toggle">
+              <input
+                type="checkbox"
+                checked={debugEnabled}
+                onChange={(event) => onDebugEnabledChange(event.target.checked)}
+              />
+              <span>
+                <Bug />
+                Show debug details
+              </span>
             </label>
             <div className="button-row">
               <Button

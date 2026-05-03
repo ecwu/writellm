@@ -24,7 +24,12 @@ import {
 } from './knowledgeIngest.js';
 import { streamLlmText } from './llmRunner.js';
 import { readLlmSettings, readPublicLlmSettings, updateLlmSettings } from './llmSettings.js';
-import { formatSourcesForPrompt, indexKnowledgeItem, retrieveKnowledgeSources } from './knowledgeIndex.js';
+import {
+  formatSourcesForPrompt,
+  getKnowledgeChunkingDebugConfig,
+  indexKnowledgeItem,
+  retrieveKnowledgeSources
+} from './knowledgeIndex.js';
 import {
   createWorkspace,
   getActiveDb,
@@ -404,6 +409,12 @@ export function registerIpcHandlers(): void {
       maxChunks: payload.maxChunks
     })
   );
+
+  ipcMain.handle(ipcChannels.getKnowledgeDebugDetails, () => ({
+    chunking: getKnowledgeChunkingDebugConfig(),
+    items: getActiveDb().listKnowledgeDebugItems(),
+    generatedAt: new Date().toISOString()
+  }));
 
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();

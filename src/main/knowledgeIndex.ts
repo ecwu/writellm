@@ -1,9 +1,22 @@
-import type { KnowledgeChunkRecord, ModelEndpointSettings, RetrievedKnowledgeSource } from '../shared/types.js';
+import type {
+  KnowledgeChunkRecord,
+  KnowledgeChunkingDebugConfig,
+  ModelEndpointSettings,
+  RetrievedKnowledgeSource
+} from '../shared/types.js';
 import type { PaperLabDatabase } from './database.js';
 
 const CHUNK_TARGET_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 180;
 const EMBEDDING_BATCH_SIZE = 64;
+
+export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig {
+  return {
+    targetChars: CHUNK_TARGET_CHARS,
+    overlapChars: CHUNK_OVERLAP_CHARS,
+    embeddingBatchSize: EMBEDDING_BATCH_SIZE
+  };
+}
 
 export function chunkKnowledgeText(content: string): string[] {
   const normalized = content

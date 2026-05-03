@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { formatWorkspaceTitle } from './app/formatters';
 import { usePaperLabApp } from './app/usePaperLabApp';
 import { Toaster } from './components/ui/sonner';
@@ -15,6 +15,7 @@ import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
 
 export function App() {
+  const [debugEnabled, setDebugEnabled] = useState(false);
   const {
     apiAvailable,
     state,
@@ -120,8 +121,10 @@ export function App() {
           <SettingsSheet
             open={settingsOpen}
             settings={llmSettings}
+            debugEnabled={debugEnabled}
             onOpenChange={setSettingsOpen}
             onSaved={setLlmSettings}
+            onDebugEnabledChange={setDebugEnabled}
             onError={notifyError}
             onStatus={notifyStatus}
           />
@@ -155,6 +158,8 @@ export function App() {
               onReindex={(itemId) => void reindexKnowledgeItem(itemId)}
               onRetryIngest={(jobId) => void retryKnowledgeIngestJob(jobId)}
               onDeleteIngest={(jobId) => void deleteKnowledgeIngestJob(jobId)}
+              debugEnabled={debugEnabled}
+              onDebugError={notifyError}
             />
           ) : (
             <div className="flex min-h-0 flex-1">

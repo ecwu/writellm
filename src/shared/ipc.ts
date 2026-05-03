@@ -5,6 +5,7 @@ import type {
   EdgeKind,
   FocusedWorkspaceState,
   GenerateLlmPayload,
+  KnowledgeDebugDetails,
   KnowledgeSearchPayload,
   LlmStreamEvent,
   NodeEdgeRecord,
@@ -47,6 +48,7 @@ export const ipcChannels = {
   deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
   searchKnowledge: 'paperlab:searchKnowledge',
+  getKnowledgeDebugDetails: 'paperlab:getKnowledgeDebugDetails',
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
@@ -86,6 +88,7 @@ export type PaperLabIpc = {
   deleteKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   reindexKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   searchKnowledge(payload: KnowledgeSearchPayload): Promise<RetrievedKnowledgeSource[]>;
+  getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
   generateWithLlm(
     payload: GenerateLlmPayload
   ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;

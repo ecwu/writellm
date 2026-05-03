@@ -11,9 +11,11 @@ import type {
   FocusedWorkspaceState,
   KnowledgeChunkRecord,
   KnowledgeCitationRecord,
+  KnowledgeChunkDebugRecord,
   KnowledgeIngestJobRecord,
   KnowledgeIngestStatus,
   KnowledgeIndexStatus,
+  KnowledgeItemDebugRecord,
   KnowledgeItemRecord,
   NodeEdgeRecord,
   NodeRecord,
@@ -83,6 +85,8 @@ type SqlKnowledgeChunkRow = {
   created_at: string;
   updated_at: string;
 };
+
+type SqlKnowledgeDebugChunkRow = Omit<SqlKnowledgeChunkRow, 'item_title'>;
 
 type SqlKnowledgeCitationRow = {
   id: string;
@@ -676,6 +680,31 @@ export class PaperLabDatabase {
       .map((row) => mapKnowledgeChunk(row as SqlKnowledgeChunkRow));
   }
 
+  listKnowledgeDebugItems(): KnowledgeItemDebugRecord[] {
+    return this.listKnowledgeItems().map((item) => {
+      const chunks = this.db
+        .prepare(
+          `SELECT id, item_id, chunk_index, content, embedding_json, embedding_model,
+                  created_at, updated_at
+           FROM knowledge_chunks
+           WHERE item_id = ?
+           ORDER BY chunk_index ASC`
+        )
+        .all(item.id)
+        .map((row) => mapKnowledgeChunkDebug(row as SqlKnowledgeDebugChunkRow));
+
+      return {
+        itemId: item.id,
+        title: item.title,
+        sourceType: item.sourceType,
+        indexStatus: item.indexStatus,
+        contentLength: item.content.length,
+        chunkCount: chunks.length,
+        chunks
+      };
+    });
+  }
+
   searchKnowledgeChunks(options: {
     embedding: number[];
     excludedItemIds?: string[];
@@ -1233,6 +1262,24 @@ function mapKnowledgeChunk(row: SqlKnowledgeChunkRow): KnowledgeChunkRecord {
   };
 }
 
+function mapKnowledgeChunkDebug(row: SqlKnowledgeDebugChunkRow): KnowledgeChunkDebugRecord {
+  const embedding = parseEmbedding(row.embedding_json);
+  return {
+    id: row.id,
+    chunkIndex: row.chunk_index,
+    content: row.content,
+    contentLength: row.content.length,
+    embeddingModel: row.embedding_model,
+    embeddingDimensions: embedding.length,
+    embeddingPreview: embedding.slice(0, 8).map((value) => Number(value.toFixed(6))),
+    embeddingNorm: embedding.length > 0
+      ? Number(Math.sqrt(embedding.reduce((sum, value) => sum + value * value, 0)).toFixed(6))
+      : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function mapKnowledgeCitation(row: SqlKnowledgeCitationRow): KnowledgeCitationRecord {
   return {
     id: row.id,
@@ -1267,10 +1314,14 @@ function readEmbedding(chunkId: string, db: Database.Database): number[] {
   const row = db
     .prepare('SELECT embedding_json FROM knowledge_chunks WHERE id = ?')
     .get(chunkId) as { embedding_json: string | null } | undefined;
-  if (!row?.embedding_json) {
+  return parseEmbedding(row?.embedding_json ?? null);
+}
+
+function parseEmbedding(raw: string | null): number[] {
+  if (!raw) {
     return [];
   }
-  const parsed = JSON.parse(row.embedding_json) as unknown;
+  const parsed = JSON.parse(raw) as unknown;
   return Array.isArray(parsed) ? parsed.filter((value): value is number => typeof value === 'number') : [];
 }
 

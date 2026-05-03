@@ -249,6 +249,41 @@ export type KnowledgeSearchPayload = {
   maxChunks?: number;
 };
 
+export type KnowledgeChunkingDebugConfig = {
+  targetChars: number;
+  overlapChars: number;
+  embeddingBatchSize: number;
+};
+
+export type KnowledgeChunkDebugRecord = {
+  id: string;
+  chunkIndex: number;
+  content: string;
+  contentLength: number;
+  embeddingModel: string | null;
+  embeddingDimensions: number;
+  embeddingPreview: number[];
+  embeddingNorm: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeItemDebugRecord = {
+  itemId: string;
+  title: string;
+  sourceType: KnowledgeItemRecord['sourceType'];
+  indexStatus: KnowledgeIndexStatus;
+  contentLength: number;
+  chunkCount: number;
+  chunks: KnowledgeChunkDebugRecord[];
+};
+
+export type KnowledgeDebugDetails = {
+  chunking: KnowledgeChunkingDebugConfig;
+  items: KnowledgeItemDebugRecord[];
+  generatedAt: string;
+};
+
 export type GenerateLlmPayload = {
   runId: string;
   sectionId: string;
