@@ -38,6 +38,8 @@ export function App() {
     recentWorkspaces,
     activePage,
     setActivePage,
+    knowledgeTarget,
+    setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
     llmDraft,
@@ -58,6 +60,8 @@ export function App() {
     pickWorkspaceFolder,
     pickNewWorkspacePath,
     focusSectionById,
+    openKnowledgeCitation,
+    openKnowledgeSourceNode,
     openWritingView,
     closeWritingView,
     moveSectionInOutline,
@@ -137,9 +141,12 @@ export function App() {
               }
             }}
             onSettings={() => setSettingsOpen(true)}
+            onRetryTask={(jobId) => void retryKnowledgeIngestJob(jobId)}
+            onDeleteTask={(jobId) => void deleteKnowledgeIngestJob(jobId)}
             canExport={Boolean(state.workspace)}
             canSelectFocus={Boolean(focusSection)}
             hasSelection={Boolean(selection)}
+            tasks={state.knowledgeIngestJobs}
           />
           <SettingsDialog
             open={settingsOpen}
@@ -176,6 +183,8 @@ export function App() {
               items={state.knowledgeItems}
               ingestJobs={state.knowledgeIngestJobs}
               workspacePath={state.workspace?.path ?? null}
+              targetSource={knowledgeTarget}
+              onTargetConsumed={() => setKnowledgeTarget(null)}
               onCreate={(title, content) => void createKnowledgeItem(title, content)}
               onImportFiles={() => void importKnowledgeFiles()}
               onUpdate={(itemId, title, content) => void updateKnowledgeItem(itemId, title, content)}
@@ -201,6 +210,7 @@ export function App() {
                   <WritingView
                     contentNode={writingContent}
                     parentSection={writingSection}
+                    onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                     onBack={() => closeWritingView(writingContent)}
                     onState={setState}
                     onError={notifyError}
@@ -228,7 +238,11 @@ export function App() {
                       if (record?.kind === 'section') {
                         void focusSectionById(record.id);
                       } else if (record?.kind === 'content') {
-                        openWritingView(record);
+                        if (record.metadata.nodeRole === 'knowledge-source') {
+                          void openKnowledgeSourceNode(record);
+                        } else {
+                          openWritingView(record);
+                        }
                       }
                     }}
                     selection={selection}
@@ -293,6 +307,8 @@ export function App() {
                   selectedContent={selectedContent}
                   onState={setState}
                   onSelection={setSelection}
+                  onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
+                  onOpenKnowledgeSource={(content) => void openKnowledgeSourceNode(content)}
                   onStatus={notifyStatus}
                   onError={notifyError}
                 />

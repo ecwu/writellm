@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api.js';
-import type { KnowledgeSettings, ModelEndpointSettings } from '../shared/types.js';
+import type { KnowledgeIngestJobRecord, KnowledgeSettings, ModelEndpointSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
 import { extractAndStoreKnowledgeDisplayMetadata, indexKnowledgeItem } from './knowledgeIndex.js';
 import { extractPdfWithMineru } from './mineru.js';
@@ -15,8 +15,6 @@ const require = createRequire(import.meta.url);
 const PDFJS_ROOT = path.dirname(require.resolve('pdfjs-dist/package.json'));
 const STANDARD_FONT_DATA_URL = `${path.join(PDFJS_ROOT, 'standard_fonts')}${path.sep}`;
 
-let runningWorkspacePath: string | null = null;
-let rerunRequested = false;
 let notifyUpdate: () => void = () => {};
 
 export function setKnowledgeIngestUpdateNotifier(notifier: () => void): void {
@@ -48,21 +46,6 @@ export async function enqueueKnowledgeFiles(
   }
 }
 
-export function startKnowledgeIngestWorker(db: PaperLabDatabase): void {
-  if (runningWorkspacePath === db.workspacePath) {
-    rerunRequested = true;
-    return;
-  }
-  runningWorkspacePath = db.workspacePath;
-  rerunRequested = false;
-  void runKnowledgeIngestWorkerAndMaybeRestart(db);
-}
-
-export function stopKnowledgeIngestWorker(): void {
-  runningWorkspacePath = null;
-  rerunRequested = false;
-}
-
 export async function processKnowledgeIngestJob(
   db: PaperLabDatabase,
   jobId: string,
@@ -70,7 +53,7 @@ export async function processKnowledgeIngestJob(
   indexItem: typeof indexKnowledgeItem = indexKnowledgeItem,
   knowledgeSettings?: KnowledgeSettings,
   metadataSettings?: ModelEndpointSettings
-): Promise<void> {
+): Promise<KnowledgeIngestJobRecord> {
   let job = db.getKnowledgeIngestJob(jobId);
   if (!job) {
     throw new Error(`Knowledge ingest job not found: ${jobId}`);
@@ -93,7 +76,7 @@ export async function processKnowledgeIngestJob(
     });
     notifyKnowledgeIngestUpdated();
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
 
     const baseMetadata: Record<string, unknown> = {
@@ -115,10 +98,10 @@ export async function processKnowledgeIngestJob(
           metadata: baseMetadata
         });
     itemId = item.id;
-    db.updateKnowledgeIngestJob(job.id, { knowledgeItemId: item.id });
+    job = db.updateKnowledgeIngestJob(job.id, { knowledgeItemId: item.id });
     notifyKnowledgeIngestUpdated();
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
 
     void startKnowledgeMetadataPreview(
@@ -139,7 +122,7 @@ export async function processKnowledgeIngestJob(
       throw new Error('No extractable text was found in this file.');
     }
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
     const latestItem = db.getKnowledgeItem(item.id);
     db.updateKnowledgeItem(item.id, {
@@ -154,36 +137,38 @@ export async function processKnowledgeIngestJob(
     });
 
     phase = 'indexing';
-    db.updateKnowledgeIngestJob(job.id, { status: 'indexing' });
+    job = db.updateKnowledgeIngestJob(job.id, { status: 'indexing' });
     notifyKnowledgeIngestUpdated();
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
 
     await indexItem(db, item.id, resolvedEmbeddingSettings, resolvedMetadataSettings);
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
-    db.updateKnowledgeIngestJob(job.id, {
+    job = db.updateKnowledgeIngestJob(job.id, {
       status: 'indexed',
       errorMessage: null,
       finishedAt: nowIso()
     });
     notifyKnowledgeIngestUpdated();
+    return job;
   } catch (caught) {
     if (!db.getKnowledgeIngestJob(job.id)) {
-      return;
+      throw caught;
     }
     const message = caught instanceof Error ? caught.message : String(caught);
     if (itemId) {
       db.markKnowledgeItemError(itemId, phase === 'extraction' ? 'extractionError' : 'indexError', message);
     }
-    db.updateKnowledgeIngestJob(job.id, {
+    job = db.updateKnowledgeIngestJob(job.id, {
       status: 'error',
       errorMessage: message,
       finishedAt: nowIso()
     });
     notifyKnowledgeIngestUpdated();
+    return job;
   }
 }
 
@@ -312,29 +297,6 @@ function applyJobMineruSnapshot(settings: KnowledgeSettings, job: { metadata: Re
         : settings.mineru.enableFormula
     }
   };
-}
-
-async function runKnowledgeIngestWorker(db: PaperLabDatabase): Promise<void> {
-  while (runningWorkspacePath === db.workspacePath) {
-    const nextJob = db.listRunnableKnowledgeIngestJobs()[0];
-    if (!nextJob) {
-      return;
-    }
-    await processKnowledgeIngestJob(db, nextJob.id);
-  }
-}
-
-async function runKnowledgeIngestWorkerAndMaybeRestart(db: PaperLabDatabase): Promise<void> {
-  await runKnowledgeIngestWorker(db);
-  if (runningWorkspacePath !== db.workspacePath) {
-    return;
-  }
-  if (rerunRequested) {
-    rerunRequested = false;
-    await runKnowledgeIngestWorkerAndMaybeRestart(db);
-    return;
-  }
-  runningWorkspacePath = null;
 }
 
 async function extractPdfText(filePath: string, maxChars = Number.POSITIVE_INFINITY): Promise<string> {

@@ -122,6 +122,12 @@ try {
   if (queuedJobs.length !== 2 || queuedJobs.some((job) => job.status !== 'queued')) {
     throw new Error('Batch enqueue did not create queued ingest jobs.');
   }
+  const plainjobCount = db.db
+    .prepare("SELECT COUNT(*) AS count FROM plainjob_jobs WHERE type = 'knowledge-ingest'")
+    .get().count;
+  if (plainjobCount !== 2) {
+    throw new Error('Batch enqueue did not create plainjob-backed ingest jobs.');
+  }
 
   const fakeEmbeddingSettings = {
     provider: 'openai-compatible',
@@ -131,32 +137,73 @@ try {
   };
   const embeddingSource = db.createKnowledgeItem(
     'Embedding source',
-    [
-      `First section ${'a '.repeat(800)}`,
-      `Second section ${'b '.repeat(800)}`,
-      `Third section ${'c '.repeat(800)}`
-    ].join('\n\n')
+    Array.from({ length: 28 }, (_, index) => `Section ${index + 1} ${String.fromCharCode(97 + (index % 26)).repeat(1100)}`).join('\n\n')
   );
   const originalEmbeddingFetch = globalThis.fetch;
+  let metadataFetchSeen = false;
+  let embeddingFetchCount = 0;
+  let embeddingVectorIndex = 0;
   try {
     globalThis.fetch = async (url, init = {}) => {
+      if (String(url) === 'http://localhost/chat/completions') {
+        metadataFetchSeen = true;
+        const body = JSON.parse(String(init.body));
+        if (body.model !== 'test-embedding' || body.response_format?.type !== 'json_schema') {
+          throw new Error('Structured metadata request did not include expected model and JSON schema response format.');
+        }
+        return jsonResponse({
+          id: 'chatcmpl-smoke',
+          object: 'chat.completion',
+          created: 0,
+          model: body.model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  title: 'Structured metadata title',
+                  description: 'Structured metadata description.'
+                })
+              },
+              finish_reason: 'stop'
+            }
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        });
+      }
       if (String(url) !== 'http://localhost/embeddings') {
         throw new Error(`Unexpected embedding fetch URL: ${String(url)}`);
       }
       const body = JSON.parse(String(init.body));
-      if (body.model !== 'test-embedding' || !Array.isArray(body.input) || body.input.length < 2) {
+      if (body.model !== 'test-embedding' || !Array.isArray(body.input) || body.input.length === 0) {
         throw new Error('Embedding request did not include the expected model and chunked input.');
       }
+      embeddingFetchCount += 1;
+      const batchChars = body.input.reduce((sum, value) => sum + String(value).length, 0);
+      if (body.input.length > 64 || batchChars > 64000) {
+        throw new Error('Embedding request was not split into bounded batches.');
+      }
       return jsonResponse({
-        data: body.input.map((_, index) => ({
-          index,
-          embedding: [index + 1, 0, 0]
-        }))
+        data: body.input.map((_, index) => {
+          embeddingVectorIndex += 1;
+          return {
+            index,
+            embedding: [embeddingVectorIndex, 0, 0]
+          };
+        })
       });
     };
-    await indexKnowledgeItem(db, embeddingSource.id, fakeEmbeddingSettings);
+    await indexKnowledgeItem(db, embeddingSource.id, fakeEmbeddingSettings, fakeEmbeddingSettings);
   } finally {
     globalThis.fetch = originalEmbeddingFetch;
+  }
+  const embeddingItem = db.getKnowledgeItem(embeddingSource.id);
+  if (!metadataFetchSeen || embeddingItem?.metadata.knowledgeDisplayMetadata?.title !== 'Structured metadata title') {
+    throw new Error('AI SDK structured metadata output was not stored.');
+  }
+  if (embeddingFetchCount < 2) {
+    throw new Error('Embedding requests were not split into multiple batches.');
   }
   const embeddingDebug = db.listKnowledgeDebugItems().find((item) => item.itemId === embeddingSource.id);
   if (!embeddingDebug || embeddingDebug.chunkCount < 2) {
@@ -292,7 +339,16 @@ try {
           data: {
             extract_result: [
               pollCount === 1
-                ? { data_id: mineruJob.id, state: 'running', progress: 50 }
+                ? {
+                    data_id: mineruJob.id,
+                    state: 'running',
+                    progress: 50,
+                    extract_progress: {
+                      extracted_pages: 1,
+                      total_pages: 2,
+                      start_time: '2026-05-04 10:00:00'
+                    }
+                  }
                 : { data_id: mineruJob.id, state: 'done', progress: 100, full_zip_url: 'https://download.mineru.test/result.zip' }
             ]
           }
@@ -308,6 +364,13 @@ try {
     const mineruItem = mineruItemId ? db.getKnowledgeItem(mineruItemId) : null;
     if (!uploadSeen || pollCount !== 2) {
       throw new Error('MinerU import did not upload and poll as expected.');
+    }
+    const mineruJobAfter = db.getKnowledgeIngestJob(mineruJob.id);
+    if (
+      mineruJobAfter?.metadata.mineru?.extractProgress?.extractedPages !== 1 ||
+      mineruJobAfter.metadata.mineru.extractProgress.totalPages !== 2
+    ) {
+      throw new Error('MinerU page extraction progress was not stored on the ingest job.');
     }
     if (!mineruItem?.content.includes('# MinerU Markdown') || mineruItem.content.includes('MinerU primary text block.')) {
       throw new Error('MinerU full markdown was not used as primary indexed text.');
@@ -470,9 +533,14 @@ try {
   `);
   legacyRawDb.close();
   const legacyDb = new PaperLabDatabase(legacyWorkspacePath);
-  const legacyJob = legacyDb.getKnowledgeIngestJob('legacy-ingest');
-  if (legacyJob && (typeof legacyJob.metadata !== 'object' || Array.isArray(legacyJob.metadata))) {
-    throw new Error('Legacy ingest job metadata migration did not produce readable metadata.');
+  const legacyIngestTable = legacyDb.db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_ingest_jobs'")
+    .get();
+  if (legacyIngestTable) {
+    throw new Error('Legacy ingest table was not dropped during plainjob migration.');
+  }
+  if (legacyDb.listKnowledgeIngestJobs().length !== 0) {
+    throw new Error('Legacy ingest jobs should not be imported into plainjob.');
   }
   legacyDb.close();
 

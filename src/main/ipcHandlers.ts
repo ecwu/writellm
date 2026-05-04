@@ -10,19 +10,18 @@ import type {
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
+  KnowledgeSourceTarget,
   KnowledgeSearchPayload,
   RetrievedKnowledgeSource,
+  NodeRecord,
   SaveLlmGenerationPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
-import {
-  enqueueKnowledgeFiles,
-  setKnowledgeIngestUpdateNotifier,
-  startKnowledgeIngestWorker
-} from './knowledgeIngest.js';
+import { startBackgroundTaskWorker } from './backgroundTasks.js';
+import { enqueueKnowledgeFiles, setKnowledgeIngestUpdateNotifier } from './knowledgeIngest.js';
 import { streamLlmText } from './llmRunner.js';
 import {
   readLlmSettings,
@@ -154,8 +153,76 @@ function getSelectedContextNodes(
       (node): node is ContentNodeRecord =>
         node.kind === 'content' &&
         selectedIds.has(node.id) &&
+        node.metadata.nodeRole !== 'knowledge-source' &&
         Boolean(node.content.trim())
     );
+}
+
+function knowledgeSourceTitle(source: RetrievedKnowledgeSource): string {
+  return source.itemTitle.trim() || 'Knowledge source';
+}
+
+function isKnowledgeSourceNode(node: NodeRecord, sectionId: string, chunkId: string): node is ContentNodeRecord {
+  return node.kind === 'content' &&
+    node.parentId === sectionId &&
+    node.metadata.nodeRole === 'knowledge-source' &&
+    node.metadata.knowledgeChunkId === chunkId;
+}
+
+function findOrCreateKnowledgeSourceNode(
+  db: ReturnType<typeof getActiveDb>,
+  sectionId: string,
+  source: RetrievedKnowledgeSource
+): ContentNodeRecord {
+  const existing = db.listNodes().find((node) => isKnowledgeSourceNode(node, sectionId, source.chunkId));
+  if (existing) {
+    return existing;
+  }
+
+  const created = db.createNode({
+    kind: 'content',
+    parentId: sectionId,
+    title: knowledgeSourceTitle(source),
+    content: source.snippet,
+    isMain: false,
+    isLlm: false,
+    metadata: {
+      nodeRole: 'knowledge-source',
+      publicRef: source.publicRef,
+      knowledgeItemId: source.itemId,
+      knowledgeItemPublicRef: source.itemPublicRef,
+      knowledgeItemTitle: source.itemTitle,
+      knowledgeChunkId: source.chunkId,
+      knowledgeChunkIndex: source.chunkIndex,
+      score: source.score
+    }
+  });
+
+  if (created.kind !== 'content') {
+    throw new Error('Knowledge source node was not created as content.');
+  }
+  return created;
+}
+
+function ensureKnowledgeSourceNodes(
+  db: ReturnType<typeof getActiveDb>,
+  sectionId: string,
+  generatedNodeId: string,
+  sources: RetrievedKnowledgeSource[]
+): void {
+  const uniqueSources = new Map(sources.map((source) => [source.chunkId, source]));
+  for (const source of uniqueSources.values()) {
+    const sourceNode = findOrCreateKnowledgeSourceNode(db, sectionId, source);
+    const hasEdge = db.listEdges().some(
+      (edge) =>
+        edge.fromNodeId === sourceNode.id &&
+        edge.toNodeId === generatedNodeId &&
+        edge.relationType === 'cites'
+    );
+    if (!hasEdge) {
+      db.createNodeEdge(sourceNode.id, generatedNodeId, 'cites', 'llm');
+    }
+  }
 }
 
 function buildContextPrompt(
@@ -213,11 +280,11 @@ export function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle(ipcChannels.createWorkspace, (_event, workspacePath: string) =>
+  ipcMain.handle(ipcChannels.createWorkspace, async (_event, workspacePath: string) =>
     createWorkspace(workspacePath)
   );
 
-  ipcMain.handle(ipcChannels.openWorkspace, (_event, workspacePath: string) =>
+  ipcMain.handle(ipcChannels.openWorkspace, async (_event, workspacePath: string) =>
     openWorkspace(workspacePath)
   );
 
@@ -376,14 +443,14 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.enqueueKnowledgeFiles, async (_event, payload: EnqueueKnowledgeFilesPayload) => {
     const db = getActiveDb();
     await enqueueKnowledgeFiles(db, payload.filePaths, readLlmSettings().knowledge);
-    startKnowledgeIngestWorker(db);
+    await startBackgroundTaskWorker(db);
     return getState();
   });
 
   ipcMain.handle(ipcChannels.retryKnowledgeIngestJob, async (_event, jobId: string) => {
     const db = getActiveDb();
     db.retryKnowledgeIngestJob(jobId);
-    startKnowledgeIngestWorker(db);
+    await startBackgroundTaskWorker(db);
     return getState();
   });
 
@@ -425,6 +492,12 @@ export function registerIpcHandlers(): void {
       excludedChunkIds: payload.excludedChunkIds,
       maxChunks: payload.maxChunks
     })
+  );
+
+  ipcMain.handle(
+    ipcChannels.resolveKnowledgeCitation,
+    (_event, payload: { publicRef?: string; chunkId?: string }): KnowledgeSourceTarget | null =>
+      getActiveDb().resolveKnowledgeSourceTarget(payload)
   );
 
   ipcMain.handle(ipcChannels.getKnowledgeDebugDetails, () => ({
@@ -581,6 +654,7 @@ export function registerIpcHandlers(): void {
     contextNodes.forEach((node) => {
       db.createNodeEdge(node.id, generated.id, contextRelationType, 'llm');
     });
+    ensureKnowledgeSourceNodes(db, payload.sectionId, generated.id, payload.retrievedSources ?? []);
     db.saveGenerationCitations(
       generated.id,
       (payload.retrievedSources ?? []).map((source) => ({

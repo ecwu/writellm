@@ -1,6 +1,6 @@
 
 import type { Node } from '@xyflow/react';
-import type { NodeRecord, RetrievedKnowledgeSource, UpdateNodeLayoutPayload } from '../../shared/types';
+import type { KnowledgeSourceTarget, NodeRecord, RetrievedKnowledgeSource, UpdateNodeLayoutPayload } from '../../shared/types';
 
 export type Selection = { type: 'node'; id: string } | { type: 'edge'; id: string } | null;
 
@@ -32,9 +32,12 @@ export type PaperNodeData = Record<string, unknown> & {
   title: string;
   meta?: string;
   content?: string;
-  tone: 'child-container' | 'author_text' | 'llm';
+  citationSources?: RetrievedKnowledgeSource[];
+  tone: 'child-container' | 'author_text' | 'llm' | 'source';
   layoutKey: string;
   onLayoutChange: (payload: UpdateNodeLayoutPayload) => void;
 };
 
 export type PaperNode = Node<PaperNodeData, 'paper'>;
+
+export type KnowledgeNavigationTarget = KnowledgeSourceTarget | null;

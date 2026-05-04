@@ -31,6 +31,7 @@ const ipcChannels = {
   deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
   searchKnowledge: 'paperlab:searchKnowledge',
+  resolveKnowledgeCitation: 'paperlab:resolveKnowledgeCitation',
   getKnowledgeDebugDetails: 'paperlab:getKnowledgeDebugDetails',
   getWorkspaceAssetDataUrl: 'paperlab:getWorkspaceAssetDataUrl',
   generateWithLlm: 'paperlab:generateWithLlm',
@@ -76,6 +77,7 @@ const api: PaperLabIpc = {
   deleteKnowledgeItem: (itemId) => ipcRenderer.invoke(ipcChannels.deleteKnowledgeItem, itemId),
   reindexKnowledgeItem: (itemId) => ipcRenderer.invoke(ipcChannels.reindexKnowledgeItem, itemId),
   searchKnowledge: (payload) => ipcRenderer.invoke(ipcChannels.searchKnowledge, payload),
+  resolveKnowledgeCitation: (payload) => ipcRenderer.invoke(ipcChannels.resolveKnowledgeCitation, payload),
   getKnowledgeDebugDetails: () => ipcRenderer.invoke(ipcChannels.getKnowledgeDebugDetails),
   getWorkspaceAssetDataUrl: (relativePath) =>
     ipcRenderer.invoke(ipcChannels.getWorkspaceAssetDataUrl, relativePath),

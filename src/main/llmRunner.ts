@@ -1,6 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, streamText } from 'ai';
+import { generateText, Output, streamText } from 'ai';
+import type { z } from 'zod';
 import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
 
 const defaultWritingSystemPrompt =
@@ -18,7 +19,8 @@ function createModel(settings: ModelEndpointSettings) {
   const openaiCompatible = createOpenAICompatible({
     name: 'openaiCompatible',
     baseURL: settings.baseURL,
-    apiKey: settings.apiKey
+    apiKey: settings.apiKey,
+    supportsStructuredOutputs: true
   });
   return openaiCompatible(settings.model);
 }
@@ -68,4 +70,29 @@ export async function generateLlmText(
   });
 
   return result.text;
+}
+
+export async function generateLlmObject<TSchema extends z.ZodType>(
+  settings: ModelEndpointSettings,
+  payload: {
+    prompt: string;
+    systemPrompt?: string;
+    schema: TSchema;
+  },
+  abortSignal?: AbortSignal
+): Promise<z.infer<TSchema>> {
+  if (!settings.apiKey.trim()) {
+    throw new Error('LLM API key is required. Add it in Settings first.');
+  }
+
+  const result = await generateText({
+    model: createModel(settings),
+    system: payload.systemPrompt,
+    prompt: payload.prompt,
+    output: Output.object({ schema: payload.schema }),
+    abortSignal,
+    maxRetries: 0
+  });
+
+  return result.output as z.infer<TSchema>;
 }

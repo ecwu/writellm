@@ -1,6 +1,6 @@
 export type NodeKind = 'section' | 'content';
 
-export type EdgeKind = 'informs' | 'generates' | 'revises' | 'related-to';
+export type EdgeKind = 'informs' | 'generates' | 'revises' | 'related-to' | 'cites';
 
 export type BaseNodeRecord = {
   id: string;
@@ -283,6 +283,21 @@ export type RetrievedKnowledgeSource = {
   chunkIndex: number;
   snippet: string;
   score: number;
+};
+
+export type KnowledgeSourceTarget = {
+  publicRef: string;
+  itemId: string;
+  itemPublicRef: string;
+  itemTitle: string;
+  chunkId: string;
+  chunkIndex: number;
+  snippet: string;
+};
+
+export type ResolveKnowledgeCitationPayload = {
+  publicRef?: string;
+  chunkId?: string;
 };
 
 export type CreateKnowledgeItemPayload = {

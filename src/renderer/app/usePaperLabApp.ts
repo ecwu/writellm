@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { applyNodeChanges, type Connection, type Node, type NodeChange, type NodeTypes } from '@xyflow/react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getApi } from '../api';
 import { emptyLlmDraft, emptyState, DEFAULT_EDGE_KIND } from './constants';
@@ -10,14 +11,21 @@ import type {
   ContentNodeRecord,
   EdgeKind,
   FocusedWorkspaceState,
+  KnowledgeSourceTarget,
   PublicLlmSettings,
   RecentWorkspace,
   SectionNodeRecord,
   UpdateNodeLayoutPayload
 } from '../../shared/types';
 
+const queryKeys = {
+  workspaceState: ['workspaceState'] as const,
+  recentWorkspaces: ['recentWorkspaces'] as const,
+  llmSettings: ['llmSettings'] as const
+};
+
 export function usePaperLabApp() {
-  const [state, setState] = useState<FocusedWorkspaceState>(emptyState);
+  const queryClient = useQueryClient();
   const [workspacePath, setWorkspacePath] = useState(
     '/Users/zhenghaowu/Developer/llm-write-canvas/my-paper.paperlab'
   );
@@ -25,14 +33,57 @@ export function usePaperLabApp() {
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
-  const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspace[]>([]);
-  const [llmSettings, setLlmSettings] = useState<PublicLlmSettings | null>(null);
   const [llmDraft, setLlmDraft] = useState(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
   const [writingNodeId, setWritingNodeId] = useState<string | null>(null);
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
+  const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
   const apiAvailable = Boolean(window.paperlab);
+  const workspaceStateQuery = useQuery({
+    queryKey: queryKeys.workspaceState,
+    queryFn: () => getApi().getState(),
+    enabled: apiAvailable
+  });
+  const recentWorkspacesQuery = useQuery({
+    queryKey: queryKeys.recentWorkspaces,
+    queryFn: () => getApi().listRecentWorkspaces(),
+    enabled: apiAvailable
+  });
+  const llmSettingsQuery = useQuery({
+    queryKey: queryKeys.llmSettings,
+    queryFn: () => getApi().getLlmSettings(),
+    enabled: apiAvailable
+  });
+  const state = workspaceStateQuery.data ?? emptyState;
+  const recentWorkspaces = recentWorkspacesQuery.data ?? [];
+  const llmSettings = llmSettingsQuery.data ?? null;
+  const setState = useCallback((next: FocusedWorkspaceState | ((current: FocusedWorkspaceState) => FocusedWorkspaceState)) => {
+    queryClient.setQueryData<FocusedWorkspaceState>(queryKeys.workspaceState, (current) =>
+      typeof next === 'function' ? next(current ?? emptyState) : next
+    );
+  }, [queryClient]);
+  const setLlmSettings = useCallback((
+    next: PublicLlmSettings | null | ((current: PublicLlmSettings | null) => PublicLlmSettings | null)
+  ) => {
+    queryClient.setQueryData<PublicLlmSettings | null>(queryKeys.llmSettings, (current) =>
+      typeof next === 'function' ? next(current ?? null) : next
+    );
+  }, [queryClient]);
+  const workspaceMutation = useMutation({
+    mutationFn: async ({ action }: { action: () => Promise<FocusedWorkspaceState | void>; message?: string }) => action(),
+    onSuccess: (next, variables) => {
+      if (next) {
+        setState(next);
+      }
+      if (variables.message) {
+        notifyStatus(variables.message);
+      }
+    },
+    onError: (caught) => {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  });
   const focusSection = state.nodes.find(
     (node): node is SectionNodeRecord => node.kind === 'section' && node.id === state.focusSectionId
   );
@@ -80,16 +131,47 @@ export function usePaperLabApp() {
     }
   }
 
+  function openKnowledgeTarget(target: KnowledgeSourceTarget) {
+    setKnowledgeTarget(target);
+    setActivePage('knowledge');
+  }
+
+  async function openKnowledgeCitation(publicRef: string) {
+    try {
+      const target = await getApi().resolveKnowledgeCitation({ publicRef });
+      if (!target) {
+        notifyError(`Citation not found: [${publicRef}]`);
+        return;
+      }
+      openKnowledgeTarget(target);
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function openKnowledgeSourceNode(node: ContentNodeRecord) {
+    const chunkId = typeof node.metadata.knowledgeChunkId === 'string' ? node.metadata.knowledgeChunkId : undefined;
+    const publicRef = typeof node.metadata.publicRef === 'string' ? node.metadata.publicRef : undefined;
+    if (!chunkId && !publicRef) {
+      return;
+    }
+    try {
+      const target = await getApi().resolveKnowledgeCitation({ chunkId, publicRef });
+      if (!target) {
+        notifyError('Knowledge source no longer exists.');
+        return;
+      }
+      openKnowledgeTarget(target);
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   useEffect(() => {
     if (!apiAvailable) {
       notifyError('Run this app through Electron to use local workspace features.');
       return;
     }
-    void refresh();
-    void refreshRecentWorkspaces();
-    void getApi().getLlmSettings().then(setLlmSettings).catch((caught) => {
-      notifyError(caught instanceof Error ? caught.message : String(caught));
-    });
     const unsubscribeLlm = getApi().onLlmStream((event) => {
       if (event.type === 'started') {
         setLlmDraft((current) =>
@@ -123,15 +205,37 @@ export function usePaperLabApp() {
       notifyError(event.message);
     });
     const unsubscribeKnowledgeIngest = getApi().onKnowledgeIngestUpdated(() => {
-      void getApi().getState().then(setState).catch((caught) => {
-        notifyError(caught instanceof Error ? caught.message : String(caught));
-      });
+      void refresh();
     });
     return () => {
       unsubscribeLlm();
       unsubscribeKnowledgeIngest();
     };
   }, [apiAvailable]);
+
+  useEffect(() => {
+    const error = workspaceStateQuery.error ?? recentWorkspacesQuery.error ?? llmSettingsQuery.error;
+    if (error) {
+      notifyError(error instanceof Error ? error.message : String(error));
+    }
+  }, [workspaceStateQuery.error, recentWorkspacesQuery.error, llmSettingsQuery.error]);
+
+  useEffect(() => {
+    if (!state.focusSectionId) {
+      return;
+    }
+    if (!selection) {
+      setSelection({ type: 'node', id: state.focusSectionId });
+      return;
+    }
+    if (selection.type === 'edge' && !state.edges.some((edge) => edge.id === selection.id)) {
+      setSelection({ type: 'node', id: state.focusSectionId });
+      return;
+    }
+    if (selection.type === 'node' && !state.nodes.some((node) => node.id === selection.id)) {
+      setSelection({ type: 'node', id: state.focusSectionId });
+    }
+  }, [selection, state.edges, state.focusSectionId, state.nodes]);
 
   useEffect(() => {
     if (writingNodeId && !writingContent) {
@@ -150,6 +254,7 @@ export function usePaperLabApp() {
   async function refresh(focusSectionId = state.focusSectionId ?? undefined) {
     const next = await getApi().getState(focusSectionId);
     setState(next);
+    queryClient.setQueryData(queryKeys.workspaceState, next);
     if (!selection && next.focusSectionId) {
       setSelection({ type: 'node', id: next.focusSectionId });
     } else if (selection?.type === 'edge' && !next.edges.some((edge) => edge.id === selection.id)) {
@@ -161,24 +266,15 @@ export function usePaperLabApp() {
 
   async function refreshRecentWorkspaces() {
     try {
-      setRecentWorkspaces(await getApi().listRecentWorkspaces());
+      await queryClient.invalidateQueries({ queryKey: queryKeys.recentWorkspaces });
+      await queryClient.refetchQueries({ queryKey: queryKeys.recentWorkspaces });
     } catch (caught) {
       notifyError(caught instanceof Error ? caught.message : String(caught));
     }
   }
 
   async function run(action: () => Promise<FocusedWorkspaceState | void>, message?: string) {
-    try {
-      const next = await action();
-      if (next) {
-        setState(next);
-      }
-      if (message) {
-        notifyStatus(message);
-      }
-    } catch (caught) {
-      notifyError(caught instanceof Error ? caught.message : String(caught));
-    }
+    await workspaceMutation.mutateAsync({ action, message }).catch(() => undefined);
   }
 
   const persistNodeLayout = useCallback(async (payload: UpdateNodeLayoutPayload) => {
@@ -633,6 +729,8 @@ export function usePaperLabApp() {
     recentWorkspaces,
     activePage,
     setActivePage,
+    knowledgeTarget,
+    setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
     llmDraft,
@@ -653,6 +751,8 @@ export function usePaperLabApp() {
     pickWorkspaceFolder,
     pickNewWorkspacePath,
     focusSectionById,
+    openKnowledgeCitation,
+    openKnowledgeSourceNode,
     openWritingView,
     closeWritingView,
     moveSectionInOutline,

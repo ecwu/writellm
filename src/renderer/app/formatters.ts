@@ -52,6 +52,9 @@ export function formatNodeStats(stats?: NodeStats) {
 }
 
 export function formatContentFlags(node: ContentNodeRecord) {
+  if (node.metadata.nodeRole === 'knowledge-source') {
+    return 'source';
+  }
   const flags = [
     node.isMain ? 'main' : null,
     node.isLlm ? 'LLM' : null

@@ -34,7 +34,8 @@ import type {
   KnowledgeDebugDetails,
   KnowledgeIngestJobRecord,
   KnowledgeIngestStatus,
-  KnowledgeItemRecord
+  KnowledgeItemRecord,
+  KnowledgeSourceTarget
 } from '../../../shared/types';
 
 const markdownSanitizeSchema = {
@@ -52,6 +53,8 @@ export function KnowledgePage({
   items,
   ingestJobs,
   workspacePath,
+  targetSource,
+  onTargetConsumed,
   onCreate,
   onImportFiles,
   onUpdate,
@@ -65,6 +68,8 @@ export function KnowledgePage({
   items: KnowledgeItemRecord[];
   ingestJobs: KnowledgeIngestJobRecord[];
   workspacePath: string | null;
+  targetSource: KnowledgeSourceTarget | null;
+  onTargetConsumed: () => void;
   onCreate: (title: string, content: string) => void;
   onImportFiles: () => void;
   onUpdate: (itemId: string, title: string, content: string) => void;
@@ -89,6 +94,16 @@ export function KnowledgePage({
   useEffect(() => {
     onDebugErrorRef.current = onDebugError;
   }, [onDebugError]);
+
+  useEffect(() => {
+    if (!targetSource) {
+      return;
+    }
+    setIsCreatingSource(false);
+    setSelectedId(targetSource.itemId);
+    setIsEditing(false);
+    onTargetConsumed();
+  }, [onTargetConsumed, targetSource?.chunkId, targetSource?.itemId]);
 
   useEffect(() => {
     if (!selected && selectedId) {
@@ -205,31 +220,48 @@ export function KnowledgePage({
               {visibleIngestJobs.length > 0 ? (
                 <div className="knowledge-ingest-list">
                   <p>Import queue</p>
-                  {visibleIngestJobs.map((job) => (
-                    <div key={job.id} className="knowledge-ingest-job">
-                      <div className="knowledge-ingest-job-heading">
-                        <span className="knowledge-source-title">{job.fileName}</span>
-                        <KnowledgeIngestStatusPopover job={job} />
-                      </div>
-                      {job.errorMessage ? (
-                        <span className="knowledge-source-preview">{job.errorMessage}</span>
-                      ) : (
-                        <span className="knowledge-source-preview">{formatFileSize(job.fileSize)} {job.fileExt}</span>
-                      )}
-                      <div className="button-row">
-                        {job.status === 'error' ? (
-                          <Button variant="outline" size="sm" onClick={() => onRetryIngest(job.id)}>
-                            <RefreshCw />
-                            Retry
-                          </Button>
+                  {visibleIngestJobs.map((job) => {
+                    const progress = getKnowledgeIngestProgressView(job);
+                    return (
+                      <div key={job.id} className="knowledge-ingest-job">
+                        <div className="knowledge-ingest-job-heading">
+                          <span className="knowledge-source-title">{job.fileName}</span>
+                          <KnowledgeIngestStatusPopover job={job} />
+                        </div>
+                        {job.errorMessage ? (
+                          <span className="knowledge-source-preview">{job.errorMessage}</span>
+                        ) : (
+                          <span className="knowledge-source-preview">
+                            {progress?.label ?? `${formatFileSize(job.fileSize)} ${job.fileExt}`}
+                          </span>
+                        )}
+                        {progress && progress.percent !== null ? (
+                          <div
+                            className="knowledge-ingest-progress"
+                            aria-label={progress.label}
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={progress.percent}
+                          >
+                            <span style={{ width: `${progress.percent}%` }} />
+                          </div>
                         ) : null}
-                        <Button variant="destructive" size="sm" onClick={() => onDeleteIngest(job.id)}>
-                          <Trash2 />
-                          Delete
-                        </Button>
+                        <div className="button-row">
+                          {job.status === 'error' ? (
+                            <Button variant="outline" size="sm" onClick={() => onRetryIngest(job.id)}>
+                              <RefreshCw />
+                              Retry
+                            </Button>
+                          ) : null}
+                          <Button variant="destructive" size="sm" onClick={() => onDeleteIngest(job.id)}>
+                            <Trash2 />
+                            Delete
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
               {items.length > 0 ? (
@@ -661,8 +693,69 @@ function formatDebugNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+type KnowledgeIngestProgressView = {
+  label: string;
+  percent: number | null;
+};
+
+function getKnowledgeIngestProgressView(
+  job: KnowledgeIngestJobRecord,
+  options: { includeInactive?: boolean } = {}
+): KnowledgeIngestProgressView | null {
+  if (!options.includeInactive && job.status !== 'extracting') {
+    return null;
+  }
+  const mineru = readMineruIngestMetadata(job);
+  if (!mineru) {
+    return null;
+  }
+  const extractProgress = readRecord(mineru.extractProgress);
+  const extractedPages = readFiniteNumber(extractProgress?.extractedPages ?? mineru.extractedPages);
+  const totalPages = readFiniteNumber(extractProgress?.totalPages ?? mineru.totalPages);
+  if (extractedPages !== null || totalPages !== null) {
+    const label = totalPages !== null
+      ? `Extracting ${extractedPages ?? 0} / ${totalPages} pages`
+      : `Extracted ${extractedPages} pages`;
+    return {
+      label,
+      percent: extractedPages !== null && totalPages !== null && totalPages > 0
+        ? clampPercent((extractedPages / totalPages) * 100)
+        : null
+    };
+  }
+
+  const progress = readFiniteNumber(mineru.progress);
+  if (progress === null) {
+    return null;
+  }
+  const percent = progress > 0 && progress <= 1 ? progress * 100 : progress;
+  return {
+    label: `Extracting ${clampPercent(percent)}%`,
+    percent: clampPercent(percent)
+  };
+}
+
+function readMineruIngestMetadata(job: KnowledgeIngestJobRecord): Record<string, unknown> | null {
+  return readRecord(job.metadata.mineru);
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
 function KnowledgeIngestStatusPopover({ job }: { job: KnowledgeIngestJobRecord }) {
   const status = getKnowledgeIngestStatusView(job.status);
+  const progress = getKnowledgeIngestProgressView(job, { includeInactive: true });
   const StatusIcon = status.icon;
   return (
     <Popover>
@@ -700,6 +793,12 @@ function KnowledgeIngestStatusPopover({ job }: { job: KnowledgeIngestJobRecord }
             <dt>Updated</dt>
             <dd>{formatDateTime(job.updatedAt)}</dd>
           </div>
+          {progress ? (
+            <div>
+              <dt>Progress</dt>
+              <dd>{progress.label}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>Started</dt>
             <dd>{formatDateTime(job.startedAt)}</dd>

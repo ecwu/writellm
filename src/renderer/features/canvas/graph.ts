@@ -1,5 +1,6 @@
 
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
+import * as dagre from '@dagrejs/dagre';
 import {
   DEFAULT_CONTENT_NODE_HEIGHT,
   DEFAULT_CONTENT_NODE_WIDTH,
@@ -12,6 +13,7 @@ import type {
   ContentNodeRecord,
   FocusedWorkspaceState,
   NodeRecord,
+  RetrievedKnowledgeSource,
   SectionNodeRecord,
   UpdateNodeLayoutPayload
 } from '../../../shared/types';
@@ -53,6 +55,14 @@ export function buildGraph(
   const childSections = state.visibleNodes.filter(
     (node): node is SectionNodeRecord => node.kind === 'section' && node.parentId === focusId
   );
+  const orderedContent = orderContentNodes(
+    state.visibleNodes.filter(
+      (node): node is ContentNodeRecord => node.kind === 'content' && node.parentId === focusId
+    ),
+    state.edges
+  );
+  const defaultPositions = layoutDefaultPositions(childSections, orderedContent, state.edges);
+
   childSections.forEach((section, index) => {
     const stats = state.nodeStats[section.id];
     nodes.push({
@@ -60,7 +70,7 @@ export function buildGraph(
       type: 'paper',
       ...getNodeLayout(
         section.id,
-        { x: 40 + index * 260, y: 80 },
+        defaultPositions.get(section.id) ?? { x: 40 + index * 260, y: 80 },
         { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT }
       ),
       selected: selection?.type === 'node' && selection.id === section.id,
@@ -78,20 +88,13 @@ export function buildGraph(
     });
   });
 
-  const orderedContent = orderContentNodes(
-    state.visibleNodes.filter(
-      (node): node is ContentNodeRecord => node.kind === 'content' && node.parentId === focusId
-    ),
-    state.edges
-  );
-
   orderedContent.forEach((content, index) => {
     nodes.push({
       id: content.id,
       type: 'paper',
       ...getNodeLayout(
         content.id,
-        { x: 80 + index * 280, y: 220 },
+        defaultPositions.get(content.id) ?? { x: 80 + index * 280, y: 220 },
         { width: DEFAULT_CONTENT_NODE_WIDTH, height: DEFAULT_CONTENT_NODE_HEIGHT }
       ),
       selected: selection?.type === 'node' && selection.id === content.id,
@@ -102,7 +105,8 @@ export function buildGraph(
         eyebrow: formatContentFlags(content),
         title: content.title,
         content: content.content || undefined,
-        tone: content.isLlm ? 'llm' : 'author_text',
+        citationSources: getGenerationSources(content),
+        tone: content.metadata.nodeRole === 'knowledge-source' ? 'source' : content.isLlm ? 'llm' : 'author_text',
         layoutKey: `content:${content.id}:${index}`,
         onLayoutChange
       }
@@ -125,11 +129,89 @@ export function buildGraph(
       markerEnd: { type: MarkerType.ArrowClosed },
       type: 'smoothstep',
       selected: selection?.type === 'edge' && selection.id === edge.id,
-      className: selection?.type === 'edge' && selection.id === edge.id ? 'process-edge selected-edge' : 'process-edge'
+      className: [
+        'process-edge',
+        edge.relationType === 'cites' ? 'citation-edge' : null,
+        selection?.type === 'edge' && selection.id === edge.id ? 'selected-edge' : null
+      ].filter(Boolean).join(' ')
     });
   });
 
   return { nodes, edges };
+}
+
+function getGenerationSources(node: ContentNodeRecord): RetrievedKnowledgeSource[] {
+  const sources = node.metadata.retrievedSources;
+  if (!Array.isArray(sources)) {
+    return [];
+  }
+  return sources.filter((source): source is RetrievedKnowledgeSource => {
+    if (!source || typeof source !== 'object') {
+      return false;
+    }
+    const candidate = source as Partial<RetrievedKnowledgeSource>;
+    return Boolean(
+      candidate.publicRef &&
+      candidate.itemTitle &&
+      candidate.chunkId &&
+      typeof candidate.snippet === 'string'
+    );
+  });
+}
+
+function layoutDefaultPositions(
+  childSections: SectionNodeRecord[],
+  contentNodes: ContentNodeRecord[],
+  edges: FocusedWorkspaceState['edges']
+): Map<string, { x: number; y: number }> {
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({
+    rankdir: 'LR',
+    nodesep: 48,
+    ranksep: 96,
+    marginx: 40,
+    marginy: 56
+  });
+
+  childSections.forEach((section, index) => {
+    graph.setNode(section.id, {
+      width: DEFAULT_NODE_WIDTH,
+      height: DEFAULT_NODE_HEIGHT,
+      rank: 0,
+      order: index
+    });
+  });
+  contentNodes.forEach((content, index) => {
+    graph.setNode(content.id, {
+      width: DEFAULT_CONTENT_NODE_WIDTH,
+      height: DEFAULT_CONTENT_NODE_HEIGHT,
+      rank: 1,
+      order: index
+    });
+  });
+
+  const visibleContentIds = new Set(contentNodes.map((node) => node.id));
+  edges.forEach((edge) => {
+    if (visibleContentIds.has(edge.fromNodeId) && visibleContentIds.has(edge.toNodeId)) {
+      graph.setEdge(edge.fromNodeId, edge.toNodeId);
+    }
+  });
+
+  dagre.layout(graph);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  graph.nodes().forEach((nodeId) => {
+    const node = graph.node(nodeId);
+    if (!node) {
+      return;
+    }
+    positions.set(nodeId, {
+      x: node.x - node.width / 2,
+      y: node.y - node.height / 2
+    });
+  });
+  return positions;
 }
 
 function orderContentNodes(contentNodes: ContentNodeRecord[], edges: FocusedWorkspaceState['edges']): ContentNodeRecord[] {

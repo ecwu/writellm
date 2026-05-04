@@ -9,19 +9,20 @@ import type {
   RetrievedKnowledgeSource
 } from '../shared/types.js';
 import type { PaperLabDatabase } from './database.js';
-import { generateLlmText } from './llmRunner.js';
+import { generateLlmObject } from './llmRunner.js';
 
-const CHUNK_TARGET_CHARS = 1200;
-const CHUNK_OVERLAP_CHARS = 180;
+const CHUNK_TARGET_CHARS = 700;
+const CHUNK_OVERLAP_CHARS = 100;
 const EMBEDDING_BATCH_SIZE = 64;
+const EMBEDDING_BATCH_MAX_CHARS = 64000;
 const METADATA_SAMPLE_CHARS = 1000;
 const METADATA_TITLE_MAX_CHARS = 140;
 const METADATA_DESCRIPTION_MAX_CHARS = 320;
 const DISPLAY_METADATA_KEY = 'knowledgeDisplayMetadata';
 const metadataResponseSchema = z.object({
-  title: z.unknown().optional(),
-  description: z.unknown().optional()
-}).passthrough();
+  title: z.string().optional().default(''),
+  description: z.string().optional().default('')
+});
 
 export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig {
   return {
@@ -158,10 +159,10 @@ async function extractKnowledgeMetadata(
   settings: ModelEndpointSettings,
   sample: string
 ): Promise<{ title: string; description: string }> {
-  const text = await generateLlmText(settings, {
+  const parsed = await generateLlmObject(settings, {
+    schema: metadataResponseSchema,
     systemPrompt: [
       'You extract display metadata for knowledge base articles.',
-      'Return only a JSON object with string fields "title" and "description".',
       'Infer the article title from the text. If the title is not explicit, write a concise descriptive title.',
       'Write the description as one short sentence in the same language as the source text when possible.',
       'Do not include markdown, citations, or extra commentary.'
@@ -174,40 +175,10 @@ async function extractKnowledgeMetadata(
     ].join('\n')
   });
 
-  const parsed = parseMetadataJson(text);
   return {
     title: cleanMetadataText(parsed.title, METADATA_TITLE_MAX_CHARS),
     description: cleanMetadataText(parsed.description, METADATA_DESCRIPTION_MAX_CHARS)
   };
-}
-
-function parseMetadataJson(text: string): { title?: unknown; description?: unknown } {
-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  const direct = tryParseMetadataJson(trimmed);
-  if (direct) {
-    return direct;
-  }
-
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    const extracted = tryParseMetadataJson(trimmed.slice(start, end + 1));
-    if (extracted) {
-      return extracted;
-    }
-  }
-
-  return {};
-}
-
-function tryParseMetadataJson(text: string): { title?: unknown; description?: unknown } | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    const result = metadataResponseSchema.safeParse(parsed);
-    return result.success ? result.data : null;
-  } catch {
-    return null;
-  }
 }
 
 function cleanMetadataText(value: unknown, maxChars: number): string {
@@ -274,16 +245,70 @@ async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Pro
     baseURL: settings.baseURL,
     apiKey: settings.apiKey
   });
-  const { embeddings } = await embedMany({
-    model: provider.embeddingModel(settings.model),
-    values: texts,
-    maxRetries: 0
-  });
+  const model = provider.embeddingModel(settings.model);
+  const embeddings: number[][] = [];
+  const embedBatch = async (batch: string[]): Promise<number[][]> => {
+    try {
+      const result = await embedMany({
+        model,
+        values: batch,
+        maxRetries: 0
+      });
+      return result.embeddings.map((embedding) => [...embedding]);
+    } catch (caught) {
+      if (batch.length > 1 && isRequestEntityTooLargeError(caught)) {
+        const midpoint = Math.ceil(batch.length / 2);
+        return [
+          ...(await embedBatch(batch.slice(0, midpoint))),
+          ...(await embedBatch(batch.slice(midpoint)))
+        ];
+      }
+      throw caught;
+    }
+  };
+
+  for (const batch of batchEmbeddingTexts(texts)) {
+    embeddings.push(...await embedBatch(batch));
+  }
 
   if (embeddings.some((embedding) => !embedding || embedding.length === 0)) {
     throw new Error('Embedding response did not include an embedding for every chunk.');
   }
-  return embeddings.map((embedding) => [...embedding]);
+  if (embeddings.length !== texts.length) {
+    throw new Error('Embedding response did not include an embedding for every chunk.');
+  }
+  return embeddings;
+}
+
+function batchEmbeddingTexts(texts: string[]): string[][] {
+  const batches: string[][] = [];
+  let currentBatch: string[] = [];
+  let currentChars = 0;
+  for (const text of texts) {
+    const wouldExceedCount = currentBatch.length >= EMBEDDING_BATCH_SIZE;
+    const wouldExceedChars = currentBatch.length > 0 && currentChars + text.length > EMBEDDING_BATCH_MAX_CHARS;
+    if (wouldExceedCount || wouldExceedChars) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentChars = 0;
+    }
+    currentBatch.push(text);
+    currentChars += text.length;
+  }
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+  return batches;
+}
+
+function isRequestEntityTooLargeError(caught: unknown): boolean {
+  if (!caught || typeof caught !== 'object') {
+    return false;
+  }
+  const error = caught as Record<string, unknown>;
+  return error.statusCode === 413 ||
+    error.status === 413 ||
+    String(error.message ?? '').toLowerCase().includes('request entity too large');
 }
 
 function toRetrievedSource(chunk: KnowledgeChunkRecord): RetrievedKnowledgeSource {

@@ -221,6 +221,7 @@ export function FloatingActionToolbar({
                 <SelectItem value="generates">generates</SelectItem>
                 <SelectItem value="revises">revises</SelectItem>
                 <SelectItem value="related-to">related-to</SelectItem>
+                <SelectItem value="cites">cites</SelectItem>
               </SelectContent>
             </Select>
             <button type="button" className="danger edge-delete-button" title="Delete edge" onClick={onDeleteEdge}>

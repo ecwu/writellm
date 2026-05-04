@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { Save, Trash2 } from 'lucide-react';
+import { BookOpen, Save, Trash2 } from 'lucide-react';
 import { getApi } from '../../api';
 import { LatexEditor } from '../../components/LatexEditor';
 import { Button } from '../../components/ui/button';
@@ -22,6 +22,8 @@ type InspectorProps = {
   selectedContent: ContentNodeRecord | null;
   onState: (state: FocusedWorkspaceState) => void;
   onSelection: (selection: Selection) => void;
+  onCitationClick: (publicRef: string) => void;
+  onOpenKnowledgeSource: (content: ContentNodeRecord) => void;
   onStatus: (message: string) => void;
   onError: (message: string) => void;
 };
@@ -34,6 +36,8 @@ export function Inspector(props: InspectorProps) {
     selectedContent,
     onState,
     onSelection,
+    onCitationClick,
+    onOpenKnowledgeSource,
     onStatus,
     onError
   } = props;
@@ -134,6 +138,7 @@ export function Inspector(props: InspectorProps) {
 
   const selectedGenerationPrompt = getGenerationPrompt(selectedContent);
   const selectedGenerationSources = getGenerationSources(selectedContent);
+  const selectedIsKnowledgeSource = selectedContent?.metadata.nodeRole === 'knowledge-source';
 
   return (
     <div className="inspector">
@@ -190,15 +195,24 @@ export function Inspector(props: InspectorProps) {
               variant="outline"
               size="sm"
               onClick={() => void setActiveMain()}
-              disabled={state.nodes.some(
-                (node) =>
-                  node.kind === 'section' &&
-                  node.id === selectedContent.parentId &&
-                  node.activeMainNodeId === selectedContent.id
-              )}
+              disabled={
+                selectedIsKnowledgeSource ||
+                state.nodes.some(
+                  (node) =>
+                    node.kind === 'section' &&
+                    node.id === selectedContent.parentId &&
+                    node.activeMainNodeId === selectedContent.id
+                )
+              }
             >
               Main
             </Button>
+            {selectedIsKnowledgeSource ? (
+              <Button variant="outline" size="sm" onClick={() => onOpenKnowledgeSource(selectedContent)}>
+                <BookOpen />
+                Source
+              </Button>
+            ) : null}
             <Button variant="destructive" size="sm" onClick={() => void deleteContent()}>
               <Trash2 />
               Delete
@@ -240,7 +254,10 @@ export function Inspector(props: InspectorProps) {
             <div className="generation-prompt">
               <span>Sources</span>
               {selectedGenerationSources.map((source) => (
-                <p key={source.chunkId}>
+                <p key={source.chunkId} className="citation-source-row">
+                  <button type="button" onClick={() => onCitationClick(source.publicRef)}>
+                    Open
+                  </button>
                   [{source.publicRef}] {source.itemTitle}: {source.snippet}
                 </p>
               ))}
@@ -250,6 +267,8 @@ export function Inspector(props: InspectorProps) {
             key={selectedContent.id}
             value={contentDraft}
             onChange={scheduleContentSave}
+            onCitationClick={onCitationClick}
+            citationSources={selectedGenerationSources}
           />
         </section>
       ) : !selectedSection ? (

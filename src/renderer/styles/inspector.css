@@ -86,6 +86,77 @@
   white-space: pre-wrap;
 }
 
+.citation-source-row {
+  align-items: start;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.citation-source-row button {
+  color: var(--primary);
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+.cm-citation-marker {
+  align-items: center;
+  background: oklch(0.93 0.035 230);
+  border: 1px solid oklch(0.72 0.08 230);
+  border-radius: 0.25rem;
+  color: oklch(0.42 0.12 230);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 0.78em;
+  font-weight: 650;
+  gap: 0.25rem;
+  line-height: 1.15;
+  max-width: 10rem;
+  overflow: hidden;
+  padding: 0 0.1rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.dark .cm-citation-marker {
+  background: oklch(0.28 0.04 230);
+  border-color: oklch(0.54 0.09 230);
+  color: oklch(0.82 0.06 230);
+}
+
+.cm-citation-stack {
+  max-width: 8rem;
+  padding-right: 0.22rem;
+}
+
+.cm-citation-stack-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-citation-stack-cards {
+  display: inline-grid;
+  flex: 0 0 auto;
+  height: 0.72rem;
+  position: relative;
+  width: 1.05rem;
+}
+
+.cm-citation-stack-cards span {
+  background: currentColor;
+  border-radius: 0.12rem;
+  height: 0.44rem;
+  left: calc(var(--stack-index) * 0.16rem);
+  opacity: calc(0.95 - var(--stack-index) * 0.14);
+  position: absolute;
+  top: calc(var(--stack-index) * 0.07rem);
+  width: 0.55rem;
+}
+
 .settings-subsection {
   border-top: 1px solid var(--border);
   display: grid;

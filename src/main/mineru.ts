@@ -25,6 +25,11 @@ type MineruJobMetadata = Record<string, unknown> & {
 };
 
 type MineruContentBlock = z.infer<typeof mineruContentBlockSchema>;
+type MineruExtractProgress = {
+  extractedPages: number | null;
+  totalPages: number | null;
+  startTime: string | null;
+};
 
 const MINERU_API_BASE = 'https://mineru.net/api/v4';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -217,10 +222,18 @@ async function waitForMineruResult(
     metadata = readMineruJobMetadata(job);
 
     const result = await getMineruBatchResult(batchId, job.id, options.settings.mineru.apiKey);
+    const progressMetadata = result.extractProgress
+      ? {
+          extractProgress: result.extractProgress,
+          extractedPages: result.extractProgress.extractedPages,
+          totalPages: result.extractProgress.totalPages
+        }
+      : {};
     job = await updateJob(options, {
       metadata: mergeMineruMetadata(metadata, {
         remoteState: result.state,
         progress: result.progress,
+        ...progressMetadata,
         fullZipUrl: result.fullZipUrl,
         traceIds: mergeTraceIds(metadata.mineru?.traceIds, result.traceIds)
       })
@@ -250,6 +263,7 @@ async function getMineruBatchResult(
   progress: number | null;
   fullZipUrl: string | null;
   errorMessage: string | null;
+  extractProgress: MineruExtractProgress | null;
   traceIds: string[];
 }> {
   const response = await fetch(`${MINERU_API_BASE}/extract-results/batch/${encodeURIComponent(batchId)}`, {
@@ -266,6 +280,7 @@ async function getMineruBatchResult(
     progress: readNumber(candidate.progress),
     fullZipUrl: readString(candidate.full_zip_url) || readString(candidate.fullZipUrl),
     errorMessage: readString(candidate.err_msg) || readString(candidate.errorMessage) || readString(candidate.message),
+    extractProgress: readExtractProgress(candidate),
     traceIds: readTraceIds(parsed, data)
   };
 }
@@ -505,6 +520,17 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readExtractProgress(candidate: Record<string, unknown>): MineruExtractProgress | null {
+  const progress = asRecord(candidate.extract_progress ?? candidate.extractProgress);
+  const extractedPages = readNumber(progress.extracted_pages) ?? readNumber(progress.extractedPages);
+  const totalPages = readNumber(progress.total_pages) ?? readNumber(progress.totalPages);
+  const startTime = readString(progress.start_time) ?? readString(progress.startTime);
+  if (extractedPages === null && totalPages === null && startTime === null) {
+    return null;
+  }
+  return { extractedPages, totalPages, startTime };
 }
 
 function textArray(value: unknown): string {

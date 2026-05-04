@@ -3,18 +3,25 @@ import { ArrowLeft } from 'lucide-react';
 import { LatexEditor } from '../../components/LatexEditor';
 import { Button } from '../../components/ui/button';
 import { formatContentFlags } from '../../app/formatters';
-import type { ContentNodeRecord, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
+import type {
+  ContentNodeRecord,
+  FocusedWorkspaceState,
+  RetrievedKnowledgeSource,
+  SectionNodeRecord
+} from '../../../shared/types';
 import { useAutosaveDraft } from './useAutosaveDraft';
 
 export function WritingView({
   contentNode,
   parentSection,
+  onCitationClick,
   onBack,
   onState,
   onError
 }: {
   contentNode: ContentNodeRecord;
   parentSection: SectionNodeRecord | null;
+  onCitationClick: (publicRef: string) => void;
   onBack: () => Promise<void>;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
@@ -48,9 +55,34 @@ export function WritingView({
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">
-          <LatexEditor key={contentNode.id} value={draft} onChange={scheduleDraftSave} />
+          <LatexEditor
+            key={contentNode.id}
+            value={draft}
+            onChange={scheduleDraftSave}
+            onCitationClick={onCitationClick}
+            citationSources={getGenerationSources(contentNode)}
+          />
         </div>
       </div>
     </section>
   );
+}
+
+function getGenerationSources(node: ContentNodeRecord): RetrievedKnowledgeSource[] {
+  const sources = node.metadata.retrievedSources;
+  if (!Array.isArray(sources)) {
+    return [];
+  }
+  return sources.filter((source): source is RetrievedKnowledgeSource => {
+    if (!source || typeof source !== 'object') {
+      return false;
+    }
+    const candidate = source as Partial<RetrievedKnowledgeSource>;
+    return Boolean(
+      candidate.publicRef &&
+      candidate.itemTitle &&
+      candidate.chunkId &&
+      typeof candidate.snippet === 'string'
+    );
+  });
 }

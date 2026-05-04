@@ -1,7 +1,26 @@
 import Database from 'better-sqlite3';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
+import {
+  canvasNodeLayouts,
+  generationCitations,
+  knowledgeChunks,
+  knowledgeItems,
+  nodeEdges,
+  nodes,
+  plainjobJobs,
+  schema,
+  type CanvasNodeLayoutRow,
+  type KnowledgeChunkRow,
+  type KnowledgeCitationRow,
+  type KnowledgeItemRow,
+  type NodeEdgeRow,
+  type NodeRow,
+  type PlainjobJobRow
+} from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
 import type {
   CanvasNodeLayout,
@@ -18,6 +37,7 @@ import type {
   KnowledgeIndexStatus,
   KnowledgeItemDebugRecord,
   KnowledgeItemRecord,
+  KnowledgeSourceTarget,
   NodeEdgeRecord,
   NodeRecord,
   NodeStats,
@@ -27,112 +47,37 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
+const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
+const PLAINJOB_STATUS_PENDING = 0;
+const PLAINJOB_STATUS_PROCESSING = 1;
+const PLAINJOB_STATUS_DONE = 2;
+const PLAINJOB_STATUS_FAILED = 3;
 
-type SqlNodeRow = {
-  id: string;
-  kind: NodeRecord['kind'];
-  parent_id: string | null;
-  title: string;
-  intent: string | null;
-  active_main_node_id: string | null;
-  content: string | null;
-  is_main: number;
-  is_llm: number;
-  metadata_json: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
+type KnowledgeChunkJoinedRow = KnowledgeChunkRow & {
+  itemPublicRef: string;
+  itemTitle: string;
 };
 
-type SqlEdgeRow = {
-  id: string;
-  from_node_id: string;
-  to_node_id: string;
-  relation_type: EdgeKind;
-  created_by: NodeEdgeRecord['createdBy'];
-  created_at: string;
-};
-
-type SqlCanvasNodeLayoutRow = {
-  canvas_section_id: string;
-  node_id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  updated_at: string;
-};
-
-type SqlKnowledgeItemRow = {
-  id: string;
-  public_ref: string;
-  title: string;
-  content: string;
-  source_type: KnowledgeItemRecord['sourceType'];
-  index_status: KnowledgeIndexStatus;
-  metadata_json: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type SqlKnowledgeChunkRow = {
-  id: string;
-  public_ref: string;
-  item_id: string;
-  item_public_ref: string;
-  item_title: string;
-  chunk_index: number;
-  content: string;
-  embedding_json: string | null;
-  embedding_model: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type SqlKnowledgeDebugChunkRow = {
-  id: string;
-  public_ref: string;
-  item_id: string;
-  chunk_index: number;
-  content: string;
-  embedding_json: string | null;
-  embedding_model: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type SqlKnowledgeCitationRow = {
-  id: string;
-  generation_node_id: string;
-  public_ref: string | null;
-  knowledge_item_id: string;
-  knowledge_chunk_id: string;
-  label: string;
-  snippet: string;
-  score: number | null;
-  created_at: string;
-};
-
-type SqlKnowledgeIngestJobRow = {
-  id: string;
-  file_path: string;
-  file_name: string;
-  file_ext: string;
-  file_size: number;
-  knowledge_item_id: string | null;
+type KnowledgeIngestTaskData = {
+  filePath: string;
+  fileName: string;
+  fileExt: string;
+  fileSize: number;
+  knowledgeItemId: string | null;
   status: KnowledgeIngestStatus;
-  error_message: string | null;
-  metadata_json: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  finished_at: string | null;
+  errorMessage: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
 };
 
 export class PaperLabDatabase {
   readonly db: Database.Database;
+  readonly orm: BetterSQLite3Database<typeof schema>;
   readonly workspacePath: string;
   rootNodeId: string;
 
@@ -145,6 +90,7 @@ export class PaperLabDatabase {
     mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
     mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
     this.db = new Database(path.join(workspacePath, 'project.sqlite'));
+    this.orm = drizzle(this.db, { schema });
     this.loadVectorExtension();
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
@@ -196,13 +142,11 @@ export class PaperLabDatabase {
       if (activeMainNodeId) {
         this.assertContentBelongsToSection(activeMainNodeId, node.id);
       }
-      this.db
-        .prepare(
-          `UPDATE nodes
-           SET title = ?, intent = ?, active_main_node_id = ?, updated_at = ?
-           WHERE id = ? AND kind = 'section' AND deleted_at IS NULL`
-        )
-        .run(title, intent, activeMainNodeId, timestamp, nodeId);
+      this.orm
+        .update(nodes)
+        .set({ title, intent, activeMainNodeId, updatedAt: timestamp })
+        .where(and(eq(nodes.id, nodeId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+        .run();
       return;
     }
 
@@ -211,22 +155,18 @@ export class PaperLabDatabase {
     const isMain = 'isMain' in payload ? Boolean(payload.isMain) : node.isMain;
     const isLlm = 'isLlm' in payload ? Boolean(payload.isLlm) : node.isLlm;
     const metadata = 'metadata' in payload ? payload.metadata ?? node.metadata : node.metadata;
-    this.db
-      .prepare(
-        `UPDATE nodes
-         SET title = ?, content = ?, is_main = ?, is_llm = ?,
-             metadata_json = ?, updated_at = ?
-         WHERE id = ? AND kind = 'content' AND deleted_at IS NULL`
-      )
-      .run(
+    this.orm
+      .update(nodes)
+      .set({
         title,
         content,
-        isMain ? 1 : 0,
-        isLlm ? 1 : 0,
-        JSON.stringify(metadata),
-        timestamp,
-        nodeId
-      );
+        isMain: isMain ? 1 : 0,
+        isLlm: isLlm ? 1 : 0,
+        metadataJson: JSON.stringify(metadata),
+        updatedAt: timestamp
+      })
+      .where(and(eq(nodes.id, nodeId), eq(nodes.kind, 'content'), isNull(nodes.deletedAt)))
+      .run();
   }
 
   deleteNode(nodeId: string): void {
@@ -239,34 +179,28 @@ export class PaperLabDatabase {
     }
 
     const timestamp = nowIso();
-    const placeholders = nodeIds.map(() => '?').join(', ');
-    const remove = this.db.transaction(() => {
-      this.db
-        .prepare(`UPDATE nodes SET deleted_at = ?, updated_at = ? WHERE id IN (${placeholders})`)
-        .run(timestamp, timestamp, ...nodeIds);
-      this.db
-        .prepare(
-          `UPDATE nodes
-           SET active_main_node_id = NULL, updated_at = ?
-           WHERE active_main_node_id IN (${placeholders}) AND deleted_at IS NULL`
+    this.orm.transaction((tx) => {
+      tx.update(nodes)
+        .set({ deletedAt: timestamp, updatedAt: timestamp })
+        .where(inArray(nodes.id, nodeIds))
+        .run();
+      tx.update(nodes)
+        .set({ activeMainNodeId: null, updatedAt: timestamp })
+        .where(and(inArray(nodes.activeMainNodeId, nodeIds), isNull(nodes.deletedAt)))
+        .run();
+      tx.update(nodeEdges)
+        .set({ deletedAt: timestamp })
+        .where(
+          and(
+            or(inArray(nodeEdges.fromNodeId, nodeIds), inArray(nodeEdges.toNodeId, nodeIds)),
+            isNull(nodeEdges.deletedAt)
+          )
         )
-        .run(timestamp, ...nodeIds);
-      this.db
-        .prepare(
-          `UPDATE node_edges
-           SET deleted_at = ?
-           WHERE (from_node_id IN (${placeholders}) OR to_node_id IN (${placeholders}))
-             AND deleted_at IS NULL`
-        )
-        .run(timestamp, ...nodeIds, ...nodeIds);
-      this.db
-        .prepare(
-          `DELETE FROM canvas_node_layouts
-           WHERE canvas_section_id IN (${placeholders}) OR node_id IN (${placeholders})`
-        )
-        .run(...nodeIds, ...nodeIds);
+        .run();
+      tx.delete(canvasNodeLayouts)
+        .where(or(inArray(canvasNodeLayouts.canvasSectionId, nodeIds), inArray(canvasNodeLayouts.nodeId, nodeIds)))
+        .run();
     });
-    remove();
   }
 
   moveNode(nodeId: string, newParentId: string | null, index: number): void {
@@ -291,13 +225,14 @@ export class PaperLabDatabase {
     }
 
     const timestamp = nowIso();
-    const move = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE nodes SET parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
-        .run(newParentId, timestamp, nodeId);
+    this.orm.transaction(() => {
+      this.orm
+        .update(nodes)
+        .set({ parentId: newParentId, updatedAt: timestamp })
+        .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
+        .run();
       this.rewriteSiblingOrder(newParentId, node.kind, nodeId, index);
     });
-    move();
   }
 
   setActiveMainNode(sectionId: string, contentNodeId: string | null): void {
@@ -309,25 +244,20 @@ export class PaperLabDatabase {
       this.assertContentBelongsToSection(contentNodeId, sectionId);
     }
     const timestamp = nowIso();
-    const update = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `UPDATE nodes
-           SET active_main_node_id = ?, updated_at = ?
-           WHERE id = ? AND kind = 'section' AND deleted_at IS NULL`
-        )
-        .run(contentNodeId, timestamp, sectionId);
+    this.orm.transaction(() => {
+      this.orm
+        .update(nodes)
+        .set({ activeMainNodeId: contentNodeId, updatedAt: timestamp })
+        .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+        .run();
       if (contentNodeId) {
-        this.db
-          .prepare(
-            `UPDATE nodes
-             SET is_main = 1, updated_at = ?
-             WHERE id = ? AND kind = 'content' AND deleted_at IS NULL`
-          )
-          .run(timestamp, contentNodeId);
+        this.orm
+          .update(nodes)
+          .set({ isMain: 1, updatedAt: timestamp })
+          .where(and(eq(nodes.id, contentNodeId), eq(nodes.kind, 'content'), isNull(nodes.deletedAt)))
+          .run();
       }
     });
-    update();
   }
 
   createNodeEdge(
@@ -354,29 +284,34 @@ export class PaperLabDatabase {
       createdBy,
       createdAt: nowIso()
     };
-    this.db
-      .prepare(
-        `INSERT INTO node_edges
-         (id, from_node_id, to_node_id, relation_type, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(edge.id, edge.fromNodeId, edge.toNodeId, edge.relationType, edge.createdBy, edge.createdAt);
+    this.orm.insert(nodeEdges).values({
+      id: edge.id,
+      fromNodeId: edge.fromNodeId,
+      toNodeId: edge.toNodeId,
+      relationType: edge.relationType,
+      createdBy: edge.createdBy,
+      createdAt: edge.createdAt
+    }).run();
     return edge;
   }
 
   updateNodeEdge(edgeId: string, relationType: EdgeKind): void {
-    const result = this.db
-      .prepare('UPDATE node_edges SET relation_type = ? WHERE id = ? AND deleted_at IS NULL')
-      .run(relationType, edgeId);
+    const result = this.orm
+      .update(nodeEdges)
+      .set({ relationType })
+      .where(and(eq(nodeEdges.id, edgeId), isNull(nodeEdges.deletedAt)))
+      .run();
     if (result.changes === 0) {
       throw new Error(`Node edge not found: ${edgeId}`);
     }
   }
 
   deleteNodeEdge(edgeId: string): void {
-    const result = this.db
-      .prepare('UPDATE node_edges SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
-      .run(nowIso(), edgeId);
+    const result = this.orm
+      .update(nodeEdges)
+      .set({ deletedAt: nowIso() })
+      .where(and(eq(nodeEdges.id, edgeId), isNull(nodeEdges.deletedAt)))
+      .run();
     if (result.changes === 0) {
       throw new Error(`Node edge not found: ${edgeId}`);
     }
@@ -395,50 +330,46 @@ export class PaperLabDatabase {
     }
 
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO canvas_node_layouts
-         (canvas_section_id, node_id, x, y, width, height, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(canvas_section_id, node_id)
-         DO UPDATE SET
-           x = excluded.x,
-           y = excluded.y,
-           width = excluded.width,
-           height = excluded.height,
-           updated_at = excluded.updated_at`
-      )
-      .run(
-        payload.canvasSectionId,
-        payload.nodeId,
-        payload.x,
-        payload.y,
-        payload.width,
-        payload.height,
-        timestamp
-      );
+    this.orm
+      .insert(canvasNodeLayouts)
+      .values({
+        canvasSectionId: payload.canvasSectionId,
+        nodeId: payload.nodeId,
+        x: payload.x,
+        y: payload.y,
+        width: payload.width,
+        height: payload.height,
+        updatedAt: timestamp
+      })
+      .onConflictDoUpdate({
+        target: [canvasNodeLayouts.canvasSectionId, canvasNodeLayouts.nodeId],
+        set: {
+          x: payload.x,
+          y: payload.y,
+          width: payload.width,
+          height: payload.height,
+          updatedAt: timestamp
+        }
+      })
+      .run();
   }
 
   listKnowledgeItems(): KnowledgeItemRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at
-         FROM knowledge_items
-         WHERE deleted_at IS NULL
-         ORDER BY updated_at DESC, created_at DESC`
-      )
+    return this.orm
+      .select()
+      .from(knowledgeItems)
+      .where(isNull(knowledgeItems.deletedAt))
+      .orderBy(desc(knowledgeItems.updatedAt), desc(knowledgeItems.createdAt))
       .all()
-      .map((row) => mapKnowledgeItem(row as SqlKnowledgeItemRow));
+      .map(mapKnowledgeItem);
   }
 
   getKnowledgeItem(itemId: string): KnowledgeItemRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at
-         FROM knowledge_items
-         WHERE id = ? AND deleted_at IS NULL`
-      )
-      .get(itemId) as SqlKnowledgeItemRow | undefined;
+    const row = this.orm
+      .select()
+      .from(knowledgeItems)
+      .where(and(eq(knowledgeItems.id, itemId), isNull(knowledgeItems.deletedAt)))
+      .get();
     return row ? mapKnowledgeItem(row) : null;
   }
 
@@ -453,22 +384,17 @@ export class PaperLabDatabase {
     const id = createId('knw');
     const publicRef = this.createUniqueKnowledgeItemPublicRef();
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO knowledge_items
-         (id, public_ref, title, content, source_type, index_status, metadata_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
-      )
-      .run(
-        id,
-        publicRef,
-        title.trim() || 'Knowledge source',
-        content,
-        options.sourceType ?? 'text',
-        JSON.stringify(options.metadata ?? {}),
-        timestamp,
-        timestamp
-      );
+    this.orm.insert(knowledgeItems).values({
+      id,
+      publicRef,
+      title: title.trim() || 'Knowledge source',
+      content,
+      sourceType: options.sourceType ?? 'text',
+      indexStatus: 'pending',
+      metadataJson: JSON.stringify(options.metadata ?? {}),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
     return this.getKnowledgeItem(id)!;
   }
 
@@ -490,13 +416,18 @@ export class PaperLabDatabase {
     const nextSourceType = payload.sourceType ?? item.sourceType;
     const nextMetadata = payload.metadata ?? item.metadata;
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `UPDATE knowledge_items
-         SET title = ?, content = ?, source_type = ?, index_status = 'pending', metadata_json = ?, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
-      )
-      .run(nextTitle, nextContent, nextSourceType, JSON.stringify(nextMetadata), timestamp, itemId);
+    this.orm
+      .update(knowledgeItems)
+      .set({
+        title: nextTitle,
+        content: nextContent,
+        sourceType: nextSourceType,
+        indexStatus: 'pending',
+        metadataJson: JSON.stringify(nextMetadata),
+        updatedAt: timestamp
+      })
+      .where(and(eq(knowledgeItems.id, itemId), isNull(knowledgeItems.deletedAt)))
+      .run();
     return this.getKnowledgeItem(itemId)!;
   }
 
@@ -508,13 +439,11 @@ export class PaperLabDatabase {
     if (!item) {
       throw new Error(`Knowledge item not found: ${itemId}`);
     }
-    this.db
-      .prepare(
-        `UPDATE knowledge_items
-         SET metadata_json = ?, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
-      )
-      .run(JSON.stringify(metadata), nowIso(), itemId);
+    this.orm
+      .update(knowledgeItems)
+      .set({ metadataJson: JSON.stringify(metadata), updatedAt: nowIso() })
+      .where(and(eq(knowledgeItems.id, itemId), isNull(knowledgeItems.deletedAt)))
+      .run();
     return this.getKnowledgeItem(itemId)!;
   }
 
@@ -523,14 +452,15 @@ export class PaperLabDatabase {
       throw new Error(`Knowledge item not found: ${itemId}`);
     }
     const timestamp = nowIso();
-    const remove = this.db.transaction(() => {
+    this.orm.transaction(() => {
       this.deleteKnowledgeVectorsForItem(itemId);
-      this.db
-        .prepare('UPDATE knowledge_items SET deleted_at = ?, updated_at = ? WHERE id = ?')
-        .run(timestamp, timestamp, itemId);
-      this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
+      this.orm
+        .update(knowledgeItems)
+        .set({ deletedAt: timestamp, updatedAt: timestamp })
+        .where(eq(knowledgeItems.id, itemId))
+        .run();
+      this.orm.delete(knowledgeChunks).where(eq(knowledgeChunks.itemId, itemId)).run();
     });
-    remove();
   }
 
   replaceKnowledgeChunks(
@@ -542,41 +472,38 @@ export class PaperLabDatabase {
       throw new Error(`Knowledge item not found: ${itemId}`);
     }
     const timestamp = nowIso();
-    const replace = this.db.transaction(() => {
+    this.orm.transaction(() => {
       this.deleteKnowledgeVectorsForItem(itemId);
-      this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
-      const insert = this.db.prepare(
-        `INSERT INTO knowledge_chunks
-         (id, public_ref, item_id, chunk_index, content, embedding_json, embedding_dimensions,
-          embedding_model, vector_rowid, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
+      this.orm.delete(knowledgeChunks).where(eq(knowledgeChunks.itemId, itemId)).run();
       chunks.forEach((chunk, index) => {
         const dimensions = chunk.embedding.length;
         const chunkId = createId('chk');
-        insert.run(
-          chunkId,
-          createKnowledgeChunkPublicRef(item.publicRef, index),
+        this.orm.insert(knowledgeChunks).values({
+          id: chunkId,
+          publicRef: createKnowledgeChunkPublicRef(item.publicRef, index),
           itemId,
-          index,
-          chunk.content,
-          JSON.stringify(chunk.embedding),
-          dimensions,
-          chunk.embeddingModel,
-          null,
-          timestamp,
-          timestamp
-        );
+          chunkIndex: index,
+          content: chunk.content,
+          embeddingJson: JSON.stringify(chunk.embedding),
+          embeddingDimensions: dimensions,
+          embeddingModel: chunk.embeddingModel,
+          vectorRowid: null,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        }).run();
         const vectorRowid = this.insertKnowledgeVector(chunkId, chunk.embedding);
-        this.db
-          .prepare('UPDATE knowledge_chunks SET vector_rowid = ? WHERE id = ?')
-          .run(vectorRowid, chunkId);
+        this.orm
+          .update(knowledgeChunks)
+          .set({ vectorRowid })
+          .where(eq(knowledgeChunks.id, chunkId))
+          .run();
       });
-      this.db
-        .prepare("UPDATE knowledge_items SET index_status = 'indexed', updated_at = ? WHERE id = ?")
-        .run(timestamp, itemId);
+      this.orm
+        .update(knowledgeItems)
+        .set({ indexStatus: 'indexed', updatedAt: timestamp })
+        .where(eq(knowledgeItems.id, itemId))
+        .run();
     });
-    replace();
     return this.listKnowledgeChunks(itemId);
   }
 
@@ -590,36 +517,37 @@ export class PaperLabDatabase {
       return;
     }
     const metadata = { ...item.metadata, [metadataKey]: message };
-    this.db
-      .prepare(
-        `UPDATE knowledge_items
-         SET index_status = 'error', metadata_json = ?, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
-      )
-      .run(JSON.stringify(metadata), nowIso(), itemId);
+    this.orm
+      .update(knowledgeItems)
+      .set({
+        indexStatus: 'error',
+        metadataJson: JSON.stringify(metadata),
+        updatedAt: nowIso()
+      })
+      .where(and(eq(knowledgeItems.id, itemId), isNull(knowledgeItems.deletedAt)))
+      .run();
   }
 
   listKnowledgeIngestJobs(): KnowledgeIngestJobRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, metadata_json, created_at, updated_at, started_at, finished_at
-         FROM knowledge_ingest_jobs
-         ORDER BY created_at DESC`
-      )
+    return this.orm
+      .select()
+      .from(plainjobJobs)
+      .where(eq(plainjobJobs.type, KNOWLEDGE_INGEST_TASK_TYPE))
+      .orderBy(desc(plainjobJobs.createdAt))
       .all()
-      .map((row) => mapKnowledgeIngestJob(row as SqlKnowledgeIngestJobRow));
+      .map(mapKnowledgeIngestJob);
   }
 
   getKnowledgeIngestJob(jobId: string): KnowledgeIngestJobRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, metadata_json, created_at, updated_at, started_at, finished_at
-         FROM knowledge_ingest_jobs
-         WHERE id = ?`
-      )
-      .get(jobId) as SqlKnowledgeIngestJobRow | undefined;
+    const numericJobId = Number(jobId);
+    if (!Number.isInteger(numericJobId)) {
+      return null;
+    }
+    const row = this.orm
+      .select()
+      .from(plainjobJobs)
+      .where(and(eq(plainjobJobs.id, numericJobId), eq(plainjobJobs.type, KNOWLEDGE_INGEST_TASK_TYPE)))
+      .get();
     return row ? mapKnowledgeIngestJob(row) : null;
   }
 
@@ -630,39 +558,46 @@ export class PaperLabDatabase {
     fileSize: number;
     metadata?: Record<string, unknown>;
   }): KnowledgeIngestJobRecord {
-    const id = createId('ing');
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO knowledge_ingest_jobs
-         (id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-          error_message, metadata_json, created_at, updated_at, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'queued', NULL, ?, ?, ?, NULL, NULL)`
-      )
-      .run(
-        id,
-        file.filePath,
-        file.fileName,
-        file.fileExt,
-        file.fileSize,
-        JSON.stringify(file.metadata ?? {}),
-        timestamp,
-        timestamp
-      );
-    return this.getKnowledgeIngestJob(id)!;
+    const now = Date.now();
+    const result = this.orm.insert(plainjobJobs).values({
+      type: KNOWLEDGE_INGEST_TASK_TYPE,
+      data: JSON.stringify({
+        filePath: file.filePath,
+        fileName: file.fileName,
+        fileExt: file.fileExt,
+        fileSize: file.fileSize,
+        knowledgeItemId: null,
+        status: 'queued',
+        errorMessage: null,
+        metadata: file.metadata ?? {},
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        startedAt: null,
+        finishedAt: null
+      } satisfies KnowledgeIngestTaskData),
+      status: PLAINJOB_STATUS_PENDING,
+      failedAt: null,
+      error: null,
+      nextRunAt: now,
+      createdAt: now
+    }).run();
+    return this.getKnowledgeIngestJob(String(result.lastInsertRowid))!;
   }
 
   listRunnableKnowledgeIngestJobs(): KnowledgeIngestJobRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, file_path, file_name, file_ext, file_size, knowledge_item_id, status,
-                error_message, metadata_json, created_at, updated_at, started_at, finished_at
-         FROM knowledge_ingest_jobs
-         WHERE status IN ('queued', 'uploading', 'extracting', 'downloading', 'indexing')
-         ORDER BY created_at ASC`
+    return this.orm
+      .select()
+      .from(plainjobJobs)
+      .where(
+        and(
+          eq(plainjobJobs.type, KNOWLEDGE_INGEST_TASK_TYPE),
+          or(eq(plainjobJobs.status, PLAINJOB_STATUS_PENDING), eq(plainjobJobs.status, PLAINJOB_STATUS_PROCESSING))
+        )
       )
+      .orderBy(asc(plainjobJobs.createdAt))
       .all()
-      .map((row) => mapKnowledgeIngestJob(row as SqlKnowledgeIngestJobRow));
+      .map(mapKnowledgeIngestJob);
   }
 
   updateKnowledgeIngestJob(
@@ -680,24 +615,38 @@ export class PaperLabDatabase {
     if (!job) {
       throw new Error(`Knowledge ingest job not found: ${jobId}`);
     }
+    const numericJobId = Number(jobId);
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `UPDATE knowledge_ingest_jobs
-         SET status = ?, error_message = ?, metadata_json = ?, knowledge_item_id = ?, updated_at = ?,
-             started_at = ?, finished_at = ?
-         WHERE id = ?`
-      )
-      .run(
-        payload.status ?? job.status,
-        Object.prototype.hasOwnProperty.call(payload, 'errorMessage') ? payload.errorMessage : job.errorMessage,
-        Object.prototype.hasOwnProperty.call(payload, 'metadata') ? JSON.stringify(payload.metadata) : JSON.stringify(job.metadata),
-        Object.prototype.hasOwnProperty.call(payload, 'knowledgeItemId') ? payload.knowledgeItemId : job.knowledgeItemId,
-        timestamp,
-        Object.prototype.hasOwnProperty.call(payload, 'startedAt') ? payload.startedAt : job.startedAt,
-        Object.prototype.hasOwnProperty.call(payload, 'finishedAt') ? payload.finishedAt : job.finishedAt,
-        jobId
-      );
+    const nextStatus = payload.status ?? job.status;
+    const nextErrorMessage = Object.prototype.hasOwnProperty.call(payload, 'errorMessage')
+      ? payload.errorMessage ?? null
+      : job.errorMessage;
+    const nextData: KnowledgeIngestTaskData = {
+      filePath: job.filePath,
+      fileName: job.fileName,
+      fileExt: job.fileExt,
+      fileSize: job.fileSize,
+      knowledgeItemId: Object.prototype.hasOwnProperty.call(payload, 'knowledgeItemId')
+        ? payload.knowledgeItemId ?? null
+        : job.knowledgeItemId,
+      status: nextStatus,
+      errorMessage: nextErrorMessage,
+      metadata: Object.prototype.hasOwnProperty.call(payload, 'metadata') ? payload.metadata ?? {} : job.metadata,
+      createdAt: job.createdAt,
+      updatedAt: timestamp,
+      startedAt: Object.prototype.hasOwnProperty.call(payload, 'startedAt') ? payload.startedAt ?? null : job.startedAt,
+      finishedAt: Object.prototype.hasOwnProperty.call(payload, 'finishedAt') ? payload.finishedAt ?? null : job.finishedAt
+    };
+
+    const plainjobPatch = plainjobPatchForKnowledgeStatus(nextStatus, nextErrorMessage);
+    this.orm
+      .update(plainjobJobs)
+      .set({
+        data: JSON.stringify(nextData),
+        ...plainjobPatch
+      })
+      .where(and(eq(plainjobJobs.id, numericJobId), eq(plainjobJobs.type, KNOWLEDGE_INGEST_TASK_TYPE)))
+      .run();
     return this.getKnowledgeIngestJob(jobId)!;
   }
 
@@ -734,40 +683,95 @@ export class PaperLabDatabase {
     if (!job) {
       throw new Error(`Knowledge ingest job not found: ${jobId}`);
     }
-    const remove = this.db.transaction(() => {
+    this.orm.transaction(() => {
       if (job.knowledgeItemId && this.getKnowledgeItem(job.knowledgeItemId)) {
         this.deleteKnowledgeItem(job.knowledgeItemId);
       }
-      this.db.prepare('DELETE FROM knowledge_ingest_jobs WHERE id = ?').run(jobId);
+      this.orm.delete(plainjobJobs).where(eq(plainjobJobs.id, Number(jobId))).run();
     });
-    remove();
   }
 
   listKnowledgeChunks(itemId?: string): KnowledgeChunkRecord[] {
-    const sql = `SELECT chunks.id, chunks.public_ref, chunks.item_id, items.public_ref AS item_public_ref,
-                       items.title AS item_title, chunks.chunk_index,
-                       chunks.content, chunks.embedding_json, chunks.embedding_model,
-                       chunks.created_at, chunks.updated_at
-                FROM knowledge_chunks chunks
-                JOIN knowledge_items items ON items.id = chunks.item_id
-                WHERE items.deleted_at IS NULL${itemId ? ' AND chunks.item_id = ?' : ''}
-                ORDER BY items.updated_at DESC, chunks.chunk_index ASC`;
-    return (itemId ? this.db.prepare(sql).all(itemId) : this.db.prepare(sql).all())
-      .map((row) => mapKnowledgeChunk(row as SqlKnowledgeChunkRow));
+    return this.orm
+      .select({
+        id: knowledgeChunks.id,
+        publicRef: knowledgeChunks.publicRef,
+        itemId: knowledgeChunks.itemId,
+        itemPublicRef: knowledgeItems.publicRef,
+        itemTitle: knowledgeItems.title,
+        chunkIndex: knowledgeChunks.chunkIndex,
+        content: knowledgeChunks.content,
+        embeddingJson: knowledgeChunks.embeddingJson,
+        embeddingDimensions: knowledgeChunks.embeddingDimensions,
+        embeddingModel: knowledgeChunks.embeddingModel,
+        vectorRowid: knowledgeChunks.vectorRowid,
+        createdAt: knowledgeChunks.createdAt,
+        updatedAt: knowledgeChunks.updatedAt
+      })
+      .from(knowledgeChunks)
+      .innerJoin(knowledgeItems, eq(knowledgeItems.id, knowledgeChunks.itemId))
+      .where(
+        itemId
+          ? and(isNull(knowledgeItems.deletedAt), eq(knowledgeChunks.itemId, itemId))
+          : isNull(knowledgeItems.deletedAt)
+      )
+      .orderBy(desc(knowledgeItems.updatedAt), asc(knowledgeChunks.chunkIndex))
+      .all()
+      .map(mapKnowledgeChunk);
+  }
+
+  resolveKnowledgeSourceTarget(options: {
+    publicRef?: string;
+    chunkId?: string;
+  }): KnowledgeSourceTarget | null {
+    const publicRef = options.publicRef?.replace(/^\[|\]$/g, '').trim();
+    const chunkId = options.chunkId?.trim();
+    if (!publicRef && !chunkId) {
+      return null;
+    }
+
+    const row = this.orm
+      .select({
+        id: knowledgeChunks.id,
+        publicRef: knowledgeChunks.publicRef,
+        itemId: knowledgeChunks.itemId,
+        itemPublicRef: knowledgeItems.publicRef,
+        itemTitle: knowledgeItems.title,
+        chunkIndex: knowledgeChunks.chunkIndex,
+        content: knowledgeChunks.content
+      })
+      .from(knowledgeChunks)
+      .innerJoin(knowledgeItems, eq(knowledgeItems.id, knowledgeChunks.itemId))
+      .where(
+        and(
+          isNull(knowledgeItems.deletedAt),
+          chunkId ? eq(knowledgeChunks.id, chunkId) : eq(knowledgeChunks.publicRef, publicRef!)
+        )
+      )
+      .get();
+
+    return row
+      ? {
+          publicRef: row.publicRef,
+          itemId: row.itemId,
+          itemPublicRef: row.itemPublicRef,
+          itemTitle: row.itemTitle,
+          chunkId: row.id,
+          chunkIndex: row.chunkIndex,
+          snippet: row.content
+        }
+      : null;
   }
 
   listKnowledgeDebugItems(): KnowledgeItemDebugRecord[] {
     return this.listKnowledgeItems().map((item) => {
-      const chunks = this.db
-        .prepare(
-          `SELECT id, public_ref, item_id, chunk_index, content, embedding_json, embedding_model,
-                  created_at, updated_at
-           FROM knowledge_chunks
-           WHERE item_id = ?
-           ORDER BY chunk_index ASC`
-        )
-        .all(item.id)
-        .map((row) => mapKnowledgeChunkDebug(row as SqlKnowledgeDebugChunkRow));
+      const chunks = this.orm
+        .select()
+        .from(knowledgeChunks)
+        .where(eq(knowledgeChunks.itemId, item.id))
+        .orderBy(asc(knowledgeChunks.chunkIndex))
+        .all()
+        .map(mapKnowledgeChunkDebug);
 
       return {
         itemId: item.id,
@@ -811,10 +815,14 @@ export class PaperLabDatabase {
            FROM ${vectorTableName}
            WHERE embedding MATCH ? AND k = ?
          )
-         SELECT chunks.id, chunks.public_ref, chunks.item_id, items.public_ref AS item_public_ref,
-                items.title AS item_title, chunks.chunk_index,
-                chunks.content, chunks.embedding_json, chunks.embedding_model,
-                chunks.created_at, chunks.updated_at,
+         SELECT chunks.id, chunks.public_ref AS publicRef, chunks.item_id AS itemId,
+                items.public_ref AS itemPublicRef, items.title AS itemTitle,
+                chunks.chunk_index AS chunkIndex, chunks.content,
+                chunks.embedding_json AS embeddingJson,
+                chunks.embedding_dimensions AS embeddingDimensions,
+                chunks.embedding_model AS embeddingModel,
+                chunks.vector_rowid AS vectorRowid,
+                chunks.created_at AS createdAt, chunks.updated_at AS updatedAt,
                 matches.distance
          FROM matches
          JOIN knowledge_chunks chunks ON chunks.vector_rowid = matches.rowid
@@ -831,7 +839,7 @@ export class PaperLabDatabase {
         ...excludedItemIds,
         ...excludedChunkIds,
         maxChunks
-      ) as Array<SqlKnowledgeChunkRow & { distance: number }>;
+      ) as Array<KnowledgeChunkJoinedRow & { distance: number }>;
 
     return rows.map((row) => ({
       ...mapKnowledgeChunk(row),
@@ -855,42 +863,36 @@ export class PaperLabDatabase {
       throw new Error(`Generated content node not found: ${generationNodeId}`);
     }
     const timestamp = nowIso();
-    const save = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM generation_citations WHERE generation_node_id = ?').run(generationNodeId);
-      const insert = this.db.prepare(
-        `INSERT INTO generation_citations
-         (id, generation_node_id, public_ref, knowledge_item_id, knowledge_chunk_id, label, snippet, score, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
+    this.orm.transaction(() => {
+      this.orm
+        .delete(generationCitations)
+        .where(eq(generationCitations.generationNodeId, generationNodeId))
+        .run();
       citations.forEach((citation) => {
-        insert.run(
-          createId('cite'),
+        this.orm.insert(generationCitations).values({
+          id: createId('cite'),
           generationNodeId,
-          citation.publicRef,
-          citation.knowledgeItemId,
-          citation.knowledgeChunkId,
-          citation.label,
-          citation.snippet,
-          citation.score,
-          timestamp
-        );
+          publicRef: citation.publicRef,
+          knowledgeItemId: citation.knowledgeItemId,
+          knowledgeChunkId: citation.knowledgeChunkId,
+          label: citation.label,
+          snippet: citation.snippet,
+          score: citation.score,
+          createdAt: timestamp
+        }).run();
       });
     });
-    save();
     return this.listGenerationCitations(generationNodeId);
   }
 
   listGenerationCitations(generationNodeId: string): KnowledgeCitationRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, generation_node_id, public_ref, knowledge_item_id, knowledge_chunk_id,
-                label, snippet, score, created_at
-         FROM generation_citations
-         WHERE generation_node_id = ?
-         ORDER BY label ASC, created_at ASC`
-      )
-      .all(generationNodeId)
-      .map((row) => mapKnowledgeCitation(row as SqlKnowledgeCitationRow));
+    return this.orm
+      .select()
+      .from(generationCitations)
+      .where(eq(generationCitations.generationNodeId, generationNodeId))
+      .orderBy(asc(generationCitations.label), asc(generationCitations.createdAt))
+      .all()
+      .map(mapKnowledgeCitation);
   }
 
   getParentSectionId(nodeId: string): string | null {
@@ -914,7 +916,10 @@ export class PaperLabDatabase {
       nodes,
       visibleNodes,
       contextNodes: nodes.filter(
-        (node): node is ContentNodeRecord => node.kind === 'content' && Boolean(node.content.trim())
+        (node): node is ContentNodeRecord =>
+          node.kind === 'content' &&
+          node.metadata.nodeRole !== 'knowledge-source' &&
+          Boolean(node.content.trim())
       ),
       knowledgeItems: this.listKnowledgeItems(),
       knowledgeIngestJobs: this.listKnowledgeIngestJobs(),
@@ -925,38 +930,31 @@ export class PaperLabDatabase {
   }
 
   listNodes(): NodeRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, kind, parent_id, title, intent, active_main_node_id, content,
-                is_main, is_llm, metadata_json, sort_order, created_at, updated_at
-         FROM nodes
-         WHERE deleted_at IS NULL
-         ORDER BY sort_order ASC, created_at ASC`
-      )
+    return this.orm
+      .select()
+      .from(nodes)
+      .where(isNull(nodes.deletedAt))
+      .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
       .all()
-      .map((row) => mapNode(row as SqlNodeRow));
+      .map(mapNode);
   }
 
   listEdges(): NodeEdgeRecord[] {
-    return this.db
-      .prepare(
-        `SELECT id, from_node_id, to_node_id, relation_type, created_by, created_at
-         FROM node_edges
-         WHERE deleted_at IS NULL`
-      )
+    return this.orm
+      .select()
+      .from(nodeEdges)
+      .where(isNull(nodeEdges.deletedAt))
       .all()
-      .map((row) => mapEdge(row as SqlEdgeRow));
+      .map(mapEdge);
   }
 
   listCanvasNodeLayouts(canvasSectionId: string): CanvasNodeLayout[] {
-    return this.db
-      .prepare(
-        `SELECT canvas_section_id, node_id, x, y, width, height, updated_at
-         FROM canvas_node_layouts
-         WHERE canvas_section_id = ?`
-      )
-      .all(canvasSectionId)
-      .map((row) => mapCanvasNodeLayout(row as SqlCanvasNodeLayoutRow));
+    return this.orm
+      .select()
+      .from(canvasNodeLayouts)
+      .where(eq(canvasNodeLayouts.canvasSectionId, canvasSectionId))
+      .all()
+      .map(mapCanvasNodeLayout);
   }
 
   getExportRows(rootSectionId: string): { section: SectionNodeRecord; text: ContentNodeRecord | null }[] {
@@ -985,14 +983,11 @@ export class PaperLabDatabase {
   }
 
   getNode(nodeId: string): NodeRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, kind, parent_id, title, intent, active_main_node_id, content,
-                is_main, is_llm, metadata_json, sort_order, created_at, updated_at
-         FROM nodes
-         WHERE id = ? AND deleted_at IS NULL`
-      )
-      .get(nodeId) as SqlNodeRow | undefined;
+    const row = this.orm
+      .select()
+      .from(nodes)
+      .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
+      .get();
     return row ? mapNode(row) : null;
   }
 
@@ -1096,27 +1091,33 @@ export class PaperLabDatabase {
       CREATE INDEX IF NOT EXISTS idx_generation_citations_node
       ON generation_citations(generation_node_id);
 
-      CREATE TABLE IF NOT EXISTS knowledge_ingest_jobs (
-        id TEXT PRIMARY KEY,
-        file_path TEXT NOT NULL,
-        file_name TEXT NOT NULL,
-        file_ext TEXT NOT NULL,
-        file_size INTEGER NOT NULL,
-        knowledge_item_id TEXT,
-        status TEXT NOT NULL,
-        error_message TEXT,
-        metadata_json TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        started_at TEXT,
-        finished_at TEXT
+      CREATE TABLE IF NOT EXISTS plainjob_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        data TEXT NOT NULL,
+        status INTEGER DEFAULT 0 NOT NULL,
+        failed_at INTEGER,
+        error TEXT,
+        next_run_at INTEGER,
+        created_at INTEGER NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_knowledge_ingest_jobs_status
-      ON knowledge_ingest_jobs(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_jobs_status_type_next_run_at
+      ON plainjob_jobs(status, type, next_run_at);
+
+      CREATE TABLE IF NOT EXISTS plainjob_scheduled_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL UNIQUE,
+        status INTEGER DEFAULT 0 NOT NULL,
+        cron_expression TEXT,
+        next_run_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_type_next_run_at
+      ON plainjob_scheduled_jobs(status, type, next_run_at);
     `);
 
-    this.addColumnIfMissing('knowledge_ingest_jobs', 'metadata_json', 'TEXT');
     this.addColumnIfMissing('knowledge_items', 'public_ref', 'TEXT');
     this.addColumnIfMissing('knowledge_chunks', 'public_ref', 'TEXT');
     this.addColumnIfMissing('knowledge_chunks', 'embedding_dimensions', 'INTEGER NOT NULL DEFAULT 0');
@@ -1127,6 +1128,8 @@ export class PaperLabDatabase {
       this.clearLegacyKnowledgeData();
       this.dropKnowledgeVectorTables();
     }
+
+    this.db.exec('DROP TABLE IF EXISTS knowledge_ingest_jobs;');
 
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_items_public_ref
@@ -1274,22 +1277,24 @@ export class PaperLabDatabase {
   }
 
   private clearLegacyKnowledgeData(): void {
-    const clear = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM generation_citations').run();
-      this.db.prepare('DELETE FROM knowledge_chunks').run();
-      this.db.prepare('DELETE FROM knowledge_ingest_jobs').run();
-      this.db.prepare('DELETE FROM knowledge_items').run();
+    this.orm.transaction(() => {
+      this.orm.delete(generationCitations).run();
+      this.orm.delete(knowledgeChunks).run();
+      this.orm.delete(plainjobJobs).where(eq(plainjobJobs.type, KNOWLEDGE_INGEST_TASK_TYPE)).run();
+      this.orm.delete(knowledgeItems).run();
     });
-    clear();
     rmSync(path.join(this.workspacePath, 'assets', 'knowledge'), { recursive: true, force: true });
   }
 
   private createUniqueKnowledgeItemPublicRef(): string {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const publicRef = createShortRef();
-      const existing = this.db
-        .prepare('SELECT 1 FROM knowledge_items WHERE public_ref = ? LIMIT 1')
-        .get(publicRef);
+      const existing = this.orm
+        .select({ id: knowledgeItems.id })
+        .from(knowledgeItems)
+        .where(eq(knowledgeItems.publicRef, publicRef))
+        .limit(1)
+        .get();
       if (!existing) {
         return publicRef;
       }
@@ -1298,27 +1303,30 @@ export class PaperLabDatabase {
   }
 
   private ensureRootSection(): string {
-    const existing = this.db
-      .prepare(
-        `SELECT id FROM nodes
-         WHERE kind = 'section' AND parent_id IS NULL AND deleted_at IS NULL
-         ORDER BY created_at ASC
-         LIMIT 1`
-      )
-      .get() as { id: string } | undefined;
+    const existing = this.orm
+      .select({ id: nodes.id })
+      .from(nodes)
+      .where(and(eq(nodes.kind, 'section'), isNull(nodes.parentId), isNull(nodes.deletedAt)))
+      .orderBy(asc(nodes.createdAt))
+      .limit(1)
+      .get();
     if (existing) {
       return existing.id;
     }
 
     const id = createId('sec');
     const timestamp = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO nodes
-         (id, kind, parent_id, title, intent, active_main_node_id, sort_order, created_at, updated_at)
-         VALUES (?, 'section', NULL, 'Paper', 'Document root', NULL, 0, ?, ?)`
-      )
-      .run(id, timestamp, timestamp);
+    this.orm.insert(nodes).values({
+      id,
+      kind: 'section',
+      parentId: null,
+      title: 'Paper',
+      intent: 'Document root',
+      activeMainNodeId: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
     return id;
   }
 
@@ -1329,13 +1337,17 @@ export class PaperLabDatabase {
     const id = createId('sec');
     const timestamp = nowIso();
     const sortOrder = this.nextSiblingOrder(parentId, 'section');
-    this.db
-      .prepare(
-        `INSERT INTO nodes
-         (id, kind, parent_id, title, intent, active_main_node_id, sort_order, created_at, updated_at)
-         VALUES (?, 'section', ?, ?, ?, NULL, ?, ?, ?)`
-      )
-      .run(id, parentId, title.trim() || 'New section', intent ?? null, sortOrder, timestamp, timestamp);
+    this.orm.insert(nodes).values({
+      id,
+      kind: 'section',
+      parentId,
+      title: title.trim() || 'New section',
+      intent: intent ?? null,
+      activeMainNodeId: null,
+      sortOrder,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
     return this.getSection(id)!;
   }
 
@@ -1346,25 +1358,19 @@ export class PaperLabDatabase {
     const id = createId('cnt');
     const timestamp = nowIso();
     const sortOrder = this.nextSiblingOrder(payload.parentId, 'content');
-    this.db
-      .prepare(
-        `INSERT INTO nodes
-         (id, kind, parent_id, title, content, is_main, is_llm,
-          metadata_json, sort_order, created_at, updated_at)
-         VALUES (?, 'content', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        payload.parentId,
-        payload.title.trim() || 'Content',
-        payload.content,
-        payload.isMain ? 1 : 0,
-        payload.isLlm ? 1 : 0,
-        JSON.stringify(payload.metadata ?? {}),
-        sortOrder,
-        timestamp,
-        timestamp
-      );
+    this.orm.insert(nodes).values({
+      id,
+      kind: 'content',
+      parentId: payload.parentId,
+      title: payload.title.trim() || 'Content',
+      content: payload.content,
+      isMain: payload.isMain ? 1 : 0,
+      isLlm: payload.isLlm ? 1 : 0,
+      metadataJson: JSON.stringify(payload.metadata ?? {}),
+      sortOrder,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
     return this.getNode(id)! as ContentNodeRecord;
   }
 
@@ -1445,14 +1451,12 @@ export class PaperLabDatabase {
   }
 
   private nextSiblingOrder(parentId: string | null, kind: NodeRecord['kind']): number {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
-         FROM nodes
-         WHERE parent_id IS ? AND kind = ? AND deleted_at IS NULL`
-      )
-      .get(parentId, kind) as { next_order: number };
-    return row.next_order;
+    const row = this.orm
+      .select({ nextOrder: sql<number>`COALESCE(MAX(${nodes.sortOrder}), -1) + 1` })
+      .from(nodes)
+      .where(and(parentId === null ? isNull(nodes.parentId) : eq(nodes.parentId, parentId), eq(nodes.kind, kind), isNull(nodes.deletedAt)))
+      .get();
+    return row?.nextOrder ?? 0;
   }
 
   private rewriteSiblingOrder(
@@ -1467,9 +1471,10 @@ export class PaperLabDatabase {
     const insertAt = Math.max(0, Math.min(index, siblings.length));
     siblings.splice(insertAt, 0, this.getNode(movingNodeId)!);
 
-    const stmt = this.db.prepare('UPDATE nodes SET sort_order = ?, updated_at = ? WHERE id = ?');
     const timestamp = nowIso();
-    siblings.forEach((node, sortOrder) => stmt.run(sortOrder, timestamp, node.id));
+    siblings.forEach((node, sortOrder) => {
+      this.orm.update(nodes).set({ sortOrder, updatedAt: timestamp }).where(eq(nodes.id, node.id)).run();
+    });
   }
 
   private assertContentBelongsToSection(contentNodeId: string, sectionId: string): void {
@@ -1483,15 +1488,15 @@ export class PaperLabDatabase {
   }
 }
 
-function mapNode(row: SqlNodeRow): NodeRecord {
+function mapNode(row: NodeRow): NodeRecord {
   const base = {
     id: row.id,
-    kind: row.kind,
-    parentId: row.parent_id,
+    kind: row.kind as NodeRecord['kind'],
+    parentId: row.parentId,
     title: row.title,
-    sortOrder: row.sort_order,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 
   if (row.kind === 'section') {
@@ -1499,122 +1504,194 @@ function mapNode(row: SqlNodeRow): NodeRecord {
       ...base,
       kind: 'section',
       intent: row.intent,
-      activeMainNodeId: row.active_main_node_id
+      activeMainNodeId: row.activeMainNodeId
     };
   }
 
   return {
     ...base,
     kind: 'content',
-    parentId: row.parent_id ?? '',
+    parentId: row.parentId ?? '',
     content: row.content ?? '',
-    isMain: Boolean(row.is_main),
-    isLlm: Boolean(row.is_llm),
-    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {}
+    isMain: Boolean(row.isMain),
+    isLlm: Boolean(row.isLlm),
+    metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {}
   };
 }
 
-function mapEdge(row: SqlEdgeRow): NodeEdgeRecord {
+function mapEdge(row: NodeEdgeRow): NodeEdgeRecord {
   return {
     id: row.id,
-    fromNodeId: row.from_node_id,
-    toNodeId: row.to_node_id,
-    relationType: row.relation_type,
-    createdBy: row.created_by,
-    createdAt: row.created_at
+    fromNodeId: row.fromNodeId,
+    toNodeId: row.toNodeId,
+    relationType: row.relationType as EdgeKind,
+    createdBy: row.createdBy as NodeEdgeRecord['createdBy'],
+    createdAt: row.createdAt
   };
 }
 
-function mapCanvasNodeLayout(row: SqlCanvasNodeLayoutRow): CanvasNodeLayout {
+function mapCanvasNodeLayout(row: CanvasNodeLayoutRow): CanvasNodeLayout {
   return {
-    canvasSectionId: row.canvas_section_id,
-    nodeId: row.node_id,
+    canvasSectionId: row.canvasSectionId,
+    nodeId: row.nodeId,
     x: row.x,
     y: row.y,
     width: row.width,
     height: row.height,
-    updatedAt: row.updated_at
+    updatedAt: row.updatedAt
   };
 }
 
-function mapKnowledgeItem(row: SqlKnowledgeItemRow): KnowledgeItemRecord {
+function mapKnowledgeItem(row: KnowledgeItemRow): KnowledgeItemRecord {
   return {
     id: row.id,
-    publicRef: row.public_ref,
+    publicRef: row.publicRef,
     title: row.title,
     content: row.content,
-    sourceType: row.source_type,
-    indexStatus: row.index_status,
-    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {},
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
+    sourceType: row.sourceType as KnowledgeItemRecord['sourceType'],
+    indexStatus: row.indexStatus as KnowledgeIndexStatus,
+    metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {},
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
-function mapKnowledgeChunk(row: SqlKnowledgeChunkRow): KnowledgeChunkRecord {
+function mapKnowledgeChunk(row: KnowledgeChunkJoinedRow): KnowledgeChunkRecord {
   return {
     id: row.id,
-    publicRef: row.public_ref,
-    itemId: row.item_id,
-    itemPublicRef: row.item_public_ref,
-    itemTitle: row.item_title,
-    chunkIndex: row.chunk_index,
+    publicRef: row.publicRef,
+    itemId: row.itemId,
+    itemPublicRef: row.itemPublicRef,
+    itemTitle: row.itemTitle,
+    chunkIndex: row.chunkIndex,
     content: row.content,
-    embeddingModel: row.embedding_model,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
+    embeddingModel: row.embeddingModel,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
-function mapKnowledgeChunkDebug(row: SqlKnowledgeDebugChunkRow): KnowledgeChunkDebugRecord {
-  const embedding = parseEmbedding(row.embedding_json);
+function mapKnowledgeChunkDebug(row: KnowledgeChunkRow): KnowledgeChunkDebugRecord {
+  const embedding = parseEmbedding(row.embeddingJson);
   return {
     id: row.id,
-    publicRef: row.public_ref,
-    chunkIndex: row.chunk_index,
+    publicRef: row.publicRef,
+    chunkIndex: row.chunkIndex,
     content: row.content,
     contentLength: row.content.length,
-    embeddingModel: row.embedding_model,
+    embeddingModel: row.embeddingModel,
     embeddingDimensions: embedding.length,
     embeddingPreview: embedding.slice(0, 8).map((value) => Number(value.toFixed(6))),
     embeddingNorm: embedding.length > 0
       ? Number(Math.sqrt(embedding.reduce((sum, value) => sum + value * value, 0)).toFixed(6))
       : null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
-function mapKnowledgeCitation(row: SqlKnowledgeCitationRow): KnowledgeCitationRecord {
+function mapKnowledgeCitation(row: KnowledgeCitationRow): KnowledgeCitationRecord {
   return {
     id: row.id,
-    generationNodeId: row.generation_node_id,
-    publicRef: row.public_ref ?? row.label,
-    knowledgeItemId: row.knowledge_item_id,
-    knowledgeChunkId: row.knowledge_chunk_id,
+    generationNodeId: row.generationNodeId,
+    publicRef: row.publicRef ?? row.label,
+    knowledgeItemId: row.knowledgeItemId,
+    knowledgeChunkId: row.knowledgeChunkId,
     label: row.label,
     snippet: row.snippet,
     score: row.score,
-    createdAt: row.created_at
+    createdAt: row.createdAt
   };
 }
 
-function mapKnowledgeIngestJob(row: SqlKnowledgeIngestJobRow): KnowledgeIngestJobRecord {
+function mapKnowledgeIngestJob(row: PlainjobJobRow): KnowledgeIngestJobRecord {
+  const data = parseKnowledgeIngestTaskData(row);
+  const status = mapPlainjobKnowledgeStatus(row, data.status);
   return {
-    id: row.id,
-    filePath: row.file_path,
-    fileName: row.file_name,
-    fileExt: row.file_ext,
-    fileSize: row.file_size,
-    knowledgeItemId: row.knowledge_item_id,
-    status: row.status,
-    errorMessage: row.error_message,
-    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : {},
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    startedAt: row.started_at,
-    finishedAt: row.finished_at
+    id: String(row.id),
+    filePath: data.filePath,
+    fileName: data.fileName,
+    fileExt: data.fileExt,
+    fileSize: data.fileSize,
+    knowledgeItemId: data.knowledgeItemId,
+    status,
+    errorMessage: row.error ?? data.errorMessage,
+    metadata: data.metadata,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+    startedAt: data.startedAt,
+    finishedAt: data.finishedAt
   };
+}
+
+function parseKnowledgeIngestTaskData(row: PlainjobJobRow): KnowledgeIngestTaskData {
+  const parsed = parseMetadata(row.data);
+  const timestamp = new Date(row.createdAt).toISOString();
+  return {
+    filePath: typeof parsed.filePath === 'string' ? parsed.filePath : '',
+    fileName: typeof parsed.fileName === 'string' ? parsed.fileName : 'Unknown file',
+    fileExt: typeof parsed.fileExt === 'string' ? parsed.fileExt : '',
+    fileSize: typeof parsed.fileSize === 'number' ? parsed.fileSize : 0,
+    knowledgeItemId: typeof parsed.knowledgeItemId === 'string' ? parsed.knowledgeItemId : null,
+    status: isKnowledgeIngestStatus(parsed.status) ? parsed.status : mapPlainjobKnowledgeStatus(row, null),
+    errorMessage: typeof parsed.errorMessage === 'string' ? parsed.errorMessage : null,
+    metadata: parsed.metadata && typeof parsed.metadata === 'object' && !Array.isArray(parsed.metadata)
+      ? parsed.metadata as Record<string, unknown>
+      : {},
+    createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : timestamp,
+    updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : timestamp,
+    startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : null,
+    finishedAt: typeof parsed.finishedAt === 'string' ? parsed.finishedAt : null
+  };
+}
+
+function mapPlainjobKnowledgeStatus(row: PlainjobJobRow, dataStatus: KnowledgeIngestStatus | null): KnowledgeIngestStatus {
+  if (row.status === PLAINJOB_STATUS_FAILED) {
+    return 'error';
+  }
+  if (row.status === PLAINJOB_STATUS_DONE) {
+    return 'indexed';
+  }
+  return dataStatus ?? (row.status === PLAINJOB_STATUS_PENDING ? 'queued' : 'extracting');
+}
+
+function isKnowledgeIngestStatus(value: unknown): value is KnowledgeIngestStatus {
+  return value === 'queued' ||
+    value === 'uploading' ||
+    value === 'extracting' ||
+    value === 'downloading' ||
+    value === 'indexing' ||
+    value === 'indexed' ||
+    value === 'error';
+}
+
+function plainjobPatchForKnowledgeStatus(
+  status: KnowledgeIngestStatus,
+  errorMessage: string | null
+): Partial<Pick<PlainjobJobRow, 'status' | 'failedAt' | 'error' | 'nextRunAt'>> {
+  if (status === 'queued') {
+    return {
+      status: PLAINJOB_STATUS_PENDING,
+      failedAt: null,
+      error: null,
+      nextRunAt: Date.now()
+    };
+  }
+  if (status === 'indexed') {
+    return {
+      status: PLAINJOB_STATUS_DONE,
+      failedAt: null,
+      error: null
+    };
+  }
+  if (status === 'error') {
+    return {
+      status: PLAINJOB_STATUS_FAILED,
+      failedAt: Date.now(),
+      error: errorMessage
+    };
+  }
+  return { status: PLAINJOB_STATUS_PROCESSING };
 }
 
 function parseMetadata(raw: string | null): Record<string, unknown> {

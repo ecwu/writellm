@@ -7,11 +7,13 @@ import type {
   GenerateLlmPayload,
   KnowledgeDebugDetails,
   KnowledgeSearchPayload,
+  KnowledgeSourceTarget,
   LlmStreamEvent,
   NodeEdgeRecord,
   PublicLlmSettings,
   RecentWorkspace,
   RetrievedKnowledgeSource,
+  ResolveKnowledgeCitationPayload,
   SaveLlmGenerationPayload,
   UpdateAppearanceSettingsPayload,
   UpdateKnowledgeItemPayload,
@@ -50,6 +52,7 @@ export const ipcChannels = {
   deleteKnowledgeItem: 'paperlab:deleteKnowledgeItem',
   reindexKnowledgeItem: 'paperlab:reindexKnowledgeItem',
   searchKnowledge: 'paperlab:searchKnowledge',
+  resolveKnowledgeCitation: 'paperlab:resolveKnowledgeCitation',
   getKnowledgeDebugDetails: 'paperlab:getKnowledgeDebugDetails',
   getWorkspaceAssetDataUrl: 'paperlab:getWorkspaceAssetDataUrl',
   generateWithLlm: 'paperlab:generateWithLlm',
@@ -92,6 +95,7 @@ export type PaperLabIpc = {
   deleteKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   reindexKnowledgeItem(itemId: string): Promise<FocusedWorkspaceState>;
   searchKnowledge(payload: KnowledgeSearchPayload): Promise<RetrievedKnowledgeSource[]>;
+  resolveKnowledgeCitation(payload: ResolveKnowledgeCitationPayload): Promise<KnowledgeSourceTarget | null>;
   getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
   getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
   generateWithLlm(

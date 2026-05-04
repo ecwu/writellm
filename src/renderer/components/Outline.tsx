@@ -1,18 +1,13 @@
-import { useState, type DragEvent } from 'react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
 import type { CompositionTreeNode } from '../../shared/types';
-
-type DropPosition = 'before' | 'after';
 
 type DragState = {
   id: string;
   parentId: string | null;
   index: number;
-};
-
-type DropState = {
-  id: string;
-  position: DropPosition;
 };
 
 export function Outline({
@@ -26,74 +21,39 @@ export function Outline({
   onSelect: (id: string) => void;
   onMove: (id: string, parentId: string | null, index: number) => void;
 }) {
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const [dropState, setDropState] = useState<DropState | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  function getDropPosition(event: DragEvent<HTMLElement>): DropPosition {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-  }
-
-  function canDropOn(node: CompositionTreeNode) {
-    return Boolean(dragState && dragState.id !== node.id && dragState.parentId === node.parentId);
-  }
-
-  function onDragOver(event: DragEvent<HTMLElement>, node: CompositionTreeNode) {
-    if (!canDropOn(node)) {
+  function handleDragEnd(event: DragEndEvent) {
+    const active = event.active.data.current as DragState | undefined;
+    const over = event.over?.data.current as DragState | undefined;
+    if (!active || !over || active.id === over.id || active.parentId !== over.parentId || !active.parentId) {
       return;
     }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    setDropState({ id: node.id, position: getDropPosition(event) });
-  }
-
-  function onDrop(event: DragEvent<HTMLElement>, node: CompositionTreeNode, targetIndex: number) {
-    if (!canDropOn(node) || !dragState) {
+    const nextIndex = active.index < over.index ? over.index : over.index;
+    if (nextIndex === active.index) {
       return;
     }
-    event.preventDefault();
-    const position = getDropPosition(event);
-    const targetSlot = targetIndex + (position === 'after' ? 1 : 0);
-    const nextIndex = dragState.index < targetSlot ? targetSlot - 1 : targetSlot;
-    setDragState(null);
-    setDropState(null);
-
-    if (nextIndex === dragState.index) {
-      return;
-    }
-    onMove(dragState.id, dragState.parentId, nextIndex);
-  }
-
-  function clearDrag() {
-    setDragState(null);
-    setDropState(null);
+    onMove(active.id, active.parentId, nextIndex);
   }
 
   return (
-    <nav className="outline-tree" onDragLeave={(event) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-        setDropState(null);
-      }
-    }}>
-      {nodes.map((node, index) => (
-        <OutlineNode
-          key={node.id}
-          node={node}
-          activeId={activeId}
-          onSelect={onSelect}
-          onMove={onMove}
-          depth={0}
-          index={index}
-          siblingCount={nodes.length}
-          dragState={dragState}
-          dropState={dropState}
-          onDragStart={setDragState}
-          onDragEnd={clearDrag}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-        />
-      ))}
-    </nav>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <nav className="outline-tree">
+        <SortableContext items={nodes.map((node) => node.id)} strategy={verticalListSortingStrategy}>
+          {nodes.map((node, index) => (
+            <OutlineNode
+              key={node.id}
+              node={node}
+              activeId={activeId}
+              onSelect={onSelect}
+              depth={0}
+              index={index}
+              siblingCount={nodes.length}
+            />
+          ))}
+        </SortableContext>
+      </nav>
+    </DndContext>
   );
 }
 
@@ -101,46 +61,34 @@ function OutlineNode({
   node,
   activeId,
   onSelect,
-  onMove,
   depth,
   index,
-  siblingCount,
-  dragState,
-  dropState,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop
+  siblingCount
 }: {
 	  node: CompositionTreeNode;
   activeId: string | null;
   onSelect: (id: string) => void;
-  onMove: (id: string, parentId: string | null, index: number) => void;
   depth: number;
   index: number;
   siblingCount: number;
-  dragState: DragState | null;
-  dropState: DropState | null;
-  onDragStart: (state: DragState) => void;
-  onDragEnd: () => void;
-	  onDragOver: (event: DragEvent<HTMLElement>, node: CompositionTreeNode) => void;
-	  onDrop: (event: DragEvent<HTMLElement>, node: CompositionTreeNode, targetIndex: number) => void;
 }) {
   const canMove = node.parentId !== null;
-  const isDragging = dragState?.id === node.id;
-  const dropClass =
-    dropState?.id === node.id
-      ? dropState.position === 'before'
-        ? ' drop-before'
-        : ' drop-after'
-      : '';
+  const sortable = useSortable({
+    id: node.id,
+    disabled: !canMove || siblingCount < 2,
+    data: { id: node.id, parentId: node.parentId, index } satisfies DragState
+  });
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition
+  };
 
   return (
     <div>
       <div
-        className={`${node.id === activeId ? 'outline-item active' : 'outline-item'}${isDragging ? ' dragging' : ''}${dropClass}`}
-        onDragOver={(event) => onDragOver(event, node)}
-        onDrop={(event) => onDrop(event, node, index)}
+        ref={sortable.setNodeRef}
+        className={`${node.id === activeId ? 'outline-item active' : 'outline-item'}${sortable.isDragging ? ' dragging' : ''}`}
+        style={style}
       >
         <button
           className="outline-select"
@@ -155,14 +103,10 @@ function OutlineNode({
           <button
             type="button"
             className="outline-drag"
-            draggable={canMove}
             disabled={!canMove || siblingCount < 2}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData('text/plain', node.id);
-              onDragStart({ id: node.id, parentId: node.parentId, index });
-            }}
-            onDragEnd={onDragEnd}
+            ref={sortable.setActivatorNodeRef}
+            {...sortable.attributes}
+            {...sortable.listeners}
             title={canMove ? 'Drag to reorder section' : 'Root section cannot be reordered'}
           >
             <GripVertical />
@@ -170,24 +114,19 @@ function OutlineNode({
           </button>
         </div>
       </div>
-      {node.children.map((child, childIndex) => (
-        <OutlineNode
-          key={child.id}
-          node={child}
-          activeId={activeId}
-          onSelect={onSelect}
-          onMove={onMove}
-          depth={depth + 1}
-          index={childIndex}
-          siblingCount={node.children.length}
-          dragState={dragState}
-          dropState={dropState}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-        />
-      ))}
+      <SortableContext items={node.children.map((sibling) => sibling.id)} strategy={verticalListSortingStrategy}>
+        {node.children.map((child, childIndex) => (
+          <OutlineNode
+            key={child.id}
+            node={child}
+            activeId={activeId}
+            onSelect={onSelect}
+            depth={depth + 1}
+            index={childIndex}
+            siblingCount={node.children.length}
+          />
+        ))}
+      </SortableContext>
     </div>
   );
 }

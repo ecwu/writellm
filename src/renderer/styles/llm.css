@@ -56,3 +56,124 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.global-task-trigger {
+  position: relative;
+}
+
+.global-task-trigger.active {
+  color: oklch(0.52 0.12 245);
+}
+
+.global-task-trigger.error {
+  color: var(--destructive);
+}
+
+.global-task-trigger span {
+  align-items: center;
+  background: currentColor;
+  border: 2px solid var(--background);
+  border-radius: 999px;
+  color: var(--background);
+  display: inline-flex;
+  font-size: 0.62rem;
+  font-weight: 800;
+  height: 1rem;
+  justify-content: center;
+  line-height: 1;
+  min-width: 1rem;
+  padding: 0 0.18rem;
+  position: absolute;
+  right: -0.05rem;
+  top: -0.05rem;
+}
+
+.global-task-popover {
+  max-width: min(28rem, calc(100vw - 2rem));
+  width: 28rem;
+}
+
+.global-task-list {
+  border-top: 1px solid var(--border);
+  display: grid;
+  margin-top: 0.75rem;
+  max-height: min(28rem, calc(100svh - 9rem));
+  overflow: auto;
+}
+
+.global-task-row {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0;
+}
+
+.global-task-row:last-child {
+  border-bottom: 0;
+}
+
+.global-task-row-main {
+  align-items: start;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.global-task-row-main > svg {
+  color: oklch(0.5 0.08 245);
+  height: 1rem;
+  margin-top: 0.05rem;
+  width: 1rem;
+}
+
+.global-task-row.uploading .global-task-row-main > svg,
+.global-task-row.extracting .global-task-row-main > svg,
+.global-task-row.downloading .global-task-row-main > svg,
+.global-task-row.indexing .global-task-row-main > svg {
+  color: oklch(0.52 0.12 245);
+}
+
+.global-task-row.indexed .global-task-row-main > svg {
+  color: oklch(0.46 0.11 155);
+}
+
+.global-task-row.error .global-task-row-main > svg {
+  color: var(--destructive);
+}
+
+.global-task-row strong,
+.global-task-row span {
+  display: block;
+  min-width: 0;
+}
+
+.global-task-row strong {
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-task-row span {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.global-task-row p,
+.global-task-empty {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.global-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding-left: 1.55rem;
+}

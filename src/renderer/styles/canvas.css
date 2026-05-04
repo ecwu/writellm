@@ -106,6 +106,64 @@
   word-break: break-word;
 }
 
+.paper-node-citation,
+.paper-node-citation-stack {
+  align-items: center;
+  background: oklch(0.94 0.028 145);
+  border: 1px solid oklch(0.68 0.1 145);
+  border-radius: 0.35rem;
+  color: oklch(0.36 0.11 145);
+  display: inline-flex;
+  font-weight: 650;
+  gap: 0.25rem;
+  line-height: 1.15;
+  margin: 0 0.08rem;
+  max-width: 9rem;
+  padding: 0.08rem 0.28rem;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.dark .paper-node-citation,
+.dark .paper-node-citation-stack {
+  background: oklch(0.27 0.035 145);
+  border-color: oklch(0.48 0.09 145);
+  color: oklch(0.82 0.07 145);
+}
+
+.paper-node-citation {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paper-node-citation-stack {
+  max-width: 7.5rem;
+}
+
+.paper-node-citation-stack-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paper-node-citation-stack-cards {
+  display: inline-grid;
+  height: 0.72rem;
+  margin-left: 0.05rem;
+  position: relative;
+  width: 1.05rem;
+}
+
+.paper-node-citation-stack-cards span {
+  background: currentColor;
+  border-radius: 0.12rem;
+  height: 0.44rem;
+  left: calc(var(--stack-index) * 0.16rem);
+  opacity: calc(0.95 - var(--stack-index) * 0.14);
+  position: absolute;
+  top: calc(var(--stack-index) * 0.07rem);
+  width: 0.55rem;
+}
+
 .paper-node-resize-overlay {
   background: transparent;
   border: 0;
@@ -183,6 +241,16 @@
 
 .tone-llm {
   border-color: oklch(0.55 0.11 300);
+}
+
+.tone-source {
+  background: oklch(0.98 0.018 145);
+  border-color: oklch(0.58 0.11 145);
+}
+
+.dark .tone-source {
+  background: oklch(0.23 0.025 145);
+  border-color: oklch(0.46 0.09 145);
 }
 
 .floating-action-toolbar {
@@ -473,6 +541,11 @@
 .react-flow__edge.process-edge .react-flow__edge-path {
   stroke: oklch(0.43 0.12 230);
   stroke-width: 2;
+}
+
+.react-flow__edge.citation-edge .react-flow__edge-path {
+  stroke: oklch(0.46 0.12 145);
+  stroke-dasharray: 5 4;
 }
 
 .react-flow__edge.selected-edge .react-flow__edge-path {

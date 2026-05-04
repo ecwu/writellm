@@ -167,6 +167,21 @@
   margin-top: -0.15rem;
 }
 
+.knowledge-ingest-progress {
+  background: color-mix(in oklch, var(--muted) 82%, var(--border));
+  border-radius: 999px;
+  height: 0.35rem;
+  overflow: hidden;
+}
+
+.knowledge-ingest-progress span {
+  background: oklch(0.52 0.12 245);
+  display: block;
+  height: 100%;
+  min-width: 0.35rem;
+  transition: width 180ms ease;
+}
+
 .knowledge-ingest-status-button.queued {
   color: oklch(0.5 0.08 245);
 }

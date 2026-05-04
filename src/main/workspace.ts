@@ -1,28 +1,28 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroundTasks.js';
 import { PaperLabDatabase } from './database.js';
 import { nowIso } from './ids.js';
-import { startKnowledgeIngestWorker, stopKnowledgeIngestWorker } from './knowledgeIngest.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
 let activeDb: PaperLabDatabase | null = null;
 const MAX_RECENT_WORKSPACES = 10;
 const WORKSPACE_EXTENSION = '.paperlab';
 
-export function createWorkspace(workspacePath: string): WorkspaceSummary {
+export async function createWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   const normalizedPath = normalizeWorkspacePath(workspacePath);
   assertWorkspacePath(normalizedPath);
-  const summary = setActiveWorkspace(normalizedPath);
+  const summary = await setActiveWorkspace(normalizedPath);
   rememberWorkspace(summary.path);
   return summary;
 }
 
-export function openWorkspace(workspacePath: string): WorkspaceSummary {
+export async function openWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   const normalizedPath = normalizeWorkspacePath(workspacePath);
   assertWorkspacePath(normalizedPath);
   assertExistingWorkspace(normalizedPath);
-  const summary = setActiveWorkspace(normalizedPath);
+  const summary = await setActiveWorkspace(normalizedPath);
   rememberWorkspace(summary.path);
   return summary;
 }
@@ -57,14 +57,14 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
   return activeDb.getState(focusSectionId);
 }
 
-function setActiveWorkspace(workspacePath: string): WorkspaceSummary {
-  stopKnowledgeIngestWorker();
+async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
+  await stopBackgroundTaskWorker();
   const nextDb = new PaperLabDatabase(workspacePath);
   if (activeDb) {
     activeDb.close();
   }
   activeDb = nextDb;
-  startKnowledgeIngestWorker(activeDb);
+  await startBackgroundTaskWorker(activeDb);
   return activeDb.summary();
 }
 
