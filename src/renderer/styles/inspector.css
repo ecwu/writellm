@@ -86,6 +86,39 @@
   white-space: pre-wrap;
 }
 
+.metadata-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  overflow: hidden;
+}
+
+.metadata-row {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0.625rem;
+}
+
+.metadata-row + .metadata-row {
+  border-top: 1px solid var(--border);
+}
+
+.metadata-row span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.metadata-row p {
+  font-size: 0.84rem;
+  line-height: 1.4;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .citation-source-row {
   align-items: start;
   display: flex;
@@ -114,10 +147,10 @@
   gap: 0.25rem;
   line-height: 1.15;
   max-width: 10rem;
-  overflow: hidden;
+  overflow: visible;
   padding: 0 0.1rem;
+  position: relative;
   text-decoration: none;
-  text-overflow: ellipsis;
   vertical-align: baseline;
   white-space: nowrap;
 }
@@ -133,7 +166,9 @@
   padding-right: 0.22rem;
 }
 
+.cm-citation-label,
 .cm-citation-stack-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -155,6 +190,54 @@
   position: absolute;
   top: calc(var(--stack-index) * 0.07rem);
   width: 0.55rem;
+}
+
+.cm-citation-popover {
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 36px color-mix(in oklch, var(--foreground) 14%, transparent);
+  color: var(--popover-foreground);
+  display: none;
+  gap: 0.625rem;
+  left: 0;
+  max-width: min(28rem, 70vw);
+  min-width: min(22rem, 70vw);
+  padding: 0.75rem;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  white-space: normal;
+  z-index: 50;
+}
+
+.cm-citation-marker.is-open .cm-citation-popover {
+  display: grid;
+}
+
+.cm-citation-popover-chunk {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.cm-citation-popover-chunk + .cm-citation-popover-chunk {
+  border-top: 1px solid var(--border);
+  padding-top: 0.625rem;
+}
+
+.cm-citation-popover-title {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.cm-citation-popover-snippet {
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.45;
+  max-height: 11rem;
+  overflow: auto;
 }
 
 .settings-subsection {
@@ -198,18 +281,62 @@
   width: 1rem;
 }
 
-.latex-editor {
+.markdown-editor {
   border: 1px solid var(--input);
   border-radius: var(--radius);
   overflow: hidden;
 }
 
-.latex-editor .cm-editor {
+.markdown-editor .cm-editor {
   min-height: 320px;
 }
 
-.latex-editor .cm-scroller {
+.markdown-editor .cm-scroller {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.markdown-editor .cm-content {
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.markdown-editor .cm-md-heading {
+  color: var(--foreground);
+  font-weight: 750;
+}
+
+.markdown-editor .cm-md-heading-1 {
+  font-size: 1.55rem;
+}
+
+.markdown-editor .cm-md-heading-2 {
+  font-size: 1.3rem;
+}
+
+.markdown-editor .cm-md-heading-3 {
+  font-size: 1.12rem;
+}
+
+.markdown-editor .cm-md-strong {
+  font-weight: 750;
+}
+
+.markdown-editor .cm-md-emphasis {
+  font-style: italic;
+}
+
+.markdown-editor .cm-md-inline-code {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  color: var(--foreground);
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  padding: 0 0.15rem;
+}
+
+.markdown-editor .cm-md-link {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
 .view-mode-toggle {

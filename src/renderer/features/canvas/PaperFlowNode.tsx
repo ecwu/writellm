@@ -5,6 +5,9 @@ import type { PaperNode } from '../../app/types';
 import type { RetrievedKnowledgeSource } from '../../../shared/types';
 
 export function PaperFlowNode({ data, selected }: NodeProps<PaperNode>) {
+  const citationSources = data.citationSources ?? [];
+  const renderCitationBadges = !data.virtual && data.tone !== 'source';
+  const showSourceChips = renderCitationBadges && citationSources.length > 0;
   return (
     <div className={`paper-flow-node tone-${data.tone}${selected ? ' selected' : ''}`}>
       <NodeResizeControl
@@ -37,17 +40,40 @@ export function PaperFlowNode({ data, selected }: NodeProps<PaperNode>) {
         position={Position.Left}
         className="paper-node-handle paper-node-handle-horizontal"
       />
+      <Handle
+        id="left-source"
+        type="source"
+        position={Position.Left}
+        className="paper-node-handle paper-node-handle-horizontal"
+      />
       <div className="paper-node-eyebrow">{data.eyebrow}</div>
       <div className="paper-node-title" title={data.title}>{data.title}</div>
       {data.meta ? <div className="paper-node-meta">{data.meta}</div> : null}
       {data.content ? (
         <div className="paper-node-content">
-          <CitationAwareContent content={data.content} sources={data.citationSources ?? []} />
+          {renderCitationBadges ? (
+            <CitationAwareContent content={data.content} sources={citationSources} />
+          ) : data.content}
+        </div>
+      ) : null}
+      {showSourceChips ? (
+        <div className="paper-node-sources">
+          {uniqueSourcesByItem(citationSources).slice(0, 6).map((source) => (
+            <span key={source.itemId} className="paper-node-source" title={sourceTooltip(source)}>
+              {shortTitle(source.itemTitle)}
+            </span>
+          ))}
         </div>
       ) : null}
       <Handle
         id="right-source"
         type="source"
+        position={Position.Right}
+        className="paper-node-handle paper-node-handle-horizontal"
+      />
+      <Handle
+        id="right-target"
+        type="target"
         position={Position.Right}
         className="paper-node-handle paper-node-handle-horizontal"
       />
@@ -111,7 +137,7 @@ function CitationGroup({
   const refs = [...raw.matchAll(citationRefPattern)].map((match) => match[1]);
   const sources = refs.map((ref) => sourceByRef.get(ref.toLowerCase())).filter(Boolean) as RetrievedKnowledgeSource[];
   const displaySources = sources.length > 0
-    ? uniqueSources(sources)
+    ? uniqueSourcesByItem(sources)
     : refs.map((ref) => ({
         publicRef: ref,
         itemTitle: 'Source',
@@ -139,12 +165,12 @@ function CitationGroup({
   );
 }
 
-function uniqueSources(sources: RetrievedKnowledgeSource[]): RetrievedKnowledgeSource[] {
-  const byChunk = new Map<string, RetrievedKnowledgeSource>();
+function uniqueSourcesByItem(sources: RetrievedKnowledgeSource[]): RetrievedKnowledgeSource[] {
+  const byItem = new Map<string, RetrievedKnowledgeSource>();
   sources.forEach((source) => {
-    byChunk.set(source.chunkId, source);
+    byItem.set(source.itemId, source);
   });
-  return [...byChunk.values()];
+  return [...byItem.values()];
 }
 
 function shortTitle(title: string): string {

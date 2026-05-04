@@ -33,6 +33,7 @@ export type PaperNodeData = Record<string, unknown> & {
   meta?: string;
   content?: string;
   citationSources?: RetrievedKnowledgeSource[];
+  virtual?: boolean;
   tone: 'child-container' | 'author_text' | 'llm' | 'source';
   layoutKey: string;
   onLayoutChange: (payload: UpdateNodeLayoutPayload) => void;

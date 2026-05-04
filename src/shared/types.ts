@@ -16,6 +16,10 @@ export type SectionNodeRecord = BaseNodeRecord & {
   kind: 'section';
   intent: string | null;
   activeMainNodeId: string | null;
+  markdownPath: string;
+  markdownContent: string;
+  markdownHash: string;
+  citationSources: RetrievedKnowledgeSource[];
 };
 
 export type ContentNodeRecord = BaseNodeRecord & {
@@ -107,6 +111,7 @@ export type UpdateSectionNodePayload = {
   title?: string;
   intent?: string | null;
   activeMainNodeId?: string | null;
+  markdownContent?: string;
 };
 
 export type UpdateContentNodePayload = {
@@ -253,6 +258,7 @@ export type KnowledgeChunkRecord = {
   itemId: string;
   itemPublicRef: string;
   itemTitle: string;
+  itemDescription?: string;
   chunkIndex: number;
   content: string;
   embeddingModel: string | null;
@@ -279,6 +285,7 @@ export type RetrievedKnowledgeSource = {
   itemId: string;
   itemPublicRef: string;
   itemTitle: string;
+  itemDescription?: string;
   chunkId: string;
   chunkIndex: number;
   snippet: string;
@@ -290,6 +297,7 @@ export type KnowledgeSourceTarget = {
   itemId: string;
   itemPublicRef: string;
   itemTitle: string;
+  itemDescription?: string;
   chunkId: string;
   chunkIndex: number;
   snippet: string;
@@ -298,6 +306,22 @@ export type KnowledgeSourceTarget = {
 export type ResolveKnowledgeCitationPayload = {
   publicRef?: string;
   chunkId?: string;
+};
+
+export type GitStatusRecord = {
+  branch: string | null;
+  dirty: boolean;
+  entries: Array<{
+    path: string;
+    status: string;
+  }>;
+};
+
+export type GitHistoryRecord = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorDate: string;
 };
 
 export type CreateKnowledgeItemPayload = {

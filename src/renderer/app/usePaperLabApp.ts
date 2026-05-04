@@ -35,7 +35,7 @@ export function usePaperLabApp() {
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
   const [llmDraft, setLlmDraft] = useState(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
-  const [writingNodeId, setWritingNodeId] = useState<string | null>(null);
+  const [writingSectionId, setWritingSectionId] = useState<string | null>(null);
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
@@ -91,13 +91,8 @@ export function usePaperLabApp() {
     selection?.type === 'node' ? state.nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedSection = selectedNode?.kind === 'section' ? selectedNode : null;
   const selectedContent = selectedNode?.kind === 'content' ? selectedNode : null;
-  const writingContent = writingNodeId
-    ? state.nodes.find((node): node is ContentNodeRecord => node.kind === 'content' && node.id === writingNodeId) ?? null
-    : null;
-  const writingSection = writingContent
-    ? state.nodes.find(
-        (node): node is SectionNodeRecord => node.kind === 'section' && node.id === writingContent.parentId
-      ) ?? null
+  const writingSection = writingSectionId
+    ? state.nodes.find((node): node is SectionNodeRecord => node.kind === 'section' && node.id === writingSectionId) ?? null
     : null;
   const selectedEdge =
     selection?.type === 'edge' ? state.edges.find((edge) => edge.id === selection.id) : null;
@@ -123,7 +118,7 @@ export function usePaperLabApp() {
   function setActivePage(page: AppPage) {
     setActivePageState(page);
     if (page === 'knowledge') {
-      setWritingNodeId(null);
+      setWritingSectionId(null);
       if (llmDraft.status === 'running' && llmDraft.runId) {
         void getApi().cancelLlmGeneration(llmDraft.runId);
       }
@@ -238,10 +233,10 @@ export function usePaperLabApp() {
   }, [selection, state.edges, state.focusSectionId, state.nodes]);
 
   useEffect(() => {
-    if (writingNodeId && !writingContent) {
-      setWritingNodeId(null);
+    if (writingSectionId && !writingSection) {
+      setWritingSectionId(null);
     }
-  }, [writingNodeId, writingContent]);
+  }, [writingSectionId, writingSection]);
 
   function notifyStatus(message: string) {
     toast.success(message);
@@ -302,6 +297,9 @@ export function usePaperLabApp() {
 
   function persistNodeLayoutFromNode(node: Node) {
     const data = node.data as PaperNodeData;
+    if (data.virtual) {
+      return;
+    }
     if (!data.canvasSectionId || !data.nodeId) {
       return;
     }
@@ -376,15 +374,15 @@ export function usePaperLabApp() {
     setSelection({ type: 'node', id: sectionId });
   }
 
-  function openWritingView(content: ContentNodeRecord) {
-    setSelection({ type: 'node', id: content.id });
-    setWritingNodeId(content.id);
+  function openWritingView(section: SectionNodeRecord) {
+    setSelection({ type: 'node', id: section.id });
+    setWritingSectionId(section.id);
   }
 
-  async function closeWritingView(content: ContentNodeRecord) {
-    await run(async () => getApi().getState(content.parentId));
-    setWritingNodeId(null);
-    setSelection({ type: 'node', id: content.id });
+  async function closeWritingView(section: SectionNodeRecord) {
+    await run(async () => getApi().getState(section.id));
+    setWritingSectionId(null);
+    setSelection({ type: 'node', id: section.id });
   }
 
   async function moveSectionInOutline(sectionId: string, parentId: string | null, index: number) {
@@ -467,7 +465,7 @@ export function usePaperLabApp() {
       kind: 'content' as const,
       parentId: sectionId,
       title: 'Main draft',
-      content: 'Write confirmed LaTeX text here.',
+      content: 'Write confirmed Markdown text here.',
       isMain: true,
       isLlm: false
     };
@@ -494,7 +492,7 @@ export function usePaperLabApp() {
         kind: 'content',
         parentId: source.parentId,
         title: 'Main draft',
-        content: 'Write confirmed LaTeX text here.',
+        content: 'Write confirmed Markdown text here.',
         isMain: preset === 'main',
         isLlm: false
       });
@@ -593,7 +591,6 @@ export function usePaperLabApp() {
       return;
     }
 
-    const existingIds = new Set(state.nodes.map((node) => node.id));
     await run(async () => {
       const next = await getApi().saveLlmGeneration({
         sectionId: llmDraft.targetSectionId!,
@@ -604,13 +601,10 @@ export function usePaperLabApp() {
         retrievedSources: llmDraft.retrievedSources,
         contextRelationType: DEFAULT_EDGE_KIND
       });
-      const created = next.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
-      if (created) {
-        setSelection({ type: 'node', id: created.id });
-      }
+      setSelection({ type: 'node', id: llmDraft.targetSectionId! });
       setLlmDraft(emptyLlmDraft);
       return next;
-    }, 'LLM generation saved.');
+    }, 'LLM generation applied.');
   }
 
   async function createKnowledgeItem(title: string, content: string) {
@@ -713,6 +707,20 @@ export function usePaperLabApp() {
     }
   }
 
+  async function createGitCheckpoint() {
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 850));
+      const checkpoint = await getApi().createGitCheckpoint();
+      if (checkpoint) {
+        notifyStatus(`Checkpoint ${checkpoint.shortHash} created.`);
+      } else {
+        notifyStatus('No Markdown changes to checkpoint.');
+      }
+    } catch (caught) {
+      notifyError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   return {
     apiAvailable,
     state,
@@ -738,7 +746,6 @@ export function usePaperLabApp() {
     focusSection,
     selectedSection,
     selectedContent,
-    writingContent,
     writingSection,
     selectedEdge,
     currentChildViewMode,
@@ -776,6 +783,7 @@ export function usePaperLabApp() {
     deleteKnowledgeIngestJob,
     excludeKnowledgeSource,
     exportLatex,
+    createGitCheckpoint,
     setFocusedChildViewMode,
     onNodesChange,
     persistNodeLayoutFromNode

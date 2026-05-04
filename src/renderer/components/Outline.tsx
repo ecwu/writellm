@@ -97,7 +97,6 @@ function OutlineNode({
           title={node.title}
         >
           <span>{node.title}</span>
-	          {node.activeMainNodeId ? <span className="active-dot" title="Has active main content" /> : null}
         </button>
         <div className="outline-actions" aria-label={`${node.title} drag controls`}>
           <button

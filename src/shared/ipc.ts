@@ -5,6 +5,8 @@ import type {
   EdgeKind,
   FocusedWorkspaceState,
   GenerateLlmPayload,
+  GitHistoryRecord,
+  GitStatusRecord,
   KnowledgeDebugDetails,
   KnowledgeSearchPayload,
   KnowledgeSourceTarget,
@@ -31,6 +33,11 @@ export const ipcChannels = {
   pickNewWorkspacePath: 'paperlab:pickNewWorkspacePath',
   pickKnowledgeFiles: 'paperlab:pickKnowledgeFiles',
   getState: 'paperlab:getState',
+  updateSectionMarkdown: 'paperlab:updateSectionMarkdown',
+  getGitStatus: 'paperlab:getGitStatus',
+  createGitCheckpoint: 'paperlab:createGitCheckpoint',
+  listGitHistory: 'paperlab:listGitHistory',
+  getGitDiff: 'paperlab:getGitDiff',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
   deleteNode: 'paperlab:deleteNode',
@@ -70,6 +77,11 @@ export type PaperLabIpc = {
   pickNewWorkspacePath(): Promise<string | null>;
   pickKnowledgeFiles(): Promise<string[]>;
   getState(focusSectionId?: string): Promise<FocusedWorkspaceState>;
+  updateSectionMarkdown(sectionId: string, markdown: string): Promise<FocusedWorkspaceState>;
+  getGitStatus(): Promise<GitStatusRecord>;
+  createGitCheckpoint(message?: string): Promise<GitHistoryRecord | null>;
+  listGitHistory(sectionId?: string): Promise<GitHistoryRecord[]>;
+  getGitDiff(sectionId?: string, base?: string, head?: string): Promise<string>;
   createNode(payload: CreateNodePayload): Promise<FocusedWorkspaceState>;
   updateNode(nodeId: string, payload: UpdateNodePayload): Promise<FocusedWorkspaceState>;
   deleteNode(nodeId: string): Promise<FocusedWorkspaceState>;

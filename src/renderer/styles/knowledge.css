@@ -531,6 +531,33 @@
   padding: 0.25rem 0.45rem;
 }
 
+.knowledge-display-metadata-debug {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem;
+}
+
+.knowledge-display-metadata-debug span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.knowledge-display-metadata-debug p {
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.knowledge-display-metadata-debug code {
+  color: var(--destructive);
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+}
+
 .knowledge-debug-chunks {
   display: grid;
   gap: 0.5rem;

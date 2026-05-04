@@ -37,6 +37,7 @@ export function CanvasView({
   contextNodes,
   onCreateInSection,
   onCreateConnectedContent,
+  onOpenSectionMarkdown,
   onDeleteNode,
   onOpenGenerate,
   onPromptChange,
@@ -71,6 +72,7 @@ export function CanvasView({
   contextNodes: ContentNodeRecord[];
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
+  onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
   onDeleteNode: () => void;
   onOpenGenerate: (sectionId: string) => void;
   onPromptChange: (prompt: string) => void;
@@ -117,6 +119,7 @@ export function CanvasView({
         contextNodes={contextNodes}
         onCreateInSection={onCreateInSection}
         onCreateConnectedContent={onCreateConnectedContent}
+        onOpenSectionMarkdown={onOpenSectionMarkdown}
         onDeleteNode={onDeleteNode}
         onOpenGenerate={onOpenGenerate}
         onPromptChange={onPromptChange}

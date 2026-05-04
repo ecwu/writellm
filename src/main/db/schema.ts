@@ -8,6 +8,8 @@ export const nodes = sqliteTable('nodes', {
   intent: text('intent'),
   activeMainNodeId: text('active_main_node_id'),
   content: text('content'),
+  markdownPath: text('markdown_path'),
+  markdownHash: text('markdown_hash'),
   isMain: integer('is_main').notNull().default(0),
   isLlm: integer('is_llm').notNull().default(0),
   metadataJson: text('metadata_json'),

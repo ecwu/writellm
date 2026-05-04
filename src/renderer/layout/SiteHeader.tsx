@@ -51,6 +51,7 @@ export function SiteHeader({
   onSwitchWorkspace,
   onRefresh,
   onExport,
+  onCheckpoint,
   onClearSelection,
   onSelectFocus,
   onGenerateFromFocus,
@@ -72,6 +73,7 @@ export function SiteHeader({
   onSwitchWorkspace: () => void;
   onRefresh: () => void;
   onExport: () => void;
+  onCheckpoint: () => void;
   onClearSelection: () => void;
   onSelectFocus: () => void;
   onGenerateFromFocus: () => void;
@@ -126,7 +128,11 @@ export function SiteHeader({
               </MenubarItem>
               <MenubarItem onSelect={onExport} disabled={!canExport}>
                 <Upload />
-                Export main.tex
+                Export main.md
+              </MenubarItem>
+              <MenubarItem onSelect={onCheckpoint} disabled={!canExport}>
+                <GitBranch />
+                Create checkpoint
               </MenubarItem>
             </MenubarGroup>
           </MenubarContent>

@@ -1,8 +1,8 @@
 
 import { useEffect, useState } from 'react';
-import { BookOpen, Save, Trash2 } from 'lucide-react';
+import { BookOpen, Pencil, Save, Trash2, X } from 'lucide-react';
 import { getApi } from '../../api';
-import { LatexEditor } from '../../components/LatexEditor';
+import { MarkdownEditor } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
@@ -45,6 +45,7 @@ export function Inspector(props: InspectorProps) {
   const [contentTitle, setContentTitle] = useState('');
   const [sectionTitle, setSectionTitle] = useState('');
   const [sectionIntent, setSectionIntent] = useState('');
+  const [sectionEditing, setSectionEditing] = useState(false);
   const [saveTimer, setSaveTimer] = useState<number | null>(null);
 
   useEffect(() => {
@@ -52,7 +53,15 @@ export function Inspector(props: InspectorProps) {
     setContentTitle(selectedContent?.title ?? '');
     setSectionTitle(selectedSection?.title ?? '');
     setSectionIntent(selectedSection?.intent ?? '');
-  }, [selectedContent?.id, selectedSection?.id]);
+    setSectionEditing(false);
+  }, [
+    selectedContent?.id,
+    selectedContent?.title,
+    selectedContent?.content,
+    selectedSection?.id,
+    selectedSection?.title,
+    selectedSection?.intent
+  ]);
 
   function scheduleContentSave(value: string) {
     setContentDraft(value);
@@ -90,6 +99,7 @@ export function Inspector(props: InspectorProps) {
         intent: sectionIntent
       });
       onState(await getApi().getState(state.focusSectionId ?? undefined));
+      setSectionEditing(false);
       onStatus('Section saved.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
@@ -124,18 +134,6 @@ export function Inspector(props: InspectorProps) {
     }
   }
 
-  async function setActiveMain() {
-    if (!selectedContent) {
-      return;
-    }
-    try {
-      onState(await getApi().setActiveMainNode(selectedContent.parentId, selectedContent.id));
-      onStatus('Active main content updated.');
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
   const selectedGenerationPrompt = getGenerationPrompt(selectedContent);
   const selectedGenerationSources = getGenerationSources(selectedContent);
   const selectedIsKnowledgeSource = selectedContent?.metadata.nodeRole === 'knowledge-source';
@@ -144,43 +142,77 @@ export function Inspector(props: InspectorProps) {
     <div className="inspector">
       {selectedSection ? (
         <section className="panel">
-          <h2>Section</h2>
-          <p className="muted">Section</p>
-          <label className="field-label">
-            Title
-            <Input
-              value={sectionTitle}
-              onChange={(event) => setSectionTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  void saveSection();
-                }
-              }}
-            />
-          </label>
-          <label className="field-label">
-            Intent
-            <Textarea
-              value={sectionIntent}
-              onChange={(event) => setSectionIntent(event.target.value)}
-              placeholder="Writing intent for this section"
-            />
-          </label>
-          <div className="button-row">
-            <Button size="sm" onClick={() => void saveSection()} disabled={!sectionTitle.trim()}>
-              <Save />
-              Save
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => void deleteSection()}
-              disabled={selectedSection.id === state.workspace?.rootNodeId}
-            >
-              <Trash2 />
-              Delete
-            </Button>
+          <div className="panel-heading">
+            <div>
+              <h2>Section</h2>
+              <p className="muted">Metadata</p>
+            </div>
+            {!sectionEditing ? (
+              <Button variant="outline" size="sm" onClick={() => setSectionEditing(true)}>
+                <Pencil />
+                Edit
+              </Button>
+            ) : null}
           </div>
+          {sectionEditing ? (
+            <>
+              <label className="field-label">
+                Title
+                <Input
+                  value={sectionTitle}
+                  onChange={(event) => setSectionTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      void saveSection();
+                    }
+                  }}
+                />
+              </label>
+              <label className="field-label">
+                Intent
+                <Textarea
+                  value={sectionIntent}
+                  onChange={(event) => setSectionIntent(event.target.value)}
+                  placeholder="Writing intent for this section"
+                />
+              </label>
+              <div className="button-row">
+                <Button size="sm" onClick={() => void saveSection()} disabled={!sectionTitle.trim()}>
+                  <Save />
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSectionTitle(selectedSection.title);
+                    setSectionIntent(selectedSection.intent ?? '');
+                    setSectionEditing(false);
+                  }}
+                >
+                  <X />
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => void deleteSection()}
+                  disabled={selectedSection.id === state.workspace?.rootNodeId}
+                >
+                  <Trash2 />
+                  Delete
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="metadata-list">
+              <MetadataRow label="Title" value={selectedSection.title} />
+              <MetadataRow label="Intent" value={selectedSection.intent || 'Not set'} />
+              <MetadataRow label="Markdown" value={selectedSection.markdownPath} />
+              <MetadataRow label="Node ID" value={selectedSection.id} />
+              <MetadataRow label="Updated" value={selectedSection.updatedAt} />
+            </div>
+          )}
         </section>
       ) : null}
 
@@ -191,22 +223,6 @@ export function Inspector(props: InspectorProps) {
               <h2>{selectedContent.title}</h2>
               <p className="muted">{formatContentFlags(selectedContent)}</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void setActiveMain()}
-              disabled={
-                selectedIsKnowledgeSource ||
-                state.nodes.some(
-                  (node) =>
-                    node.kind === 'section' &&
-                    node.id === selectedContent.parentId &&
-                    node.activeMainNodeId === selectedContent.id
-                )
-              }
-            >
-              Main
-            </Button>
             {selectedIsKnowledgeSource ? (
               <Button variant="outline" size="sm" onClick={() => onOpenKnowledgeSource(selectedContent)}>
                 <BookOpen />
@@ -226,24 +242,6 @@ export function Inspector(props: InspectorProps) {
               onBlur={() => void persistContent({ title: contentTitle.trim() || selectedContent.title })}
             />
           </label>
-          <div className="button-row">
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={selectedContent.isMain}
-                onChange={(event) => void persistContent({ isMain: event.target.checked })}
-              />
-              Main candidate
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={selectedContent.isLlm}
-                onChange={(event) => void persistContent({ isLlm: event.target.checked })}
-              />
-              LLM
-            </label>
-          </div>
           {selectedGenerationPrompt ? (
             <div className="generation-prompt">
               <span>Input prompt</span>
@@ -263,7 +261,7 @@ export function Inspector(props: InspectorProps) {
               ))}
             </div>
           ) : null}
-          <LatexEditor
+          <MarkdownEditor
             key={selectedContent.id}
             value={contentDraft}
             onChange={scheduleContentSave}
@@ -277,6 +275,15 @@ export function Inspector(props: InspectorProps) {
           <p className="muted">Select a node on the canvas or in the outline.</p>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+function MetadataRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metadata-row">
+      <span>{label}</span>
+      <p>{value}</p>
     </div>
   );
 }

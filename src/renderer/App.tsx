@@ -47,7 +47,6 @@ export function App() {
     focusSection,
     selectedSection,
     selectedContent,
-    writingContent,
     writingSection,
     selectedEdge,
     currentChildViewMode,
@@ -85,6 +84,7 @@ export function App() {
     deleteKnowledgeIngestJob,
     excludeKnowledgeSource,
     exportLatex,
+    createGitCheckpoint,
     setFocusedChildViewMode,
     onNodesChange,
     persistNodeLayoutFromNode
@@ -129,6 +129,7 @@ export function App() {
             onSwitchWorkspace={() => setWorkspaceChooserOpen(true)}
             onRefresh={() => void refresh()}
             onExport={() => void exportLatex()}
+            onCheckpoint={() => void createGitCheckpoint()}
             onClearSelection={() => setSelection(null)}
             onSelectFocus={() => {
               if (focusSection) {
@@ -206,12 +207,11 @@ export function App() {
               />
 
               <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-                {writingContent ? (
+                {writingSection ? (
                   <WritingView
-                    contentNode={writingContent}
-                    parentSection={writingSection}
+                    section={writingSection}
                     onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
-                    onBack={() => closeWritingView(writingContent)}
+                    onBack={() => closeWritingView(writingSection)}
                     onState={setState}
                     onError={notifyError}
                   />
@@ -236,12 +236,17 @@ export function App() {
                     onNodeDoubleClick={(node) => {
                       const record = state.nodes.find((candidate) => candidate.id === node.id);
                       if (record?.kind === 'section') {
-                        void focusSectionById(record.id);
+                        openWritingView(record);
                       } else if (record?.kind === 'content') {
                         if (record.metadata.nodeRole === 'knowledge-source') {
                           void openKnowledgeSourceNode(record);
                         } else {
-                          openWritingView(record);
+                          const parent = state.nodes.find(
+                            (candidate) => candidate.kind === 'section' && candidate.id === record.parentId
+                          );
+                          if (parent?.kind === 'section') {
+                            openWritingView(parent);
+                          }
                         }
                       }
                     }}
@@ -265,6 +270,7 @@ export function App() {
                           : current.contextNodeIds.filter((id) => id !== nodeId)
                       }))
                     }
+                    onOpenSectionMarkdown={openWritingView}
                     onExcludeKnowledgeSource={excludeKnowledgeSource}
                     onGenerate={(prompt, sectionId, contextNodeIds) =>
                       void startLlmGeneration(prompt, sectionId, contextNodeIds)

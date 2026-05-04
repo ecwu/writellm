@@ -1,44 +1,46 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApi } from '../../api';
-import type { ContentNodeRecord, FocusedWorkspaceState } from '../../../shared/types';
+import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
+import type { FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
 
 export type DraftSaveState = 'saved' | 'saving' | 'error';
 
 export function useAutosaveDraft({
-  contentNode,
+  section,
   onState,
   onError
 }: {
-  contentNode: ContentNodeRecord;
+  section: SectionNodeRecord;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState(contentNode.content);
+  const [draft, setDraft] = useState(sectionMarkdownForStorage(section.markdownContent));
   const [saveState, setSaveState] = useState<DraftSaveState>('saved');
   const timerRef = useRef<number | null>(null);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const draftRef = useRef(contentNode.content);
-  const lastSavedRef = useRef(contentNode.content);
-  const contentRef = useRef(contentNode);
+  const draftRef = useRef(sectionMarkdownForStorage(section.markdownContent));
+  const lastSavedRef = useRef(sectionMarkdownForStorage(section.markdownContent));
+  const sectionRef = useRef(section);
   const onStateRef = useRef(onState);
   const onErrorRef = useRef(onError);
 
   useEffect(() => {
-    contentRef.current = contentNode;
+    sectionRef.current = section;
     onStateRef.current = onState;
     onErrorRef.current = onError;
-  }, [contentNode, onState, onError]);
+  }, [section, onState, onError]);
 
   useEffect(() => {
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    draftRef.current = contentNode.content;
-    lastSavedRef.current = contentNode.content;
-    setDraft(contentNode.content);
+    const nextDraft = sectionMarkdownForStorage(section.markdownContent);
+    draftRef.current = nextDraft;
+    lastSavedRef.current = nextDraft;
+    setDraft(nextDraft);
     setSaveState('saved');
-  }, [contentNode.id]);
+  }, [section.id]);
 
   useEffect(() => {
     return () => {
@@ -53,13 +55,14 @@ export function useAutosaveDraft({
   }, []);
 
   function persistDraft(value: string, silent = false) {
-    if (value === lastSavedRef.current) {
+    const normalizedValue = sectionMarkdownForStorage(value);
+    if (normalizedValue === lastSavedRef.current) {
       return saveChainRef.current;
     }
 
     saveChainRef.current = saveChainRef.current.then(async () => {
-      const content = contentRef.current;
-      if (value === lastSavedRef.current) {
+      const currentSection = sectionRef.current;
+      if (normalizedValue === lastSavedRef.current) {
         return;
       }
 
@@ -67,16 +70,16 @@ export function useAutosaveDraft({
         if (!silent) {
           setSaveState('saving');
         }
-        const next = await getApi().updateNode(content.id, { content: value });
-        lastSavedRef.current = value;
+        const next = await getApi().updateSectionMarkdown(currentSection.id, normalizedValue);
+        lastSavedRef.current = normalizedValue;
         onStateRef.current(next);
         if (!silent) {
-          setSaveState(draftRef.current === value ? 'saved' : 'saving');
+          setSaveState(draftRef.current === normalizedValue ? 'saved' : 'saving');
         }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
         if (!silent) {
-          setSaveState(draftRef.current === value ? 'error' : 'saving');
+          setSaveState(draftRef.current === normalizedValue ? 'error' : 'saving');
           onErrorRef.current(message);
         }
       }
@@ -86,16 +89,17 @@ export function useAutosaveDraft({
   }
 
   function scheduleDraftSave(value: string) {
-    setDraft(value);
-    draftRef.current = value;
-    setSaveState(value === lastSavedRef.current ? 'saved' : 'saving');
+    const normalizedValue = sectionMarkdownForStorage(value);
+    setDraft(normalizedValue);
+    draftRef.current = normalizedValue;
+    setSaveState(normalizedValue === lastSavedRef.current ? 'saved' : 'saving');
 
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
     }
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
-      void persistDraft(value);
+      void persistDraft(normalizedValue);
     }, 700);
   }
 

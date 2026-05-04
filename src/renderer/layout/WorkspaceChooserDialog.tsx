@@ -2,7 +2,7 @@
 import { Clock, FileText, FolderOpen, FolderPlus } from 'lucide-react';
 import { formatRecentWorkspaceDate } from '../app/formatters';
 import { Button } from '../components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import type { RecentWorkspace } from '../../shared/types';
 
@@ -49,81 +49,105 @@ export function WorkspaceChooserDialog({
           }
         }}
       >
-        <DialogHeader>
-          <DialogTitle>Choose a PaperLab workspace</DialogTitle>
-          <DialogDescription>
-            Open a recent project, create a new .paperlab workspace, or select one from the system.
-          </DialogDescription>
-        </DialogHeader>
+        <DialogTitle className="sr-only">Choose a PaperLab workspace</DialogTitle>
+        <DialogDescription className="sr-only">
+          Open a recent project, create a new .paperlab workspace, or select one from the system.
+        </DialogDescription>
 
-        <div className="workspace-dialog-actions">
-          <Button onClick={onPickNewWorkspace} disabled={!apiAvailable}>
-            <FolderPlus />
-            New project
-          </Button>
-          <Button variant="outline" onClick={onPickWorkspace} disabled={!apiAvailable}>
-            <FolderOpen />
-            Choose folder
-          </Button>
-        </div>
-
-        <section className="workspace-dialog-section">
-          <div className="workspace-dialog-section-header">
-            <h2>Recent projects</h2>
-          </div>
-          {recentWorkspaces.length > 0 ? (
-            <div className="workspace-recent-list">
-              {recentWorkspaces.map((workspace) => (
-                <button
-                  key={workspace.path}
-                  className="workspace-recent-item"
-                  type="button"
-                  onClick={() => onOpenWorkspace(workspace.path)}
-                  disabled={!apiAvailable}
-                >
-                  <span className="workspace-recent-icon">
-                    <FileText />
-                  </span>
-                  <span className="workspace-recent-main">
-                    <strong>{workspace.name}</strong>
-                    <span>{workspace.path}</span>
-                  </span>
-                  <span className="workspace-recent-time">
-                    <Clock />
-                    {formatRecentWorkspaceDate(workspace.openedAt)}
-                  </span>
-                </button>
-              ))}
+        <div className="workspace-dialog-shell">
+          <aside className="workspace-dialog-sidebar">
+            <div className="workspace-dialog-brand">
+              <span className="workspace-dialog-brand-icon">
+                <FileText />
+              </span>
+              <span className="workspace-dialog-brand-copy">
+                <strong>PaperLab</strong>
+                <span>Workspace</span>
+              </span>
             </div>
-          ) : (
-            <p className="workspace-dialog-empty">No recent projects yet.</p>
-          )}
-        </section>
 
-        <section className="workspace-dialog-section">
-          <div className="workspace-dialog-section-header">
-            <h2>Path</h2>
-          </div>
-          <div className="workspace-path-row">
-            <Input
-              value={workspacePath}
-              onChange={(event) => onWorkspacePath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && canUsePath) {
-                  onOpenWorkspace(workspacePath);
-                }
-              }}
-              placeholder="/path/to/project.paperlab"
-              aria-label="Workspace path"
-            />
-            <Button variant="outline" onClick={() => onOpenWorkspace(workspacePath)} disabled={!canUsePath}>
-              Open
-            </Button>
-            <Button onClick={() => onCreateWorkspace(workspacePath)} disabled={!canUsePath}>
-              Create
-            </Button>
-          </div>
-        </section>
+            <div className="workspace-dialog-actions" aria-label="Workspace actions">
+              <Button
+                className="workspace-dialog-action"
+                variant="outline"
+                onClick={onPickWorkspace}
+                disabled={!apiAvailable}
+              >
+                <FolderOpen />
+                Open
+              </Button>
+              <Button
+                className="workspace-dialog-action"
+                onClick={onPickNewWorkspace}
+                disabled={!apiAvailable}
+              >
+                <FolderPlus />
+                New
+              </Button>
+            </div>
+
+            <div className="workspace-dialog-path">
+              <label htmlFor="workspace-path-input">Path</label>
+              <Input
+                id="workspace-path-input"
+                value={workspacePath}
+                onChange={(event) => onWorkspacePath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && canUsePath) {
+                    onOpenWorkspace(workspacePath);
+                  }
+                }}
+                placeholder="/path/to/project.paperlab"
+                aria-label="Workspace path"
+              />
+              <div className="workspace-path-row">
+                <Button variant="outline" onClick={() => onOpenWorkspace(workspacePath)} disabled={!canUsePath}>
+                  Open
+                </Button>
+                <Button onClick={() => onCreateWorkspace(workspacePath)} disabled={!canUsePath}>
+                  Create
+                </Button>
+              </div>
+            </div>
+          </aside>
+
+          <main className="workspace-dialog-main">
+            <header className="workspace-dialog-main-header">
+              <div>
+                <h2>Recent projects</h2>
+                <p>{recentWorkspaces.length} saved workspace{recentWorkspaces.length === 1 ? '' : 's'}</p>
+              </div>
+            </header>
+
+            {recentWorkspaces.length > 0 ? (
+              <div className="workspace-recent-list">
+                {recentWorkspaces.map((workspace) => (
+                  <button
+                    key={workspace.path}
+                    className="workspace-recent-item"
+                    type="button"
+                    onClick={() => onOpenWorkspace(workspace.path)}
+                    disabled={!apiAvailable}
+                  >
+                    <span className="workspace-recent-icon">
+                      <FileText />
+                    </span>
+                    <span className="workspace-recent-main">
+                      <strong>{workspace.name}</strong>
+                      <span>{workspace.path}</span>
+                    </span>
+                    <span className="workspace-recent-time">
+                      <Clock />
+                      {formatRecentWorkspaceDate(workspace.openedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="workspace-dialog-empty">No recent projects yet.</p>
+            )}
+          </main>
+        </div>
       </DialogContent>
     </Dialog>
   );

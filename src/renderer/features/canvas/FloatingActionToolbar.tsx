@@ -23,6 +23,7 @@ export function FloatingActionToolbar({
   onExcludeKnowledgeSource,
   onCreateInSection,
   onCreateConnectedContent,
+  onOpenSectionMarkdown,
   onDeleteNode,
   onOpenGenerate,
   onPromptChange,
@@ -44,6 +45,7 @@ export function FloatingActionToolbar({
   onExcludeKnowledgeSource: (itemId: string, chunkId: string) => void;
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
+  onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
   onDeleteNode: () => void;
   onOpenGenerate: (sectionId: string) => void;
   onPromptChange: (value: string) => void;
@@ -155,12 +157,12 @@ export function FloatingActionToolbar({
           <>
             <button
               type="button"
-              title="Create main content"
-              aria-label="Create main content"
-              onClick={() => onCreateInSection(selectedSection.id, 'main')}
+              title="Edit Markdown"
+              aria-label="Edit Markdown"
+              onClick={() => onOpenSectionMarkdown(selectedSection)}
             >
               <NotebookPen />
-              <span className="sr-only">Create main content</span>
+              <span className="sr-only">Edit Markdown</span>
             </button>
             <button
               type="button"
@@ -176,15 +178,6 @@ export function FloatingActionToolbar({
         ) : null}
         {selectedContent ? (
           <>
-            <button
-              type="button"
-              title="Create connected main content"
-              aria-label="Create connected main content"
-              onClick={() => onCreateConnectedContent(selectedContent.id, 'main')}
-            >
-              <NotebookPen />
-              <span className="sr-only">Create connected main content</span>
-            </button>
             {generateTargetId ? (
               <button
                 type="button"

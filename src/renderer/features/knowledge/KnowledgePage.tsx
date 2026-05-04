@@ -427,6 +427,7 @@ function KnowledgeDebugPanel({
             <span>{selectedDebug.chunkCount} chunks</span>
             <span>{selectedDebug.indexStatus}</span>
           </div>
+          {selected ? <KnowledgeDisplayMetadataDebug item={selected} /> : null}
           <div className="knowledge-debug-chunks">
             {selectedDebug.chunks.length > 0 ? (
               selectedDebug.chunks.map((chunk) => (
@@ -457,6 +458,24 @@ function KnowledgeDebugPanel({
         </p>
       )}
     </section>
+  );
+}
+
+function KnowledgeDisplayMetadataDebug({ item }: { item: KnowledgeItemRecord }) {
+  const metadata = readKnowledgeDisplayMetadata(item);
+  const error = typeof item.metadata.knowledgeDisplayMetadataError === 'string'
+    ? item.metadata.knowledgeDisplayMetadataError.trim()
+    : '';
+  if (!metadata.title && !metadata.description && !error) {
+    return null;
+  }
+  return (
+    <div className="knowledge-display-metadata-debug">
+      <span>LLM metadata</span>
+      {metadata.title ? <p>{metadata.title}</p> : null}
+      {metadata.description ? <p>{metadata.description}</p> : null}
+      {error ? <code>{error}</code> : null}
+    </div>
   );
 }
 
@@ -650,7 +669,10 @@ function getSafeMarkdownHref(href: string): string {
 }
 
 function previewText(content: string): string {
-  const trimmed = content.trim().replace(/\s+/g, ' ');
+  const withoutHeading = content
+    .replace(/^#{1,6}\s+.+$/m, '')
+    .trim();
+  const trimmed = (withoutHeading || content).trim().replace(/\s+/g, ' ');
   if (!trimmed) {
     return 'Empty source';
   }

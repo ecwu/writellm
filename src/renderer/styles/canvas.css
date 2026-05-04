@@ -106,6 +106,39 @@
   word-break: break-word;
 }
 
+.paper-node-sources {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+  min-width: 0;
+  padding-top: 0.35rem;
+}
+
+.paper-node-source {
+  background: oklch(0.94 0.028 145);
+  border: 1px solid oklch(0.68 0.1 145);
+  border-radius: 0.35rem;
+  color: oklch(0.36 0.11 145);
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.15;
+  max-width: 8.5rem;
+  overflow: hidden;
+  padding: 0.12rem 0.32rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .paper-node-source {
+  background: oklch(0.27 0.035 145);
+  border-color: oklch(0.48 0.09 145);
+  color: oklch(0.82 0.07 145);
+}
+
 .paper-node-citation,
 .paper-node-citation-stack {
   align-items: center;

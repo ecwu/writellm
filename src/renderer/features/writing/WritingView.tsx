@@ -1,10 +1,9 @@
 
 import { ArrowLeft } from 'lucide-react';
-import { LatexEditor } from '../../components/LatexEditor';
+import { MarkdownEditor } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
-import { formatContentFlags } from '../../app/formatters';
+import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
 import type {
-  ContentNodeRecord,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
   SectionNodeRecord
@@ -12,22 +11,20 @@ import type {
 import { useAutosaveDraft } from './useAutosaveDraft';
 
 export function WritingView({
-  contentNode,
-  parentSection,
+  section,
   onCitationClick,
   onBack,
   onState,
   onError
 }: {
-  contentNode: ContentNodeRecord;
-  parentSection: SectionNodeRecord | null;
+  section: SectionNodeRecord;
   onCitationClick: (publicRef: string) => void;
   onBack: () => Promise<void>;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
 }) {
   const { draft, saveState, scheduleDraftSave, flushPendingSave } = useAutosaveDraft({
-    contentNode,
+    section,
     onState,
     onError
   });
@@ -45,22 +42,23 @@ export function WritingView({
           Back
         </Button>
         <div className="writing-view-title">
-          <p>{parentSection?.title ?? 'Section'}</p>
-          <h1>{contentNode.title}</h1>
+          <p>Section Markdown</p>
+          <h1>{section.title}</h1>
         </div>
         <div className="writing-view-meta" aria-live="polite">
-          <span>{formatContentFlags(contentNode)}</span>
+          <span>{section.markdownPath}</span>
           <span>{saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
         </div>
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">
-          <LatexEditor
-            key={contentNode.id}
+          <MarkdownEditor
+            key={section.id}
             value={draft}
             onChange={scheduleDraftSave}
+            normalizeValue={sectionMarkdownForStorage}
             onCitationClick={onCitationClick}
-            citationSources={getGenerationSources(contentNode)}
+            citationSources={getSectionSources(section)}
           />
         </div>
       </div>
@@ -68,8 +66,8 @@ export function WritingView({
   );
 }
 
-function getGenerationSources(node: ContentNodeRecord): RetrievedKnowledgeSource[] {
-  const sources = node.metadata.retrievedSources;
+function getSectionSources(section: SectionNodeRecord): RetrievedKnowledgeSource[] {
+  const sources = section.citationSources;
   if (!Array.isArray(sources)) {
     return [];
   }

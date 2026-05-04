@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import path from 'node:path';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import {
   canvasNodeLayouts,
@@ -22,6 +22,15 @@ import {
   type PlainjobJobRow
 } from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
+import {
+  defaultSectionMarkdown,
+  ensureSectionsDirectory,
+  hashMarkdown,
+  readSectionMarkdownFile,
+  sectionMarkdownForStorage,
+  sectionMarkdownPath,
+  writeSectionMarkdownFile
+} from './sectionMarkdown.js';
 import type {
   CanvasNodeLayout,
   CompositionTreeNode,
@@ -47,7 +56,7 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 const PLAINJOB_STATUS_PENDING = 0;
@@ -58,6 +67,7 @@ const PLAINJOB_STATUS_FAILED = 3;
 type KnowledgeChunkJoinedRow = KnowledgeChunkRow & {
   itemPublicRef: string;
   itemTitle: string;
+  itemMetadataJson: string | null;
 };
 
 type KnowledgeIngestTaskData = {
@@ -89,6 +99,7 @@ export class PaperLabDatabase {
     mkdirSync(path.join(workspacePath, 'snapshots'), { recursive: true });
     mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
     mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
+    ensureSectionsDirectory(workspacePath);
     this.db = new Database(path.join(workspacePath, 'project.sqlite'));
     this.orm = drizzle(this.db, { schema });
     this.loadVectorExtension();
@@ -97,6 +108,8 @@ export class PaperLabDatabase {
     this.migrate();
     this.backfillMineruMarkdownContent();
     this.rootNodeId = this.ensureRootSection();
+    this.reconcileSectionMarkdownFiles();
+    this.writeManifest();
   }
 
   close(): void {
@@ -139,6 +152,7 @@ export class PaperLabDatabase {
       const intent = 'intent' in payload ? payload.intent ?? null : node.intent;
       const activeMainNodeId =
         'activeMainNodeId' in payload ? payload.activeMainNodeId ?? null : node.activeMainNodeId;
+      const markdownContent = 'markdownContent' in payload ? payload.markdownContent : undefined;
       if (activeMainNodeId) {
         this.assertContentBelongsToSection(activeMainNodeId, node.id);
       }
@@ -147,6 +161,11 @@ export class PaperLabDatabase {
         .set({ title, intent, activeMainNodeId, updatedAt: timestamp })
         .where(and(eq(nodes.id, nodeId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
         .run();
+      if (typeof markdownContent === 'string') {
+        this.updateSectionMarkdown(nodeId, markdownContent);
+      } else {
+        this.writeManifest();
+      }
       return;
     }
 
@@ -167,6 +186,29 @@ export class PaperLabDatabase {
       })
       .where(and(eq(nodes.id, nodeId), eq(nodes.kind, 'content'), isNull(nodes.deletedAt)))
       .run();
+  }
+
+  updateSectionMarkdown(sectionId: string, markdown: string): SectionNodeRecord {
+    const section = this.getSection(sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${sectionId}`);
+    }
+    const markdownPath = section.markdownPath || sectionMarkdownPath(sectionId);
+    const normalizedMarkdown = sectionMarkdownForStorage(markdown);
+    writeSectionMarkdownFile(this.workspacePath, markdownPath, normalizedMarkdown);
+    const markdownHash = hashMarkdown(normalizedMarkdown);
+    this.orm
+      .update(nodes)
+      .set({
+        content: normalizedMarkdown,
+        markdownPath,
+        markdownHash,
+        updatedAt: nowIso()
+      })
+      .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .run();
+    this.writeManifest();
+    return this.getSection(sectionId)!;
   }
 
   deleteNode(nodeId: string): void {
@@ -201,6 +243,7 @@ export class PaperLabDatabase {
         .where(or(inArray(canvasNodeLayouts.canvasSectionId, nodeIds), inArray(canvasNodeLayouts.nodeId, nodeIds)))
         .run();
     });
+    this.writeManifest();
   }
 
   moveNode(nodeId: string, newParentId: string | null, index: number): void {
@@ -233,6 +276,7 @@ export class PaperLabDatabase {
         .run();
       this.rewriteSiblingOrder(newParentId, node.kind, nodeId, index);
     });
+    this.writeManifest();
   }
 
   setActiveMainNode(sectionId: string, contentNodeId: string | null): void {
@@ -699,6 +743,7 @@ export class PaperLabDatabase {
         itemId: knowledgeChunks.itemId,
         itemPublicRef: knowledgeItems.publicRef,
         itemTitle: knowledgeItems.title,
+        itemMetadataJson: knowledgeItems.metadataJson,
         chunkIndex: knowledgeChunks.chunkIndex,
         content: knowledgeChunks.content,
         embeddingJson: knowledgeChunks.embeddingJson,
@@ -737,6 +782,7 @@ export class PaperLabDatabase {
         itemId: knowledgeChunks.itemId,
         itemPublicRef: knowledgeItems.publicRef,
         itemTitle: knowledgeItems.title,
+        itemMetadataJson: knowledgeItems.metadataJson,
         chunkIndex: knowledgeChunks.chunkIndex,
         content: knowledgeChunks.content
       })
@@ -755,7 +801,8 @@ export class PaperLabDatabase {
           publicRef: row.publicRef,
           itemId: row.itemId,
           itemPublicRef: row.itemPublicRef,
-          itemTitle: row.itemTitle,
+          itemTitle: knowledgeDisplayTitle(row.itemTitle, row.itemMetadataJson),
+          itemDescription: knowledgeDisplayDescription(row.itemMetadataJson),
           chunkId: row.id,
           chunkIndex: row.chunkIndex,
           snippet: row.content
@@ -817,6 +864,7 @@ export class PaperLabDatabase {
          )
          SELECT chunks.id, chunks.public_ref AS publicRef, chunks.item_id AS itemId,
                 items.public_ref AS itemPublicRef, items.title AS itemTitle,
+                items.metadata_json AS itemMetadataJson,
                 chunks.chunk_index AS chunkIndex, chunks.content,
                 chunks.embedding_json AS embeddingJson,
                 chunks.embedding_dimensions AS embeddingDimensions,
@@ -859,8 +907,8 @@ export class PaperLabDatabase {
     }>
   ): KnowledgeCitationRecord[] {
     const node = this.getNode(generationNodeId);
-    if (!node || node.kind !== 'content') {
-      throw new Error(`Generated content node not found: ${generationNodeId}`);
+    if (!node) {
+      throw new Error(`Generated node not found: ${generationNodeId}`);
     }
     const timestamp = nowIso();
     this.orm.transaction(() => {
@@ -893,6 +941,34 @@ export class PaperLabDatabase {
       .orderBy(asc(generationCitations.label), asc(generationCitations.createdAt))
       .all()
       .map(mapKnowledgeCitation);
+  }
+
+  private attachSectionCitationSources(node: NodeRecord): NodeRecord {
+    if (node.kind !== 'section') {
+      return node;
+    }
+    const citationSources = this.listGenerationCitations(node.id).map((citation) => {
+      const target = this.resolveKnowledgeSourceTarget({
+        publicRef: citation.publicRef,
+        chunkId: citation.knowledgeChunkId
+      });
+      return {
+        label: citation.label,
+        publicRef: citation.publicRef,
+        itemId: citation.knowledgeItemId,
+        itemPublicRef: target?.itemPublicRef ?? '',
+        itemTitle: target?.itemTitle ?? 'Source',
+        itemDescription: target?.itemDescription ?? '',
+        chunkId: citation.knowledgeChunkId,
+        chunkIndex: target?.chunkIndex ?? 0,
+        snippet: citation.snippet,
+        score: citation.score ?? 0
+      };
+    });
+    return {
+      ...node,
+      citationSources
+    };
   }
 
   getParentSectionId(nodeId: string): string | null {
@@ -936,7 +1012,7 @@ export class PaperLabDatabase {
       .where(isNull(nodes.deletedAt))
       .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
       .all()
-      .map(mapNode);
+      .map((row) => this.attachSectionCitationSources(mapNode(row)));
   }
 
   listEdges(): NodeEdgeRecord[] {
@@ -957,28 +1033,28 @@ export class PaperLabDatabase {
       .map(mapCanvasNodeLayout);
   }
 
-  getExportRows(rootSectionId: string): { section: SectionNodeRecord; text: ContentNodeRecord | null }[] {
+  getExportRows(rootSectionId: string): { section: SectionNodeRecord; markdown: string; depth: number }[] {
     const nodes = this.listNodes();
     const byId = new Map(nodes.map((node) => [node.id, node]));
-    const rows: { section: SectionNodeRecord; text: ContentNodeRecord | null }[] = [];
+    const rows: { section: SectionNodeRecord; markdown: string; depth: number }[] = [];
 
-    const visit = (sectionId: string): void => {
+    const visit = (sectionId: string, depth: number): void => {
       const section = byId.get(sectionId);
       if (!section || section.kind !== 'section') {
         return;
       }
-      const activeMain = section.activeMainNodeId ? byId.get(section.activeMainNodeId) : null;
       rows.push({
         section,
-        text: activeMain?.kind === 'content' ? activeMain : null
+        markdown: section.markdownContent,
+        depth
       });
       const childSections = nodes
         .filter((node): node is SectionNodeRecord => node.kind === 'section' && node.parentId === sectionId)
         .sort(compareNodeOrder);
-      childSections.forEach((child) => visit(child.id));
+      childSections.forEach((child) => visit(child.id, depth + 1));
     };
 
-    visit(rootSectionId);
+    visit(rootSectionId, 0);
     return rows;
   }
 
@@ -1008,6 +1084,8 @@ export class PaperLabDatabase {
         intent TEXT,
         active_main_node_id TEXT,
         content TEXT,
+        markdown_path TEXT,
+        markdown_hash TEXT,
         is_main INTEGER NOT NULL DEFAULT 0,
         is_llm INTEGER NOT NULL DEFAULT 0,
         metadata_json TEXT,
@@ -1123,6 +1201,8 @@ export class PaperLabDatabase {
     this.addColumnIfMissing('knowledge_chunks', 'embedding_dimensions', 'INTEGER NOT NULL DEFAULT 0');
     this.addColumnIfMissing('knowledge_chunks', 'vector_rowid', 'INTEGER');
     this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
+    this.addColumnIfMissing('nodes', 'markdown_path', 'TEXT');
+    this.addColumnIfMissing('nodes', 'markdown_hash', 'TEXT');
 
     if (previousSchemaVersion < 7) {
       this.clearLegacyKnowledgeData();
@@ -1316,6 +1396,8 @@ export class PaperLabDatabase {
 
     const id = createId('sec');
     const timestamp = nowIso();
+    const markdownPath = sectionMarkdownPath(id);
+    const markdownContent = defaultSectionMarkdown();
     this.orm.insert(nodes).values({
       id,
       kind: 'section',
@@ -1323,10 +1405,14 @@ export class PaperLabDatabase {
       title: 'Paper',
       intent: 'Document root',
       activeMainNodeId: null,
+      content: markdownContent,
+      markdownPath,
+      markdownHash: hashMarkdown(markdownContent),
       sortOrder: 0,
       createdAt: timestamp,
       updatedAt: timestamp
     }).run();
+    writeSectionMarkdownFile(this.workspacePath, markdownPath, markdownContent);
     return id;
   }
 
@@ -1337,17 +1423,25 @@ export class PaperLabDatabase {
     const id = createId('sec');
     const timestamp = nowIso();
     const sortOrder = this.nextSiblingOrder(parentId, 'section');
+    const resolvedTitle = title.trim() || 'New section';
+    const markdownPath = sectionMarkdownPath(id);
+    const markdownContent = defaultSectionMarkdown();
     this.orm.insert(nodes).values({
       id,
       kind: 'section',
       parentId,
-      title: title.trim() || 'New section',
+      title: resolvedTitle,
       intent: intent ?? null,
       activeMainNodeId: null,
+      content: markdownContent,
+      markdownPath,
+      markdownHash: hashMarkdown(markdownContent),
       sortOrder,
       createdAt: timestamp,
       updatedAt: timestamp
     }).run();
+    writeSectionMarkdownFile(this.workspacePath, markdownPath, markdownContent);
+    this.writeManifest();
     return this.getSection(id)!;
   }
 
@@ -1413,6 +1507,62 @@ export class PaperLabDatabase {
     });
 
     return (byParent.get(null) ?? []).map(build);
+  }
+
+  private reconcileSectionMarkdownFiles(): void {
+    const sections = this.listNodes().filter((node): node is SectionNodeRecord => node.kind === 'section');
+    for (const section of sections) {
+      const markdownPath = section.markdownPath || sectionMarkdownPath(section.id);
+      const fileContent = readSectionMarkdownFile(this.workspacePath, markdownPath);
+      const storedContent = section.markdownContent || defaultSectionMarkdown();
+      const nextContent = sectionMarkdownForStorage(fileContent ?? storedContent);
+      const nextHash = hashMarkdown(nextContent);
+      if (fileContent === null || fileContent !== nextContent) {
+        writeSectionMarkdownFile(this.workspacePath, markdownPath, nextContent);
+      }
+      if (
+        section.markdownPath !== markdownPath ||
+        section.markdownContent !== nextContent ||
+        section.markdownHash !== nextHash
+      ) {
+        this.orm
+          .update(nodes)
+          .set({
+            content: nextContent,
+            markdownPath,
+            markdownHash: nextHash,
+            updatedAt: nowIso()
+          })
+          .where(and(eq(nodes.id, section.id), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+          .run();
+      }
+    }
+  }
+
+  private writeManifest(): void {
+    const sections = this.listNodes()
+      .filter((node): node is SectionNodeRecord => node.kind === 'section')
+      .sort(compareNodeOrder)
+      .map((section) => ({
+        id: section.id,
+        parentId: section.parentId,
+        title: section.title,
+        intent: section.intent,
+        sortOrder: section.sortOrder,
+        markdownPath: section.markdownPath,
+        markdownHash: section.markdownHash,
+        updatedAt: section.updatedAt
+      }));
+    const manifest = {
+      version: 1,
+      rootNodeId: this.rootNodeId,
+      sections
+    };
+    writeFileSync(
+      path.join(this.workspacePath, '.paperlab-manifest.json'),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8'
+    );
   }
 
   private buildNodeStats(nodes: NodeRecord[]): Record<string, NodeStats> {
@@ -1500,11 +1650,17 @@ function mapNode(row: NodeRow): NodeRecord {
   };
 
   if (row.kind === 'section') {
+    const markdownContent = row.content ?? '';
+    const markdownHash = row.markdownHash ?? hashMarkdown(markdownContent);
     return {
       ...base,
       kind: 'section',
       intent: row.intent,
-      activeMainNodeId: row.activeMainNodeId
+      activeMainNodeId: row.activeMainNodeId,
+      markdownPath: row.markdownPath ?? sectionMarkdownPath(row.id),
+      markdownContent,
+      markdownHash,
+      citationSources: []
     };
   }
 
@@ -1562,13 +1718,42 @@ function mapKnowledgeChunk(row: KnowledgeChunkJoinedRow): KnowledgeChunkRecord {
     publicRef: row.publicRef,
     itemId: row.itemId,
     itemPublicRef: row.itemPublicRef,
-    itemTitle: row.itemTitle,
+    itemTitle: knowledgeDisplayTitle(row.itemTitle, row.itemMetadataJson),
+    itemDescription: knowledgeDisplayDescription(row.itemMetadataJson),
     chunkIndex: row.chunkIndex,
     content: row.content,
     embeddingModel: row.embeddingModel,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
+}
+
+function knowledgeDisplayTitle(fallbackTitle: string, metadataJson: string | null): string {
+  return readKnowledgeDisplayMetadata(metadataJson).title || fallbackTitle;
+}
+
+function knowledgeDisplayDescription(metadataJson: string | null): string {
+  return readKnowledgeDisplayMetadata(metadataJson).description;
+}
+
+function readKnowledgeDisplayMetadata(metadataJson: string | null): { title: string; description: string } {
+  if (!metadataJson) {
+    return { title: '', description: '' };
+  }
+  try {
+    const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
+    const value = metadata.knowledgeDisplayMetadata ?? metadata.knowledgeMetadata;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { title: '', description: '' };
+    }
+    const record = value as Record<string, unknown>;
+    return {
+      title: typeof record.title === 'string' ? record.title.trim() : '',
+      description: typeof record.description === 'string' ? record.description.trim() : ''
+    };
+  } catch {
+    return { title: '', description: '' };
+  }
 }
 
 function mapKnowledgeChunkDebug(row: KnowledgeChunkRow): KnowledgeChunkDebugRecord {

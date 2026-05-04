@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroundTasks.js';
 import { PaperLabDatabase } from './database.js';
+import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
@@ -60,6 +61,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
 async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   await stopBackgroundTaskWorker();
   const nextDb = new PaperLabDatabase(workspacePath);
+  ensureGitSession(workspacePath);
   if (activeDb) {
     activeDb.close();
   }

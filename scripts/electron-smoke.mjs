@@ -1,16 +1,22 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import { PaperLabDatabase } from '../dist-electron/main/database.js';
 import { exportLatex } from '../dist-electron/main/exportLatex.js';
+import {
+  createGitCheckpoint,
+  ensureGitSession,
+  getGitDiff,
+  getGitStatus
+} from '../dist-electron/main/gitSession.js';
 import { indexKnowledgeItem } from '../dist-electron/main/knowledgeIndex.js';
 import {
   enqueueKnowledgeFiles,
-  extractKnowledgeFileText,
   processKnowledgeIngestJob
 } from '../dist-electron/main/knowledgeIngest.js';
+import { extractKnowledgeFileText } from '../dist-electron/main/knowledgeTextExtract.js';
 import { unzipBuffer } from '../dist-electron/main/zip.js';
 
 const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'paperlab-smoke-'));
@@ -27,34 +33,61 @@ try {
   if (intro.kind !== 'section') {
     throw new Error('Child section was not created.');
   }
+  if (!intro.markdownPath || !intro.markdownHash) {
+    throw new Error('Section did not receive Markdown metadata.');
+  }
+  const introMarkdownPath = path.join(workspacePath, intro.markdownPath);
+  if (!existsSync(introMarkdownPath) || !readFileSync(introMarkdownPath, 'utf8').includes('# Intro')) {
+    throw new Error('Section Markdown file was not created.');
+  }
+  const manifestPath = path.join(workspacePath, '.paperlab-manifest.json');
+  if (!existsSync(manifestPath) || !readFileSync(manifestPath, 'utf8').includes(intro.id)) {
+    throw new Error('Workspace manifest was not written.');
+  }
+  db.updateSectionMarkdown(intro.id, '# Intro\n\nHello **Markdown** world.\n');
+  const updatedIntro = db.getSection(intro.id);
+  if (
+    !updatedIntro ||
+    updatedIntro.markdownContent !== '# Intro\n\nHello **Markdown** world.\n' ||
+    readFileSync(introMarkdownPath, 'utf8') !== updatedIntro.markdownContent
+  ) {
+    throw new Error('Section Markdown DB/file sync failed.');
+  }
 
-  const main = db.createNode({
-    kind: 'content',
-    parentId: intro.id,
-    title: 'Main draft',
-    content: '\\section{Intro}\nHello world.',
-    isMain: true
-  });
+  ensureGitSession(workspacePath);
+  const gitStatus = getGitStatus(workspacePath);
+  if (!gitStatus.branch?.startsWith('session/') || !existsSync(path.join(workspacePath, '.git'))) {
+    throw new Error('Git session was not initialized on a session branch.');
+  }
+  const checkpoint = createGitCheckpoint(workspacePath, 'Smoke checkpoint');
+  if (!checkpoint?.hash) {
+    throw new Error('Git checkpoint was not created for Markdown changes.');
+  }
+  db.updateSectionMarkdown(intro.id, '# Intro\n\nChanged Markdown.\n');
+  const diff = getGitDiff(workspacePath, { sectionId: intro.id });
+  if (!diff.includes('Changed Markdown')) {
+    throw new Error('Git diff did not include section Markdown changes.');
+  }
+
   const source = db.createNode({
     kind: 'content',
     parentId: intro.id,
     title: 'Source note',
     content: 'Background source.'
   });
-  if (main.kind !== 'content' || source.kind !== 'content') {
+  if (source.kind !== 'content') {
     throw new Error('Content nodes were not created.');
   }
 
-  db.setActiveMainNode(intro.id, main.id);
   const exportPath = exportLatex(db, rootId);
   const output = readFileSync(exportPath, 'utf8');
-  if (!output.includes('\\section{Intro}') || !output.includes('Hello world.')) {
-    throw new Error('Exported LaTeX did not include active main content.');
+  if (!exportPath.endsWith('main.md') || !output.includes('Changed Markdown.')) {
+    throw new Error('Exported Markdown did not include section Markdown.');
   }
 
-  db.createNodeEdge(source.id, main.id, 'informs');
+  db.createNodeEdge(source.id, intro.id, 'informs');
   if (db.listEdges().length !== 1) {
-    throw new Error('Content edge was not created.');
+    throw new Error('Section process edge was not created.');
   }
 
   const knowledge = db.createKnowledgeItem('Background source', 'Background source.');
@@ -97,7 +130,7 @@ try {
   if (excludedChunks.some((chunk) => chunk.itemId === otherKnowledge.id)) {
     throw new Error('Knowledge vector search did not honor excluded item IDs.');
   }
-  db.saveGenerationCitations(main.id, [
+  db.saveGenerationCitations(intro.id, [
     {
       knowledgeItemId: knowledge.id,
       knowledgeChunkId: chunks[0].id,
@@ -106,7 +139,7 @@ try {
       score: chunks[0].score ?? null
     }
   ]);
-  if (db.listGenerationCitations(main.id).length !== 1) {
+  if (db.listGenerationCitations(intro.id).length !== 1) {
     throw new Error('Generation citation was not saved.');
   }
 
@@ -578,7 +611,7 @@ try {
 
   db.updateNodeLayout({
     canvasSectionId: intro.id,
-    nodeId: main.id,
+    nodeId: source.id,
     x: 10,
     y: 20,
     width: 240,
@@ -599,11 +632,6 @@ try {
     throw new Error('Deleting content did not clean up edges.');
   }
 
-  db.deleteNode(main.id);
-  const afterMainDelete = db.getSection(intro.id);
-  if (afterMainDelete?.activeMainNodeId !== null) {
-    throw new Error('Deleting active main content did not clear active pointer.');
-  }
   if (db.listCanvasNodeLayouts(intro.id).length !== 0) {
     throw new Error('Deleting content did not clean up layouts.');
   }

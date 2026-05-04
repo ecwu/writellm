@@ -20,6 +20,12 @@ import type {
   UpdateNodePayload
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
+import {
+  createGitCheckpoint,
+  getGitDiff,
+  getGitStatus,
+  listGitHistory
+} from './gitSession.js';
 import { startBackgroundTaskWorker } from './backgroundTasks.js';
 import { enqueueKnowledgeFiles, setKnowledgeIngestUpdateNotifier } from './knowledgeIngest.js';
 import { streamLlmText } from './llmRunner.js';
@@ -73,11 +79,13 @@ function formatArticleStructure(
 
 function formatSectionContext(label: string, section: CompositionTreeNode): string {
   const trimmedIntent = section.intent?.trim();
+  const trimmedMarkdown = section.markdownContent.trim();
 
   return [
     `${label}:`,
     `- Section title: ${section.title}`,
-    `- Section intent: ${trimmedIntent || 'Not provided'}`
+    `- Section intent: ${trimmedIntent || 'Not provided'}`,
+    `- Current Markdown: ${trimmedMarkdown || 'Empty'}`
   ].join('\n');
 }
 
@@ -162,20 +170,29 @@ function knowledgeSourceTitle(source: RetrievedKnowledgeSource): string {
   return source.itemTitle.trim() || 'Knowledge source';
 }
 
-function isKnowledgeSourceNode(node: NodeRecord, sectionId: string, chunkId: string): node is ContentNodeRecord {
+function isKnowledgeSourceNode(node: NodeRecord, sectionId: string, itemId: string): node is ContentNodeRecord {
   return node.kind === 'content' &&
     node.parentId === sectionId &&
     node.metadata.nodeRole === 'knowledge-source' &&
-    node.metadata.knowledgeChunkId === chunkId;
+    node.metadata.knowledgeItemId === itemId;
 }
 
 function findOrCreateKnowledgeSourceNode(
   db: ReturnType<typeof getActiveDb>,
   sectionId: string,
-  source: RetrievedKnowledgeSource
+  sources: RetrievedKnowledgeSource[]
 ): ContentNodeRecord {
-  const existing = db.listNodes().find((node) => isKnowledgeSourceNode(node, sectionId, source.chunkId));
+  const source = sources[0];
+  const existing = db.listNodes().find((node) => isKnowledgeSourceNode(node, sectionId, source.itemId));
   if (existing) {
+    const merged = mergeKnowledgeSourceNode(existing, sources);
+    if (merged.content !== existing.content || JSON.stringify(merged.metadata) !== JSON.stringify(existing.metadata)) {
+      db.updateNode(existing.id, {
+        content: merged.content,
+        metadata: merged.metadata
+      });
+      return db.getNode(existing.id) as ContentNodeRecord;
+    }
     return existing;
   }
 
@@ -183,7 +200,7 @@ function findOrCreateKnowledgeSourceNode(
     kind: 'content',
     parentId: sectionId,
     title: knowledgeSourceTitle(source),
-    content: source.snippet,
+    content: formatMergedSourceContent(sources),
     isMain: false,
     isLlm: false,
     metadata: {
@@ -194,7 +211,8 @@ function findOrCreateKnowledgeSourceNode(
       knowledgeItemTitle: source.itemTitle,
       knowledgeChunkId: source.chunkId,
       knowledgeChunkIndex: source.chunkIndex,
-      score: source.score
+      score: source.score,
+      sourceChunks: sourceChunksMetadata(sources)
     }
   });
 
@@ -204,23 +222,101 @@ function findOrCreateKnowledgeSourceNode(
   return created;
 }
 
+function mergeKnowledgeSourceNode(
+  node: ContentNodeRecord,
+  sources: RetrievedKnowledgeSource[]
+): Pick<ContentNodeRecord, 'content' | 'metadata'> {
+  const existingChunks = Array.isArray(node.metadata.sourceChunks)
+    ? node.metadata.sourceChunks.filter(isSourceChunkMetadata)
+    : [];
+  const chunksById = new Map(existingChunks.map((chunk) => [chunk.chunkId, chunk]));
+  sourceChunksMetadata(sources).forEach((chunk) => {
+    chunksById.set(chunk.chunkId, chunk);
+  });
+  const mergedChunks = [...chunksById.values()].sort((left, right) => left.chunkIndex - right.chunkIndex);
+  const first = sources[0];
+  return {
+    content: formatSourceChunksContent(mergedChunks),
+    metadata: {
+      ...node.metadata,
+      publicRef: first.publicRef,
+      knowledgeChunkId: first.chunkId,
+      knowledgeChunkIndex: first.chunkIndex,
+      score: Math.max(
+        typeof node.metadata.score === 'number' ? node.metadata.score : 0,
+        ...sources.map((source) => source.score)
+      ),
+      sourceChunks: mergedChunks
+    }
+  };
+}
+
+type SourceChunkMetadata = {
+  publicRef: string;
+  chunkId: string;
+  chunkIndex: number;
+  snippet: string;
+  score: number;
+};
+
+function sourceChunksMetadata(sources: RetrievedKnowledgeSource[]): SourceChunkMetadata[] {
+  return sources
+    .map((source) => ({
+      publicRef: source.publicRef,
+      chunkId: source.chunkId,
+      chunkIndex: source.chunkIndex,
+      snippet: source.snippet,
+      score: source.score
+    }))
+    .sort((left, right) => left.chunkIndex - right.chunkIndex);
+}
+
+function isSourceChunkMetadata(value: unknown): value is SourceChunkMetadata {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<SourceChunkMetadata>;
+  return (
+    typeof candidate.publicRef === 'string' &&
+    typeof candidate.chunkId === 'string' &&
+    typeof candidate.chunkIndex === 'number' &&
+    typeof candidate.snippet === 'string' &&
+    typeof candidate.score === 'number'
+  );
+}
+
+function formatMergedSourceContent(sources: RetrievedKnowledgeSource[]): string {
+  return formatSourceChunksContent(sourceChunksMetadata(sources));
+}
+
+function formatSourceChunksContent(chunks: SourceChunkMetadata[]): string {
+  return chunks
+    .map((chunk) => `[${chunk.publicRef}] ${chunk.snippet}`)
+    .join('\n\n---\n\n');
+}
+
 function ensureKnowledgeSourceNodes(
   db: ReturnType<typeof getActiveDb>,
-  sectionId: string,
-  generatedNodeId: string,
+  canvasSectionId: string,
+  targetSectionId: string,
   sources: RetrievedKnowledgeSource[]
 ): void {
-  const uniqueSources = new Map(sources.map((source) => [source.chunkId, source]));
-  for (const source of uniqueSources.values()) {
-    const sourceNode = findOrCreateKnowledgeSourceNode(db, sectionId, source);
+  const sourcesByItem = new Map<string, RetrievedKnowledgeSource[]>();
+  sources.forEach((source) => {
+    const itemSources = sourcesByItem.get(source.itemId) ?? [];
+    itemSources.push(source);
+    sourcesByItem.set(source.itemId, itemSources);
+  });
+  for (const itemSources of sourcesByItem.values()) {
+    const sourceNode = findOrCreateKnowledgeSourceNode(db, canvasSectionId, itemSources);
     const hasEdge = db.listEdges().some(
       (edge) =>
         edge.fromNodeId === sourceNode.id &&
-        edge.toNodeId === generatedNodeId &&
+        edge.toNodeId === targetSectionId &&
         edge.relationType === 'cites'
     );
     if (!hasEdge) {
-      db.createNodeEdge(sourceNode.id, generatedNodeId, 'cites', 'llm');
+      db.createNodeEdge(sourceNode.id, targetSectionId, 'cites', 'llm');
     }
   }
 }
@@ -344,6 +440,32 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.getState, (_event, focusSectionId?: string) =>
     getState(focusSectionId)
+  );
+
+  ipcMain.handle(
+    ipcChannels.updateSectionMarkdown,
+    (_event, sectionId: string, markdown: string) => {
+      getActiveDb().updateSectionMarkdown(sectionId, markdown);
+      return getState(sectionId);
+    }
+  );
+
+  ipcMain.handle(ipcChannels.getGitStatus, () =>
+    getGitStatus(getActiveDb().workspacePath)
+  );
+
+  ipcMain.handle(ipcChannels.createGitCheckpoint, (_event, message?: string) =>
+    createGitCheckpoint(getActiveDb().workspacePath, message)
+  );
+
+  ipcMain.handle(ipcChannels.listGitHistory, (_event, sectionId?: string) =>
+    listGitHistory(getActiveDb().workspacePath, sectionId)
+  );
+
+  ipcMain.handle(
+    ipcChannels.getGitDiff,
+    (_event, sectionId?: string, base?: string, head?: string) =>
+      getGitDiff(getActiveDb().workspacePath, { sectionId, base, head })
   );
 
   ipcMain.handle(ipcChannels.createNode, (_event, payload: CreateNodePayload) => {
@@ -606,8 +728,11 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.saveLlmGeneration, (_event, payload: SaveLlmGenerationPayload) => {
-    const settings = readLlmSettings();
     const db = getActiveDb();
+    const section = db.getSection(payload.sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${payload.sectionId}`);
+    }
     const prompt = payload.prompt.trim();
     if (!prompt) {
       throw new Error('LLM generation prompt is required.');
@@ -625,38 +750,23 @@ export function registerIpcHandlers(): void {
       payload.retrievedSources ?? [],
       true
     );
-    const generated = db.createNode({
-      kind: 'content',
-      parentId: payload.sectionId,
-      title: titleFromPrompt(prompt),
-      content: payload.content,
-      isLlm: true,
-      isMain: false,
-      metadata: {
-        provider: settings.chat.provider,
-        baseURL: settings.chat.baseURL,
-        model: settings.chat.model,
-        embeddingModel: settings.embedding.model,
-        prompt: resolvedPrompt,
-        rawPrompt: prompt,
-        focusSectionId: payload.focusSectionId ?? null,
-        targetSectionId: payload.sectionId,
-        contextNodeIds: contextNodes.map((node) => node.id),
-        retrievedSources: payload.retrievedSources ?? []
-      }
-    });
-
-    if (generated.kind !== 'content') {
-      throw new Error('LLM generation did not create a content node.');
-    }
+    const nextMarkdown = [section.markdownContent.trimEnd(), payload.content.trim()]
+      .filter(Boolean)
+      .join('\n\n');
+    db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
 
     const contextRelationType = payload.contextRelationType ?? 'informs';
     contextNodes.forEach((node) => {
-      db.createNodeEdge(node.id, generated.id, contextRelationType, 'llm');
+      db.createNodeEdge(node.id, payload.sectionId, contextRelationType, 'llm');
     });
-    ensureKnowledgeSourceNodes(db, payload.sectionId, generated.id, payload.retrievedSources ?? []);
+    ensureKnowledgeSourceNodes(
+      db,
+      payload.focusSectionId ?? payload.sectionId,
+      payload.sectionId,
+      payload.retrievedSources ?? []
+    );
     db.saveGenerationCitations(
-      generated.id,
+      payload.sectionId,
       (payload.retrievedSources ?? []).map((source) => ({
         publicRef: source.publicRef,
         knowledgeItemId: source.itemId,
@@ -666,7 +776,7 @@ export function registerIpcHandlers(): void {
         score: source.score
       }))
     );
-    return getState(payload.sectionId);
+    return getState(payload.focusSectionId ?? payload.sectionId);
   });
 }
 
