@@ -17,6 +17,7 @@ import type {
   RetrievedKnowledgeSource,
   ResolveKnowledgeCitationPayload,
   SaveLlmGenerationPayload,
+  SectionHistoryDetail,
   UpdateAppearanceSettingsPayload,
   UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
@@ -37,7 +38,8 @@ export const ipcChannels = {
   getGitStatus: 'paperlab:getGitStatus',
   createGitCheckpoint: 'paperlab:createGitCheckpoint',
   listGitHistory: 'paperlab:listGitHistory',
-  getGitDiff: 'paperlab:getGitDiff',
+  getSectionHistoryDetail: 'paperlab:getSectionHistoryDetail',
+  restoreSectionVersion: 'paperlab:restoreSectionVersion',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
   deleteNode: 'paperlab:deleteNode',
@@ -81,7 +83,8 @@ export type PaperLabIpc = {
   getGitStatus(): Promise<GitStatusRecord>;
   createGitCheckpoint(message?: string): Promise<GitHistoryRecord | null>;
   listGitHistory(sectionId?: string): Promise<GitHistoryRecord[]>;
-  getGitDiff(sectionId?: string, base?: string, head?: string): Promise<string>;
+  getSectionHistoryDetail(sectionId: string, commitHash: string): Promise<SectionHistoryDetail>;
+  restoreSectionVersion(sectionId: string, commitHash: string): Promise<FocusedWorkspaceState>;
   createNode(payload: CreateNodePayload): Promise<FocusedWorkspaceState>;
   updateNode(nodeId: string, payload: UpdateNodePayload): Promise<FocusedWorkspaceState>;
   deleteNode(nodeId: string): Promise<FocusedWorkspaceState>;

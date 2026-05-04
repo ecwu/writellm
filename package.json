@@ -42,6 +42,7 @@
     "plainjob": "0.0.14",
     "radix-ui": "^1.4.3",
     "react": "^19.0.0",
+    "react-diff-view": "^3.3.3",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",

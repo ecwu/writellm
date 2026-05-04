@@ -1,5 +1,5 @@
 
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, History } from 'lucide-react';
 import { MarkdownEditor } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
 import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
@@ -14,12 +14,14 @@ export function WritingView({
   section,
   onCitationClick,
   onBack,
+  onHistory,
   onState,
   onError
 }: {
   section: SectionNodeRecord;
   onCitationClick: (publicRef: string) => void;
   onBack: () => Promise<void>;
+  onHistory: (section: SectionNodeRecord) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
 }) {
@@ -32,6 +34,11 @@ export function WritingView({
   async function handleBack() {
     await flushPendingSave();
     await onBack();
+  }
+
+  async function handleHistory() {
+    await flushPendingSave();
+    onHistory(section);
   }
 
   return (
@@ -49,6 +56,10 @@ export function WritingView({
           <span>{section.markdownPath}</span>
           <span>{saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
         </div>
+        <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
+          <History />
+          History
+        </Button>
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">

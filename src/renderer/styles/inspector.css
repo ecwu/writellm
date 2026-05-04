@@ -135,33 +135,47 @@
 
 .cm-citation-marker {
   align-items: center;
-  background: oklch(0.93 0.035 230);
-  border: 1px solid oklch(0.72 0.08 230);
-  border-radius: 0.25rem;
   color: oklch(0.42 0.12 230);
   cursor: pointer;
   display: inline-flex;
   font-family: inherit;
   font-size: 0.78em;
   font-weight: 650;
-  gap: 0.25rem;
   line-height: 1.15;
   max-width: 10rem;
   overflow: visible;
-  padding: 0 0.1rem;
   position: relative;
   text-decoration: none;
   vertical-align: baseline;
   white-space: nowrap;
 }
 
-.dark .cm-citation-marker {
+.cm-citation-pill {
+  align-items: center;
+  background: oklch(0.93 0.035 230);
+  border: 1px solid oklch(0.72 0.08 230);
+  border-radius: 0.25rem;
+  display: inline-flex;
+  gap: 0.25rem;
+  max-width: 10rem;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 0.1rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.dark .cm-citation-pill {
   background: oklch(0.28 0.04 230);
   border-color: oklch(0.54 0.09 230);
   color: oklch(0.82 0.06 230);
 }
 
 .cm-citation-stack {
+  max-width: 8rem;
+}
+
+.cm-citation-stack-pill {
   max-width: 8rem;
   padding-right: 0.22rem;
 }
@@ -210,8 +224,12 @@
   z-index: 50;
 }
 
-.cm-citation-marker.is-open .cm-citation-popover {
+.cm-citation-popover-portal {
   display: grid;
+  max-height: min(28rem, calc(100svh - 1.5rem));
+  overflow: hidden;
+  position: fixed;
+  z-index: 1000;
 }
 
 .cm-citation-popover-chunk {
@@ -238,6 +256,11 @@
   line-height: 1.45;
   max-height: 11rem;
   overflow: auto;
+}
+
+.cm-citation-trailing-punctuation {
+  color: var(--foreground);
+  flex: 0 0 auto;
 }
 
 .settings-subsection {
@@ -288,16 +311,37 @@
 }
 
 .markdown-editor .cm-editor {
+  background: var(--card);
+  color: var(--foreground);
   min-height: 320px;
 }
 
 .markdown-editor .cm-scroller {
+  background: var(--card);
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
 .markdown-editor .cm-content {
+  caret-color: var(--foreground);
   font-size: 0.95rem;
   line-height: 1.65;
+}
+
+.markdown-editor .cm-gutters {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--muted-foreground);
+}
+
+.markdown-editor .cm-activeLine,
+.markdown-editor .cm-activeLineGutter {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.markdown-editor .cm-selectionBackground,
+.markdown-editor.cm-focused .cm-selectionBackground,
+.markdown-editor .cm-focused .cm-selectionBackground {
+  background: color-mix(in oklch, var(--ring) 38%, transparent);
 }
 
 .markdown-editor .cm-md-heading {

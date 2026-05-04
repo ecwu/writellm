@@ -9,7 +9,9 @@ import {
   createGitCheckpoint,
   ensureGitSession,
   getGitDiff,
-  getGitStatus
+  getGitStatus,
+  getSectionVersion,
+  listGitHistory
 } from '../dist-electron/main/gitSession.js';
 import { indexKnowledgeItem } from '../dist-electron/main/knowledgeIndex.js';
 import {
@@ -17,6 +19,7 @@ import {
   processKnowledgeIngestJob
 } from '../dist-electron/main/knowledgeIngest.js';
 import { extractKnowledgeFileText } from '../dist-electron/main/knowledgeTextExtract.js';
+import { restoreSectionVersion } from '../dist-electron/main/sectionHistory.js';
 import { unzipBuffer } from '../dist-electron/main/zip.js';
 
 const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'paperlab-smoke-'));
@@ -24,6 +27,15 @@ const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'paperlab-smoke-'));
 try {
   const db = new PaperLabDatabase(workspacePath);
   const rootId = db.rootNodeId;
+  ensureGitSession(workspacePath);
+  const gitStatus = getGitStatus(workspacePath);
+  if (!gitStatus.branch?.startsWith('session/') || !existsSync(path.join(workspacePath, '.git'))) {
+    throw new Error('Git session was not initialized on a session branch.');
+  }
+  const initialHistory = listGitHistory(workspacePath);
+  if (!initialHistory.some((entry) => entry.subject === 'Initial workspace')) {
+    throw new Error('Initial workspace checkpoint was not created.');
+  }
   const intro = db.createNode({
     kind: 'section',
     parentId: rootId,
@@ -37,7 +49,7 @@ try {
     throw new Error('Section did not receive Markdown metadata.');
   }
   const introMarkdownPath = path.join(workspacePath, intro.markdownPath);
-  if (!existsSync(introMarkdownPath) || !readFileSync(introMarkdownPath, 'utf8').includes('# Intro')) {
+  if (!existsSync(introMarkdownPath)) {
     throw new Error('Section Markdown file was not created.');
   }
   const manifestPath = path.join(workspacePath, '.paperlab-manifest.json');
@@ -48,25 +60,55 @@ try {
   const updatedIntro = db.getSection(intro.id);
   if (
     !updatedIntro ||
-    updatedIntro.markdownContent !== '# Intro\n\nHello **Markdown** world.\n' ||
+    updatedIntro.markdownContent !== 'Hello **Markdown** world.\n' ||
     readFileSync(introMarkdownPath, 'utf8') !== updatedIntro.markdownContent
   ) {
     throw new Error('Section Markdown DB/file sync failed.');
   }
 
-  ensureGitSession(workspacePath);
-  const gitStatus = getGitStatus(workspacePath);
-  if (!gitStatus.branch?.startsWith('session/') || !existsSync(path.join(workspacePath, '.git'))) {
-    throw new Error('Git session was not initialized on a session branch.');
-  }
   const checkpoint = createGitCheckpoint(workspacePath, 'Smoke checkpoint');
   if (!checkpoint?.hash) {
     throw new Error('Git checkpoint was not created for Markdown changes.');
   }
   db.updateSectionMarkdown(intro.id, '# Intro\n\nChanged Markdown.\n');
-  const diff = getGitDiff(workspacePath, { sectionId: intro.id });
+  const changedCheckpoint = createGitCheckpoint(workspacePath, 'Changed intro');
+  if (!changedCheckpoint?.hash) {
+    throw new Error('Changed Markdown checkpoint was not created.');
+  }
+  const sectionHistory = listGitHistory(workspacePath, intro.id);
+  if (sectionHistory.length < 2) {
+    throw new Error('Section history did not include multiple checkpoints.');
+  }
+  const diff = getGitDiff(workspacePath, {
+    sectionId: intro.id,
+    base: checkpoint.hash,
+    head: changedCheckpoint.hash
+  });
   if (!diff.includes('Changed Markdown')) {
     throw new Error('Git diff did not include section Markdown changes.');
+  }
+  const checkpointMarkdown = getSectionVersion(workspacePath, intro.id, checkpoint.hash);
+  if (!checkpointMarkdown.includes('Hello **Markdown** world.')) {
+    throw new Error('Section version lookup did not return checkpoint Markdown.');
+  }
+  const other = db.createNode({
+    kind: 'section',
+    parentId: rootId,
+    title: 'Other',
+    intent: ''
+  });
+  if (other.kind !== 'section') {
+    throw new Error('Second section was not created.');
+  }
+  db.updateSectionMarkdown(other.id, '# Other\n\nUncheckpointed Markdown.\n');
+  restoreSectionVersion(db, intro.id, checkpoint.hash);
+  const restoredIntro = db.getSection(intro.id);
+  const dirtyOther = db.getSection(other.id);
+  if (!restoredIntro?.markdownContent.includes('Hello **Markdown** world.')) {
+    throw new Error('Section restore did not restore the requested Markdown.');
+  }
+  if (!dirtyOther?.markdownContent.includes('Uncheckpointed Markdown.')) {
+    throw new Error('Section restore overwrote another section.');
   }
 
   const source = db.createNode({
@@ -81,7 +123,7 @@ try {
 
   const exportPath = exportLatex(db, rootId);
   const output = readFileSync(exportPath, 'utf8');
-  if (!exportPath.endsWith('main.md') || !output.includes('Changed Markdown.')) {
+  if (!exportPath.endsWith('main.md') || !output.includes('Hello **Markdown** world.')) {
     throw new Error('Exported Markdown did not include section Markdown.');
   }
 

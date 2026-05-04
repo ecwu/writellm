@@ -12,6 +12,7 @@ import type {
   GenerateLlmPayload,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
+  LlmOperationRecord,
   RetrievedKnowledgeSource,
   NodeRecord,
   SaveLlmGenerationPayload,
@@ -22,7 +23,7 @@ import type {
 import { exportLatex } from './exportLatex.js';
 import {
   createGitCheckpoint,
-  getGitDiff,
+  getGitHead,
   getGitStatus,
   listGitHistory
 } from './gitSession.js';
@@ -35,6 +36,7 @@ import {
   updateAppearanceSettings,
   updateLlmSettings
 } from './llmSettings.js';
+import { getSectionHistoryDetail, restoreSectionVersion } from './sectionHistory.js';
 import {
   formatSourcesForPrompt,
   getKnowledgeChunkingDebugConfig,
@@ -48,6 +50,8 @@ import {
   listRecentWorkspaces,
   openWorkspace
 } from './workspace.js';
+import { createId, nowIso } from './ids.js';
+import { hashMarkdown } from './sectionMarkdown.js';
 
 const llmRuns = new Map<string, AbortController>();
 
@@ -492,13 +496,26 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle(
-    ipcChannels.getGitDiff,
-    (_event, sectionId?: string, base?: string, head?: string) =>
-      getGitDiff(getActiveDb().workspacePath, { sectionId, base, head })
+    ipcChannels.getSectionHistoryDetail,
+    (_event, sectionId: string, commitHash: string) =>
+      getSectionHistoryDetail(getActiveDb(), sectionId, commitHash)
+  );
+
+  ipcMain.handle(
+    ipcChannels.restoreSectionVersion,
+    (_event, sectionId: string, commitHash: string) => {
+      const db = getActiveDb();
+      restoreSectionVersion(db, sectionId, commitHash);
+      return getState(sectionId);
+    }
   );
 
   ipcMain.handle(ipcChannels.createNode, (_event, payload: CreateNodePayload) => {
-    const node = getActiveDb().createNode(payload);
+    const db = getActiveDb();
+    const node = db.createNode(payload);
+    if (node.kind === 'section') {
+      createGitCheckpoint(db.workspacePath, `Structure update: ${node.title}`);
+    }
     return getState(node.kind === 'section' ? node.parentId ?? node.id : node.parentId);
   });
 
@@ -506,23 +523,40 @@ export function registerIpcHandlers(): void {
     ipcChannels.updateNode,
     (_event, nodeId: string, payload: UpdateNodePayload) => {
       const db = getActiveDb();
+      const previousNode = db.getNode(nodeId);
       db.updateNode(nodeId, payload);
       const node = db.getNode(nodeId);
+      if (
+        node?.kind === 'section' &&
+        previousNode?.kind === 'section' &&
+        isSectionStructureUpdate(payload)
+      ) {
+        createGitCheckpoint(db.workspacePath, `Structure update: ${node.title}`);
+      }
       return getState(node?.kind === 'section' ? node.id : node?.parentId ?? undefined);
     }
   );
 
   ipcMain.handle(ipcChannels.deleteNode, (_event, nodeId: string) => {
     const db = getActiveDb();
+    const node = db.getNode(nodeId);
     const parentSectionId = db.getParentSectionId(nodeId) ?? db.rootNodeId;
     db.deleteNode(nodeId);
+    if (node?.kind === 'section') {
+      createGitCheckpoint(db.workspacePath, `Structure update: ${node.title}`);
+    }
     return getState(parentSectionId);
   });
 
   ipcMain.handle(
     ipcChannels.moveNode,
     (_event, nodeId: string, newParentId: string | null, index: number) => {
-      getActiveDb().moveNode(nodeId, newParentId, index);
+      const db = getActiveDb();
+      const node = db.getNode(nodeId);
+      db.moveNode(nodeId, newParentId, index);
+      if (node?.kind === 'section') {
+        createGitCheckpoint(db.workspacePath, `Structure update: ${node.title}`);
+      }
       return getState(newParentId ?? undefined);
     }
   );
@@ -769,6 +803,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.saveLlmGeneration, (_event, payload: SaveLlmGenerationPayload) => {
+    const settings = readLlmSettings();
     const db = getActiveDb();
     const section = db.getSection(payload.sectionId);
     if (!section) {
@@ -791,10 +826,13 @@ export function registerIpcHandlers(): void {
       payload.retrievedSources ?? [],
       true
     );
+    const operationId = createId('llmop');
+    createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
+    const beforeCommit = getGitHead(db.workspacePath);
     const nextMarkdown = [section.markdownContent.trimEnd(), payload.content.trim()]
       .filter(Boolean)
       .join('\n\n');
-    db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
+    const updatedSection = db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
 
     const contextRelationType = payload.contextRelationType ?? 'informs';
     contextNodes.forEach((node) => {
@@ -817,8 +855,56 @@ export function registerIpcHandlers(): void {
         score: source.score
       }))
     );
+    const timestamp = nowIso();
+    const operation: LlmOperationRecord = {
+      operationId,
+      type: 'generate_append',
+      status: 'current',
+      createdAt: timestamp,
+      appliedAt: timestamp,
+      sectionId: payload.sectionId,
+      sectionPath: updatedSection.markdownPath,
+      beforeCommit,
+      afterCommit: null,
+      beforeSectionHash: section.markdownHash,
+      afterSectionHash: updatedSection.markdownHash,
+      userPrompt: prompt,
+      resolvedPrompt,
+      systemPrompt: articleSectionContext,
+      model: {
+        provider: settings.chat.provider,
+        baseURL: settings.chat.baseURL,
+        model: settings.chat.model
+      },
+      target: {
+        kind: 'section_append',
+        selectionStart: section.markdownContent.length,
+        selectionEnd: section.markdownContent.length,
+        selectedText: '',
+        prefixContext: section.markdownContent.slice(-500),
+        suffixContext: ''
+      },
+      beforeText: '',
+      afterText: payload.content.trim(),
+      outputHash: hashMarkdown(payload.content.trim()),
+      retainedCoverage: 1,
+      contextNodeIds: payload.contextNodeIds ?? [],
+      retrievedSources: payload.retrievedSources ?? []
+    };
+    db.upsertSectionLlmOperation(payload.sectionId, operation);
+    createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
+    const afterCommit = getGitHead(db.workspacePath);
+    db.upsertSectionLlmOperation(payload.sectionId, {
+      ...operation,
+      afterCommit
+    });
+    createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
     return getState(payload.focusSectionId ?? payload.sectionId);
   });
+}
+
+function isSectionStructureUpdate(payload: UpdateNodePayload): boolean {
+  return 'title' in payload || 'intent' in payload || 'activeMainNodeId' in payload;
 }
 
 function mimeTypeForPath(filePath: string): string {

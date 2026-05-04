@@ -14,7 +14,8 @@ const ipcChannels = {
   getGitStatus: 'paperlab:getGitStatus',
   createGitCheckpoint: 'paperlab:createGitCheckpoint',
   listGitHistory: 'paperlab:listGitHistory',
-  getGitDiff: 'paperlab:getGitDiff',
+  getSectionHistoryDetail: 'paperlab:getSectionHistoryDetail',
+  restoreSectionVersion: 'paperlab:restoreSectionVersion',
   createNode: 'paperlab:createNode',
   updateNode: 'paperlab:updateNode',
   deleteNode: 'paperlab:deleteNode',
@@ -59,7 +60,10 @@ const api: PaperLabIpc = {
   getGitStatus: () => ipcRenderer.invoke(ipcChannels.getGitStatus),
   createGitCheckpoint: (message) => ipcRenderer.invoke(ipcChannels.createGitCheckpoint, message),
   listGitHistory: (sectionId) => ipcRenderer.invoke(ipcChannels.listGitHistory, sectionId),
-  getGitDiff: (sectionId, base, head) => ipcRenderer.invoke(ipcChannels.getGitDiff, sectionId, base, head),
+  getSectionHistoryDetail: (sectionId, commitHash) =>
+    ipcRenderer.invoke(ipcChannels.getSectionHistoryDetail, sectionId, commitHash),
+  restoreSectionVersion: (sectionId, commitHash) =>
+    ipcRenderer.invoke(ipcChannels.restoreSectionVersion, sectionId, commitHash),
   createNode: (payload) => ipcRenderer.invoke(ipcChannels.createNode, payload),
   updateNode: (nodeId, payload) => ipcRenderer.invoke(ipcChannels.updateNode, nodeId, payload),
   deleteNode: (nodeId) => ipcRenderer.invoke(ipcChannels.deleteNode, nodeId),

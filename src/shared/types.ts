@@ -19,6 +19,7 @@ export type SectionNodeRecord = BaseNodeRecord & {
   markdownPath: string;
   markdownContent: string;
   markdownHash: string;
+  metadata: Record<string, unknown>;
   citationSources: RetrievedKnowledgeSource[];
 };
 
@@ -328,6 +329,53 @@ export type KnowledgeSourceTarget = {
   snippet: string;
 };
 
+export type LlmOperationStatus = 'current' | 'edited' | 'stale' | 'superseded';
+
+export type LlmOperationType =
+  | 'generate_append'
+  | 'rewrite_selection'
+  | 'restyle_selection'
+  | 'expand_selection'
+  | 'custom_edit';
+
+export type LlmOperationTarget = {
+  kind: 'section_append' | 'selection';
+  selectionStart?: number;
+  selectionEnd?: number;
+  selectedText?: string;
+  prefixContext?: string;
+  suffixContext?: string;
+};
+
+export type LlmOperationRecord = {
+  operationId: string;
+  type: LlmOperationType;
+  status: LlmOperationStatus;
+  createdAt: string;
+  appliedAt: string;
+  sectionId: string;
+  sectionPath: string;
+  beforeCommit: string | null;
+  afterCommit: string | null;
+  beforeSectionHash: string;
+  afterSectionHash: string;
+  userPrompt: string;
+  resolvedPrompt: string;
+  systemPrompt: string;
+  model: {
+    provider: LlmProviderKind;
+    baseURL: string;
+    model: string;
+  };
+  target: LlmOperationTarget;
+  beforeText: string;
+  afterText: string;
+  outputHash: string;
+  retainedCoverage: number;
+  contextNodeIds: string[];
+  retrievedSources: RetrievedKnowledgeSource[];
+};
+
 export type ResolveKnowledgeCitationPayload = {
   publicRef?: string;
   chunkId?: string;
@@ -347,6 +395,15 @@ export type GitHistoryRecord = {
   shortHash: string;
   subject: string;
   authorDate: string;
+};
+
+export type SectionHistoryDetail = {
+  sectionId: string;
+  selectedCommit: GitHistoryRecord;
+  parentCommit: GitHistoryRecord | null;
+  beforeMarkdown: string;
+  afterMarkdown: string;
+  unifiedDiff: string;
 };
 
 export type CreateKnowledgeItemPayload = {

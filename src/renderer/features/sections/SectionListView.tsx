@@ -1,6 +1,6 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, History } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -30,6 +30,7 @@ export function SectionListView({
   selection,
   onSelection,
   onFocusSection,
+  onOpenHistory,
   childViewMode,
   onChildViewMode,
   onState,
@@ -41,6 +42,7 @@ export function SectionListView({
   selection: Selection;
   onSelection: (selection: Selection) => void;
   onFocusSection: (sectionId: string) => void;
+  onOpenHistory: (section: CompositionTreeNode) => void;
   childViewMode: ChildViewMode;
   onChildViewMode: (mode: ChildViewMode) => void;
   onState: (state: FocusedWorkspaceState) => void;
@@ -113,6 +115,7 @@ export function SectionListView({
                 focusSectionId={focusSectionId}
                 onSelection={onSelection}
                 onFocusSection={onFocusSection}
+                onOpenHistory={onOpenHistory}
                 onToggleExpanded={(id) => {
                   setExpandedIds((current) => {
                     const next = new Set(current);
@@ -146,6 +149,7 @@ function SectionListRow({
   focusSectionId,
   onSelection,
   onFocusSection,
+  onOpenHistory,
   onToggleExpanded,
   onState,
   onError
@@ -159,6 +163,7 @@ function SectionListRow({
   focusSectionId: string;
   onSelection: (selection: Selection) => void;
   onFocusSection: (sectionId: string) => void;
+  onOpenHistory: (section: CompositionTreeNode) => void;
   onToggleExpanded: (sectionId: string) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
@@ -307,6 +312,17 @@ function SectionListRow({
         </div>
       </TableCell>
       <TableCell className="section-list-action-cell">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenHistory(node);
+          }}
+        >
+          <History />
+          History
+        </Button>
         <Button
           variant="ghost"
           size="sm"

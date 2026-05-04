@@ -21,6 +21,8 @@ export function useAutosaveDraft({
   const draftRef = useRef(sectionMarkdownForStorage(section.markdownContent));
   const lastSavedRef = useRef(sectionMarkdownForStorage(section.markdownContent));
   const sectionRef = useRef(section);
+  const sectionIdRef = useRef(section.id);
+  const sectionHashRef = useRef(section.markdownHash);
   const onStateRef = useRef(onState);
   const onErrorRef = useRef(onError);
 
@@ -38,9 +40,33 @@ export function useAutosaveDraft({
     const nextDraft = sectionMarkdownForStorage(section.markdownContent);
     draftRef.current = nextDraft;
     lastSavedRef.current = nextDraft;
+    sectionIdRef.current = section.id;
+    sectionHashRef.current = section.markdownHash;
     setDraft(nextDraft);
     setSaveState('saved');
   }, [section.id]);
+
+  useEffect(() => {
+    if (section.id !== sectionIdRef.current) {
+      return;
+    }
+    if (section.markdownHash === sectionHashRef.current) {
+      return;
+    }
+    const nextDraft = sectionMarkdownForStorage(section.markdownContent);
+    sectionHashRef.current = section.markdownHash;
+    if (nextDraft === lastSavedRef.current) {
+      return;
+    }
+    if (draftRef.current !== lastSavedRef.current) {
+      lastSavedRef.current = nextDraft;
+      return;
+    }
+    draftRef.current = nextDraft;
+    lastSavedRef.current = nextDraft;
+    setDraft(nextDraft);
+    setSaveState('saved');
+  }, [section.id, section.markdownContent, section.markdownHash]);
 
   useEffect(() => {
     return () => {

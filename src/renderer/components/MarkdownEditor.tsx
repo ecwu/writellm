@@ -68,8 +68,12 @@ export function MarkdownEditor({
               }
               event.preventDefault();
               event.stopPropagation();
-              closeCitationPopovers(target);
-              target.classList.toggle('is-open');
+              if (target.classList.contains('is-open')) {
+                closeCitationPopovers();
+                return true;
+              }
+              closeCitationPopovers();
+              openCitationPopover(target);
               return true;
             },
             dblclick(event) {
@@ -168,14 +172,33 @@ export function MarkdownEditor({
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
-      if (event.target instanceof HTMLElement && event.target.closest('.cm-citation-marker')) {
+      if (
+        event.target instanceof HTMLElement &&
+        (event.target.closest('.cm-citation-marker') || event.target.closest('.cm-citation-popover'))
+      ) {
         return;
       }
       closeCitationPopovers();
     }
 
+    function handleViewportChange() {
+      const openMarker = document.querySelector<HTMLElement>('.cm-citation-marker.is-open');
+      const openPopover = document.querySelector<HTMLElement>('.cm-citation-popover-portal');
+      if (!openMarker || !openPopover) {
+        return;
+      }
+      positionCitationPopover(openMarker, openPopover);
+    }
+
     document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+      closeCitationPopovers();
+    };
   }, []);
 
   return <div ref={hostRef} className="markdown-editor" />;
@@ -187,6 +210,38 @@ function closeCitationPopovers(except?: HTMLElement): void {
       element.classList.remove('is-open');
     }
   });
+  if (!except) {
+    document.querySelectorAll<HTMLElement>('.cm-citation-popover-portal').forEach((element) => element.remove());
+  }
+}
+
+function openCitationPopover(marker: HTMLElement): void {
+  const sources = citationSourcesByMarker.get(marker);
+  if (!sources?.length) {
+    return;
+  }
+  const popover = citationPopover(sources);
+  popover.classList.add('cm-citation-popover-portal');
+  document.body.append(popover);
+  marker.classList.add('is-open');
+  positionCitationPopover(marker, popover);
+}
+
+function positionCitationPopover(marker: HTMLElement, popover: HTMLElement): void {
+  const margin = 12;
+  const gap = 6;
+  const markerRect = marker.getBoundingClientRect();
+  popover.style.left = '0px';
+  popover.style.top = '0px';
+  popover.style.maxHeight = `${Math.max(160, window.innerHeight - margin * 2)}px`;
+  const popoverRect = popover.getBoundingClientRect();
+  const maxLeft = Math.max(margin, window.innerWidth - popoverRect.width - margin);
+  const left = Math.min(Math.max(markerRect.left, margin), maxLeft);
+  const below = markerRect.bottom + gap;
+  const above = markerRect.top - popoverRect.height - gap;
+  const top = below + popoverRect.height <= window.innerHeight - margin ? below : Math.max(margin, above);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
 }
 
 function normalizedCursorPosition(
@@ -201,6 +256,7 @@ function normalizedCursorPosition(
 
 const citationGroupPattern = /((?:\[[a-f0-9]{7}\.c\d+\]\s*)+)/gi;
 const citationRefPattern = /\[([a-f0-9]{7}\.c\d+)\]/gi;
+const citationTrailingPunctuationPattern = /^[。．，、；：！？!?.,;:)\]）】〉》」』]/;
 const headingPattern = /^(#{1,6})\s+(.+)$/gm;
 const inlineCodePattern = /`([^`\n]+)`/g;
 const boldPattern = /\*\*([^*\n]+)\*\*/g;
@@ -208,6 +264,7 @@ const italicPattern = /(^|[^*])\*([^*\n]+)\*/g;
 const linkPattern = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
 
 const setCitationSources = StateEffect.define<RetrievedKnowledgeSource[]>();
+const citationSourcesByMarker = new WeakMap<HTMLElement, RetrievedKnowledgeSource[]>();
 
 const markdownDecorations = StateField.define<{
   sources: RetrievedKnowledgeSource[];
@@ -312,11 +369,13 @@ function addCitationDecorations(
     }
     const citationSources = sourcesForCitationGroup(match[0], sourceByRef);
     const fallbackRefs = refsForCitationGroup(match[0]);
+    const matchEnd = match.index + match[0].length;
+    const trailingPunctuation = doc.slice(matchEnd).match(citationTrailingPunctuationPattern)?.[0] ?? '';
     entries.push({
       from: match.index,
-      to: match.index + match[0].length,
+      to: matchEnd + trailingPunctuation.length,
       decoration: Decoration.replace({
-        widget: new CitationWidget(citationSources, fallbackRefs)
+        widget: new CitationWidget(citationSources, fallbackRefs, trailingPunctuation)
       })
     });
   }
@@ -344,7 +403,8 @@ function sourcesForCitationGroup(
 class CitationWidget extends WidgetType {
   constructor(
     private readonly sources: RetrievedKnowledgeSource[],
-    private readonly fallbackRefs: string[]
+    private readonly fallbackRefs: string[],
+    private readonly trailingPunctuation: string
   ) {
     super();
   }
@@ -358,12 +418,20 @@ class CitationWidget extends WidgetType {
     element.setAttribute('role', 'button');
     element.setAttribute('tabindex', '0');
     element.setAttribute('aria-label', 'Show citation chunk');
+    citationSourcesByMarker.set(element, sources);
+
+    const pill = document.createElement('span');
+    pill.className = sources.length === 1 ? 'cm-citation-pill' : 'cm-citation-pill cm-citation-stack-pill';
 
     if (sources.length === 1) {
       const label = document.createElement('span');
       label.className = 'cm-citation-label';
       label.textContent = shortTitle(first.itemTitle);
-      element.append(label, citationPopover(sources));
+      pill.append(label);
+      element.append(pill);
+      if (this.trailingPunctuation) {
+        element.append(citationPunctuation(this.trailingPunctuation));
+      }
       return element;
     }
 
@@ -377,13 +445,24 @@ class CitationWidget extends WidgetType {
       card.style.setProperty('--stack-index', String(index));
       cards.append(card);
     });
-    element.append(label, cards, citationPopover(sources));
+    pill.append(label, cards);
+    element.append(pill);
+    if (this.trailingPunctuation) {
+      element.append(citationPunctuation(this.trailingPunctuation));
+    }
     return element;
   }
 
   ignoreEvent() {
     return false;
   }
+}
+
+function citationPunctuation(value: string): HTMLElement {
+  const punctuation = document.createElement('span');
+  punctuation.className = 'cm-citation-trailing-punctuation';
+  punctuation.textContent = value;
+  return punctuation;
 }
 
 function citationPopover(sources: RetrievedKnowledgeSource[]): HTMLElement {

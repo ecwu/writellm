@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export type GitStatusRecord = {
@@ -18,7 +18,7 @@ export type GitHistoryRecord = {
   authorDate: string;
 };
 
-const TRACKED_PATHS = ['sections', '.paperlab-manifest.json'];
+const TRACKED_PATHS = ['sections', 'metadata', '.paperlab-manifest.json'];
 const DEFAULT_GITIGNORE = [
   'project.sqlite',
   'project.sqlite-*',
@@ -35,7 +35,9 @@ export function ensureGitSession(workspacePath: string): void {
     runGit(workspacePath, ['init']);
   }
   ensureGitignore(workspacePath);
+  mkdirSync(path.join(workspacePath, 'metadata'), { recursive: true });
   ensureSessionBranch(workspacePath);
+  ensureInitialCheckpoint(workspacePath);
 }
 
 export function getGitStatus(workspacePath: string): GitStatusRecord {
@@ -59,6 +61,16 @@ export function getGitStatus(workspacePath: string): GitStatusRecord {
 
 export function createGitCheckpoint(workspacePath: string, message?: string): GitHistoryRecord | null {
   ensureGitSession(workspacePath);
+  return createGitCheckpointWithoutEnsure(workspacePath, message);
+}
+
+export function getGitHead(workspacePath: string): string | null {
+  ensureGitSession(workspacePath);
+  const head = runGit(workspacePath, ['rev-parse', 'HEAD'], { allowFailure: true }).trim();
+  return head || null;
+}
+
+function createGitCheckpointWithoutEnsure(workspacePath: string, message?: string): GitHistoryRecord | null {
   runGit(workspacePath, ['add', ...TRACKED_PATHS]);
   const staged = runGit(workspacePath, ['diff', '--cached', '--quiet'], { allowFailure: true, returnStatus: true });
   if (staged === 0) {
@@ -128,6 +140,13 @@ export function getGitDiff(
   return runGit(workspacePath, args, { allowFailure: true });
 }
 
+export function getSectionVersion(workspacePath: string, sectionId: string, commitHash: string): string {
+  ensureGitSession(workspacePath);
+  assertSectionId(sectionId);
+  assertCommitHash(commitHash);
+  return runGit(workspacePath, ['show', `${commitHash}:sections/${sectionId}.md`]);
+}
+
 function ensureGitignore(workspacePath: string): void {
   const ignorePath = path.join(workspacePath, '.gitignore');
   if (!existsSync(ignorePath)) {
@@ -150,6 +169,35 @@ function ensureSessionBranch(workspacePath: string): void {
     return;
   }
   runGit(workspacePath, ['checkout', '-b', branch]);
+}
+
+function ensureInitialCheckpoint(workspacePath: string): void {
+  const hasHead = runGit(workspacePath, ['rev-parse', '--verify', 'HEAD'], {
+    allowFailure: true,
+    returnStatus: true
+  }) === 0;
+  if (hasHead) {
+    return;
+  }
+  const status = runGit(workspacePath, ['status', '--short', '--', ...TRACKED_PATHS], {
+    allowFailure: true
+  });
+  if (!status.trim()) {
+    return;
+  }
+  createGitCheckpointWithoutEnsure(workspacePath, 'Initial workspace');
+}
+
+function assertCommitHash(commitHash: string): void {
+  if (!/^[0-9a-f]{4,40}$/i.test(commitHash)) {
+    throw new Error('Git commit hash is invalid.');
+  }
+}
+
+function assertSectionId(sectionId: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(sectionId)) {
+    throw new Error('Section id is invalid.');
+  }
 }
 
 function sessionTimestamp(): string {

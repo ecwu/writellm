@@ -7,13 +7,14 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { CanvasView } from './features/canvas/CanvasView';
 import { Inspector } from './features/inspector/Inspector';
 import { KnowledgePage } from './features/knowledge/KnowledgePage';
+import { SectionHistoryDialog } from './features/sections/SectionHistoryDialog';
 import { SectionListView } from './features/sections/SectionListView';
 import { SettingsDialog } from './features/settings/SettingsDialog';
 import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
-import type { PublicLlmSettings, ThemeMode } from '../shared/types';
+import type { PublicLlmSettings, SectionNodeRecord, ThemeMode } from '../shared/types';
 
 function applyTheme(theme: ThemeMode) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -22,6 +23,7 @@ function applyTheme(theme: ThemeMode) {
 
 export function App() {
   const [debugEnabled, setDebugEnabled] = useState(false);
+  const [historySectionId, setHistorySectionId] = useState<string | null>(null);
   const {
     apiAvailable,
     state,
@@ -90,10 +92,19 @@ export function App() {
     persistNodeLayoutFromNode
   } = usePaperLabApp();
   const theme = llmSettings?.appearance.theme ?? 'light';
+  const historySection = historySectionId
+    ? state.nodes.find((node): node is SectionNodeRecord => node.kind === 'section' && node.id === historySectionId) ?? null
+    : null;
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (historySectionId && !historySection) {
+      setHistorySectionId(null);
+    }
+  }, [historySectionId, historySection]);
 
   function handleSettingsSaved(settings: PublicLlmSettings) {
     setLlmSettings(settings);
@@ -178,6 +189,18 @@ export function App() {
             onPickWorkspace={() => void pickWorkspaceFolder()}
             onPickNewWorkspace={() => void pickNewWorkspacePath()}
           />
+          <SectionHistoryDialog
+            open={Boolean(historySection)}
+            section={historySection}
+            onOpenChange={(open) => {
+              if (!open) {
+                setHistorySectionId(null);
+              }
+            }}
+            onState={setState}
+            onStatus={notifyStatus}
+            onError={notifyError}
+          />
 
           {activePage === 'knowledge' ? (
             <KnowledgePage
@@ -212,6 +235,7 @@ export function App() {
                     section={writingSection}
                     onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                     onBack={() => closeWritingView(writingSection)}
+                    onHistory={(section) => setHistorySectionId(section.id)}
                     onState={setState}
                     onError={notifyError}
                   />
@@ -297,6 +321,7 @@ export function App() {
                     selection={selection}
                     onSelection={setSelection}
                     onFocusSection={(id) => void focusSectionById(id)}
+                    onOpenHistory={(section) => setHistorySectionId(section.id)}
                     childViewMode={currentChildViewMode}
                     onChildViewMode={setFocusedChildViewMode}
                     onState={setState}

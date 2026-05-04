@@ -47,6 +47,8 @@ import type {
   KnowledgeItemDebugRecord,
   KnowledgeItemRecord,
   KnowledgeSourceTarget,
+  LlmOperationRecord,
+  LlmOperationStatus,
   NodeEdgeRecord,
   NodeRecord,
   NodeStats,
@@ -59,6 +61,8 @@ import type {
 const SCHEMA_VERSION = 11;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
+const SECTION_METADATA_DIR = 'metadata/sections';
+const LLM_OPERATION_COVERAGE_THRESHOLD = 0.4;
 const PLAINJOB_STATUS_PENDING = 0;
 const PLAINJOB_STATUS_PROCESSING = 1;
 const PLAINJOB_STATUS_DONE = 2;
@@ -208,7 +212,28 @@ export class PaperLabDatabase {
       })
       .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
       .run();
+    this.refreshSectionLlmOperationStatuses(sectionId, normalizedMarkdown, markdownHash);
     this.writeManifest();
+    return this.getSection(sectionId)!;
+  }
+
+  upsertSectionLlmOperation(sectionId: string, operation: LlmOperationRecord): SectionNodeRecord {
+    const section = this.getSection(sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${sectionId}`);
+    }
+
+    const existingOperations = readLlmOperations(section.metadata);
+    const operationIndex = existingOperations.findIndex((item) => item.operationId === operation.operationId);
+    const refreshedOperation = refreshLlmOperationStatus(operation, section.markdownContent, section.markdownHash);
+    const nextOperations = operationIndex >= 0
+      ? existingOperations.map((item, index) => index === operationIndex ? refreshedOperation : item)
+      : [...existingOperations, refreshedOperation];
+
+    this.writeSectionMetadata(sectionId, {
+      ...section.metadata,
+      llmOperations: nextOperations
+    });
     return this.getSection(sectionId)!;
   }
 
@@ -1696,8 +1721,49 @@ export class PaperLabDatabase {
           })
           .where(and(eq(nodes.id, section.id), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
           .run();
+        this.refreshSectionLlmOperationStatuses(section.id, nextContent, nextHash);
       }
     }
+  }
+
+  private refreshSectionLlmOperationStatuses(
+    sectionId: string,
+    markdownContent: string,
+    markdownHash: string
+  ): void {
+    const section = this.getSection(sectionId);
+    if (!section) {
+      return;
+    }
+    const operations = readLlmOperations(section.metadata);
+    if (operations.length === 0) {
+      return;
+    }
+    const refreshed = operations.map((operation) =>
+      refreshLlmOperationStatus(operation, markdownContent, markdownHash)
+    );
+    if (JSON.stringify(refreshed) === JSON.stringify(operations)) {
+      return;
+    }
+    this.writeSectionMetadata(sectionId, {
+      ...section.metadata,
+      llmOperations: refreshed
+    });
+  }
+
+  private writeSectionMetadata(sectionId: string, metadata: Record<string, unknown>): void {
+    const section = this.getSection(sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${sectionId}`);
+    }
+    const timestamp = nowIso();
+    this.orm
+      .update(nodes)
+      .set({ metadataJson: JSON.stringify(metadata), updatedAt: timestamp })
+      .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .run();
+    writeSectionLlmMetadataSidecar(this.workspacePath, sectionId, section.markdownPath, metadata);
+    this.writeManifest();
   }
 
   private writeManifest(): void {
@@ -1821,6 +1887,7 @@ function mapNode(row: NodeRow): NodeRecord {
       markdownPath: row.markdownPath ?? sectionMarkdownPath(row.id),
       markdownContent,
       markdownHash,
+      metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {},
       citationSources: []
     };
   }
@@ -1857,6 +1924,136 @@ function mapCanvasNodeLayout(row: CanvasNodeLayoutRow): CanvasNodeLayout {
     height: row.height,
     updatedAt: row.updatedAt
   };
+}
+
+function readLlmOperations(metadata: Record<string, unknown>): LlmOperationRecord[] {
+  const value = metadata.llmOperations;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isLlmOperationRecord);
+}
+
+function isLlmOperationRecord(value: unknown): value is LlmOperationRecord {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<LlmOperationRecord>;
+  return (
+    typeof candidate.operationId === 'string' &&
+    typeof candidate.type === 'string' &&
+    typeof candidate.status === 'string' &&
+    typeof candidate.createdAt === 'string' &&
+    typeof candidate.appliedAt === 'string' &&
+    typeof candidate.sectionId === 'string' &&
+    typeof candidate.sectionPath === 'string' &&
+    typeof candidate.beforeSectionHash === 'string' &&
+    typeof candidate.afterSectionHash === 'string' &&
+    typeof candidate.userPrompt === 'string' &&
+    typeof candidate.resolvedPrompt === 'string' &&
+    typeof candidate.systemPrompt === 'string' &&
+    typeof candidate.beforeText === 'string' &&
+    typeof candidate.afterText === 'string' &&
+    typeof candidate.outputHash === 'string' &&
+    typeof candidate.retainedCoverage === 'number' &&
+    Array.isArray(candidate.contextNodeIds) &&
+    Array.isArray(candidate.retrievedSources)
+  );
+}
+
+function refreshLlmOperationStatus(
+  operation: LlmOperationRecord,
+  currentMarkdown: string,
+  currentMarkdownHash: string
+): LlmOperationRecord {
+  if (operation.status === 'superseded') {
+    return operation;
+  }
+  const retainedCoverage = currentMarkdownHash === operation.afterSectionHash
+    ? 1
+    : calculateRetainedCoverage(currentMarkdown, operation.afterText);
+  const status: LlmOperationStatus = currentMarkdownHash === operation.afterSectionHash
+    ? 'current'
+    : retainedCoverage >= LLM_OPERATION_COVERAGE_THRESHOLD
+      ? 'edited'
+      : 'stale';
+  return {
+    ...operation,
+    status,
+    retainedCoverage
+  };
+}
+
+function calculateRetainedCoverage(currentMarkdown: string, afterText: string): number {
+  const normalizedCurrent = normalizeProvenanceText(currentMarkdown);
+  const normalizedAfter = normalizeProvenanceText(afterText);
+  if (!normalizedAfter) {
+    return normalizedCurrent ? 0 : 1;
+  }
+  if (normalizedCurrent.includes(normalizedAfter)) {
+    return 1;
+  }
+
+  const afterUnits = provenanceUnits(normalizedAfter);
+  if (afterUnits.length === 0) {
+    return 0;
+  }
+  const currentUnits = new Set(provenanceUnits(normalizedCurrent));
+  const retained = afterUnits.filter((unit) => currentUnits.has(unit)).length;
+  return retained / afterUnits.length;
+}
+
+function normalizeProvenanceText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function provenanceUnits(value: string): string[] {
+  const words = value.match(/[\p{L}\p{N}_]+/gu) ?? [];
+  if (words.length >= 5) {
+    const units: string[] = [];
+    for (let index = 0; index <= words.length - 3; index += 1) {
+      units.push(words.slice(index, index + 3).join(' '));
+    }
+    return units.length > 0 ? units : words;
+  }
+
+  const compact = value.replace(/\s+/g, '');
+  if (compact.length <= 3) {
+    return compact ? [compact] : [];
+  }
+  const units: string[] = [];
+  for (let index = 0; index <= compact.length - 3; index += 1) {
+    units.push(compact.slice(index, index + 3));
+  }
+  return units;
+}
+
+function writeSectionLlmMetadataSidecar(
+  workspacePath: string,
+  sectionId: string,
+  sectionPath: string,
+  metadata: Record<string, unknown>
+): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(sectionId)) {
+    throw new Error('Section id is invalid.');
+  }
+  const relativePath = path.posix.join(SECTION_METADATA_DIR, `${sectionId}.llm.json`);
+  const absolutePath = path.resolve(workspacePath, relativePath);
+  const metadataRoot = path.resolve(workspacePath, 'metadata');
+  if (!absolutePath.startsWith(`${metadataRoot}${path.sep}`)) {
+    throw new Error('Section metadata path must be inside the workspace metadata directory.');
+  }
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    `${JSON.stringify({
+      version: 1,
+      sectionId,
+      sectionPath,
+      llmOperations: readLlmOperations(metadata)
+    }, null, 2)}\n`,
+    'utf8'
+  );
 }
 
 function mapKnowledgeItem(row: KnowledgeItemRow): KnowledgeItemRecord {

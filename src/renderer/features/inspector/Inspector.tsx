@@ -11,6 +11,7 @@ import type { Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
   FocusedWorkspaceState,
+  LlmOperationRecord,
   RetrievedKnowledgeSource,
   SectionNodeRecord
 } from '../../../shared/types';
@@ -137,6 +138,7 @@ export function Inspector(props: InspectorProps) {
   const selectedGenerationPrompt = getGenerationPrompt(selectedContent);
   const selectedGenerationSources = getGenerationSources(selectedContent);
   const selectedIsKnowledgeSource = selectedContent?.metadata.nodeRole === 'knowledge-source';
+  const selectedSectionLlmSummary = formatSectionLlmOperationSummary(selectedSection);
 
   return (
     <div className="inspector">
@@ -209,6 +211,9 @@ export function Inspector(props: InspectorProps) {
               <MetadataRow label="Title" value={selectedSection.title} />
               <MetadataRow label="Intent" value={selectedSection.intent || 'Not set'} />
               <MetadataRow label="Markdown" value={selectedSection.markdownPath} />
+              {selectedSectionLlmSummary ? (
+                <MetadataRow label="LLM ops" value={selectedSectionLlmSummary} />
+              ) : null}
               <MetadataRow label="Node ID" value={selectedSection.id} />
               <MetadataRow label="Updated" value={selectedSection.updatedAt} />
             </div>
@@ -308,5 +313,28 @@ function getGenerationSources(node: ContentNodeRecord | null): RetrievedKnowledg
       typeof candidate.snippet === 'string' &&
       typeof candidate.score === 'number'
     );
+  });
+}
+
+function formatSectionLlmOperationSummary(section: SectionNodeRecord | null): string | null {
+  const operations = getSectionLlmOperations(section);
+  if (operations.length === 0) {
+    return null;
+  }
+  const latest = operations[operations.length - 1];
+  return `${operations.length} operation${operations.length === 1 ? '' : 's'} · latest ${latest.status}`;
+}
+
+function getSectionLlmOperations(section: SectionNodeRecord | null): LlmOperationRecord[] {
+  const operations = section?.metadata.llmOperations;
+  if (!Array.isArray(operations)) {
+    return [];
+  }
+  return operations.filter((operation): operation is LlmOperationRecord => {
+    if (!operation || typeof operation !== 'object') {
+      return false;
+    }
+    const candidate = operation as Partial<LlmOperationRecord>;
+    return Boolean(candidate.operationId && candidate.status && candidate.type);
   });
 }
