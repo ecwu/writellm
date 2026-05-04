@@ -1,6 +1,6 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { streamText } from 'ai';
+import { generateText, streamText } from 'ai';
 import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
 
 const defaultWritingSystemPrompt =
@@ -45,4 +45,27 @@ export async function* streamLlmText(
   for await (const textPart of result.textStream) {
     yield textPart;
   }
+}
+
+export async function generateLlmText(
+  settings: ModelEndpointSettings,
+  payload: {
+    prompt: string;
+    systemPrompt?: string;
+  },
+  abortSignal?: AbortSignal
+): Promise<string> {
+  if (!settings.apiKey.trim()) {
+    throw new Error('LLM API key is required. Add it in Settings first.');
+  }
+
+  const result = await generateText({
+    model: createModel(settings),
+    system: payload.systemPrompt,
+    prompt: payload.prompt,
+    abortSignal,
+    maxRetries: 0
+  });
+
+  return result.text;
 }

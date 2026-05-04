@@ -229,10 +229,9 @@ export function KnowledgePage({
                         setSelectedId(item.id);
                       }}
                     >
-                      <span className="knowledge-source-title">{item.title}</span>
+                      <span className="knowledge-source-title">{knowledgeDisplayTitle(item)}</span>
                       <span className={`knowledge-source-status ${item.indexStatus}`}>{item.indexStatus}</span>
-                      <span className="knowledge-source-preview">{item.publicRef}</span>
-                      <span className="knowledge-source-preview">{previewText(item.content)}</span>
+                      <span className="knowledge-source-preview">{knowledgeDisplayDescription(item)}</span>
                     </button>
                   ))}
                 </div>
@@ -916,6 +915,28 @@ function previewText(content: string): string {
     return 'Empty source';
   }
   return trimmed.length > 120 ? `${trimmed.slice(0, 120)}...` : trimmed;
+}
+
+function knowledgeDisplayTitle(item: KnowledgeItemRecord): string {
+  const metadata = readKnowledgeDisplayMetadata(item);
+  return metadata.title || item.title;
+}
+
+function knowledgeDisplayDescription(item: KnowledgeItemRecord): string {
+  const metadata = readKnowledgeDisplayMetadata(item);
+  return metadata.description || previewText(item.content);
+}
+
+function readKnowledgeDisplayMetadata(item: KnowledgeItemRecord): { title: string; description: string } {
+  const metadata = item.metadata.knowledgeDisplayMetadata ?? item.metadata.knowledgeMetadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return { title: '', description: '' };
+  }
+  const record = metadata as Record<string, unknown>;
+  return {
+    title: typeof record.title === 'string' ? record.title.trim() : '',
+    description: typeof record.description === 'string' ? record.description.trim() : ''
+  };
 }
 
 function formatFileSize(bytes: number): string {

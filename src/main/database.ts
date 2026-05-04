@@ -488,6 +488,24 @@ export class PaperLabDatabase {
     return this.getKnowledgeItem(itemId)!;
   }
 
+  updateKnowledgeItemMetadata(
+    itemId: string,
+    metadata: Record<string, unknown>
+  ): KnowledgeItemRecord {
+    const item = this.getKnowledgeItem(itemId);
+    if (!item) {
+      throw new Error(`Knowledge item not found: ${itemId}`);
+    }
+    this.db
+      .prepare(
+        `UPDATE knowledge_items
+         SET metadata_json = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`
+      )
+      .run(JSON.stringify(metadata), nowIso(), itemId);
+    return this.getKnowledgeItem(itemId)!;
+  }
+
   deleteKnowledgeItem(itemId: string): void {
     if (!this.getKnowledgeItem(itemId)) {
       throw new Error(`Knowledge item not found: ${itemId}`);

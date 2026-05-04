@@ -46,6 +46,10 @@ import {
 
 const llmRuns = new Map<string, AbortController>();
 
+function titleFromPrompt(prompt: string): string {
+  return prompt.replace(/\s+/g, ' ').trim() || 'LLM generation';
+}
+
 function formatArticleStructure(
   nodes: CompositionTreeNode[],
   focusSectionId: string,
@@ -360,8 +364,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.createKnowledgeItem, async (_event, payload: CreateKnowledgeItemPayload) => {
     const db = getActiveDb();
     const item = db.createKnowledgeItem(payload.title, payload.content);
+    const settings = readLlmSettings();
     try {
-      await indexKnowledgeItem(db, item.id, readLlmSettings().embedding);
+      await indexKnowledgeItem(db, item.id, settings.embedding, settings.chat);
     } catch {
       // The item remains editable with an error status so the user can fix settings and reindex.
     }
@@ -392,8 +397,9 @@ export function registerIpcHandlers(): void {
     async (_event, itemId: string, payload: UpdateKnowledgeItemPayload) => {
       const db = getActiveDb();
       const item = db.updateKnowledgeItem(itemId, payload);
+      const settings = readLlmSettings();
       try {
-        await indexKnowledgeItem(db, item.id, readLlmSettings().embedding);
+        await indexKnowledgeItem(db, item.id, settings.embedding, settings.chat);
       } catch {
         // Keep the item and expose its indexing state through workspace state.
       }
@@ -408,7 +414,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.reindexKnowledgeItem, async (_event, itemId: string) => {
     const db = getActiveDb();
-    await indexKnowledgeItem(db, itemId, readLlmSettings().embedding);
+    const settings = readLlmSettings();
+    await indexKnowledgeItem(db, itemId, settings.embedding, settings.chat);
     return getState();
   });
 
@@ -548,7 +555,7 @@ export function registerIpcHandlers(): void {
     const generated = db.createNode({
       kind: 'content',
       parentId: payload.sectionId,
-      title: 'LLM generation',
+      title: titleFromPrompt(prompt),
       content: payload.content,
       isLlm: true,
       isMain: false,

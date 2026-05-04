@@ -5,10 +5,15 @@ import type {
   RetrievedKnowledgeSource
 } from '../shared/types.js';
 import type { PaperLabDatabase } from './database.js';
+import { generateLlmText } from './llmRunner.js';
 
 const CHUNK_TARGET_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 180;
 const EMBEDDING_BATCH_SIZE = 64;
+const METADATA_SAMPLE_CHARS = 1000;
+const METADATA_TITLE_MAX_CHARS = 140;
+const METADATA_DESCRIPTION_MAX_CHARS = 320;
+const DISPLAY_METADATA_KEY = 'knowledgeDisplayMetadata';
 
 export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig {
   return {
@@ -56,7 +61,8 @@ export function chunkKnowledgeText(content: string): string[] {
 export async function indexKnowledgeItem(
   db: PaperLabDatabase,
   itemId: string,
-  embeddingSettings: ModelEndpointSettings
+  embeddingSettings: ModelEndpointSettings,
+  metadataSettings?: ModelEndpointSettings
 ): Promise<KnowledgeChunkRecord[]> {
   const item = db.getKnowledgeItem(itemId);
   if (!item) {
@@ -67,6 +73,11 @@ export async function indexKnowledgeItem(
   if (chunks.length === 0) {
     return db.replaceKnowledgeChunks(itemId, []);
   }
+
+  await extractAndStoreKnowledgeDisplayMetadata(db, item.id, metadataSettings, item.content, {
+    replaceExisting: false,
+    source: 'indexed-content'
+  });
 
   try {
     const embeddings = await embedTexts(embeddingSettings, chunks);
@@ -83,6 +94,137 @@ export async function indexKnowledgeItem(
     db.markKnowledgeItemIndexError(itemId, message);
     throw caught;
   }
+}
+
+export async function extractAndStoreKnowledgeDisplayMetadata(
+  db: PaperLabDatabase,
+  itemId: string,
+  settings: ModelEndpointSettings | undefined,
+  content: string,
+  options: {
+    replaceExisting?: boolean;
+    source?: string;
+  } = {}
+): Promise<void> {
+  if (!settings || !settings.apiKey.trim()) {
+    return;
+  }
+
+  const item = db.getKnowledgeItem(itemId);
+  if (!item) {
+    return;
+  }
+  if (!options.replaceExisting && hasKnowledgeDisplayMetadata(item.metadata)) {
+    return;
+  }
+
+  const sample = content.trim().slice(0, METADATA_SAMPLE_CHARS);
+  if (!sample) {
+    return;
+  }
+
+  try {
+    const extracted = await extractKnowledgeMetadata(settings, sample);
+    if (!extracted.title && !extracted.description) {
+      return;
+    }
+    const latestItem = db.getKnowledgeItem(itemId);
+    if (!latestItem) {
+      return;
+    }
+    const latestMetadata = latestItem.metadata;
+    if (!options.replaceExisting && hasKnowledgeDisplayMetadata(latestMetadata)) {
+      return;
+    }
+    const metadata = {
+      ...latestMetadata,
+      [DISPLAY_METADATA_KEY]: {
+        title: extracted.title || latestItem.title,
+        description: extracted.description,
+        model: settings.model,
+        sampleChars: sample.length,
+        source: options.source ?? 'content-sample',
+        extractedAt: new Date().toISOString()
+      }
+    };
+    db.updateKnowledgeItemMetadata(itemId, metadata);
+  } catch {
+    // Metadata improves source display, but indexing should still succeed when it fails.
+  }
+}
+
+function hasKnowledgeDisplayMetadata(metadata: Record<string, unknown>): boolean {
+  const value = metadata[DISPLAY_METADATA_KEY];
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.title === 'string' || typeof record.description === 'string';
+}
+
+async function extractKnowledgeMetadata(
+  settings: ModelEndpointSettings,
+  sample: string
+): Promise<{ title: string; description: string }> {
+  const text = await generateLlmText(settings, {
+    systemPrompt: [
+      'You extract display metadata for knowledge base articles.',
+      'Return only a JSON object with string fields "title" and "description".',
+      'Infer the article title from the text. If the title is not explicit, write a concise descriptive title.',
+      'Write the description as one short sentence in the same language as the source text when possible.',
+      'Do not include markdown, citations, or extra commentary.'
+    ].join(' '),
+    prompt: [
+      'Extract metadata from the first 1000 characters of this source text.',
+      'JSON shape: {"title":"...","description":"..."}',
+      '',
+      sample
+    ].join('\n')
+  });
+
+  const parsed = parseMetadataJson(text);
+  return {
+    title: cleanMetadataText(parsed.title, METADATA_TITLE_MAX_CHARS),
+    description: cleanMetadataText(parsed.description, METADATA_DESCRIPTION_MAX_CHARS)
+  };
+}
+
+function parseMetadataJson(text: string): { title?: unknown; description?: unknown } {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const direct = tryParseMetadataJson(trimmed);
+  if (direct) {
+    return direct;
+  }
+
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const extracted = tryParseMetadataJson(trimmed.slice(start, end + 1));
+    if (extracted) {
+      return extracted;
+    }
+  }
+
+  return {};
+}
+
+function tryParseMetadataJson(text: string): { title?: unknown; description?: unknown } | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object'
+      ? parsed as { title?: unknown; description?: unknown }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanMetadataText(value: unknown, maxChars: number): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 3).trimEnd()}...` : normalized;
 }
 
 export async function retrieveKnowledgeSources(

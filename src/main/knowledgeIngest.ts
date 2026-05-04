@@ -5,11 +5,12 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { TextItem, TextMarkedContent } from 'pdfjs-dist/types/src/display/api.js';
 import type { KnowledgeSettings, ModelEndpointSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
-import { indexKnowledgeItem } from './knowledgeIndex.js';
+import { extractAndStoreKnowledgeDisplayMetadata, indexKnowledgeItem } from './knowledgeIndex.js';
 import { extractPdfWithMineru } from './mineru.js';
 import type { PaperLabDatabase } from './database.js';
 
 const SUPPORTED_FILE_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
+const KNOWLEDGE_METADATA_SAMPLE_CHARS = 1000;
 const require = createRequire(import.meta.url);
 const PDFJS_ROOT = path.dirname(require.resolve('pdfjs-dist/package.json'));
 const STANDARD_FONT_DATA_URL = `${path.join(PDFJS_ROOT, 'standard_fonts')}${path.sep}`;
@@ -67,16 +68,18 @@ export async function processKnowledgeIngestJob(
   jobId: string,
   embeddingSettings?: ModelEndpointSettings,
   indexItem: typeof indexKnowledgeItem = indexKnowledgeItem,
-  knowledgeSettings?: KnowledgeSettings
+  knowledgeSettings?: KnowledgeSettings,
+  metadataSettings?: ModelEndpointSettings
 ): Promise<void> {
   let job = db.getKnowledgeIngestJob(jobId);
   if (!job) {
     throw new Error(`Knowledge ingest job not found: ${jobId}`);
   }
-  const currentSettings = (embeddingSettings && (knowledgeSettings || jobDoesNotNeedMineru(job)))
+  const currentSettings = (embeddingSettings && metadataSettings && (knowledgeSettings || jobDoesNotNeedMineru(job)))
     ? null
     : (await import('./llmSettings.js')).readLlmSettings();
   const resolvedEmbeddingSettings = embeddingSettings ?? currentSettings!.embedding;
+  const resolvedMetadataSettings = metadataSettings ?? currentSettings?.chat;
   const resolvedKnowledgeSettings = knowledgeSettings ?? currentSettings?.knowledge;
 
   let phase: 'extraction' | 'indexing' = 'extraction';
@@ -118,6 +121,13 @@ export async function processKnowledgeIngestJob(
       return;
     }
 
+    void startKnowledgeMetadataPreview(
+      db,
+      job,
+      item.id,
+      resolvedMetadataSettings
+    );
+
     const extraction = await extractKnowledgeFileContent(
       db,
       job,
@@ -131,12 +141,14 @@ export async function processKnowledgeIngestJob(
     if (!db.getKnowledgeIngestJob(job.id)) {
       return;
     }
+    const latestItem = db.getKnowledgeItem(item.id);
     db.updateKnowledgeItem(item.id, {
-      title: job.fileName,
+      title: latestItem?.title ?? job.fileName,
       content,
       sourceType: 'file',
       metadata: {
         ...baseMetadata,
+        ...(latestItem?.metadata ?? {}),
         ...extraction.metadata
       }
     });
@@ -148,7 +160,7 @@ export async function processKnowledgeIngestJob(
       return;
     }
 
-    await indexItem(db, item.id, resolvedEmbeddingSettings);
+    await indexItem(db, item.id, resolvedEmbeddingSettings, resolvedMetadataSettings);
     if (!db.getKnowledgeIngestJob(job.id)) {
       return;
     }
@@ -181,6 +193,49 @@ export async function extractKnowledgeFileText(filePath: string, fileExt = path.
   }
   if (fileExt === '.pdf') {
     return extractPdfText(filePath);
+  }
+  throw new Error(`Unsupported knowledge file type: ${fileExt || '(none)'}`);
+}
+
+async function startKnowledgeMetadataPreview(
+  db: PaperLabDatabase,
+  job: NonNullable<ReturnType<PaperLabDatabase['getKnowledgeIngestJob']>>,
+  itemId: string,
+  metadataSettings?: ModelEndpointSettings
+): Promise<void> {
+  if (!metadataSettings?.apiKey.trim()) {
+    return;
+  }
+  if (job.fileExt !== '.pdf' || readExtractionEngine(job) !== 'mineru') {
+    return;
+  }
+
+  try {
+    const sample = await extractKnowledgeFileTextSample(
+      job.filePath,
+      job.fileExt,
+      KNOWLEDGE_METADATA_SAMPLE_CHARS
+    );
+    await extractAndStoreKnowledgeDisplayMetadata(db, itemId, metadataSettings, sample, {
+      replaceExisting: false,
+      source: 'pdfjs-preview'
+    });
+    notifyKnowledgeIngestUpdated();
+  } catch {
+    // Preview metadata should never block the primary extraction path.
+  }
+}
+
+async function extractKnowledgeFileTextSample(
+  filePath: string,
+  fileExt: string,
+  maxChars: number
+): Promise<string> {
+  if (fileExt === '.txt' || fileExt === '.md') {
+    return (await readFile(filePath, 'utf8')).slice(0, maxChars);
+  }
+  if (fileExt === '.pdf') {
+    return extractPdfText(filePath, maxChars);
   }
   throw new Error(`Unsupported knowledge file type: ${fileExt || '(none)'}`);
 }
@@ -282,7 +337,7 @@ async function runKnowledgeIngestWorkerAndMaybeRestart(db: PaperLabDatabase): Pr
   runningWorkspacePath = null;
 }
 
-async function extractPdfText(filePath: string): Promise<string> {
+async function extractPdfText(filePath: string, maxChars = Number.POSITIVE_INFINITY): Promise<string> {
   const fileBuffer = await readFile(filePath);
   const document = await getDocument({
     data: new Uint8Array(fileBuffer),
@@ -292,6 +347,7 @@ async function extractPdfText(filePath: string): Promise<string> {
     stopAtErrors: false
   }).promise;
   const pages: string[] = [];
+  let collectedChars = 0;
 
   try {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
@@ -304,13 +360,17 @@ async function extractPdfText(filePath: string): Promise<string> {
         .trim();
       if (pageText) {
         pages.push(pageText);
+        collectedChars += pageText.length + 2;
+      }
+      if (collectedChars >= maxChars) {
+        break;
       }
     }
   } finally {
     await document.destroy();
   }
 
-  return pages.join('\n\n');
+  return pages.join('\n\n').slice(0, maxChars);
 }
 
 function notifyKnowledgeIngestUpdated(): void {
