@@ -10,6 +10,8 @@ import type {
   PublicLlmSettings,
   PublicMineruSettings,
   PublicModelEndpointSettings,
+  PublicRerankEndpointSettings,
+  RerankEndpointSettings,
   UpdateAppearanceSettingsPayload,
   UpdateLlmSettingsPayload
 } from '../shared/types.js';
@@ -26,6 +28,13 @@ const defaultSettings: LlmSettings = {
     baseURL: 'https://api.openai.com/v1',
     model: 'text-embedding-3-small',
     apiKey: ''
+  },
+  rerank: {
+    provider: 'siliconflow-compatible',
+    baseURL: 'https://api.siliconflow.cn/v1',
+    model: 'BAAI/bge-reranker-v2-m3',
+    apiKey: '',
+    enabled: true
   },
   vision: {
     provider: 'openai-compatible',
@@ -64,10 +73,21 @@ function toPublicEndpoint(settings: ModelEndpointSettings): PublicModelEndpointS
   };
 }
 
+function toPublicRerankEndpoint(settings: RerankEndpointSettings): PublicRerankEndpointSettings {
+  return {
+    provider: settings.provider,
+    baseURL: settings.baseURL,
+    model: settings.model,
+    enabled: settings.enabled,
+    hasApiKey: settings.apiKey.trim().length > 0
+  };
+}
+
 function toPublic(settings: LlmSettings): PublicLlmSettings {
   return {
     chat: toPublicEndpoint(settings.chat),
     embedding: toPublicEndpoint(settings.embedding),
+    rerank: toPublicRerankEndpoint(settings.rerank),
     vision: toPublicEndpoint(settings.vision),
     appearance: settings.appearance,
     knowledge: {
@@ -98,6 +118,19 @@ function readEndpoint(
     baseURL: parsed?.baseURL?.trim() || fallback.baseURL,
     model: parsed?.model?.trim() || fallback.model,
     apiKey: parsed?.apiKey ?? fallback.apiKey
+  };
+}
+
+function readRerankEndpoint(
+  parsed: Partial<RerankEndpointSettings> | undefined,
+  fallback: RerankEndpointSettings
+): RerankEndpointSettings {
+  return {
+    provider: 'siliconflow-compatible',
+    baseURL: parsed?.baseURL?.trim() || fallback.baseURL,
+    model: parsed?.model?.trim() || fallback.model,
+    apiKey: parsed?.apiKey ?? fallback.apiKey,
+    enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : fallback.enabled
   };
 }
 
@@ -145,6 +178,7 @@ export function readLlmSettings(): LlmSettings {
     return {
       chat: readEndpoint(parsed.chat, defaultSettings.chat),
       embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
+      rerank: readRerankEndpoint(parsed.rerank, defaultSettings.rerank),
       vision: readEndpoint(parsed.vision, defaultSettings.vision),
       appearance: readAppearance(parsed.appearance, defaultSettings.appearance),
       knowledge: readKnowledge(parsed.knowledge, defaultSettings.knowledge)
@@ -174,6 +208,13 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
       apiKey:
         payload.embeddingApiKey === undefined ? current.embedding.apiKey : payload.embeddingApiKey
     },
+    rerank: {
+      provider: payload.rerankProvider ?? current.rerank.provider,
+      baseURL: payload.rerankBaseURL?.trim() || current.rerank.baseURL,
+      model: payload.rerankModel?.trim() || current.rerank.model,
+      apiKey: payload.rerankApiKey === undefined ? current.rerank.apiKey : payload.rerankApiKey,
+      enabled: payload.rerankEnabled ?? current.rerank.enabled
+    },
     vision: {
       provider: payload.visionProvider ?? current.vision.provider,
       baseURL: payload.visionBaseURL?.trim() || current.vision.baseURL,
@@ -198,8 +239,14 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
   if (!next.chat.baseURL || !next.embedding.baseURL || !next.vision.baseURL) {
     throw new Error('LLM base URL is required.');
   }
+  if (!next.rerank.baseURL) {
+    throw new Error('Rerank base URL is required.');
+  }
   if (!next.chat.model || !next.embedding.model || !next.vision.model) {
     throw new Error('LLM model name is required.');
+  }
+  if (!next.rerank.model) {
+    throw new Error('Rerank model name is required.');
   }
   if (!next.knowledge.mineru.language) {
     throw new Error('MinerU language is required.');

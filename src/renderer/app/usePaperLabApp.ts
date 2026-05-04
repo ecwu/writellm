@@ -14,6 +14,7 @@ import type {
   KnowledgeSourceTarget,
   PublicLlmSettings,
   RecentWorkspace,
+  RetrievedKnowledgeSource,
   SectionNodeRecord,
   UpdateNodeLayoutPayload
 } from '../../shared/types';
@@ -539,12 +540,21 @@ export function usePaperLabApp() {
 
   async function startLlmGeneration(prompt: string, sectionId: string, contextNodeIds: string[]) {
     const runId = globalThis.crypto.randomUUID();
+    let prefetchedKnowledgeSources: RetrievedKnowledgeSource[] | undefined;
     const previewSources = await getApi().searchKnowledge({
       query: prompt,
+      sectionId,
+      focusSectionId: state.focusSectionId ?? sectionId,
+      contextNodeIds,
       excludedItemIds: llmDraft.excludedKnowledgeItemIds,
       excludedChunkIds: llmDraft.excludedKnowledgeChunkIds,
-      maxChunks: 6
-    }).catch(() => []);
+      maxChunks: 10
+    })
+      .then((sources) => {
+        prefetchedKnowledgeSources = sources;
+        return sources;
+      })
+      .catch(() => []);
     setLlmDraft({
       open: true,
       runId,
@@ -565,9 +575,10 @@ export function usePaperLabApp() {
         focusSectionId: state.focusSectionId ?? sectionId,
         prompt,
         contextNodeIds,
+        prefetchedKnowledgeSources,
         excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
         excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
-        maxKnowledgeChunks: 6,
+        maxKnowledgeChunks: 10,
         requireInlineCitations: true
       });
     } catch (caught) {
@@ -689,7 +700,7 @@ export function usePaperLabApp() {
     setLlmDraft((current) => ({
       ...current,
       retrievedSources: current.retrievedSources.filter((source) => source.chunkId !== chunkId),
-      excludedKnowledgeItemIds: [...new Set([...current.excludedKnowledgeItemIds, itemId])],
+      excludedKnowledgeItemIds: current.excludedKnowledgeItemIds,
       excludedKnowledgeChunkIds: [...new Set([...current.excludedKnowledgeChunkIds, chunkId])]
     }));
   }

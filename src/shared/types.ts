@@ -128,6 +128,8 @@ export type UpdateNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
 
 export type LlmProviderKind = 'openai-compatible' | 'anthropic-compatible';
 
+export type RerankProviderKind = 'siliconflow-compatible';
+
 export type UpdateLlmSettingsPayload = {
   provider: LlmProviderKind;
   baseURL: string;
@@ -141,6 +143,11 @@ export type UpdateLlmSettingsPayload = {
   visionBaseURL?: string;
   visionModel?: string;
   visionApiKey?: string;
+  rerankProvider?: RerankProviderKind;
+  rerankBaseURL?: string;
+  rerankModel?: string;
+  rerankApiKey?: string;
+  rerankEnabled?: boolean;
   knowledgePdfExtractionEngine?: PdfExtractionEngine;
   mineruApiKey?: string;
   mineruModelVersion?: MineruModelVersion;
@@ -168,6 +175,18 @@ export type ModelEndpointSettings = {
 };
 
 export type PublicModelEndpointSettings = Omit<ModelEndpointSettings, 'apiKey'> & {
+  hasApiKey: boolean;
+};
+
+export type RerankEndpointSettings = {
+  provider: RerankProviderKind;
+  baseURL: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
+};
+
+export type PublicRerankEndpointSettings = Omit<RerankEndpointSettings, 'apiKey'> & {
   hasApiKey: boolean;
 };
 
@@ -201,12 +220,14 @@ export type PublicKnowledgeSettings = {
 export type ModelSettingsProfile = {
   chat: ModelEndpointSettings;
   embedding: ModelEndpointSettings;
+  rerank: RerankEndpointSettings;
   vision: ModelEndpointSettings;
 };
 
 export type PublicModelSettingsProfile = {
   chat: PublicModelEndpointSettings;
   embedding: PublicModelEndpointSettings;
+  rerank: PublicRerankEndpointSettings;
   vision: PublicModelEndpointSettings;
 };
 
@@ -263,6 +284,7 @@ export type KnowledgeChunkRecord = {
   content: string;
   embeddingModel: string | null;
   score?: number;
+  retrievalMethod?: 'vector' | 'fts' | 'hybrid' | 'reranked';
   createdAt: string;
   updatedAt: string;
 };
@@ -290,6 +312,9 @@ export type RetrievedKnowledgeSource = {
   chunkIndex: number;
   snippet: string;
   score: number;
+  retrievalMethod?: 'vector' | 'fts' | 'hybrid' | 'reranked';
+  rerankScore?: number;
+  retrievalReason?: string;
 };
 
 export type KnowledgeSourceTarget = {
@@ -340,6 +365,9 @@ export type UpdateKnowledgeItemPayload = {
 
 export type KnowledgeSearchPayload = {
   query: string;
+  sectionId?: string;
+  focusSectionId?: string | null;
+  contextNodeIds?: string[];
   excludedItemIds?: string[];
   excludedChunkIds?: string[];
   maxChunks?: number;
@@ -388,6 +416,7 @@ export type GenerateLlmPayload = {
   focusSectionId?: string | null;
   prompt: string;
   contextNodeIds?: string[];
+  prefetchedKnowledgeSources?: RetrievedKnowledgeSource[];
   excludedKnowledgeItemIds?: string[];
   excludedKnowledgeChunkIds?: string[];
   maxKnowledgeChunks?: number;

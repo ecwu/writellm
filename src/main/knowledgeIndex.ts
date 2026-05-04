@@ -7,6 +7,7 @@ import type {
   KnowledgeChunkRecord,
   KnowledgeChunkingDebugConfig,
   ModelEndpointSettings,
+  RerankEndpointSettings,
   RetrievedKnowledgeSource
 } from '../shared/types.js';
 import type { PaperLabDatabase } from './database.js';
@@ -17,6 +18,11 @@ const CHUNK_TARGET_CHARS = 700;
 const CHUNK_OVERLAP_CHARS = 100;
 const EMBEDDING_BATCH_SIZE = 64;
 const EMBEDDING_BATCH_MAX_CHARS = 64000;
+const DEFAULT_MAX_RETRIEVED_CHUNKS = 10;
+const DEFAULT_CANDIDATE_CHUNKS = 40;
+const RRF_K = 60;
+const ADJACENT_CHUNK_RADIUS = 1;
+const MAX_INITIAL_CHUNKS_PER_ITEM = 3;
 const METADATA_SAMPLE_CHARS = 1000;
 const METADATA_TITLE_MAX_CHARS = 140;
 const METADATA_DESCRIPTION_MAX_CHARS = 320;
@@ -48,9 +54,34 @@ export async function chunkKnowledgeText(content: string): Promise<string[]> {
     chunkOverlap: CHUNK_OVERLAP_CHARS,
     separators: ['\n\n', '\n', '. ', '? ', '! ', ' ', '']
   });
-  return (await splitter.splitText(normalized))
+  return mergeIsolatedHeadingChunks(await splitter.splitText(normalized))
     .map((chunk) => chunk.trim())
     .filter(Boolean);
+}
+
+function mergeIsolatedHeadingChunks(chunks: string[]): string[] {
+  const merged: string[] = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index].trim();
+    if (!chunk) {
+      continue;
+    }
+    const next = chunks[index + 1]?.trim();
+    if (next && isIsolatedHeadingChunk(chunk)) {
+      merged.push(`${chunk}\n\n${next}`);
+      index += 1;
+      continue;
+    }
+    merged.push(chunk);
+  }
+  return merged;
+}
+
+function isIsolatedHeadingChunk(chunk: string): boolean {
+  const lines = chunk.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.length <= 2 &&
+    chunk.length <= 140 &&
+    lines.every((line) => /^#{1,6}\s+\S/.test(line) || /^[A-Z0-9][A-Z0-9\s:.,()/+-]{3,}$/.test(line));
 }
 
 export async function indexKnowledgeItem(
@@ -308,20 +339,269 @@ export async function retrieveKnowledgeSources(
     excludedItemIds?: string[];
     excludedChunkIds?: string[];
     maxChunks?: number;
+    maxCandidates?: number;
+    queries?: string[];
+    rerankSettings?: RerankEndpointSettings;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
-  if (!query.trim()) {
+  const queries = uniqueNonEmptyStrings([...(options.queries ?? []), query]);
+  if (queries.length === 0) {
     return [];
   }
-  const [embedding] = await embedTexts(embeddingSettings, [query]);
-  return db
-    .searchKnowledgeChunks({
-      embedding,
+  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? DEFAULT_MAX_RETRIEVED_CHUNKS, 20));
+  const maxCandidates = Math.max(maxChunks, Math.min(options.maxCandidates ?? DEFAULT_CANDIDATE_CHUNKS, 80));
+  const candidateMap = new Map<string, RetrievalCandidate>();
+  const embeddings = await embedTexts(embeddingSettings, queries);
+
+  queries.forEach((retrievalQuery, queryIndex) => {
+    addRankedCandidates(
+      candidateMap,
+      db.searchKnowledgeChunks({
+        embedding: embeddings[queryIndex],
+        excludedItemIds: options.excludedItemIds,
+        excludedChunkIds: options.excludedChunkIds,
+        maxChunks: maxCandidates
+      }),
+      'vector',
+      queryIndex
+    );
+    addRankedCandidates(
+      candidateMap,
+      db.searchKnowledgeChunksByText({
+        query: retrievalQuery,
+        excludedItemIds: options.excludedItemIds,
+        excludedChunkIds: options.excludedChunkIds,
+        maxChunks: maxCandidates
+      }),
+      'fts',
+      queryIndex
+    );
+  });
+
+  const fused = sortCandidates(candidateMap).slice(0, maxCandidates);
+  addAdjacentCandidates(candidateMap, db, fused.slice(0, Math.min(16, fused.length)), options);
+  const expanded = sortCandidates(candidateMap).slice(0, maxCandidates);
+  const reranked = await rerankKnowledgeCandidates({
+    settings: options.rerankSettings,
+    query,
+    candidates: expanded,
+    maxChunks
+  }).catch(() => expanded.slice(0, maxChunks));
+  const diversified = diversifyCandidatesByItem(reranked, maxChunks);
+
+  return diversified.map((candidate) => toRetrievedSource(candidate.chunk, {
+    score: candidate.rerankScore ?? candidate.fusedScore,
+    retrievalMethod: candidate.rerankScore === undefined ? candidate.retrievalMethod : 'reranked',
+    rerankScore: candidate.rerankScore,
+    retrievalReason: candidate.retrievalReason
+  }));
+}
+
+type RetrievalMethod = NonNullable<RetrievedKnowledgeSource['retrievalMethod']>;
+
+type RetrievalCandidate = {
+  chunk: KnowledgeChunkRecord;
+  fusedScore: number;
+  bestRawScore: number;
+  retrievalMethod: RetrievalMethod;
+  vectorHits: number;
+  ftsHits: number;
+  rerankScore?: number;
+  retrievalReason?: string;
+};
+
+function uniqueNonEmptyStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)));
+}
+
+function addRankedCandidates(
+  candidateMap: Map<string, RetrievalCandidate>,
+  chunks: KnowledgeChunkRecord[],
+  method: 'vector' | 'fts',
+  queryIndex: number
+): void {
+  chunks.forEach((chunk, rank) => {
+    const contribution = 1 / (RRF_K + rank + 1 + queryIndex);
+    const current = candidateMap.get(chunk.id);
+    if (!current) {
+      candidateMap.set(chunk.id, {
+        chunk,
+        fusedScore: contribution,
+        bestRawScore: chunk.score ?? 0,
+        retrievalMethod: method,
+        vectorHits: method === 'vector' ? 1 : 0,
+        ftsHits: method === 'fts' ? 1 : 0
+      });
+      return;
+    }
+    current.fusedScore += contribution;
+    current.bestRawScore = Math.max(current.bestRawScore, chunk.score ?? 0);
+    current.vectorHits += method === 'vector' ? 1 : 0;
+    current.ftsHits += method === 'fts' ? 1 : 0;
+    current.retrievalMethod = current.vectorHits > 0 && current.ftsHits > 0 ? 'hybrid' : current.retrievalMethod;
+  });
+}
+
+function sortCandidates(candidateMap: Map<string, RetrievalCandidate>): RetrievalCandidate[] {
+  return [...candidateMap.values()].sort((left, right) =>
+    right.fusedScore - left.fusedScore ||
+    right.bestRawScore - left.bestRawScore ||
+    left.chunk.publicRef.localeCompare(right.chunk.publicRef)
+  );
+}
+
+function addAdjacentCandidates(
+  candidateMap: Map<string, RetrievalCandidate>,
+  db: PaperLabDatabase,
+  seeds: RetrievalCandidate[],
+  options: {
+    excludedItemIds?: string[];
+    excludedChunkIds?: string[];
+  }
+): void {
+  const adjacentChunks = db.getAdjacentKnowledgeChunks(
+    seeds.map((candidate) => ({
+      itemId: candidate.chunk.itemId,
+      chunkIndex: candidate.chunk.chunkIndex
+    })),
+    ADJACENT_CHUNK_RADIUS,
+    {
       excludedItemIds: options.excludedItemIds,
-      excludedChunkIds: options.excludedChunkIds,
-      maxChunks: options.maxChunks
+      excludedChunkIds: options.excludedChunkIds
+    }
+  );
+  const seedScoreByItem = new Map<string, number>();
+  seeds.forEach((candidate) => {
+    seedScoreByItem.set(candidate.chunk.itemId, Math.max(seedScoreByItem.get(candidate.chunk.itemId) ?? 0, candidate.fusedScore));
+  });
+  adjacentChunks.forEach((chunk) => {
+    if (candidateMap.has(chunk.id)) {
+      return;
+    }
+    candidateMap.set(chunk.id, {
+      chunk,
+      fusedScore: (seedScoreByItem.get(chunk.itemId) ?? 0) * 0.82,
+      bestRawScore: 0,
+      retrievalMethod: 'hybrid',
+      vectorHits: 0,
+      ftsHits: 0,
+      retrievalReason: 'Adjacent chunk added for local context.'
+    });
+  });
+}
+
+async function rerankKnowledgeCandidates(options: {
+  settings?: RerankEndpointSettings;
+  query: string;
+  candidates: RetrievalCandidate[];
+  maxChunks: number;
+}): Promise<RetrievalCandidate[]> {
+  const { settings, query, candidates, maxChunks } = options;
+  if (!settings?.enabled || !settings.apiKey.trim() || candidates.length === 0 || !query.trim()) {
+    return candidates.slice(0, maxChunks);
+  }
+  const endpoint = `${settings.baseURL.replace(/\/+$/, '')}/rerank`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${settings.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: settings.model,
+      query,
+      documents: candidates.map((candidate) => candidate.chunk.content),
+      return_documents: false,
+      top_n: Math.min(candidates.length, Math.max(maxChunks * 3, maxChunks))
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) {
+    throw new Error(`Rerank request failed: ${response.status} ${response.statusText}`);
+  }
+  const parsed = await response.json() as unknown;
+  const results = parseRerankResults(parsed);
+  if (results.length === 0) {
+    return candidates.slice(0, maxChunks);
+  }
+  const used = new Set<number>();
+  const reranked: RetrievalCandidate[] = [];
+  for (const result of results) {
+    const candidate = candidates[result.index];
+    if (!candidate || used.has(result.index)) {
+      continue;
+    }
+    used.add(result.index);
+    reranked.push({
+      ...candidate,
+      rerankScore: result.score,
+      retrievalMethod: 'reranked',
+      retrievalReason: 'Selected by SiliconFlow-compatible rerank.'
+    });
+  }
+  return [
+    ...reranked,
+    ...candidates.filter((_candidate, index) => !used.has(index))
+  ];
+}
+
+function diversifyCandidatesByItem(candidates: RetrievalCandidate[], maxChunks: number): RetrievalCandidate[] {
+  const selected: RetrievalCandidate[] = [];
+  const selectedIds = new Set<string>();
+  const itemCounts = new Map<string, number>();
+  const initialLimit = Math.min(MAX_INITIAL_CHUNKS_PER_ITEM, Math.max(1, Math.ceil(maxChunks / 2)));
+
+  for (const candidate of candidates) {
+    if (selected.length >= maxChunks) {
+      break;
+    }
+    const count = itemCounts.get(candidate.chunk.itemId) ?? 0;
+    if (count >= initialLimit) {
+      continue;
+    }
+    selected.push(candidate);
+    selectedIds.add(candidate.chunk.id);
+    itemCounts.set(candidate.chunk.itemId, count + 1);
+  }
+
+  for (const candidate of candidates) {
+    if (selected.length >= maxChunks) {
+      break;
+    }
+    if (selectedIds.has(candidate.chunk.id)) {
+      continue;
+    }
+    selected.push(candidate);
+    selectedIds.add(candidate.chunk.id);
+  }
+
+  return selected;
+}
+
+function parseRerankResults(parsed: unknown): Array<{ index: number; score: number }> {
+  if (!parsed || typeof parsed !== 'object') {
+    return [];
+  }
+  const results = (parsed as Record<string, unknown>).results;
+  if (!Array.isArray(results)) {
+    return [];
+  }
+  return results
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const record = item as Record<string, unknown>;
+      const index = typeof record.index === 'number' ? record.index : -1;
+      const score = typeof record.relevance_score === 'number'
+        ? record.relevance_score
+        : typeof record.relevanceScore === 'number'
+          ? record.relevanceScore
+          : 0;
+      return Number.isInteger(index) && index >= 0 ? { index, score } : null;
     })
-    .map((chunk) => toRetrievedSource(chunk));
+    .filter((result): result is { index: number; score: number } => Boolean(result))
+    .sort((left, right) => right.score - left.score);
 }
 
 export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): string {
@@ -422,7 +702,10 @@ function isRequestEntityTooLargeError(caught: unknown): boolean {
     String(error.message ?? '').toLowerCase().includes('request entity too large');
 }
 
-function toRetrievedSource(chunk: KnowledgeChunkRecord): RetrievedKnowledgeSource {
+function toRetrievedSource(
+  chunk: KnowledgeChunkRecord,
+  overrides: Partial<Pick<RetrievedKnowledgeSource, 'score' | 'retrievalMethod' | 'rerankScore' | 'retrievalReason'>> = {}
+): RetrievedKnowledgeSource {
   return {
     label: `[${chunk.publicRef}]`,
     publicRef: chunk.publicRef,
@@ -433,6 +716,9 @@ function toRetrievedSource(chunk: KnowledgeChunkRecord): RetrievedKnowledgeSourc
     chunkId: chunk.id,
     chunkIndex: chunk.chunkIndex,
     snippet: chunk.content,
-    score: chunk.score ?? 0
+    score: overrides.score ?? chunk.score ?? 0,
+    retrievalMethod: overrides.retrievalMethod ?? chunk.retrievalMethod,
+    rerankScore: overrides.rerankScore,
+    retrievalReason: overrides.retrievalReason
   };
 }

@@ -56,7 +56,7 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 const PLAINJOB_STATUS_PENDING = 0;
@@ -107,6 +107,7 @@ export class PaperLabDatabase {
     this.db.pragma('foreign_keys = ON');
     this.migrate();
     this.backfillMineruMarkdownContent();
+    this.rebuildKnowledgeChunksFts();
     this.rootNodeId = this.ensureRootSection();
     this.reconcileSectionMarkdownFiles();
     this.writeManifest();
@@ -498,6 +499,7 @@ export class PaperLabDatabase {
     const timestamp = nowIso();
     this.orm.transaction(() => {
       this.deleteKnowledgeVectorsForItem(itemId);
+      this.deleteKnowledgeFtsForItem(itemId);
       this.orm
         .update(knowledgeItems)
         .set({ deletedAt: timestamp, updatedAt: timestamp })
@@ -518,6 +520,7 @@ export class PaperLabDatabase {
     const timestamp = nowIso();
     this.orm.transaction(() => {
       this.deleteKnowledgeVectorsForItem(itemId);
+      this.deleteKnowledgeFtsForItem(itemId);
       this.orm.delete(knowledgeChunks).where(eq(knowledgeChunks.itemId, itemId)).run();
       chunks.forEach((chunk, index) => {
         const dimensions = chunk.embedding.length;
@@ -536,6 +539,7 @@ export class PaperLabDatabase {
           updatedAt: timestamp
         }).run();
         const vectorRowid = this.insertKnowledgeVector(chunkId, chunk.embedding);
+        this.insertKnowledgeChunkFts(chunkId, chunk.content);
         this.orm
           .update(knowledgeChunks)
           .set({ vectorRowid })
@@ -839,7 +843,7 @@ export class PaperLabDatabase {
     excludedChunkIds?: string[];
     maxChunks?: number;
   }): KnowledgeChunkRecord[] {
-    const maxChunks = Math.max(1, Math.min(options.maxChunks ?? 6, 12));
+    const maxChunks = Math.max(1, Math.min(options.maxChunks ?? 6, 100));
     const dimensions = options.embedding.length;
     if (dimensions === 0) {
       return [];
@@ -891,8 +895,122 @@ export class PaperLabDatabase {
 
     return rows.map((row) => ({
       ...mapKnowledgeChunk(row),
-      score: cosineDistanceToScore(row.distance)
+      score: cosineDistanceToScore(row.distance),
+      retrievalMethod: 'vector'
     }));
+  }
+
+  searchKnowledgeChunksByText(options: {
+    query: string;
+    excludedItemIds?: string[];
+    excludedChunkIds?: string[];
+    maxChunks?: number;
+  }): KnowledgeChunkRecord[] {
+    const maxChunks = Math.max(1, Math.min(options.maxChunks ?? 20, 100));
+    const ftsQuery = toKnowledgeFtsQuery(options.query);
+    if (!ftsQuery) {
+      return [];
+    }
+    const excludedItemIds = options.excludedItemIds ?? [];
+    const excludedChunkIds = options.excludedChunkIds ?? [];
+    const excludedItemClauses = excludedItemIds.map(() => 'items.id != ?').join(' AND ');
+    const excludedChunkClauses = excludedChunkIds.map(() => 'chunks.id != ?').join(' AND ');
+    const filters = [excludedItemClauses, excludedChunkClauses].filter(Boolean).join(' AND ');
+    const whereFilters = filters ? ` AND ${filters}` : '';
+    const rows = this.db
+      .prepare(
+        `SELECT chunks.id, chunks.public_ref AS publicRef, chunks.item_id AS itemId,
+                items.public_ref AS itemPublicRef, items.title AS itemTitle,
+                items.metadata_json AS itemMetadataJson,
+                chunks.chunk_index AS chunkIndex, chunks.content,
+                chunks.embedding_json AS embeddingJson,
+                chunks.embedding_dimensions AS embeddingDimensions,
+                chunks.embedding_model AS embeddingModel,
+                chunks.vector_rowid AS vectorRowid,
+                chunks.created_at AS createdAt, chunks.updated_at AS updatedAt,
+                bm25(knowledge_chunks_fts) AS rank
+         FROM knowledge_chunks_fts
+         JOIN knowledge_chunks chunks ON chunks.id = knowledge_chunks_fts.chunk_id
+         JOIN knowledge_items items ON items.id = chunks.item_id
+         WHERE knowledge_chunks_fts MATCH ?
+           AND items.deleted_at IS NULL${whereFilters}
+         ORDER BY rank ASC
+         LIMIT ?`
+      )
+      .all(
+        ftsQuery,
+        ...excludedItemIds,
+        ...excludedChunkIds,
+        maxChunks
+      ) as Array<KnowledgeChunkJoinedRow & { rank: number }>;
+
+    return rows.map((row) => ({
+      ...mapKnowledgeChunk(row),
+      score: ftsRankToScore(row.rank),
+      retrievalMethod: 'fts'
+    }));
+  }
+
+  getAdjacentKnowledgeChunks(
+    seeds: Array<{ itemId: string; chunkIndex: number }>,
+    radius: number,
+    options: {
+      excludedItemIds?: string[];
+      excludedChunkIds?: string[];
+    } = {}
+  ): KnowledgeChunkRecord[] {
+    const normalizedRadius = Math.max(0, Math.min(radius, 3));
+    if (normalizedRadius === 0 || seeds.length === 0) {
+      return [];
+    }
+    const excludedItemIds = new Set(options.excludedItemIds ?? []);
+    const excludedChunkIds = new Set(options.excludedChunkIds ?? []);
+    const byKey = new Map<string, { itemId: string; min: number; max: number }>();
+    for (const seed of seeds) {
+      if (excludedItemIds.has(seed.itemId)) {
+        continue;
+      }
+      const current = byKey.get(seed.itemId);
+      const min = Math.max(0, seed.chunkIndex - normalizedRadius);
+      const max = seed.chunkIndex + normalizedRadius;
+      byKey.set(seed.itemId, {
+        itemId: seed.itemId,
+        min: current ? Math.min(current.min, min) : min,
+        max: current ? Math.max(current.max, max) : max
+      });
+    }
+    const chunks: KnowledgeChunkRecord[] = [];
+    for (const range of byKey.values()) {
+      const rows = this.db
+        .prepare(
+          `SELECT chunks.id, chunks.public_ref AS publicRef, chunks.item_id AS itemId,
+                  items.public_ref AS itemPublicRef, items.title AS itemTitle,
+                  items.metadata_json AS itemMetadataJson,
+                  chunks.chunk_index AS chunkIndex, chunks.content,
+                  chunks.embedding_json AS embeddingJson,
+                  chunks.embedding_dimensions AS embeddingDimensions,
+                  chunks.embedding_model AS embeddingModel,
+                  chunks.vector_rowid AS vectorRowid,
+                  chunks.created_at AS createdAt, chunks.updated_at AS updatedAt
+           FROM knowledge_chunks chunks
+           JOIN knowledge_items items ON items.id = chunks.item_id
+           WHERE items.deleted_at IS NULL
+             AND chunks.item_id = ?
+             AND chunks.chunk_index BETWEEN ? AND ?
+           ORDER BY chunks.chunk_index ASC`
+        )
+        .all(range.itemId, range.min, range.max) as KnowledgeChunkJoinedRow[];
+      for (const row of rows) {
+        if (!excludedChunkIds.has(row.id)) {
+          chunks.push({
+            ...mapKnowledgeChunk(row),
+            score: 0,
+            retrievalMethod: 'hybrid'
+          });
+        }
+      }
+    }
+    return chunks;
   }
 
   saveGenerationCitations(
@@ -1154,6 +1272,13 @@ export class PaperLabDatabase {
       CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item
       ON knowledge_chunks(item_id, chunk_index);
 
+      CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts
+      USING fts5(
+        chunk_id UNINDEXED,
+        content,
+        tokenize = 'unicode61'
+      );
+
       CREATE TABLE IF NOT EXISTS generation_citations (
         id TEXT PRIMARY KEY,
         generation_node_id TEXT NOT NULL,
@@ -1239,6 +1364,42 @@ export class PaperLabDatabase {
       .prepare(`INSERT INTO ${tableName} (embedding, chunk_id) VALUES (?, ?)`)
       .run(toVectorBuffer(embedding), chunkId);
     return Number(info.lastInsertRowid);
+  }
+
+  private rebuildKnowledgeChunksFts(): void {
+    this.db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts
+      USING fts5(
+        chunk_id UNINDEXED,
+        content,
+        tokenize = 'unicode61'
+      );
+    `);
+    this.db.exec('DELETE FROM knowledge_chunks_fts;');
+    this.db.exec(`
+      INSERT INTO knowledge_chunks_fts (chunk_id, content)
+      SELECT chunks.id, chunks.content
+      FROM knowledge_chunks chunks
+      JOIN knowledge_items items ON items.id = chunks.item_id
+      WHERE items.deleted_at IS NULL;
+    `);
+  }
+
+  private insertKnowledgeChunkFts(chunkId: string, content: string): void {
+    this.db.prepare('DELETE FROM knowledge_chunks_fts WHERE chunk_id = ?').run(chunkId);
+    this.db
+      .prepare('INSERT INTO knowledge_chunks_fts (chunk_id, content) VALUES (?, ?)')
+      .run(chunkId, content);
+  }
+
+  private deleteKnowledgeFtsForItem(itemId: string): void {
+    const rows = this.db
+      .prepare('SELECT id FROM knowledge_chunks WHERE item_id = ?')
+      .all(itemId) as Array<{ id: string }>;
+    const deleteChunk = this.db.prepare('DELETE FROM knowledge_chunks_fts WHERE chunk_id = ?');
+    for (const row of rows) {
+      deleteChunk.run(row.id);
+    }
   }
 
   private deleteKnowledgeVectorsForItem(itemId: string): void {
@@ -1926,6 +2087,25 @@ function toVectorBuffer(embedding: number[]): Buffer {
 
 function cosineDistanceToScore(distance: number): number {
   return Number.isFinite(distance) ? 1 - distance : Number.NEGATIVE_INFINITY;
+}
+
+function ftsRankToScore(rank: number): number {
+  if (!Number.isFinite(rank)) {
+    return 0;
+  }
+  return rank < 0 ? Math.abs(rank) : 1 / (1 + rank);
+}
+
+function toKnowledgeFtsQuery(query: string): string {
+  const terms = query
+    .normalize('NFKC')
+    .match(/[\p{L}\p{N}_./+-]{2,}/gu)
+    ?.map((term) => term.replace(/"/g, '').trim())
+    .filter(Boolean) ?? [];
+  const uniqueTerms = Array.from(new Set(terms))
+    .sort((left, right) => right.length - left.length)
+    .slice(0, 24);
+  return uniqueTerms.map((term) => `"${term}"`).join(' OR ');
 }
 
 function compareNodeOrder(left: NodeRecord, right: NodeRecord): number {

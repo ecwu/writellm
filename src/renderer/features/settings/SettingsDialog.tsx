@@ -46,16 +46,26 @@ import type {
   MineruModelVersion,
   PdfExtractionEngine,
   PublicLlmSettings,
+  RerankProviderKind,
   ThemeMode
 } from '../../../shared/types';
 
-type SettingsSectionId = 'general' | 'knowledge' | 'chat' | 'embedding' | 'vision';
+type SettingsSectionId = 'general' | 'knowledge' | 'chat' | 'embedding' | 'rerank' | 'vision';
+type ModelEndpointSectionId = 'chat' | 'embedding' | 'vision';
 
 type EndpointDraft = {
   provider: LlmProviderKind;
   baseURL: string;
   model: string;
   apiKey: string;
+};
+
+type RerankEndpointDraft = {
+  provider: RerankProviderKind;
+  baseURL: string;
+  model: string;
+  apiKey: string;
+  enabled: boolean;
 };
 
 type KnowledgeDraft = {
@@ -93,6 +103,7 @@ const navGroups: {
     items: [
       { id: 'chat', label: 'Chat', icon: <MessageSquareText /> },
       { id: 'embedding', label: 'Embeddings', icon: <Database /> },
+      { id: 'rerank', label: 'Rerank', icon: <SlidersHorizontal /> },
       { id: 'vision', label: 'Vision', icon: <Eye /> }
     ]
   }
@@ -103,6 +114,7 @@ const sectionTitles: Record<SettingsSectionId, string> = {
   knowledge: 'Knowledge',
   chat: 'Chat model',
   embedding: 'Embedding model',
+  rerank: 'Rerank model',
   vision: 'Vision model'
 };
 
@@ -132,6 +144,16 @@ function endpointFromSettings(settings: PublicLlmSettings | null, key: 'chat' | 
     baseURL: settings[key].baseURL,
     model: settings[key].model,
     apiKey: ''
+  };
+}
+
+function rerankFromSettings(settings: PublicLlmSettings | null): RerankEndpointDraft {
+  return {
+    provider: settings?.rerank.provider ?? 'siliconflow-compatible',
+    baseURL: settings?.rerank.baseURL ?? 'https://api.siliconflow.cn/v1',
+    model: settings?.rerank.model ?? 'BAAI/bge-reranker-v2-m3',
+    apiKey: '',
+    enabled: settings?.rerank.enabled ?? true
   };
 }
 
@@ -185,6 +207,7 @@ export function SettingsDialog({
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general');
   const [chat, setChat] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'chat'));
   const [embedding, setEmbedding] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'embedding'));
+  const [rerank, setRerank] = useState<RerankEndpointDraft>(() => rerankFromSettings(settings));
   const [vision, setVision] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'vision'));
   const [knowledge, setKnowledge] = useState<KnowledgeDraft>(() => knowledgeFromSettings(settings));
   const [theme, setTheme] = useState<ThemeMode>(settings?.appearance.theme ?? 'light');
@@ -194,6 +217,7 @@ export function SettingsDialog({
   useEffect(() => {
     setChat(endpointFromSettings(settings, 'chat'));
     setEmbedding(endpointFromSettings(settings, 'embedding'));
+    setRerank(rerankFromSettings(settings));
     setVision(endpointFromSettings(settings, 'vision'));
     setKnowledge(knowledgeFromSettings(settings));
   }, [
@@ -203,6 +227,10 @@ export function SettingsDialog({
     settings?.embedding.provider,
     settings?.embedding.baseURL,
     settings?.embedding.model,
+    settings?.rerank.provider,
+    settings?.rerank.baseURL,
+    settings?.rerank.model,
+    settings?.rerank.enabled,
     settings?.vision.provider,
     settings?.vision.baseURL,
     settings?.vision.model,
@@ -220,19 +248,19 @@ export function SettingsDialog({
   }, [settings?.appearance.theme, open]);
 
   const canSave = useMemo(() => {
-    return [chat, embedding, vision].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim())
+    return [chat, embedding, vision, rerank].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim())
       && knowledge.mineruLanguage.trim();
-  }, [chat, embedding, vision, knowledge.mineruLanguage]);
+  }, [chat, embedding, vision, rerank, knowledge.mineruLanguage]);
 
   function updateEndpoint(
-    section: Exclude<SettingsSectionId, 'general'>,
+    section: ModelEndpointSectionId,
     updater: (current: EndpointDraft) => EndpointDraft
   ) {
     const setter = section === 'chat' ? setChat : section === 'embedding' ? setEmbedding : setVision;
     setter(updater);
   }
 
-  function updateProvider(section: Exclude<SettingsSectionId, 'general'>, provider: LlmProviderKind) {
+  function updateProvider(section: ModelEndpointSectionId, provider: LlmProviderKind) {
     updateEndpoint(section, (current) => {
       const nextDefaults = defaultsForProvider(provider, current.model);
       const shouldReplaceBaseURL =
@@ -259,6 +287,11 @@ export function SettingsDialog({
         embeddingBaseURL: embedding.baseURL,
         embeddingModel: embedding.model,
         embeddingApiKey: embedding.apiKey.trim() ? embedding.apiKey : undefined,
+        rerankProvider: rerank.provider,
+        rerankBaseURL: rerank.baseURL,
+        rerankModel: rerank.model,
+        rerankApiKey: rerank.apiKey.trim() ? rerank.apiKey : undefined,
+        rerankEnabled: rerank.enabled,
         visionProvider: vision.provider,
         visionBaseURL: vision.baseURL,
         visionModel: vision.model,
@@ -274,6 +307,7 @@ export function SettingsDialog({
       onSaved(next);
       setChat((current) => ({ ...current, apiKey: '' }));
       setEmbedding((current) => ({ ...current, apiKey: '' }));
+      setRerank((current) => ({ ...current, apiKey: '' }));
       setVision((current) => ({ ...current, apiKey: '' }));
       setKnowledge((current) => ({ ...current, mineruApiKey: '' }));
       onStatus('Settings saved.');
@@ -396,6 +430,12 @@ export function SettingsDialog({
                   hasApiKey={settings?.embedding.hasApiKey ?? false}
                   onProviderChange={(provider) => updateProvider('embedding', provider)}
                   onChange={(updater) => updateEndpoint('embedding', updater)}
+                />
+              ) : activeSection === 'rerank' ? (
+                <RerankSettings
+                  endpoint={rerank}
+                  hasApiKey={settings?.rerank.hasApiKey ?? false}
+                  onChange={(updater) => setRerank(updater)}
                 />
               ) : (
                 <EndpointSettings
@@ -605,6 +645,93 @@ function KnowledgeSettings({
             <span>Extract formulas</span>
           </label>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function RerankSettings({
+  endpoint,
+  hasApiKey,
+  onChange
+}: {
+  endpoint: RerankEndpointDraft;
+  hasApiKey: boolean;
+  onChange: (updater: (current: RerankEndpointDraft) => RerankEndpointDraft) => void;
+}) {
+  return (
+    <div className="mx-auto grid w-full max-w-3xl gap-6">
+      <section className="grid gap-1 border-b pb-4">
+        <div className="flex items-center gap-2">
+          <Cpu className="size-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Rerank</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">Used to rerank retrieved knowledge candidates.</p>
+      </section>
+
+      <div className="grid gap-5">
+        <label className="settings-debug-toggle">
+          <input
+            type="checkbox"
+            checked={endpoint.enabled}
+            onChange={(event) => onChange((current) => ({ ...current, enabled: event.target.checked }))}
+          />
+          <span>Enable rerank</span>
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium">
+          Provider
+          <Select
+            value={endpoint.provider}
+            onValueChange={(value) =>
+              onChange((current) => ({ ...current, provider: value as RerankProviderKind }))
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="siliconflow-compatible">SiliconFlow compatible</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium">
+          Base URL
+          <div className="relative">
+            <SlidersHorizontal className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              value={endpoint.baseURL}
+              onChange={(event) => onChange((current) => ({ ...current, baseURL: event.target.value }))}
+            />
+          </div>
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium">
+          Model
+          <Input
+            value={endpoint.model}
+            onChange={(event) => onChange((current) => ({ ...current, model: event.target.value }))}
+          />
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium">
+          API key
+          <div className="relative">
+            <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              value={endpoint.apiKey}
+              type="password"
+              onChange={(event) => onChange((current) => ({ ...current, apiKey: event.target.value }))}
+              placeholder={hasApiKey ? 'Stored; enter a new key to replace' : 'SiliconFlow API key'}
+            />
+          </div>
+          <span className={cn('text-xs font-normal', hasApiKey ? 'text-muted-foreground' : 'text-destructive')}>
+            {hasApiKey ? 'API key saved' : 'API key missing'}
+          </span>
+        </label>
       </div>
     </div>
   );

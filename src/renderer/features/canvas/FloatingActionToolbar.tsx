@@ -10,7 +10,13 @@ import {
 import { Textarea } from '../../components/ui/textarea';
 import { formatContentFlags } from '../../app/formatters';
 import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
-import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
+import type {
+  ContentNodeRecord,
+  EdgeKind,
+  FocusedWorkspaceState,
+  RetrievedKnowledgeSource,
+  SectionNodeRecord
+} from '../../../shared/types';
 
 export function FloatingActionToolbar({
   selection,
@@ -98,7 +104,7 @@ export function FloatingActionToolbar({
                       </button>
                       <span>
                         <strong>[{source.publicRef}] {source.itemTitle}</strong>
-                        <em>{source.score.toFixed(3)} relevance</em>
+                        <em>{formatSourceScore(source)}</em>
                         <small>{source.snippet}</small>
                       </span>
                     </div>
@@ -232,4 +238,10 @@ export function FloatingActionToolbar({
       </div>
     </div>
   );
+}
+
+function formatSourceScore(source: RetrievedKnowledgeSource): string {
+  const method = source.retrievalMethod ?? 'retrieval';
+  const scoreLabel = source.rerankScore === undefined ? 'relevance' : 'rerank';
+  return `${source.score.toFixed(3)} ${scoreLabel} · ${method}`;
 }

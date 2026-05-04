@@ -369,6 +369,35 @@ function buildContextPrompt(
   return promptSections.join('\n');
 }
 
+function buildKnowledgeRetrievalQueries(
+  prompt: string,
+  articleSectionContext: string,
+  contextNodes: ContentNodeRecord[]
+): string[] {
+  const queries = [prompt];
+  const sectionLines = articleSectionContext
+    .split('\n')
+    .filter((line) =>
+      line.startsWith('- Section title:') ||
+      line.startsWith('- Section intent:') ||
+      line.startsWith('- Current Markdown:')
+    )
+    .join('\n')
+    .slice(0, 1800);
+  if (sectionLines.trim()) {
+    queries.push(`${sectionLines}\n\n${prompt}`);
+  }
+  const contextSummary = contextNodes
+    .map((node) => `${node.title}\n${node.content.trim().slice(0, 900)}`)
+    .filter((text) => text.trim())
+    .join('\n\n---\n\n')
+    .slice(0, 2200);
+  if (contextSummary.trim()) {
+    queries.push(`${contextSummary}\n\n${prompt}`);
+  }
+  return queries;
+}
+
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -608,13 +637,23 @@ export function registerIpcHandlers(): void {
     return getState();
   });
 
-  ipcMain.handle(ipcChannels.searchKnowledge, async (_event, payload: KnowledgeSearchPayload) =>
-    retrieveKnowledgeSources(getActiveDb(), readLlmSettings().embedding, payload.query, {
+  ipcMain.handle(ipcChannels.searchKnowledge, async (_event, payload: KnowledgeSearchPayload) => {
+    const db = getActiveDb();
+    const settings = readLlmSettings();
+    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+    const articleSectionContext = payload.sectionId
+      ? buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId)
+      : '';
+    return retrieveKnowledgeSources(db, settings.embedding, payload.query, {
       excludedItemIds: payload.excludedItemIds,
       excludedChunkIds: payload.excludedChunkIds,
-      maxChunks: payload.maxChunks
-    })
-  );
+      maxChunks: payload.maxChunks,
+      queries: articleSectionContext
+        ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
+        : [payload.query],
+      rerankSettings: settings.rerank
+    });
+  });
 
   ipcMain.handle(
     ipcChannels.resolveKnowledgeCitation,
@@ -653,14 +692,16 @@ export function registerIpcHandlers(): void {
       payload.sectionId,
       payload.focusSectionId
     );
-    const retrievedSources = await retrieveKnowledgeSources(
+    const retrievedSources = payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeSources(
       db,
       settings.embedding,
-      `${articleSectionContext}\n\n${payload.prompt}`,
+      payload.prompt,
       {
         excludedItemIds: payload.excludedKnowledgeItemIds,
         excludedChunkIds: payload.excludedKnowledgeChunkIds,
-        maxChunks: payload.maxKnowledgeChunks
+        maxChunks: payload.maxKnowledgeChunks,
+        queries: buildKnowledgeRetrievalQueries(payload.prompt, articleSectionContext, contextNodes),
+        rerankSettings: settings.rerank
       }
     );
     const generationPayload: GenerateLlmPayload = {
