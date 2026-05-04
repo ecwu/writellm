@@ -1,4 +1,5 @@
 import type {
+  ApplySectionLlmEditPayload,
   CreateKnowledgeItemPayload,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
@@ -67,6 +68,7 @@ export const ipcChannels = {
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
+  applySectionLlmEdit: 'paperlab:applySectionLlmEdit',
   llmStream: 'paperlab:llmStream',
   knowledgeIngestUpdated: 'paperlab:knowledgeIngestUpdated'
 } as const;
@@ -118,6 +120,7 @@ export type PaperLabIpc = {
   ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;
   cancelLlmGeneration(runId: string): Promise<void>;
   saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
+  applySectionLlmEdit(payload: ApplySectionLlmEditPayload): Promise<FocusedWorkspaceState>;
   onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;
   onKnowledgeIngestUpdated(callback: () => void): () => void;
 };

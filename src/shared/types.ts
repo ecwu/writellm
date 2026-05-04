@@ -333,13 +333,15 @@ export type LlmOperationStatus = 'current' | 'edited' | 'stale' | 'superseded';
 
 export type LlmOperationType =
   | 'generate_append'
+  | 'rewrite_section'
   | 'rewrite_selection'
   | 'restyle_selection'
   | 'expand_selection'
+  | 'continue_at_cursor'
   | 'custom_edit';
 
 export type LlmOperationTarget = {
-  kind: 'section_append' | 'selection';
+  kind: 'section_append' | 'section_rewrite' | 'selection' | 'insertion';
   selectionStart?: number;
   selectionEnd?: number;
   selectedText?: string;
@@ -489,6 +491,26 @@ export type SaveLlmGenerationPayload = {
   contextNodeIds?: string[];
   retrievedSources?: RetrievedKnowledgeSource[];
   contextRelationType?: EdgeKind;
+};
+
+export type SectionLlmEditMode = 'rewrite_section' | 'rewrite_selection' | 'continue_at_cursor';
+
+export type ApplySectionLlmEditPayload = {
+  sectionId: string;
+  focusSectionId?: string | null;
+  mode: SectionLlmEditMode;
+  userPrompt: string;
+  resolvedPrompt: string;
+  systemPrompt: string;
+  generatedContent: string;
+  baseMarkdown: string;
+  targetStart: number;
+  targetEnd: number;
+  selectedText: string;
+  prefixContext: string;
+  suffixContext: string;
+  retrievedSources?: RetrievedKnowledgeSource[];
+  contextNodeIds?: string[];
 };
 
 export type LlmStreamEvent =

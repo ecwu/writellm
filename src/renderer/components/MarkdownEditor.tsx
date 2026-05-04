@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { EditorState, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view';
@@ -9,21 +9,28 @@ type EditorSelectionRange = {
   endOffset: number;
 };
 
-export function MarkdownEditor({
-  value,
-  onChange,
-  onSelectionChange,
-  onCitationClick,
-  citationSources = [],
-  normalizeValue
-}: {
+export type MarkdownEditorHandle = {
+  getSelection: () => EditorSelectionRange;
+  getValue: () => string;
+  replaceRange: (startOffset: number, endOffset: number, text: string) => void;
+  focus: () => void;
+};
+
+export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   value: string;
   onChange: (value: string) => void;
   onSelectionChange?: (range: EditorSelectionRange) => void;
   onCitationClick?: (publicRef: string) => void;
   citationSources?: RetrievedKnowledgeSource[];
   normalizeValue?: (value: string) => string;
-}) {
+}>(function MarkdownEditor({
+  value,
+  onChange,
+  onSelectionChange,
+  onCitationClick,
+  citationSources = [],
+  normalizeValue
+}, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const valueRef = useRef(normalizeValue ? normalizeValue(value) : value);
@@ -39,6 +46,35 @@ export function MarkdownEditor({
     onCitationClickRef.current = onCitationClick;
     normalizeValueRef.current = normalizeValue;
   }, [onChange, onSelectionChange, onCitationClick, normalizeValue]);
+
+  useImperativeHandle(ref, () => ({
+    getSelection() {
+      const range = viewRef.current?.state.selection.main;
+      return {
+        startOffset: range?.from ?? 0,
+        endOffset: range?.to ?? 0
+      };
+    },
+    getValue() {
+      return valueRef.current;
+    },
+    replaceRange(startOffset, endOffset, text) {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      const from = Math.max(0, Math.min(startOffset, view.state.doc.length));
+      const to = Math.max(from, Math.min(endOffset, view.state.doc.length));
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length }
+      });
+      view.focus();
+    },
+    focus() {
+      viewRef.current?.focus();
+    }
+  }), []);
 
   useEffect(() => {
     if (!hostRef.current || viewRef.current) {
@@ -137,6 +173,11 @@ export function MarkdownEditor({
       })
     });
     viewRef.current = view;
+    const range = view.state.selection.main;
+    onSelectionChangeRef.current?.({
+      startOffset: range.from,
+      endOffset: range.to
+    });
 
     return () => {
       view.destroy();
@@ -202,7 +243,7 @@ export function MarkdownEditor({
   }, []);
 
   return <div ref={hostRef} className="markdown-editor" />;
-}
+});
 
 function closeCitationPopovers(except?: HTMLElement): void {
   document.querySelectorAll<HTMLElement>('.cm-citation-marker.is-open').forEach((element) => {

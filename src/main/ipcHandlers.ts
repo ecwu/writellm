@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
+  ApplySectionLlmEditPayload,
   CompositionTreeNode,
   ContentNodeRecord,
   CreateKnowledgeItemPayload,
@@ -15,6 +16,7 @@ import type {
   LlmOperationRecord,
   RetrievedKnowledgeSource,
   NodeRecord,
+  SectionLlmEditMode,
   SaveLlmGenerationPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
@@ -51,7 +53,7 @@ import {
   openWorkspace
 } from './workspace.js';
 import { createId, nowIso } from './ids.js';
-import { hashMarkdown } from './sectionMarkdown.js';
+import { hashMarkdown, sectionMarkdownForStorage } from './sectionMarkdown.js';
 
 const llmRuns = new Map<string, AbortController>();
 
@@ -901,10 +903,222 @@ export function registerIpcHandlers(): void {
     createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
     return getState(payload.focusSectionId ?? payload.sectionId);
   });
+
+  ipcMain.handle(ipcChannels.applySectionLlmEdit, (_event, payload: ApplySectionLlmEditPayload) => {
+    const settings = readLlmSettings();
+    const db = getActiveDb();
+    const section = db.getSection(payload.sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${payload.sectionId}`);
+    }
+
+    const baseMarkdown = sectionMarkdownForStorage(payload.baseMarkdown);
+    if (section.markdownContent !== baseMarkdown) {
+      throw new Error('The section changed after this LLM edit was generated. Regenerate before applying it.');
+    }
+
+    const generatedContent = payload.generatedContent.trim();
+    if (!generatedContent) {
+      throw new Error('Generated edit content is required.');
+    }
+
+    assertSectionLlmEditRange(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
+    const beforeText = selectedTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
+    if (payload.mode === 'rewrite_selection' && beforeText !== payload.selectedText) {
+      throw new Error('The selected text changed after this LLM edit was generated. Regenerate before applying it.');
+    }
+
+    const replacementText = replacementTextForLlmEdit(
+      payload.mode,
+      baseMarkdown,
+      payload.targetStart,
+      generatedContent
+    );
+    const nextMarkdown = markdownWithLlmEdit(
+      payload.mode,
+      baseMarkdown,
+      payload.targetStart,
+      payload.targetEnd,
+      replacementText
+    );
+
+    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+    const articleSectionContext = buildArticleSectionContextFromDb(
+      db,
+      payload.sectionId,
+      payload.focusSectionId
+    );
+    const operationId = createId('llmop');
+    createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
+    const beforeCommit = getGitHead(db.workspacePath);
+    const updatedSection = db.updateSectionMarkdown(payload.sectionId, nextMarkdown);
+
+    contextNodes.forEach((node) => {
+      db.createNodeEdge(node.id, payload.sectionId, 'revises', 'llm');
+    });
+    ensureKnowledgeSourceNodes(
+      db,
+      payload.focusSectionId ?? payload.sectionId,
+      payload.sectionId,
+      payload.retrievedSources ?? []
+    );
+    db.saveGenerationCitations(
+      payload.sectionId,
+      (payload.retrievedSources ?? []).map((source) => ({
+        publicRef: source.publicRef,
+        knowledgeItemId: source.itemId,
+        knowledgeChunkId: source.chunkId,
+        label: source.publicRef,
+        snippet: source.snippet,
+        score: source.score
+      }))
+    );
+
+    const timestamp = nowIso();
+    const operation: LlmOperationRecord = {
+      operationId,
+      type: payload.mode,
+      status: 'current',
+      createdAt: timestamp,
+      appliedAt: timestamp,
+      sectionId: payload.sectionId,
+      sectionPath: updatedSection.markdownPath,
+      beforeCommit,
+      afterCommit: null,
+      beforeSectionHash: section.markdownHash,
+      afterSectionHash: updatedSection.markdownHash,
+      userPrompt: payload.userPrompt,
+      resolvedPrompt: payload.resolvedPrompt || buildContextPrompt(
+        payload.userPrompt || editorLlmOperationLabel(payload.mode),
+        contextNodes,
+        articleSectionContext,
+        payload.retrievedSources ?? [],
+        true
+      ),
+      systemPrompt: payload.systemPrompt || articleSectionContext,
+      model: {
+        provider: settings.chat.provider,
+        baseURL: settings.chat.baseURL,
+        model: settings.chat.model
+      },
+      target: {
+        kind: targetKindForLlmEdit(payload.mode),
+        selectionStart: payload.targetStart,
+        selectionEnd: payload.targetEnd,
+        selectedText: beforeText,
+        prefixContext: payload.prefixContext,
+        suffixContext: payload.suffixContext
+      },
+      beforeText,
+      afterText: afterTextForLlmEdit(payload.mode, updatedSection.markdownContent, replacementText),
+      outputHash: hashMarkdown(generatedContent),
+      retainedCoverage: 1,
+      contextNodeIds: payload.contextNodeIds ?? [],
+      retrievedSources: payload.retrievedSources ?? []
+    };
+    db.upsertSectionLlmOperation(payload.sectionId, operation);
+    createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
+    const afterCommit = getGitHead(db.workspacePath);
+    db.upsertSectionLlmOperation(payload.sectionId, {
+      ...operation,
+      afterCommit
+    });
+    createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
+    return getState(payload.focusSectionId ?? payload.sectionId);
+  });
 }
 
 function isSectionStructureUpdate(payload: UpdateNodePayload): boolean {
   return 'title' in payload || 'intent' in payload || 'activeMainNodeId' in payload;
+}
+
+function assertSectionLlmEditRange(
+  mode: SectionLlmEditMode,
+  markdown: string,
+  targetStart: number,
+  targetEnd: number
+): void {
+  if (!Number.isInteger(targetStart) || !Number.isInteger(targetEnd)) {
+    throw new Error('LLM edit range must use integer offsets.');
+  }
+  if (targetStart < 0 || targetEnd < targetStart || targetEnd > markdown.length) {
+    throw new Error('LLM edit range is outside the current section.');
+  }
+  if (mode === 'rewrite_selection' && targetStart === targetEnd) {
+    throw new Error('A selected text range is required for selection rewrite.');
+  }
+  if (mode === 'continue_at_cursor' && targetStart !== targetEnd) {
+    throw new Error('Continuation edits must target a cursor position.');
+  }
+}
+
+function selectedTextForLlmEdit(
+  mode: SectionLlmEditMode,
+  markdown: string,
+  targetStart: number,
+  targetEnd: number
+): string {
+  if (mode === 'rewrite_section') {
+    return markdown;
+  }
+  if (mode === 'continue_at_cursor') {
+    return '';
+  }
+  return markdown.slice(targetStart, targetEnd);
+}
+
+function replacementTextForLlmEdit(
+  mode: SectionLlmEditMode,
+  markdown: string,
+  targetStart: number,
+  generatedContent: string
+): string {
+  if (mode !== 'continue_at_cursor') {
+    return generatedContent;
+  }
+  const before = markdown.slice(0, targetStart);
+  if (!before.trim() || before.endsWith('\n') || generatedContent.startsWith('\n')) {
+    return generatedContent;
+  }
+  return `\n\n${generatedContent}`;
+}
+
+function markdownWithLlmEdit(
+  mode: SectionLlmEditMode,
+  markdown: string,
+  targetStart: number,
+  targetEnd: number,
+  replacementText: string
+): string {
+  if (mode === 'rewrite_section') {
+    return replacementText;
+  }
+  return `${markdown.slice(0, targetStart)}${replacementText}${markdown.slice(targetEnd)}`;
+}
+
+function targetKindForLlmEdit(mode: SectionLlmEditMode): LlmOperationRecord['target']['kind'] {
+  if (mode === 'rewrite_section') {
+    return 'section_rewrite';
+  }
+  if (mode === 'continue_at_cursor') {
+    return 'insertion';
+  }
+  return 'selection';
+}
+
+function afterTextForLlmEdit(mode: SectionLlmEditMode, updatedMarkdown: string, replacementText: string): string {
+  return mode === 'rewrite_section' ? updatedMarkdown : replacementText;
+}
+
+function editorLlmOperationLabel(mode: SectionLlmEditMode): string {
+  switch (mode) {
+    case 'rewrite_section':
+      return 'Rewrite section';
+    case 'rewrite_selection':
+      return 'Rewrite selection';
+    case 'continue_at_cursor':
+      return 'Continue writing';
+  }
 }
 
 function mimeTypeForPath(filePath: string): string {

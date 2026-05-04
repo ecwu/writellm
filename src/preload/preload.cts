@@ -43,6 +43,7 @@ const ipcChannels = {
   generateWithLlm: 'paperlab:generateWithLlm',
   cancelLlmGeneration: 'paperlab:cancelLlmGeneration',
   saveLlmGeneration: 'paperlab:saveLlmGeneration',
+  applySectionLlmEdit: 'paperlab:applySectionLlmEdit',
   llmStream: 'paperlab:llmStream',
   knowledgeIngestUpdated: 'paperlab:knowledgeIngestUpdated'
 } as const;
@@ -99,6 +100,7 @@ const api: PaperLabIpc = {
   generateWithLlm: (payload) => ipcRenderer.invoke(ipcChannels.generateWithLlm, payload),
   cancelLlmGeneration: (runId) => ipcRenderer.invoke(ipcChannels.cancelLlmGeneration, runId),
   saveLlmGeneration: (payload) => ipcRenderer.invoke(ipcChannels.saveLlmGeneration, payload),
+  applySectionLlmEdit: (payload) => ipcRenderer.invoke(ipcChannels.applySectionLlmEdit, payload),
   onLlmStream: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, message: Parameters<typeof callback>[0]) => {
       callback(message);
