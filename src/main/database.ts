@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import * as sqliteVec from 'sqlite-vec';
 import { createId, createShortRef, nowIso } from './ids.js';
 import type {
   CanvasNodeLayout,
@@ -26,7 +27,8 @@ import type {
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
+const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 
 type SqlNodeRow = {
   id: string;
@@ -143,6 +145,7 @@ export class PaperLabDatabase {
     mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
     mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
     this.db = new Database(path.join(workspacePath, 'project.sqlite'));
+    this.loadVectorExtension();
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
@@ -159,6 +162,15 @@ export class PaperLabDatabase {
       path: this.workspacePath,
       rootNodeId: this.rootNodeId
     };
+  }
+
+  private loadVectorExtension(): void {
+    try {
+      sqliteVec.load(this.db);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      throw new Error(`Failed to load sqlite-vec extension. Rebuild native dependencies and restart PaperLab. ${message}`);
+    }
   }
 
   createNode(payload: CreateNodePayload): NodeRecord {
@@ -512,6 +524,7 @@ export class PaperLabDatabase {
     }
     const timestamp = nowIso();
     const remove = this.db.transaction(() => {
+      this.deleteKnowledgeVectorsForItem(itemId);
       this.db
         .prepare('UPDATE knowledge_items SET deleted_at = ?, updated_at = ? WHERE id = ?')
         .run(timestamp, timestamp, itemId);
@@ -530,24 +543,34 @@ export class PaperLabDatabase {
     }
     const timestamp = nowIso();
     const replace = this.db.transaction(() => {
+      this.deleteKnowledgeVectorsForItem(itemId);
       this.db.prepare('DELETE FROM knowledge_chunks WHERE item_id = ?').run(itemId);
       const insert = this.db.prepare(
         `INSERT INTO knowledge_chunks
-         (id, public_ref, item_id, chunk_index, content, embedding_json, embedding_model, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, public_ref, item_id, chunk_index, content, embedding_json, embedding_dimensions,
+          embedding_model, vector_rowid, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       chunks.forEach((chunk, index) => {
+        const dimensions = chunk.embedding.length;
+        const chunkId = createId('chk');
         insert.run(
-          createId('chk'),
+          chunkId,
           createKnowledgeChunkPublicRef(item.publicRef, index),
           itemId,
           index,
           chunk.content,
           JSON.stringify(chunk.embedding),
+          dimensions,
           chunk.embeddingModel,
+          null,
           timestamp,
           timestamp
         );
+        const vectorRowid = this.insertKnowledgeVector(chunkId, chunk.embedding);
+        this.db
+          .prepare('UPDATE knowledge_chunks SET vector_rowid = ? WHERE id = ?')
+          .run(vectorRowid, chunkId);
       });
       this.db
         .prepare("UPDATE knowledge_items SET index_status = 'indexed', updated_at = ? WHERE id = ?")
@@ -765,19 +788,55 @@ export class PaperLabDatabase {
     excludedChunkIds?: string[];
     maxChunks?: number;
   }): KnowledgeChunkRecord[] {
-    const excludedItemIds = new Set(options.excludedItemIds ?? []);
-    const excludedChunkIds = new Set(options.excludedChunkIds ?? []);
     const maxChunks = Math.max(1, Math.min(options.maxChunks ?? 6, 12));
+    const dimensions = options.embedding.length;
+    if (dimensions === 0) {
+      return [];
+    }
+    const vectorTableName = this.knowledgeVectorTableName(dimensions);
+    if (!this.knowledgeVectorTableExists(vectorTableName)) {
+      return [];
+    }
+    const excludedItemIds = options.excludedItemIds ?? [];
+    const excludedChunkIds = options.excludedChunkIds ?? [];
+    const excludedItemClauses = excludedItemIds.map(() => 'items.id != ?').join(' AND ');
+    const excludedChunkClauses = excludedChunkIds.map(() => 'chunks.id != ?').join(' AND ');
+    const filters = [excludedItemClauses, excludedChunkClauses].filter(Boolean).join(' AND ');
+    const whereFilters = filters ? ` AND ${filters}` : '';
+    const vectorLimit = Math.min(100, Math.max(maxChunks * 4, maxChunks + excludedChunkIds.length + excludedItemIds.length * 6));
+    const rows = this.db
+      .prepare(
+        `WITH matches AS (
+           SELECT rowid, distance
+           FROM ${vectorTableName}
+           WHERE embedding MATCH ? AND k = ?
+         )
+         SELECT chunks.id, chunks.public_ref, chunks.item_id, items.public_ref AS item_public_ref,
+                items.title AS item_title, chunks.chunk_index,
+                chunks.content, chunks.embedding_json, chunks.embedding_model,
+                chunks.created_at, chunks.updated_at,
+                matches.distance
+         FROM matches
+         JOIN knowledge_chunks chunks ON chunks.vector_rowid = matches.rowid
+          AND chunks.embedding_dimensions = ?
+         JOIN knowledge_items items ON items.id = chunks.item_id
+         WHERE items.deleted_at IS NULL${whereFilters}
+         ORDER BY matches.distance ASC
+         LIMIT ?`
+      )
+      .all(
+        toVectorBuffer(options.embedding),
+        vectorLimit,
+        dimensions,
+        ...excludedItemIds,
+        ...excludedChunkIds,
+        maxChunks
+      ) as Array<SqlKnowledgeChunkRow & { distance: number }>;
 
-    return this.listKnowledgeChunks()
-      .filter((chunk) => !excludedItemIds.has(chunk.itemId) && !excludedChunkIds.has(chunk.id))
-      .map((chunk) => ({
-        ...chunk,
-        score: cosineSimilarity(options.embedding, readEmbedding(chunk.id, this.db))
-      }))
-      .filter((chunk) => Number.isFinite(chunk.score))
-      .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
-      .slice(0, maxChunks);
+    return rows.map((row) => ({
+      ...mapKnowledgeChunk(row),
+      score: cosineDistanceToScore(row.distance)
+    }));
   }
 
   saveGenerationCitations(
@@ -1012,7 +1071,9 @@ export class PaperLabDatabase {
         chunk_index INTEGER NOT NULL,
         content TEXT NOT NULL,
         embedding_json TEXT,
+        embedding_dimensions INTEGER NOT NULL DEFAULT 0,
         embedding_model TEXT,
+        vector_rowid INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -1058,10 +1119,13 @@ export class PaperLabDatabase {
     this.addColumnIfMissing('knowledge_ingest_jobs', 'metadata_json', 'TEXT');
     this.addColumnIfMissing('knowledge_items', 'public_ref', 'TEXT');
     this.addColumnIfMissing('knowledge_chunks', 'public_ref', 'TEXT');
+    this.addColumnIfMissing('knowledge_chunks', 'embedding_dimensions', 'INTEGER NOT NULL DEFAULT 0');
+    this.addColumnIfMissing('knowledge_chunks', 'vector_rowid', 'INTEGER');
     this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
 
-    if (previousSchemaVersion < 6) {
+    if (previousSchemaVersion < 7) {
       this.clearLegacyKnowledgeData();
+      this.dropKnowledgeVectorTables();
     }
 
     this.db.exec(`
@@ -1081,6 +1145,73 @@ export class PaperLabDatabase {
       return;
     }
     this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+
+  private insertKnowledgeVector(chunkId: string, embedding: number[]): number | null {
+    if (embedding.length === 0) {
+      return null;
+    }
+    const tableName = this.ensureKnowledgeVectorTable(embedding.length);
+    const info = this.db
+      .prepare(`INSERT INTO ${tableName} (embedding, chunk_id) VALUES (?, ?)`)
+      .run(toVectorBuffer(embedding), chunkId);
+    return Number(info.lastInsertRowid);
+  }
+
+  private deleteKnowledgeVectorsForItem(itemId: string): void {
+    const rows = this.db
+      .prepare(
+        `SELECT vector_rowid, embedding_dimensions
+         FROM knowledge_chunks
+         WHERE item_id = ? AND vector_rowid IS NOT NULL AND embedding_dimensions > 0`
+      )
+      .all(itemId) as Array<{ vector_rowid: number; embedding_dimensions: number }>;
+    for (const row of rows) {
+      const tableName = this.knowledgeVectorTableName(row.embedding_dimensions);
+      if (this.knowledgeVectorTableExists(tableName)) {
+        this.db.prepare(`DELETE FROM ${tableName} WHERE rowid = ?`).run(row.vector_rowid);
+      }
+    }
+  }
+
+  private ensureKnowledgeVectorTable(dimensions: number): string {
+    const tableName = this.knowledgeVectorTableName(dimensions);
+    this.db.exec(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS ${tableName}
+       USING vec0(
+         embedding float[${dimensions}] distance_metric=cosine,
+         +chunk_id text
+       )`
+    );
+    return tableName;
+  }
+
+  private knowledgeVectorTableName(dimensions: number): string {
+    if (!Number.isInteger(dimensions) || dimensions <= 0) {
+      throw new Error(`Invalid embedding dimensions: ${dimensions}`);
+    }
+    return `${VECTOR_TABLE_PREFIX}${dimensions}`;
+  }
+
+  private knowledgeVectorTableExists(tableName: string): boolean {
+    const row = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName) as { name: string } | undefined;
+    return Boolean(row);
+  }
+
+  private listKnowledgeVectorTables(): string[] {
+    return (this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?")
+      .all(`${VECTOR_TABLE_PREFIX}%`) as Array<{ name: string }>)
+      .map((row) => row.name)
+      .filter((tableName) => /^knowledge_chunk_vectors_d\d+$/.test(tableName));
+  }
+
+  private dropKnowledgeVectorTables(): void {
+    for (const tableName of this.listKnowledgeVectorTables()) {
+      this.db.exec(`DROP TABLE IF EXISTS ${tableName}`);
+    }
   }
 
   private backfillMineruMarkdownContent(): void {
@@ -1519,13 +1650,6 @@ function createKnowledgeChunkPublicRef(itemPublicRef: string, chunkIndex: number
   return `${itemPublicRef}.c${chunkIndex + 1}`;
 }
 
-function readEmbedding(chunkId: string, db: Database.Database): number[] {
-  const row = db
-    .prepare('SELECT embedding_json FROM knowledge_chunks WHERE id = ?')
-    .get(chunkId) as { embedding_json: string | null } | undefined;
-  return parseEmbedding(row?.embedding_json ?? null);
-}
-
 function parseEmbedding(raw: string | null): number[] {
   if (!raw) {
     return [];
@@ -1534,22 +1658,12 @@ function parseEmbedding(raw: string | null): number[] {
   return Array.isArray(parsed) ? parsed.filter((value): value is number => typeof value === 'number') : [];
 }
 
-function cosineSimilarity(left: number[], right: number[]): number {
-  if (left.length === 0 || left.length !== right.length) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  let dot = 0;
-  let leftMagnitude = 0;
-  let rightMagnitude = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    dot += left[index] * right[index];
-    leftMagnitude += left[index] * left[index];
-    rightMagnitude += right[index] * right[index];
-  }
-  if (leftMagnitude === 0 || rightMagnitude === 0) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+function toVectorBuffer(embedding: number[]): Buffer {
+  return Buffer.from(new Float32Array(embedding).buffer);
+}
+
+function cosineDistanceToScore(distance: number): number {
+  return Number.isFinite(distance) ? 1 - distance : Number.NEGATIVE_INFINITY;
 }
 
 function compareNodeOrder(left: NodeRecord, right: NodeRecord): number {

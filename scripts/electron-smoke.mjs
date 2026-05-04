@@ -2,13 +2,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import JSZip from 'jszip';
 import { PaperLabDatabase } from '../dist-electron/main/database.js';
 import { exportLatex } from '../dist-electron/main/exportLatex.js';
+import { indexKnowledgeItem } from '../dist-electron/main/knowledgeIndex.js';
 import {
   enqueueKnowledgeFiles,
   extractKnowledgeFileText,
   processKnowledgeIngestJob
 } from '../dist-electron/main/knowledgeIngest.js';
+import { unzipBuffer } from '../dist-electron/main/zip.js';
 
 const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'paperlab-smoke-'));
 
@@ -66,6 +69,34 @@ try {
   if (chunks.length !== 1 || chunks[0].itemId !== knowledge.id) {
     throw new Error('Knowledge chunk search did not return the indexed source.');
   }
+  if ((chunks[0].score ?? 0) < 0.99) {
+    throw new Error('Knowledge vector search did not preserve high-is-better similarity scores.');
+  }
+  const otherKnowledge = db.createKnowledgeItem('Other vector source', 'Other vector source.');
+  db.replaceKnowledgeChunks(otherKnowledge.id, [
+    {
+      content: 'Orthogonal source.',
+      embedding: [0, 1, 0],
+      embeddingModel: 'test-embedding'
+    },
+    {
+      content: 'Different dimensions.',
+      embedding: [1, 0],
+      embeddingModel: 'test-embedding-2d'
+    }
+  ]);
+  const rankedChunks = db.searchKnowledgeChunks({ embedding: [0, 1, 0], maxChunks: 2 });
+  if (rankedChunks[0]?.content !== 'Orthogonal source.' || rankedChunks.some((chunk) => chunk.content === 'Different dimensions.')) {
+    throw new Error('Knowledge vector search did not rank by sqlite-vec or isolate dimensions.');
+  }
+  const excludedChunks = db.searchKnowledgeChunks({
+    embedding: [0, 1, 0],
+    excludedItemIds: [otherKnowledge.id],
+    maxChunks: 2
+  });
+  if (excludedChunks.some((chunk) => chunk.itemId === otherKnowledge.id)) {
+    throw new Error('Knowledge vector search did not honor excluded item IDs.');
+  }
   db.saveGenerationCitations(main.id, [
     {
       knowledgeItemId: knowledge.id,
@@ -98,6 +129,42 @@ try {
     model: 'test-embedding',
     apiKey: 'test'
   };
+  const embeddingSource = db.createKnowledgeItem(
+    'Embedding source',
+    [
+      `First section ${'a '.repeat(800)}`,
+      `Second section ${'b '.repeat(800)}`,
+      `Third section ${'c '.repeat(800)}`
+    ].join('\n\n')
+  );
+  const originalEmbeddingFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url) !== 'http://localhost/embeddings') {
+        throw new Error(`Unexpected embedding fetch URL: ${String(url)}`);
+      }
+      const body = JSON.parse(String(init.body));
+      if (body.model !== 'test-embedding' || !Array.isArray(body.input) || body.input.length < 2) {
+        throw new Error('Embedding request did not include the expected model and chunked input.');
+      }
+      return jsonResponse({
+        data: body.input.map((_, index) => ({
+          index,
+          embedding: [index + 1, 0, 0]
+        }))
+      });
+    };
+    await indexKnowledgeItem(db, embeddingSource.id, fakeEmbeddingSettings);
+  } finally {
+    globalThis.fetch = originalEmbeddingFetch;
+  }
+  const embeddingDebug = db.listKnowledgeDebugItems().find((item) => item.itemId === embeddingSource.id);
+  if (!embeddingDebug || embeddingDebug.chunkCount < 2) {
+    throw new Error('Packaged text splitter did not create multiple knowledge chunks.');
+  }
+  if (embeddingDebug.chunks.some((chunk, index) => chunk.embeddingPreview[0] !== index + 1)) {
+    throw new Error('AI SDK embedMany result order was not preserved in stored chunks.');
+  }
   const fakeIndexKnowledgeItem = async (database, itemId) => {
     const item = database.getKnowledgeItem(itemId);
     if (!item) {
@@ -115,7 +182,7 @@ try {
   if (!txtJob) {
     throw new Error('Text ingest job was not queued.');
   }
-  await processKnowledgeIngestJob(db, txtJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem);
+  await processKnowledgeIngestJob(db, txtJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, undefined, fakeEmbeddingSettings);
   const txtItemId = db.getKnowledgeIngestJob(txtJob.id)?.knowledgeItemId;
   const txtItem = txtItemId ? db.getKnowledgeItem(txtItemId) : null;
   if (txtItem?.content !== 'Exact text source.' || txtItem.sourceType !== 'file') {
@@ -125,6 +192,36 @@ try {
   const pdfText = await extractKnowledgeFileText(pdfPath, '.pdf');
   if (!pdfText.includes('PDF source text')) {
     throw new Error('PDF extraction did not return expected text.');
+  }
+
+  const zipEntries = await unzipBuffer(await createZip({
+    'nested/store.txt': 'Stored zip text.',
+    'nested/deflate.txt': 'Deflated zip text.',
+    '../unsafe.txt': 'Unsafe path text.'
+  }));
+  if (!zipEntries.some((entry) => entry.path === 'nested/store.txt' && entry.data.toString('utf8') === 'Stored zip text.')) {
+    throw new Error('ZIP extraction did not read a nested stored file.');
+  }
+  if (!zipEntries.some((entry) => entry.path === 'nested/deflate.txt' && entry.data.toString('utf8') === 'Deflated zip text.')) {
+    throw new Error('ZIP extraction did not read a deflated file.');
+  }
+  if (zipEntries.some((entry) => entry.path.includes('..'))) {
+    throw new Error('ZIP extraction did not sanitize unsafe relative paths.');
+  }
+  const corruptZip = Buffer.from(await createZip({ 'broken.txt': 'CRC check text.' }, 'STORE'));
+  const corruptOffset = corruptZip.indexOf('CRC check text.');
+  if (corruptOffset < 0) {
+    throw new Error('ZIP corruption fixture did not include stored text.');
+  }
+  corruptZip[corruptOffset] = corruptZip[corruptOffset] ^ 0xff;
+  let corruptZipRejected = false;
+  try {
+    await unzipBuffer(corruptZip);
+  } catch {
+    corruptZipRejected = true;
+  }
+  if (!corruptZipRejected) {
+    throw new Error('ZIP extraction did not reject a corrupted archive.');
   }
 
   const mineruSettings = {
@@ -151,7 +248,7 @@ try {
 
     let uploadSeen = false;
     let pollCount = 0;
-    const mineruZip = createStoredZip({
+    const mineruZip = await createZip({
       'full.md': '# MinerU Markdown\n\nMarkdown should be primary.\n\n![Figure caption text.](images/fig1.png)',
       'sample_content_list.json': JSON.stringify([
         { type: 'text', text: 'MinerU primary text block.', page_idx: 0 },
@@ -206,7 +303,7 @@ try {
       }
       throw new Error(`Unexpected MinerU fetch URL: ${href}`);
     };
-    await processKnowledgeIngestJob(db, mineruJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    await processKnowledgeIngestJob(db, mineruJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings, fakeEmbeddingSettings);
     const mineruItemId = db.getKnowledgeIngestJob(mineruJob.id)?.knowledgeItemId;
     const mineruItem = mineruItemId ? db.getKnowledgeItem(mineruItemId) : null;
     if (!uploadSeen || pollCount !== 2) {
@@ -251,11 +348,11 @@ try {
         });
       }
       if (href === 'https://download.mineru.test/fallback.zip') {
-        return new Response(createStoredZip({ 'full.md': 'Fallback markdown text.' }), { status: 200 });
+        return new Response(await createZip({ 'full.md': 'Fallback markdown text.' }), { status: 200 });
       }
       throw new Error(`Unexpected MinerU fallback fetch URL: ${href}`);
     };
-    await processKnowledgeIngestJob(db, fallbackJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    await processKnowledgeIngestJob(db, fallbackJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings, fakeEmbeddingSettings);
     const fallbackItemId = db.getKnowledgeIngestJob(fallbackJob.id)?.knowledgeItemId;
     const fallbackItem = fallbackItemId ? db.getKnowledgeItem(fallbackItemId) : null;
     if (fallbackItem?.content !== 'Fallback markdown text.') {
@@ -294,7 +391,7 @@ try {
       }
       throw new Error(`Unexpected MinerU failed fetch URL: ${href}`);
     };
-    await processKnowledgeIngestJob(db, mineruFailedJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    await processKnowledgeIngestJob(db, mineruFailedJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings, fakeEmbeddingSettings);
     if (db.getKnowledgeIngestJob(mineruFailedJob.id)?.status !== 'error') {
       throw new Error('MinerU failed remote state did not mark the ingest job as error.');
     }
@@ -311,7 +408,8 @@ try {
       missingKeyJob.id,
       fakeEmbeddingSettings,
       fakeIndexKnowledgeItem,
-      { ...mineruSettings, mineru: { ...mineruSettings.mineru, apiKey: '' } }
+      { ...mineruSettings, mineru: { ...mineruSettings.mineru, apiKey: '' } },
+      fakeEmbeddingSettings
     );
     if (!db.getKnowledgeIngestJob(missingKeyJob.id)?.errorMessage?.includes('API key')) {
       throw new Error('MinerU missing API key did not surface a clear error.');
@@ -337,7 +435,7 @@ try {
       }
       throw new Error(`Unexpected MinerU missing zip fetch URL: ${href}`);
     };
-    await processKnowledgeIngestJob(db, missingZipJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings);
+    await processKnowledgeIngestJob(db, missingZipJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, mineruSettings, fakeEmbeddingSettings);
     if (!db.getKnowledgeIngestJob(missingZipJob.id)?.errorMessage?.includes('full_zip_url')) {
       throw new Error('MinerU done without full_zip_url did not surface a clear error.');
     }
@@ -384,7 +482,7 @@ try {
     fileExt: '.txt',
     fileSize: 0
   });
-  await processKnowledgeIngestJob(db, missingJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem);
+  await processKnowledgeIngestJob(db, missingJob.id, fakeEmbeddingSettings, fakeIndexKnowledgeItem, undefined, fakeEmbeddingSettings);
   const failedJob = db.getKnowledgeIngestJob(missingJob.id);
   if (failedJob?.status !== 'error' || !failedJob.errorMessage) {
     throw new Error('Failed extraction did not mark the ingest job as error.');
@@ -518,60 +616,10 @@ function jsonResponse(payload) {
   });
 }
 
-function createStoredZip(entries) {
-  const localParts = [];
-  const centralParts = [];
-  let offset = 0;
-
+async function createZip(entries, compression = 'DEFLATE') {
+  const zip = new JSZip();
   for (const [name, value] of Object.entries(entries)) {
-    const nameBuffer = Buffer.from(name);
-    const data = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
-    const localHeader = Buffer.alloc(30);
-    localHeader.writeUInt32LE(0x04034b50, 0);
-    localHeader.writeUInt16LE(20, 4);
-    localHeader.writeUInt16LE(0, 6);
-    localHeader.writeUInt16LE(0, 8);
-    localHeader.writeUInt32LE(0, 10);
-    localHeader.writeUInt32LE(0, 14);
-    localHeader.writeUInt32LE(data.length, 18);
-    localHeader.writeUInt32LE(data.length, 22);
-    localHeader.writeUInt16LE(nameBuffer.length, 26);
-    localHeader.writeUInt16LE(0, 28);
-    localParts.push(localHeader, nameBuffer, data);
-
-    const centralHeader = Buffer.alloc(46);
-    centralHeader.writeUInt32LE(0x02014b50, 0);
-    centralHeader.writeUInt16LE(20, 4);
-    centralHeader.writeUInt16LE(20, 6);
-    centralHeader.writeUInt16LE(0, 8);
-    centralHeader.writeUInt16LE(0, 10);
-    centralHeader.writeUInt32LE(0, 12);
-    centralHeader.writeUInt32LE(0, 16);
-    centralHeader.writeUInt32LE(data.length, 20);
-    centralHeader.writeUInt32LE(data.length, 24);
-    centralHeader.writeUInt16LE(nameBuffer.length, 28);
-    centralHeader.writeUInt16LE(0, 30);
-    centralHeader.writeUInt16LE(0, 32);
-    centralHeader.writeUInt16LE(0, 34);
-    centralHeader.writeUInt16LE(0, 36);
-    centralHeader.writeUInt32LE(0, 38);
-    centralHeader.writeUInt32LE(offset, 42);
-    centralParts.push(centralHeader, nameBuffer);
-
-    offset += localHeader.length + nameBuffer.length + data.length;
+    zip.file(name, Buffer.isBuffer(value) ? value : Buffer.from(String(value)), { compression });
   }
-
-  const centralDirectory = Buffer.concat(centralParts);
-  const centralOffset = offset;
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(0, 4);
-  end.writeUInt16LE(0, 6);
-  end.writeUInt16LE(Object.keys(entries).length, 8);
-  end.writeUInt16LE(Object.keys(entries).length, 10);
-  end.writeUInt32LE(centralDirectory.length, 12);
-  end.writeUInt32LE(centralOffset, 16);
-  end.writeUInt16LE(0, 20);
-
-  return Buffer.concat([...localParts, centralDirectory, end]);
+  return Buffer.from(await zip.generateAsync({ type: 'uint8array', compression }));
 }

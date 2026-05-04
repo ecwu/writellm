@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import katex from 'katex';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeKatex from 'rehype-katex';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import {
   CheckCircle2,
   CircleAlert,
@@ -32,6 +36,17 @@ import type {
   KnowledgeIngestStatus,
   KnowledgeItemRecord
 } from '../../../shared/types';
+
+const markdownSanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [
+      ...(defaultSchema.attributes?.code ?? []),
+      ['className', /^language-./, 'math-inline', 'math-display']
+    ]
+  }
+};
 
 export function KnowledgePage({
   items,
@@ -422,318 +437,41 @@ function MarkdownTypography({
   item: KnowledgeItemRecord;
   workspacePath: string | null;
 }) {
-  return <article className="knowledge-markdown">{renderMarkdownBlocks(content, item, workspacePath)}</article>;
-}
-
-function renderMarkdownBlocks(
-  content: string,
-  item: KnowledgeItemRecord,
-  workspacePath: string | null
-): ReactNode[] {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
-  const blocks: ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    const image = line.trim().match(/^!\[([^\]]*)]\(([^)]+)\)\s*$/);
-    if (image) {
-      index += 1;
-      const captionLines: string[] = [];
-      while (
-        index < lines.length &&
-        lines[index].trim() &&
-        !isMarkdownBlockStart(lines, index)
-      ) {
-        captionLines.push(lines[index].trim());
-        index += 1;
-      }
-      blocks.push(
-        <MarkdownImageFigure
-          key={blocks.length}
-          alt={image[1]}
-          caption={captionLines.join(' ').replace(/\s{2,}/g, ' ')}
-          rawSrc={image[2]}
-          item={item}
-          workspacePath={workspacePath}
-        />
-      );
-      continue;
-    }
-
-    const fence = line.match(/^```(\w+)?\s*$/);
-    if (fence) {
-      const codeLines: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index].startsWith('```')) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-      if (index < lines.length) {
-        index += 1;
-      }
-      blocks.push(
-        <pre key={blocks.length}>
-          <code>{codeLines.join('\n')}</code>
-        </pre>
-      );
-      continue;
-    }
-
-    if (line.trim() === '$$') {
-      const mathLines: string[] = [];
-      index += 1;
-      while (index < lines.length && lines[index].trim() !== '$$') {
-        mathLines.push(lines[index]);
-        index += 1;
-      }
-      if (index < lines.length) {
-        index += 1;
-      }
-      blocks.push(<MathNode key={blocks.length} value={mathLines.join('\n')} displayMode />);
-      continue;
-    }
-
-    if (line.trim() === '\\[') {
-      const mathLines: string[] = [];
-      index += 1;
-      while (index < lines.length && lines[index].trim() !== '\\]') {
-        mathLines.push(lines[index]);
-        index += 1;
-      }
-      if (index < lines.length) {
-        index += 1;
-      }
-      blocks.push(<MathNode key={blocks.length} value={mathLines.join('\n')} displayMode />);
-      continue;
-    }
-
-    const singleLineDisplayMath = line.trim().match(/^\$\$(.+)\$\$$/) ?? line.trim().match(/^\\\[(.+)\\\]$/);
-    if (singleLineDisplayMath) {
-      blocks.push(<MathNode key={blocks.length} value={singleLineDisplayMath[1]} displayMode />);
-      index += 1;
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      const level = heading[1].length;
-      const children = renderInlineMarkdown(heading[2], item, workspacePath);
-      if (level === 1) {
-        blocks.push(<h1 key={blocks.length}>{children}</h1>);
-      } else if (level === 2) {
-        blocks.push(<h2 key={blocks.length}>{children}</h2>);
-      } else if (level === 3) {
-        blocks.push(<h3 key={blocks.length}>{children}</h3>);
-      } else {
-        blocks.push(<h4 key={blocks.length}>{children}</h4>);
-      }
-      index += 1;
-      continue;
-    }
-
-    if (line.trim().startsWith('>')) {
-      const quoteLines: string[] = [];
-      while (index < lines.length && lines[index].trim().startsWith('>')) {
-        quoteLines.push(lines[index].replace(/^\s*>\s?/, ''));
-        index += 1;
-      }
-      blocks.push(
-        <blockquote key={blocks.length}>
-          <p>{renderInlineMarkdown(quoteLines.join(' '), item, workspacePath)}</p>
-        </blockquote>
-      );
-      continue;
-    }
-
-    if (isTableStart(lines, index)) {
-      const rows: string[][] = [];
-      const header = splitTableRow(lines[index]);
-      index += 2;
-      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      blocks.push(
-        <div key={blocks.length} className="knowledge-markdown-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {header.map((cell, cellIndex) => (
-                  <th key={cellIndex}>{renderInlineMarkdown(cell, item, workspacePath)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {header.map((_, cellIndex) => (
-                    <td key={cellIndex}>{renderInlineMarkdown(row[cellIndex] ?? '', item, workspacePath)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      continue;
-    }
-
-    const unorderedListMatch = line.match(/^\s*[-*+]\s+(.+)$/);
-    const orderedListMatch = line.match(/^\s*\d+\.\s+(.+)$/);
-    if (unorderedListMatch || orderedListMatch) {
-      const isOrdered = Boolean(orderedListMatch);
-      const items: string[] = [];
-      const listPattern = isOrdered ? /^\s*\d+\.\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/;
-      while (index < lines.length) {
-        const match = lines[index].match(listPattern);
-        if (!match) {
-          break;
-        }
-        items.push(match[1]);
-        index += 1;
-      }
-      const children = items.map((listItem, itemIndex) => (
-        <li key={itemIndex}>{renderInlineMarkdown(listItem, item, workspacePath)}</li>
-      ));
-      blocks.push(isOrdered ? <ol key={blocks.length}>{children}</ol> : <ul key={blocks.length}>{children}</ul>);
-      continue;
-    }
-
-    const paragraphLines = [line.trim()];
-    index += 1;
-    while (
-      index < lines.length &&
-      lines[index].trim() &&
-      !isMarkdownBlockStart(lines, index)
-    ) {
-      paragraphLines.push(lines[index].trim());
-      index += 1;
-    }
-    blocks.push(<p key={blocks.length}>{renderInlineMarkdown(paragraphLines.join(' '), item, workspacePath)}</p>);
-  }
-
-  return blocks;
-}
-
-function renderInlineMarkdown(
-  text: string,
-  item: KnowledgeItemRecord,
-  workspacePath: string | null
-): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(!\[[^\]]*]\([^)]+\)|\\\(.+?\\\)|\$[^$\n]+\$|\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-
-    const token = match[0];
-    const key = nodes.length;
-    if (token.startsWith('![')) {
-      const imageMatch = token.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
-      const source = imageMatch ? resolveMarkdownImageSource(imageMatch[2], item, workspacePath) : null;
-      if (imageMatch && source) {
-        nodes.push(
-          <KnowledgeMarkdownImage
-            key={key}
-            alt={imageMatch[1]}
-            className="knowledge-markdown-image"
-            source={source}
-          />
-        );
-      } else {
-        nodes.push(token);
-      }
-    } else if (token.startsWith('\\(')) {
-      nodes.push(<MathNode key={key} value={token.slice(2, -2)} />);
-    } else if (token.startsWith('$')) {
-      nodes.push(<MathNode key={key} value={token.slice(1, -1)} />);
-    } else if (token.startsWith('**')) {
-      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('`')) {
-      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
-    } else if (token.startsWith('[')) {
-      const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (linkMatch) {
-        const href = getSafeMarkdownHref(linkMatch[2]);
-        nodes.push(
-          <a key={key} href={href} target={href.startsWith('#') ? undefined : '_blank'} rel="noreferrer">
-            {linkMatch[1]}
-          </a>
-        );
-      } else {
-        nodes.push(token);
-      }
-    } else {
-      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
-    }
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-
-  return nodes;
-}
-
-function MathNode({
-  value,
-  displayMode = false
-}: {
-  value: string;
-  displayMode?: boolean;
-}) {
-  const html = katex.renderToString(value.trim(), {
-    displayMode,
-    throwOnError: false,
-    strict: false,
-    trust: false
-  });
   return (
-    <span
-      className={displayMode ? 'knowledge-math-display' : 'knowledge-math-inline'}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-}
-
-function MarkdownImageFigure({
-  alt,
-  caption,
-  rawSrc,
-  item,
-  workspacePath
-}: {
-  alt: string;
-  caption: string;
-  rawSrc: string;
-  item: KnowledgeItemRecord;
-  workspacePath: string | null;
-}) {
-  const source = resolveMarkdownImageSource(rawSrc, item, workspacePath);
-  if (!source) {
-    return <p>{caption || alt || rawSrc}</p>;
-  }
-  return (
-    <figure className="knowledge-markdown-figure">
-      <KnowledgeMarkdownImage
-        alt={alt || caption}
-        className="knowledge-markdown-image"
-        source={source}
-      />
-      {caption ? <figcaption>{renderInlineMarkdown(caption, item, workspacePath)}</figcaption> : null}
-    </figure>
+    <article className="knowledge-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[
+          [rehypeSanitize, markdownSanitizeSchema],
+          [rehypeKatex, { strict: false, throwOnError: false }]
+        ]}
+        components={{
+          a({ href, children }) {
+            const safeHref = getSafeMarkdownHref(href ?? '');
+            return (
+              <a href={safeHref} target={safeHref.startsWith('#') ? undefined : '_blank'} rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
+          img({ alt, src }) {
+            const source = src ? resolveMarkdownImageSource(src, item, workspacePath) : null;
+            return source
+              ? <KnowledgeMarkdownImage alt={alt ?? ''} className="knowledge-markdown-image" source={source} />
+              : <span className="knowledge-markdown-image-placeholder">{alt || src || 'Image unavailable'}</span>;
+          },
+          table({ children }) {
+            return (
+              <div className="knowledge-markdown-table-wrap">
+                <table>{children}</table>
+              </div>
+            );
+          }
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </article>
   );
 }
 
@@ -877,36 +615,6 @@ function getSafeMarkdownHref(href: string): string {
     return trimmed;
   }
   return '#';
-}
-
-function isMarkdownBlockStart(lines: string[], index: number): boolean {
-  const line = lines[index];
-  return (
-    /^```/.test(line) ||
-    /^!\[[^\]]*]\([^)]+\)\s*$/.test(line.trim()) ||
-    line.trim() === '$$' ||
-    line.trim() === '\\[' ||
-    /^\$\$.+\$\$$/.test(line.trim()) ||
-    /^\\\[.+\\\]$/.test(line.trim()) ||
-    /^(#{1,4})\s+/.test(line) ||
-    line.trim().startsWith('>') ||
-    /^\s*[-*+]\s+/.test(line) ||
-    /^\s*\d+\.\s+/.test(line) ||
-    isTableStart(lines, index)
-  );
-}
-
-function isTableStart(lines: string[], index: number): boolean {
-  return Boolean(lines[index]?.includes('|') && lines[index + 1]?.match(/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/));
-}
-
-function splitTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
 }
 
 function previewText(content: string): string {

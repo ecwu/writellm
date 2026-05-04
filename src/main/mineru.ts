@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 import type { KnowledgeIngestJobRecord, KnowledgeSettings, MineruSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
 import type { PaperLabDatabase } from './database.js';
@@ -23,11 +24,19 @@ type MineruJobMetadata = Record<string, unknown> & {
   mineru?: Record<string, unknown>;
 };
 
-type MineruContentBlock = Record<string, unknown>;
+type MineruContentBlock = z.infer<typeof mineruContentBlockSchema>;
 
 const MINERU_API_BASE = 'https://mineru.net/api/v4';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const MAX_POLL_COUNT = 180;
+const mineruApiResponseSchema = z.object({
+  code: z.number().optional(),
+  msg: z.string().optional(),
+  message: z.string().optional(),
+  data: z.unknown().optional()
+}).passthrough();
+const mineruContentBlockSchema = z.record(z.string(), z.unknown());
+const mineruContentBlocksSchema = z.array(mineruContentBlockSchema);
 
 export async function extractPdfWithMineru(options: MineruExtractOptions): Promise<MineruExtraction> {
   const { db, itemId, settings } = options;
@@ -95,7 +104,7 @@ export async function extractPdfWithMineru(options: MineruExtractOptions): Promi
   }
   const zipBuffer = await downloadMineruZip(zipUrl);
   const outputDirectory = path.join(db.workspacePath, 'assets', 'knowledge', itemId, 'mineru', job.id);
-  const entries = unzipBuffer(zipBuffer);
+  const entries = await unzipBuffer(zipBuffer);
   await writeZipEntries(entries, outputDirectory);
 
   const parsed = parseMineruEntries(entries, db.workspacePath, outputDirectory, itemId, knowledgeItem.publicRef);
@@ -296,8 +305,8 @@ function parseMineruEntries(
   const contentListPath = contentList ? toWorkspaceRelativePath(workspacePath, safeJoin(outputDirectory, contentList.path)) : null;
 
   if (contentList) {
-    const blocks = JSON.parse(contentList.data.toString('utf8')) as unknown;
-    if (Array.isArray(blocks)) {
+    const blocks = parseMineruContentBlocks(contentList.data.toString('utf8'));
+    if (blocks) {
       return {
         content: markdown?.data.toString('utf8') ?? blocksToText(blocks),
         markdownPath,
@@ -313,6 +322,15 @@ function parseMineruEntries(
     contentListPath,
     images: []
   };
+}
+
+function parseMineruContentBlocks(text: string): MineruContentBlock[] | null {
+  try {
+    const parsed = mineruContentBlocksSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 function blocksToText(blocks: MineruContentBlock[]): string {
@@ -372,7 +390,7 @@ function imageAssetsFromBlocks(
 
 async function parseJsonResponse(response: Response, action: string): Promise<Record<string, unknown>> {
   const text = await response.text();
-  const parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+  const parsed = text ? parseMineruJson(text, action) : {};
   if (!response.ok) {
     throw new Error(`MinerU ${action} failed: ${response.status} ${response.statusText}`);
   }
@@ -381,6 +399,15 @@ async function parseJsonResponse(response: Response, action: string): Promise<Re
     throw new Error(readString(parsed.msg) || readString(parsed.message) || `MinerU ${action} failed with code ${code}.`);
   }
   return parsed;
+}
+
+function parseMineruJson(text: string, action: string): Record<string, unknown> {
+  try {
+    return mineruApiResponseSchema.parse(JSON.parse(text));
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new Error(`MinerU ${action} returned invalid JSON: ${message}`);
+  }
 }
 
 function findMineruResult(data: Record<string, unknown>, dataId: string): Record<string, unknown> {

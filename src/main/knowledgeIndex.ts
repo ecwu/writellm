@@ -1,3 +1,7 @@
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { embedMany } from 'ai';
+import { z } from 'zod';
 import type {
   KnowledgeChunkRecord,
   KnowledgeChunkingDebugConfig,
@@ -14,6 +18,10 @@ const METADATA_SAMPLE_CHARS = 1000;
 const METADATA_TITLE_MAX_CHARS = 140;
 const METADATA_DESCRIPTION_MAX_CHARS = 320;
 const DISPLAY_METADATA_KEY = 'knowledgeDisplayMetadata';
+const metadataResponseSchema = z.object({
+  title: z.unknown().optional(),
+  description: z.unknown().optional()
+}).passthrough();
 
 export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig {
   return {
@@ -23,7 +31,7 @@ export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig 
   };
 }
 
-export function chunkKnowledgeText(content: string): string[] {
+export async function chunkKnowledgeText(content: string): Promise<string[]> {
   const normalized = content
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -32,30 +40,14 @@ export function chunkKnowledgeText(content: string): string[] {
     return [];
   }
 
-  const chunks: string[] = [];
-  let cursor = 0;
-  while (cursor < normalized.length) {
-    const hardEnd = Math.min(cursor + CHUNK_TARGET_CHARS, normalized.length);
-    const window = normalized.slice(cursor, hardEnd);
-    const paragraphBreak = window.lastIndexOf('\n\n');
-    const sentenceBreak = Math.max(window.lastIndexOf('. '), window.lastIndexOf('? '), window.lastIndexOf('! '));
-    const softBreak = paragraphBreak > CHUNK_TARGET_CHARS * 0.45
-      ? paragraphBreak + 2
-      : sentenceBreak > CHUNK_TARGET_CHARS * 0.55
-        ? sentenceBreak + 2
-        : window.length;
-    const end = Math.min(cursor + softBreak, normalized.length);
-    const chunk = normalized.slice(cursor, end).trim();
-    if (chunk) {
-      chunks.push(chunk);
-    }
-    if (end >= normalized.length) {
-      break;
-    }
-    cursor = Math.max(end - CHUNK_OVERLAP_CHARS, cursor + 1);
-  }
-
-  return chunks;
+  const splitter = new RecursiveCharacterTextSplitter({
+    chunkSize: CHUNK_TARGET_CHARS,
+    chunkOverlap: CHUNK_OVERLAP_CHARS,
+    separators: ['\n\n', '\n', '. ', '? ', '! ', ' ', '']
+  });
+  return (await splitter.splitText(normalized))
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
 }
 
 export async function indexKnowledgeItem(
@@ -69,7 +61,7 @@ export async function indexKnowledgeItem(
     throw new Error(`Knowledge item not found: ${itemId}`);
   }
 
-  const chunks = chunkKnowledgeText(item.content);
+  const chunks = await chunkKnowledgeText(item.content);
   if (chunks.length === 0) {
     return db.replaceKnowledgeChunks(itemId, []);
   }
@@ -211,9 +203,8 @@ function parseMetadataJson(text: string): { title?: unknown; description?: unkno
 function tryParseMetadataJson(text: string): { title?: unknown; description?: unknown } | null {
   try {
     const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === 'object'
-      ? parsed as { title?: unknown; description?: unknown }
-      : null;
+    const result = metadataResponseSchema.safeParse(parsed);
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
@@ -278,48 +269,21 @@ async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Pro
     throw new Error('Knowledge embeddings currently require an OpenAI-compatible embedding endpoint.');
   }
 
-  const embeddings: number[][] = [];
-  for (let offset = 0; offset < texts.length; offset += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(offset, offset + EMBEDDING_BATCH_SIZE);
-    embeddings.push(...await embedTextBatch(settings, batch));
-  }
-
-  return embeddings;
-}
-
-async function embedTextBatch(settings: ModelEndpointSettings, texts: string[]): Promise<number[][]> {
-  const response = await fetch(`${settings.baseURL.replace(/\/$/, '')}/embeddings`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${settings.apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      input: texts
-    })
+  const provider = createOpenAICompatible({
+    name: 'knowledgeEmbeddings',
+    baseURL: settings.baseURL,
+    apiKey: settings.apiKey
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Embedding request failed (${response.status}): ${body.slice(0, 240)}`);
-  }
-
-  const parsed = await response.json() as {
-    data?: Array<{ index?: number; embedding?: unknown }>;
-  };
-  const embeddings = new Array<number[]>(texts.length);
-  parsed.data?.forEach((item, fallbackIndex) => {
-    const index = item.index ?? fallbackIndex;
-    embeddings[index] = Array.isArray(item.embedding)
-      ? item.embedding.filter((value): value is number => typeof value === 'number')
-      : [];
+  const { embeddings } = await embedMany({
+    model: provider.embeddingModel(settings.model),
+    values: texts,
+    maxRetries: 0
   });
 
   if (embeddings.some((embedding) => !embedding || embedding.length === 0)) {
     throw new Error('Embedding response did not include an embedding for every chunk.');
   }
-  return embeddings;
+  return embeddings.map((embedding) => [...embedding]);
 }
 
 function toRetrievedSource(chunk: KnowledgeChunkRecord): RetrievedKnowledgeSource {
