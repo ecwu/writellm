@@ -539,8 +539,7 @@ export function useWriteLLMApp() {
           focusSectionId: state.focusSectionId ?? sectionId,
           contextNodeIds,
           excludedItemIds: llmDraft.excludedKnowledgeItemIds,
-          excludedChunkIds: llmDraft.excludedKnowledgeChunkIds,
-          maxChunks: 10
+          excludedChunkIds: llmDraft.excludedKnowledgeChunkIds
         })
           .then((sources) => {
             prefetchedKnowledgeSources = sources;
@@ -575,7 +574,6 @@ export function useWriteLLMApp() {
         prefetchedKnowledgeSources,
         excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
         excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
-        maxKnowledgeChunks: 10,
         requireInlineCitations: useKnowledgeSources
       });
     } catch (caught) {

@@ -133,7 +133,13 @@ export async function processKnowledgeIngestJob(
       throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }
 
-    await indexItem(db, item.id, resolvedEmbeddingSettings, resolvedMetadataSettings);
+    await indexItem(
+      db,
+      item.id,
+      resolvedEmbeddingSettings,
+      resolvedMetadataSettings,
+      resolvedKnowledgeSettings?.retrieval
+    );
     if (!db.getKnowledgeIngestJob(job.id)) {
       throw new Error(`Knowledge ingest job was deleted: ${job.id}`);
     }

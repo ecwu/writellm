@@ -80,8 +80,7 @@ export function FloatingActionToolbar({
       query: knowledgeRetrievalPrompt,
       sectionId: generateTargetId,
       focusSectionId,
-      contextNodeIds: llmDraft.contextNodeIds,
-      maxChunks: 10
+      contextNodeIds: llmDraft.contextNodeIds
     });
   }
 
@@ -114,7 +113,6 @@ export function FloatingActionToolbar({
       knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
       contextNodeIds: llmDraft.contextNodeIds,
       prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
-      maxKnowledgeChunks: 10,
       requireInlineCitations: input.useKnowledgeSources
     }).finally(unsubscribe);
     const content = result.content.trim();

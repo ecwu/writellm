@@ -620,7 +620,13 @@ export function registerIpcHandlers(): void {
     const item = db.createKnowledgeItem(payload.title, payload.content);
     const settings = readLlmSettings();
     try {
-      await indexKnowledgeItem(db, item.id, settings.embedding, settings.chat);
+      await indexKnowledgeItem(
+        db,
+        item.id,
+        settings.embedding,
+        settings.chat,
+        settings.knowledge.retrieval
+      );
     } catch {
       // The item remains editable with an error status so the user can fix settings and reindex.
     }
@@ -653,7 +659,13 @@ export function registerIpcHandlers(): void {
       const item = db.updateKnowledgeItem(itemId, payload);
       const settings = readLlmSettings();
       try {
-        await indexKnowledgeItem(db, item.id, settings.embedding, settings.chat);
+        await indexKnowledgeItem(
+          db,
+          item.id,
+          settings.embedding,
+          settings.chat,
+          settings.knowledge.retrieval
+        );
       } catch {
         // Keep the item and expose its indexing state through workspace state.
       }
@@ -669,7 +681,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.reindexKnowledgeItem, async (_event, itemId: string) => {
     const db = getActiveDb();
     const settings = readLlmSettings();
-    await indexKnowledgeItem(db, itemId, settings.embedding, settings.chat);
+    await indexKnowledgeItem(
+      db,
+      itemId,
+      settings.embedding,
+      settings.chat,
+      settings.knowledge.retrieval
+    );
     return getState();
   });
 
@@ -687,7 +705,8 @@ export function registerIpcHandlers(): void {
       queries: articleSectionContext
         ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
         : [payload.query],
-      rerankSettings: settings.rerank
+      rerankSettings: settings.rerank,
+      retrievalSettings: settings.knowledge.retrieval
     });
   });
 
@@ -697,11 +716,14 @@ export function registerIpcHandlers(): void {
       getActiveDb().resolveKnowledgeSourceTarget(payload)
   );
 
-  ipcMain.handle(ipcChannels.getKnowledgeDebugDetails, () => ({
-    chunking: getKnowledgeChunkingDebugConfig(),
-    items: getActiveDb().listKnowledgeDebugItems(),
-    generatedAt: new Date().toISOString()
-  }));
+  ipcMain.handle(ipcChannels.getKnowledgeDebugDetails, () => {
+    const settings = readLlmSettings();
+    return {
+      chunking: getKnowledgeChunkingDebugConfig(settings.knowledge.retrieval),
+      items: getActiveDb().listKnowledgeDebugItems(),
+      generatedAt: new Date().toISOString()
+    };
+  });
 
   ipcMain.handle(ipcChannels.getWorkspaceAssetDataUrl, async (_event, relativePath: string) => {
     const db = getActiveDb();
@@ -740,7 +762,8 @@ export function registerIpcHandlers(): void {
             excludedChunkIds: payload.excludedKnowledgeChunkIds,
             maxChunks: payload.maxKnowledgeChunks,
             queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
-            rerankSettings: settings.rerank
+            rerankSettings: settings.rerank,
+            retrievalSettings: settings.knowledge.retrieval
           }
         )
       : [];

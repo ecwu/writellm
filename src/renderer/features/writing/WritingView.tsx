@@ -170,8 +170,7 @@ export function WritingView({
       query: knowledgeRetrievalPrompt,
       sectionId: section.id,
       focusSectionId: section.id,
-      contextNodeIds: [],
-      maxChunks: 6
+      contextNodeIds: []
     });
   }
 
@@ -248,7 +247,6 @@ export function WritingView({
       knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
       prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
       contextNodeIds: [],
-      maxKnowledgeChunks: 6,
       requireInlineCitations: input.useKnowledgeSources,
       systemPrompt: request.systemPrompt
     }).finally(unsubscribe);

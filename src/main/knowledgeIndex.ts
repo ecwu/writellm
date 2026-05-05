@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type {
   KnowledgeChunkRecord,
   KnowledgeChunkingDebugConfig,
+  KnowledgeRetrievalSettings,
   ModelEndpointSettings,
   RerankEndpointSettings,
   RetrievedKnowledgeSource
@@ -32,15 +33,33 @@ const metadataResponseSchema = z.object({
   description: z.string().optional().default('')
 });
 
-export function getKnowledgeChunkingDebugConfig(): KnowledgeChunkingDebugConfig {
+const DEFAULT_RETRIEVAL_SETTINGS: KnowledgeRetrievalSettings = {
+  maxRetrievedChunks: DEFAULT_MAX_RETRIEVED_CHUNKS,
+  maxCandidateChunks: DEFAULT_CANDIDATE_CHUNKS,
+  rerankTopN: DEFAULT_MAX_RETRIEVED_CHUNKS * 3,
+  adjacentChunkRadius: ADJACENT_CHUNK_RADIUS,
+  maxChunksPerItem: MAX_INITIAL_CHUNKS_PER_ITEM,
+  chunkTargetChars: CHUNK_TARGET_CHARS,
+  chunkOverlapChars: CHUNK_OVERLAP_CHARS,
+  embeddingBatchSize: EMBEDDING_BATCH_SIZE
+};
+
+export function getKnowledgeChunkingDebugConfig(
+  retrievalSettings?: KnowledgeRetrievalSettings
+): KnowledgeChunkingDebugConfig {
+  const settings = resolveRetrievalSettings(retrievalSettings);
   return {
-    targetChars: CHUNK_TARGET_CHARS,
-    overlapChars: CHUNK_OVERLAP_CHARS,
-    embeddingBatchSize: EMBEDDING_BATCH_SIZE
+    targetChars: settings.chunkTargetChars,
+    overlapChars: settings.chunkOverlapChars,
+    embeddingBatchSize: settings.embeddingBatchSize
   };
 }
 
-export async function chunkKnowledgeText(content: string): Promise<string[]> {
+export async function chunkKnowledgeText(
+  content: string,
+  retrievalSettings?: KnowledgeRetrievalSettings
+): Promise<string[]> {
+  const settings = resolveRetrievalSettings(retrievalSettings);
   const normalized = content
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -50,8 +69,8 @@ export async function chunkKnowledgeText(content: string): Promise<string[]> {
   }
 
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: CHUNK_TARGET_CHARS,
-    chunkOverlap: CHUNK_OVERLAP_CHARS,
+    chunkSize: settings.chunkTargetChars,
+    chunkOverlap: settings.chunkOverlapChars,
     separators: ['\n\n', '\n', '. ', '? ', '! ', ' ', '']
   });
   return mergeIsolatedHeadingChunks(await splitter.splitText(normalized))
@@ -84,18 +103,51 @@ function isIsolatedHeadingChunk(chunk: string): boolean {
     lines.every((line) => /^#{1,6}\s+\S/.test(line) || /^[A-Z0-9][A-Z0-9\s:.,()/+-]{3,}$/.test(line));
 }
 
+function resolveRetrievalSettings(
+  settings?: KnowledgeRetrievalSettings
+): KnowledgeRetrievalSettings {
+  if (!settings) {
+    return DEFAULT_RETRIEVAL_SETTINGS;
+  }
+  const maxRetrievedChunks = clampInteger(settings.maxRetrievedChunks, 1, 20);
+  const maxCandidateChunks = Math.max(
+    maxRetrievedChunks,
+    clampInteger(settings.maxCandidateChunks, 1, 80)
+  );
+  const chunkTargetChars = clampInteger(settings.chunkTargetChars, 200, 3000);
+  return {
+    maxRetrievedChunks,
+    maxCandidateChunks,
+    rerankTopN: clampInteger(settings.rerankTopN, 1, 80),
+    adjacentChunkRadius: clampInteger(settings.adjacentChunkRadius, 0, 3),
+    maxChunksPerItem: clampInteger(settings.maxChunksPerItem, 1, 20),
+    chunkTargetChars,
+    chunkOverlapChars: Math.min(
+      clampInteger(settings.chunkOverlapChars, 0, 1000),
+      chunkTargetChars - 1
+    ),
+    embeddingBatchSize: clampInteger(settings.embeddingBatchSize, 1, 256)
+  };
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(Math.trunc(value), max));
+}
+
 export async function indexKnowledgeItem(
   db: WriteLLMDatabase,
   itemId: string,
   embeddingSettings: ModelEndpointSettings,
-  metadataSettings?: ModelEndpointSettings
+  metadataSettings?: ModelEndpointSettings,
+  retrievalSettings?: KnowledgeRetrievalSettings
 ): Promise<KnowledgeChunkRecord[]> {
   const item = db.getKnowledgeItem(itemId);
   if (!item) {
     throw new Error(`Knowledge item not found: ${itemId}`);
   }
 
-  const chunks = await chunkKnowledgeText(item.content);
+  const resolvedRetrievalSettings = resolveRetrievalSettings(retrievalSettings);
+  const chunks = await chunkKnowledgeText(item.content, resolvedRetrievalSettings);
   if (chunks.length === 0) {
     return db.replaceKnowledgeChunks(itemId, []);
   }
@@ -105,7 +157,11 @@ export async function indexKnowledgeItem(
   });
 
   try {
-    const embeddings = await embedTexts(embeddingSettings, chunks);
+    const embeddings = await embedTexts(
+      embeddingSettings,
+      chunks,
+      resolvedRetrievalSettings.embeddingBatchSize
+    );
     return db.replaceKnowledgeChunks(
       itemId,
       chunks.map((content, index) => ({
@@ -342,16 +398,21 @@ export async function retrieveKnowledgeSources(
     maxCandidates?: number;
     queries?: string[];
     rerankSettings?: RerankEndpointSettings;
+    retrievalSettings?: KnowledgeRetrievalSettings;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
   const queries = uniqueNonEmptyStrings([...(options.queries ?? []), query]);
   if (queries.length === 0) {
     return [];
   }
-  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? DEFAULT_MAX_RETRIEVED_CHUNKS, 20));
-  const maxCandidates = Math.max(maxChunks, Math.min(options.maxCandidates ?? DEFAULT_CANDIDATE_CHUNKS, 80));
+  const retrievalSettings = resolveRetrievalSettings(options.retrievalSettings);
+  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? retrievalSettings.maxRetrievedChunks, 20));
+  const maxCandidates = Math.max(
+    maxChunks,
+    Math.min(options.maxCandidates ?? retrievalSettings.maxCandidateChunks, 80)
+  );
   const candidateMap = new Map<string, RetrievalCandidate>();
-  const embeddings = await embedTexts(embeddingSettings, queries);
+  const embeddings = await embedTexts(embeddingSettings, queries, retrievalSettings.embeddingBatchSize);
 
   queries.forEach((retrievalQuery, queryIndex) => {
     addRankedCandidates(
@@ -379,15 +440,26 @@ export async function retrieveKnowledgeSources(
   });
 
   const fused = sortCandidates(candidateMap).slice(0, maxCandidates);
-  addAdjacentCandidates(candidateMap, db, fused.slice(0, Math.min(16, fused.length)), options);
+  addAdjacentCandidates(
+    candidateMap,
+    db,
+    fused.slice(0, Math.min(16, fused.length)),
+    options,
+    retrievalSettings.adjacentChunkRadius
+  );
   const expanded = sortCandidates(candidateMap).slice(0, maxCandidates);
   const reranked = await rerankKnowledgeCandidates({
     settings: options.rerankSettings,
     query,
     candidates: expanded,
-    maxChunks
+    maxChunks,
+    topN: retrievalSettings.rerankTopN
   }).catch(() => expanded.slice(0, maxChunks));
-  const diversified = diversifyCandidatesByItem(reranked, maxChunks);
+  const diversified = diversifyCandidatesByItem(
+    reranked,
+    maxChunks,
+    retrievalSettings.maxChunksPerItem
+  );
 
   return diversified.map((candidate) => toRetrievedSource(candidate.chunk, {
     score: candidate.rerankScore ?? candidate.fusedScore,
@@ -457,14 +529,18 @@ function addAdjacentCandidates(
   options: {
     excludedItemIds?: string[];
     excludedChunkIds?: string[];
-  }
+  },
+  adjacentChunkRadius: number
 ): void {
+  if (adjacentChunkRadius <= 0) {
+    return;
+  }
   const adjacentChunks = db.getAdjacentKnowledgeChunks(
     seeds.map((candidate) => ({
       itemId: candidate.chunk.itemId,
       chunkIndex: candidate.chunk.chunkIndex
     })),
-    ADJACENT_CHUNK_RADIUS,
+    adjacentChunkRadius,
     {
       excludedItemIds: options.excludedItemIds,
       excludedChunkIds: options.excludedChunkIds
@@ -495,8 +571,9 @@ async function rerankKnowledgeCandidates(options: {
   query: string;
   candidates: RetrievalCandidate[];
   maxChunks: number;
+  topN: number;
 }): Promise<RetrievalCandidate[]> {
-  const { settings, query, candidates, maxChunks } = options;
+  const { settings, query, candidates, maxChunks, topN } = options;
   if (!settings?.enabled || !settings.apiKey.trim() || candidates.length === 0 || !query.trim()) {
     return candidates.slice(0, maxChunks);
   }
@@ -512,7 +589,7 @@ async function rerankKnowledgeCandidates(options: {
       query,
       documents: candidates.map((candidate) => candidate.chunk.content),
       return_documents: false,
-      top_n: Math.min(candidates.length, Math.max(maxChunks * 3, maxChunks))
+      top_n: Math.min(candidates.length, Math.max(topN, maxChunks))
     }),
     signal: AbortSignal.timeout(15000)
   });
@@ -545,11 +622,15 @@ async function rerankKnowledgeCandidates(options: {
   ];
 }
 
-function diversifyCandidatesByItem(candidates: RetrievalCandidate[], maxChunks: number): RetrievalCandidate[] {
+function diversifyCandidatesByItem(
+  candidates: RetrievalCandidate[],
+  maxChunks: number,
+  maxChunksPerItem: number
+): RetrievalCandidate[] {
   const selected: RetrievalCandidate[] = [];
   const selectedIds = new Set<string>();
   const itemCounts = new Map<string, number>();
-  const initialLimit = Math.min(MAX_INITIAL_CHUNKS_PER_ITEM, Math.max(1, Math.ceil(maxChunks / 2)));
+  const initialLimit = Math.min(maxChunksPerItem, Math.max(1, Math.ceil(maxChunks / 2)));
 
   for (const candidate of candidates) {
     if (selected.length >= maxChunks) {
@@ -623,7 +704,11 @@ export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): str
   ].join('\n\n');
 }
 
-async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Promise<number[][]> {
+async function embedTexts(
+  settings: ModelEndpointSettings,
+  texts: string[],
+  batchSize = EMBEDDING_BATCH_SIZE
+): Promise<number[][]> {
   if (!settings.apiKey.trim()) {
     throw new Error('Embedding API key is required. Add it in Settings first.');
   }
@@ -658,7 +743,7 @@ async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Pro
     }
   };
 
-  for (const batch of batchEmbeddingTexts(texts)) {
+  for (const batch of batchEmbeddingTexts(texts, batchSize)) {
     embeddings.push(...await embedBatch(batch));
   }
 
@@ -671,12 +756,12 @@ async function embedTexts(settings: ModelEndpointSettings, texts: string[]): Pro
   return embeddings;
 }
 
-function batchEmbeddingTexts(texts: string[]): string[][] {
+function batchEmbeddingTexts(texts: string[], batchSize: number): string[][] {
   const batches: string[][] = [];
   let currentBatch: string[] = [];
   let currentChars = 0;
   for (const text of texts) {
-    const wouldExceedCount = currentBatch.length >= EMBEDDING_BATCH_SIZE;
+    const wouldExceedCount = currentBatch.length >= batchSize;
     const wouldExceedChars = currentBatch.length > 0 && currentChars + text.length > EMBEDDING_BATCH_MAX_CHARS;
     if (wouldExceedCount || wouldExceedChars) {
       batches.push(currentBatch);

@@ -6,6 +6,7 @@ import type {
   AppFontFamily,
   AppearanceSettings,
   KnowledgeSettings,
+  KnowledgeRetrievalSettings,
   LlmSettings,
   MineruSettings,
   ModelEndpointSettings,
@@ -17,6 +18,17 @@ import type {
   UpdateAppearanceSettingsPayload,
   UpdateLlmSettingsPayload
 } from '../shared/types.js';
+
+const defaultKnowledgeRetrievalSettings: KnowledgeRetrievalSettings = {
+  maxRetrievedChunks: 10,
+  maxCandidateChunks: 40,
+  rerankTopN: 30,
+  adjacentChunkRadius: 1,
+  maxChunksPerItem: 3,
+  chunkTargetChars: 700,
+  chunkOverlapChars: 100,
+  embeddingBatchSize: 64
+};
 
 const defaultSettings: LlmSettings = {
   chat: {
@@ -58,7 +70,8 @@ const defaultSettings: LlmSettings = {
       isOcr: false,
       enableTable: true,
       enableFormula: true
-    }
+    },
+    retrieval: defaultKnowledgeRetrievalSettings
   }
 };
 
@@ -96,7 +109,8 @@ function toPublic(settings: LlmSettings): PublicLlmSettings {
     appearance: settings.appearance,
     knowledge: {
       pdfExtractionEngine: settings.knowledge.pdfExtractionEngine,
-      mineru: toPublicMineru(settings.knowledge.mineru)
+      mineru: toPublicMineru(settings.knowledge.mineru),
+      retrieval: settings.knowledge.retrieval
     }
   };
 }
@@ -190,7 +204,61 @@ function readKnowledge(
 ): KnowledgeSettings {
   return {
     pdfExtractionEngine: parsed?.pdfExtractionEngine === 'mineru' ? 'mineru' : fallback.pdfExtractionEngine,
-    mineru: readMineru(parsed?.mineru, fallback.mineru)
+    mineru: readMineru(parsed?.mineru, fallback.mineru),
+    retrieval: readKnowledgeRetrieval(parsed?.retrieval, fallback.retrieval)
+  };
+}
+
+function readKnowledgeRetrieval(
+  parsed: Partial<KnowledgeRetrievalSettings> | undefined,
+  fallback: KnowledgeRetrievalSettings
+): KnowledgeRetrievalSettings {
+  return normalizeKnowledgeRetrieval({
+    maxRetrievedChunks: readInteger(parsed?.maxRetrievedChunks, fallback.maxRetrievedChunks),
+    maxCandidateChunks: readInteger(parsed?.maxCandidateChunks, fallback.maxCandidateChunks),
+    rerankTopN: readInteger(parsed?.rerankTopN, fallback.rerankTopN),
+    adjacentChunkRadius: readInteger(parsed?.adjacentChunkRadius, fallback.adjacentChunkRadius),
+    maxChunksPerItem: readInteger(parsed?.maxChunksPerItem, fallback.maxChunksPerItem),
+    chunkTargetChars: readInteger(parsed?.chunkTargetChars, fallback.chunkTargetChars),
+    chunkOverlapChars: readInteger(parsed?.chunkOverlapChars, fallback.chunkOverlapChars),
+    embeddingBatchSize: readInteger(parsed?.embeddingBatchSize, fallback.embeddingBatchSize)
+  });
+}
+
+function readInteger(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+  }
+  return fallback;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(Math.trunc(value), max));
+}
+
+function normalizeKnowledgeRetrieval(settings: KnowledgeRetrievalSettings): KnowledgeRetrievalSettings {
+  const maxRetrievedChunks = clampInteger(settings.maxRetrievedChunks, 1, 20);
+  const maxCandidateChunks = Math.max(
+    maxRetrievedChunks,
+    clampInteger(settings.maxCandidateChunks, 1, 80)
+  );
+  const chunkTargetChars = clampInteger(settings.chunkTargetChars, 200, 3000);
+  return {
+    maxRetrievedChunks,
+    maxCandidateChunks,
+    rerankTopN: clampInteger(settings.rerankTopN, 1, 80),
+    adjacentChunkRadius: clampInteger(settings.adjacentChunkRadius, 0, 3),
+    maxChunksPerItem: clampInteger(settings.maxChunksPerItem, 1, 20),
+    chunkTargetChars,
+    chunkOverlapChars: Math.min(
+      clampInteger(settings.chunkOverlapChars, 0, 1000),
+      chunkTargetChars - 1
+    ),
+    embeddingBatchSize: clampInteger(settings.embeddingBatchSize, 1, 256)
   };
 }
 
@@ -259,7 +327,11 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
         isOcr: payload.mineruIsOcr ?? current.knowledge.mineru.isOcr,
         enableTable: payload.mineruEnableTable ?? current.knowledge.mineru.enableTable,
         enableFormula: payload.mineruEnableFormula ?? current.knowledge.mineru.enableFormula
-      }
+      },
+      retrieval: readKnowledgeRetrieval(
+        payload.knowledgeRetrieval,
+        current.knowledge.retrieval
+      )
     }
   };
 

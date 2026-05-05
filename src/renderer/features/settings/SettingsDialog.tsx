@@ -57,6 +57,7 @@ import type {
   AccentColor,
   AppearanceSettings,
   AppFontFamily,
+  KnowledgeRetrievalSettings,
   LlmProviderKind,
   MineruModelVersion,
   PdfExtractionEngine,
@@ -90,12 +91,24 @@ type KnowledgeDraft = {
   mineruIsOcr: boolean;
   mineruEnableTable: boolean;
   mineruEnableFormula: boolean;
+  retrieval: KnowledgeRetrievalSettings;
 };
 
 const defaultAppearance: AppearanceSettings = {
   theme: 'light',
   accentColor: 'deep-teal',
   fontFamily: 'geist'
+};
+
+const defaultKnowledgeRetrieval: KnowledgeRetrievalSettings = {
+  maxRetrievedChunks: 10,
+  maxCandidateChunks: 40,
+  rerankTopN: 30,
+  adjacentChunkRadius: 1,
+  maxChunksPerItem: 3,
+  chunkTargetChars: 700,
+  chunkOverlapChars: 100,
+  embeddingBatchSize: 64
 };
 
 const providerOptions: { value: LlmProviderKind; label: string }[] = [
@@ -238,7 +251,8 @@ function knowledgeFromSettings(settings: PublicLlmSettings | null): KnowledgeDra
     mineruLanguage: settings?.knowledge.mineru.language ?? 'ch',
     mineruIsOcr: settings?.knowledge.mineru.isOcr ?? false,
     mineruEnableTable: settings?.knowledge.mineru.enableTable ?? true,
-    mineruEnableFormula: settings?.knowledge.mineru.enableFormula ?? true
+    mineruEnableFormula: settings?.knowledge.mineru.enableFormula ?? true,
+    retrieval: settings?.knowledge.retrieval ?? defaultKnowledgeRetrieval
   };
 }
 
@@ -299,6 +313,14 @@ export function SettingsDialog({
     settings?.knowledge.mineru.isOcr,
     settings?.knowledge.mineru.enableTable,
     settings?.knowledge.mineru.enableFormula,
+    settings?.knowledge.retrieval.maxRetrievedChunks,
+    settings?.knowledge.retrieval.maxCandidateChunks,
+    settings?.knowledge.retrieval.rerankTopN,
+    settings?.knowledge.retrieval.adjacentChunkRadius,
+    settings?.knowledge.retrieval.maxChunksPerItem,
+    settings?.knowledge.retrieval.chunkTargetChars,
+    settings?.knowledge.retrieval.chunkOverlapChars,
+    settings?.knowledge.retrieval.embeddingBatchSize,
     open
   ]);
 
@@ -370,7 +392,8 @@ export function SettingsDialog({
         mineruLanguage: knowledge.mineruLanguage,
         mineruIsOcr: knowledge.mineruIsOcr,
         mineruEnableTable: knowledge.mineruEnableTable,
-        mineruEnableFormula: knowledge.mineruEnableFormula
+        mineruEnableFormula: knowledge.mineruEnableFormula,
+        knowledgeRetrieval: knowledge.retrieval
       });
       onSaved(next);
       setChat((current) => ({ ...current, apiKey: '' }));
@@ -547,7 +570,7 @@ function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
     return 'Appearance changes apply immediately.';
   }
   if (activeSection === 'knowledge') {
-    return 'PDF extraction and MinerU changes are saved with Save settings.';
+    return 'Knowledge retrieval, indexing, and PDF extraction changes are saved with Save settings.';
   }
   return 'Provider changes are saved together with Save settings.';
 }
@@ -676,6 +699,18 @@ function KnowledgeSettings({
     onChange({ ...knowledge, ...partial });
   }
 
+  function updateRetrieval<K extends keyof KnowledgeRetrievalSettings>(
+    key: K,
+    value: KnowledgeRetrievalSettings[K]
+  ) {
+    update({
+      retrieval: {
+        ...knowledge.retrieval,
+        [key]: value
+      }
+    });
+  }
+
   const mineruApiKeyMissing =
     knowledge.pdfExtractionEngine === 'mineru' && !hasMineruApiKey && !knowledge.mineruApiKey.trim();
   const mineruLanguageMissing = !knowledge.mineruLanguage.trim();
@@ -707,6 +742,92 @@ function KnowledgeSettings({
           </Select>
           <FieldDescription>Use the local parser by default; MinerU enables more precise PDF extraction.</FieldDescription>
         </Field>
+
+        <FieldSet className="settings-subsection">
+          <FieldLegend variant="label">Retrieval</FieldLegend>
+          <FieldDescription>Control how many knowledge chunks are gathered, reranked, and sent into generation.</FieldDescription>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberSettingField
+              id="knowledge-max-retrieved-chunks"
+              label="Final chunks"
+              value={knowledge.retrieval.maxRetrievedChunks}
+              min={1}
+              max={20}
+              description="Maximum source chunks sent to the LLM."
+              onChange={(value) => updateRetrieval('maxRetrievedChunks', value)}
+            />
+            <NumberSettingField
+              id="knowledge-max-candidate-chunks"
+              label="Candidate chunks"
+              value={knowledge.retrieval.maxCandidateChunks}
+              min={1}
+              max={80}
+              description="Hybrid search candidates considered before rerank."
+              onChange={(value) => updateRetrieval('maxCandidateChunks', value)}
+            />
+            <NumberSettingField
+              id="knowledge-rerank-top-n"
+              label="Rerank filter count"
+              value={knowledge.retrieval.rerankTopN}
+              min={1}
+              max={80}
+              description="Requested rerank results before final trimming."
+              onChange={(value) => updateRetrieval('rerankTopN', value)}
+            />
+            <NumberSettingField
+              id="knowledge-adjacent-chunk-radius"
+              label="Adjacent radius"
+              value={knowledge.retrieval.adjacentChunkRadius}
+              min={0}
+              max={3}
+              description="Neighbor chunks added around strong matches."
+              onChange={(value) => updateRetrieval('adjacentChunkRadius', value)}
+            />
+            <NumberSettingField
+              id="knowledge-max-chunks-per-item"
+              label="Chunks per source"
+              value={knowledge.retrieval.maxChunksPerItem}
+              min={1}
+              max={20}
+              description="Initial cap for chunks from the same source."
+              onChange={(value) => updateRetrieval('maxChunksPerItem', value)}
+            />
+          </div>
+        </FieldSet>
+
+        <FieldSet className="settings-subsection">
+          <FieldLegend variant="label">Advanced indexing</FieldLegend>
+          <FieldDescription>These values affect new or reindexed knowledge items only.</FieldDescription>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberSettingField
+              id="knowledge-chunk-target-chars"
+              label="Chunk size"
+              value={knowledge.retrieval.chunkTargetChars}
+              min={200}
+              max={3000}
+              description="Target characters per indexed chunk."
+              onChange={(value) => updateRetrieval('chunkTargetChars', value)}
+            />
+            <NumberSettingField
+              id="knowledge-chunk-overlap-chars"
+              label="Chunk overlap"
+              value={knowledge.retrieval.chunkOverlapChars}
+              min={0}
+              max={1000}
+              description="Characters repeated between neighboring chunks."
+              onChange={(value) => updateRetrieval('chunkOverlapChars', value)}
+            />
+            <NumberSettingField
+              id="knowledge-embedding-batch-size"
+              label="Embedding batch size"
+              value={knowledge.retrieval.embeddingBatchSize}
+              min={1}
+              max={256}
+              description="Maximum chunks embedded in each request."
+              onChange={(value) => updateRetrieval('embeddingBatchSize', value)}
+            />
+          </div>
+        </FieldSet>
 
         <FieldSet className="settings-subsection">
           <FieldLegend variant="label">MinerU</FieldLegend>
@@ -803,6 +924,46 @@ function KnowledgeSettings({
         </FieldSet>
       </FieldGroup>
     </FieldGroup>
+  );
+}
+
+function NumberSettingField({
+  id,
+  label,
+  value,
+  min,
+  max,
+  description,
+  onChange
+}: {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  description: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(event) => {
+          const next = event.currentTarget.valueAsNumber;
+          onChange(Number.isFinite(next) ? Math.trunc(next) : 0);
+        }}
+      />
+      <FieldDescription>
+        {description} Range {min}-{max}.
+      </FieldDescription>
+    </Field>
   );
 }
 

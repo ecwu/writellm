@@ -156,6 +156,7 @@ export type UpdateLlmSettingsPayload = {
   mineruIsOcr?: boolean;
   mineruEnableTable?: boolean;
   mineruEnableFormula?: boolean;
+  knowledgeRetrieval?: Partial<KnowledgeRetrievalSettings>;
 };
 
 export type ThemeMode = 'light' | 'dark';
@@ -214,14 +215,27 @@ export type PublicMineruSettings = Omit<MineruSettings, 'apiKey'> & {
   hasApiKey: boolean;
 };
 
+export type KnowledgeRetrievalSettings = {
+  maxRetrievedChunks: number;
+  maxCandidateChunks: number;
+  rerankTopN: number;
+  adjacentChunkRadius: number;
+  maxChunksPerItem: number;
+  chunkTargetChars: number;
+  chunkOverlapChars: number;
+  embeddingBatchSize: number;
+};
+
 export type KnowledgeSettings = {
   pdfExtractionEngine: PdfExtractionEngine;
   mineru: MineruSettings;
+  retrieval: KnowledgeRetrievalSettings;
 };
 
 export type PublicKnowledgeSettings = {
   pdfExtractionEngine: PdfExtractionEngine;
   mineru: PublicMineruSettings;
+  retrieval: KnowledgeRetrievalSettings;
 };
 
 export type ModelSettingsProfile = {
