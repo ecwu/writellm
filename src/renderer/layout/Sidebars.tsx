@@ -1,6 +1,6 @@
 
 import type { ReactNode } from 'react';
-import { FolderPlus, Save } from 'lucide-react';
+import { FolderPlus } from 'lucide-react';
 import { Outline } from '../components/Outline';
 import { Button } from '../components/ui/button';
 import {
@@ -10,9 +10,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
   SidebarSeparator
 } from '../components/ui/sidebar';
@@ -60,21 +57,6 @@ export function SidebarLeft({
 export function SidebarRight({ children }: { children: ReactNode }) {
   return (
     <Sidebar side="right" className="top-(--header-height) h-[calc(100svh-var(--header-height))]" collapsible="offcanvas">
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="cursor-default">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
-                <Save className="size-4" />
-              </div>
-              <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Inspector</span>
-                <span className="truncate text-xs text-sidebar-foreground/70">Edit selected content</span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="min-h-0 flex-1">
           <SidebarGroupContent>{children}</SidebarGroupContent>
