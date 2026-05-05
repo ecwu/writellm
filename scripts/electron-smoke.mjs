@@ -41,7 +41,7 @@ const [
   { WriteLLMDatabase },
   { exportLatex },
   gitSession,
-  { indexKnowledgeItem },
+  { indexKnowledgeItem, retrieveKnowledgeSourcesV2 },
   knowledgeIngest,
   { extractKnowledgeFileText },
   { restoreSectionVersion },
@@ -346,6 +346,200 @@ try {
   if (embeddingDebug.chunks.some((chunk, index) => chunk.embeddingPreview[0] !== index + 1)) {
     throw new Error('AI SDK embedMany result order was not preserved in stored chunks.');
   }
+  const sourceV2Item = db.createKnowledgeItem(
+    'Source v2 fixture',
+    'Alpha evidence.\n\nFollowup evidence.\n\nExcluded evidence.\n\nRound two evidence.\n\nRound three evidence.'
+  );
+  const sourceV2Chunks = db.replaceKnowledgeChunks(sourceV2Item.id, [
+    { content: 'Alpha evidence.', embedding: [1, 0, 0], embeddingModel: 'test-embedding' },
+    { content: 'Followup evidence.', embedding: [0, 1, 0], embeddingModel: 'test-embedding' },
+    { content: 'Excluded evidence.', embedding: [1, 0, 0], embeddingModel: 'test-embedding' },
+    { content: 'Round two evidence.', embedding: [0, 0, 1], embeddingModel: 'test-embedding' },
+    { content: 'Round three evidence.', embedding: [0, 0, 2], embeddingModel: 'test-embedding' }
+  ]);
+  const sourceV2RetrievalSettings = {
+    maxRetrievedChunks: 2,
+    maxCandidateChunks: 2,
+    rerankTopN: 2,
+    adjacentChunkRadius: 0,
+    maxChunksPerItem: 2,
+    chunkTargetChars: 700,
+    chunkOverlapChars: 100,
+    embeddingBatchSize: 64
+  };
+  const sourceV2RerankSettings = {
+    provider: 'siliconflow-compatible',
+    baseURL: 'http://localhost',
+    model: 'test-rerank',
+    apiKey: '',
+    enabled: false
+  };
+  async function withSourceV2FetchMock(chatResponder, callback) {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url) === 'http://localhost/chat/completions') {
+        const body = JSON.parse(String(init.body));
+        const response = chatResponder(body);
+        if (response instanceof Response) {
+          return response;
+        }
+        return jsonResponse({
+          id: 'chatcmpl-sourcev2-smoke',
+          object: 'chat.completion',
+          created: 0,
+          model: body.model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify(response)
+              },
+              finish_reason: 'stop'
+            }
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+        });
+      }
+      if (String(url) !== 'http://localhost/embeddings') {
+        throw new Error(`Unexpected Source v2 fetch URL: ${String(url)}`);
+      }
+      const body = JSON.parse(String(init.body));
+      return jsonResponse({
+        data: body.input.map((value, index) => ({
+          index,
+          embedding: embeddingForSourceV2Query(String(value))
+        }))
+      });
+    };
+    try {
+      return await callback();
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  }
+  const stopTrace = [];
+  await withSourceV2FetchMock((body) => {
+    const ids = chunkIdsFromPrompt(body.messages?.at(-1)?.content ?? '');
+    return {
+      decision: 'stop',
+      reason: 'Alpha is sufficient.',
+      selectedChunkIds: ids.slice(0, 1),
+      missingEvidence: [],
+      nextQueries: []
+    };
+  }, async () => {
+    const sources = await retrieveKnowledgeSourcesV2(db, fakeEmbeddingSettings, fakeEmbeddingSettings, 'alpha evidence', {
+      excludedChunkIds: [sourceV2Chunks[2].id],
+      maxChunks: 2,
+      maxCandidates: 2,
+      queries: ['alpha evidence'],
+      rerankSettings: sourceV2RerankSettings,
+      retrievalSettings: sourceV2RetrievalSettings,
+      runId: 'sourcev2-stop-smoke',
+      onTrace: (event) => stopTrace.push(event)
+    });
+    if (sources.some((source) => source.chunkId === sourceV2Chunks[2].id)) {
+      throw new Error('Source v2 retrieval did not honor excluded chunk IDs.');
+    }
+    if (stopTrace.filter((event) => event.type === 'round_evaluation').length !== 1) {
+      throw new Error('Source v2 stop decision did not finish after one evaluation round.');
+    }
+  });
+  let plainJsonEvalCalls = 0;
+  await withSourceV2FetchMock((body) => {
+    plainJsonEvalCalls += 1;
+    if (body.response_format) {
+      throw new Error('Source v2 evaluator should generate JSON text without response_format.');
+    }
+    const ids = chunkIdsFromPrompt(body.messages?.at(-1)?.content ?? '');
+    return {
+      decision: 'stop',
+      reason: 'Plain JSON evaluator worked.',
+      selectedChunkIds: ids.slice(0, 1),
+      missingEvidence: [],
+      nextQueries: []
+    };
+  }, async () => {
+    const sources = await retrieveKnowledgeSourcesV2(db, fakeEmbeddingSettings, fakeEmbeddingSettings, 'alpha evidence', {
+      excludedChunkIds: [sourceV2Chunks[2].id],
+      maxChunks: 2,
+      maxCandidates: 2,
+      queries: ['alpha evidence'],
+      rerankSettings: sourceV2RerankSettings,
+      retrievalSettings: sourceV2RetrievalSettings,
+      runId: 'sourcev2-text-fallback-smoke'
+    });
+    if (plainJsonEvalCalls !== 1 || sources[0]?.sourceV2Reason !== 'Plain JSON evaluator worked.') {
+      throw new Error('Source v2 did not use plain JSON evaluator output.');
+    }
+  });
+  const continueTrace = [];
+  let continueCalls = 0;
+  await withSourceV2FetchMock((body) => {
+    continueCalls += 1;
+    const ids = chunkIdsFromPrompt(body.messages?.at(-1)?.content ?? '');
+    return continueCalls === 1
+      ? {
+          decision: 'continue',
+          reason: 'Need followup evidence.',
+          selectedChunkIds: ids.slice(0, 1),
+          missingEvidence: ['followup'],
+          nextQueries: ['followup evidence']
+        }
+      : {
+          decision: 'stop',
+          reason: 'Followup evidence found.',
+          selectedChunkIds: ids,
+          missingEvidence: [],
+          nextQueries: []
+        };
+  }, async () => {
+    const sources = await retrieveKnowledgeSourcesV2(db, fakeEmbeddingSettings, fakeEmbeddingSettings, 'alpha evidence', {
+      excludedChunkIds: [sourceV2Chunks[2].id],
+      maxChunks: 2,
+      maxCandidates: 2,
+      queries: ['alpha evidence'],
+      rerankSettings: sourceV2RerankSettings,
+      retrievalSettings: sourceV2RetrievalSettings,
+      runId: 'sourcev2-continue-smoke',
+      onTrace: (event) => continueTrace.push(event)
+    });
+    if (!sources.some((source) => source.chunkId === sourceV2Chunks[1].id)) {
+      throw new Error('Source v2 continuation did not retrieve the follow-up chunk.');
+    }
+    if (!continueTrace.some((event) => event.type === 'round_started' && event.round === 2)) {
+      throw new Error('Source v2 continuation did not start a second retrieval round.');
+    }
+  });
+  const maxRoundTrace = [];
+  let maxRoundCalls = 0;
+  await withSourceV2FetchMock((body) => {
+    maxRoundCalls += 1;
+    const ids = chunkIdsFromPrompt(body.messages?.at(-1)?.content ?? '');
+    return {
+      decision: 'continue',
+      reason: 'Keep searching.',
+      selectedChunkIds: ids,
+      missingEvidence: ['more'],
+      nextQueries: maxRoundCalls === 1 ? ['round two evidence'] : ['round three evidence']
+    };
+  }, async () => {
+    await retrieveKnowledgeSourcesV2(db, fakeEmbeddingSettings, fakeEmbeddingSettings, 'alpha evidence', {
+      excludedChunkIds: [sourceV2Chunks[2].id],
+      maxChunks: 2,
+      maxCandidates: 2,
+      maxRounds: 3,
+      queries: ['alpha evidence'],
+      rerankSettings: sourceV2RerankSettings,
+      retrievalSettings: sourceV2RetrievalSettings,
+      runId: 'sourcev2-max-smoke',
+      onTrace: (event) => maxRoundTrace.push(event)
+    });
+    if (maxRoundTrace.filter((event) => event.type === 'round_started').length !== 3) {
+      throw new Error('Source v2 retrieval did not enforce the configured maximum rounds.');
+    }
+  });
   const fakeIndexKnowledgeItem = async (database, itemId) => {
     const item = database.getKnowledgeItem(itemId);
     if (!item) {
@@ -835,11 +1029,29 @@ function createSamplePdf(text) {
   return output;
 }
 
-function jsonResponse(payload) {
+function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+function embeddingForSourceV2Query(query) {
+  const normalized = query.toLowerCase();
+  if (normalized.includes('followup')) {
+    return [0, 1, 0];
+  }
+  if (normalized.includes('round three')) {
+    return [0, 0, 2];
+  }
+  if (normalized.includes('round two')) {
+    return [0, 0, 1];
+  }
+  return [1, 0, 0];
+}
+
+function chunkIdsFromPrompt(prompt) {
+  return Array.from(prompt.matchAll(/chunkId:\s*(\S+)/g), (match) => match[1]);
 }
 
 async function createZip(entries, compression = 'DEFLATE') {

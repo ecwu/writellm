@@ -45,6 +45,7 @@ const ipcChannels = {
   saveLlmGeneration: 'writellm:saveLlmGeneration',
   applySectionLlmEdit: 'writellm:applySectionLlmEdit',
   llmStream: 'writellm:llmStream',
+  knowledgeRetrievalStream: 'writellm:knowledgeRetrievalStream',
   knowledgeIngestUpdated: 'writellm:knowledgeIngestUpdated'
 } as const;
 
@@ -108,6 +109,15 @@ const api: WriteLLMIpc = {
     ipcRenderer.on(ipcChannels.llmStream, listener);
     return () => {
       ipcRenderer.removeListener(ipcChannels.llmStream, listener);
+    };
+  },
+  onKnowledgeRetrievalStream: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: Parameters<typeof callback>[0]) => {
+      callback(message);
+    };
+    ipcRenderer.on(ipcChannels.knowledgeRetrievalStream, listener);
+    return () => {
+      ipcRenderer.removeListener(ipcChannels.knowledgeRetrievalStream, listener);
     };
   },
   onKnowledgeIngestUpdated: (callback) => {

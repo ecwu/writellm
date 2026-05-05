@@ -9,6 +9,7 @@ import type {
   GitHistoryRecord,
   GitStatusRecord,
   KnowledgeDebugDetails,
+  KnowledgeRetrievalTraceEvent,
   KnowledgeSearchPayload,
   KnowledgeSourceTarget,
   LlmStreamEvent,
@@ -70,6 +71,7 @@ export const ipcChannels = {
   saveLlmGeneration: 'writellm:saveLlmGeneration',
   applySectionLlmEdit: 'writellm:applySectionLlmEdit',
   llmStream: 'writellm:llmStream',
+  knowledgeRetrievalStream: 'writellm:knowledgeRetrievalStream',
   knowledgeIngestUpdated: 'writellm:knowledgeIngestUpdated'
 } as const;
 
@@ -122,5 +124,6 @@ export type WriteLLMIpc = {
   saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
   applySectionLlmEdit(payload: ApplySectionLlmEditPayload): Promise<FocusedWorkspaceState>;
   onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;
+  onKnowledgeRetrievalStream(callback: (event: KnowledgeRetrievalTraceEvent) => void): () => void;
   onKnowledgeIngestUpdated(callback: () => void): () => void;
 };

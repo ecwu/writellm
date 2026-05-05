@@ -54,6 +54,8 @@ export async function generateLlmText(
   payload: {
     prompt: string;
     systemPrompt?: string;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
   },
   abortSignal?: AbortSignal
 ): Promise<string> {
@@ -66,6 +68,8 @@ export async function generateLlmText(
     system: payload.systemPrompt,
     prompt: payload.prompt,
     abortSignal,
+    maxOutputTokens: payload.maxOutputTokens,
+    timeout: payload.timeoutMs,
     maxRetries: 0
   });
 

@@ -165,12 +165,17 @@ export function WritingView({
     });
   }
 
-  async function retrieveEditorFlowSources(knowledgeRetrievalPrompt: string): Promise<RetrievedKnowledgeSource[]> {
+  async function retrieveEditorFlowSources(
+    knowledgeRetrievalPrompt: string,
+    options: { retrievalMode: 'classic' | 'sourcev2'; runId?: string }
+  ): Promise<RetrievedKnowledgeSource[]> {
     return getApi().searchKnowledge({
       query: knowledgeRetrievalPrompt,
       sectionId: section.id,
       focusSectionId: section.id,
-      contextNodeIds: []
+      contextNodeIds: [],
+      retrievalMode: options.retrievalMode,
+      runId: options.runId
     });
   }
 
@@ -244,6 +249,7 @@ export function WritingView({
       focusSectionId: section.id,
       prompt: request.prompt,
       useKnowledgeSources: input.useKnowledgeSources,
+      retrievalMode: input.retrievalMode,
       knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
       prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
       contextNodeIds: [],

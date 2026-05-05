@@ -337,6 +337,65 @@
   overflow: auto;
 }
 
+.llm-flow-source-v2-trace,
+.llm-flow-source-round-group {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.llm-flow-source-v2-trace {
+  margin-top: 0.45rem;
+}
+
+.llm-flow-source-v2-round {
+  border-top: 1px solid oklch(1 0 0 / 10%);
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.45rem 0;
+}
+
+.llm-flow-source-v2-round strong,
+.llm-flow-source-round-label {
+  color: oklch(0.86 0.04 190);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.llm-flow-source-v2-round span,
+.llm-flow-source-v2-round p {
+  color: oklch(0.76 0.008 240);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.llm-flow-source-v2-round em {
+  color: oklch(0.8 0.045 190);
+  font-size: 0.7rem;
+  font-style: normal;
+  line-height: 1.2;
+}
+
+.llm-flow-source-v2-waiting {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.llm-flow-source-v2-waiting svg {
+  color: oklch(0.8 0.045 190);
+  height: 0.85rem;
+  width: 0.85rem;
+}
+
+.llm-flow-source-round-label {
+  border-top: 1px solid oklch(1 0 0 / 10%);
+  padding-top: 0.45rem;
+}
+
 .llm-flow-source {
   border-top: 1px solid oklch(1 0 0 / 10%);
   display: grid;
@@ -395,6 +454,10 @@
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.llm-flow-source-reason {
+  color: oklch(0.8 0.045 190) !important;
 }
 
 .llm-flow-status {

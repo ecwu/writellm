@@ -310,6 +310,8 @@ export type KnowledgeChunkRecord = {
   updatedAt: string;
 };
 
+export type KnowledgeRetrievalMode = 'classic' | 'sourcev2';
+
 export type KnowledgeCitationRecord = {
   id: string;
   generationNodeId: string;
@@ -336,6 +338,8 @@ export type RetrievedKnowledgeSource = {
   retrievalMethod?: 'vector' | 'fts' | 'hybrid' | 'reranked';
   rerankScore?: number;
   retrievalReason?: string;
+  sourceV2Round?: number;
+  sourceV2Reason?: string;
 };
 
 export type KnowledgeSourceTarget = {
@@ -450,7 +454,56 @@ export type KnowledgeSearchPayload = {
   excludedItemIds?: string[];
   excludedChunkIds?: string[];
   maxChunks?: number;
+  retrievalMode?: KnowledgeRetrievalMode;
+  runId?: string;
 };
+
+export type KnowledgeRetrievalTraceEvent =
+  | {
+      type: 'started';
+      runId: string;
+      query: string;
+      maxRounds: number;
+    }
+  | {
+      type: 'round_started';
+      runId: string;
+      round: number;
+      queries: string[];
+    }
+  | {
+      type: 'round_candidates';
+      runId: string;
+      round: number;
+      sources: RetrievedKnowledgeSource[];
+    }
+  | {
+      type: 'round_evaluating';
+      runId: string;
+      round: number;
+      candidateCount: number;
+    }
+  | {
+      type: 'round_evaluation';
+      runId: string;
+      round: number;
+      decision: 'continue' | 'stop';
+      reason: string;
+      selectedChunkIds: string[];
+      missingEvidence: string[];
+      nextQueries: string[];
+    }
+  | {
+      type: 'done';
+      runId: string;
+      sources: RetrievedKnowledgeSource[];
+      stopReason: string;
+    }
+  | {
+      type: 'error';
+      runId: string;
+      message: string;
+    };
 
 export type KnowledgeChunkingDebugConfig = {
   targetChars: number;
@@ -501,6 +554,7 @@ export type GenerateLlmPayload = {
   excludedKnowledgeItemIds?: string[];
   excludedKnowledgeChunkIds?: string[];
   maxKnowledgeChunks?: number;
+  retrievalMode?: KnowledgeRetrievalMode;
   requireInlineCitations?: boolean;
   systemPrompt?: string;
 };

@@ -11,9 +11,14 @@ import type {
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
+  KnowledgeRetrievalMode,
+  KnowledgeRetrievalSettings,
+  KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
   LlmOperationRecord,
+  ModelEndpointSettings,
+  RerankEndpointSettings,
   RetrievedKnowledgeSource,
   NodeRecord,
   SectionLlmEditMode,
@@ -43,7 +48,8 @@ import {
   formatSourcesForPrompt,
   getKnowledgeChunkingDebugConfig,
   indexKnowledgeItem,
-  retrieveKnowledgeSources
+  retrieveKnowledgeSources,
+  retrieveKnowledgeSourcesV2
 } from './knowledgeIndex.js';
 import {
   createWorkspace,
@@ -404,6 +410,45 @@ function buildKnowledgeRetrievalQueries(
   return queries;
 }
 
+async function retrieveKnowledgeForGeneration(
+  db: ReturnType<typeof getActiveDb>,
+  embeddingSettings: ModelEndpointSettings,
+  chatSettings: ModelEndpointSettings,
+  query: string,
+  options: {
+    excludedItemIds?: string[];
+    excludedChunkIds?: string[];
+    maxChunks?: number;
+    queries?: string[];
+    retrievalMode?: KnowledgeRetrievalMode;
+    runId?: string;
+    rerankSettings?: RerankEndpointSettings;
+    retrievalSettings?: KnowledgeRetrievalSettings;
+    onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+  }
+): Promise<RetrievedKnowledgeSource[]> {
+  if (options.retrievalMode === 'sourcev2') {
+    return retrieveKnowledgeSourcesV2(db, embeddingSettings, chatSettings, query, {
+      excludedItemIds: options.excludedItemIds,
+      excludedChunkIds: options.excludedChunkIds,
+      maxChunks: options.maxChunks,
+      queries: options.queries,
+      rerankSettings: options.rerankSettings,
+      retrievalSettings: options.retrievalSettings,
+      runId: options.runId,
+      onTrace: options.onTrace
+    });
+  }
+  return retrieveKnowledgeSources(db, embeddingSettings, query, {
+    excludedItemIds: options.excludedItemIds,
+    excludedChunkIds: options.excludedChunkIds,
+    maxChunks: options.maxChunks,
+    queries: options.queries,
+    rerankSettings: options.rerankSettings,
+    retrievalSettings: options.retrievalSettings
+  });
+}
+
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -698,13 +743,29 @@ export function registerIpcHandlers(): void {
     const articleSectionContext = payload.sectionId
       ? buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId)
       : '';
+    const queries = articleSectionContext
+      ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
+      : [payload.query];
+    if (payload.retrievalMode === 'sourcev2') {
+      const runId = payload.runId ?? createId('retrieval');
+      return retrieveKnowledgeSourcesV2(db, settings.embedding, settings.chat, payload.query, {
+        excludedItemIds: payload.excludedItemIds,
+        excludedChunkIds: payload.excludedChunkIds,
+        maxChunks: payload.maxChunks,
+        queries,
+        runId,
+        rerankSettings: settings.rerank,
+        retrievalSettings: settings.knowledge.retrieval,
+        onTrace: (traceEvent) => {
+          _event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
+        }
+      });
+    }
     return retrieveKnowledgeSources(db, settings.embedding, payload.query, {
       excludedItemIds: payload.excludedItemIds,
       excludedChunkIds: payload.excludedChunkIds,
       maxChunks: payload.maxChunks,
-      queries: articleSectionContext
-        ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
-        : [payload.query],
+      queries,
       rerankSettings: settings.rerank,
       retrievalSettings: settings.knowledge.retrieval
     });
@@ -753,17 +814,23 @@ export function registerIpcHandlers(): void {
     const useKnowledgeSources = payload.useKnowledgeSources !== false;
     const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || payload.prompt;
     const retrievedSources = useKnowledgeSources
-      ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeSources(
+      ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeForGeneration(
           db,
           settings.embedding,
+          settings.chat,
           knowledgeRetrievalPrompt,
           {
             excludedItemIds: payload.excludedKnowledgeItemIds,
             excludedChunkIds: payload.excludedKnowledgeChunkIds,
             maxChunks: payload.maxKnowledgeChunks,
             queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
+            retrievalMode: payload.retrievalMode,
+            runId: payload.runId,
             rerankSettings: settings.rerank,
-            retrievalSettings: settings.knowledge.retrieval
+            retrievalSettings: settings.knowledge.retrieval,
+            onTrace: (traceEvent) => {
+              event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
+            }
           }
         )
       : [];

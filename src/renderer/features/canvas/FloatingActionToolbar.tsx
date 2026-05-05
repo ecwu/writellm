@@ -72,7 +72,10 @@ export function FloatingActionToolbar({
   const generationTarget = selectedSection?.id === generateTargetId ? selectedSection : focusSection;
   const focusSectionId = focusSection?.id ?? generateTargetId;
 
-  async function retrieveFlowSources(knowledgeRetrievalPrompt: string): Promise<RetrievedKnowledgeSource[]> {
+  async function retrieveFlowSources(
+    knowledgeRetrievalPrompt: string,
+    options: { retrievalMode: 'classic' | 'sourcev2'; runId?: string }
+  ): Promise<RetrievedKnowledgeSource[]> {
     if (!generateTargetId) {
       throw new Error('Choose a section before generating.');
     }
@@ -80,7 +83,9 @@ export function FloatingActionToolbar({
       query: knowledgeRetrievalPrompt,
       sectionId: generateTargetId,
       focusSectionId,
-      contextNodeIds: llmDraft.contextNodeIds
+      contextNodeIds: llmDraft.contextNodeIds,
+      retrievalMode: options.retrievalMode,
+      runId: options.runId
     });
   }
 
@@ -110,6 +115,7 @@ export function FloatingActionToolbar({
       focusSectionId,
       prompt: input.prompt,
       useKnowledgeSources: input.useKnowledgeSources,
+      retrievalMode: input.retrievalMode,
       knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
       contextNodeIds: llmDraft.contextNodeIds,
       prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,

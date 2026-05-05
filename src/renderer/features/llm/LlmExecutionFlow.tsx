@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, FileSearch, MessageSquareText, RefreshCw, Send, Sparkles, Trash2, WandSparkles, X } from 'lucide-react';
-import type { RetrievedKnowledgeSource } from '../../../shared/types';
+import { getApi } from '../../api';
+import type { KnowledgeRetrievalMode, KnowledgeRetrievalTraceEvent, RetrievedKnowledgeSource } from '../../../shared/types';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
+import { Spinner } from '../../components/ui/spinner';
 import {
   Field,
   FieldContent,
@@ -40,6 +42,7 @@ export type LlmFlowGenerateInput = {
   mode: LlmFlowMode;
   prompt: string;
   useKnowledgeSources: boolean;
+  retrievalMode: KnowledgeRetrievalMode;
   knowledgeRetrievalPrompt: string;
   sources: RetrievedKnowledgeSource[];
 };
@@ -72,7 +75,13 @@ export function LlmExecutionFlow({
   initialPrompt?: string;
   defaultUseKnowledgeSources?: boolean;
   buildKnowledgeRetrievalPrompt: (prompt: string) => string;
-  retrieveSources: (knowledgeRetrievalPrompt: string) => Promise<RetrievedKnowledgeSource[]>;
+  retrieveSources: (
+    knowledgeRetrievalPrompt: string,
+    options: {
+      retrievalMode: KnowledgeRetrievalMode;
+      runId?: string;
+    }
+  ) => Promise<RetrievedKnowledgeSource[]>;
   generate: (
     input: LlmFlowGenerateInput,
     onProgress: (progress: LlmFlowGenerateProgress) => void
@@ -82,10 +91,12 @@ export function LlmExecutionFlow({
 }) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [useKnowledgeSources, setUseKnowledgeSources] = useState(defaultUseKnowledgeSources);
+  const [useSourceV2, setUseSourceV2] = useState(false);
   const [mode, setMode] = useState<LlmFlowMode | null>(null);
   const [phase, setPhase] = useState<LlmFlowPhase>('idle');
   const [knowledgeRetrievalPrompt, setKnowledgeRetrievalPrompt] = useState('');
   const [sources, setSources] = useState<RetrievedKnowledgeSource[]>([]);
+  const [retrievalTrace, setRetrievalTrace] = useState<KnowledgeRetrievalTraceEvent[]>([]);
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(new Set());
   const [expandedSourceIds, setExpandedSourceIds] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<LlmFlowResult | null>(null);
@@ -110,6 +121,7 @@ export function LlmExecutionFlow({
       setPhase('idle');
       setKnowledgeRetrievalPrompt('');
       setSources([]);
+      setRetrievalTrace([]);
       setRemovedSourceIds(new Set());
       setExpandedSourceIds(new Set());
       setResult(null);
@@ -126,6 +138,7 @@ export function LlmExecutionFlow({
     setMode('direct');
     setKnowledgeRetrievalPrompt(nextRetrievalPrompt);
     setSources([]);
+    setRetrievalTrace([]);
     setRemovedSourceIds(new Set());
     setExpandedSourceIds(new Set());
     setResult(null);
@@ -148,6 +161,7 @@ export function LlmExecutionFlow({
     setMode('precise');
     setKnowledgeRetrievalPrompt(buildKnowledgeRetrievalPrompt(trimmedPrompt));
     setSources([]);
+    setRetrievalTrace([]);
     setRemovedSourceIds(new Set());
     setExpandedSourceIds(new Set());
     setResult(null);
@@ -157,7 +171,22 @@ export function LlmExecutionFlow({
 
   async function runRetrieval(nextRetrievalPrompt = knowledgeRetrievalPrompt): Promise<RetrievedKnowledgeSource[]> {
     setPhase('retrieving');
-    const nextSources = await retrieveSources(nextRetrievalPrompt);
+    setRetrievalTrace([]);
+    const retrievalMode: KnowledgeRetrievalMode = useSourceV2 ? 'sourcev2' : 'classic';
+    const runId = retrievalMode === 'sourcev2' ? globalThis.crypto.randomUUID() : undefined;
+    const unsubscribe = runId
+      ? getApi().onKnowledgeRetrievalStream((event) => {
+          if (event.runId === runId) {
+            setRetrievalTrace((current) => [...current, event]);
+          }
+        })
+      : undefined;
+    const nextSources = await retrieveSources(nextRetrievalPrompt, {
+      retrievalMode,
+      runId
+    }).finally(() => {
+      unsubscribe?.();
+    });
     setSources(nextSources);
     setRemovedSourceIds(new Set());
     setPhase('awaiting_sources');
@@ -178,6 +207,7 @@ export function LlmExecutionFlow({
       mode: nextMode,
       prompt: nextPrompt,
       useKnowledgeSources,
+      retrievalMode: useSourceV2 ? 'sourcev2' : 'classic',
       knowledgeRetrievalPrompt: nextRetrievalPrompt,
       sources: useKnowledgeSources ? nextSources : []
     }, (progress) => {
@@ -211,6 +241,7 @@ export function LlmExecutionFlow({
         mode,
         prompt: prompt.trim(),
         useKnowledgeSources,
+        retrievalMode: useSourceV2 ? 'sourcev2' : 'classic',
         knowledgeRetrievalPrompt,
         sources: result.sources,
         content: result.content
@@ -269,6 +300,7 @@ export function LlmExecutionFlow({
                     setPhase('idle');
                     setMode(null);
                     setSources([]);
+                    setRetrievalTrace([]);
                     setRemovedSourceIds(new Set());
                     setExpandedSourceIds(new Set());
                     setResult(null);
@@ -281,6 +313,32 @@ export function LlmExecutionFlow({
                 <FieldDescription>Retrieve relevant knowledge before generation.</FieldDescription>
               </FieldContent>
             </Field>
+            {useKnowledgeSources ? (
+              <Field orientation="horizontal" className="llm-flow-source-toggle">
+                <Checkbox
+                  id="llm-use-source-v2"
+                  checked={useSourceV2}
+                  disabled={running}
+                  onCheckedChange={(checked) => {
+                    setUseSourceV2(checked === true);
+                    if (phase !== 'idle') {
+                      setPhase('idle');
+                      setMode(null);
+                      setSources([]);
+                      setRetrievalTrace([]);
+                      setRemovedSourceIds(new Set());
+                      setExpandedSourceIds(new Set());
+                      setResult(null);
+                      setError(null);
+                    }
+                  }}
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor="llm-use-source-v2">Source v2</FieldLabel>
+                  <FieldDescription>Run multi-round retrieval with visible planning steps.</FieldDescription>
+                </FieldContent>
+              </Field>
+            ) : null}
             <Field data-invalid={promptMissing}>
               <FieldLabel htmlFor="llm-generation-prompt">Prompt</FieldLabel>
               <Textarea
@@ -333,6 +391,9 @@ export function LlmExecutionFlow({
             ) : (
               <StatusItem title="Sources disabled" description="This run will generate without knowledge source retrieval." />
             )}
+            {useKnowledgeSources && useSourceV2 && (phase === 'retrieving' || retrievalTrace.length > 0) ? (
+              <SourceV2TraceItem events={retrievalTrace} />
+            ) : null}
             {useKnowledgeSources && shouldShowSources(phase) ? (
               <SourceListItem
                 sources={selectedSources}
@@ -441,6 +502,71 @@ function RetrievalPromptItem({
   );
 }
 
+function SourceV2TraceItem({ events }: { events: KnowledgeRetrievalTraceEvent[] }) {
+  const started = events.find((event) => event.type === 'started');
+  const done = events.find((event) => event.type === 'done');
+  const error = events.find((event) => event.type === 'error');
+  const rounds = Array.from(new Set(events
+    .filter((event): event is Extract<KnowledgeRetrievalTraceEvent, { round: number }> => 'round' in event)
+    .map((event) => event.round)
+  )).sort((left, right) => left - right);
+
+  return (
+    <Item variant="outline" size="sm" className="llm-flow-source-v2-trace-item">
+      <ItemMedia variant="icon"><RefreshCw /></ItemMedia>
+      <ItemContent>
+        <ItemTitle>Source v2 retrieval</ItemTitle>
+        <ItemDescription>
+          {error
+            ? `Source v2 failed: ${error.message}. ${done ? 'Returned classic retrieval results.' : ''}`
+            : done ? done.stopReason : started ? `Planning up to ${started.maxRounds} rounds` : 'Starting retrieval'}
+        </ItemDescription>
+        <div className="llm-flow-source-v2-trace">
+          {rounds.length > 0 ? rounds.map((round) => {
+            const roundStarted = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_started' }> =>
+              event.type === 'round_started' && event.round === round
+            );
+            const roundCandidates = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_candidates' }> =>
+              event.type === 'round_candidates' && event.round === round
+            );
+            const roundEvaluating = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_evaluating' }> =>
+              event.type === 'round_evaluating' && event.round === round
+            );
+            const roundEvaluation = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_evaluation' }> =>
+              event.type === 'round_evaluation' && event.round === round
+            );
+            return (
+              <div key={round} className="llm-flow-source-v2-round">
+                <strong>Round {round}</strong>
+                {roundStarted ? (
+                  <span>{roundStarted.queries.join(' | ')}</span>
+                ) : null}
+                {roundCandidates ? (
+                  <em>{roundCandidates.sources.length} candidate chunks</em>
+                ) : null}
+                {roundEvaluating && !roundEvaluation ? (
+                  <span className="llm-flow-source-v2-waiting">
+                    <Spinner />
+                    Waiting for evaluator model on {roundEvaluating.candidateCount} candidates
+                  </span>
+                ) : null}
+                {roundEvaluation ? (
+                  <p>
+                    {roundEvaluation.decision}: {roundEvaluation.reason || 'No evaluator reason returned.'}
+                    {roundEvaluation.nextQueries.length > 0 ? ` Next: ${roundEvaluation.nextQueries.join(' | ')}` : ''}
+                  </p>
+                ) : null}
+              </div>
+            );
+          }) : (
+            <p className="llm-flow-empty">Waiting for the first retrieval round.</p>
+          )}
+        </div>
+      </ItemContent>
+    </Item>
+  );
+}
+
 function SourceListItem({
   sources,
   removedCount,
@@ -462,6 +588,7 @@ function SourceListItem({
   onRestore: () => void;
   onGenerate: () => void;
 }) {
+  const groupedSources = groupSourcesByRound(sources);
   return (
     <Item variant="outline" size="sm" className="llm-flow-source-list-item">
       <ItemMedia variant="icon"><Sparkles /></ItemMedia>
@@ -471,25 +598,33 @@ function SourceListItem({
           {sources.length} selected{removedCount > 0 ? `, ${removedCount} removed` : ''}
         </ItemDescription>
         <div className="llm-flow-source-list">
-          {sources.length > 0 ? sources.map((source) => (
-            <div key={source.chunkId} className="llm-flow-source">
-              <button type="button" className="llm-flow-source-main" onClick={() => onToggle(source.chunkId)}>
-                {expandedSourceIds.has(source.chunkId) ? <ChevronDown /> : <ChevronRight />}
-                <span>
-                  <strong>[{source.publicRef}] {source.itemTitle}</strong>
-                  <em>
-                    chunk {source.chunkIndex + 1} · {source.score.toFixed(3)} · {source.retrievalMethod ?? 'retrieval'}
-                  </em>
-                </span>
-              </button>
-              {canEdit ? (
-                <Button type="button" variant="ghost" size="icon-xs" title="Remove source" onClick={() => onRemove(source.chunkId)}>
-                  <Trash2 />
-                </Button>
-              ) : null}
-              {expandedSourceIds.has(source.chunkId) ? (
-                <p>{source.snippet}</p>
-              ) : null}
+          {sources.length > 0 ? groupedSources.map((group) => (
+            <div key={group.roundKey} className="llm-flow-source-round-group">
+              {group.label ? <span className="llm-flow-source-round-label">{group.label}</span> : null}
+              {group.sources.map((source) => (
+                <div key={source.chunkId} className="llm-flow-source">
+                  <button type="button" className="llm-flow-source-main" onClick={() => onToggle(source.chunkId)}>
+                    {expandedSourceIds.has(source.chunkId) ? <ChevronDown /> : <ChevronRight />}
+                    <span>
+                      <strong>[{source.publicRef}] {source.itemTitle}</strong>
+                      <em>
+                        chunk {source.chunkIndex + 1} · {source.score.toFixed(3)} · {source.retrievalMethod ?? 'retrieval'}
+                      </em>
+                    </span>
+                  </button>
+                  {canEdit ? (
+                    <Button type="button" variant="ghost" size="icon-xs" title="Remove source" onClick={() => onRemove(source.chunkId)}>
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                  {expandedSourceIds.has(source.chunkId) ? (
+                    <>
+                      {source.sourceV2Reason ? <p className="llm-flow-source-reason">{source.sourceV2Reason}</p> : null}
+                      <p>{source.snippet}</p>
+                    </>
+                  ) : null}
+                </div>
+              ))}
             </div>
           )) : (
             <p className="llm-flow-empty">No sources selected.</p>
@@ -511,6 +646,29 @@ function SourceListItem({
       </ItemContent>
     </Item>
   );
+}
+
+function groupSourcesByRound(sources: RetrievedKnowledgeSource[]): Array<{
+  roundKey: string;
+  label: string | null;
+  sources: RetrievedKnowledgeSource[];
+}> {
+  const hasSourceV2Rounds = sources.some((source) => typeof source.sourceV2Round === 'number');
+  if (!hasSourceV2Rounds) {
+    return [{ roundKey: 'classic', label: null, sources }];
+  }
+  const groups = new Map<number, RetrievedKnowledgeSource[]>();
+  sources.forEach((source) => {
+    const round = source.sourceV2Round ?? 0;
+    groups.set(round, [...(groups.get(round) ?? []), source]);
+  });
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([round, roundSources]) => ({
+      roundKey: `round-${round}`,
+      label: round > 0 ? `Source v2 round ${round}` : 'Source v2 fallback',
+      sources: roundSources
+    }));
 }
 
 function ResultItem({

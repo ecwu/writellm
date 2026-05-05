@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type {
   KnowledgeChunkRecord,
   KnowledgeChunkingDebugConfig,
+  KnowledgeRetrievalTraceEvent,
   KnowledgeRetrievalSettings,
   ModelEndpointSettings,
   RerankEndpointSettings,
@@ -24,6 +25,15 @@ const DEFAULT_CANDIDATE_CHUNKS = 40;
 const RRF_K = 60;
 const ADJACENT_CHUNK_RADIUS = 1;
 const MAX_INITIAL_CHUNKS_PER_ITEM = 3;
+const SOURCE_V2_MAX_ROUNDS = 3;
+const SOURCE_V2_MAX_NEXT_QUERIES = 2;
+const SOURCE_V2_DUPLICATE_RATIO_STOP = 0.8;
+const SOURCE_V2_MAX_ROUND_CANDIDATES = 40;
+const SOURCE_V2_EVALUATION_CANDIDATES = 40;
+const SOURCE_V2_EVALUATION_SNIPPET_CHARS = 420;
+const SOURCE_V2_TRACE_SNIPPET_CHARS = 220;
+const SOURCE_V2_EVALUATION_TIMEOUT_MS = 60000;
+const SOURCE_V2_EVALUATION_MAX_OUTPUT_TOKENS = 2048;
 const METADATA_SAMPLE_CHARS = 1000;
 const METADATA_TITLE_MAX_CHARS = 140;
 const METADATA_DESCRIPTION_MAX_CHARS = 320;
@@ -31,6 +41,13 @@ const DISPLAY_METADATA_KEY = 'knowledgeDisplayMetadata';
 const metadataResponseSchema = z.object({
   title: z.string().optional().default(''),
   description: z.string().optional().default('')
+});
+const sourceV2EvaluationSchema = z.object({
+  decision: z.enum(['continue', 'stop']).default('stop'),
+  reason: z.string().optional().default(''),
+  selectedChunkIds: z.array(z.string()).optional().default([]),
+  missingEvidence: z.array(z.string()).optional().default([]),
+  nextQueries: z.array(z.string()).optional().default([])
 });
 
 const DEFAULT_RETRIEVAL_SETTINGS: KnowledgeRetrievalSettings = {
@@ -395,6 +412,7 @@ export async function retrieveKnowledgeSources(
     excludedItemIds?: string[];
     excludedChunkIds?: string[];
     maxChunks?: number;
+    maxChunkLimit?: number;
     maxCandidates?: number;
     queries?: string[];
     rerankSettings?: RerankEndpointSettings;
@@ -406,7 +424,8 @@ export async function retrieveKnowledgeSources(
     return [];
   }
   const retrievalSettings = resolveRetrievalSettings(options.retrievalSettings);
-  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? retrievalSettings.maxRetrievedChunks, 20));
+  const maxChunkLimit = Math.max(1, Math.min(options.maxChunkLimit ?? 20, 80));
+  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? retrievalSettings.maxRetrievedChunks, maxChunkLimit));
   const maxCandidates = Math.max(
     maxChunks,
     Math.min(options.maxCandidates ?? retrievalSettings.maxCandidateChunks, 80)
@@ -469,6 +488,170 @@ export async function retrieveKnowledgeSources(
   }));
 }
 
+export async function retrieveKnowledgeSourcesV2(
+  db: WriteLLMDatabase,
+  embeddingSettings: ModelEndpointSettings,
+  chatSettings: ModelEndpointSettings,
+  query: string,
+  options: {
+    excludedItemIds?: string[];
+    excludedChunkIds?: string[];
+    maxChunks?: number;
+    maxCandidates?: number;
+    maxRounds?: number;
+    queries?: string[];
+    rerankSettings?: RerankEndpointSettings;
+    retrievalSettings?: KnowledgeRetrievalSettings;
+    runId?: string;
+    onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+  } = {}
+): Promise<RetrievedKnowledgeSource[]> {
+  const retrievalSettings = resolveRetrievalSettings(options.retrievalSettings);
+  const maxChunks = Math.max(1, Math.min(options.maxChunks ?? retrievalSettings.maxRetrievedChunks, 20));
+  const maxCandidates = Math.max(
+    maxChunks,
+    Math.min(options.maxCandidates ?? retrievalSettings.maxCandidateChunks, 80)
+  );
+  const maxRoundCandidates = Math.min(
+    maxCandidates,
+    SOURCE_V2_MAX_ROUND_CANDIDATES,
+    Math.max(maxChunks * 2, 12)
+  );
+  const maxRounds = clampInteger(options.maxRounds ?? SOURCE_V2_MAX_ROUNDS, 1, 5);
+  const runId = options.runId ?? `sourcev2-${Date.now()}`;
+  const trace = (event: KnowledgeRetrievalTraceEvent): void => {
+    options.onTrace?.(event);
+  };
+
+  const initialQueries = uniqueNonEmptyStrings([...(options.queries ?? []), query]);
+  if (initialQueries.length === 0) {
+    return [];
+  }
+
+  trace({ type: 'started', runId, query, maxRounds });
+
+  const allSources = new Map<string, RetrievedKnowledgeSource>();
+  const selectedChunkIds = new Set<string>();
+  const attemptedQueries = new Set<string>();
+  let roundQueries = initialQueries;
+  let stopReason = 'Reached maximum Source v2 retrieval rounds.';
+
+  try {
+    for (let round = 1; round <= maxRounds; round += 1) {
+      roundQueries.forEach((roundQuery) => attemptedQueries.add(normalizeRetrievalQueryKey(roundQuery)));
+      trace({ type: 'round_started', runId, round, queries: roundQueries });
+
+      const roundSources = (await retrieveKnowledgeSources(db, embeddingSettings, query, {
+        excludedItemIds: options.excludedItemIds,
+        excludedChunkIds: options.excludedChunkIds,
+        maxChunks: maxRoundCandidates,
+        maxChunkLimit: 80,
+        maxCandidates: maxRoundCandidates,
+        queries: roundQueries,
+        rerankSettings: undefined,
+        retrievalSettings
+      })).map((source) => ({
+        ...source,
+        sourceV2Round: source.sourceV2Round ?? round
+      }));
+
+      let newCount = 0;
+      roundSources.forEach((source) => {
+        if (!allSources.has(source.chunkId)) {
+          newCount += 1;
+          allSources.set(source.chunkId, source);
+        }
+      });
+
+      trace({ type: 'round_candidates', runId, round, sources: sourcesForTrace(roundSources) });
+
+      if (round > 1 && roundSources.length > 0) {
+        const duplicateRatio = 1 - newCount / roundSources.length;
+        if (duplicateRatio >= SOURCE_V2_DUPLICATE_RATIO_STOP) {
+          stopReason = 'Stopped because the latest round mostly repeated earlier chunks.';
+          break;
+        }
+      }
+      if (round > 1 && newCount === 0) {
+        stopReason = 'Stopped because the latest round found no new chunks.';
+        break;
+      }
+
+      trace({
+        type: 'round_evaluating',
+        runId,
+        round,
+        candidateCount: Math.min(allSources.size, SOURCE_V2_EVALUATION_CANDIDATES)
+      });
+      const evaluation = await evaluateSourceV2Round(chatSettings, {
+        query,
+        round,
+        maxChunks,
+        sources: Array.from(allSources.values())
+      });
+      const validSelectedIds = evaluation.selectedChunkIds.filter((chunkId) => allSources.has(chunkId));
+      validSelectedIds.forEach((chunkId) => selectedChunkIds.add(chunkId));
+      const nextQueries = uniqueNonEmptyStrings(evaluation.nextQueries)
+        .filter((nextQuery) => !attemptedQueries.has(normalizeRetrievalQueryKey(nextQuery)))
+        .slice(0, SOURCE_V2_MAX_NEXT_QUERIES);
+
+      trace({
+        type: 'round_evaluation',
+        runId,
+        round,
+        decision: evaluation.decision,
+        reason: evaluation.reason,
+        selectedChunkIds: validSelectedIds,
+        missingEvidence: evaluation.missingEvidence,
+        nextQueries
+      });
+
+      if (evaluation.decision === 'stop') {
+        stopReason = evaluation.reason || 'Stopped after Source v2 evaluator judged the evidence sufficient.';
+        break;
+      }
+      if (round >= maxRounds) {
+        stopReason = evaluation.reason || stopReason;
+        break;
+      }
+      if (nextQueries.length === 0) {
+        stopReason = evaluation.reason || 'Stopped because Source v2 did not produce a new query.';
+        break;
+      }
+
+      roundQueries = nextQueries;
+    }
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    trace({ type: 'error', runId, message });
+    const fallback = await retrieveKnowledgeSources(db, embeddingSettings, query, {
+      excludedItemIds: options.excludedItemIds,
+      excludedChunkIds: options.excludedChunkIds,
+      maxChunks,
+      maxCandidates,
+      queries: initialQueries,
+      rerankSettings: options.rerankSettings,
+      retrievalSettings
+    });
+    trace({
+      type: 'done',
+      runId,
+      sources: fallback,
+      stopReason: `Source v2 failed: ${message}. Returned classic retrieval results.`
+    });
+    return fallback;
+  }
+
+  const finalSources = finalizeSourceV2Sources(
+    Array.from(allSources.values()),
+    selectedChunkIds,
+    maxChunks,
+    stopReason
+  );
+  trace({ type: 'done', runId, sources: finalSources, stopReason });
+  return finalSources;
+}
+
 type RetrievalMethod = NonNullable<RetrievedKnowledgeSource['retrievalMethod']>;
 
 type RetrievalCandidate = {
@@ -484,6 +667,172 @@ type RetrievalCandidate = {
 
 function uniqueNonEmptyStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)));
+}
+
+function normalizeRetrievalQueryKey(query: string): string {
+  return query.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+async function evaluateSourceV2Round(
+  settings: ModelEndpointSettings,
+  options: {
+    query: string;
+    round: number;
+    maxChunks: number;
+    sources: RetrievedKnowledgeSource[];
+  }
+): Promise<{
+  decision: 'continue' | 'stop';
+  reason: string;
+  selectedChunkIds: string[];
+  missingEvidence: string[];
+  nextQueries: string[];
+}> {
+  const candidateSources = sortRetrievedSources(options.sources)
+    .slice(0, SOURCE_V2_EVALUATION_CANDIDATES);
+  const systemPrompt = buildSourceV2EvaluationSystemPrompt(options.maxChunks);
+  const prompt = buildSourceV2EvaluationPrompt(options, candidateSources);
+  const evaluatorSystemPrompt = [
+    systemPrompt,
+    'Return only one valid JSON object. Do not wrap it in markdown. Do not include commentary.'
+  ].join('\n');
+  const evaluatorPrompt = [
+    prompt,
+    '',
+    'JSON shape:',
+    '{"decision":"continue|stop","reason":"string","selectedChunkIds":["chunk id"],"missingEvidence":["string"],"nextQueries":["query"]}'
+  ].join('\n');
+
+  const text = await generateLlmText(settings, {
+    systemPrompt: evaluatorSystemPrompt,
+    prompt: evaluatorPrompt,
+    maxOutputTokens: SOURCE_V2_EVALUATION_MAX_OUTPUT_TOKENS,
+    timeoutMs: SOURCE_V2_EVALUATION_TIMEOUT_MS
+  });
+  const rawJson = parseJsonObjectFromText(text);
+  const parsed = sourceV2EvaluationSchema.safeParse(rawJson);
+  if (!parsed.success) {
+    throw new Error(`Source v2 evaluator did not return valid JSON: ${parsed.error.message}`);
+  }
+  return normalizeSourceV2EvaluationResult(parsed.data, candidateSources, options.maxChunks);
+}
+
+function parseJsonObjectFromText(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error('Source v2 evaluator returned an empty response.');
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) {
+      return JSON.parse(fenced[1].trim());
+    }
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+    throw new Error('Source v2 evaluator response did not contain a JSON object.');
+  }
+}
+
+function buildSourceV2EvaluationSystemPrompt(maxChunks: number): string {
+  return [
+    'You are a retrieval planning agent.',
+    'Assess whether the candidate chunks are sufficient evidence for the user request.',
+    'Select only chunk IDs that are directly useful. If evidence is missing, produce precise follow-up search queries.',
+    `Return at most ${maxChunks} selectedChunkIds and at most ${SOURCE_V2_MAX_NEXT_QUERIES} nextQueries.`
+  ].join('\n');
+}
+
+function buildSourceV2EvaluationPrompt(
+  options: {
+    query: string;
+    round: number;
+    maxChunks: number;
+  },
+  candidateSources: RetrievedKnowledgeSource[]
+): string {
+  return [
+    `User request:\n${options.query}`,
+    `Retrieval round: ${options.round}`,
+    `Final source budget: ${options.maxChunks} chunks`,
+    'Candidate chunks:',
+    ...candidateSources.map(formatSourceV2Candidate),
+    '',
+    'Return stop when the selected chunks are enough to answer with citations. Return continue only when concrete missing evidence remains.'
+  ].join('\n\n');
+}
+
+function normalizeSourceV2EvaluationResult(
+  result: z.infer<typeof sourceV2EvaluationSchema>,
+  candidateSources: RetrievedKnowledgeSource[],
+  maxChunks: number
+): {
+  decision: 'continue' | 'stop';
+  reason: string;
+  selectedChunkIds: string[];
+  missingEvidence: string[];
+  nextQueries: string[];
+} {
+  const selectedChunkIds = uniqueNonEmptyStrings(result.selectedChunkIds)
+    .filter((chunkId) => candidateSources.some((source) => source.chunkId === chunkId))
+    .slice(0, maxChunks);
+  const nextQueries = uniqueNonEmptyStrings(result.nextQueries).slice(0, SOURCE_V2_MAX_NEXT_QUERIES);
+  return {
+    decision: result.decision,
+    reason: result.reason.trim(),
+    selectedChunkIds,
+    missingEvidence: uniqueNonEmptyStrings(result.missingEvidence).slice(0, 6),
+    nextQueries
+  };
+}
+
+function formatSourceV2Candidate(source: RetrievedKnowledgeSource): string {
+  return [
+    `- chunkId: ${source.chunkId}`,
+    `  ref: ${source.publicRef}`,
+    `  title: ${source.itemTitle}`,
+    `  round: ${source.sourceV2Round ?? 1}`,
+    `  score: ${source.score.toFixed(3)}`,
+    `  text: ${source.snippet.replace(/\s+/g, ' ').slice(0, SOURCE_V2_EVALUATION_SNIPPET_CHARS)}`
+  ].join('\n');
+}
+
+function sourcesForTrace(sources: RetrievedKnowledgeSource[]): RetrievedKnowledgeSource[] {
+  return sources.map((source) => ({
+    ...source,
+    snippet: source.snippet.replace(/\s+/g, ' ').slice(0, SOURCE_V2_TRACE_SNIPPET_CHARS)
+  }));
+}
+
+function finalizeSourceV2Sources(
+  sources: RetrievedKnowledgeSource[],
+  selectedChunkIds: Set<string>,
+  maxChunks: number,
+  stopReason: string
+): RetrievedKnowledgeSource[] {
+  const sortedSources = sortRetrievedSources(sources);
+  const selected = sortedSources.filter((source) => selectedChunkIds.has(source.chunkId));
+  const fallback = sortedSources.filter((source) => !selectedChunkIds.has(source.chunkId));
+  return [...selected, ...fallback]
+    .slice(0, maxChunks)
+    .map((source) => ({
+      ...source,
+      sourceV2Reason: selectedChunkIds.has(source.chunkId)
+        ? stopReason
+        : source.sourceV2Reason ?? 'Included by Source v2 fallback ranking.'
+    }));
+}
+
+function sortRetrievedSources(sources: RetrievedKnowledgeSource[]): RetrievedKnowledgeSource[] {
+  return [...sources].sort((left, right) =>
+    right.score - left.score ||
+    (left.sourceV2Round ?? 0) - (right.sourceV2Round ?? 0) ||
+    left.publicRef.localeCompare(right.publicRef)
+  );
 }
 
 function addRankedCandidates(
