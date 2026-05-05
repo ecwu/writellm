@@ -42,6 +42,11 @@ export type LlmFlowResult = {
 
 export type LlmFlowAdoptInput = LlmFlowGenerateInput & LlmFlowResult;
 
+export type LlmFlowGenerateProgress = {
+  content: string;
+  sources?: RetrievedKnowledgeSource[];
+};
+
 export function LlmExecutionFlow({
   label,
   placeholder,
@@ -59,7 +64,10 @@ export function LlmExecutionFlow({
   defaultUseKnowledgeSources?: boolean;
   buildKnowledgeRetrievalPrompt: (prompt: string) => string;
   retrieveSources: (knowledgeRetrievalPrompt: string) => Promise<RetrievedKnowledgeSource[]>;
-  generate: (input: LlmFlowGenerateInput) => Promise<LlmFlowResult>;
+  generate: (
+    input: LlmFlowGenerateInput,
+    onProgress: (progress: LlmFlowGenerateProgress) => void
+  ) => Promise<LlmFlowResult>;
   onAdopt: (input: LlmFlowAdoptInput) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -79,6 +87,11 @@ export function LlmExecutionFlow({
   );
   const running = phase === 'retrieving' || phase === 'generating';
   const canStart = Boolean(prompt.trim()) && !running;
+  const showInput =
+    phase === 'idle' ||
+    phase === 'awaiting_retrieval_prompt' ||
+    phase === 'awaiting_sources' ||
+    phase === 'error';
 
   function resetForPrompt(nextPrompt: string) {
     setPrompt(nextPrompt);
@@ -149,12 +162,19 @@ export function LlmExecutionFlow({
   ) {
     setPhase('generating');
     setError(null);
+    const initialSources = useKnowledgeSources ? nextSources : [];
+    setResult({ content: '', sources: initialSources });
     const nextResult = await generate({
       mode: nextMode,
       prompt: nextPrompt,
       useKnowledgeSources,
       knowledgeRetrievalPrompt: nextRetrievalPrompt,
       sources: useKnowledgeSources ? nextSources : []
+    }, (progress) => {
+      setResult((current) => ({
+        content: progress.content,
+        sources: progress.sources ?? current?.sources ?? initialSources
+      }));
     });
     setResult(nextResult);
     if (useKnowledgeSources && nextResult.sources.length > 0 && sources.length === 0) {
@@ -221,52 +241,54 @@ export function LlmExecutionFlow({
   }
 
   return (
-    <div className="llm-flow">
-      <div className="llm-flow-input">
-        <div className="llm-flow-input-heading">
-          <span>{label}</span>
-          <label>
-            <input
-              type="checkbox"
-              checked={useKnowledgeSources}
-              disabled={running}
-              onChange={(event) => {
-                setUseKnowledgeSources(event.target.checked);
-                if (phase !== 'idle') {
-                  setPhase('idle');
-                  setMode(null);
-                  setSources([]);
-                  setRemovedSourceIds(new Set());
-                  setExpandedSourceIds(new Set());
-                  setResult(null);
-                  setError(null);
-                }
-              }}
-            />
-            <span>Use Sources</span>
-          </label>
+    <div className={showInput ? 'llm-flow' : 'llm-flow llm-flow-input-hidden'}>
+      {showInput ? (
+        <div className="llm-flow-input">
+          <div className="llm-flow-input-heading">
+            <span>{label}</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={useKnowledgeSources}
+                disabled={running}
+                onChange={(event) => {
+                  setUseKnowledgeSources(event.target.checked);
+                  if (phase !== 'idle') {
+                    setPhase('idle');
+                    setMode(null);
+                    setSources([]);
+                    setRemovedSourceIds(new Set());
+                    setExpandedSourceIds(new Set());
+                    setResult(null);
+                    setError(null);
+                  }
+                }}
+              />
+              <span>Use Sources</span>
+            </label>
+          </div>
+          <Textarea
+            value={prompt}
+            onChange={(event) => resetForPrompt(event.target.value)}
+            placeholder={placeholder}
+            disabled={running}
+          />
+          <div className="llm-flow-input-actions">
+            <Button type="button" size="sm" onClick={() => void startDirect()} disabled={!canStart}>
+              <WandSparkles />
+              Direct generate
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={startPrecise} disabled={!canStart}>
+              <FileSearch />
+              Precise control
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={running}>
+              <X />
+              Cancel
+            </Button>
+          </div>
         </div>
-        <Textarea
-          value={prompt}
-          onChange={(event) => resetForPrompt(event.target.value)}
-          placeholder={placeholder}
-          disabled={running}
-        />
-        <div className="llm-flow-input-actions">
-          <Button type="button" size="sm" onClick={() => void startDirect()} disabled={!canStart}>
-            <WandSparkles />
-            Direct generate
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={startPrecise} disabled={!canStart}>
-            <FileSearch />
-            Precise control
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={running}>
-            <X />
-            Cancel
-          </Button>
-        </div>
-      </div>
+      ) : null}
 
       {phase === 'idle' ? null : (
         <ScrollArea className="llm-flow-scroll">
@@ -306,7 +328,7 @@ export function LlmExecutionFlow({
                 action={<Button type="button" size="sm" onClick={() => void generateFromPreciseSources()}><Send />Generate</Button>}
               />
             ) : null}
-            {phase === 'generating' ? (
+            {phase === 'generating' && !result ? (
               <StatusItem title="Generating result" description="Waiting for the model response." />
             ) : null}
             {result && phase !== 'done' ? (
@@ -472,7 +494,9 @@ function ResultItem({
       <ItemMedia variant="icon"><WandSparkles /></ItemMedia>
       <ItemContent>
         <ItemTitle>Generated result</ItemTitle>
-        <ItemDescription className="llm-flow-result">{content}</ItemDescription>
+        <ItemDescription className="llm-flow-result">
+          {content || <span className="llm-flow-result-placeholder">Generating...</span>}
+        </ItemDescription>
         <ItemFooter>
           <Button type="button" size="sm" onClick={onAdopt} disabled={disabled}>
             <Check />

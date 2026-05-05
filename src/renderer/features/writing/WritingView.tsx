@@ -5,7 +5,12 @@ import type { ChildViewMode } from '../../app/types';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
-import { LlmExecutionFlow, type LlmFlowAdoptInput, type LlmFlowGenerateInput } from '../llm/LlmExecutionFlow';
+import {
+  LlmExecutionFlow,
+  type LlmFlowAdoptInput,
+  type LlmFlowGenerateInput,
+  type LlmFlowGenerateProgress
+} from '../llm/LlmExecutionFlow';
 import { ViewModeToggle } from '../../layout/ChildrenViewHeader';
 import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
 import type {
@@ -170,7 +175,10 @@ export function WritingView({
     });
   }
 
-  async function generateEditorFlowResult(input: LlmFlowGenerateInput) {
+  async function generateEditorFlowResult(
+    input: LlmFlowGenerateInput,
+    onProgress: (progress: LlmFlowGenerateProgress) => void
+  ) {
     const editor = editorRef.current;
     if (!editor) {
       throw new Error('Editor is not ready.');
@@ -212,6 +220,25 @@ export function WritingView({
       status: 'running',
       error: undefined
     }));
+    const unsubscribe = getApi().onLlmStream((event) => {
+      if (event.runId !== runId) {
+        return;
+      }
+      if (event.type === 'chunk' || event.type === 'done') {
+        const content = event.type === 'done' ? event.content.trim() : event.content;
+        const sources = event.type === 'done' ? event.sources ?? input.sources : undefined;
+        setEditorLlm((current) => current.runId === runId
+          ? {
+              ...current,
+              output: content,
+              retrievedSources: sources ?? current.retrievedSources,
+              status: event.type === 'done' ? 'done' : 'running'
+            }
+          : current
+        );
+        onProgress({ content, sources });
+      }
+    });
     const result = await getApi().generateWithLlm({
       runId,
       sectionId: section.id,
@@ -224,7 +251,7 @@ export function WritingView({
       maxKnowledgeChunks: 6,
       requireInlineCitations: input.useKnowledgeSources,
       systemPrompt: request.systemPrompt
-    });
+    }).finally(unsubscribe);
     if (result.canceled) {
       setEditorLlm(emptyEditorLlm);
       return { content: '', sources: [] };

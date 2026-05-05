@@ -8,7 +8,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '../../components/ui/select';
-import { LlmExecutionFlow, type LlmFlowAdoptInput, type LlmFlowGenerateInput } from '../llm/LlmExecutionFlow';
+import {
+  LlmExecutionFlow,
+  type LlmFlowAdoptInput,
+  type LlmFlowGenerateInput,
+  type LlmFlowGenerateProgress
+} from '../llm/LlmExecutionFlow';
 import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
@@ -76,12 +81,28 @@ export function FloatingActionToolbar({
     });
   }
 
-  async function generateFlowResult(input: LlmFlowGenerateInput) {
+  async function generateFlowResult(
+    input: LlmFlowGenerateInput,
+    onProgress: (progress: LlmFlowGenerateProgress) => void
+  ) {
     if (!generateTargetId) {
       throw new Error('Choose a section before generating.');
     }
+    const runId = globalThis.crypto.randomUUID();
+    const unsubscribe = getApi().onLlmStream((event) => {
+      if (event.runId !== runId) {
+        return;
+      }
+      if (event.type === 'chunk') {
+        onProgress({ content: event.content });
+        return;
+      }
+      if (event.type === 'done') {
+        onProgress({ content: event.content.trim(), sources: event.sources ?? input.sources });
+      }
+    });
     const result = await getApi().generateWithLlm({
-      runId: globalThis.crypto.randomUUID(),
+      runId,
       sectionId: generateTargetId,
       focusSectionId,
       prompt: input.prompt,
@@ -91,11 +112,11 @@ export function FloatingActionToolbar({
       prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
       maxKnowledgeChunks: 10,
       requireInlineCitations: input.useKnowledgeSources
-    });
-    return {
-      content: result.content.trim(),
-      sources: result.sources ?? input.sources
-    };
+    }).finally(unsubscribe);
+    const content = result.content.trim();
+    const sources = result.sources ?? input.sources;
+    onProgress({ content, sources });
+    return { content, sources };
   }
 
   async function adoptFlowResult(input: LlmFlowAdoptInput): Promise<void> {
