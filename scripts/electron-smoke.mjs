@@ -45,7 +45,8 @@ const [
   knowledgeIngest,
   { extractKnowledgeFileText },
   { restoreSectionVersion },
-  { unzipBuffer }
+  { unzipBuffer },
+  citations
 ] = await Promise.all([
   import('better-sqlite3'),
   import('jszip'),
@@ -56,7 +57,8 @@ const [
   import('../dist-electron/main/knowledgeIngest.js'),
   import('../dist-electron/main/knowledgeTextExtract.js'),
   import('../dist-electron/main/sectionHistory.js'),
-  import('../dist-electron/main/zip.js')
+  import('../dist-electron/main/zip.js'),
+  import('../dist-electron/shared/citations.js')
 ]);
 
 const {
@@ -68,10 +70,13 @@ const {
   listGitHistory
 } = gitSession;
 const { enqueueKnowledgeFiles, processKnowledgeIngestJob } = knowledgeIngest;
+const { citationGroupsFromText, citationRefsFromText } = citations;
 
 const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'writellm-smoke-'));
 
 try {
+  assertCitationParsing();
+
   const db = new WriteLLMDatabase(workspacePath);
   const rootId = db.rootNodeId;
   ensureGitSession(workspacePath);
@@ -221,6 +226,7 @@ try {
   }
   db.saveGenerationCitations(intro.id, [
     {
+      publicRef: chunks[0].publicRef,
       knowledgeItemId: knowledge.id,
       knowledgeChunkId: chunks[0].id,
       label: '[S1]',
@@ -230,6 +236,12 @@ try {
   ]);
   if (db.listGenerationCitations(intro.id).length !== 1) {
     throw new Error('Generation citation was not saved.');
+  }
+  db.updateSectionMarkdown(intro.id, `Grouped citation [${chunks[0].publicRef}, ${rankedChunks[0].publicRef}] stays grouped.\n`);
+  const groupedCitationSection = db.getSection(intro.id);
+  const groupedRefs = new Set(groupedCitationSection?.citationSources.map((source) => source.publicRef.toLowerCase()) ?? []);
+  if (!groupedRefs.has(chunks[0].publicRef.toLowerCase()) || !groupedRefs.has(rankedChunks[0].publicRef.toLowerCase())) {
+    throw new Error('Grouped citation refs were not resolved into section citation sources.');
   }
 
   const txtPath = path.join(workspacePath, 'source.txt');
@@ -765,6 +777,35 @@ try {
   console.log('electron-smoke ok');
 } finally {
   rmSync(workspacePath, { recursive: true, force: true });
+}
+
+function assertCitationParsing() {
+  const single = citationRefsFromText('Claim [c0b8f37.c5].');
+  if (single.length !== 1 || single[0] !== 'c0b8f37.c5') {
+    throw new Error('Single citation parsing failed.');
+  }
+
+  const grouped = citationRefsFromText('Claim [c0b8f37.c5, ff711ca.c4, bd890ea.c16].');
+  if (grouped.join(',') !== 'c0b8f37.c5,ff711ca.c4,bd890ea.c16') {
+    throw new Error('Grouped citation parsing failed.');
+  }
+
+  const adjacentGroups = citationGroupsFromText('Claim [c0b8f37.c5] [ff711ca.c4].');
+  if (adjacentGroups.length !== 1 || adjacentGroups[0].refs.join(',') !== 'c0b8f37.c5,ff711ca.c4') {
+    throw new Error('Adjacent citation grouping failed.');
+  }
+
+  const normalized = citationRefsFromText('Claim [ C0B8F37.c5 , ff711ca.C4 ].');
+  if (normalized.join(',') !== 'c0b8f37.c5,ff711ca.c4') {
+    throw new Error('Citation whitespace or case normalization failed.');
+  }
+
+  const nonCitations = citationRefsFromText(
+    'See [the docs](https://example.test), [c0b8f37.c5](https://example.test), ![c0b8f37.c5](image.png), and [not a citation].'
+  );
+  if (nonCitations.length !== 0) {
+    throw new Error('Markdown links or non-citation brackets were parsed as citations.');
+  }
 }
 
 function createSamplePdf(text) {

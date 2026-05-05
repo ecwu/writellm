@@ -22,6 +22,7 @@ import {
   type PlainjobJobRow
 } from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
+import { citationRefsFromText } from '../shared/citations.js';
 import {
   defaultSectionMarkdown,
   ensureSectionsDirectory,
@@ -1110,7 +1111,7 @@ export class WriteLLMDatabase {
       };
     });
     const existingRefs = new Set(citationSources.map((source) => source.publicRef.toLowerCase()));
-    for (const publicRef of citationRefsFromMarkdown(node.markdownContent)) {
+    for (const publicRef of citationRefsFromText(node.markdownContent)) {
       if (existingRefs.has(publicRef.toLowerCase())) {
         continue;
       }
@@ -1236,7 +1237,10 @@ export class WriteLLMDatabase {
 
   getSection(sectionId: string): SectionNodeRecord | null {
     const node = this.getNode(sectionId);
-    return node?.kind === 'section' ? node : null;
+    if (node?.kind !== 'section') {
+      return null;
+    }
+    return this.attachSectionCitationSources(node) as SectionNodeRecord;
   }
 
   private migrate(): void {
@@ -2292,14 +2296,6 @@ function resetRetryableIngestMetadata(metadata: Record<string, unknown>): Record
 
 function createKnowledgeChunkPublicRef(itemPublicRef: string, chunkIndex: number): string {
   return `${itemPublicRef}.c${chunkIndex + 1}`;
-}
-
-function citationRefsFromMarkdown(markdown: string): string[] {
-  const refs = new Set<string>();
-  for (const match of markdown.matchAll(/\[([a-f0-9]{7}\.c\d+)\]/gi)) {
-    refs.add(match[1]);
-  }
-  return [...refs];
 }
 
 function parseEmbedding(raw: string | null): number[] {

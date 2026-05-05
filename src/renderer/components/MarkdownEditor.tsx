@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { Compartment, EditorState, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view';
+import { citationGroupsFromText } from '../../shared/citations';
 import type { RetrievedKnowledgeSource } from '../../shared/types';
 
 type EditorSelectionRange = {
@@ -342,8 +343,6 @@ function normalizedCursorPosition(
   return Math.max(0, Math.min(prefixLength, normalized.length));
 }
 
-const citationGroupPattern = /((?:\[[a-f0-9]{7}\.c\d+\]\s*)+)/gi;
-const citationRefPattern = /\[([a-f0-9]{7}\.c\d+)\]/gi;
 const citationTrailingPunctuationPattern = /^[。．，、；：！？!?.,;:)\]）】〉》」』]/;
 const headingPattern = /^(#{1,6})\s+(.+)$/gm;
 const inlineCodePattern = /`([^`\n]+)`/g;
@@ -459,36 +458,26 @@ function addCitationDecorations(
   sources: RetrievedKnowledgeSource[]
 ): void {
   const sourceByRef = new Map(sources.map((source) => [source.publicRef.toLowerCase(), source]));
-  citationGroupPattern.lastIndex = 0;
-  for (const match of doc.matchAll(citationGroupPattern)) {
-    if (match.index === undefined) {
-      continue;
-    }
-    const citationSources = sourcesForCitationGroup(match[0], sourceByRef);
-    const fallbackRefs = refsForCitationGroup(match[0]);
-    const matchEnd = match.index + match[0].length;
+  for (const match of citationGroupsFromText(doc)) {
+    const citationSources = sourcesForCitationGroup(match.refs, sourceByRef);
+    const matchEnd = match.to;
     const trailingPunctuation = doc.slice(matchEnd).match(citationTrailingPunctuationPattern)?.[0] ?? '';
     entries.push({
-      from: match.index,
+      from: match.from,
       to: matchEnd + trailingPunctuation.length,
       decoration: Decoration.replace({
-        widget: new CitationWidget(citationSources, fallbackRefs, trailingPunctuation)
+        widget: new CitationWidget(citationSources, match.refs, trailingPunctuation)
       })
     });
   }
 }
 
-function refsForCitationGroup(raw: string): string[] {
-  citationRefPattern.lastIndex = 0;
-  return [...raw.matchAll(citationRefPattern)].map((match) => match[1]);
-}
-
 function sourcesForCitationGroup(
-  raw: string,
+  refs: string[],
   sourceByRef: Map<string, RetrievedKnowledgeSource>
 ): RetrievedKnowledgeSource[] {
   const byChunk = new Map<string, RetrievedKnowledgeSource>();
-  refsForCitationGroup(raw).forEach((ref) => {
+  refs.forEach((ref) => {
     const source = sourceByRef.get(ref.toLowerCase());
     if (source) {
       byChunk.set(source.chunkId, source);

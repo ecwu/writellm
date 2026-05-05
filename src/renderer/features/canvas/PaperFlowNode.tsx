@@ -2,6 +2,7 @@
 import { Handle, NodeResizeControl, Position, type NodeProps } from '@xyflow/react';
 import type { ReactNode } from 'react';
 import type { PaperNode } from '../../app/types';
+import { citationGroupsFromText } from '../../../shared/citations';
 import type { RetrievedKnowledgeSource } from '../../../shared/types';
 
 export function PaperFlowNode({ data, selected }: NodeProps<PaperNode>) {
@@ -87,9 +88,6 @@ export function PaperFlowNode({ data, selected }: NodeProps<PaperNode>) {
   );
 }
 
-const citationGroupPattern = /((?:\[[a-f0-9]{7}\.c\d+\]\s*)+)/gi;
-const citationRefPattern = /\[([a-f0-9]{7}\.c\d+)\]/gi;
-
 function CitationAwareContent({
   content,
   sources
@@ -100,23 +98,19 @@ function CitationAwareContent({
   const sourceByRef = new Map(sources.map((source) => [source.publicRef.toLowerCase(), source]));
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
-  citationGroupPattern.lastIndex = 0;
 
-  for (const match of content.matchAll(citationGroupPattern)) {
-    if (match.index === undefined) {
-      continue;
-    }
-    if (match.index > lastIndex) {
-      nodes.push(content.slice(lastIndex, match.index));
+  for (const match of citationGroupsFromText(content)) {
+    if (match.from > lastIndex) {
+      nodes.push(content.slice(lastIndex, match.from));
     }
     nodes.push(
       <CitationGroup
-        key={`citation-${match.index}`}
-        raw={match[0]}
+        key={`citation-${match.from}`}
+        refs={match.refs}
         sourceByRef={sourceByRef}
       />
     );
-    lastIndex = match.index + match[0].length;
+    lastIndex = match.to;
   }
 
   if (lastIndex < content.length) {
@@ -127,14 +121,12 @@ function CitationAwareContent({
 }
 
 function CitationGroup({
-  raw,
+  refs,
   sourceByRef
 }: {
-  raw: string;
+  refs: string[];
   sourceByRef: Map<string, RetrievedKnowledgeSource>;
 }) {
-  citationRefPattern.lastIndex = 0;
-  const refs = [...raw.matchAll(citationRefPattern)].map((match) => match[1]);
   const sources = refs.map((ref) => sourceByRef.get(ref.toLowerCase())).filter(Boolean) as RetrievedKnowledgeSource[];
   const displaySources = sources.length > 0
     ? uniqueSourcesByItem(sources)

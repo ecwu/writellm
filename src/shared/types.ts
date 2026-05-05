@@ -159,13 +159,19 @@ export type UpdateLlmSettingsPayload = {
 };
 
 export type ThemeMode = 'light' | 'dark';
+export type AccentColor = 'earth' | 'forest' | 'ochre' | 'cinnabar' | 'deep-teal' | 'plum';
+export type AppFontFamily = 'geist' | 'system-sans' | 'serif' | 'mono' | 'humanist-sans';
 
 export type AppearanceSettings = {
   theme: ThemeMode;
+  accentColor: AccentColor;
+  fontFamily: AppFontFamily;
 };
 
 export type UpdateAppearanceSettingsPayload = {
   theme: ThemeMode;
+  accentColor: AccentColor;
+  fontFamily: AppFontFamily;
 };
 
 export type ModelEndpointSettings = {

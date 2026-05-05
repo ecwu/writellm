@@ -85,9 +85,17 @@ export function SiteHeader({
   hasSelection: boolean;
   tasks: KnowledgeIngestJobRecord[];
 }) {
-  const llmConfigured = Boolean(llmSettings?.chat.hasApiKey && llmSettings.embedding.hasApiKey);
+  const modelStatuses = modelStatusItems(llmSettings);
   const llmModel = llmSettings?.chat.model.trim() ?? '';
-  const llmStatus = llmConfigured ? `Configured: ${llmModel}` : 'Not configured';
+  const llmConfigured = Boolean(llmSettings?.chat.hasApiKey && llmModel);
+  const configuredModelCount = modelStatuses.filter((model) => model.status === 'configured').length;
+  const activeModelCount = modelStatuses.filter((model) => model.status !== 'disabled').length;
+  const modelsConfigured = activeModelCount > 0 && modelStatuses.every((model) =>
+    model.status === 'configured' || model.status === 'disabled'
+  );
+  const modelStatus = modelsConfigured
+    ? `${configuredModelCount}/${modelStatuses.length} configured`
+    : `${configuredModelCount}/${modelStatuses.length} configured`;
 
   return (
     <header className="sticky top-0 z-50 flex h-(--header-height) shrink-0 items-center gap-3 border-b bg-background px-3">
@@ -153,25 +161,33 @@ export function SiteHeader({
           </MenubarContent>
         </MenubarMenu>
         <MenubarMenu>
-          <MenubarTrigger className="llm-menu-trigger" title={llmStatus}>
-            <span>LLM</span>
+          <MenubarTrigger className="llm-menu-trigger" title={modelStatus}>
+            <span>Model</span>
             <span className={`llm-status-dot ${llmConfigured ? 'configured' : 'missing'}`} aria-hidden="true" />
-            {llmConfigured && llmModel ? <span className="llm-menu-model">{llmModel}</span> : null}
+            {llmModel ? <span className="llm-menu-model">{llmModel}</span> : null}
           </MenubarTrigger>
           <MenubarContent>
             <MenubarLabel>
               <span className="llm-menu-summary">
-                <span className={`llm-status-dot ${llmConfigured ? 'configured' : 'missing'}`} aria-hidden="true" />
+                <span className={`llm-status-dot ${modelsConfigured ? 'configured' : 'missing'}`} aria-hidden="true" />
                 <span>
-                  <span className="llm-menu-summary-title">
-                    {llmConfigured ? 'Configured' : 'Not configured'}
-                  </span>
-                  <span className="llm-menu-summary-detail">
-                    {llmConfigured && llmModel ? llmModel : 'Add an API key in Settings'}
-                  </span>
+                  <span className="llm-menu-summary-title">Model status</span>
+                  <span className="llm-menu-summary-detail">{modelStatus}</span>
                 </span>
               </span>
             </MenubarLabel>
+            <MenubarSeparator />
+            <MenubarGroup>
+              {modelStatuses.map((model) => (
+                <MenubarLabel key={model.id} className="llm-menu-model-row">
+                  <span className={`llm-status-dot ${model.status}`} aria-hidden="true" />
+                  <span className="llm-menu-model-row-copy">
+                    <span className="llm-menu-model-row-title">{model.label}</span>
+                    <span className="llm-menu-model-row-detail">{model.detail}</span>
+                  </span>
+                </MenubarLabel>
+              ))}
+            </MenubarGroup>
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
@@ -211,6 +227,45 @@ export function SiteHeader({
       />
     </header>
   );
+}
+
+type HeaderModelStatus = {
+  id: string;
+  label: string;
+  detail: string;
+  status: 'configured' | 'missing' | 'disabled';
+};
+
+function modelStatusItems(settings: PublicLlmSettings | null): HeaderModelStatus[] {
+  return [
+    modelStatusItem('llm', 'LLM', settings?.chat.model, settings?.chat.hasApiKey),
+    modelStatusItem('embedding', 'Embedding', settings?.embedding.model, settings?.embedding.hasApiKey),
+    modelStatusItem(
+      'rerank',
+      'Rerank',
+      settings?.rerank.model,
+      settings?.rerank.hasApiKey,
+      settings?.rerank.enabled === false
+    ),
+    modelStatusItem('vision', 'Vision', settings?.vision.model, settings?.vision.hasApiKey)
+  ];
+}
+
+function modelStatusItem(
+  id: string,
+  label: string,
+  model: string | undefined,
+  hasApiKey: boolean | undefined,
+  disabled = false
+): HeaderModelStatus {
+  if (disabled) {
+    return { id, label, detail: 'Disabled', status: 'disabled' };
+  }
+  const normalizedModel = model?.trim();
+  if (hasApiKey && normalizedModel) {
+    return { id, label, detail: normalizedModel, status: 'configured' };
+  }
+  return { id, label, detail: normalizedModel ? 'API key missing' : 'Not configured', status: 'missing' };
 }
 
 function GlobalTaskQueuePopover({

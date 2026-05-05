@@ -20,6 +20,10 @@
   opacity: 0.55;
 }
 
+.llm-status-dot.disabled {
+  background: var(--border);
+}
+
 .llm-menu-model {
   color: var(--muted-foreground);
   display: block;
@@ -55,6 +59,42 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.llm-menu-model-row {
+  align-items: center;
+  display: flex;
+  gap: 0.625rem;
+  min-width: 16rem;
+  padding-bottom: 0.45rem;
+  padding-top: 0.45rem;
+}
+
+.llm-menu-model-row-copy {
+  display: grid;
+  gap: 0.0625rem;
+  min-width: 0;
+}
+
+.llm-menu-model-row-title,
+.llm-menu-model-row-detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-menu-model-row-title {
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.llm-menu-model-row-detail {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 500;
 }
 
 .global-task-trigger {

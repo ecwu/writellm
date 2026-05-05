@@ -619,7 +619,7 @@ export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): str
       ].join('\n')
     ),
     '',
-    'Use these sources when they are relevant. Cite source-backed claims inline with the source reference, for example [a3f91c8.c1]. Do not invent citations and do not cite sources you did not use.'
+    'Use these sources when they are relevant. Cite source-backed claims inline with the source reference, for example [a3f91c8.c1]. Use one citation per bracket: write [a3f91c8.c1] [b7e12aa.c2], not [a3f91c8.c1, b7e12aa.c2]. Do not invent citations and do not cite sources you did not use.'
   ].join('\n\n');
 }
 

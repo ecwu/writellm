@@ -2,6 +2,8 @@ import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
+  AccentColor,
+  AppFontFamily,
   AppearanceSettings,
   KnowledgeSettings,
   LlmSettings,
@@ -43,7 +45,9 @@ const defaultSettings: LlmSettings = {
     apiKey: ''
   },
   appearance: {
-    theme: 'light'
+    theme: 'light',
+    accentColor: 'deep-teal',
+    fontFamily: 'geist'
   },
   knowledge: {
     pdfExtractionEngine: 'pdfjs',
@@ -139,8 +143,31 @@ function readAppearance(
   fallback: AppearanceSettings
 ): AppearanceSettings {
   return {
-    theme: parsed?.theme === 'dark' ? 'dark' : fallback.theme
+    theme: parsed?.theme === 'dark' ? 'dark' : fallback.theme,
+    accentColor: readAccentColor(parsed?.accentColor, fallback.accentColor),
+    fontFamily: readAppFontFamily(parsed?.fontFamily, fallback.fontFamily)
   };
+}
+
+function readAccentColor(value: unknown, fallback: AccentColor): AccentColor {
+  return value === 'earth' ||
+    value === 'forest' ||
+    value === 'ochre' ||
+    value === 'cinnabar' ||
+    value === 'deep-teal' ||
+    value === 'plum'
+    ? value
+    : fallback;
+}
+
+function readAppFontFamily(value: unknown, fallback: AppFontFamily): AppFontFamily {
+  return value === 'geist' ||
+    value === 'system-sans' ||
+    value === 'serif' ||
+    value === 'mono' ||
+    value === 'humanist-sans'
+    ? value
+    : fallback;
 }
 
 function readMineru(
@@ -263,7 +290,9 @@ export function updateAppearanceSettings(
   const next: LlmSettings = {
     ...current,
     appearance: {
-      theme: payload.theme
+      theme: payload.theme,
+      accentColor: payload.accentColor,
+      fontFamily: payload.fontFamily
     }
   };
 

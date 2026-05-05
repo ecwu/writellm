@@ -345,7 +345,7 @@ function buildContextPrompt(
     if (requireInlineCitations) {
       promptSections.push(
         '',
-        'Inline citations are required for source-backed claims. Keep citation markers in the generated text.'
+        'Inline citations are required for source-backed claims. Keep citation markers in the generated text. Use one source reference per bracket, for example [a3f91c8.c1] [b7e12aa.c2], not [a3f91c8.c1, b7e12aa.c2].'
       );
     }
   }

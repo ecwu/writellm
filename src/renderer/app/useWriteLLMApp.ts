@@ -66,6 +66,7 @@ export function useWriteLLMApp() {
   const setLlmSettings = useCallback((
     next: PublicLlmSettings | null | ((current: PublicLlmSettings | null) => PublicLlmSettings | null)
   ) => {
+    void queryClient.cancelQueries({ queryKey: queryKeys.llmSettings });
     queryClient.setQueryData<PublicLlmSettings | null>(queryKeys.llmSettings, (current) =>
       typeof next === 'function' ? next(current ?? null) : next
     );

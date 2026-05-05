@@ -14,11 +14,19 @@ import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
-import type { PublicLlmSettings, SectionNodeRecord, ThemeMode } from '../shared/types';
+import type { AppearanceSettings, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
 
-function applyTheme(theme: ThemeMode) {
-  document.documentElement.classList.toggle('dark', theme === 'dark');
-  document.documentElement.style.colorScheme = theme;
+const defaultAppearance: AppearanceSettings = {
+  theme: 'light',
+  accentColor: 'deep-teal',
+  fontFamily: 'geist'
+};
+
+function applyAppearance(appearance: AppearanceSettings) {
+  document.documentElement.classList.toggle('dark', appearance.theme === 'dark');
+  document.documentElement.style.colorScheme = appearance.theme;
+  document.documentElement.dataset.accent = appearance.accentColor;
+  document.documentElement.dataset.font = appearance.fontFamily;
 }
 
 export function App() {
@@ -87,14 +95,14 @@ export function App() {
     onNodesChange,
     persistNodeLayoutFromNode
   } = useWriteLLMApp();
-  const theme = llmSettings?.appearance.theme ?? 'light';
+  const appearance = llmSettings?.appearance ?? defaultAppearance;
   const historySection = historySectionId
     ? state.nodes.find((node): node is SectionNodeRecord => node.kind === 'section' && node.id === historySectionId) ?? null
     : null;
 
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    applyAppearance(appearance);
+  }, [appearance]);
 
   useEffect(() => {
     if (historySectionId && !historySection) {
@@ -106,10 +114,10 @@ export function App() {
     setLlmSettings(settings);
   }
 
-  function handleThemePreview(themeMode: ThemeMode) {
-    applyTheme(themeMode);
+  function handleAppearancePreview(nextAppearance: AppearanceSettings) {
+    applyAppearance(nextAppearance);
     setLlmSettings((current) =>
-      current ? { ...current, appearance: { theme: themeMode } } : current
+      current ? { ...current, appearance: nextAppearance } : current
     );
   }
 
@@ -157,7 +165,7 @@ export function App() {
             debugEnabled={debugEnabled}
             onOpenChange={setSettingsOpen}
             onSaved={handleSettingsSaved}
-            onThemePreview={handleThemePreview}
+            onAppearancePreview={handleAppearancePreview}
             onDebugEnabledChange={setDebugEnabled}
             onError={notifyError}
             onStatus={notifyStatus}

@@ -8,6 +8,7 @@ import {
   KeyRound,
   MessageSquareText,
   Moon,
+  Palette,
   Save,
   Settings2,
   SlidersHorizontal,
@@ -53,15 +54,17 @@ import {
 } from '../../components/ui/sidebar';
 import { Switch } from '../../components/ui/switch';
 import type {
+  AccentColor,
+  AppearanceSettings,
+  AppFontFamily,
   LlmProviderKind,
   MineruModelVersion,
   PdfExtractionEngine,
   PublicLlmSettings,
-  RerankProviderKind,
-  ThemeMode
+  RerankProviderKind
 } from '../../../shared/types';
 
-type SettingsSectionId = 'general' | 'knowledge' | 'chat' | 'embedding' | 'rerank' | 'vision';
+type SettingsSectionId = 'general' | 'appearance' | 'knowledge' | 'chat' | 'embedding' | 'rerank' | 'vision';
 type ModelEndpointSectionId = 'chat' | 'embedding' | 'vision';
 
 type EndpointDraft = {
@@ -89,9 +92,52 @@ type KnowledgeDraft = {
   mineruEnableFormula: boolean;
 };
 
+const defaultAppearance: AppearanceSettings = {
+  theme: 'light',
+  accentColor: 'deep-teal',
+  fontFamily: 'geist'
+};
+
 const providerOptions: { value: LlmProviderKind; label: string }[] = [
   { value: 'openai-compatible', label: 'OpenAI compatible' },
   { value: 'anthropic-compatible', label: 'Anthropic compatible' }
+];
+
+const accentOptions: {
+  value: AccentColor;
+  label: string;
+  swatch: string;
+}[] = [
+  { value: 'earth', label: 'Pale earth', swatch: 'oklch(0.42 0.045 75)' },
+  { value: 'forest', label: 'Deep green', swatch: 'oklch(0.34 0.07 148)' },
+  { value: 'ochre', label: 'Ochre', swatch: 'oklch(0.72 0.085 82)' },
+  { value: 'cinnabar', label: 'Cinnabar', swatch: 'oklch(0.48 0.145 32)' },
+  { value: 'deep-teal', label: 'Deep teal', swatch: 'oklch(0.32 0.06 205)' },
+  { value: 'plum', label: 'Deep plum', swatch: 'oklch(0.36 0.08 315)' }
+];
+
+const fontOptions: {
+  value: AppFontFamily;
+  label: string;
+  previewFont: string;
+}[] = [
+  { value: 'geist', label: 'Geist', previewFont: '"Geist Variable", sans-serif' },
+  {
+    value: 'system-sans',
+    label: 'System Sans',
+    previewFont: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  },
+  {
+    value: 'humanist-sans',
+    label: 'Humanist Sans',
+    previewFont: 'Avenir, "Avenir Next", "Segoe UI", Frutiger, "Gill Sans", "Trebuchet MS", sans-serif'
+  },
+  { value: 'serif', label: 'Serif', previewFont: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
+  {
+    value: 'mono',
+    label: 'Monospace',
+    previewFont: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
+  }
 ];
 
 const navGroups: {
@@ -106,6 +152,7 @@ const navGroups: {
     label: 'Global',
     items: [
       { id: 'general', label: 'General', icon: <Settings2 /> },
+      { id: 'appearance', label: 'Appearance', icon: <Palette /> },
       { id: 'knowledge', label: 'Knowledge', icon: <FileText /> }
     ]
   },
@@ -122,6 +169,7 @@ const navGroups: {
 
 const sectionTitles: Record<SettingsSectionId, string> = {
   general: 'General',
+  appearance: 'Appearance',
   knowledge: 'Knowledge',
   chat: 'Chat model',
   embedding: 'Embedding model',
@@ -200,7 +248,7 @@ export function SettingsDialog({
   debugEnabled,
   onOpenChange,
   onSaved,
-  onThemePreview,
+  onAppearancePreview,
   onDebugEnabledChange,
   onError,
   onStatus
@@ -210,7 +258,7 @@ export function SettingsDialog({
   debugEnabled: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (settings: PublicLlmSettings) => void;
-  onThemePreview: (theme: ThemeMode) => void;
+  onAppearancePreview: (appearance: AppearanceSettings) => void;
   onDebugEnabledChange: (enabled: boolean) => void;
   onError: (message: string) => void;
   onStatus: (message: string) => void;
@@ -221,8 +269,8 @@ export function SettingsDialog({
   const [rerank, setRerank] = useState<RerankEndpointDraft>(() => rerankFromSettings(settings));
   const [vision, setVision] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'vision'));
   const [knowledge, setKnowledge] = useState<KnowledgeDraft>(() => knowledgeFromSettings(settings));
-  const [theme, setTheme] = useState<ThemeMode>(settings?.appearance.theme ?? 'light');
-  const [themeSaving, setThemeSaving] = useState(false);
+  const [appearance, setAppearance] = useState<AppearanceSettings>(settings?.appearance ?? defaultAppearance);
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -255,8 +303,17 @@ export function SettingsDialog({
   ]);
 
   useEffect(() => {
-    setTheme(settings?.appearance.theme ?? 'light');
-  }, [settings?.appearance.theme, open]);
+    if (appearanceSaving) {
+      return;
+    }
+    setAppearance(settings?.appearance ?? defaultAppearance);
+  }, [
+    appearanceSaving,
+    settings?.appearance.theme,
+    settings?.appearance.accentColor,
+    settings?.appearance.fontFamily,
+    open
+  ]);
 
   const canSave = useMemo(() => {
     return [chat, embedding, vision, rerank].every((endpoint) => endpoint.baseURL.trim() && endpoint.model.trim())
@@ -329,23 +386,22 @@ export function SettingsDialog({
     }
   }
 
-  async function updateTheme(nextTheme: ThemeMode) {
-    const previousTheme = theme;
-    setTheme(nextTheme);
-    onThemePreview(nextTheme);
+  async function updateAppearance(partial: Partial<AppearanceSettings>) {
+    const previousAppearance = appearance;
+    const nextAppearance = { ...appearance, ...partial };
+    setAppearanceSaving(true);
+    setAppearance(nextAppearance);
+    onAppearancePreview(nextAppearance);
     try {
-      setThemeSaving(true);
-      const next = await getApi().updateAppearanceSettings({ theme: nextTheme });
-      if (!settings) {
-        onSaved(next);
-      }
-      onStatus('Theme updated.');
+      const next = await getApi().updateAppearanceSettings(nextAppearance);
+      onSaved(next);
+      onStatus('Appearance updated.');
     } catch (caught) {
-      setTheme(previousTheme);
-      onThemePreview(previousTheme);
+      setAppearance(previousAppearance);
+      onAppearancePreview(previousAppearance);
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setThemeSaving(false);
+      setAppearanceSaving(false);
     }
   }
 
@@ -421,10 +477,13 @@ export function SettingsDialog({
               {activeSection === 'general' ? (
                 <GeneralSettings
                   debugEnabled={debugEnabled}
-                  theme={theme}
-                  themeSaving={themeSaving}
                   onDebugEnabledChange={onDebugEnabledChange}
-                  onThemeChange={(nextTheme) => void updateTheme(nextTheme)}
+                />
+              ) : activeSection === 'appearance' ? (
+                <AppearanceSettingsPanel
+                  appearance={appearance}
+                  appearanceSaving={appearanceSaving}
+                  onAppearanceChange={(partial) => void updateAppearance(partial)}
                 />
               ) : activeSection === 'knowledge' ? (
                 <KnowledgeSettings
@@ -482,7 +541,10 @@ export function SettingsDialog({
 
 function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
   if (activeSection === 'general') {
-    return 'Theme changes apply immediately; debug mode is saved automatically.';
+    return 'Debug mode is saved automatically.';
+  }
+  if (activeSection === 'appearance') {
+    return 'Appearance changes apply immediately.';
   }
   if (activeSection === 'knowledge') {
     return 'PDF extraction and MinerU changes are saved with Save settings.';
@@ -492,37 +554,13 @@ function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
 
 function GeneralSettings({
   debugEnabled,
-  theme,
-  themeSaving,
-  onDebugEnabledChange,
-  onThemeChange
+  onDebugEnabledChange
 }: {
   debugEnabled: boolean;
-  theme: ThemeMode;
-  themeSaving: boolean;
   onDebugEnabledChange: (enabled: boolean) => void;
-  onThemeChange: (theme: ThemeMode) => void;
 }) {
   return (
     <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
-      <FieldSet className="border-b pb-6">
-        <Field orientation="horizontal" className="items-start justify-between gap-4">
-          <FieldContent>
-            <FieldLabel htmlFor="settings-dark-theme">Dark theme</FieldLabel>
-            <FieldDescription>Use the dark color scheme across the app.</FieldDescription>
-          </FieldContent>
-          <Switch
-            id="settings-dark-theme"
-            checked={theme === 'dark'}
-            disabled={themeSaving}
-            onCheckedChange={(checked) => onThemeChange(checked ? 'dark' : 'light')}
-          />
-        </Field>
-        <FieldDescription className="flex items-center gap-2">
-          {theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
-          <span>{themeSaving ? 'Saving theme...' : theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</span>
-        </FieldDescription>
-      </FieldSet>
       <FieldSet className="border-b pb-6">
         <Field orientation="horizontal" className="items-start justify-between gap-4">
           <FieldContent>
@@ -539,6 +577,87 @@ function GeneralSettings({
           <Bug className="size-4" />
           <span>{debugEnabled ? 'Debug details are visible.' : 'Debug details are hidden.'}</span>
         </FieldDescription>
+      </FieldSet>
+    </FieldGroup>
+  );
+}
+
+function AppearanceSettingsPanel({
+  appearance,
+  appearanceSaving,
+  onAppearanceChange
+}: {
+  appearance: AppearanceSettings;
+  appearanceSaving: boolean;
+  onAppearanceChange: (partial: Partial<AppearanceSettings>) => void;
+}) {
+  return (
+    <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
+      <FieldSet className="border-b pb-6">
+        <Field orientation="horizontal" className="items-start justify-between gap-4">
+          <FieldContent>
+            <FieldLabel htmlFor="settings-dark-theme">Dark theme</FieldLabel>
+            <FieldDescription>Use the dark color scheme across the app.</FieldDescription>
+          </FieldContent>
+          <Switch
+            id="settings-dark-theme"
+            checked={appearance.theme === 'dark'}
+            disabled={appearanceSaving}
+            onCheckedChange={(checked) => onAppearanceChange({ theme: checked ? 'dark' : 'light' })}
+          />
+        </Field>
+        <FieldDescription className="flex items-center gap-2">
+          {appearance.theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
+          <span>{appearanceSaving ? 'Saving appearance...' : appearance.theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</span>
+        </FieldDescription>
+      </FieldSet>
+      <FieldSet className="border-b pb-6">
+        <FieldLegend variant="label">Accent color</FieldLegend>
+        <FieldDescription>Choose the global color used for primary controls, focus rings, and selection accents.</FieldDescription>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {accentOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={appearanceSaving}
+              aria-pressed={appearance.accentColor === option.value}
+              onClick={() => onAppearanceChange({ accentColor: option.value })}
+              className="flex min-h-10 items-center gap-2 rounded-md border bg-background px-2.5 text-left text-sm transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50 aria-pressed:border-ring aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:ring-2 aria-pressed:ring-ring/40"
+            >
+              <span
+                className="size-4 shrink-0 rounded-full ring-1 ring-foreground/15"
+                style={{ backgroundColor: option.swatch }}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 truncate">{option.label}</span>
+            </button>
+          ))}
+        </div>
+      </FieldSet>
+      <FieldSet className="border-b pb-6">
+        <FieldLegend variant="label">Font</FieldLegend>
+        <FieldDescription>Choose the global interface font without adding bundled font dependencies.</FieldDescription>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="Font family">
+          {fontOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={appearanceSaving}
+              aria-pressed={appearance.fontFamily === option.value}
+              onClick={() => onAppearanceChange({ fontFamily: option.value })}
+              className="flex min-h-16 items-center gap-3 rounded-md border bg-background px-3 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50 aria-pressed:border-ring aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:ring-2 aria-pressed:ring-ring/40"
+            >
+              <span
+                className="flex size-10 shrink-0 items-center justify-center rounded border bg-card text-xl leading-none text-foreground shadow-xs"
+                style={{ fontFamily: option.previewFont }}
+                aria-hidden="true"
+              >
+                Aa
+              </span>
+              <span className="min-w-0 truncate text-sm">{option.label}</span>
+            </button>
+          ))}
+        </div>
       </FieldSet>
     </FieldGroup>
   );
