@@ -21,6 +21,8 @@ export const emptyLlmDraft: LlmDraftState = {
   runId: null,
   targetSectionId: null,
   prompt: '',
+  useKnowledgeSources: true,
+  knowledgeRetrievalPrompt: '',
   contextNodeIds: [],
   retrievedSources: [],
   excludedKnowledgeItemIds: [],

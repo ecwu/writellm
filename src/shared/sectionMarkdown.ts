@@ -1,3 +1,5 @@
+import type { CompositionTreeNode } from './types.js';
+
 export function defaultSectionMarkdown(): string {
   return '';
 }
@@ -11,6 +13,21 @@ export function sectionMarkdownForExport(title: string, markdown: string, depth:
   const heading = `${'#'.repeat(level)} ${title.replace(/\s+/g, ' ').trim() || 'Untitled section'}`;
   const body = stripMarkdownHeadings(markdown).trim();
   return body ? `${heading}\n\n${body}` : heading;
+}
+
+export function sectionTreeMarkdownForExport(root: CompositionTreeNode): string {
+  const parts: string[] = [];
+
+  const visit = (section: CompositionTreeNode, depth: number): void => {
+    const content = sectionMarkdownForExport(section.title, section.markdownContent, depth).trim();
+    if (content) {
+      parts.push(content);
+    }
+    section.children.forEach((child) => visit(child, depth + 1));
+  };
+
+  visit(root, 0);
+  return parts.join('\n\n');
 }
 
 export function stripMarkdownHeadings(markdown: string): string {

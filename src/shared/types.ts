@@ -474,6 +474,8 @@ export type GenerateLlmPayload = {
   sectionId: string;
   focusSectionId?: string | null;
   prompt: string;
+  useKnowledgeSources?: boolean;
+  knowledgeRetrievalPrompt?: string;
   contextNodeIds?: string[];
   prefetchedKnowledgeSources?: RetrievedKnowledgeSource[];
   excludedKnowledgeItemIds?: string[];

@@ -728,18 +728,22 @@ export function registerIpcHandlers(): void {
       payload.sectionId,
       payload.focusSectionId
     );
-    const retrievedSources = payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeSources(
-      db,
-      settings.embedding,
-      payload.prompt,
-      {
-        excludedItemIds: payload.excludedKnowledgeItemIds,
-        excludedChunkIds: payload.excludedKnowledgeChunkIds,
-        maxChunks: payload.maxKnowledgeChunks,
-        queries: buildKnowledgeRetrievalQueries(payload.prompt, articleSectionContext, contextNodes),
-        rerankSettings: settings.rerank
-      }
-    );
+    const useKnowledgeSources = payload.useKnowledgeSources !== false;
+    const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || payload.prompt;
+    const retrievedSources = useKnowledgeSources
+      ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeSources(
+          db,
+          settings.embedding,
+          knowledgeRetrievalPrompt,
+          {
+            excludedItemIds: payload.excludedKnowledgeItemIds,
+            excludedChunkIds: payload.excludedKnowledgeChunkIds,
+            maxChunks: payload.maxKnowledgeChunks,
+            queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
+            rerankSettings: settings.rerank
+          }
+        )
+      : [];
     const generationPayload: GenerateLlmPayload = {
       ...payload,
       prompt: buildContextPrompt(
@@ -747,7 +751,7 @@ export function registerIpcHandlers(): void {
         contextNodes,
         articleSectionContext,
         retrievedSources,
-        payload.requireInlineCitations ?? true
+        useKnowledgeSources && (payload.requireInlineCitations ?? true)
       ),
       systemPrompt: payload.systemPrompt?.trim()
         ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`

@@ -1,12 +1,15 @@
-import { useRef, useState } from 'react';
-import { ArrowLeft, Check, Code2, Eye, FilePenLine, History, PlusCircle, RefreshCw, WandSparkles, WholeWord, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Code2, Eye, FilePenLine, History, PlusCircle, WholeWord } from 'lucide-react';
 import { getApi } from '../../api';
+import type { ChildViewMode } from '../../app/types';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
-import { Textarea } from '../../components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
-import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
+import { LlmExecutionFlow, type LlmFlowAdoptInput, type LlmFlowGenerateInput } from '../llm/LlmExecutionFlow';
+import { ViewModeToggle } from '../../layout/ChildrenViewHeader';
+import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
 import type {
+  CompositionTreeNode,
   SectionLlmEditMode,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
@@ -26,6 +29,8 @@ type EditorLlmState = {
   open: boolean;
   mode: EditorLlmMode;
   prompt: string;
+  useKnowledgeSources: boolean;
+  knowledgeRetrievalPrompt: string;
   output: string;
   status: 'idle' | 'running' | 'done' | 'error';
   error?: string;
@@ -44,6 +49,8 @@ const emptyEditorLlm: EditorLlmState = {
   open: false,
   mode: 'rewrite-all',
   prompt: '',
+  useKnowledgeSources: true,
+  knowledgeRetrievalPrompt: '',
   output: '',
   status: 'idle',
   runId: null,
@@ -59,15 +66,21 @@ const emptyEditorLlm: EditorLlmState = {
 
 export function WritingView({
   section,
+  compositionTree,
+  rootNodeId,
+  childViewMode,
+  onChildViewMode,
   onCitationClick,
-  onBack,
   onHistory,
   onState,
   onError
 }: {
   section: SectionNodeRecord;
+  compositionTree: CompositionTreeNode[];
+  rootNodeId: string | null;
+  childViewMode: ChildViewMode;
+  onChildViewMode: (mode: ChildViewMode) => void;
   onCitationClick: (publicRef: string) => void;
-  onBack: () => Promise<void>;
   onHistory: (section: SectionNodeRecord) => void;
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
@@ -84,19 +97,35 @@ export function WritingView({
     endOffset: 0
   });
   const [editorLlm, setEditorLlm] = useState<EditorLlmState>(emptyEditorLlm);
-  const selectedText = getSelectedText(editorRef.current?.getValue() ?? draft, selection);
+  const rootTreeNode = useMemo(
+    () => (rootNodeId ? findSectionTreeNode(compositionTree, rootNodeId) : null),
+    [compositionTree, rootNodeId]
+  );
+  const isRootMarkdownView = Boolean(rootTreeNode && section.id === rootNodeId);
+  const displayedMarkdown = isRootMarkdownView && rootTreeNode
+    ? sectionTreeMarkdownForExport(rootTreeNode)
+    : draft;
+  const citationSources = useMemo(
+    () => isRootMarkdownView && rootTreeNode ? getSectionTreeSources(rootTreeNode) : getSectionSources(section),
+    [isRootMarkdownView, rootTreeNode, section]
+  );
+  const selectedText = getSelectedText(editorRef.current?.getValue() ?? displayedMarkdown, selection);
   const hasSelection = selectedText.trim().length > 0;
-  const editorLlmRunning = editorLlm.status === 'running';
-  const editorLlmDone = editorLlm.status === 'done' && editorLlm.output.trim().length > 0;
-
-  async function handleBack() {
+  async function handleChildViewMode(mode: ChildViewMode) {
+    if (mode === childViewMode) {
+      return;
+    }
     await cancelEditorLlm();
-    await flushPendingSave();
-    await onBack();
+    if (!isRootMarkdownView) {
+      await flushPendingSave();
+    }
+    onChildViewMode(mode);
   }
 
   async function handleHistory() {
-    await flushPendingSave();
+    if (!isRootMarkdownView) {
+      await flushPendingSave();
+    }
     onHistory(section);
   }
 
@@ -105,9 +134,10 @@ export function WritingView({
       onError('Select text before rewriting a selection.');
       return;
     }
+    const markdown = editorRef.current?.getValue() ?? draft;
     const currentSelection = editorRef.current?.getSelection() ?? selection;
     const targetRange = mode === 'rewrite-all'
-      ? { startOffset: 0, endOffset: editorRef.current?.getValue().length ?? draft.length }
+      ? { startOffset: 0, endOffset: markdown.length }
       : mode === 'rewrite-selection'
         ? currentSelection
         : { startOffset: currentSelection.endOffset, endOffset: currentSelection.endOffset };
@@ -119,14 +149,31 @@ export function WritingView({
       open: true,
       mode,
       prompt: '',
+      knowledgeRetrievalPrompt: buildEditorKnowledgeRetrievalPrompt(mode, {
+        sectionTitle: section.title,
+        sectionIntent: section.intent ?? '',
+        markdown,
+        instruction: '',
+        targetRange
+      }),
       targetRange
     });
   }
 
-  async function runEditorLlm() {
+  async function retrieveEditorFlowSources(knowledgeRetrievalPrompt: string): Promise<RetrievedKnowledgeSource[]> {
+    return getApi().searchKnowledge({
+      query: knowledgeRetrievalPrompt,
+      sectionId: section.id,
+      focusSectionId: section.id,
+      contextNodeIds: [],
+      maxChunks: 6
+    });
+  }
+
+  async function generateEditorFlowResult(input: LlmFlowGenerateInput) {
     const editor = editorRef.current;
     if (!editor) {
-      return;
+      throw new Error('Editor is not ready.');
     }
     await flushPendingSave();
     const markdown = editor.getValue();
@@ -137,19 +184,22 @@ export function WritingView({
         ? currentSelection
         : { startOffset: currentSelection.endOffset, endOffset: currentSelection.endOffset };
     if (editorLlm.mode === 'rewrite-selection' && targetRange.startOffset === targetRange.endOffset) {
-      onError('Select text before rewriting a selection.');
-      return;
+      throw new Error('Select text before rewriting a selection.');
     }
-    const runId = globalThis.crypto.randomUUID();
     const request = buildEditorLlmRequest(editorLlm.mode, {
       sectionTitle: section.title,
+      sectionIntent: section.intent ?? '',
       markdown,
-      instruction: editorLlm.prompt,
+      instruction: input.prompt,
       targetRange
     });
+    const runId = globalThis.crypto.randomUUID();
     setEditorLlm((current) => ({
       ...current,
       runId,
+      prompt: input.prompt,
+      useKnowledgeSources: input.useKnowledgeSources,
+      knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
       targetRange,
       baseMarkdown: markdown,
       selectedText: request.selectedText,
@@ -162,38 +212,35 @@ export function WritingView({
       status: 'running',
       error: undefined
     }));
-    try {
-      const result = await getApi().generateWithLlm({
-        runId,
-        sectionId: section.id,
-        focusSectionId: section.id,
-        prompt: request.prompt,
-        contextNodeIds: [],
-        maxKnowledgeChunks: 6,
-        requireInlineCitations: true,
-        systemPrompt: request.systemPrompt
-      });
-      if (result.canceled) {
-        setEditorLlm(emptyEditorLlm);
-        return;
-      }
-      setEditorLlm((current) => current.runId === runId
-        ? {
-            ...current,
-            output: result.content.trim(),
-            retrievedSources: result.sources ?? [],
-            status: 'done'
-          }
-        : current
-      );
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      setEditorLlm((current) => current.runId === runId
-        ? { ...current, status: 'error', error: message }
-        : current
-      );
-      onError(message);
+    const result = await getApi().generateWithLlm({
+      runId,
+      sectionId: section.id,
+      focusSectionId: section.id,
+      prompt: request.prompt,
+      useKnowledgeSources: input.useKnowledgeSources,
+      knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
+      prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
+      contextNodeIds: [],
+      maxKnowledgeChunks: 6,
+      requireInlineCitations: input.useKnowledgeSources,
+      systemPrompt: request.systemPrompt
+    });
+    if (result.canceled) {
+      setEditorLlm(emptyEditorLlm);
+      return { content: '', sources: [] };
     }
+    const content = result.content.trim();
+    const sources = result.sources ?? input.sources;
+    setEditorLlm((current) => current.runId === runId
+      ? {
+          ...current,
+          output: content,
+          retrievedSources: sources,
+          status: 'done'
+        }
+      : current
+    );
+    return { content, sources };
   }
 
   async function cancelEditorLlm() {
@@ -203,55 +250,50 @@ export function WritingView({
     setEditorLlm(emptyEditorLlm);
   }
 
-  async function applyEditorLlm() {
-    if (!editorLlmDone || !editorLlm.targetRange) {
-      return;
+  async function adoptEditorFlowResult(input: LlmFlowAdoptInput) {
+    if (!editorLlm.targetRange) {
+      throw new Error('No generated edit is ready to apply.');
     }
     const currentMarkdown = editorRef.current?.getValue() ?? draft;
     if (sectionMarkdownForStorage(currentMarkdown) !== sectionMarkdownForStorage(editorLlm.baseMarkdown)) {
-      onError('The section changed after this LLM edit was generated. Regenerate before applying it.');
-      return;
+      throw new Error('The section changed after this LLM edit was generated. Regenerate before applying it.');
     }
-    try {
-      const next = await getApi().applySectionLlmEdit({
-        sectionId: section.id,
-        focusSectionId: section.id,
-        mode: sectionLlmEditMode(editorLlm.mode),
-        userPrompt: editorLlm.prompt,
-        resolvedPrompt: editorLlm.resolvedPrompt,
-        systemPrompt: editorLlm.systemPrompt,
-        generatedContent: editorLlm.output,
-        baseMarkdown: editorLlm.baseMarkdown,
-        targetStart: editorLlm.targetRange.startOffset,
-        targetEnd: editorLlm.targetRange.endOffset,
-        selectedText: editorLlm.selectedText,
-        prefixContext: editorLlm.prefixContext,
-        suffixContext: editorLlm.suffixContext,
-        retrievedSources: editorLlm.retrievedSources,
-        contextNodeIds: []
-      });
-      onState(next);
-      setEditorLlm(emptyEditorLlm);
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : String(caught));
-    }
+    const next = await getApi().applySectionLlmEdit({
+      sectionId: section.id,
+      focusSectionId: section.id,
+      mode: sectionLlmEditMode(editorLlm.mode),
+      userPrompt: input.prompt,
+      resolvedPrompt: editorLlm.resolvedPrompt,
+      systemPrompt: editorLlm.systemPrompt,
+      generatedContent: input.content,
+      baseMarkdown: editorLlm.baseMarkdown,
+      targetStart: editorLlm.targetRange.startOffset,
+      targetEnd: editorLlm.targetRange.endOffset,
+      selectedText: editorLlm.selectedText,
+      prefixContext: editorLlm.prefixContext,
+      suffixContext: editorLlm.suffixContext,
+      retrievedSources: input.useKnowledgeSources ? input.sources : [],
+      contextNodeIds: []
+    });
+    onState(next);
+    setEditorLlm(emptyEditorLlm);
   }
 
   return (
     <section className="writing-view">
       <header className="writing-view-header">
-        <Button variant="outline" size="sm" onClick={() => void handleBack()}>
-          <ArrowLeft />
-          Back
-        </Button>
         <div className="writing-view-title">
-          <p>Section Markdown</p>
+          <p>{isRootMarkdownView ? 'Document Markdown' : 'Section Markdown'}</p>
           <h1>{section.title}</h1>
         </div>
         <div className="writing-view-meta" aria-live="polite">
-          <span>{section.markdownPath}</span>
-          <span>{saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
+          <span>{isRootMarkdownView ? 'Composition preview' : section.markdownPath}</span>
+          <span>{isRootMarkdownView ? 'Generated' : saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
         </div>
+        <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
+          <History />
+          History
+        </Button>
         <div className="writing-view-mode-toggle" role="group" aria-label="Editor view mode">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -284,61 +326,43 @@ export function WritingView({
             <TooltipContent>Decorated Markdown</TooltipContent>
           </Tooltip>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
-          <History />
-          History
-        </Button>
+        <ViewModeToggle mode={childViewMode} onModeChange={(mode) => void handleChildViewMode(mode)} />
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">
           <MarkdownEditor
             ref={editorRef}
-            key={section.id}
-            value={draft}
-            onChange={scheduleDraftSave}
+            key={`${section.id}:${isRootMarkdownView ? 'composition' : 'section'}`}
+            value={displayedMarkdown}
+            onChange={isRootMarkdownView ? noop : scheduleDraftSave}
             onSelectionChange={setSelection}
-            normalizeValue={sectionMarkdownForStorage}
+            normalizeValue={isRootMarkdownView ? undefined : sectionMarkdownForStorage}
             onCitationClick={onCitationClick}
-            citationSources={getSectionSources(section)}
+            citationSources={citationSources}
             renderMarkdown={editorViewMode === 'decorated'}
+            readOnly={isRootMarkdownView}
           />
-          <div className="writing-floating-toolbar" aria-label="Editor actions">
+          {isRootMarkdownView ? null : <div className="writing-floating-toolbar" aria-label="Editor actions">
             {editorLlm.open ? (
               <div className="writing-llm-composer">
-                <div className="writing-llm-composer-heading">
-                  <span>{editorLlmModeLabel(editorLlm.mode)}</span>
-                  <span>{editorLlmTargetLabel(editorLlm.mode, editorLlm.targetRange, editorRef.current?.getValue() ?? draft)}</span>
-                </div>
-                <Textarea
-                  value={editorLlm.prompt}
-                  onChange={(event) => setEditorLlm((current) => ({ ...current, prompt: event.target.value }))}
+                <LlmExecutionFlow
+                  label={`${editorLlmModeLabel(editorLlm.mode)} · ${editorLlmTargetLabel(editorLlm.mode, editorLlm.targetRange, editorRef.current?.getValue() ?? draft)}`}
                   placeholder={editorLlmPlaceholder(editorLlm.mode)}
-                  disabled={editorLlmRunning}
+                  defaultUseKnowledgeSources={editorLlm.useKnowledgeSources}
+                  buildKnowledgeRetrievalPrompt={(prompt) =>
+                    buildEditorKnowledgeRetrievalPrompt(editorLlm.mode, {
+                      sectionTitle: section.title,
+                      sectionIntent: section.intent ?? '',
+                      markdown: editorRef.current?.getValue() ?? draft,
+                      instruction: prompt,
+                      targetRange: editorLlm.targetRange ?? selection
+                    })
+                  }
+                  retrieveSources={retrieveEditorFlowSources}
+                  generate={generateEditorFlowResult}
+                  onAdopt={adoptEditorFlowResult}
+                  onCancel={() => void cancelEditorLlm()}
                 />
-                {editorLlm.output || editorLlm.error || editorLlmRunning ? (
-                  <div className={`writing-llm-output${editorLlm.status === 'error' ? ' is-error' : ''}`}>
-                    {editorLlm.output || editorLlm.error || 'Waiting for the first token...'}
-                  </div>
-                ) : null}
-                <div className="writing-llm-actions">
-                  <button type="button" title="Cancel" aria-label="Cancel" onClick={() => void cancelEditorLlm()}>
-                    <X />
-                  </button>
-                  {editorLlmDone ? (
-                    <>
-                      <button type="button" title="Regenerate" aria-label="Regenerate" onClick={() => void runEditorLlm()}>
-                        <RefreshCw />
-                      </button>
-                      <button type="button" title="Apply" aria-label="Apply" onClick={() => void applyEditorLlm()}>
-                        <Check />
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" title="Generate edit" aria-label="Generate edit" disabled={editorLlmRunning} onClick={() => void runEditorLlm()}>
-                      <WandSparkles />
-                    </button>
-                  )}
-                </div>
               </div>
             ) : null}
             <div className="writing-floating-buttons">
@@ -374,7 +398,7 @@ export function WritingView({
                 <span className="sr-only">Continue writing</span>
               </button>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </section>
@@ -451,6 +475,7 @@ function buildEditorLlmRequest(
   mode: EditorLlmMode,
   input: {
     sectionTitle: string;
+    sectionIntent: string;
     markdown: string;
     instruction: string;
     targetRange: EditorSelectionRange;
@@ -458,6 +483,7 @@ function buildEditorLlmRequest(
 ): {
   prompt: string;
   systemPrompt: string;
+  knowledgeRetrievalPrompt: string;
   selectedText: string;
   prefixContext: string;
   suffixContext: string;
@@ -467,6 +493,7 @@ function buildEditorLlmRequest(
   const suffix = input.markdown.slice(input.targetRange.endOffset, input.targetRange.endOffset + 1600);
   const instruction = input.instruction.trim() || 'No additional requirements.';
   const systemPrompt = editorLlmSystemPrompt(mode);
+  const knowledgeRetrievalPrompt = buildEditorKnowledgeRetrievalPrompt(mode, input);
 
   if (mode === 'rewrite-all') {
     return {
@@ -479,6 +506,7 @@ function buildEditorLlmRequest(
         input.markdown
       ].join('\n'),
       systemPrompt,
+      knowledgeRetrievalPrompt,
       selectedText,
       prefixContext: prefix,
       suffixContext: suffix
@@ -501,6 +529,7 @@ function buildEditorLlmRequest(
         suffix || '(none)'
       ].join('\n'),
       systemPrompt,
+      knowledgeRetrievalPrompt,
       selectedText,
       prefixContext: prefix,
       suffixContext: suffix
@@ -521,10 +550,61 @@ function buildEditorLlmRequest(
       suffix || '(none)'
     ].join('\n'),
     systemPrompt,
+    knowledgeRetrievalPrompt,
     selectedText,
     prefixContext: prefix,
     suffixContext: suffix
   };
+}
+
+function buildEditorKnowledgeRetrievalPrompt(
+  mode: EditorLlmMode,
+  input: {
+    sectionTitle: string;
+    sectionIntent: string;
+    markdown: string;
+    instruction: string;
+    targetRange: EditorSelectionRange;
+  }
+): string {
+  const selectedText = getSelectedText(input.markdown, input.targetRange);
+  const prefix = input.markdown.slice(Math.max(0, input.targetRange.startOffset - 1600), input.targetRange.startOffset);
+  const suffix = input.markdown.slice(input.targetRange.endOffset, input.targetRange.endOffset + 1000);
+  const instruction = input.instruction.trim();
+  const sections = [
+    `Section title: ${input.sectionTitle}`,
+    `Section intent: ${input.sectionIntent.trim() || 'Not provided'}`
+  ];
+
+  if (instruction) {
+    sections.push(`User requirements: ${instruction}`);
+  }
+
+  if (mode === 'rewrite-all') {
+    sections.push('', 'Markdown section to rewrite:', input.markdown.slice(0, 3000) || '(empty)');
+  } else if (mode === 'rewrite-selection') {
+    sections.push(
+      '',
+      'Selected Markdown to rewrite:',
+      selectedText || '(empty)',
+      '',
+      'Nearby context:',
+      [prefix, suffix].filter((value) => value.trim()).join('\n\n') || '(none)'
+    );
+  } else {
+    sections.push(
+      '',
+      'Continue writing at the insertion point.',
+      '',
+      'Context before insertion:',
+      prefix || '(none)',
+      '',
+      'Context after insertion:',
+      suffix || '(none)'
+    );
+  }
+
+  return sections.join('\n');
 }
 
 function getSectionSources(section: SectionNodeRecord): RetrievedKnowledgeSource[] {
@@ -545,3 +625,32 @@ function getSectionSources(section: SectionNodeRecord): RetrievedKnowledgeSource
     );
   });
 }
+
+function getSectionTreeSources(root: CompositionTreeNode): RetrievedKnowledgeSource[] {
+  const byRef = new Map<string, RetrievedKnowledgeSource>();
+
+  const visit = (section: CompositionTreeNode): void => {
+    getSectionSources(section).forEach((source) => {
+      byRef.set(source.publicRef.toLowerCase(), source);
+    });
+    section.children.forEach(visit);
+  };
+
+  visit(root);
+  return [...byRef.values()];
+}
+
+function findSectionTreeNode(nodes: CompositionTreeNode[], sectionId: string): CompositionTreeNode | null {
+  for (const node of nodes) {
+    if (node.id === sectionId) {
+      return node;
+    }
+    const child = findSectionTreeNode(node.children, sectionId);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function noop(): void {}

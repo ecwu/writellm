@@ -49,7 +49,6 @@ export function App() {
     focusSection,
     selectedSection,
     selectedContent,
-    writingSection,
     selectedEdge,
     currentChildViewMode,
     graph,
@@ -64,7 +63,6 @@ export function App() {
     openKnowledgeCitation,
     openKnowledgeSourceNode,
     openWritingView,
-    closeWritingView,
     moveSectionInOutline,
     onConnect,
     updateSelectedEdgeKind,
@@ -74,9 +72,8 @@ export function App() {
     createConnectedContent,
     deleteSelectedNode,
     openGenerateComposer,
-    startLlmGeneration,
     cancelLlmDraft,
-    saveLlmDraft,
+    saveLlmFlowGeneration,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -84,7 +81,6 @@ export function App() {
     reindexKnowledgeItem,
     retryKnowledgeIngestJob,
     deleteKnowledgeIngestJob,
-    excludeKnowledgeSource,
     exportLatex,
     createGitCheckpoint,
     setFocusedChildViewMode,
@@ -230,12 +226,15 @@ export function App() {
               />
 
               <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-                {writingSection ? (
+                {currentChildViewMode === 'markdown' && focusSection ? (
                   <WritingView
-                    key={writingSection.id}
-                    section={writingSection}
+                    key={focusSection.id}
+                    section={focusSection}
+                    compositionTree={state.compositionTree}
+                    rootNodeId={state.workspace?.rootNodeId ?? null}
+                    childViewMode={currentChildViewMode}
+                    onChildViewMode={setFocusedChildViewMode}
                     onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
-                    onBack={() => closeWritingView(writingSection)}
                     onHistory={(section) => setHistorySectionId(section.id)}
                     onState={setState}
                     onError={notifyError}
@@ -261,7 +260,7 @@ export function App() {
                     onNodeDoubleClick={(node) => {
                       const record = state.nodes.find((candidate) => candidate.id === node.id);
                       if (record?.kind === 'section') {
-                        openWritingView(record);
+                        void openWritingView(record);
                       } else if (record?.kind === 'content') {
                         if (record.metadata.nodeRole === 'knowledge-source') {
                           void openKnowledgeSourceNode(record);
@@ -270,7 +269,7 @@ export function App() {
                             (candidate) => candidate.kind === 'section' && candidate.id === record.parentId
                           );
                           if (parent?.kind === 'section') {
-                            openWritingView(parent);
+                            void openWritingView(parent);
                           }
                         }
                       }
@@ -286,31 +285,9 @@ export function App() {
                     onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
                     onDeleteNode={() => void deleteSelectedNode()}
                     onOpenGenerate={openGenerateComposer}
-                    onPromptChange={(prompt) => setLlmDraft((current) => ({ ...current, prompt }))}
-                    onContextNodeToggle={(nodeId, checked) =>
-                      setLlmDraft((current) => ({
-                        ...current,
-                        contextNodeIds: checked
-                          ? [...new Set([...current.contextNodeIds, nodeId])]
-                          : current.contextNodeIds.filter((id) => id !== nodeId)
-                      }))
-                    }
-                    onOpenSectionMarkdown={openWritingView}
-                    onExcludeKnowledgeSource={excludeKnowledgeSource}
-                    onGenerate={(prompt, sectionId, contextNodeIds) =>
-                      void startLlmGeneration(prompt, sectionId, contextNodeIds)
-                    }
-                    onRegenerate={() => {
-                      if (llmDraft.targetSectionId && llmDraft.prompt.trim()) {
-                        void startLlmGeneration(
-                          llmDraft.prompt.trim(),
-                          llmDraft.targetSectionId,
-                          llmDraft.contextNodeIds
-                        );
-                      }
-                    }}
+                    onOpenSectionMarkdown={(section) => void openWritingView(section)}
                     onCancelGenerate={() => void cancelLlmDraft()}
-                    onSaveGenerate={() => void saveLlmDraft()}
+                    onAdoptGenerate={saveLlmFlowGeneration}
                     onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
                     onDeleteEdge={() => void deleteSelectedEdge()}
                   />

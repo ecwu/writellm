@@ -8,13 +8,15 @@ export type ContentPreset = 'main';
 
 export type AppPage = 'workspace' | 'knowledge';
 
-export type ChildViewMode = 'graph' | 'list';
+export type ChildViewMode = 'graph' | 'list' | 'markdown';
 
 export type LlmDraftState = {
   open: boolean;
   runId: string | null;
   targetSectionId: string | null;
   prompt: string;
+  useKnowledgeSources: boolean;
+  knowledgeRetrievalPrompt: string;
   contextNodeIds: string[];
   retrievedSources: RetrievedKnowledgeSource[];
   excludedKnowledgeItemIds: string[];

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { EditorState, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { Compartment, EditorState, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view';
 import type { RetrievedKnowledgeSource } from '../../shared/types';
 
@@ -24,6 +24,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   citationSources?: RetrievedKnowledgeSource[];
   normalizeValue?: (value: string) => string;
   renderMarkdown?: boolean;
+  readOnly?: boolean;
 }>(function MarkdownEditor({
   value,
   onChange,
@@ -31,16 +32,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   onCitationClick,
   citationSources = [],
   normalizeValue,
-  renderMarkdown = true
+  renderMarkdown = true,
+  readOnly = false
 }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const readOnlyCompartmentRef = useRef(new Compartment());
   const valueRef = useRef(normalizeValue ? normalizeValue(value) : value);
   const onChangeRef = useRef(onChange);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onCitationClickRef = useRef(onCitationClick);
   const normalizeValueRef = useRef(normalizeValue);
   const renderMarkdownRef = useRef(renderMarkdown);
+  const readOnlyRef = useRef(readOnly);
   const syncingRef = useRef(false);
 
   useEffect(() => {
@@ -49,7 +53,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
     onCitationClickRef.current = onCitationClick;
     normalizeValueRef.current = normalizeValue;
     renderMarkdownRef.current = renderMarkdown;
-  }, [onChange, onSelectionChange, onCitationClick, normalizeValue, renderMarkdown]);
+    readOnlyRef.current = readOnly;
+  }, [onChange, onSelectionChange, onCitationClick, normalizeValue, renderMarkdown, readOnly]);
 
   useImperativeHandle(ref, () => ({
     getSelection() {
@@ -64,7 +69,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
     },
     replaceRange(startOffset, endOffset, text) {
       const view = viewRef.current;
-      if (!view) {
+      if (!view || readOnlyRef.current) {
         return;
       }
       const from = Math.max(0, Math.min(startOffset, view.state.doc.length));
@@ -92,6 +97,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
+          readOnlyCompartmentRef.current.of(readOnlyExtension(readOnlyRef.current)),
           createMarkdownDecorations(renderMarkdownRef.current),
           EditorView.domEventHandlers({
             click(event) {
@@ -234,6 +240,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   }, [renderMarkdown]);
 
   useEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    readOnlyRef.current = readOnly;
+    view.dispatch({
+      effects: readOnlyCompartmentRef.current.reconfigure(readOnlyExtension(readOnly))
+    });
+  }, [readOnly]);
+
+  useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       if (
         renderMarkdownRef.current &&
@@ -265,8 +282,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
     };
   }, []);
 
-  return <div ref={hostRef} className={`markdown-editor${renderMarkdown ? '' : ' is-raw'}`} />;
+  return <div ref={hostRef} className={`markdown-editor${renderMarkdown ? '' : ' is-raw'}${readOnly ? ' is-read-only' : ''}`} />;
 });
+
+function readOnlyExtension(readOnly: boolean) {
+  return [
+    EditorState.readOnly.of(readOnly),
+    EditorView.editable.of(!readOnly)
+  ];
+}
 
 function closeCitationPopovers(except?: HTMLElement): void {
   document.querySelectorAll<HTMLElement>('.cm-citation-marker.is-open').forEach((element) => {

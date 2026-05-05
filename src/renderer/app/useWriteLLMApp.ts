@@ -36,7 +36,6 @@ export function useWriteLLMApp() {
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
   const [llmDraft, setLlmDraft] = useState(emptyLlmDraft);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
-  const [writingSectionId, setWritingSectionId] = useState<string | null>(null);
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
@@ -92,9 +91,6 @@ export function useWriteLLMApp() {
     selection?.type === 'node' ? state.nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedSection = selectedNode?.kind === 'section' ? selectedNode : null;
   const selectedContent = selectedNode?.kind === 'content' ? selectedNode : null;
-  const writingSection = writingSectionId
-    ? state.nodes.find((node): node is SectionNodeRecord => node.kind === 'section' && node.id === writingSectionId) ?? null
-    : null;
   const selectedEdge =
     selection?.type === 'edge' ? state.edges.find((edge) => edge.id === selection.id) : null;
   const currentChildViewMode = state.focusSectionId
@@ -111,7 +107,7 @@ export function useWriteLLMApp() {
       return;
     }
     setChildViewModes((current) => ({ ...current, [focusId]: mode }));
-    if (mode === 'list' && selection?.type !== 'node') {
+    if (mode !== 'graph' && selection?.type !== 'node') {
       setSelection({ type: 'node', id: focusId });
     }
   }
@@ -119,7 +115,6 @@ export function useWriteLLMApp() {
   function setActivePage(page: AppPage) {
     setActivePageState(page);
     if (page === 'knowledge') {
-      setWritingSectionId(null);
       if (llmDraft.status === 'running' && llmDraft.runId) {
         void getApi().cancelLlmGeneration(llmDraft.runId);
       }
@@ -232,12 +227,6 @@ export function useWriteLLMApp() {
       setSelection({ type: 'node', id: state.focusSectionId });
     }
   }, [selection, state.edges, state.focusSectionId, state.nodes]);
-
-  useEffect(() => {
-    if (writingSectionId && !writingSection) {
-      setWritingSectionId(null);
-    }
-  }, [writingSectionId, writingSection]);
 
   function notifyStatus(message: string) {
     toast.success(message);
@@ -373,20 +362,14 @@ export function useWriteLLMApp() {
   async function focusSectionById(sectionId: string) {
     await run(async () => getApi().getState(sectionId));
     setSelection({ type: 'node', id: sectionId });
-    if (writingSectionId) {
-      setWritingSectionId(sectionId);
+  }
+
+  async function openWritingView(section: SectionNodeRecord) {
+    setSelection({ type: 'node', id: section.id });
+    if (state.focusSectionId !== section.id) {
+      await run(async () => getApi().getState(section.id));
     }
-  }
-
-  function openWritingView(section: SectionNodeRecord) {
-    setSelection({ type: 'node', id: section.id });
-    setWritingSectionId(section.id);
-  }
-
-  async function closeWritingView(section: SectionNodeRecord) {
-    await run(async () => getApi().getState(section.id));
-    setWritingSectionId(null);
-    setSelection({ type: 'node', id: section.id });
+    setChildViewModes((current) => ({ ...current, [section.id]: 'markdown' }));
   }
 
   async function moveSectionInOutline(sectionId: string, parentId: string | null, index: number) {
@@ -532,6 +515,8 @@ export function useWriteLLMApp() {
       runId: null,
       targetSectionId: sectionId,
       prompt: '',
+      useKnowledgeSources: true,
+      knowledgeRetrievalPrompt: '',
       contextNodeIds: [],
       retrievedSources: [],
       excludedKnowledgeItemIds: [],
@@ -543,26 +528,32 @@ export function useWriteLLMApp() {
 
   async function startLlmGeneration(prompt: string, sectionId: string, contextNodeIds: string[]) {
     const runId = globalThis.crypto.randomUUID();
+    const useKnowledgeSources = llmDraft.useKnowledgeSources;
+    const knowledgeRetrievalPrompt = llmDraft.knowledgeRetrievalPrompt.trim() || prompt;
     let prefetchedKnowledgeSources: RetrievedKnowledgeSource[] | undefined;
-    const previewSources = await getApi().searchKnowledge({
-      query: prompt,
-      sectionId,
-      focusSectionId: state.focusSectionId ?? sectionId,
-      contextNodeIds,
-      excludedItemIds: llmDraft.excludedKnowledgeItemIds,
-      excludedChunkIds: llmDraft.excludedKnowledgeChunkIds,
-      maxChunks: 10
-    })
-      .then((sources) => {
-        prefetchedKnowledgeSources = sources;
-        return sources;
-      })
-      .catch(() => []);
+    const previewSources = useKnowledgeSources
+      ? await getApi().searchKnowledge({
+          query: knowledgeRetrievalPrompt,
+          sectionId,
+          focusSectionId: state.focusSectionId ?? sectionId,
+          contextNodeIds,
+          excludedItemIds: llmDraft.excludedKnowledgeItemIds,
+          excludedChunkIds: llmDraft.excludedKnowledgeChunkIds,
+          maxChunks: 10
+        })
+          .then((sources) => {
+            prefetchedKnowledgeSources = sources;
+            return sources;
+          })
+          .catch(() => [])
+      : [];
     setLlmDraft({
       open: true,
       runId,
       targetSectionId: sectionId,
       prompt,
+      useKnowledgeSources,
+      knowledgeRetrievalPrompt,
       contextNodeIds,
       retrievedSources: previewSources,
       excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
@@ -577,12 +568,14 @@ export function useWriteLLMApp() {
         sectionId,
         focusSectionId: state.focusSectionId ?? sectionId,
         prompt,
+        useKnowledgeSources,
+        knowledgeRetrievalPrompt,
         contextNodeIds,
         prefetchedKnowledgeSources,
         excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
         excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
         maxKnowledgeChunks: 10,
-        requireInlineCitations: true
+        requireInlineCitations: useKnowledgeSources
       });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -616,6 +609,29 @@ export function useWriteLLMApp() {
         contextRelationType: DEFAULT_EDGE_KIND
       });
       setSelection({ type: 'node', id: llmDraft.targetSectionId! });
+      setLlmDraft(emptyLlmDraft);
+      return next;
+    }, 'LLM generation applied.');
+  }
+
+  async function saveLlmFlowGeneration(payload: {
+    sectionId: string;
+    prompt: string;
+    content: string;
+    contextNodeIds: string[];
+    retrievedSources: RetrievedKnowledgeSource[];
+  }) {
+    await run(async () => {
+      const next = await getApi().saveLlmGeneration({
+        sectionId: payload.sectionId,
+        focusSectionId: state.focusSectionId ?? payload.sectionId,
+        prompt: payload.prompt,
+        content: payload.content,
+        contextNodeIds: payload.contextNodeIds,
+        retrievedSources: payload.retrievedSources,
+        contextRelationType: DEFAULT_EDGE_KIND
+      });
+      setSelection({ type: 'node', id: payload.sectionId });
       setLlmDraft(emptyLlmDraft);
       return next;
     }, 'LLM generation applied.');
@@ -760,7 +776,6 @@ export function useWriteLLMApp() {
     focusSection,
     selectedSection,
     selectedContent,
-    writingSection,
     selectedEdge,
     currentChildViewMode,
     graph,
@@ -775,7 +790,6 @@ export function useWriteLLMApp() {
     openKnowledgeCitation,
     openKnowledgeSourceNode,
     openWritingView,
-    closeWritingView,
     moveSectionInOutline,
     onConnect,
     updateSelectedEdgeKind,
@@ -788,6 +802,7 @@ export function useWriteLLMApp() {
     startLlmGeneration,
     cancelLlmDraft,
     saveLlmDraft,
+    saveLlmFlowGeneration,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,

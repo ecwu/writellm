@@ -325,6 +325,10 @@
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+.markdown-editor.is-read-only .cm-content {
+  caret-color: transparent;
+}
+
 .markdown-editor .cm-content {
   caret-color: var(--foreground);
   font-size: 0.95rem;

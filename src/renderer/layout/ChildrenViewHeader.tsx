@@ -1,5 +1,5 @@
 
-import { GitBranch, List } from 'lucide-react';
+import { FileText, GitBranch, List } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import type { ChildViewMode } from '../app/types';
@@ -42,6 +42,21 @@ export function ViewModeToggle({
           </Button>
         </TooltipTrigger>
         <TooltipContent>List</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={mode === 'markdown' ? 'default' : 'outline'}
+            size="icon-sm"
+            onClick={() => onModeChange('markdown')}
+            aria-label="Markdown view"
+            title="Markdown view"
+          >
+            <FileText />
+            <span className="sr-only">Markdown</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Markdown</TooltipContent>
       </Tooltip>
     </div>
   );

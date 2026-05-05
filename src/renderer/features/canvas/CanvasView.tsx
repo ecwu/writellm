@@ -12,7 +12,7 @@ import {
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
 import { FloatingActionToolbar } from './FloatingActionToolbar';
 import type { ChildViewMode, ContentPreset, LlmDraftState, Selection } from '../../app/types';
-import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
+import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, RetrievedKnowledgeSource, SectionNodeRecord } from '../../../shared/types';
 
 export function CanvasView({
   title,
@@ -40,13 +40,8 @@ export function CanvasView({
   onOpenSectionMarkdown,
   onDeleteNode,
   onOpenGenerate,
-  onPromptChange,
-  onContextNodeToggle,
-  onExcludeKnowledgeSource,
-  onGenerate,
-  onRegenerate,
   onCancelGenerate,
-  onSaveGenerate,
+  onAdoptGenerate,
   onUpdateEdgeKind,
   onDeleteEdge
 }: {
@@ -75,13 +70,14 @@ export function CanvasView({
   onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
   onDeleteNode: () => void;
   onOpenGenerate: (sectionId: string) => void;
-  onPromptChange: (prompt: string) => void;
-  onContextNodeToggle: (nodeId: string, checked: boolean) => void;
-  onExcludeKnowledgeSource: (itemId: string, chunkId: string) => void;
-  onGenerate: (prompt: string, sectionId: string, contextNodeIds: string[]) => void;
-  onRegenerate: () => void;
   onCancelGenerate: () => void;
-  onSaveGenerate: () => void;
+  onAdoptGenerate: (payload: {
+    sectionId: string;
+    prompt: string;
+    content: string;
+    contextNodeIds: string[];
+    retrievedSources: RetrievedKnowledgeSource[];
+  }) => Promise<void>;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
   onDeleteEdge: () => void;
 }) {
@@ -122,13 +118,8 @@ export function CanvasView({
         onOpenSectionMarkdown={onOpenSectionMarkdown}
         onDeleteNode={onDeleteNode}
         onOpenGenerate={onOpenGenerate}
-        onPromptChange={onPromptChange}
-        onContextNodeToggle={onContextNodeToggle}
-        onExcludeKnowledgeSource={onExcludeKnowledgeSource}
-        onGenerate={onGenerate}
-        onRegenerate={onRegenerate}
         onCancelGenerate={onCancelGenerate}
-        onSaveGenerate={onSaveGenerate}
+        onAdoptGenerate={onAdoptGenerate}
         onUpdateEdgeKind={onUpdateEdgeKind}
         onDeleteEdge={onDeleteEdge}
       />

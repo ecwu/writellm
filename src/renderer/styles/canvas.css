@@ -400,7 +400,7 @@
   box-shadow: 0 16px 34px oklch(0 0 0 / 20%);
   display: grid;
   gap: 0.625rem;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   left: 50%;
   max-height: min(62svh, 34rem);
   min-height: 0;
@@ -423,6 +423,34 @@
 
 .floating-generate-composer textarea::placeholder {
   color: oklch(0.72 0.008 240);
+}
+
+.floating-generation-source-controls {
+  background: oklch(1 0 0 / 6%);
+  border: 1px solid oklch(1 0 0 / 12%);
+  border-radius: 0.875rem;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.625rem;
+}
+
+.floating-generation-source-controls label {
+  align-items: center;
+  color: oklch(0.86 0.008 240);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 650;
+  gap: 0.5rem;
+  line-height: 1.2;
+}
+
+.floating-generation-source-controls input {
+  accent-color: oklch(0.7 0.09 230);
+}
+
+.floating-generation-source-controls textarea {
+  max-height: min(8rem, 18svh);
+  min-height: 3.25rem;
 }
 
 .floating-generation-context {

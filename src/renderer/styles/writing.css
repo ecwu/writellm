@@ -18,7 +18,7 @@
   border-bottom: 1px solid var(--border);
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   min-width: 0;
   padding: 0.625rem 0.875rem;
 }
@@ -191,7 +191,7 @@
   box-shadow: 0 16px 34px oklch(0 0 0 / 20%);
   display: grid;
   gap: 0.625rem;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   left: 50%;
   max-height: min(62svh, 32rem);
   min-height: 0;
@@ -233,6 +233,34 @@
 
 .writing-llm-composer textarea::placeholder {
   color: oklch(0.72 0.008 240);
+}
+
+.writing-llm-source-controls {
+  background: oklch(1 0 0 / 6%);
+  border: 1px solid oklch(1 0 0 / 12%);
+  border-radius: 0.875rem;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.625rem;
+}
+
+.writing-llm-source-controls label {
+  align-items: center;
+  color: oklch(0.86 0.008 240);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 650;
+  gap: 0.5rem;
+  line-height: 1.2;
+}
+
+.writing-llm-source-controls input {
+  accent-color: oklch(0.7 0.09 230);
+}
+
+.writing-llm-source-controls textarea {
+  max-height: min(8rem, 18svh);
+  min-height: 3.25rem;
 }
 
 .writing-llm-output {
