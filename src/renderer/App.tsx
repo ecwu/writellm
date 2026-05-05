@@ -232,6 +232,7 @@ export function App() {
               <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
                 {writingSection ? (
                   <WritingView
+                    key={writingSection.id}
                     section={writingSection}
                     onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                     onBack={() => closeWritingView(writingSection)}

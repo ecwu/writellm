@@ -373,6 +373,9 @@ export function useWriteLLMApp() {
   async function focusSectionById(sectionId: string) {
     await run(async () => getApi().getState(sectionId));
     setSelection({ type: 'node', id: sectionId });
+    if (writingSectionId) {
+      setWritingSectionId(sectionId);
+    }
   }
 
   function openWritingView(section: SectionNodeRecord) {

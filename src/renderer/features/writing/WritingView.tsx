@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
-import { ArrowLeft, Check, FilePenLine, History, PlusCircle, RefreshCw, WandSparkles, WholeWord, X } from 'lucide-react';
+import { ArrowLeft, Check, Code2, Eye, FilePenLine, History, PlusCircle, RefreshCw, WandSparkles, WholeWord, X } from 'lucide-react';
 import { getApi } from '../../api';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
 import { Textarea } from '../../components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
 import type {
   SectionLlmEditMode,
@@ -19,6 +20,7 @@ type EditorSelectionRange = {
 };
 
 type EditorLlmMode = 'rewrite-all' | 'rewrite-selection' | 'continue';
+type EditorViewMode = 'raw' | 'decorated';
 
 type EditorLlmState = {
   open: boolean;
@@ -76,6 +78,7 @@ export function WritingView({
     onError
   });
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('decorated');
   const [selection, setSelection] = useState<EditorSelectionRange>({
     startOffset: 0,
     endOffset: 0
@@ -249,6 +252,38 @@ export function WritingView({
           <span>{section.markdownPath}</span>
           <span>{saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
         </div>
+        <div className="writing-view-mode-toggle" role="group" aria-label="Editor view mode">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={editorViewMode === 'raw' ? 'default' : 'outline'}
+                size="icon-sm"
+                onClick={() => setEditorViewMode('raw')}
+                aria-label="Raw Markdown view"
+                title="Raw Markdown view"
+              >
+                <Code2 />
+                <span className="sr-only">Raw Markdown</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Raw Markdown</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={editorViewMode === 'decorated' ? 'default' : 'outline'}
+                size="icon-sm"
+                onClick={() => setEditorViewMode('decorated')}
+                aria-label="Decorated Markdown view"
+                title="Decorated Markdown view"
+              >
+                <Eye />
+                <span className="sr-only">Decorated Markdown</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Decorated Markdown</TooltipContent>
+          </Tooltip>
+        </div>
         <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
           <History />
           History
@@ -265,6 +300,7 @@ export function WritingView({
             normalizeValue={sectionMarkdownForStorage}
             onCitationClick={onCitationClick}
             citationSources={getSectionSources(section)}
+            renderMarkdown={editorViewMode === 'decorated'}
           />
           <div className="writing-floating-toolbar" aria-label="Editor actions">
             {editorLlm.open ? (

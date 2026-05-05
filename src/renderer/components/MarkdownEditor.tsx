@@ -23,13 +23,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   onCitationClick?: (publicRef: string) => void;
   citationSources?: RetrievedKnowledgeSource[];
   normalizeValue?: (value: string) => string;
+  renderMarkdown?: boolean;
 }>(function MarkdownEditor({
   value,
   onChange,
   onSelectionChange,
   onCitationClick,
   citationSources = [],
-  normalizeValue
+  normalizeValue,
+  renderMarkdown = true
 }, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -38,6 +40,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onCitationClickRef = useRef(onCitationClick);
   const normalizeValueRef = useRef(normalizeValue);
+  const renderMarkdownRef = useRef(renderMarkdown);
   const syncingRef = useRef(false);
 
   useEffect(() => {
@@ -45,7 +48,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
     onSelectionChangeRef.current = onSelectionChange;
     onCitationClickRef.current = onCitationClick;
     normalizeValueRef.current = normalizeValue;
-  }, [onChange, onSelectionChange, onCitationClick, normalizeValue]);
+    renderMarkdownRef.current = renderMarkdown;
+  }, [onChange, onSelectionChange, onCitationClick, normalizeValue, renderMarkdown]);
 
   useImperativeHandle(ref, () => ({
     getSelection() {
@@ -88,9 +92,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
-          markdownDecorations,
+          createMarkdownDecorations(renderMarkdownRef.current),
           EditorView.domEventHandlers({
             click(event) {
+              if (!renderMarkdownRef.current) {
+                return false;
+              }
               if (event.target instanceof HTMLElement && event.target.closest('.cm-citation-popover')) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -113,6 +120,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
               return true;
             },
             dblclick(event) {
+              if (!renderMarkdownRef.current) {
+                return false;
+              }
               if (event.target instanceof HTMLElement && event.target.closest('.cm-citation-popover')) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -212,8 +222,21 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
   }, [citationSources]);
 
   useEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    renderMarkdownRef.current = renderMarkdown;
+    if (!renderMarkdown) {
+      closeCitationPopovers();
+    }
+    view.dispatch({ effects: setRenderMarkdown.of(renderMarkdown) });
+  }, [renderMarkdown]);
+
+  useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       if (
+        renderMarkdownRef.current &&
         event.target instanceof HTMLElement &&
         (event.target.closest('.cm-citation-marker') || event.target.closest('.cm-citation-popover'))
       ) {
@@ -242,7 +265,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
     };
   }, []);
 
-  return <div ref={hostRef} className="markdown-editor" />;
+  return <div ref={hostRef} className={`markdown-editor${renderMarkdown ? '' : ' is-raw'}`} />;
 });
 
 function closeCitationPopovers(except?: HTMLElement): void {
@@ -305,37 +328,46 @@ const italicPattern = /(^|[^*])\*([^*\n]+)\*/g;
 const linkPattern = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
 
 const setCitationSources = StateEffect.define<RetrievedKnowledgeSource[]>();
+const setRenderMarkdown = StateEffect.define<boolean>();
 const citationSourcesByMarker = new WeakMap<HTMLElement, RetrievedKnowledgeSource[]>();
 
-const markdownDecorations = StateField.define<{
-  sources: RetrievedKnowledgeSource[];
-  decorations: DecorationSet;
-}>({
-  create(state) {
-    return {
-      sources: [],
-      decorations: buildMarkdownDecorations(state.doc.toString(), [])
-    };
-  },
-  update(value, transaction) {
-    let sources = value.sources;
-    for (const effect of transaction.effects) {
-      if (effect.is(setCitationSources)) {
-        sources = effect.value;
-      }
-    }
-    if (transaction.docChanged || sources !== value.sources) {
+function createMarkdownDecorations(initialRenderMarkdown: boolean) {
+  return StateField.define<{
+    sources: RetrievedKnowledgeSource[];
+    renderMarkdown: boolean;
+    decorations: DecorationSet;
+  }>({
+    create(state) {
       return {
-        sources,
-        decorations: buildMarkdownDecorations(transaction.newDoc.toString(), sources)
+        sources: [],
+        renderMarkdown: initialRenderMarkdown,
+        decorations: initialRenderMarkdown ? buildMarkdownDecorations(state.doc.toString(), []) : Decoration.none
       };
+    },
+    update(value, transaction) {
+      let sources = value.sources;
+      let renderMarkdown = value.renderMarkdown;
+      for (const effect of transaction.effects) {
+        if (effect.is(setCitationSources)) {
+          sources = effect.value;
+        } else if (effect.is(setRenderMarkdown)) {
+          renderMarkdown = effect.value;
+        }
+      }
+      if (transaction.docChanged || sources !== value.sources || renderMarkdown !== value.renderMarkdown) {
+        return {
+          sources,
+          renderMarkdown,
+          decorations: renderMarkdown ? buildMarkdownDecorations(transaction.newDoc.toString(), sources) : Decoration.none
+        };
+      }
+      return value;
+    },
+    provide(field) {
+      return EditorView.decorations.from(field, (value) => value.decorations);
     }
-    return value;
-  },
-  provide(field) {
-    return EditorView.decorations.from(field, (value) => value.decorations);
-  }
-});
+  });
+}
 
 function buildMarkdownDecorations(doc: string, sources: RetrievedKnowledgeSource[]): DecorationSet {
   const entries: Array<{ from: number; to: number; decoration: Decoration }> = [];

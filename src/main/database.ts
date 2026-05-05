@@ -52,6 +52,7 @@ import type {
   NodeEdgeRecord,
   NodeRecord,
   NodeStats,
+  RetrievedKnowledgeSource,
   SectionNodeRecord,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
@@ -1090,7 +1091,7 @@ export class WriteLLMDatabase {
     if (node.kind !== 'section') {
       return node;
     }
-    const citationSources = this.listGenerationCitations(node.id).map((citation) => {
+    const citationSources: RetrievedKnowledgeSource[] = this.listGenerationCitations(node.id).map((citation) => {
       const target = this.resolveKnowledgeSourceTarget({
         publicRef: citation.publicRef,
         chunkId: citation.knowledgeChunkId
@@ -1108,6 +1109,29 @@ export class WriteLLMDatabase {
         score: citation.score ?? 0
       };
     });
+    const existingRefs = new Set(citationSources.map((source) => source.publicRef.toLowerCase()));
+    for (const publicRef of citationRefsFromMarkdown(node.markdownContent)) {
+      if (existingRefs.has(publicRef.toLowerCase())) {
+        continue;
+      }
+      const target = this.resolveKnowledgeSourceTarget({ publicRef });
+      if (!target) {
+        continue;
+      }
+      citationSources.push({
+        label: publicRef,
+        publicRef,
+        itemId: target.itemId,
+        itemPublicRef: target.itemPublicRef,
+        itemTitle: target.itemTitle,
+        itemDescription: target.itemDescription,
+        chunkId: target.chunkId,
+        chunkIndex: target.chunkIndex,
+        snippet: target.snippet,
+        score: 0
+      });
+      existingRefs.add(publicRef.toLowerCase());
+    }
     return {
       ...node,
       citationSources
@@ -2268,6 +2292,14 @@ function resetRetryableIngestMetadata(metadata: Record<string, unknown>): Record
 
 function createKnowledgeChunkPublicRef(itemPublicRef: string, chunkIndex: number): string {
   return `${itemPublicRef}.c${chunkIndex + 1}`;
+}
+
+function citationRefsFromMarkdown(markdown: string): string[] {
+  const refs = new Set<string>();
+  for (const match of markdown.matchAll(/\[([a-f0-9]{7}\.c\d+)\]/gi)) {
+    refs.add(match[1]);
+  }
+  return [...refs];
 }
 
 function parseEmbedding(raw: string | null): number[] {

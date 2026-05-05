@@ -20,17 +20,15 @@ export function useAutosaveDraft({
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const draftRef = useRef(sectionMarkdownForStorage(section.markdownContent));
   const lastSavedRef = useRef(sectionMarkdownForStorage(section.markdownContent));
-  const sectionRef = useRef(section);
   const sectionIdRef = useRef(section.id);
   const sectionHashRef = useRef(section.markdownHash);
   const onStateRef = useRef(onState);
   const onErrorRef = useRef(onError);
 
   useEffect(() => {
-    sectionRef.current = section;
     onStateRef.current = onState;
     onErrorRef.current = onError;
-  }, [section, onState, onError]);
+  }, [onState, onError]);
 
   useEffect(() => {
     if (timerRef.current) {
@@ -75,19 +73,19 @@ export function useAutosaveDraft({
         timerRef.current = null;
       }
       if (draftRef.current !== lastSavedRef.current) {
-        void persistDraft(draftRef.current, true);
+        void persistDraft(draftRef.current, true, false);
       }
     };
   }, []);
 
-  function persistDraft(value: string, silent = false) {
+  function persistDraft(value: string, silent = false, applyState = true) {
     const normalizedValue = sectionMarkdownForStorage(value);
     if (normalizedValue === lastSavedRef.current) {
       return saveChainRef.current;
     }
+    const targetSectionId = sectionIdRef.current;
 
     saveChainRef.current = saveChainRef.current.then(async () => {
-      const currentSection = sectionRef.current;
       if (normalizedValue === lastSavedRef.current) {
         return;
       }
@@ -96,9 +94,11 @@ export function useAutosaveDraft({
         if (!silent) {
           setSaveState('saving');
         }
-        const next = await getApi().updateSectionMarkdown(currentSection.id, normalizedValue);
+        const next = await getApi().updateSectionMarkdown(targetSectionId, normalizedValue);
         lastSavedRef.current = normalizedValue;
-        onStateRef.current(next);
+        if (applyState) {
+          onStateRef.current(next);
+        }
         if (!silent) {
           setSaveState(draftRef.current === normalizedValue ? 'saved' : 'saving');
         }

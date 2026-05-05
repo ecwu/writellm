@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { isValidElement, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import rehypeKatex from 'rehype-katex';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -29,6 +28,7 @@ import {
   PopoverTrigger
 } from '../../components/ui/popover';
 import { ScrollArea } from '../../components/ui/scroll-area';
+import { Skeleton } from '../../components/ui/skeleton';
 import { Textarea } from '../../components/ui/textarea';
 import type {
   KnowledgeDebugDetails,
@@ -43,11 +43,13 @@ const markdownSanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     code: [
-      ...(defaultSchema.attributes?.code ?? []),
       ['className', /^language-./, 'math-inline', 'math-display']
     ]
   }
 };
+
+const PREVIEW_SAMPLE_CHARS = 2000;
+const LAZY_RENDER_ROOT_MARGIN = '480px 0px';
 
 export function KnowledgePage({
   items,
@@ -88,8 +90,11 @@ export function KnowledgePage({
   const [isEditing, setIsEditing] = useState(false);
   const [debugDetails, setDebugDetails] = useState<KnowledgeDebugDetails | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+  const [readerRenderKey, setReaderRenderKey] = useState<string | null>(null);
   const onDebugErrorRef = useRef(onDebugError);
   const isCreating = !selected;
+  const selectedReaderKey = selected ? `${selected.id}:${selected.updatedAt}` : null;
+  const readerReady = Boolean(selectedReaderKey && readerRenderKey === selectedReaderKey);
 
   useEffect(() => {
     onDebugErrorRef.current = onDebugError;
@@ -122,6 +127,22 @@ export function KnowledgePage({
     setContent(selected?.content ?? '');
     setIsEditing(false);
   }, [isCreatingSource, selected?.id]);
+
+  useEffect(() => {
+    if (!selectedReaderKey || isCreatingSource || isEditing) {
+      setReaderRenderKey(null);
+      return;
+    }
+
+    setReaderRenderKey(null);
+    const timeoutId = window.setTimeout(() => {
+      setReaderRenderKey(selectedReaderKey);
+    }, 16);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isCreatingSource, isEditing, selectedReaderKey]);
 
   const indexedCount = useMemo(
     () => items.filter((item) => item.indexStatus === 'indexed').length,
@@ -369,8 +390,12 @@ export function KnowledgePage({
         ) : selected ? (
           <ScrollArea className="knowledge-reader-scroll">
             <div className="knowledge-reader">
-              {selected.content.trim() ? (
-                <MarkdownTypography content={selected.content} item={selected} workspacePath={workspacePath} />
+              {hasReadableContent(selected.content) ? (
+                readerReady ? (
+                  <MarkdownTypography content={selected.content} item={selected} workspacePath={workspacePath} />
+                ) : (
+                  <KnowledgeReaderSkeleton />
+                )
               ) : (
                 <p className="text-sm text-muted-foreground">This source has no content.</p>
               )}
@@ -392,6 +417,20 @@ export function KnowledgePage({
         )}
       </section>
     </main>
+  );
+}
+
+function KnowledgeReaderSkeleton() {
+  return (
+    <div className="knowledge-reader-skeleton" aria-label="Loading source preview">
+      <Skeleton className="knowledge-reader-skeleton-title" />
+      <Skeleton className="knowledge-reader-skeleton-line wide" />
+      <Skeleton className="knowledge-reader-skeleton-line" />
+      <Skeleton className="knowledge-reader-skeleton-line medium" />
+      <Skeleton className="knowledge-reader-skeleton-block" />
+      <Skeleton className="knowledge-reader-skeleton-line wide" />
+      <Skeleton className="knowledge-reader-skeleton-line short" />
+    </div>
   );
 }
 
@@ -479,7 +518,7 @@ function KnowledgeDisplayMetadataDebug({ item }: { item: KnowledgeItemRecord }) 
   );
 }
 
-function MarkdownTypography({
+const MarkdownTypography = memo(function MarkdownTypography({
   content,
   item,
   workspacePath
@@ -492,10 +531,7 @@ function MarkdownTypography({
     <article className="knowledge-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[
-          [rehypeSanitize, markdownSanitizeSchema],
-          [rehypeKatex, { strict: false, throwOnError: false }]
-        ]}
+        rehypePlugins={[[rehypeSanitize, markdownSanitizeSchema]]}
         components={{
           a({ href, children }) {
             const safeHref = getSafeMarkdownHref(href ?? '');
@@ -505,11 +541,29 @@ function MarkdownTypography({
               </a>
             );
           },
+          code({ className, children }) {
+            const mathMode = getMarkdownMathMode(className);
+            if (mathMode) {
+              return (
+                <LazyTeX
+                  displayMode={mathMode === 'display'}
+                  source={childrenToText(children)}
+                />
+              );
+            }
+            return <code className={className}>{children}</code>;
+          },
           img({ alt, src }) {
             const source = src ? resolveMarkdownImageSource(src, item, workspacePath) : null;
             return source
               ? <KnowledgeMarkdownImage alt={alt ?? ''} className="knowledge-markdown-image" source={source} />
               : <span className="knowledge-markdown-image-placeholder">{alt || src || 'Image unavailable'}</span>;
+          },
+          pre({ children }) {
+            if (isDisplayMathPre(children)) {
+              return <>{children}</>;
+            }
+            return <pre>{children}</pre>;
           },
           table({ children }) {
             return (
@@ -523,6 +577,140 @@ function MarkdownTypography({
         {content}
       </ReactMarkdown>
     </article>
+  );
+}, areMarkdownTypographyPropsEqual);
+
+function areMarkdownTypographyPropsEqual(
+  previous: {
+    content: string;
+    item: KnowledgeItemRecord;
+    workspacePath: string | null;
+  },
+  next: {
+    content: string;
+    item: KnowledgeItemRecord;
+    workspacePath: string | null;
+  }
+) {
+  return (
+    previous.content === next.content &&
+    previous.item.id === next.item.id &&
+    previous.item.updatedAt === next.item.updatedAt &&
+    previous.workspacePath === next.workspacePath
+  );
+}
+
+function getMarkdownMathMode(className: string | undefined): 'inline' | 'display' | null {
+  if (!className) {
+    return null;
+  }
+  if (className.includes('math-display')) {
+    return 'display';
+  }
+  if (className.includes('math-inline')) {
+    return 'inline';
+  }
+  return null;
+}
+
+function childrenToText(children: ReactNode): string {
+  if (Array.isArray(children)) {
+    return children.map(childrenToText).join('');
+  }
+  if (children === null || children === undefined || typeof children === 'boolean') {
+    return '';
+  }
+  return String(children);
+}
+
+function isDisplayMathPre(children: ReactNode): boolean {
+  if (!isValidElement<{ className?: string }>(children)) {
+    return false;
+  }
+  return getMarkdownMathMode(children.props.className) === 'display';
+}
+
+function useInViewport(ref: { current: Element | null }): boolean {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (isVisible) {
+      return;
+    }
+
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+    if (!('IntersectionObserver' in window)) {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: LAZY_RENDER_ROOT_MARGIN }
+    );
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isVisible, ref]);
+
+  return isVisible;
+}
+
+function LazyTeX({ source, displayMode }: { source: string; displayMode: boolean }) {
+  const ref = useRef<Element | null>(null);
+  const isVisible = useInViewport(ref);
+  const [html, setHtml] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
+    let isCurrent = true;
+    setFailed(false);
+    void import('katex')
+      .then((module) => {
+        const katex = module.default ?? module;
+        const rendered = katex.renderToString(source, {
+          displayMode,
+          strict: false,
+          throwOnError: false
+        });
+        if (isCurrent) {
+          setHtml(rendered);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setFailed(true);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [displayMode, isVisible, source]);
+
+  const className = displayMode ? 'knowledge-math-display' : 'knowledge-math-inline';
+  const Element = displayMode ? 'div' : 'span';
+  if (html) {
+    return <Element className={className} dangerouslySetInnerHTML={{ __html: html }} />;
+  }
+  return (
+    <Element ref={(element) => { ref.current = element; }} className={`${className} knowledge-math-placeholder`}>
+      {failed ? source : ''}
+    </Element>
   );
 }
 
@@ -539,9 +727,15 @@ function KnowledgeMarkdownImage({
   className: string;
   source: MarkdownImageSource;
 }) {
-  const [src, setSrc] = useState(source.kind === 'url' ? source.src : '');
+  const imageRef = useRef<Element | null>(null);
+  const isVisible = useInViewport(imageRef);
+  const [src, setSrc] = useState('');
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
     let isCurrent = true;
     if (source.kind === 'url') {
       setSrc(source.src);
@@ -563,12 +757,24 @@ function KnowledgeMarkdownImage({
     return () => {
       isCurrent = false;
     };
-  }, [source.kind, source.kind === 'url' ? source.src : source.relativePath]);
+  }, [isVisible, source.kind, source.kind === 'url' ? source.src : source.relativePath]);
 
   if (!src) {
-    return <span className="knowledge-markdown-image-placeholder">{alt || 'Loading image'}</span>;
+    return (
+      <span ref={(element) => { imageRef.current = element; }} className="knowledge-markdown-image-placeholder">
+        {alt || 'Loading image'}
+      </span>
+    );
   }
-  return <img alt={alt} className={className} loading="lazy" src={src} />;
+  return (
+    <img
+      ref={(element) => { imageRef.current = element; }}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      src={src}
+    />
+  );
 }
 
 function resolveMarkdownImageSource(
@@ -668,11 +874,16 @@ function getSafeMarkdownHref(href: string): string {
   return '#';
 }
 
+function hasReadableContent(content: string): boolean {
+  return /\S/.test(content);
+}
+
 function previewText(content: string): string {
-  const withoutHeading = content
+  const sample = content.slice(0, PREVIEW_SAMPLE_CHARS);
+  const withoutHeading = sample
     .replace(/^#{1,6}\s+.+$/m, '')
     .trim();
-  const trimmed = (withoutHeading || content).trim().replace(/\s+/g, ' ');
+  const trimmed = (withoutHeading || sample).trim().replace(/\s+/g, ' ');
   if (!trimmed) {
     return 'Empty source';
   }
