@@ -1,11 +1,11 @@
 import type { SectionHistoryDetail, SectionNodeRecord } from '../shared/types.js';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 import { createGitCheckpoint, getGitDiff, getSectionVersion, listGitHistory } from './gitSession.js';
 
 const SECTION_HISTORY_LIMIT = 200;
 
 export function restoreSectionVersion(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   sectionId: string,
   commitHash: string
 ): SectionNodeRecord {
@@ -21,7 +21,7 @@ export function restoreSectionVersion(
 }
 
 export function getSectionHistoryDetail(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   sectionId: string,
   commitHash: string
 ): SectionHistoryDetail {

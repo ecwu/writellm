@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { formatWorkspaceTitle } from './app/formatters';
-import { usePaperLabApp } from './app/usePaperLabApp';
+import { useWriteLLMApp } from './app/useWriteLLMApp';
 import { Toaster } from './components/ui/sonner';
 import { SidebarInset, SidebarProvider } from './components/ui/sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -90,7 +90,7 @@ export function App() {
     setFocusedChildViewMode,
     onNodesChange,
     persistNodeLayoutFromNode
-  } = usePaperLabApp();
+  } = useWriteLLMApp();
   const theme = llmSettings?.appearance.theme ?? 'light';
   const historySection = historySectionId
     ? state.nodes.find((node): node is SectionNodeRecord => node.kind === 'section' && node.id === historySectionId) ?? null

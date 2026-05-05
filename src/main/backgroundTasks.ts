@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { better, defineQueue, defineWorker, type Queue, type Worker } from 'plainjob';
 import path from 'node:path';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 import { processKnowledgeIngestJob } from './knowledgeIngest.js';
 
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
@@ -24,7 +24,7 @@ const quietLogger = {
   debug: () => {}
 };
 
-export async function startBackgroundTaskWorker(db: PaperLabDatabase): Promise<void> {
+export async function startBackgroundTaskWorker(db: WriteLLMDatabase): Promise<void> {
   if (activeRuntime?.workspacePath === db.workspacePath) {
     return;
   }

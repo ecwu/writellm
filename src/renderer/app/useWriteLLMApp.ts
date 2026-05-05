@@ -25,10 +25,10 @@ const queryKeys = {
   llmSettings: ['llmSettings'] as const
 };
 
-export function usePaperLabApp() {
+export function useWriteLLMApp() {
   const queryClient = useQueryClient();
   const [workspacePath, setWorkspacePath] = useState(
-    '/Users/zhenghaowu/Developer/llm-write-canvas/my-paper.paperlab'
+    '/Users/zhenghaowu/Developer/llm-write-canvas/my-paper.writellm'
   );
   const [selection, setSelection] = useState<Selection>(null);
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
@@ -40,7 +40,7 @@ export function usePaperLabApp() {
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
-  const apiAvailable = Boolean(window.paperlab);
+  const apiAvailable = Boolean(window.writellm);
   const workspaceStateQuery = useQuery({
     queryKey: queryKeys.workspaceState,
     queryFn: () => getApi().getState(),

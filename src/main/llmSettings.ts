@@ -61,7 +61,7 @@ const defaultSettings: LlmSettings = {
 function settingsPath(): string {
   const directory = app.getPath('userData');
   mkdirSync(directory, { recursive: true });
-  return path.join(directory, 'paperlab-settings.json');
+  return path.join(directory, 'writellm-settings.json');
 }
 
 function toPublicEndpoint(settings: ModelEndpointSettings): PublicModelEndpointSettings {

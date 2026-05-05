@@ -1,10 +1,10 @@
-import type { PaperLabIpc } from '../shared/ipc';
+import type { WriteLLMIpc } from '../shared/ipc';
 
-export type PaperLabApi = PaperLabIpc;
+export type WriteLLMApi = WriteLLMIpc;
 
-export function getApi(): PaperLabApi {
-  if (!window.paperlab) {
-    throw new Error('PaperLab API is only available inside Electron.');
+export function getApi(): WriteLLMApi {
+  if (!window.writellm) {
+    throw new Error('writellm API is only available inside Electron.');
   }
-  return window.paperlab;
+  return window.writellm;
 }

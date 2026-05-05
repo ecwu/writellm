@@ -18,7 +18,7 @@ export type GitHistoryRecord = {
   authorDate: string;
 };
 
-const TRACKED_PATHS = ['sections', 'metadata', '.paperlab-manifest.json'];
+const TRACKED_PATHS = ['sections', 'metadata', '.writellm-manifest.json'];
 const DEFAULT_GITIGNORE = [
   'project.sqlite',
   'project.sqlite-*',
@@ -78,9 +78,9 @@ function createGitCheckpointWithoutEnsure(workspacePath: string, message?: strin
   }
   runGit(workspacePath, [
     '-c',
-    'user.name=PaperLab',
+    'user.name=writellm',
     '-c',
-    'user.email=paperlab@example.invalid',
+    'user.email=writellm@example.invalid',
     '-c',
     'commit.gpgsign=false',
     'commit',

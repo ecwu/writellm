@@ -1,31 +1,78 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
-import JSZip from 'jszip';
-import { PaperLabDatabase } from '../dist-electron/main/database.js';
-import { exportLatex } from '../dist-electron/main/exportLatex.js';
-import {
+import { fileURLToPath } from 'node:url';
+
+const scriptPath = fileURLToPath(import.meta.url);
+const projectRoot = path.resolve(path.dirname(scriptPath), '..');
+
+if (!process.versions.electron) {
+  const electronBin = path.join(
+    projectRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'electron.cmd' : 'electron'
+  );
+  if (!existsSync(electronBin)) {
+    throw new Error('Electron binary not found. Run the project install before electron smoke tests.');
+  }
+
+  const result = spawnSync(electronBin, [scriptPath, ...process.argv.slice(2)], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1'
+    },
+    stdio: 'inherit'
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.signal) {
+    process.kill(process.pid, result.signal);
+  }
+  process.exit(result.status ?? 1);
+}
+
+const [
+  { default: Database },
+  { default: JSZip },
+  { WriteLLMDatabase },
+  { exportLatex },
+  gitSession,
+  { indexKnowledgeItem },
+  knowledgeIngest,
+  { extractKnowledgeFileText },
+  { restoreSectionVersion },
+  { unzipBuffer }
+] = await Promise.all([
+  import('better-sqlite3'),
+  import('jszip'),
+  import('../dist-electron/main/database.js'),
+  import('../dist-electron/main/exportLatex.js'),
+  import('../dist-electron/main/gitSession.js'),
+  import('../dist-electron/main/knowledgeIndex.js'),
+  import('../dist-electron/main/knowledgeIngest.js'),
+  import('../dist-electron/main/knowledgeTextExtract.js'),
+  import('../dist-electron/main/sectionHistory.js'),
+  import('../dist-electron/main/zip.js')
+]);
+
+const {
   createGitCheckpoint,
   ensureGitSession,
   getGitDiff,
   getGitStatus,
   getSectionVersion,
   listGitHistory
-} from '../dist-electron/main/gitSession.js';
-import { indexKnowledgeItem } from '../dist-electron/main/knowledgeIndex.js';
-import {
-  enqueueKnowledgeFiles,
-  processKnowledgeIngestJob
-} from '../dist-electron/main/knowledgeIngest.js';
-import { extractKnowledgeFileText } from '../dist-electron/main/knowledgeTextExtract.js';
-import { restoreSectionVersion } from '../dist-electron/main/sectionHistory.js';
-import { unzipBuffer } from '../dist-electron/main/zip.js';
+} = gitSession;
+const { enqueueKnowledgeFiles, processKnowledgeIngestJob } = knowledgeIngest;
 
-const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'paperlab-smoke-'));
+const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'writellm-smoke-'));
 
 try {
-  const db = new PaperLabDatabase(workspacePath);
+  const db = new WriteLLMDatabase(workspacePath);
   const rootId = db.rootNodeId;
   ensureGitSession(workspacePath);
   const gitStatus = getGitStatus(workspacePath);
@@ -52,7 +99,7 @@ try {
   if (!existsSync(introMarkdownPath)) {
     throw new Error('Section Markdown file was not created.');
   }
-  const manifestPath = path.join(workspacePath, '.paperlab-manifest.json');
+  const manifestPath = path.join(workspacePath, '.writellm-manifest.json');
   if (!existsSync(manifestPath) || !readFileSync(manifestPath, 'utf8').includes(intro.id)) {
     throw new Error('Workspace manifest was not written.');
   }
@@ -357,7 +404,7 @@ try {
       enableFormula: true
     }
   };
-  process.env.PAPERLAB_MINERU_POLL_INTERVAL_MS = '0';
+  process.env.WRITELLM_MINERU_POLL_INTERVAL_MS = '0';
   const originalFetch = globalThis.fetch;
   try {
     const mineruPdfPath = path.join(workspacePath, 'mineru.pdf');
@@ -579,10 +626,10 @@ try {
     }
   } finally {
     globalThis.fetch = originalFetch;
-    delete process.env.PAPERLAB_MINERU_POLL_INTERVAL_MS;
+    delete process.env.WRITELLM_MINERU_POLL_INTERVAL_MS;
   }
 
-  const legacyWorkspacePath = path.join(workspacePath, 'legacy.paperlab');
+  const legacyWorkspacePath = path.join(workspacePath, 'legacy.writellm');
   mkdirSync(legacyWorkspacePath, { recursive: true });
   const legacyRawDb = new Database(path.join(legacyWorkspacePath, 'project.sqlite'));
   legacyRawDb.exec(`
@@ -607,7 +654,7 @@ try {
     PRAGMA user_version = 4;
   `);
   legacyRawDb.close();
-  const legacyDb = new PaperLabDatabase(legacyWorkspacePath);
+  const legacyDb = new WriteLLMDatabase(legacyWorkspacePath);
   const legacyIngestTable = legacyDb.db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_ingest_jobs'")
     .get();

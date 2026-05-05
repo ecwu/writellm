@@ -5,7 +5,7 @@ import { nowIso } from './ids.js';
 import { extractAndStoreKnowledgeItemDisplayMetadata, indexKnowledgeItem } from './knowledgeIndex.js';
 import { extractKnowledgeFileText } from './knowledgeTextExtract.js';
 import { extractPdfWithMineru } from './mineru.js';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 
 const SUPPORTED_FILE_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
 
@@ -16,7 +16,7 @@ export function setKnowledgeIngestUpdateNotifier(notifier: () => void): void {
 }
 
 export async function enqueueKnowledgeFiles(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   filePaths: string[],
   knowledgeSettings?: KnowledgeSettings
 ): Promise<void> {
@@ -41,7 +41,7 @@ export async function enqueueKnowledgeFiles(
 }
 
 export async function processKnowledgeIngestJob(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   jobId: string,
   embeddingSettings?: ModelEndpointSettings,
   indexItem: typeof indexKnowledgeItem = indexKnowledgeItem,
@@ -163,8 +163,8 @@ export async function processKnowledgeIngestJob(
 }
 
 async function extractKnowledgeFileContent(
-  db: PaperLabDatabase,
-  job: NonNullable<ReturnType<PaperLabDatabase['getKnowledgeIngestJob']>>,
+  db: WriteLLMDatabase,
+  job: NonNullable<ReturnType<WriteLLMDatabase['getKnowledgeIngestJob']>>,
   itemId: string,
   knowledgeSettings?: KnowledgeSettings
 ): Promise<{ content: string; metadata: Record<string, unknown> }> {

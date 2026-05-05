@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "paperlab",
+      "name": "writellm",
       "dependencies": {
         "@ai-sdk/anthropic": "^3.0.74",
         "@ai-sdk/openai-compatible": "^2.0.45",

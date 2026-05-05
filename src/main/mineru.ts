@@ -3,11 +3,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { KnowledgeIngestJobRecord, KnowledgeSettings, MineruSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 import { unzipBuffer, type ZipEntry } from './zip.js';
 
 type MineruExtractOptions = {
-  db: PaperLabDatabase;
+  db: WriteLLMDatabase;
   job: KnowledgeIngestJobRecord;
   itemId: string;
   settings: KnowledgeSettings;
@@ -139,7 +139,7 @@ export async function extractPdfWithMineru(options: MineruExtractOptions): Promi
 
 async function updateJob(
   options: MineruExtractOptions,
-  payload: Parameters<PaperLabDatabase['updateKnowledgeIngestJob']>[1]
+  payload: Parameters<WriteLLMDatabase['updateKnowledgeIngestJob']>[1]
 ): Promise<KnowledgeIngestJobRecord> {
   const updated = options.db.updateKnowledgeIngestJob(options.job.id, payload);
   options.onUpdate();
@@ -553,7 +553,7 @@ function textArray(value: unknown): string {
 }
 
 function readPollIntervalMs(): number {
-  const parsed = Number(process.env.PAPERLAB_MINERU_POLL_INTERVAL_MS);
+  const parsed = Number(process.env.WRITELLM_MINERU_POLL_INTERVAL_MS);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_POLL_INTERVAL_MS;
 }
 

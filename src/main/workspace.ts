@@ -2,14 +2,14 @@ import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroundTasks.js';
-import { PaperLabDatabase } from './database.js';
+import { WriteLLMDatabase } from './database.js';
 import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
-let activeDb: PaperLabDatabase | null = null;
+let activeDb: WriteLLMDatabase | null = null;
 const MAX_RECENT_WORKSPACES = 10;
-const WORKSPACE_EXTENSION = '.paperlab';
+const WORKSPACE_EXTENSION = '.writellm';
 
 export async function createWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   const normalizedPath = normalizeWorkspacePath(workspacePath);
@@ -32,9 +32,9 @@ export function listRecentWorkspaces(): RecentWorkspace[] {
   return readRecentWorkspaces();
 }
 
-export function getActiveDb(): PaperLabDatabase {
+export function getActiveDb(): WriteLLMDatabase {
   if (!activeDb) {
-    throw new Error('No active workspace. Create or open a .paperlab directory first.');
+    throw new Error('No active workspace. Create or open a .writellm directory first.');
   }
   return activeDb;
 }
@@ -60,7 +60,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
 
 async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   await stopBackgroundTaskWorker();
-  const nextDb = new PaperLabDatabase(workspacePath);
+  const nextDb = new WriteLLMDatabase(workspacePath);
   ensureGitSession(workspacePath);
   if (activeDb) {
     activeDb.close();
@@ -83,13 +83,13 @@ function assertWorkspacePath(workspacePath: string): void {
     throw new Error('Workspace path is required.');
   }
   if (path.extname(workspacePath) !== WORKSPACE_EXTENSION) {
-    throw new Error('Workspace must be a .paperlab folder.');
+    throw new Error('Workspace must be a .writellm folder.');
   }
 }
 
 function assertExistingWorkspace(workspacePath: string): void {
   if (!existsSync(workspacePath) || !existsSync(path.join(workspacePath, 'project.sqlite'))) {
-    throw new Error('Selected folder is not an existing PaperLab workspace.');
+    throw new Error('Selected folder is not an existing writellm workspace.');
   }
 }
 

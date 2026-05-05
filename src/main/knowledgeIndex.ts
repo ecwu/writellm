@@ -10,7 +10,7 @@ import type {
   RerankEndpointSettings,
   RetrievedKnowledgeSource
 } from '../shared/types.js';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 import { extractKnowledgeFileTextSample } from './knowledgeTextExtract.js';
 import { generateLlmObject, generateLlmText } from './llmRunner.js';
 
@@ -85,7 +85,7 @@ function isIsolatedHeadingChunk(chunk: string): boolean {
 }
 
 export async function indexKnowledgeItem(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   itemId: string,
   embeddingSettings: ModelEndpointSettings,
   metadataSettings?: ModelEndpointSettings
@@ -122,7 +122,7 @@ export async function indexKnowledgeItem(
 }
 
 export async function extractAndStoreKnowledgeItemDisplayMetadata(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   itemId: string,
   settings: ModelEndpointSettings | undefined,
   options: {
@@ -177,7 +177,7 @@ async function extractKnowledgeDisplayMetadataSample(item: {
 }
 
 async function extractAndStoreKnowledgeDisplayMetadata(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   itemId: string,
   settings: ModelEndpointSettings | undefined,
   content: string,
@@ -236,7 +236,7 @@ async function extractAndStoreKnowledgeDisplayMetadata(
 }
 
 function writeKnowledgeDisplayMetadataError(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   itemId: string,
   caught: unknown
 ): void {
@@ -332,7 +332,7 @@ function cleanMetadataText(value: unknown, maxChars: number): string {
 }
 
 export async function retrieveKnowledgeSources(
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   embeddingSettings: ModelEndpointSettings,
   query: string,
   options: {
@@ -452,7 +452,7 @@ function sortCandidates(candidateMap: Map<string, RetrievalCandidate>): Retrieva
 
 function addAdjacentCandidates(
   candidateMap: Map<string, RetrievalCandidate>,
-  db: PaperLabDatabase,
+  db: WriteLLMDatabase,
   seeds: RetrievalCandidate[],
   options: {
     excludedItemIds?: string[];

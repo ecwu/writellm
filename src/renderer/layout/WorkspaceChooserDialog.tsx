@@ -49,9 +49,9 @@ export function WorkspaceChooserDialog({
           }
         }}
       >
-        <DialogTitle className="sr-only">Choose a PaperLab workspace</DialogTitle>
+        <DialogTitle className="sr-only">Choose a writellm workspace</DialogTitle>
         <DialogDescription className="sr-only">
-          Open a recent project, create a new .paperlab workspace, or select one from the system.
+          Open a recent project, create a new .writellm workspace, or select one from the system.
         </DialogDescription>
 
         <div className="workspace-dialog-shell">
@@ -61,7 +61,7 @@ export function WorkspaceChooserDialog({
                 <FileText />
               </span>
               <span className="workspace-dialog-brand-copy">
-                <strong>PaperLab</strong>
+                <strong>writellm</strong>
                 <span>Workspace</span>
               </span>
             </div>
@@ -97,7 +97,7 @@ export function WorkspaceChooserDialog({
                     onOpenWorkspace(workspacePath);
                   }
                 }}
-                placeholder="/path/to/project.paperlab"
+                placeholder="/path/to/project.writellm"
                 aria-label="Workspace path"
               />
               <div className="workspace-path-row">

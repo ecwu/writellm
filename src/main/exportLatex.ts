@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
-import type { PaperLabDatabase } from './database.js';
+import type { WriteLLMDatabase } from './database.js';
 import { sectionMarkdownForExport } from '../shared/sectionMarkdown.js';
 
-export function exportMarkdown(db: PaperLabDatabase, rootNodeId: string): string {
+export function exportMarkdown(db: WriteLLMDatabase, rootNodeId: string): string {
   const rows = db.getExportRows(rootNodeId);
   const body = rows
     .map(({ section, markdown, depth }) => sectionMarkdownForExport(section.title, markdown, depth).trim())
@@ -14,6 +14,6 @@ export function exportMarkdown(db: PaperLabDatabase, rootNodeId: string): string
   return exportPath;
 }
 
-export function exportLatex(db: PaperLabDatabase, rootNodeId: string): string {
+export function exportLatex(db: WriteLLMDatabase, rootNodeId: string): string {
   return exportMarkdown(db, rootNodeId);
 }

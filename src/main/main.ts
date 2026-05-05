@@ -21,7 +21,7 @@ async function createWindow(): Promise<void> {
     height: 920,
     minWidth: 1100,
     minHeight: 720,
-    title: 'PaperLab',
+    title: 'writellm',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

@@ -424,7 +424,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.pickWorkspaceFolder, async (event) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
-      title: 'Open PaperLab workspace',
+      title: 'Open writellm workspace',
       properties: ['openDirectory'] as Electron.OpenDialogOptions['properties']
     };
     const result = owner
@@ -434,8 +434,8 @@ export function registerIpcHandlers(): void {
       return null;
     }
     const workspacePath = result.filePaths[0];
-    if (path.extname(workspacePath) !== '.paperlab') {
-      throw new Error('Choose a .paperlab folder.');
+    if (path.extname(workspacePath) !== '.writellm') {
+      throw new Error('Choose a .writellm folder.');
     }
     return workspacePath;
   });
@@ -443,9 +443,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.pickNewWorkspacePath, async (event) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
-      title: 'Create PaperLab workspace',
-      defaultPath: 'Untitled.paperlab',
-      filters: [{ name: 'PaperLab Workspace', extensions: ['paperlab'] }]
+      title: 'Create writellm workspace',
+      defaultPath: 'Untitled.writellm',
+      filters: [{ name: 'writellm Workspace', extensions: ['writellm'] }]
     };
     const result = owner
       ? await dialog.showSaveDialog(owner, options)
@@ -453,7 +453,7 @@ export function registerIpcHandlers(): void {
     if (result.canceled || !result.filePath) {
       return null;
     }
-    return result.filePath.endsWith('.paperlab') ? result.filePath : `${result.filePath}.paperlab`;
+    return result.filePath.endsWith('.writellm') ? result.filePath : `${result.filePath}.writellm`;
   });
 
   ipcMain.handle(ipcChannels.pickKnowledgeFiles, async (event) => {

@@ -98,7 +98,7 @@ export function SiteHeader({
           <Library className="size-4" />
         </div>
         <div className="grid min-w-0 leading-tight">
-          <div className="truncate text-sm font-semibold">PaperLab</div>
+          <div className="truncate text-sm font-semibold">writellm</div>
           <div className="truncate text-xs text-muted-foreground">{workspaceTitle}</div>
         </div>
       </div>

@@ -89,7 +89,7 @@ type KnowledgeIngestTaskData = {
   finishedAt: string | null;
 };
 
-export class PaperLabDatabase {
+export class WriteLLMDatabase {
   readonly db: Database.Database;
   readonly orm: BetterSQLite3Database<typeof schema>;
   readonly workspacePath: string;
@@ -133,7 +133,7 @@ export class PaperLabDatabase {
       sqliteVec.load(this.db);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
-      throw new Error(`Failed to load sqlite-vec extension. Rebuild native dependencies and restart PaperLab. ${message}`);
+      throw new Error(`Failed to load sqlite-vec extension. Rebuild native dependencies and restart writellm. ${message}`);
     }
   }
 
@@ -1786,7 +1786,7 @@ export class PaperLabDatabase {
       sections
     };
     writeFileSync(
-      path.join(this.workspacePath, '.paperlab-manifest.json'),
+      path.join(this.workspacePath, '.writellm-manifest.json'),
       `${JSON.stringify(manifest, null, 2)}\n`,
       'utf8'
     );

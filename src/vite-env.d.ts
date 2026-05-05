@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
-import type { PaperLabApi } from './renderer/api';
+import type { WriteLLMApi } from './renderer/api';
 
 declare global {
   interface Window {
-    paperlab?: PaperLabApi;
+    writellm?: WriteLLMApi;
   }
 }
