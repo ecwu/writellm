@@ -143,11 +143,6 @@ export function App() {
                 setSelection({ type: 'node', id: focusSection.id });
               }
             }}
-            onGenerateFromFocus={() => {
-              if (focusSection) {
-                openGenerateComposer(focusSection.id);
-              }
-            }}
             onSettings={() => setSettingsOpen(true)}
             onRetryTask={(jobId) => void retryKnowledgeIngestJob(jobId)}
             onDeleteTask={(jobId) => void deleteKnowledgeIngestJob(jobId)}

@@ -17,6 +17,12 @@ import {
   X
 } from 'lucide-react';
 import { getApi } from '../../api';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '../../components/ui/accordion';
 import { Button } from '../../components/ui/button';
 import {
   Field,
@@ -34,8 +40,11 @@ import {
   PopoverTitle,
   PopoverTrigger
 } from '../../components/ui/popover';
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '../../components/ui/item';
+import { Progress } from '../../components/ui/progress';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { Skeleton } from '../../components/ui/skeleton';
+import { StatusBadge } from '../../components/StatusBadge';
 import { Textarea } from '../../components/ui/textarea';
 import type {
   KnowledgeDebugDetails,
@@ -266,16 +275,11 @@ export function KnowledgePage({
                           </span>
                         )}
                         {progress && progress.percent !== null ? (
-                          <div
+                          <Progress
                             className="knowledge-ingest-progress"
+                            value={progress.percent}
                             aria-label={progress.label}
-                            role="progressbar"
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-valuenow={progress.percent}
-                          >
-                            <span style={{ width: `${progress.percent}%` }} />
-                          </div>
+                          />
                         ) : null}
                         <div className="button-row">
                           {job.status === 'error' ? (
@@ -295,23 +299,39 @@ export function KnowledgePage({
                 </div>
               ) : null}
               {items.length > 0 ? (
-                <div className="knowledge-source-list">
+                <ItemGroup className="knowledge-source-list">
                   {items.map((item) => (
-                    <button
+                    <Item
                       key={item.id}
-                      type="button"
+                      variant="outline"
+                      size="sm"
                       className={selected?.id === item.id ? 'active' : undefined}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         setIsCreatingSource(false);
                         setSelectedId(item.id);
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setIsCreatingSource(false);
+                          setSelectedId(item.id);
+                        }
+                      }}
                     >
-                      <span className="knowledge-source-title">{knowledgeDisplayTitle(item)}</span>
-                      <span className={`knowledge-source-status ${item.indexStatus}`}>{item.indexStatus}</span>
-                      <span className="knowledge-source-preview">{knowledgeDisplayDescription(item)}</span>
-                    </button>
+                      <ItemContent>
+                        <ItemTitle className="knowledge-source-title">{knowledgeDisplayTitle(item)}</ItemTitle>
+                        <ItemDescription className="knowledge-source-preview">
+                          {knowledgeDisplayDescription(item)}
+                        </ItemDescription>
+                      </ItemContent>
+                      <StatusBadge status={item.indexStatus} className="knowledge-source-status">
+                        {item.indexStatus}
+                      </StatusBadge>
+                    </Item>
                   ))}
-                </div>
+                </ItemGroup>
               ) : null}
             </div>
           </ScrollArea>
@@ -493,29 +513,29 @@ function KnowledgeDebugPanel({
             <span>{selectedDebug.indexStatus}</span>
           </div>
           {selected ? <KnowledgeDisplayMetadataDebug item={selected} /> : null}
-          <div className="knowledge-debug-chunks">
+          <Accordion type="multiple" className="knowledge-debug-chunks">
             {selectedDebug.chunks.length > 0 ? (
               selectedDebug.chunks.map((chunk) => (
-                <details key={chunk.id} className="knowledge-debug-chunk">
-                  <summary>
+                <AccordionItem key={chunk.id} value={chunk.id} className="knowledge-debug-chunk">
+                  <AccordionTrigger className="knowledge-debug-chunk-summary">
                     <span>{chunk.publicRef}</span>
                     <span>{chunk.contentLength} chars</span>
                     <span>{chunk.embeddingDimensions} dims</span>
-                  </summary>
-                  <div className="knowledge-debug-chunk-body">
+                  </AccordionTrigger>
+                  <AccordionContent className="knowledge-debug-chunk-body">
                     <p>
                       Embedding model: {chunk.embeddingModel ?? 'none'} - norm:{' '}
                       {chunk.embeddingNorm === null ? 'none' : chunk.embeddingNorm}
                     </p>
                     <code>[{chunk.embeddingPreview.map((value) => formatDebugNumber(value)).join(', ')}]</code>
                     <pre>{chunk.content}</pre>
-                  </div>
-                </details>
+                  </AccordionContent>
+                </AccordionItem>
               ))
             ) : (
               <p className="muted">No chunks stored for this source.</p>
             )}
-          </div>
+          </Accordion>
         </>
       ) : (
         <p className="muted">

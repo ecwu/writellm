@@ -58,7 +58,7 @@
   padding: 0.5rem 0;
 }
 
-.knowledge-source-list button {
+.knowledge-source-list [data-slot="item"] {
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -67,7 +67,8 @@
   content-visibility: auto;
   cursor: pointer;
   display: grid;
-  gap: 0.2rem;
+  gap: 0.25rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
   padding: 0.65rem 1rem;
   text-align: left;
   transition:
@@ -75,11 +76,11 @@
     color 120ms ease;
 }
 
-.knowledge-source-list button:hover {
+.knowledge-source-list [data-slot="item"]:hover {
   background: var(--muted);
 }
 
-.knowledge-source-list button.active {
+.knowledge-source-list [data-slot="item"].active {
   background: var(--accent);
   box-shadow: inset 3px 0 0 var(--ring);
 }
@@ -90,27 +91,8 @@
 }
 
 .knowledge-source-status {
-  color: var(--muted-foreground);
-  font-size: 0.72rem;
-  font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
-}
-
-.knowledge-source-status.indexed {
-  color: oklch(0.46 0.11 155);
-}
-
-.knowledge-source-status.queued,
-.knowledge-source-status.uploading,
-.knowledge-source-status.extracting,
-.knowledge-source-status.downloading,
-.knowledge-source-status.indexing {
-  color: oklch(0.52 0.12 245);
-}
-
-.knowledge-source-status.error {
-  color: var(--destructive);
 }
 
 .knowledge-source-preview {
@@ -170,18 +152,7 @@
 }
 
 .knowledge-ingest-progress {
-  background: color-mix(in oklch, var(--muted) 82%, var(--border));
-  border-radius: 999px;
   height: 0.35rem;
-  overflow: hidden;
-}
-
-.knowledge-ingest-progress span {
-  background: oklch(0.52 0.12 245);
-  display: block;
-  height: 100%;
-  min-width: 0.35rem;
-  transition: width 180ms ease;
 }
 
 .knowledge-ingest-status-button.queued {
@@ -610,31 +581,34 @@
 }
 
 .knowledge-debug-chunks {
+  border-top: 1px solid var(--border);
   display: grid;
-  gap: 0.5rem;
+  gap: 0;
 }
 
 .knowledge-debug-chunk {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  border-bottom: 1px solid var(--border);
 }
 
-.knowledge-debug-chunk summary {
+.knowledge-debug-chunk:last-child {
+  border-bottom: 0;
+}
+
+.knowledge-debug-chunk-summary {
   align-items: center;
   cursor: pointer;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  padding: 0.55rem 0.65rem;
+  padding: 0.55rem 0;
+  text-decoration: none;
 }
 
-.knowledge-debug-chunk summary span:first-child {
+.knowledge-debug-chunk-summary span:first-child {
   font-weight: 650;
 }
 
-.knowledge-debug-chunk summary span:not(:first-child) {
+.knowledge-debug-chunk-summary span:not(:first-child) {
   color: var(--muted-foreground);
   font-size: 0.75rem;
 }
@@ -643,7 +617,7 @@
   border-top: 1px solid var(--border);
   display: grid;
   gap: 0.5rem;
-  padding: 0.65rem;
+  padding: 0.65rem 0;
 }
 
 .knowledge-debug-chunk-body p {

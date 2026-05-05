@@ -1,7 +1,6 @@
 
 import { FileText, GitBranch, List } from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
+import { SegmentedIconToggle } from '../components/SegmentedIconToggle';
 import type { ChildViewMode } from '../app/types';
 
 export function ViewModeToggle({
@@ -12,53 +11,17 @@ export function ViewModeToggle({
   onModeChange: (mode: ChildViewMode) => void;
 }) {
   return (
-    <div className="view-mode-toggle" role="group" aria-label="Children view mode">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={mode === 'graph' ? 'default' : 'outline'}
-            size="icon-sm"
-            onClick={() => onModeChange('graph')}
-            aria-label="Graph view"
-            title="Graph view"
-          >
-            <GitBranch />
-            <span className="sr-only">Graph</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Graph</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={mode === 'list' ? 'default' : 'outline'}
-            size="icon-sm"
-            onClick={() => onModeChange('list')}
-            aria-label="List view"
-            title="List view"
-          >
-            <List />
-            <span className="sr-only">List</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>List</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={mode === 'markdown' ? 'default' : 'outline'}
-            size="icon-sm"
-            onClick={() => onModeChange('markdown')}
-            aria-label="Markdown view"
-            title="Markdown view"
-          >
-            <FileText />
-            <span className="sr-only">Markdown</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Markdown</TooltipContent>
-      </Tooltip>
-    </div>
+    <SegmentedIconToggle
+      value={mode}
+      label="Children view mode"
+      className="view-mode-toggle"
+      onValueChange={onModeChange}
+      options={[
+        { value: 'graph', label: 'Graph view', icon: <GitBranch /> },
+        { value: 'list', label: 'List view', icon: <List /> },
+        { value: 'markdown', label: 'Markdown view', icon: <FileText /> }
+      ]}
+    />
   );
 }
 

@@ -3,6 +3,16 @@ import { Diff, Hunk, parseDiff, type FileData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { GitCompare, RotateCcw } from 'lucide-react';
 import { getApi } from '../../api';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../../components/ui/alert-dialog';
 import { Button } from '../../components/ui/button';
 import {
   Dialog,
@@ -11,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '../../components/ui/dialog';
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '../../components/ui/item';
 import type {
   FocusedWorkspaceState,
   GitHistoryRecord,
@@ -39,6 +50,7 @@ export function SectionHistoryDialog({
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [restoreCandidate, setRestoreCandidate] = useState<GitHistoryRecord | null>(null);
 
   const selectedEntry = useMemo(
     () => history.find((entry) => entry.hash === selectedHash) ?? null,
@@ -55,6 +67,7 @@ export function SectionHistoryDialog({
       setHistory([]);
       setSelectedHash(null);
       setHistoryDetail(null);
+      setRestoreCandidate(null);
       return;
     }
 
@@ -117,27 +130,22 @@ export function SectionHistoryDialog({
     };
   }, [open, section?.id, selectedEntry?.hash]);
 
-  async function restoreSelectedVersion() {
-    if (!section || !selectedEntry) {
-      return;
-    }
-    const confirmed = window.confirm(
-      `Restore "${section.title}" to checkpoint ${selectedEntry.shortHash}? Current section Markdown will be replaced.`
-    );
-    if (!confirmed) {
+  async function restoreSelectedVersion(entry: GitHistoryRecord | null) {
+    if (!section || !entry) {
       return;
     }
 
     try {
       setRestoring(true);
-      const next = await getApi().restoreSectionVersion(section.id, selectedEntry.hash);
+      const next = await getApi().restoreSectionVersion(section.id, entry.hash);
       onState(next);
-      onStatus(`Restored ${section.title} to ${selectedEntry.shortHash}.`);
+      onStatus(`Restored ${section.title} to ${entry.shortHash}.`);
       onOpenChange(false);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setRestoring(false);
+      setRestoreCandidate(null);
     }
   }
 
@@ -158,20 +166,33 @@ export function SectionHistoryDialog({
             ) : history.length === 0 ? (
               <p className="section-history-empty">No checkpoints yet. Create a checkpoint to start section history.</p>
             ) : (
-              history.map((entry) => (
-                <button
-                  key={entry.hash}
-                  type="button"
-                  className="section-history-entry"
-                  data-state={entry.hash === selectedHash ? 'selected' : undefined}
-                  onClick={() => setSelectedHash(entry.hash)}
-                >
-                  <span className="section-history-entry-subject">{entry.subject}</span>
-                  <span className="section-history-entry-meta">
-                    {entry.shortHash} · {formatHistoryDate(entry.authorDate)}
-                  </span>
-                </button>
-              ))
+              <ItemGroup>
+                {history.map((entry) => (
+                  <Item
+                    key={entry.hash}
+                    variant="outline"
+                    size="sm"
+                    className="section-history-entry"
+                    data-state={entry.hash === selectedHash ? 'selected' : undefined}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedHash(entry.hash)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedHash(entry.hash);
+                      }
+                    }}
+                  >
+                    <ItemContent>
+                      <ItemTitle className="section-history-entry-subject">{entry.subject}</ItemTitle>
+                      <ItemDescription className="section-history-entry-meta">
+                        {entry.shortHash} · {formatHistoryDate(entry.authorDate)}
+                      </ItemDescription>
+                    </ItemContent>
+                  </Item>
+                ))}
+              </ItemGroup>
             )}
           </aside>
 
@@ -191,7 +212,7 @@ export function SectionHistoryDialog({
                 variant="outline"
                 size="sm"
                 disabled={!selectedEntry || restoring}
-                onClick={() => void restoreSelectedVersion()}
+                onClick={() => setRestoreCandidate(selectedEntry)}
               >
                 <RotateCcw />
                 Restore this version
@@ -212,6 +233,30 @@ export function SectionHistoryDialog({
           </section>
         </div>
       </DialogContent>
+      <AlertDialog open={Boolean(restoreCandidate)} onOpenChange={(open) => {
+        if (!open) {
+          setRestoreCandidate(null);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore checkpoint?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Restore {section?.title ?? 'this section'} to checkpoint {restoreCandidate?.shortHash}. Current section Markdown will be replaced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={restoring}
+              onClick={() => void restoreSelectedVersion(restoreCandidate)}
+            >
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

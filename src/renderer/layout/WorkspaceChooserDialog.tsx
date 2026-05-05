@@ -11,6 +11,7 @@ import {
   FieldLabel
 } from '../components/ui/field';
 import { Input } from '../components/ui/input';
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '../components/ui/item';
 import type { RecentWorkspace } from '../../shared/types';
 
 export function WorkspaceChooserDialog({
@@ -138,29 +139,45 @@ export function WorkspaceChooserDialog({
             </header>
 
             {recentWorkspaces.length > 0 ? (
-              <div className="workspace-recent-list">
+              <ItemGroup className="workspace-recent-list">
                 {recentWorkspaces.map((workspace) => (
-                  <button
+                  <Item
                     key={workspace.path}
+                    variant="outline"
+                    size="sm"
                     className="workspace-recent-item"
-                    type="button"
-                    onClick={() => onOpenWorkspace(workspace.path)}
-                    disabled={!apiAvailable}
+                    role="button"
+                    tabIndex={apiAvailable ? 0 : -1}
+                    aria-disabled={!apiAvailable}
+                    onClick={() => {
+                      if (apiAvailable) {
+                        onOpenWorkspace(workspace.path);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (!apiAvailable) {
+                        return;
+                      }
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onOpenWorkspace(workspace.path);
+                      }
+                    }}
                   >
-                    <span className="workspace-recent-icon">
+                    <ItemMedia variant="icon" className="workspace-recent-icon">
                       <FileText />
-                    </span>
-                    <span className="workspace-recent-main">
-                      <strong>{workspace.name}</strong>
-                      <span>{workspace.path}</span>
-                    </span>
+                    </ItemMedia>
+                    <ItemContent className="workspace-recent-main">
+                      <ItemTitle>{workspace.name}</ItemTitle>
+                      <ItemDescription>{workspace.path}</ItemDescription>
+                    </ItemContent>
                     <span className="workspace-recent-time">
                       <Clock />
                       {formatRecentWorkspaceDate(workspace.openedAt)}
                     </span>
-                  </button>
+                  </Item>
                 ))}
-              </div>
+              </ItemGroup>
             ) : (
               <p className="workspace-dialog-empty">No recent projects yet.</p>
             )}

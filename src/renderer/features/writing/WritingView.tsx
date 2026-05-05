@@ -3,8 +3,8 @@ import { Code2, Eye, FilePenLine, History, PlusCircle, WholeWord } from 'lucide-
 import { getApi } from '../../api';
 import type { ChildViewMode } from '../../app/types';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
+import { SegmentedIconToggle } from '../../components/SegmentedIconToggle';
 import { Button } from '../../components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import {
   LlmExecutionFlow,
   type LlmFlowAdoptInput,
@@ -313,47 +313,27 @@ export function WritingView({
           <p>{isRootMarkdownView ? 'Document Markdown' : 'Section Markdown'}</p>
           <h1>{section.title}</h1>
         </div>
-        <div className="writing-view-meta" aria-live="polite">
-          <span>{isRootMarkdownView ? 'Composition preview' : section.markdownPath}</span>
-          <span>{isRootMarkdownView ? 'Generated' : saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
+        <div className="writing-view-controls">
+          <div className="writing-view-meta" aria-live="polite">
+            <span>{isRootMarkdownView ? 'Composition preview' : section.markdownPath}</span>
+            <span>{isRootMarkdownView ? 'Generated' : saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
+            <History />
+            History
+          </Button>
+          <SegmentedIconToggle
+            value={editorViewMode}
+            label="Editor view mode"
+            className="writing-view-mode-toggle"
+            onValueChange={setEditorViewMode}
+            options={[
+              { value: 'raw', label: 'Raw Markdown view', icon: <Code2 /> },
+              { value: 'decorated', label: 'Decorated Markdown view', icon: <Eye /> }
+            ]}
+          />
+          <ViewModeToggle mode={childViewMode} onModeChange={(mode) => void handleChildViewMode(mode)} />
         </div>
-        <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
-          <History />
-          History
-        </Button>
-        <div className="writing-view-mode-toggle" role="group" aria-label="Editor view mode">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={editorViewMode === 'raw' ? 'default' : 'outline'}
-                size="icon-sm"
-                onClick={() => setEditorViewMode('raw')}
-                aria-label="Raw Markdown view"
-                title="Raw Markdown view"
-              >
-                <Code2 />
-                <span className="sr-only">Raw Markdown</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Raw Markdown</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={editorViewMode === 'decorated' ? 'default' : 'outline'}
-                size="icon-sm"
-                onClick={() => setEditorViewMode('decorated')}
-                aria-label="Decorated Markdown view"
-                title="Decorated Markdown view"
-              >
-                <Eye />
-                <span className="sr-only">Decorated Markdown</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Decorated Markdown</TooltipContent>
-          </Tooltip>
-        </div>
-        <ViewModeToggle mode={childViewMode} onModeChange={(mode) => void handleChildViewMode(mode)} />
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">

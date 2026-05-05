@@ -1,6 +1,5 @@
 
 import {
-  Bot,
   CheckCircle2,
   CircleAlert,
   Clock3,
@@ -35,8 +34,11 @@ import {
   PopoverTrigger
 } from '../components/ui/popover';
 import { Button } from '../components/ui/button';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '../components/ui/item';
 import { Separator } from '../components/ui/separator';
 import { SidebarTrigger } from '../components/ui/sidebar';
+import { StatusBadge } from '../components/StatusBadge';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import type { KnowledgeIngestJobRecord, KnowledgeIngestStatus, PublicLlmSettings } from '../../shared/types';
 import type { AppPage } from '../app/types';
 
@@ -54,7 +56,6 @@ export function SiteHeader({
   onCheckpoint,
   onClearSelection,
   onSelectFocus,
-  onGenerateFromFocus,
   onSettings,
   onRetryTask,
   onDeleteTask,
@@ -76,7 +77,6 @@ export function SiteHeader({
   onCheckpoint: () => void;
   onClearSelection: () => void;
   onSelectFocus: () => void;
-  onGenerateFromFocus: () => void;
   onSettings: () => void;
   onRetryTask: (jobId: string) => void;
   onDeleteTask: (jobId: string) => void;
@@ -172,36 +172,37 @@ export function SiteHeader({
                 </span>
               </span>
             </MenubarLabel>
-            <MenubarSeparator />
-            <MenubarGroup>
-              <MenubarItem onSelect={onGenerateFromFocus} disabled={!apiAvailable || !canSelectFocus}>
-                <Bot />
-                Generate for focused section
-              </MenubarItem>
-              <MenubarItem onSelect={onSettings} disabled={!apiAvailable}>
-                <Settings />
-                Settings
-              </MenubarItem>
-            </MenubarGroup>
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
-      <div className="app-page-switcher ml-auto" aria-label="Primary navigation">
-        <button
-          type="button"
-          className={activePage === 'workspace' ? 'active' : undefined}
-          onClick={() => onPageChange('workspace')}
-        >
-          Workspace
-        </button>
-        <button
-          type="button"
-          className={activePage === 'knowledge' ? 'active' : undefined}
-          onClick={() => onPageChange('knowledge')}
-        >
-          Knowledge
-        </button>
-      </div>
+      <ToggleGroup
+        type="single"
+        value={activePage}
+        variant="outline"
+        size="sm"
+        spacing={0}
+        className="ml-auto"
+        aria-label="Primary navigation"
+        onValueChange={(page) => {
+          if (page) {
+            onPageChange(page as AppPage);
+          }
+        }}
+      >
+        <ToggleGroupItem value="workspace">Workspace</ToggleGroupItem>
+        <ToggleGroupItem value="knowledge">Knowledge</ToggleGroupItem>
+      </ToggleGroup>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        disabled={!apiAvailable}
+        title="Settings"
+        aria-label="Settings"
+        onClick={onSettings}
+      >
+        <Settings />
+      </Button>
       <GlobalTaskQueuePopover
         tasks={tasks}
         disabled={!apiAvailable}
@@ -233,7 +234,6 @@ function GlobalTaskQueuePopover({
       : completedCount > 0
         ? `${completedCount} completed task${completedCount === 1 ? '' : 's'}`
         : 'No background tasks';
-  const badgeCount = failedCount || activeCount;
   const sortedTasks = [...tasks].sort((left, right) =>
     new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
   );
@@ -251,7 +251,6 @@ function GlobalTaskQueuePopover({
           aria-label={`Background tasks: ${summary}`}
         >
           <ListChecks />
-          {badgeCount > 0 ? <span>{badgeCount > 99 ? '99+' : badgeCount}</span> : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="global-task-popover">
@@ -260,7 +259,7 @@ function GlobalTaskQueuePopover({
           <PopoverDescription>{summary}</PopoverDescription>
         </PopoverHeader>
         {sortedTasks.length > 0 ? (
-          <div className="global-task-list">
+          <ItemGroup className="global-task-list">
             {sortedTasks.map((task) => (
               <GlobalTaskRow
                 key={task.id}
@@ -269,7 +268,7 @@ function GlobalTaskQueuePopover({
                 onDeleteTask={onDeleteTask}
               />
             ))}
-          </div>
+          </ItemGroup>
         ) : (
           <p className="global-task-empty">No queued, running, or archived tasks.</p>
         )}
@@ -290,17 +289,20 @@ function GlobalTaskRow({
   const status = getTaskStatusView(task.status);
   const StatusIcon = status.icon;
   return (
-    <article className={`global-task-row ${task.status}`}>
-      <div className="global-task-row-main">
+    <Item variant="outline" size="sm" className="global-task-row">
+      <ItemMedia variant="icon">
         <StatusIcon className={status.spin ? 'animate-spin' : undefined} />
-        <div>
-          <strong>{task.fileName}</strong>
-          <span>{status.label} · Knowledge import · {formatTaskDateTime(task.updatedAt)}</span>
-        </div>
-      </div>
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{task.fileName}</ItemTitle>
+        <ItemDescription>
+          <StatusBadge status={task.status}>{status.label}</StatusBadge>
+          <span>Knowledge import</span>
+          <span>{formatTaskDateTime(task.updatedAt)}</span>
+        </ItemDescription>
       {task.errorMessage ? <p>{task.errorMessage}</p> : null}
       {task.status === 'error' ? (
-        <div className="global-task-actions">
+        <ItemActions className="global-task-actions">
           <Button variant="outline" size="sm" onClick={() => onRetryTask(task.id)}>
             <RefreshCw />
             Retry
@@ -309,9 +311,10 @@ function GlobalTaskRow({
             <Trash2 />
             Delete
           </Button>
-        </div>
+        </ItemActions>
       ) : null}
-    </article>
+      </ItemContent>
+    </Item>
   );
 }
 

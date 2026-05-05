@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, History } from 'lucide-react';
 import { getApi } from '../../api';
+import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import {
   Field,
@@ -325,8 +326,8 @@ function SectionListRow({
         <div className="section-list-meta-cell">
           <span>{formatSectionStatsLine(stats)}</span>
           <span>{formatContentStatsLine(stats)}</span>
-          {node.id === rootNodeId ? <span>Root</span> : null}
-          {saving ? <span>Saving</span> : null}
+          {node.id === rootNodeId ? <StatusBadge status="root">Root</StatusBadge> : null}
+          {saving ? <StatusBadge status="saving">Saving</StatusBadge> : null}
         </div>
       </TableCell>
       <TableCell className="section-list-action-cell">

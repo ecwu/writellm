@@ -137,3 +137,16 @@
     line-height: 1.4;
   }
 }
+
+@layer utilities {
+  .segmented-icon-toggle {
+    align-items: center;
+    display: inline-flex;
+    gap: 0;
+  }
+
+  .segmented-icon-toggle [data-slot="toggle-group-item"] {
+    min-width: 2rem;
+    position: relative;
+  }
+}

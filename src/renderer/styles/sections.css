@@ -258,29 +258,28 @@
   border-right: 1px solid var(--border);
   min-height: 0;
   overflow: auto;
-  padding: 0.375rem;
+  padding: 0;
 }
 
 .section-history-entry {
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-bottom: 1px solid var(--border);
   color: var(--foreground);
   display: grid;
   gap: 0.25rem;
-  padding: 0.55rem 0.625rem;
+  padding: 0.65rem 0.75rem;
   text-align: left;
   width: 100%;
 }
 
 .section-history-entry:hover {
   background: var(--background);
-  border-color: var(--border);
 }
 
 .section-history-entry[data-state="selected"] {
-  background: var(--card);
-  border-color: var(--ring);
+  background: var(--background);
+  box-shadow: inset 3px 0 0 var(--ring);
 }
 
 .section-history-entry-subject {
