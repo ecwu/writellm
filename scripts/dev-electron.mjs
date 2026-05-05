@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 
-const devServerUrl = 'http://127.0.0.1:5173';
+const host = '127.0.0.1';
+const preferredPort = 5173;
 const children = new Set();
 
 function run(command, args, options = {}) {
@@ -43,6 +45,26 @@ async function waitForServer(url) {
   throw new Error(`Timed out waiting for Vite at ${url}`);
 }
 
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, host);
+  });
+}
+
+async function findAvailablePort(startPort) {
+  for (let port = startPort; port < startPort + 100; port += 1) {
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available port found starting at ${startPort}`);
+}
+
 function shutdown(code = 0) {
   for (const child of children) {
     child.kill('SIGTERM');
@@ -54,10 +76,12 @@ process.on('SIGINT', () => shutdown(130));
 process.on('SIGTERM', () => shutdown(143));
 
 try {
-  await runOnce('pnpm', ['exec', 'tsc', '-p', 'tsconfig.electron.json']);
-  const vite = run('pnpm', ['exec', 'vite', '--host', '127.0.0.1', '--port', '5173']);
+  await runOnce('bun', ['x', 'tsc', '-p', 'tsconfig.electron.json']);
+  const port = await findAvailablePort(preferredPort);
+  const devServerUrl = `http://${host}:${port}`;
+  const vite = run('bun', ['x', 'vite', '--host', host, '--port', String(port), '--strictPort']);
   await waitForServer(devServerUrl);
-  const electron = run('pnpm', ['exec', 'electron', '.'], {
+  const electron = run('bun', ['x', 'electron', '.'], {
     env: {
       ...process.env,
       VITE_DEV_SERVER_URL: devServerUrl
