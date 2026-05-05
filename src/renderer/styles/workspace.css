@@ -84,7 +84,7 @@
   min-width: 0;
 }
 
-.workspace-dialog-path label {
+.workspace-dialog-path [data-slot="field-label"] {
   color: color-mix(in oklch, var(--sidebar-foreground) 70%, transparent);
   font-size: 0.75rem;
   font-weight: 700;

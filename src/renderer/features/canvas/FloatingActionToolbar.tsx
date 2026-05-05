@@ -2,6 +2,10 @@
 import { NotebookPen, PlusCircle, Trash2, WandSparkles } from 'lucide-react';
 import { getApi } from '../../api';
 import {
+  Field,
+  FieldLabel
+} from '../../components/ui/field';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -202,19 +206,21 @@ export function FloatingActionToolbar({
         ) : null}
         {selectedEdge ? (
           <div className="floating-edge-editor">
-            <span>Relation</span>
-            <Select value={selectedEdge.relationType} onValueChange={(value) => onUpdateEdgeKind(value as EdgeKind)}>
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="informs">informs</SelectItem>
-                <SelectItem value="generates">generates</SelectItem>
-                <SelectItem value="revises">revises</SelectItem>
-                <SelectItem value="related-to">related-to</SelectItem>
-                <SelectItem value="cites">cites</SelectItem>
-              </SelectContent>
-            </Select>
+            <Field orientation="horizontal" className="floating-edge-field">
+              <FieldLabel htmlFor="floating-edge-relation">Relation</FieldLabel>
+              <Select value={selectedEdge.relationType} onValueChange={(value) => onUpdateEdgeKind(value as EdgeKind)}>
+                <SelectTrigger id="floating-edge-relation" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="informs">informs</SelectItem>
+                  <SelectItem value="generates">generates</SelectItem>
+                  <SelectItem value="revises">revises</SelectItem>
+                  <SelectItem value="related-to">related-to</SelectItem>
+                  <SelectItem value="cites">cites</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
             <button type="button" className="danger edge-delete-button" title="Delete edge" onClick={onDeleteEdge}>
               <Trash2 />
               <span className="sr-only">Delete edge</span>

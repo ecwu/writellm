@@ -372,7 +372,12 @@
   gap: 0.5rem;
 }
 
-.floating-edge-editor span {
+.floating-edge-field {
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.floating-edge-editor [data-slot="field-label"] {
   color: oklch(0.78 0.008 240);
   font-size: 0.72rem;
   font-weight: 650;

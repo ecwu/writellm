@@ -146,6 +146,16 @@
   font-weight: 600;
 }
 
+.section-list-inline-field {
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.section-list-inline-field [data-slot="field-error"] {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
 .section-list-title-display,
 .section-list-intent-display {
   align-items: center;
@@ -203,11 +213,6 @@
 .section-list-intent-input {
   min-height: 2rem;
   resize: vertical;
-}
-
-.section-list-error {
-  color: var(--destructive);
-  font-size: 0.72rem;
 }
 
 .section-list-meta-cell {

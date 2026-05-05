@@ -217,16 +217,20 @@
   white-space: nowrap;
 }
 
-.llm-flow-input-heading label {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: 0.45rem;
+.llm-flow-input-fields {
+  gap: 0.625rem;
 }
 
-.llm-flow-input-heading input,
-.llm-flow input[type="checkbox"] {
-  accent-color: oklch(0.7 0.09 230);
+.llm-flow-source-toggle {
+  align-items: flex-start;
+}
+
+.llm-flow [data-slot="field-label"] {
+  color: oklch(0.92 0.006 240);
+}
+
+.llm-flow [data-slot="field-description"] {
+  color: oklch(0.74 0.008 240);
 }
 
 .llm-flow-input-actions {

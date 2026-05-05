@@ -2,6 +2,15 @@ import { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, FileSearch, MessageSquareText, RefreshCw, Send, Sparkles, Trash2, WandSparkles, X } from 'lucide-react';
 import type { RetrievedKnowledgeSource } from '../../../shared/types';
 import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel
+} from '../../components/ui/field';
 import {
   Item,
   ItemActions,
@@ -87,6 +96,7 @@ export function LlmExecutionFlow({
   );
   const running = phase === 'retrieving' || phase === 'generating';
   const canStart = Boolean(prompt.trim()) && !running;
+  const promptMissing = !prompt.trim() && phase !== 'idle';
   const showInput =
     phase === 'idle' ||
     phase === 'awaiting_retrieval_prompt' ||
@@ -246,13 +256,15 @@ export function LlmExecutionFlow({
         <div className="llm-flow-input">
           <div className="llm-flow-input-heading">
             <span>{label}</span>
-            <label>
-              <input
-                type="checkbox"
+          </div>
+          <FieldGroup className="llm-flow-input-fields">
+            <Field orientation="horizontal" className="llm-flow-source-toggle">
+              <Checkbox
+                id="llm-use-sources"
                 checked={useKnowledgeSources}
                 disabled={running}
-                onChange={(event) => {
-                  setUseKnowledgeSources(event.target.checked);
+                onCheckedChange={(checked) => {
+                  setUseKnowledgeSources(checked === true);
                   if (phase !== 'idle') {
                     setPhase('idle');
                     setMode(null);
@@ -264,15 +276,28 @@ export function LlmExecutionFlow({
                   }
                 }}
               />
-              <span>Use Sources</span>
-            </label>
-          </div>
-          <Textarea
-            value={prompt}
-            onChange={(event) => resetForPrompt(event.target.value)}
-            placeholder={placeholder}
-            disabled={running}
-          />
+              <FieldContent>
+                <FieldLabel htmlFor="llm-use-sources">Use sources</FieldLabel>
+                <FieldDescription>Retrieve relevant knowledge before generation.</FieldDescription>
+              </FieldContent>
+            </Field>
+            <Field data-invalid={promptMissing}>
+              <FieldLabel htmlFor="llm-generation-prompt">Prompt</FieldLabel>
+              <Textarea
+                id="llm-generation-prompt"
+                value={prompt}
+                onChange={(event) => resetForPrompt(event.target.value)}
+                placeholder={placeholder}
+                disabled={running}
+                aria-invalid={promptMissing}
+              />
+              {promptMissing ? (
+                <FieldError>Prompt is required before generation.</FieldError>
+              ) : (
+                <FieldDescription>Describe what the model should generate for the selected section.</FieldDescription>
+              )}
+            </Field>
+          </FieldGroup>
           <div className="llm-flow-input-actions">
             <Button type="button" size="sm" onClick={() => void startDirect()} disabled={!canStart}>
               <WandSparkles />
@@ -384,7 +409,20 @@ function RetrievalPromptItem({
       <ItemContent>
         <ItemTitle>Source retrieval prompt</ItemTitle>
         {editable ? (
-          <Textarea value={value} onChange={(event) => onChange(event.target.value)} />
+          <Field data-invalid={!value.trim()}>
+            <FieldLabel htmlFor="llm-retrieval-prompt">Retrieval prompt</FieldLabel>
+            <Textarea
+              id="llm-retrieval-prompt"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              aria-invalid={!value.trim()}
+            />
+            {!value.trim() ? (
+              <FieldError>Retrieval prompt is required.</FieldError>
+            ) : (
+              <FieldDescription>Used to search knowledge sources before generation.</FieldDescription>
+            )}
+          </Field>
         ) : (
           <ItemDescription className="llm-flow-pre">{value}</ItemDescription>
         )}

@@ -15,12 +15,23 @@ import {
 } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle
 } from '../../components/ui/dialog';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet
+} from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import {
   Select,
@@ -40,7 +51,7 @@ import {
   SidebarMenuItem,
   SidebarProvider
 } from '../../components/ui/sidebar';
-import { cn } from '../../lib/utils';
+import { Switch } from '../../components/ui/switch';
 import type {
   LlmProviderKind,
   MineruModelVersion,
@@ -340,18 +351,18 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[min(720px,calc(100svh-2rem))] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0 sm:max-w-5xl!">
+      <DialogContent className="grid h-[min(720px,calc(100svh-2rem))] w-[calc(100vw-2rem)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-5xl!">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">Configure global behavior and model providers.</DialogDescription>
         <SidebarProvider
-          className="min-h-0! items-start"
+          className="h-full min-h-0! items-stretch overflow-hidden"
           style={
             {
               '--sidebar-width': '15.5rem'
             } as React.CSSProperties
           }
-        >
-          <Sidebar collapsible="none" className="hidden md:flex">
+          >
+          <Sidebar collapsible="none" className="hidden h-full md:flex">
             <SidebarContent>
               {navGroups.map((group) => (
                 <SidebarGroup key={group.label}>
@@ -376,12 +387,20 @@ export function SettingsDialog({
             </SidebarContent>
           </Sidebar>
 
-          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="flex h-14 shrink-0 items-center border-b px-4">
+          <main className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden">
+            <header className="flex h-14 items-center justify-between gap-3 border-b px-4 pr-12">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-muted-foreground">Settings</p>
                 <h2 className="truncate text-base font-medium">{sectionTitles[activeSection]}</h2>
               </div>
+              <Button
+                size="sm"
+                onClick={() => void saveSettings()}
+                disabled={!canSave || saving}
+              >
+                <Save />
+                {saving ? 'Saving' : 'Save settings'}
+              </Button>
             </header>
 
             <div className="flex gap-2 overflow-x-auto border-b p-2 md:hidden">
@@ -398,7 +417,7 @@ export function SettingsDialog({
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-4">
               {activeSection === 'general' ? (
                 <GeneralSettings
                   debugEnabled={debugEnabled}
@@ -449,24 +468,26 @@ export function SettingsDialog({
               )}
             </div>
 
-            <footer className="flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3">
+            <footer className="flex items-center justify-between gap-3 border-t bg-popover px-4 py-3">
               <p className="min-w-0 truncate text-xs text-muted-foreground">
-                {activeSection === 'general' ? 'Global changes apply immediately.' : 'Provider changes are saved together.'}
+                {getSettingsFooterMessage(activeSection)}
               </p>
-              <Button
-                size="sm"
-                onClick={() => void saveSettings()}
-                disabled={!canSave || saving}
-              >
-                <Save />
-                {saving ? 'Saving' : 'Save'}
-              </Button>
             </footer>
           </main>
         </SidebarProvider>
       </DialogContent>
     </Dialog>
   );
+}
+
+function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
+  if (activeSection === 'general') {
+    return 'Theme changes apply immediately; debug mode is saved automatically.';
+  }
+  if (activeSection === 'knowledge') {
+    return 'PDF extraction and MinerU changes are saved with Save settings.';
+  }
+  return 'Provider changes are saved together with Save settings.';
 }
 
 function GeneralSettings({
@@ -483,55 +504,43 @@ function GeneralSettings({
   onThemeChange: (theme: ThemeMode) => void;
 }) {
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <section className="grid gap-4 border-b pb-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="grid gap-1">
-            <h3 className="text-sm font-medium">Dark theme</h3>
-            <p className="text-sm text-muted-foreground">Use the dark color scheme across the app.</p>
-          </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              className="peer sr-only"
-              type="checkbox"
-              role="switch"
-              checked={theme === 'dark'}
-              disabled={themeSaving}
-              onChange={(event) => onThemeChange(event.target.checked ? 'dark' : 'light')}
-            />
-            <span className="h-6 w-10 rounded-full bg-muted ring-1 ring-border transition-colors peer-checked:bg-primary peer-disabled:opacity-60" />
-            <span className="absolute left-1 size-4 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-4" />
-          </label>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+    <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
+      <FieldSet className="border-b pb-6">
+        <Field orientation="horizontal" className="items-start justify-between gap-4">
+          <FieldContent>
+            <FieldLabel htmlFor="settings-dark-theme">Dark theme</FieldLabel>
+            <FieldDescription>Use the dark color scheme across the app.</FieldDescription>
+          </FieldContent>
+          <Switch
+            id="settings-dark-theme"
+            checked={theme === 'dark'}
+            disabled={themeSaving}
+            onCheckedChange={(checked) => onThemeChange(checked ? 'dark' : 'light')}
+          />
+        </Field>
+        <FieldDescription className="flex items-center gap-2">
           {theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
           <span>{themeSaving ? 'Saving theme...' : theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</span>
-        </div>
-      </section>
-      <section className="grid gap-4 border-b pb-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="grid gap-1">
-            <h3 className="text-sm font-medium">Debug mode</h3>
-            <p className="text-sm text-muted-foreground">Show indexing diagnostics in the knowledge workspace.</p>
-          </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              className="peer sr-only"
-              type="checkbox"
-              role="switch"
-              checked={debugEnabled}
-              onChange={(event) => onDebugEnabledChange(event.target.checked)}
-            />
-            <span className="h-6 w-10 rounded-full bg-muted ring-1 ring-border transition-colors peer-checked:bg-primary" />
-            <span className="absolute left-1 size-4 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-4" />
-          </label>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        </FieldDescription>
+      </FieldSet>
+      <FieldSet className="border-b pb-6">
+        <Field orientation="horizontal" className="items-start justify-between gap-4">
+          <FieldContent>
+            <FieldLabel htmlFor="settings-debug-mode">Debug mode</FieldLabel>
+            <FieldDescription>Show indexing diagnostics in the knowledge workspace.</FieldDescription>
+          </FieldContent>
+          <Switch
+            id="settings-debug-mode"
+            checked={debugEnabled}
+            onCheckedChange={onDebugEnabledChange}
+          />
+        </Field>
+        <FieldDescription className="flex items-center gap-2">
           <Bug className="size-4" />
           <span>{debugEnabled ? 'Debug details are visible.' : 'Debug details are hidden.'}</span>
-        </div>
-      </section>
-    </div>
+        </FieldDescription>
+      </FieldSet>
+    </FieldGroup>
   );
 }
 
@@ -548,24 +557,28 @@ function KnowledgeSettings({
     onChange({ ...knowledge, ...partial });
   }
 
-  return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <section className="grid gap-1 border-b pb-4">
-        <div className="flex items-center gap-2">
-          <FileText className="size-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium">PDF extraction</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">Choose how imported PDF files are converted before text indexing.</p>
-      </section>
+  const mineruApiKeyMissing =
+    knowledge.pdfExtractionEngine === 'mineru' && !hasMineruApiKey && !knowledge.mineruApiKey.trim();
+  const mineruLanguageMissing = !knowledge.mineruLanguage.trim();
 
-      <div className="grid gap-5">
-        <label className="grid gap-2 text-sm font-medium">
-          Engine
+  return (
+    <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
+      <FieldSet className="border-b pb-4">
+        <FieldLegend className="flex items-center gap-2">
+          <FileText className="size-4 text-muted-foreground" />
+          PDF extraction
+        </FieldLegend>
+        <FieldDescription>Choose how imported PDF files are converted before text indexing.</FieldDescription>
+      </FieldSet>
+
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="knowledge-pdf-engine">Engine</FieldLabel>
           <Select
             value={knowledge.pdfExtractionEngine}
             onValueChange={(value) => update({ pdfExtractionEngine: value as PdfExtractionEngine })}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger id="knowledge-pdf-engine" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -573,34 +586,41 @@ function KnowledgeSettings({
               <SelectItem value="mineru">MinerU precise extraction</SelectItem>
             </SelectContent>
           </Select>
-        </label>
+          <FieldDescription>Use the local parser by default; MinerU enables more precise PDF extraction.</FieldDescription>
+        </Field>
 
-        <section className="settings-subsection">
-          <h3>MinerU</h3>
-          <label className="grid gap-2 text-sm font-medium">
-            API key
+        <FieldSet className="settings-subsection">
+          <FieldLegend variant="label">MinerU</FieldLegend>
+          <Field data-invalid={mineruApiKeyMissing}>
+            <FieldLabel htmlFor="mineru-api-key">API key</FieldLabel>
             <div className="relative">
               <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="mineru-api-key"
                 className="pl-8"
                 value={knowledge.mineruApiKey}
                 type="password"
                 onChange={(event) => update({ mineruApiKey: event.target.value })}
                 placeholder={hasMineruApiKey ? 'Stored; enter a new key to replace' : 'MinerU API key'}
+                aria-invalid={mineruApiKeyMissing}
               />
             </div>
-            <span className={cn('text-xs font-normal', hasMineruApiKey ? 'text-muted-foreground' : 'text-destructive')}>
-              {hasMineruApiKey ? 'API key saved' : 'API key missing'}
-            </span>
-          </label>
+            {mineruApiKeyMissing ? (
+              <FieldError>MinerU needs an API key when selected as the PDF engine.</FieldError>
+            ) : (
+              <FieldDescription>
+                {hasMineruApiKey ? 'API key saved; enter a new key to replace it.' : 'Stored securely after saving settings.'}
+              </FieldDescription>
+            )}
+          </Field>
 
-          <label className="grid gap-2 text-sm font-medium">
-            Model version
+          <Field>
+            <FieldLabel htmlFor="mineru-model-version">Model version</FieldLabel>
             <Select
               value={knowledge.mineruModelVersion}
               onValueChange={(value) => update({ mineruModelVersion: value as MineruModelVersion })}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger id="mineru-model-version" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -608,45 +628,62 @@ function KnowledgeSettings({
                 <SelectItem value="pipeline">pipeline</SelectItem>
               </SelectContent>
             </Select>
-          </label>
+            <FieldDescription>Select the MinerU extraction model used for imported PDFs.</FieldDescription>
+          </Field>
 
-          <label className="grid gap-2 text-sm font-medium">
-            Language
+          <Field data-invalid={mineruLanguageMissing}>
+            <FieldLabel htmlFor="mineru-language">Language</FieldLabel>
             <Input
+              id="mineru-language"
               value={knowledge.mineruLanguage}
               onChange={(event) => update({ mineruLanguage: event.target.value })}
+              aria-invalid={mineruLanguageMissing}
             />
-          </label>
+            {mineruLanguageMissing ? (
+              <FieldError>Language is required.</FieldError>
+            ) : (
+              <FieldDescription>Pass the document language hint to MinerU, such as ch or en.</FieldDescription>
+            )}
+          </Field>
 
-          <label className="settings-debug-toggle">
-            <input
-              type="checkbox"
+          <Field orientation="horizontal">
+            <Checkbox
+              id="mineru-ocr-mode"
               checked={knowledge.mineruIsOcr}
-              onChange={(event) => update({ mineruIsOcr: event.target.checked })}
+              onCheckedChange={(checked) => update({ mineruIsOcr: checked === true })}
             />
-            <span>OCR mode</span>
-          </label>
+            <FieldContent>
+              <FieldLabel htmlFor="mineru-ocr-mode">OCR mode</FieldLabel>
+              <FieldDescription>Force OCR when the source PDF does not contain reliable text.</FieldDescription>
+            </FieldContent>
+          </Field>
 
-          <label className="settings-debug-toggle">
-            <input
-              type="checkbox"
+          <Field orientation="horizontal">
+            <Checkbox
+              id="mineru-extract-tables"
               checked={knowledge.mineruEnableTable}
-              onChange={(event) => update({ mineruEnableTable: event.target.checked })}
+              onCheckedChange={(checked) => update({ mineruEnableTable: checked === true })}
             />
-            <span>Extract tables</span>
-          </label>
+            <FieldContent>
+              <FieldLabel htmlFor="mineru-extract-tables">Extract tables</FieldLabel>
+              <FieldDescription>Keep table structure when parsing technical or tabular documents.</FieldDescription>
+            </FieldContent>
+          </Field>
 
-          <label className="settings-debug-toggle">
-            <input
-              type="checkbox"
+          <Field orientation="horizontal">
+            <Checkbox
+              id="mineru-extract-formulas"
               checked={knowledge.mineruEnableFormula}
-              onChange={(event) => update({ mineruEnableFormula: event.target.checked })}
+              onCheckedChange={(checked) => update({ mineruEnableFormula: checked === true })}
             />
-            <span>Extract formulas</span>
-          </label>
-        </section>
-      </div>
-    </div>
+            <FieldContent>
+              <FieldLabel htmlFor="mineru-extract-formulas">Extract formulas</FieldLabel>
+              <FieldDescription>Preserve formulas for retrieval and citation-heavy writing.</FieldDescription>
+            </FieldContent>
+          </Field>
+        </FieldSet>
+      </FieldGroup>
+    </FieldGroup>
   );
 }
 
@@ -659,68 +696,90 @@ function RerankSettings({
   hasApiKey: boolean;
   onChange: (updater: (current: RerankEndpointDraft) => RerankEndpointDraft) => void;
 }) {
+  const baseUrlMissing = !endpoint.baseURL.trim();
+  const modelMissing = !endpoint.model.trim();
+
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <section className="grid gap-1 border-b pb-4">
-        <div className="flex items-center gap-2">
+    <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
+      <FieldSet className="border-b pb-4">
+        <FieldLegend className="flex items-center gap-2">
           <Cpu className="size-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium">Rerank</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">Used to rerank retrieved knowledge candidates.</p>
-      </section>
+          Rerank
+        </FieldLegend>
+        <FieldDescription>Used to rerank retrieved knowledge candidates.</FieldDescription>
+      </FieldSet>
 
-      <div className="grid gap-5">
-        <label className="settings-debug-toggle">
-          <input
-            type="checkbox"
+      <FieldGroup>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="rerank-enabled"
             checked={endpoint.enabled}
-            onChange={(event) => onChange((current) => ({ ...current, enabled: event.target.checked }))}
+            onCheckedChange={(checked) => onChange((current) => ({ ...current, enabled: checked === true }))}
           />
-          <span>Enable rerank</span>
-        </label>
+          <FieldContent>
+            <FieldLabel htmlFor="rerank-enabled">Enable rerank</FieldLabel>
+            <FieldDescription>Improve source ordering after initial knowledge retrieval.</FieldDescription>
+          </FieldContent>
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Provider
+        <Field>
+          <FieldLabel htmlFor="rerank-provider">Provider</FieldLabel>
           <Select
             value={endpoint.provider}
             onValueChange={(value) =>
               onChange((current) => ({ ...current, provider: value as RerankProviderKind }))
             }
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger id="rerank-provider" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="siliconflow-compatible">SiliconFlow compatible</SelectItem>
             </SelectContent>
           </Select>
-        </label>
+          <FieldDescription>Provider compatibility profile for rerank requests.</FieldDescription>
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Base URL
+        <Field data-invalid={baseUrlMissing}>
+          <FieldLabel htmlFor="rerank-base-url">Base URL</FieldLabel>
           <div className="relative">
             <SlidersHorizontal className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id="rerank-base-url"
               className="pl-8"
               value={endpoint.baseURL}
               onChange={(event) => onChange((current) => ({ ...current, baseURL: event.target.value }))}
+              aria-invalid={baseUrlMissing}
             />
           </div>
-        </label>
+          {baseUrlMissing ? (
+            <FieldError>Base URL is required.</FieldError>
+          ) : (
+            <FieldDescription>Endpoint root used for rerank API calls.</FieldDescription>
+          )}
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Model
+        <Field data-invalid={modelMissing}>
+          <FieldLabel htmlFor="rerank-model">Model</FieldLabel>
           <Input
+            id="rerank-model"
             value={endpoint.model}
             onChange={(event) => onChange((current) => ({ ...current, model: event.target.value }))}
+            aria-invalid={modelMissing}
           />
-        </label>
+          {modelMissing ? (
+            <FieldError>Model is required.</FieldError>
+          ) : (
+            <FieldDescription>Model identifier sent to the rerank provider.</FieldDescription>
+          )}
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          API key
+        <Field>
+          <FieldLabel htmlFor="rerank-api-key">API key</FieldLabel>
           <div className="relative">
             <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id="rerank-api-key"
               className="pl-8"
               value={endpoint.apiKey}
               type="password"
@@ -728,12 +787,12 @@ function RerankSettings({
               placeholder={hasApiKey ? 'Stored; enter a new key to replace' : 'SiliconFlow API key'}
             />
           </div>
-          <span className={cn('text-xs font-normal', hasApiKey ? 'text-muted-foreground' : 'text-destructive')}>
-            {hasApiKey ? 'API key saved' : 'API key missing'}
-          </span>
-        </label>
-      </div>
-    </div>
+          <FieldDescription>
+            {hasApiKey ? 'API key saved; enter a new key to replace it.' : 'Stored securely after saving settings.'}
+          </FieldDescription>
+        </Field>
+      </FieldGroup>
+    </FieldGroup>
   );
 }
 
@@ -752,21 +811,26 @@ function EndpointSettings({
   onProviderChange: (provider: LlmProviderKind) => void;
   onChange: (updater: (current: EndpointDraft) => EndpointDraft) => void;
 }) {
-  return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <section className="grid gap-1 border-b pb-4">
-        <div className="flex items-center gap-2">
-          <Cpu className="size-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium">{title}</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </section>
+  const fieldIdPrefix = title.toLowerCase().replace(/\s+/g, '-');
+  const baseUrlMissing = !endpoint.baseURL.trim();
+  const modelMissing = !endpoint.model.trim();
+  const apiKeyMissing = !hasApiKey && !endpoint.apiKey.trim();
 
-      <div className="grid gap-5">
-        <label className="grid gap-2 text-sm font-medium">
-          Provider
+  return (
+    <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
+      <FieldSet className="border-b pb-4">
+        <FieldLegend className="flex items-center gap-2">
+          <Cpu className="size-4 text-muted-foreground" />
+          {title}
+        </FieldLegend>
+        <FieldDescription>{description}</FieldDescription>
+      </FieldSet>
+
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor={`${fieldIdPrefix}-provider`}>Provider</FieldLabel>
           <Select value={endpoint.provider} onValueChange={(value) => onProviderChange(value as LlmProviderKind)}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger id={`${fieldIdPrefix}-provider`} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -777,45 +841,66 @@ function EndpointSettings({
               ))}
             </SelectContent>
           </Select>
-        </label>
+          <FieldDescription>Select the provider compatibility profile for this endpoint.</FieldDescription>
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Base URL
+        <Field data-invalid={baseUrlMissing}>
+          <FieldLabel htmlFor={`${fieldIdPrefix}-base-url`}>Base URL</FieldLabel>
           <div className="relative">
             <SlidersHorizontal className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id={`${fieldIdPrefix}-base-url`}
               className="pl-8"
               value={endpoint.baseURL}
               onChange={(event) => onChange((current) => ({ ...current, baseURL: event.target.value }))}
+              aria-invalid={baseUrlMissing}
             />
           </div>
-        </label>
+          {baseUrlMissing ? (
+            <FieldError>Base URL is required.</FieldError>
+          ) : (
+            <FieldDescription>Endpoint root used for model API requests.</FieldDescription>
+          )}
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Model
+        <Field data-invalid={modelMissing}>
+          <FieldLabel htmlFor={`${fieldIdPrefix}-model`}>Model</FieldLabel>
           <Input
+            id={`${fieldIdPrefix}-model`}
             value={endpoint.model}
             onChange={(event) => onChange((current) => ({ ...current, model: event.target.value }))}
+            aria-invalid={modelMissing}
           />
-        </label>
+          {modelMissing ? (
+            <FieldError>Model is required.</FieldError>
+          ) : (
+            <FieldDescription>Model identifier sent to the configured provider.</FieldDescription>
+          )}
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
-          API key
+        <Field data-invalid={apiKeyMissing}>
+          <FieldLabel htmlFor={`${fieldIdPrefix}-api-key`}>API key</FieldLabel>
           <div className="relative">
             <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id={`${fieldIdPrefix}-api-key`}
               className="pl-8"
               value={endpoint.apiKey}
               type="password"
               onChange={(event) => onChange((current) => ({ ...current, apiKey: event.target.value }))}
               placeholder={hasApiKey ? 'Stored; enter a new key to replace' : 'API key'}
+              aria-invalid={apiKeyMissing}
             />
           </div>
-          <span className={cn('text-xs font-normal', hasApiKey ? 'text-muted-foreground' : 'text-destructive')}>
-            {hasApiKey ? 'API key saved' : 'API key missing'}
-          </span>
-        </label>
-      </div>
-    </div>
+          {apiKeyMissing ? (
+            <FieldError>No API key is stored for this endpoint.</FieldError>
+          ) : (
+            <FieldDescription>
+              {hasApiKey ? 'API key saved; enter a new key to replace it.' : 'Stored securely after saving settings.'}
+            </FieldDescription>
+          )}
+        </Field>
+      </FieldGroup>
+    </FieldGroup>
   );
 }

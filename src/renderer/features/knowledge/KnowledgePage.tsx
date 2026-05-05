@@ -18,6 +18,13 @@ import {
 } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel
+} from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import {
   Popover,
@@ -95,6 +102,8 @@ export function KnowledgePage({
   const isCreating = !selected;
   const selectedReaderKey = selected ? `${selected.id}:${selected.updatedAt}` : null;
   const readerReady = Boolean(selectedReaderKey && readerRenderKey === selectedReaderKey);
+  const titleMissing = !title.trim();
+  const contentMissing = !content.trim();
 
   useEffect(() => {
     onDebugErrorRef.current = onDebugError;
@@ -365,19 +374,36 @@ export function KnowledgePage({
         </div>
 
         {isCreating || isEditing ? (
-          <div className="knowledge-editor-fields">
-            <label className="field-label">
-              Title
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <label className="field-label knowledge-text-field">
-              Source text
+          <FieldGroup className="knowledge-editor-fields">
+            <Field data-invalid={titleMissing}>
+              <FieldLabel htmlFor="knowledge-source-title">Title</FieldLabel>
+              <Input
+                id="knowledge-source-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                aria-invalid={titleMissing}
+              />
+              {titleMissing ? (
+                <FieldError>{isCreating ? 'Blank titles save as Knowledge source.' : 'Title is required for source labels.'}</FieldError>
+              ) : (
+                <FieldDescription>Used in retrieval results and citations.</FieldDescription>
+              )}
+            </Field>
+            <Field className="knowledge-text-field" data-invalid={contentMissing}>
+              <FieldLabel htmlFor="knowledge-source-content">Source text</FieldLabel>
               <Textarea
+                id="knowledge-source-content"
                 value={content}
                 onChange={(event) => setContent(event.target.value)}
                 placeholder="Paste source text for retrieval"
+                aria-invalid={contentMissing}
               />
-            </label>
+              {contentMissing ? (
+                <FieldError>Source text is required before saving.</FieldError>
+              ) : (
+                <FieldDescription>This text is indexed for retrieval during generation.</FieldDescription>
+              )}
+            </Field>
             {debugEnabled ? (
               <KnowledgeDebugPanel
                 debugDetails={debugDetails}
@@ -386,7 +412,7 @@ export function KnowledgePage({
                 selectedDebug={selectedDebug}
               />
             ) : null}
-          </div>
+          </FieldGroup>
         ) : selected ? (
           <ScrollArea className="knowledge-reader-scroll">
             <div className="knowledge-reader">

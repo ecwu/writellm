@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, History } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
+import {
+  Field,
+  FieldError,
+  FieldLabel
+} from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import {
   Table,
@@ -242,21 +247,29 @@ function SectionListRow({
             </button>
           ) : null}
           {editingField === 'title' ? (
-            <Input
-              value={title}
-              autoFocus
-              aria-label={`${node.title} title`}
-              className="section-list-title-input"
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => {
-                const nextTitle = event.target.value;
-                setTitle(nextTitle);
-                if (nextTitle.trim()) {
-                  setError(null);
-                }
-              }}
-              onBlur={() => void commitEditingField('title')}
-            />
+            <Field data-invalid={Boolean(error)} className="section-list-inline-field">
+              <FieldLabel htmlFor={`section-title-${node.id}`} className="sr-only">
+                {node.title} title
+              </FieldLabel>
+              <Input
+                id={`section-title-${node.id}`}
+                value={title}
+                autoFocus
+                aria-label={`${node.title} title`}
+                className="section-list-title-input"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  const nextTitle = event.target.value;
+                  setTitle(nextTitle);
+                  if (nextTitle.trim()) {
+                    setError(null);
+                  }
+                }}
+                onBlur={() => void commitEditingField('title')}
+                aria-invalid={Boolean(error)}
+              />
+              <FieldError>{error}</FieldError>
+            </Field>
           ) : (
             <button
               type="button"
@@ -275,18 +288,24 @@ function SectionListRow({
       <TableCell>
         <div className="section-list-intent-cell">
           {editingField === 'intent' ? (
-            <Textarea
-              value={intent}
-              autoFocus
-              aria-label={`${node.title} intent`}
-              className="section-list-intent-input"
-              placeholder="Intent"
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => {
-                setIntent(event.target.value);
-              }}
-              onBlur={() => void commitEditingField('intent')}
-            />
+            <Field className="section-list-inline-field">
+              <FieldLabel htmlFor={`section-intent-${node.id}`} className="sr-only">
+                {node.title} intent
+              </FieldLabel>
+              <Textarea
+                id={`section-intent-${node.id}`}
+                value={intent}
+                autoFocus
+                aria-label={`${node.title} intent`}
+                className="section-list-intent-input"
+                placeholder="Intent"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  setIntent(event.target.value);
+                }}
+                onBlur={() => void commitEditingField('intent')}
+              />
+            </Field>
           ) : (
             <button
               type="button"
@@ -300,7 +319,6 @@ function SectionListRow({
               {intent.trim() ? intent : 'No intent'}
             </button>
           )}
-          {error ? <span className="section-list-error">{error}</span> : null}
         </div>
       </TableCell>
       <TableCell>

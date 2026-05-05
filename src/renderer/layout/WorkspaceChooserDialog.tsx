@@ -3,6 +3,13 @@ import { Clock, FileText, FolderOpen, FolderPlus } from 'lucide-react';
 import { formatRecentWorkspaceDate } from '../app/formatters';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel
+} from '../components/ui/field';
 import { Input } from '../components/ui/input';
 import type { RecentWorkspace } from '../../shared/types';
 
@@ -32,6 +39,7 @@ export function WorkspaceChooserDialog({
   onPickNewWorkspace: () => void;
 }) {
   const canUsePath = apiAvailable && Boolean(workspacePath.trim());
+  const hasPath = Boolean(workspacePath.trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,20 +94,30 @@ export function WorkspaceChooserDialog({
               </Button>
             </div>
 
-            <div className="workspace-dialog-path">
-              <label htmlFor="workspace-path-input">Path</label>
-              <Input
-                id="workspace-path-input"
-                value={workspacePath}
-                onChange={(event) => onWorkspacePath(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canUsePath) {
-                    onOpenWorkspace(workspacePath);
-                  }
-                }}
-                placeholder="/path/to/project.writellm"
-                aria-label="Workspace path"
-              />
+            <FieldGroup className="workspace-dialog-path">
+              <Field data-invalid={!apiAvailable}>
+                <FieldLabel htmlFor="workspace-path-input">Path</FieldLabel>
+                <Input
+                  id="workspace-path-input"
+                  value={workspacePath}
+                  onChange={(event) => onWorkspacePath(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && canUsePath) {
+                      onOpenWorkspace(workspacePath);
+                    }
+                  }}
+                  placeholder="/path/to/project.writellm"
+                  aria-label="Workspace path"
+                  aria-invalid={!apiAvailable}
+                />
+                {!apiAvailable ? (
+                  <FieldError>Workspace file access is not available in this environment.</FieldError>
+                ) : (
+                  <FieldDescription>
+                    {hasPath ? 'Open an existing workspace or create a new one at this path.' : 'Enter a .writellm workspace path.'}
+                  </FieldDescription>
+                )}
+              </Field>
               <div className="workspace-path-row">
                 <Button variant="outline" onClick={() => onOpenWorkspace(workspacePath)} disabled={!canUsePath}>
                   Open
@@ -108,7 +126,7 @@ export function WorkspaceChooserDialog({
                   Create
                 </Button>
               </div>
-            </div>
+            </FieldGroup>
           </aside>
 
           <main className="workspace-dialog-main">

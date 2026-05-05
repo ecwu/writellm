@@ -4,6 +4,13 @@ import { BookOpen, Pencil, Save, Trash2, X } from 'lucide-react';
 import { getApi } from '../../api';
 import { MarkdownEditor } from '../../components/MarkdownEditor';
 import { Button } from '../../components/ui/button';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel
+} from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { formatContentFlags, getGenerationPrompt } from '../../app/formatters';
@@ -139,6 +146,8 @@ export function Inspector(props: InspectorProps) {
   const selectedGenerationSources = getGenerationSources(selectedContent);
   const selectedIsKnowledgeSource = selectedContent?.metadata.nodeRole === 'knowledge-source';
   const selectedSectionLlmSummary = formatSectionLlmOperationSummary(selectedSection);
+  const sectionTitleMissing = sectionEditing && !sectionTitle.trim();
+  const contentTitleMissing = selectedContent ? !contentTitle.trim() : false;
 
   return (
     <div className="inspector">
@@ -157,10 +166,11 @@ export function Inspector(props: InspectorProps) {
             ) : null}
           </div>
           {sectionEditing ? (
-            <>
-              <label className="field-label">
-                Title
+            <FieldGroup>
+              <Field data-invalid={sectionTitleMissing}>
+                <FieldLabel htmlFor="inspector-section-title">Title</FieldLabel>
                 <Input
+                  id="inspector-section-title"
                   value={sectionTitle}
                   onChange={(event) => setSectionTitle(event.target.value)}
                   onKeyDown={(event) => {
@@ -168,16 +178,24 @@ export function Inspector(props: InspectorProps) {
                       void saveSection();
                     }
                   }}
+                  aria-invalid={sectionTitleMissing}
                 />
-              </label>
-              <label className="field-label">
-                Intent
+                {sectionTitleMissing ? (
+                  <FieldError>Section title is required.</FieldError>
+                ) : (
+                  <FieldDescription>Shown in the outline, canvas, and generated Markdown.</FieldDescription>
+                )}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="inspector-section-intent">Intent</FieldLabel>
                 <Textarea
+                  id="inspector-section-intent"
                   value={sectionIntent}
                   onChange={(event) => setSectionIntent(event.target.value)}
                   placeholder="Writing intent for this section"
                 />
-              </label>
+                <FieldDescription>Guide model generation and retrieval for this section.</FieldDescription>
+              </Field>
               <div className="button-row">
                 <Button size="sm" onClick={() => void saveSection()} disabled={!sectionTitle.trim()}>
                   <Save />
@@ -205,7 +223,7 @@ export function Inspector(props: InspectorProps) {
                   Delete
                 </Button>
               </div>
-            </>
+            </FieldGroup>
           ) : (
             <div className="metadata-list">
               <MetadataRow label="Title" value={selectedSection.title} />
@@ -239,14 +257,21 @@ export function Inspector(props: InspectorProps) {
               Delete
             </Button>
           </div>
-          <label className="field-label">
-            Title
+          <Field data-invalid={contentTitleMissing}>
+            <FieldLabel htmlFor="inspector-content-title">Title</FieldLabel>
             <Input
+              id="inspector-content-title"
               value={contentTitle}
               onChange={(event) => setContentTitle(event.target.value)}
               onBlur={() => void persistContent({ title: contentTitle.trim() || selectedContent.title })}
+              aria-invalid={contentTitleMissing}
             />
-          </label>
+            {contentTitleMissing ? (
+              <FieldError>Blank titles keep the current title when saved.</FieldError>
+            ) : (
+              <FieldDescription>Used for canvas labels and knowledge source references.</FieldDescription>
+            )}
+          </Field>
           {selectedGenerationPrompt ? (
             <div className="generation-prompt">
               <span>Input prompt</span>
