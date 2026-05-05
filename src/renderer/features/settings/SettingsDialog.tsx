@@ -340,7 +340,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[min(720px,calc(100svh-2rem))] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0">
+      <DialogContent className="grid h-[min(720px,calc(100svh-2rem))] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0 sm:max-w-5xl!">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">Configure global behavior and model providers.</DialogDescription>
         <SidebarProvider
