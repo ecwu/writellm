@@ -5,6 +5,7 @@ import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroun
 import { WriteLLMDatabase } from './database.js';
 import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
+import { closeRetrievalWorker } from './retrievalWorkerClient.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
 let activeDb: WriteLLMDatabase | null = null;
@@ -60,6 +61,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
 
 async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
   await stopBackgroundTaskWorker();
+  closeRetrievalWorker();
   const nextDb = new WriteLLMDatabase(workspacePath);
   ensureGitSession(workspacePath);
   if (activeDb) {

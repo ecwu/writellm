@@ -417,8 +417,10 @@ export async function retrieveKnowledgeSources(
     queries?: string[];
     rerankSettings?: RerankEndpointSettings;
     retrievalSettings?: KnowledgeRetrievalSettings;
+    abortSignal?: AbortSignal;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
+  throwIfAborted(options.abortSignal);
   const queries = uniqueNonEmptyStrings([...(options.queries ?? []), query]);
   if (queries.length === 0) {
     return [];
@@ -431,9 +433,10 @@ export async function retrieveKnowledgeSources(
     Math.min(options.maxCandidates ?? retrievalSettings.maxCandidateChunks, 80)
   );
   const candidateMap = new Map<string, RetrievalCandidate>();
-  const embeddings = await embedTexts(embeddingSettings, queries, retrievalSettings.embeddingBatchSize);
+  const embeddings = await embedTexts(embeddingSettings, queries, retrievalSettings.embeddingBatchSize, options.abortSignal);
 
   queries.forEach((retrievalQuery, queryIndex) => {
+    throwIfAborted(options.abortSignal);
     addRankedCandidates(
       candidateMap,
       db.searchKnowledgeChunks({
@@ -472,7 +475,8 @@ export async function retrieveKnowledgeSources(
     query,
     candidates: expanded,
     maxChunks,
-    topN: retrievalSettings.rerankTopN
+    topN: retrievalSettings.rerankTopN,
+    abortSignal: options.abortSignal
   }).catch(() => expanded.slice(0, maxChunks));
   const diversified = diversifyCandidatesByItem(
     reranked,
@@ -504,8 +508,10 @@ export async function retrieveKnowledgeSourcesV2(
     retrievalSettings?: KnowledgeRetrievalSettings;
     runId?: string;
     onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+    abortSignal?: AbortSignal;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
+  throwIfAborted(options.abortSignal);
   const retrievalSettings = resolveRetrievalSettings(options.retrievalSettings);
   const maxChunks = Math.max(1, Math.min(options.maxChunks ?? retrievalSettings.maxRetrievedChunks, 20));
   const maxCandidates = Math.max(
@@ -538,6 +544,7 @@ export async function retrieveKnowledgeSourcesV2(
 
   try {
     for (let round = 1; round <= maxRounds; round += 1) {
+      throwIfAborted(options.abortSignal);
       roundQueries.forEach((roundQuery) => attemptedQueries.add(normalizeRetrievalQueryKey(roundQuery)));
       trace({ type: 'round_started', runId, round, queries: roundQueries });
 
@@ -549,7 +556,8 @@ export async function retrieveKnowledgeSourcesV2(
         maxCandidates: maxRoundCandidates,
         queries: roundQueries,
         rerankSettings: undefined,
-        retrievalSettings
+        retrievalSettings,
+        abortSignal: options.abortSignal
       })).map((source) => ({
         ...source,
         sourceV2Round: source.sourceV2Round ?? round
@@ -587,7 +595,8 @@ export async function retrieveKnowledgeSourcesV2(
         query,
         round,
         maxChunks,
-        sources: Array.from(allSources.values())
+        sources: Array.from(allSources.values()),
+        abortSignal: options.abortSignal
       });
       const validSelectedIds = evaluation.selectedChunkIds.filter((chunkId) => allSources.has(chunkId));
       validSelectedIds.forEach((chunkId) => selectedChunkIds.add(chunkId));
@@ -631,7 +640,8 @@ export async function retrieveKnowledgeSourcesV2(
       maxCandidates,
       queries: initialQueries,
       rerankSettings: options.rerankSettings,
-      retrievalSettings
+      retrievalSettings,
+      abortSignal: options.abortSignal
     });
     trace({
       type: 'done',
@@ -680,6 +690,7 @@ async function evaluateSourceV2Round(
     round: number;
     maxChunks: number;
     sources: RetrievedKnowledgeSource[];
+    abortSignal?: AbortSignal;
   }
 ): Promise<{
   decision: 'continue' | 'stop';
@@ -708,7 +719,7 @@ async function evaluateSourceV2Round(
     prompt: evaluatorPrompt,
     maxOutputTokens: SOURCE_V2_EVALUATION_MAX_OUTPUT_TOKENS,
     timeoutMs: SOURCE_V2_EVALUATION_TIMEOUT_MS
-  });
+  }, options.abortSignal);
   const rawJson = parseJsonObjectFromText(text);
   const parsed = sourceV2EvaluationSchema.safeParse(rawJson);
   if (!parsed.success) {
@@ -921,12 +932,15 @@ async function rerankKnowledgeCandidates(options: {
   candidates: RetrievalCandidate[];
   maxChunks: number;
   topN: number;
+  abortSignal?: AbortSignal;
 }): Promise<RetrievalCandidate[]> {
   const { settings, query, candidates, maxChunks, topN } = options;
   if (!settings?.enabled || !settings.apiKey.trim() || candidates.length === 0 || !query.trim()) {
     return candidates.slice(0, maxChunks);
   }
+  throwIfAborted(options.abortSignal);
   const endpoint = `${settings.baseURL.replace(/\/+$/, '')}/rerank`;
+  const timeoutSignal = AbortSignal.timeout(15000);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -940,7 +954,7 @@ async function rerankKnowledgeCandidates(options: {
       return_documents: false,
       top_n: Math.min(candidates.length, Math.max(topN, maxChunks))
     }),
-    signal: AbortSignal.timeout(15000)
+    signal: options.abortSignal ? AbortSignal.any([options.abortSignal, timeoutSignal]) : timeoutSignal
   });
   if (!response.ok) {
     throw new Error(`Rerank request failed: ${response.status} ${response.statusText}`);
@@ -1056,8 +1070,10 @@ export function formatSourcesForPrompt(sources: RetrievedKnowledgeSource[]): str
 async function embedTexts(
   settings: ModelEndpointSettings,
   texts: string[],
-  batchSize = EMBEDDING_BATCH_SIZE
+  batchSize = EMBEDDING_BATCH_SIZE,
+  abortSignal?: AbortSignal
 ): Promise<number[][]> {
+  throwIfAborted(abortSignal);
   if (!settings.apiKey.trim()) {
     throw new Error('Embedding API key is required. Add it in Settings first.');
   }
@@ -1077,6 +1093,7 @@ async function embedTexts(
       const result = await embedMany({
         model,
         values: batch,
+        abortSignal,
         maxRetries: 0
       });
       return result.embeddings.map((embedding) => [...embedding]);
@@ -1093,6 +1110,7 @@ async function embedTexts(
   };
 
   for (const batch of batchEmbeddingTexts(texts, batchSize)) {
+    throwIfAborted(abortSignal);
     embeddings.push(...await embedBatch(batch));
   }
 
@@ -1103,6 +1121,12 @@ async function embedTexts(
     throw new Error('Embedding response did not include an embedding for every chunk.');
   }
   return embeddings;
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw abortSignal.reason instanceof Error ? abortSignal.reason : new Error('Retrieval canceled.');
+  }
 }
 
 function batchEmbeddingTexts(texts: string[], batchSize: number): string[][] {

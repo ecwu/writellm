@@ -12,15 +12,13 @@ import type {
   EdgeKind,
   GenerateLlmPayload,
   KnowledgeRetrievalMode,
-  KnowledgeRetrievalSettings,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
   LlmOperationRecord,
-  ModelEndpointSettings,
-  RerankEndpointSettings,
   RetrievedKnowledgeSource,
   NodeRecord,
+  SectionNodeRecord,
   SectionLlmEditMode,
   SaveLlmGenerationPayload,
   UpdateKnowledgeItemPayload,
@@ -47,10 +45,9 @@ import { getSectionHistoryDetail, restoreSectionVersion } from './sectionHistory
 import {
   formatSourcesForPrompt,
   getKnowledgeChunkingDebugConfig,
-  indexKnowledgeItem,
-  retrieveKnowledgeSources,
-  retrieveKnowledgeSourcesV2
+  indexKnowledgeItem
 } from './knowledgeIndex.js';
+import { retrieveKnowledgeInWorker } from './retrievalWorkerClient.js';
 import {
   createWorkspace,
   getActiveDb,
@@ -148,14 +145,40 @@ function buildArticleSectionContextFromDb(
   focusSectionId?: string | null
 ): string {
   const resolvedFocusSectionId = focusSectionId ?? targetSectionId;
-  const state = db.getState(resolvedFocusSectionId);
-  const targetSection = findSectionInTree(state.compositionTree, targetSectionId);
+  const articleStructure = buildCompositionTreeFromSections(db.listSectionsForContext());
+  const targetSection = findSectionInTree(articleStructure, targetSectionId);
   if (!targetSection) {
     throw new Error(`Section not found: ${targetSectionId}`);
   }
-  const focusSection = findSectionInTree(state.compositionTree, resolvedFocusSectionId) ?? targetSection;
+  const focusSection = findSectionInTree(articleStructure, resolvedFocusSectionId) ?? targetSection;
 
-  return buildArticleSectionContext(focusSection, targetSection, state.compositionTree);
+  return buildArticleSectionContext(focusSection, targetSection, articleStructure);
+}
+
+function buildCompositionTreeFromSections(sections: SectionNodeRecord[]): CompositionTreeNode[] {
+  const byParent = new Map<string | null, CompositionTreeNode[]>();
+  sections.forEach((section) => {
+    const siblings = byParent.get(section.parentId) ?? [];
+    siblings.push({
+      ...section,
+      children: []
+    });
+    byParent.set(section.parentId, siblings);
+  });
+  byParent.forEach((siblings) => {
+    siblings.sort((left, right) =>
+      left.sortOrder - right.sortOrder ||
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id)
+    );
+  });
+
+  const build = (section: CompositionTreeNode): CompositionTreeNode => ({
+    ...section,
+    children: (byParent.get(section.id) ?? []).map(build)
+  });
+
+  return (byParent.get(null) ?? []).map(build);
 }
 
 function getSelectedContextNodes(
@@ -412,8 +435,6 @@ function buildKnowledgeRetrievalQueries(
 
 async function retrieveKnowledgeForGeneration(
   db: ReturnType<typeof getActiveDb>,
-  embeddingSettings: ModelEndpointSettings,
-  chatSettings: ModelEndpointSettings,
   query: string,
   options: {
     excludedItemIds?: string[];
@@ -422,30 +443,26 @@ async function retrieveKnowledgeForGeneration(
     queries?: string[];
     retrievalMode?: KnowledgeRetrievalMode;
     runId?: string;
-    rerankSettings?: RerankEndpointSettings;
-    retrievalSettings?: KnowledgeRetrievalSettings;
+    settings: ReturnType<typeof readLlmSettings>;
     onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+    abortSignal?: AbortSignal;
   }
 ): Promise<RetrievedKnowledgeSource[]> {
-  if (options.retrievalMode === 'sourcev2') {
-    return retrieveKnowledgeSourcesV2(db, embeddingSettings, chatSettings, query, {
-      excludedItemIds: options.excludedItemIds,
-      excludedChunkIds: options.excludedChunkIds,
-      maxChunks: options.maxChunks,
-      queries: options.queries,
-      rerankSettings: options.rerankSettings,
-      retrievalSettings: options.retrievalSettings,
-      runId: options.runId,
-      onTrace: options.onTrace
-    });
-  }
-  return retrieveKnowledgeSources(db, embeddingSettings, query, {
+  return retrieveKnowledgeInWorker(db.workspacePath, {
+    query,
+    embeddingSettings: options.settings.embedding,
+    chatSettings: options.settings.chat,
     excludedItemIds: options.excludedItemIds,
     excludedChunkIds: options.excludedChunkIds,
     maxChunks: options.maxChunks,
     queries: options.queries,
-    rerankSettings: options.rerankSettings,
-    retrievalSettings: options.retrievalSettings
+    retrievalMode: options.retrievalMode,
+    runId: options.runId,
+    rerankSettings: options.settings.rerank,
+    retrievalSettings: options.settings.knowledge.retrieval
+  }, {
+    abortSignal: options.abortSignal,
+    onTrace: options.onTrace
   });
 }
 
@@ -746,28 +763,18 @@ export function registerIpcHandlers(): void {
     const queries = articleSectionContext
       ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
       : [payload.query];
-    if (payload.retrievalMode === 'sourcev2') {
-      const runId = payload.runId ?? createId('retrieval');
-      return retrieveKnowledgeSourcesV2(db, settings.embedding, settings.chat, payload.query, {
-        excludedItemIds: payload.excludedItemIds,
-        excludedChunkIds: payload.excludedChunkIds,
-        maxChunks: payload.maxChunks,
-        queries,
-        runId,
-        rerankSettings: settings.rerank,
-        retrievalSettings: settings.knowledge.retrieval,
-        onTrace: (traceEvent) => {
-          _event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
-        }
-      });
-    }
-    return retrieveKnowledgeSources(db, settings.embedding, payload.query, {
+    const runId = payload.retrievalMode === 'sourcev2' ? payload.runId ?? createId('retrieval') : payload.runId;
+    return retrieveKnowledgeForGeneration(db, payload.query, {
       excludedItemIds: payload.excludedItemIds,
       excludedChunkIds: payload.excludedChunkIds,
       maxChunks: payload.maxChunks,
       queries,
-      rerankSettings: settings.rerank,
-      retrievalSettings: settings.knowledge.retrieval
+      retrievalMode: payload.retrievalMode,
+      runId,
+      settings,
+      onTrace: (traceEvent) => {
+        _event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
+      }
     });
   });
 
@@ -801,63 +808,70 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
     const db = getActiveDb();
-    const section = db.getSection(payload.sectionId);
-    if (!section) {
-      throw new Error(`Section not found: ${payload.sectionId}`);
-    }
-    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-    const articleSectionContext = buildArticleSectionContextFromDb(
-      db,
-      payload.sectionId,
-      payload.focusSectionId
-    );
-    const useKnowledgeSources = payload.useKnowledgeSources !== false;
-    const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || payload.prompt;
-    const retrievedSources = useKnowledgeSources
-      ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeForGeneration(
-          db,
-          settings.embedding,
-          settings.chat,
-          knowledgeRetrievalPrompt,
-          {
-            excludedItemIds: payload.excludedKnowledgeItemIds,
-            excludedChunkIds: payload.excludedKnowledgeChunkIds,
-            maxChunks: payload.maxKnowledgeChunks,
-            queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
-            retrievalMode: payload.retrievalMode,
-            runId: payload.runId,
-            rerankSettings: settings.rerank,
-            retrievalSettings: settings.knowledge.retrieval,
-            onTrace: (traceEvent) => {
-              event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
-            }
-          }
-        )
-      : [];
-    const generationPayload: GenerateLlmPayload = {
-      ...payload,
-      prompt: buildContextPrompt(
-        payload.prompt,
-        contextNodes,
-        articleSectionContext,
-        retrievedSources,
-        useKnowledgeSources && (payload.requireInlineCitations ?? true)
-      ),
-      systemPrompt: payload.systemPrompt?.trim()
-        ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`
-        : articleSectionContext
-    };
     const controller = new AbortController();
     llmRuns.set(payload.runId, controller);
 
-    event.sender.send(ipcChannels.llmStream, {
-      type: 'started',
-      runId: payload.runId,
-      sectionId: payload.sectionId
-    });
-
     let content = '';
+    let retrievedSources: RetrievedKnowledgeSource[] = [];
     try {
+      const section = db.getSection(payload.sectionId);
+      if (!section) {
+        throw new Error(`Section not found: ${payload.sectionId}`);
+      }
+      const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+      const articleSectionContext = buildArticleSectionContextFromDb(
+        db,
+        payload.sectionId,
+        payload.focusSectionId
+      );
+      const useKnowledgeSources = payload.useKnowledgeSources !== false;
+      const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || payload.prompt;
+      retrievedSources = useKnowledgeSources
+        ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeForGeneration(
+            db,
+            knowledgeRetrievalPrompt,
+            {
+              excludedItemIds: payload.excludedKnowledgeItemIds,
+              excludedChunkIds: payload.excludedKnowledgeChunkIds,
+              maxChunks: payload.maxKnowledgeChunks,
+              queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
+              retrievalMode: payload.retrievalMode,
+              runId: payload.runId,
+              settings,
+              abortSignal: controller.signal,
+              onTrace: (traceEvent) => {
+                event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
+              }
+            }
+          )
+        : [];
+      if (controller.signal.aborted) {
+        event.sender.send(ipcChannels.llmStream, {
+          type: 'canceled',
+          runId: payload.runId
+        });
+        return { runId: payload.runId, content, canceled: true };
+      }
+      const generationPayload: GenerateLlmPayload = {
+        ...payload,
+        prompt: buildContextPrompt(
+          payload.prompt,
+          contextNodes,
+          articleSectionContext,
+          retrievedSources,
+          useKnowledgeSources && (payload.requireInlineCitations ?? true)
+        ),
+        systemPrompt: payload.systemPrompt?.trim()
+          ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`
+          : articleSectionContext
+      };
+
+      event.sender.send(ipcChannels.llmStream, {
+        type: 'started',
+        runId: payload.runId,
+        sectionId: payload.sectionId
+      });
+
       for await (const chunk of streamLlmText(settings.chat, generationPayload, controller.signal)) {
         content += chunk;
         event.sender.send(ipcChannels.llmStream, {

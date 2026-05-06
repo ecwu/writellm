@@ -95,22 +95,31 @@ export class WriteLLMDatabase {
   readonly db: Database.Database;
   readonly orm: BetterSQLite3Database<typeof schema>;
   readonly workspacePath: string;
-  rootNodeId: string;
+  rootNodeId = '';
 
-  constructor(workspacePath: string) {
+  constructor(
+    workspacePath: string,
+    options: { startupMode?: 'app' | 'retrievalWorker' } = {}
+  ) {
+    const startupMode = options.startupMode ?? 'app';
     this.workspacePath = workspacePath;
-    mkdirSync(workspacePath, { recursive: true });
-    mkdirSync(path.join(workspacePath, 'assets'), { recursive: true });
-    mkdirSync(path.join(workspacePath, 'exports'), { recursive: true });
-    mkdirSync(path.join(workspacePath, 'snapshots'), { recursive: true });
-    mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
-    mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
-    ensureSectionsDirectory(workspacePath);
+    if (startupMode === 'app') {
+      mkdirSync(workspacePath, { recursive: true });
+      mkdirSync(path.join(workspacePath, 'assets'), { recursive: true });
+      mkdirSync(path.join(workspacePath, 'exports'), { recursive: true });
+      mkdirSync(path.join(workspacePath, 'snapshots'), { recursive: true });
+      mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
+      mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
+      ensureSectionsDirectory(workspacePath);
+    }
     this.db = new Database(path.join(workspacePath, 'project.sqlite'));
     this.orm = drizzle(this.db, { schema });
     this.loadVectorExtension();
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    if (startupMode === 'retrievalWorker') {
+      return;
+    }
     this.migrate();
     this.backfillMineruMarkdownContent();
     this.rebuildKnowledgeChunksFts();
@@ -1181,6 +1190,17 @@ export class WriteLLMDatabase {
       .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
       .all()
       .map((row) => this.attachSectionCitationSources(mapNode(row)));
+  }
+
+  listSectionsForContext(): SectionNodeRecord[] {
+    return this.orm
+      .select()
+      .from(nodes)
+      .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
+      .all()
+      .map(mapNode)
+      .filter((node): node is SectionNodeRecord => node.kind === 'section');
   }
 
   listEdges(): NodeEdgeRecord[] {
