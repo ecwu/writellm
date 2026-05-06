@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, FileSearch, MessageSquareText, RefreshCw, Send, Sparkles, Trash2, WandSparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronRight, FileSearch, Info, MessageSquareText, RefreshCw, Send, Sparkles, Trash2, WandSparkles, X, XCircle } from 'lucide-react';
 import { getApi } from '../../api';
 import type { KnowledgeRetrievalMode, KnowledgeRetrievalTraceEvent, RetrievedKnowledgeSource } from '../../../shared/types';
 import { Button } from '../../components/ui/button';
@@ -23,6 +23,7 @@ import {
   ItemMedia,
   ItemTitle
 } from '../../components/ui/item';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../../components/ui/hover-card';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { Textarea } from '../../components/ui/textarea';
 
@@ -380,7 +381,6 @@ export function LlmExecutionFlow({
             {useKnowledgeSources ? (
               <RetrievalPromptItem
                 editable={mode === 'precise' && phase === 'awaiting_retrieval_prompt'}
-                phase={phase}
                 value={knowledgeRetrievalPrompt}
                 onChange={setKnowledgeRetrievalPrompt}
                 onRetrieve={() => void runRetrieval().catch((caught) => {
@@ -389,8 +389,11 @@ export function LlmExecutionFlow({
                 })}
               />
             ) : (
-              <StatusItem title="Sources disabled" description="This run will generate without knowledge source retrieval." />
+              <TimelineStatusItem status="complete" title="Sources disabled" description="This run will generate without knowledge source retrieval." />
             )}
+            {useKnowledgeSources && !useSourceV2 && phase === 'retrieving' ? (
+              <TimelineStatusItem status="running" title="Retrieving sources" description="Searching knowledge sources for relevant context." />
+            ) : null}
             {useKnowledgeSources && useSourceV2 && (phase === 'retrieving' || retrievalTrace.length > 0) ? (
               <SourceV2TraceItem events={retrievalTrace} />
             ) : null}
@@ -408,14 +411,15 @@ export function LlmExecutionFlow({
               />
             ) : null}
             {!useKnowledgeSources && mode === 'precise' && phase === 'awaiting_sources' ? (
-              <StatusItem
+              <TimelineStatusItem
+                status="complete"
                 title="Ready to generate"
                 description="Source retrieval is off for this run."
                 action={<Button type="button" size="sm" onClick={() => void generateFromPreciseSources()}><Send />Generate</Button>}
               />
             ) : null}
-            {phase === 'generating' && !result ? (
-              <StatusItem title="Generating result" description="Waiting for the model response." />
+            {phase === 'generating' ? (
+              <TimelineStatusItem status="running" title="Generating result" description="Streaming the generated text from the model." />
             ) : null}
             {result && phase !== 'done' ? (
               <ResultItem
@@ -427,10 +431,10 @@ export function LlmExecutionFlow({
               />
             ) : null}
             {phase === 'done' ? (
-              <StatusItem title="Adopted" description="The generated result has been applied." />
+              <TimelineStatusItem status="complete" title="Adopted" description="The generated result has been applied." />
             ) : null}
             {phase === 'error' && error ? (
-              <StatusItem title="Error" description={error} tone="error" />
+              <TimelineStatusItem status="error" title="Error" description={error} />
             ) : null}
           </ItemGroup>
         </ScrollArea>
@@ -444,8 +448,7 @@ function PromptItem({ prompt }: { prompt: string }) {
     <Item variant="outline" size="sm">
       <ItemMedia variant="icon"><MessageSquareText /></ItemMedia>
       <ItemContent>
-        <ItemTitle>User prompt</ItemTitle>
-        <ItemDescription className="llm-flow-pre">{prompt}</ItemDescription>
+        <CompactPrompt title="User prompt" value={prompt} />
       </ItemContent>
     </Item>
   );
@@ -453,13 +456,11 @@ function PromptItem({ prompt }: { prompt: string }) {
 
 function RetrievalPromptItem({
   editable,
-  phase,
   value,
   onChange,
   onRetrieve
 }: {
   editable: boolean;
-  phase: LlmFlowPhase;
   value: string;
   onChange: (value: string) => void;
   onRetrieve: () => void;
@@ -468,7 +469,6 @@ function RetrievalPromptItem({
     <Item variant="outline" size="sm">
       <ItemMedia variant="icon"><FileSearch /></ItemMedia>
       <ItemContent>
-        <ItemTitle>Source retrieval prompt</ItemTitle>
         {editable ? (
           <Field data-invalid={!value.trim()}>
             <FieldLabel htmlFor="llm-retrieval-prompt">Retrieval prompt</FieldLabel>
@@ -485,7 +485,7 @@ function RetrievalPromptItem({
             )}
           </Field>
         ) : (
-          <ItemDescription className="llm-flow-pre">{value}</ItemDescription>
+          <CompactPrompt title="Source retrieval prompt" value={value} />
         )}
       </ItemContent>
       {editable ? (
@@ -495,75 +495,112 @@ function RetrievalPromptItem({
             Retrieve
           </Button>
         </ItemActions>
-      ) : phase === 'retrieving' ? (
-        <ItemActions><span className="llm-flow-status">Retrieving</span></ItemActions>
       ) : null}
     </Item>
   );
 }
 
 function SourceV2TraceItem({ events }: { events: KnowledgeRetrievalTraceEvent[] }) {
-  const started = events.find((event) => event.type === 'started');
-  const done = events.find((event) => event.type === 'done');
-  const error = events.find((event) => event.type === 'error');
-  const rounds = Array.from(new Set(events
-    .filter((event): event is Extract<KnowledgeRetrievalTraceEvent, { round: number }> => 'round' in event)
-    .map((event) => event.round)
-  )).sort((left, right) => left - right);
-
   return (
     <Item variant="outline" size="sm" className="llm-flow-source-v2-trace-item">
       <ItemMedia variant="icon"><RefreshCw /></ItemMedia>
       <ItemContent>
         <ItemTitle>Source v2 retrieval</ItemTitle>
-        <ItemDescription>
-          {error
-            ? `Source v2 failed: ${error.message}. ${done ? 'Returned classic retrieval results.' : ''}`
-            : done ? done.stopReason : started ? `Planning up to ${started.maxRounds} rounds` : 'Starting retrieval'}
-        </ItemDescription>
         <div className="llm-flow-source-v2-trace">
-          {rounds.length > 0 ? rounds.map((round) => {
-            const roundStarted = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_started' }> =>
-              event.type === 'round_started' && event.round === round
-            );
-            const roundCandidates = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_candidates' }> =>
-              event.type === 'round_candidates' && event.round === round
-            );
-            const roundEvaluating = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_evaluating' }> =>
-              event.type === 'round_evaluating' && event.round === round
-            );
-            const roundEvaluation = events.find((event): event is Extract<KnowledgeRetrievalTraceEvent, { type: 'round_evaluation' }> =>
-              event.type === 'round_evaluation' && event.round === round
-            );
-            return (
-              <div key={round} className="llm-flow-source-v2-round">
-                <strong>Round {round}</strong>
-                {roundStarted ? (
-                  <span>{roundStarted.queries.join(' | ')}</span>
-                ) : null}
-                {roundCandidates ? (
-                  <em>{roundCandidates.sources.length} candidate chunks</em>
-                ) : null}
-                {roundEvaluating && !roundEvaluation ? (
-                  <span className="llm-flow-source-v2-waiting">
-                    <Spinner />
-                    Waiting for evaluator model on {roundEvaluating.candidateCount} candidates
-                  </span>
-                ) : null}
-                {roundEvaluation ? (
-                  <p>
-                    {roundEvaluation.decision}: {roundEvaluation.reason || 'No evaluator reason returned.'}
-                    {roundEvaluation.nextQueries.length > 0 ? ` Next: ${roundEvaluation.nextQueries.join(' | ')}` : ''}
-                  </p>
-                ) : null}
-              </div>
-            );
-          }) : (
-            <p className="llm-flow-empty">Waiting for the first retrieval round.</p>
+          {events.length > 0 ? events.map((event, index) => (
+            <SourceV2TraceRow key={`${event.type}-${index}`} event={event} events={events} />
+          )) : (
+            <TimelineRow status="running" title="Starting Source v2" description="Preparing the first retrieval round." />
           )}
         </div>
       </ItemContent>
     </Item>
+  );
+}
+
+function SourceV2TraceRow({
+  event,
+  events
+}: {
+  event: KnowledgeRetrievalTraceEvent;
+  events: KnowledgeRetrievalTraceEvent[];
+}) {
+  const hasTerminalEvent = events.some((traceEvent) => traceEvent.type === 'done' || traceEvent.type === 'error');
+  if (event.type === 'started') {
+    const startedNextStep = events.some((traceEvent) => traceEvent.type !== 'started');
+    return (
+      <TimelineRow
+        status={startedNextStep ? 'complete' : 'running'}
+        title="Source v2 started"
+        description={`Planning up to ${event.maxRounds} rounds.`}
+        prompt={event.query}
+      />
+    );
+  }
+  if (event.type === 'round_started') {
+    const queryText = event.queries.join('\n\n');
+    const roundHasCandidates = events.some((traceEvent) =>
+      traceEvent.type === 'round_candidates' && traceEvent.round === event.round
+    );
+    return (
+      <TimelineRow
+        status={roundHasCandidates || hasTerminalEvent ? 'complete' : 'running'}
+        title={`Round ${event.round} retrieval started`}
+        description={compactText(event.queries.join(' | '))}
+        prompt={queryText}
+      />
+    );
+  }
+  if (event.type === 'round_candidates') {
+    return (
+      <TimelineRow
+        status="complete"
+        title={`Round ${event.round} candidates`}
+        description={`${event.sources.length} candidate chunks found.`}
+      />
+    );
+  }
+  if (event.type === 'round_evaluating') {
+    const roundHasEvaluation = events.some((traceEvent) =>
+      traceEvent.type === 'round_evaluation' && traceEvent.round === event.round
+    );
+    return (
+      <TimelineRow
+        status={roundHasEvaluation || hasTerminalEvent ? 'complete' : 'running'}
+        title={`Round ${event.round} evaluating`}
+        description={`Waiting for evaluator model on ${event.candidateCount} candidates.`}
+      />
+    );
+  }
+  if (event.type === 'round_evaluation') {
+    const nextQueryText = event.nextQueries.join('\n\n');
+    const nextDescription = event.nextQueries.length > 0
+      ? ` Next: ${compactText(event.nextQueries.join(' | '))}`
+      : '';
+    return (
+      <TimelineRow
+        status="complete"
+        title={`Round ${event.round} evaluation`}
+        description={`${event.decision}: ${event.reason || 'No evaluator reason returned.'}${nextDescription}`}
+        prompt={nextQueryText}
+      />
+    );
+  }
+  if (event.type === 'done') {
+    return (
+      <TimelineRow
+        status="complete"
+        title="Source v2 complete"
+        description={`${event.sources.length} sources selected. ${event.stopReason}`}
+      />
+    );
+  }
+  return (
+    <TimelineRow
+      status="error"
+      title="Source v2 failed"
+      description={event.message}
+    />
   );
 }
 
@@ -712,19 +749,20 @@ function ResultItem({
   );
 }
 
-function StatusItem({
+function TimelineStatusItem({
+  status,
   title,
   description,
-  tone,
   action
 }: {
+  status: 'running' | 'complete' | 'error';
   title: string;
   description: string;
-  tone?: 'error';
   action?: React.ReactNode;
 }) {
   return (
-    <Item variant="muted" size="sm" className={tone === 'error' ? 'llm-flow-error' : undefined}>
+    <Item variant="muted" size="sm" className={status === 'error' ? 'llm-flow-error' : undefined}>
+      <ItemMedia variant="icon"><TimelineIcon status={status} /></ItemMedia>
       <ItemContent>
         <ItemTitle>{title}</ItemTitle>
         <ItemDescription>{description}</ItemDescription>
@@ -732,6 +770,88 @@ function StatusItem({
       {action ? <ItemActions>{action}</ItemActions> : null}
     </Item>
   );
+}
+
+function TimelineRow({
+  status,
+  title,
+  description,
+  prompt
+}: {
+  status: 'running' | 'complete' | 'error';
+  title: string;
+  description: string;
+  prompt?: string;
+}) {
+  return (
+    <div className={`llm-flow-timeline-row ${status}`}>
+      <span className="llm-flow-timeline-icon"><TimelineIcon status={status} /></span>
+      <span className="llm-flow-timeline-copy">
+        <strong>{title}</strong>
+        <span>
+          {description}
+          {prompt?.trim() ? <PromptInfo value={prompt} label={title} /> : null}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function TimelineIcon({ status }: { status: 'running' | 'complete' | 'error' }) {
+  if (status === 'running') {
+    return <Spinner />;
+  }
+  if (status === 'error') {
+    return <XCircle />;
+  }
+  return <CheckCircle2 />;
+}
+
+function CompactPrompt({ title, value }: { title: string; value: string }) {
+  return (
+    <>
+      <ItemTitle className="llm-flow-prompt-title">
+        <span>{title}</span>
+        <PromptInfo value={value} label={title} />
+      </ItemTitle>
+      <ItemDescription className="llm-flow-prompt-summary">{compactText(value)}</ItemDescription>
+    </>
+  );
+}
+
+function PromptInfo({ value, label }: { value: string; label: string }) {
+  if (!value.trim()) {
+    return null;
+  }
+  return (
+    <HoverCard openDelay={100} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="llm-flow-prompt-info"
+          aria-label={`Show full ${label}`}
+        >
+          <Info />
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent align="start" sideOffset={6} className="llm-flow-prompt-card">
+        <pre>{value}</pre>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+function compactText(value: string, maxLength = 160): string {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  if (!compacted) {
+    return 'Empty prompt';
+  }
+  if (compacted.length <= maxLength) {
+    return compacted;
+  }
+  return `${compacted.slice(0, maxLength - 1)}...`;
 }
 
 function shouldShowSources(phase: LlmFlowPhase): boolean {

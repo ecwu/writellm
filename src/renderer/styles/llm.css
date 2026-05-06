@@ -307,6 +307,71 @@
   margin-top: 0.5rem;
 }
 
+.llm-flow-prompt-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.llm-flow-prompt-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-flow-prompt-info {
+  color: oklch(0.8 0.045 190) !important;
+  height: 1.15rem !important;
+  min-height: 1.15rem;
+  width: 1.15rem !important;
+}
+
+.llm-flow-prompt-info:hover,
+.llm-flow-prompt-info:focus-visible {
+  background: oklch(1 0 0 / 10%) !important;
+  color: oklch(0.94 0.006 240) !important;
+}
+
+.llm-flow-prompt-info svg {
+  height: 0.78rem !important;
+  width: 0.78rem !important;
+}
+
+.llm-flow-prompt-summary {
+  display: -webkit-box;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.llm-flow-prompt-card {
+  background: oklch(0.17 0.012 240);
+  border: 1px solid oklch(1 0 0 / 16%);
+  box-shadow: 0 1rem 2.25rem oklch(0 0 0 / 34%);
+  color: oklch(0.9 0.006 240);
+  max-height: min(24rem, calc(100svh - 5rem));
+  max-width: min(42rem, calc(100vw - 2rem));
+  overflow: auto;
+  width: max-content;
+}
+
+.llm-flow-prompt-card pre {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 40rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .llm-flow-pre,
 .llm-flow-result {
   display: block;
@@ -346,6 +411,71 @@
 
 .llm-flow-source-v2-trace {
   margin-top: 0.45rem;
+}
+
+.llm-flow-timeline-row {
+  border-top: 1px solid oklch(1 0 0 / 10%);
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0.48rem 0;
+}
+
+.llm-flow-timeline-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.llm-flow-timeline-icon {
+  align-items: center;
+  color: oklch(0.8 0.045 190);
+  display: inline-flex;
+  height: 1rem;
+  justify-content: center;
+  margin-top: 0.12rem;
+  width: 1rem;
+}
+
+.llm-flow-timeline-icon svg {
+  height: 0.88rem;
+  width: 0.88rem;
+}
+
+.llm-flow-timeline-row.running .llm-flow-timeline-icon svg {
+  color: oklch(0.8 0.045 190);
+}
+
+.llm-flow-timeline-row.complete .llm-flow-timeline-icon svg {
+  color: oklch(0.78 0.06 155);
+}
+
+.llm-flow-timeline-row.error .llm-flow-timeline-icon svg {
+  color: oklch(0.9 0.09 27);
+}
+
+.llm-flow-timeline-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.llm-flow-timeline-copy strong {
+  color: oklch(0.86 0.04 190);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.llm-flow-timeline-copy span {
+  align-items: center;
+  color: oklch(0.76 0.008 240);
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  gap: 0.2rem;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .llm-flow-source-v2-round {
