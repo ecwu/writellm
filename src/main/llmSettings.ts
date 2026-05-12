@@ -57,7 +57,7 @@ const defaultSettings: LlmSettings = {
     apiKey: ''
   },
   appearance: {
-    theme: 'light',
+    theme: 'system',
     accentColor: 'deep-teal',
     fontFamily: 'geist'
   },
@@ -157,10 +157,14 @@ function readAppearance(
   fallback: AppearanceSettings
 ): AppearanceSettings {
   return {
-    theme: parsed?.theme === 'dark' ? 'dark' : fallback.theme,
+    theme: readThemeMode(parsed?.theme, fallback.theme),
     accentColor: readAccentColor(parsed?.accentColor, fallback.accentColor),
     fontFamily: readAppFontFamily(parsed?.fontFamily, fallback.fontFamily)
   };
+}
+
+function readThemeMode(value: unknown, fallback: AppearanceSettings['theme']): AppearanceSettings['theme'] {
+  return value === 'system' || value === 'light' || value === 'dark' ? value : fallback;
 }
 
 function readAccentColor(value: unknown, fallback: AccentColor): AccentColor {
@@ -362,7 +366,7 @@ export function updateAppearanceSettings(
   const next: LlmSettings = {
     ...current,
     appearance: {
-      theme: payload.theme,
+      theme: readThemeMode(payload.theme, defaultSettings.appearance.theme),
       accentColor: payload.accentColor,
       fontFamily: payload.fontFamily
     }

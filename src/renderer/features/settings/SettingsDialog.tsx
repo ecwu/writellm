@@ -7,6 +7,7 @@ import {
   FileText,
   KeyRound,
   MessageSquareText,
+  MonitorCog,
   Moon,
   Palette,
   Save,
@@ -62,7 +63,8 @@ import type {
   MineruModelVersion,
   PdfExtractionEngine,
   PublicLlmSettings,
-  RerankProviderKind
+  RerankProviderKind,
+  ThemeMode
 } from '../../../shared/types';
 
 type SettingsSectionId = 'general' | 'appearance' | 'knowledge' | 'chat' | 'embedding' | 'rerank' | 'vision';
@@ -95,7 +97,7 @@ type KnowledgeDraft = {
 };
 
 const defaultAppearance: AppearanceSettings = {
-  theme: 'light',
+  theme: 'system',
   accentColor: 'deep-teal',
   fontFamily: 'geist'
 };
@@ -127,6 +129,16 @@ const accentOptions: {
   { value: 'cinnabar', label: 'Cinnabar', swatch: 'oklch(0.48 0.145 32)' },
   { value: 'deep-teal', label: 'Deep teal', swatch: 'oklch(0.32 0.06 205)' },
   { value: 'plum', label: 'Deep plum', swatch: 'oklch(0.36 0.08 315)' }
+];
+
+const themeOptions: {
+  value: ThemeMode;
+  label: string;
+  icon: ReactNode;
+}[] = [
+  { value: 'system', label: 'Auto', icon: <MonitorCog /> },
+  { value: 'light', label: 'Light', icon: <Sun /> },
+  { value: 'dark', label: 'Dark', icon: <Moon /> }
 ];
 
 const fontOptions: {
@@ -617,21 +629,41 @@ function AppearanceSettingsPanel({
   return (
     <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
       <FieldSet className="border-b pb-6">
-        <Field orientation="horizontal" className="items-start justify-between gap-4">
+        <Field className="gap-3">
           <FieldContent>
-            <FieldLabel htmlFor="settings-dark-theme">Dark theme</FieldLabel>
-            <FieldDescription>Use the dark color scheme across the app.</FieldDescription>
+            <FieldLabel>Environment</FieldLabel>
+            <FieldDescription>Choose a fixed theme or follow the operating system appearance.</FieldDescription>
           </FieldContent>
-          <Switch
-            id="settings-dark-theme"
-            checked={appearance.theme === 'dark'}
-            disabled={appearanceSaving}
-            onCheckedChange={(checked) => onAppearanceChange({ theme: checked ? 'dark' : 'light' })}
-          />
+          <div className="appearance-theme-grid" role="radiogroup" aria-label="Environment theme">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                disabled={appearanceSaving}
+                role="radio"
+                aria-checked={appearance.theme === option.value}
+                onClick={() => onAppearanceChange({ theme: option.value })}
+                className="appearance-theme-button"
+              >
+                <span className="appearance-theme-preview" data-theme-preview={option.value} aria-hidden="true">
+                  {option.icon}
+                </span>
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
         </Field>
         <FieldDescription className="flex items-center gap-2">
-          {appearance.theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
-          <span>{appearanceSaving ? 'Saving appearance...' : appearance.theme === 'dark' ? 'Dark theme is active.' : 'Light theme is active.'}</span>
+          {appearance.theme === 'system' ? <MonitorCog className="size-4" /> : appearance.theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
+          <span>
+            {appearanceSaving
+              ? 'Saving appearance...'
+              : appearance.theme === 'system'
+                ? 'Theme follows the operating system.'
+                : appearance.theme === 'dark'
+                  ? 'Dark theme is active.'
+                  : 'Light theme is active.'}
+          </span>
         </FieldDescription>
       </FieldSet>
       <FieldSet className="border-b pb-6">
@@ -660,7 +692,7 @@ function AppearanceSettingsPanel({
       <FieldSet className="border-b pb-6">
         <FieldLegend variant="label">Font</FieldLegend>
         <FieldDescription>Choose the global interface font without adding bundled font dependencies.</FieldDescription>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="Font family">
+        <div className="appearance-font-grid" role="group" aria-label="Font family">
           {fontOptions.map((option) => (
             <button
               key={option.value}
@@ -668,16 +700,16 @@ function AppearanceSettingsPanel({
               disabled={appearanceSaving}
               aria-pressed={appearance.fontFamily === option.value}
               onClick={() => onAppearanceChange({ fontFamily: option.value })}
-              className="flex min-h-16 items-center gap-3 rounded-md border bg-background px-3 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50 aria-pressed:border-ring aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:ring-2 aria-pressed:ring-ring/40"
+              className="appearance-font-card"
             >
               <span
-                className="flex size-10 shrink-0 items-center justify-center rounded border bg-card text-xl leading-none text-foreground shadow-xs"
+                className="appearance-font-preview"
                 style={{ fontFamily: option.previewFont }}
                 aria-hidden="true"
               >
                 Aa
               </span>
-              <span className="min-w-0 truncate text-sm">{option.label}</span>
+              <span className="appearance-font-label">{option.label}</span>
             </button>
           ))}
         </div>

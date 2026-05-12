@@ -17,14 +17,22 @@ import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
 import type { AppearanceSettings, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
 
 const defaultAppearance: AppearanceSettings = {
-  theme: 'light',
+  theme: 'system',
   accentColor: 'deep-teal',
   fontFamily: 'geist'
 };
 
+function resolveTheme(appearance: AppearanceSettings) {
+  if (appearance.theme !== 'system') {
+    return appearance.theme;
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 function applyAppearance(appearance: AppearanceSettings) {
-  document.documentElement.classList.toggle('dark', appearance.theme === 'dark');
-  document.documentElement.style.colorScheme = appearance.theme;
+  const resolvedTheme = resolveTheme(appearance);
+  document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+  document.documentElement.style.colorScheme = resolvedTheme;
   document.documentElement.dataset.accent = appearance.accentColor;
   document.documentElement.dataset.font = appearance.fontFamily;
 }
@@ -102,6 +110,17 @@ export function App() {
 
   useEffect(() => {
     applyAppearance(appearance);
+
+    if (appearance.theme !== 'system') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => applyAppearance(appearance);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
   }, [appearance]);
 
   useEffect(() => {

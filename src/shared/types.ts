@@ -159,7 +159,7 @@ export type UpdateLlmSettingsPayload = {
   knowledgeRetrieval?: Partial<KnowledgeRetrievalSettings>;
 };
 
-export type ThemeMode = 'light' | 'dark';
+export type ThemeMode = 'system' | 'light' | 'dark';
 export type AccentColor = 'earth' | 'forest' | 'ochre' | 'cinnabar' | 'deep-teal' | 'plum';
 export type AppFontFamily = 'geist' | 'system-sans' | 'serif' | 'mono' | 'humanist-sans';
 
