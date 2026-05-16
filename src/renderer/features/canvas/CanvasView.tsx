@@ -12,7 +12,7 @@ import {
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
 import { FloatingActionToolbar } from './FloatingActionToolbar';
 import type { ChildViewMode, ContentPreset, LlmDraftState, Selection } from '../../app/types';
-import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, RetrievedKnowledgeSource, SectionNodeRecord } from '../../../shared/types';
+import type { ContentNodeRecord, CreateGenerationTaskResult, EdgeKind, FocusedWorkspaceState, RetrievedKnowledgeSource, SectionNodeRecord } from '../../../shared/types';
 
 export function CanvasView({
   title,
@@ -42,6 +42,7 @@ export function CanvasView({
   onOpenGenerate,
   onCancelGenerate,
   onAdoptGenerate,
+  onGenerationQueued,
   onUpdateEdgeKind,
   onDeleteEdge
 }: {
@@ -78,6 +79,7 @@ export function CanvasView({
     contextNodeIds: string[];
     retrievedSources: RetrievedKnowledgeSource[];
   }) => Promise<void>;
+  onGenerationQueued: (sectionId: string, result: CreateGenerationTaskResult) => void;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
   onDeleteEdge: () => void;
 }) {
@@ -120,6 +122,7 @@ export function CanvasView({
         onOpenGenerate={onOpenGenerate}
         onCancelGenerate={onCancelGenerate}
         onAdoptGenerate={onAdoptGenerate}
+        onGenerationQueued={onGenerationQueued}
         onUpdateEdgeKind={onUpdateEdgeKind}
         onDeleteEdge={onDeleteEdge}
       />

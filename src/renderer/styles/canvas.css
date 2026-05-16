@@ -444,6 +444,20 @@
   color: oklch(0.72 0.008 240);
 }
 
+.canvas-generation-task-creator {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.canvas-generation-task-creator label {
+  align-items: center;
+  color: oklch(0.86 0.008 240);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 650;
+  gap: 0.4rem;
+}
+
 .floating-generation-source-controls {
   background: oklch(1 0 0 / 6%);
   border: 1px solid oklch(1 0 0 / 12%);

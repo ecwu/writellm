@@ -4,13 +4,17 @@ import path from 'node:path';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
   ApplySectionLlmEditPayload,
+  AdoptGenerationPayload,
   CompositionTreeNode,
   ContentNodeRecord,
+  CreateGenerationTaskPayload,
   CreateKnowledgeItemPayload,
+  CreateGenerationTaskResult,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
+  GenerationMode,
   KnowledgeRetrievalMode,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
@@ -466,6 +470,166 @@ async function retrieveKnowledgeForGeneration(
   });
 }
 
+type GenerationApplyPayload =
+  | { kind: 'append'; sectionId: string; focusSectionId: string | null; prompt: string; contextNodeIds: string[] }
+  | {
+      kind: 'edit';
+      sectionId: string;
+      focusSectionId: string | null;
+      mode: SectionLlmEditMode;
+      userPrompt: string;
+      resolvedPrompt: string;
+      systemPrompt: string;
+      baseMarkdown: string;
+      targetStart: number;
+      targetEnd: number;
+      selectedText: string;
+      prefixContext: string;
+      suffixContext: string;
+      contextNodeIds: string[];
+    };
+
+function buildGenerationTaskRequest(
+  mode: GenerationMode,
+  input: {
+    section: SectionNodeRecord;
+    prompt: string;
+    targetStart?: number;
+    targetEnd?: number;
+  }
+): {
+  prompt: string;
+  systemPrompt: string | null;
+  applyPayload: GenerationApplyPayload;
+} {
+  if (mode === 'append') {
+    return {
+      prompt: input.prompt,
+      systemPrompt: null,
+      applyPayload: {
+        kind: 'append',
+        sectionId: input.section.id,
+        focusSectionId: null,
+        prompt: input.prompt,
+        contextNodeIds: []
+      }
+    };
+  }
+
+  const markdown = sectionMarkdownForStorage(input.section.markdownContent);
+  const targetStart = clampOffset(input.targetStart ?? (mode === 'rewrite_section' ? 0 : markdown.length), markdown);
+  const targetEnd = clampOffset(input.targetEnd ?? (mode === 'rewrite_section' ? markdown.length : targetStart), markdown);
+  const normalizedStart = Math.min(targetStart, targetEnd);
+  const normalizedEnd = Math.max(targetStart, targetEnd);
+  const editMode: SectionLlmEditMode = mode === 'continue' ? 'continue_at_cursor' : mode;
+  assertSectionLlmEditRange(editMode, markdown, normalizedStart, normalizedEnd);
+  const selectedText = selectedTextForLlmEdit(editMode, markdown, normalizedStart, normalizedEnd);
+  const prefixContext = markdown.slice(Math.max(0, normalizedStart - 2400), normalizedStart);
+  const suffixContext = markdown.slice(normalizedEnd, normalizedEnd + 1600);
+  const instruction = input.prompt.trim() || 'No additional requirements.';
+  const systemPrompt = editorLlmSystemPromptForGeneration(mode);
+  const prompt = editorLlmPromptForGeneration(mode, {
+    title: input.section.title,
+    markdown,
+    instruction,
+    targetStart: normalizedStart,
+    targetEnd: normalizedEnd,
+    selectedText,
+    prefixContext,
+    suffixContext
+  });
+  return {
+    prompt,
+    systemPrompt,
+    applyPayload: {
+      kind: 'edit',
+      sectionId: input.section.id,
+      focusSectionId: null,
+      mode: editMode,
+      userPrompt: input.prompt,
+      resolvedPrompt: '',
+      systemPrompt: '',
+      baseMarkdown: markdown,
+      targetStart: normalizedStart,
+      targetEnd: normalizedEnd,
+      selectedText,
+      prefixContext,
+      suffixContext,
+      contextNodeIds: []
+    }
+  };
+}
+
+function clampOffset(offset: number, text: string): number {
+  return Math.max(0, Math.min(Number.isFinite(offset) ? Math.trunc(offset) : text.length, text.length));
+}
+
+function editorLlmSystemPromptForGeneration(mode: GenerationMode): string {
+  const scope = mode === 'rewrite_section'
+    ? 'Return the full rewritten Markdown section.'
+    : mode === 'rewrite_selection'
+      ? 'Return only the replacement text for the selected Markdown fragment.'
+      : 'Return only the continuation text to insert at the cursor.';
+  return [
+    'You are an expert Markdown editor for academic and technical writing.',
+    scope,
+    'Preserve Markdown syntax and citation markers unless the user explicitly asks to change them.',
+    'Do not include explanations, alternatives, labels, or fenced wrappers around the answer.'
+  ].join(' ');
+}
+
+function editorLlmPromptForGeneration(
+  mode: GenerationMode,
+  input: {
+    title: string;
+    markdown: string;
+    instruction: string;
+    targetStart: number;
+    targetEnd: number;
+    selectedText: string;
+    prefixContext: string;
+    suffixContext: string;
+  }
+): string {
+  if (mode === 'rewrite_section') {
+    return [
+      `Section title: ${input.title}`,
+      `User requirements: ${input.instruction}`,
+      '',
+      'Rewrite the full Markdown section below.',
+      '',
+      input.markdown
+    ].join('\n');
+  }
+  if (mode === 'rewrite_selection') {
+    return [
+      `Section title: ${input.title}`,
+      `User requirements: ${input.instruction}`,
+      '',
+      'Context before selection:',
+      input.prefixContext || '(none)',
+      '',
+      'Selected Markdown to rewrite:',
+      input.selectedText,
+      '',
+      'Context after selection:',
+      input.suffixContext || '(none)'
+    ].join('\n');
+  }
+  return [
+    `Section title: ${input.title}`,
+    `User requirements: ${input.instruction}`,
+    '',
+    'Continue the Markdown section at the insertion point.',
+    '',
+    'Context before insertion:',
+    input.prefixContext || '(none)',
+    '',
+    'Context after insertion:',
+    input.suffixContext || '(none)'
+  ].join('\n');
+}
+
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -805,6 +969,196 @@ export function registerIpcHandlers(): void {
     return `data:${mimeTypeForPath(resolvedPath)};base64,${data.toString('base64')}`;
   });
 
+  ipcMain.handle(
+    ipcChannels.createGenerationTask,
+    async (_event, payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult> => {
+      const db = getActiveDb();
+      const section = db.getSection(payload.sectionId);
+      if (!section) {
+        throw new Error(`Section not found: ${payload.sectionId}`);
+      }
+      if (db.getRunningRoundForSection(payload.sectionId)) {
+        throw new Error('This section already has a generation task in progress.');
+      }
+      const userPrompt = payload.prompt.trim();
+      if (!userPrompt) {
+        throw new Error('LLM generation prompt is required.');
+      }
+
+      const settings = readLlmSettings();
+      const contextNodeIds = payload.contextNodeIds ?? [];
+      const contextNodes = getSelectedContextNodes(db, contextNodeIds);
+      const articleSectionContext = buildArticleSectionContextFromDb(
+        db,
+        payload.sectionId,
+        payload.focusSectionId
+      );
+      const request = buildGenerationTaskRequest(payload.mode, {
+        section,
+        prompt: userPrompt,
+        targetStart: payload.targetStart,
+        targetEnd: payload.targetEnd
+      });
+      const useKnowledgeSources = payload.useKnowledgeSources !== false;
+      const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || userPrompt;
+      const retrievalTrace: KnowledgeRetrievalTraceEvent[] = [];
+      const retrievedSources = useKnowledgeSources
+        ? await retrieveKnowledgeForGeneration(db, knowledgeRetrievalPrompt, {
+            queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
+            retrievalMode: payload.retrievalMode,
+            settings,
+            runId: createId('retrieval'),
+            onTrace: (traceEvent) => {
+              retrievalTrace.push(traceEvent);
+            }
+          })
+        : [];
+      const resolvedPrompt = buildContextPrompt(
+        request.prompt,
+        contextNodes,
+        articleSectionContext,
+        retrievedSources,
+        useKnowledgeSources && (payload.requireInlineCitations ?? true)
+      );
+      const systemPrompt = request.systemPrompt?.trim()
+        ? `${articleSectionContext}\n\n${request.systemPrompt.trim()}`
+        : articleSectionContext;
+      const applyPayload = {
+        ...request.applyPayload,
+        focusSectionId: payload.focusSectionId ?? payload.sectionId,
+        contextNodeIds,
+        ...(request.applyPayload.kind === 'edit' ? { resolvedPrompt, systemPrompt } : {})
+      };
+      const { sessionId } = db.createGenerationSession(
+        payload.sectionId,
+        `${generationModeLabel(payload.mode)} · ${section.title}`
+      );
+      const round = db.createGenerationRound({
+        sessionId,
+        mode: payload.mode,
+        prompt: userPrompt,
+        resolvedPrompt,
+        systemPrompt,
+        retrievedSources,
+        retrievalTrace,
+        modelProvider: settings.chat.provider,
+        modelName: settings.chat.model,
+        applyPayloadJson: JSON.stringify(applyPayload)
+      });
+      db.enqueueGenerationJob(round.id, {
+        prompt: resolvedPrompt,
+        systemPrompt
+      });
+      await startBackgroundTaskWorker(db);
+      return { roundId: round.id, sessionId, status: 'pending' };
+    }
+  );
+
+  ipcMain.handle(ipcChannels.cancelGenerationTask, (_event, roundId: string) => {
+    const db = getActiveDb();
+    const round = db.getGenerationRound(roundId);
+    if (!round) {
+      throw new Error(`Generation round not found: ${roundId}`);
+    }
+    if (round.status === 'done' || round.status === 'error') {
+      return round;
+    }
+    return db.updateGenerationRound(roundId, { status: 'canceled' });
+  });
+
+  ipcMain.handle(ipcChannels.adoptGenerationTask, (_event, payload: AdoptGenerationPayload) => {
+    const db = getActiveDb();
+    const round = db.getGenerationRound(payload.roundId);
+    if (!round) {
+      throw new Error(`Generation round not found: ${payload.roundId}`);
+    }
+    if (round.status !== 'done' || !round.content?.trim()) {
+      throw new Error('Only completed generation tasks can be adopted.');
+    }
+    const applyPayload = parseGenerationApplyPayload(db.getGenerationRoundApplyPayload(round.id));
+    if (applyPayload.kind === 'append') {
+      const next = applySavedLlmGeneration({
+        sectionId: applyPayload.sectionId,
+        focusSectionId: applyPayload.focusSectionId,
+        prompt: applyPayload.prompt,
+        content: round.content,
+        contextNodeIds: applyPayload.contextNodeIds,
+        retrievedSources: round.retrievedSources,
+        contextRelationType: 'generates'
+      });
+      db.adoptGenerationRound(round.id);
+      return next;
+    }
+    const next = applyGeneratedSectionEdit({
+      sectionId: applyPayload.sectionId,
+      focusSectionId: applyPayload.focusSectionId,
+      mode: applyPayload.mode,
+      userPrompt: applyPayload.userPrompt,
+      resolvedPrompt: applyPayload.resolvedPrompt,
+      systemPrompt: applyPayload.systemPrompt,
+      generatedContent: round.content,
+      baseMarkdown: applyPayload.baseMarkdown,
+      targetStart: applyPayload.targetStart,
+      targetEnd: applyPayload.targetEnd,
+      selectedText: applyPayload.selectedText,
+      prefixContext: applyPayload.prefixContext,
+      suffixContext: applyPayload.suffixContext,
+      retrievedSources: round.retrievedSources,
+      contextNodeIds: applyPayload.contextNodeIds
+    });
+    db.adoptGenerationRound(round.id);
+    return next;
+  });
+
+  ipcMain.handle(ipcChannels.discardGenerationTask, (_event, roundId: string) => {
+    getActiveDb().deleteGenerationRound(roundId);
+  });
+
+  ipcMain.handle(ipcChannels.retryGenerationTask, async (_event, roundId: string): Promise<CreateGenerationTaskResult> => {
+    const db = getActiveDb();
+    const round = db.getGenerationRound(roundId);
+    if (!round) {
+      throw new Error(`Generation round not found: ${roundId}`);
+    }
+    const session = db.getGenerationSession(round.sessionId);
+    if (!session) {
+      throw new Error(`Generation session not found: ${round.sessionId}`);
+    }
+    if (db.getRunningRoundForSection(session.sectionId)) {
+      throw new Error('This section already has a generation task in progress.');
+    }
+    const newRound = db.createGenerationRound({
+      sessionId: round.sessionId,
+      mode: round.mode,
+      prompt: round.prompt,
+      resolvedPrompt: round.resolvedPrompt,
+      systemPrompt: round.systemPrompt,
+      retrievedSources: round.retrievedSources,
+      retrievalTrace: round.retrievalTrace,
+      modelProvider: round.modelProvider,
+      modelName: round.modelName,
+      applyPayloadJson: db.getGenerationRoundApplyPayload(round.id)
+    });
+    db.enqueueGenerationJob(newRound.id, {
+      prompt: newRound.resolvedPrompt ?? newRound.prompt,
+      systemPrompt: newRound.systemPrompt ?? undefined
+    });
+    await startBackgroundTaskWorker(db);
+    return { roundId: newRound.id, sessionId: newRound.sessionId, status: 'pending' };
+  });
+
+  ipcMain.handle(ipcChannels.listGenerationSessions, (_event, sectionId?: string | null) =>
+    getActiveDb().listGenerationSessions(sectionId)
+  );
+
+  ipcMain.handle(ipcChannels.listGenerationRounds, (_event, sessionId: string) =>
+    getActiveDb().listGenerationRounds(sessionId)
+  );
+
+  ipcMain.handle(ipcChannels.getGenerationRound, (_event, roundId: string) =>
+    getActiveDb().getGenerationRound(roundId)
+  );
+
   ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
     const settings = readLlmSettings();
     const db = getActiveDb();
@@ -1134,6 +1488,196 @@ export function registerIpcHandlers(): void {
     createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
     return getState(payload.focusSectionId ?? payload.sectionId);
   });
+}
+
+function applySavedLlmGeneration(payload: SaveLlmGenerationPayload) {
+  const settings = readLlmSettings();
+  const db = getActiveDb();
+  const section = db.getSection(payload.sectionId);
+  if (!section) {
+    throw new Error(`Section not found: ${payload.sectionId}`);
+  }
+  const prompt = payload.prompt.trim();
+  if (!prompt) {
+    throw new Error('LLM generation prompt is required.');
+  }
+  const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+  const articleSectionContext = buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId);
+  const resolvedPrompt = buildContextPrompt(prompt, contextNodes, articleSectionContext, payload.retrievedSources ?? [], true);
+  const operationId = createId('llmop');
+  createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
+  const beforeCommit = getGitHead(db.workspacePath);
+  const nextMarkdown = [section.markdownContent.trimEnd(), payload.content.trim()].filter(Boolean).join('\n\n');
+  const updatedSection = db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
+  const contextRelationType = payload.contextRelationType ?? 'informs';
+  contextNodes.forEach((node) => {
+    db.createNodeEdge(node.id, payload.sectionId, contextRelationType, 'llm');
+  });
+  ensureKnowledgeSourceNodes(db, payload.focusSectionId ?? payload.sectionId, payload.sectionId, payload.retrievedSources ?? []);
+  db.saveGenerationCitations(
+    payload.sectionId,
+    (payload.retrievedSources ?? []).map((source) => ({
+      publicRef: source.publicRef,
+      knowledgeItemId: source.itemId,
+      knowledgeChunkId: source.chunkId,
+      label: source.publicRef,
+      snippet: source.snippet,
+      score: source.score
+    }))
+  );
+  const timestamp = nowIso();
+  const operation: LlmOperationRecord = {
+    operationId,
+    type: 'generate_append',
+    status: 'current',
+    createdAt: timestamp,
+    appliedAt: timestamp,
+    sectionId: payload.sectionId,
+    sectionPath: updatedSection.markdownPath,
+    beforeCommit,
+    afterCommit: null,
+    beforeSectionHash: section.markdownHash,
+    afterSectionHash: updatedSection.markdownHash,
+    userPrompt: prompt,
+    resolvedPrompt,
+    systemPrompt: articleSectionContext,
+    model: {
+      provider: settings.chat.provider,
+      baseURL: settings.chat.baseURL,
+      model: settings.chat.model
+    },
+    target: {
+      kind: 'section_append',
+      selectionStart: section.markdownContent.length,
+      selectionEnd: section.markdownContent.length,
+      selectedText: '',
+      prefixContext: section.markdownContent.slice(-500),
+      suffixContext: ''
+    },
+    beforeText: '',
+    afterText: payload.content.trim(),
+    outputHash: hashMarkdown(payload.content.trim()),
+    retainedCoverage: 1,
+    contextNodeIds: payload.contextNodeIds ?? [],
+    retrievedSources: payload.retrievedSources ?? []
+  };
+  db.upsertSectionLlmOperation(payload.sectionId, operation);
+  createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
+  const afterCommit = getGitHead(db.workspacePath);
+  db.upsertSectionLlmOperation(payload.sectionId, { ...operation, afterCommit });
+  createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
+  return getState(payload.focusSectionId ?? payload.sectionId);
+}
+
+function applyGeneratedSectionEdit(payload: ApplySectionLlmEditPayload) {
+  const settings = readLlmSettings();
+  const db = getActiveDb();
+  const section = db.getSection(payload.sectionId);
+  if (!section) {
+    throw new Error(`Section not found: ${payload.sectionId}`);
+  }
+  const baseMarkdown = sectionMarkdownForStorage(payload.baseMarkdown);
+  if (section.markdownContent !== baseMarkdown) {
+    throw new Error('The section changed after this LLM edit was generated. Regenerate before applying it.');
+  }
+  const generatedContent = payload.generatedContent.trim();
+  if (!generatedContent) {
+    throw new Error('Generated edit content is required.');
+  }
+  assertSectionLlmEditRange(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
+  const beforeText = selectedTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
+  if (payload.mode === 'rewrite_selection' && beforeText !== payload.selectedText) {
+    throw new Error('The selected text changed after this LLM edit was generated. Regenerate before applying it.');
+  }
+  const replacementText = replacementTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, generatedContent);
+  const nextMarkdown = markdownWithLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd, replacementText);
+  const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
+  const articleSectionContext = buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId);
+  const operationId = createId('llmop');
+  createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
+  const beforeCommit = getGitHead(db.workspacePath);
+  const updatedSection = db.updateSectionMarkdown(payload.sectionId, nextMarkdown);
+  contextNodes.forEach((node) => {
+    db.createNodeEdge(node.id, payload.sectionId, 'revises', 'llm');
+  });
+  ensureKnowledgeSourceNodes(db, payload.focusSectionId ?? payload.sectionId, payload.sectionId, payload.retrievedSources ?? []);
+  db.saveGenerationCitations(
+    payload.sectionId,
+    (payload.retrievedSources ?? []).map((source) => ({
+      publicRef: source.publicRef,
+      knowledgeItemId: source.itemId,
+      knowledgeChunkId: source.chunkId,
+      label: source.publicRef,
+      snippet: source.snippet,
+      score: source.score
+    }))
+  );
+  const timestamp = nowIso();
+  const operation: LlmOperationRecord = {
+    operationId,
+    type: payload.mode,
+    status: 'current',
+    createdAt: timestamp,
+    appliedAt: timestamp,
+    sectionId: payload.sectionId,
+    sectionPath: updatedSection.markdownPath,
+    beforeCommit,
+    afterCommit: null,
+    beforeSectionHash: section.markdownHash,
+    afterSectionHash: updatedSection.markdownHash,
+    userPrompt: payload.userPrompt,
+    resolvedPrompt: payload.resolvedPrompt || buildContextPrompt(payload.userPrompt || editorLlmOperationLabel(payload.mode), contextNodes, articleSectionContext, payload.retrievedSources ?? [], true),
+    systemPrompt: payload.systemPrompt || articleSectionContext,
+    model: {
+      provider: settings.chat.provider,
+      baseURL: settings.chat.baseURL,
+      model: settings.chat.model
+    },
+    target: {
+      kind: targetKindForLlmEdit(payload.mode),
+      selectionStart: payload.targetStart,
+      selectionEnd: payload.targetEnd,
+      selectedText: beforeText,
+      prefixContext: payload.prefixContext,
+      suffixContext: payload.suffixContext
+    },
+    beforeText,
+    afterText: afterTextForLlmEdit(payload.mode, updatedSection.markdownContent, replacementText),
+    outputHash: hashMarkdown(generatedContent),
+    retainedCoverage: 1,
+    contextNodeIds: payload.contextNodeIds ?? [],
+    retrievedSources: payload.retrievedSources ?? []
+  };
+  db.upsertSectionLlmOperation(payload.sectionId, operation);
+  createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
+  const afterCommit = getGitHead(db.workspacePath);
+  db.upsertSectionLlmOperation(payload.sectionId, { ...operation, afterCommit });
+  createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
+  return getState(payload.focusSectionId ?? payload.sectionId);
+}
+
+function parseGenerationApplyPayload(raw: string | null): GenerationApplyPayload {
+  if (!raw) {
+    throw new Error('Generation task is missing adoption metadata.');
+  }
+  const parsed = JSON.parse(raw) as GenerationApplyPayload;
+  if (!parsed || (parsed.kind !== 'append' && parsed.kind !== 'edit')) {
+    throw new Error('Generation task adoption metadata is invalid.');
+  }
+  return parsed;
+}
+
+function generationModeLabel(mode: GenerationMode): string {
+  switch (mode) {
+    case 'append':
+      return 'Append';
+    case 'rewrite_section':
+      return 'Rewrite';
+    case 'rewrite_selection':
+      return 'Selection';
+    case 'continue':
+      return 'Continue';
+  }
 }
 
 function isSectionStructureUpdate(payload: UpdateNodePayload): boolean {

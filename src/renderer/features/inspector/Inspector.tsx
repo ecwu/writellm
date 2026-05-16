@@ -1,8 +1,10 @@
 
 import { useEffect, useState } from 'react';
-import { BookOpen, Pencil, Save, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, MessageSquare, Pencil, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { getApi } from '../../api';
+import { CitationHighlight } from '../../components/CitationHighlight';
 import { MarkdownEditor } from '../../components/MarkdownEditor';
+import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import {
   Field,
@@ -17,7 +19,10 @@ import { formatContentFlags, getGenerationPrompt } from '../../app/formatters';
 import type { Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
+  CreateGenerationTaskResult,
   FocusedWorkspaceState,
+  GenerationRoundRecord,
+  GenerationSessionRecord,
   LlmOperationRecord,
   RetrievedKnowledgeSource,
   SectionNodeRecord
@@ -33,6 +38,8 @@ type InspectorProps = {
   onCitationClick: (publicRef: string) => void;
   onOpenKnowledgeSource: (content: ContentNodeRecord) => void;
   onStatus: (message: string) => void;
+  generationTarget: (CreateGenerationTaskResult & { sectionId: string }) | null;
+  onGenerationTargetConsumed: () => void;
   onError: (message: string) => void;
 };
 
@@ -47,6 +54,8 @@ export function Inspector(props: InspectorProps) {
     onCitationClick,
     onOpenKnowledgeSource,
     onStatus,
+    generationTarget,
+    onGenerationTargetConsumed,
     onError
   } = props;
   const [contentDraft, setContentDraft] = useState('');
@@ -55,6 +64,11 @@ export function Inspector(props: InspectorProps) {
   const [sectionIntent, setSectionIntent] = useState('');
   const [sectionEditing, setSectionEditing] = useState(false);
   const [saveTimer, setSaveTimer] = useState<number | null>(null);
+  const [inspectorView, setInspectorView] = useState<'metadata' | 'sessionList' | 'sessionDetail'>('metadata');
+  const [sessions, setSessions] = useState<GenerationSessionRecord[]>([]);
+  const [roundsBySession, setRoundsBySession] = useState<Record<string, GenerationRoundRecord[]>>({});
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeRound, setActiveRound] = useState<GenerationRoundRecord | null>(null);
 
   useEffect(() => {
     setContentDraft(selectedContent?.content ?? '');
@@ -62,6 +76,9 @@ export function Inspector(props: InspectorProps) {
     setSectionTitle(selectedSection?.title ?? '');
     setSectionIntent(selectedSection?.intent ?? '');
     setSectionEditing(false);
+    setInspectorView('metadata');
+    setActiveSessionId(null);
+    setActiveRound(null);
   }, [
     selectedContent?.id,
     selectedContent?.title,
@@ -70,6 +87,70 @@ export function Inspector(props: InspectorProps) {
     selectedSection?.title,
     selectedSection?.intent
   ]);
+
+  useEffect(() => {
+    if (!selectedSection) {
+      setSessions([]);
+      return;
+    }
+    let canceled = false;
+    async function loadSessions() {
+      try {
+        const nextSessions = await getApi().listGenerationSessions(selectedSection!.id);
+        if (canceled) {
+          return;
+        }
+        setSessions(nextSessions);
+        const roundPairs = await Promise.all(
+          nextSessions.map(async (session) => [session.id, await getApi().listGenerationRounds(session.id)] as const)
+        );
+        if (!canceled) {
+          setRoundsBySession(Object.fromEntries(roundPairs));
+        }
+      } catch (caught) {
+        if (!canceled) {
+          onError(caught instanceof Error ? caught.message : String(caught));
+        }
+      }
+    }
+    void loadSessions();
+    const timer = window.setInterval(loadSessions, 1500);
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedSection?.id]);
+
+  useEffect(() => {
+    if (inspectorView !== 'sessionDetail' || !activeRound) {
+      return;
+    }
+    let canceled = false;
+    async function pollRound() {
+      const next = await getApi().getGenerationRound(activeRound!.id);
+      if (!canceled) {
+        setActiveRound(next);
+      }
+    }
+    void pollRound();
+    const timer = window.setInterval(pollRound, activeRound.status === 'pending' || activeRound.status === 'processing' ? 500 : 1500);
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeRound?.id, activeRound?.status, inspectorView]);
+
+  useEffect(() => {
+    if (!generationTarget || generationTarget.sectionId !== selectedSection?.id) {
+      return;
+    }
+    setActiveSessionId(generationTarget.sessionId);
+    void getApi().getGenerationRound(generationTarget.roundId).then((round) => {
+      setActiveRound(round);
+      setInspectorView('sessionDetail');
+      onGenerationTargetConsumed();
+    });
+  }, [generationTarget, selectedSection?.id]);
 
   function scheduleContentSave(value: string) {
     setContentDraft(value);
@@ -148,6 +229,146 @@ export function Inspector(props: InspectorProps) {
   const selectedSectionLlmSummary = formatSectionLlmOperationSummary(selectedSection);
   const sectionTitleMissing = sectionEditing && !sectionTitle.trim();
   const contentTitleMissing = selectedContent ? !contentTitle.trim() : false;
+
+  async function openSessionDetail(sessionId: string, options: { refresh?: boolean } = {}) {
+    const rounds = !options.refresh && roundsBySession[sessionId]
+      ? roundsBySession[sessionId]
+      : await getApi().listGenerationRounds(sessionId);
+    setRoundsBySession((current) => ({ ...current, [sessionId]: rounds }));
+    setActiveSessionId(sessionId);
+    setActiveRound(rounds[rounds.length - 1] ?? null);
+    setInspectorView('sessionDetail');
+  }
+
+  async function adoptRound(roundId: string) {
+    try {
+      const next = await getApi().adoptGenerationTask({ roundId });
+      onState(next);
+      const refreshed = await getApi().getGenerationRound(roundId);
+      setActiveRound(refreshed);
+      onStatus('Generation adopted.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function cancelRound(roundId: string) {
+    try {
+      setActiveRound(await getApi().cancelGenerationTask(roundId));
+      onStatus('Generation canceled.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function discardRound(roundId: string) {
+    try {
+      await getApi().discardGenerationTask(roundId);
+      setInspectorView('sessionList');
+      setActiveRound(null);
+      onStatus('Generation discarded.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function retryRound(roundId: string) {
+    try {
+      const result = await getApi().retryGenerationTask(roundId);
+      await openSessionDetail(result.sessionId, { refresh: true });
+      onStatus('Generation retried.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  if (selectedSection && inspectorView === 'sessionList') {
+    return (
+      <div className="inspector">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Sessions</h2>
+              <p className="muted">{selectedSection.title}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setInspectorView('metadata')}>
+              <ArrowLeft />
+              Back
+            </Button>
+          </div>
+          <div className="inspector-session-list">
+            {sessions.length === 0 ? <p className="muted">No generation sessions.</p> : null}
+            {sessions.map((session) => {
+              const latestRound = roundsBySession[session.id]?.at(-1);
+              return (
+                <button key={session.id} type="button" className="inspector-session-row" onClick={() => void openSessionDetail(session.id)}>
+                  <span>{session.title || 'Untitled'}</span>
+                  <small>{new Date(session.updatedAt).toLocaleString()}</small>
+                  {latestRound ? <StatusBadge status={latestRound.adoptedAt ? 'adopted' : latestRound.status} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (selectedSection && inspectorView === 'sessionDetail') {
+    return (
+      <div className="inspector">
+        <section className="panel inspector-round-detail">
+          <div className="panel-heading">
+            <Button variant="outline" size="sm" onClick={() => setInspectorView('sessionList')}>
+              <ArrowLeft />
+              Back
+            </Button>
+            {activeRound ? <StatusBadge status={activeRound.adoptedAt ? 'adopted' : activeRound.status} /> : null}
+          </div>
+          {activeRound ? (
+            <>
+              <div className="generation-prompt">
+                <span>Prompt</span>
+                <p>{activeRound.prompt}</p>
+              </div>
+              {activeRound.retrievalTrace.length > 0 ? (
+                <details className="generation-prompt">
+                  <summary>Retrieval ({activeRound.retrievedSources.length} sources)</summary>
+                  {activeRound.retrievalTrace.map((event, index) => (
+                    <p key={index}>{event.type}</p>
+                  ))}
+                </details>
+              ) : null}
+              <div className="generation-prompt">
+                <span>Output</span>
+                <CitationHighlight text={activeRound.content || ''} />
+              </div>
+              {activeRound.errorMessage ? <p className="inspector-round-error">{activeRound.errorMessage}</p> : null}
+              <div className="button-row">
+                {activeRound.status === 'done' && !activeRound.adoptedAt ? (
+                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Adopt</Button>
+                ) : null}
+                {activeRound.status === 'pending' || activeRound.status === 'processing' ? (
+                  <Button variant="destructive" size="sm" onClick={() => void cancelRound(activeRound.id)}>Cancel</Button>
+                ) : null}
+                {activeRound.status === 'error' ? (
+                  <Button size="sm" onClick={() => void retryRound(activeRound.id)}>
+                    <RotateCcw />
+                    Retry
+                  </Button>
+                ) : null}
+                {activeRound.status !== 'processing' ? (
+                  <Button variant="outline" size="sm" onClick={() => void discardRound(activeRound.id)}>Discard</Button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="muted">No rounds in this session.</p>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="inspector">
@@ -234,6 +455,10 @@ export function Inspector(props: InspectorProps) {
               ) : null}
               <MetadataRow label="Node ID" value={selectedSection.id} />
               <MetadataRow label="Updated" value={selectedSection.updatedAt} />
+              <Button variant="outline" size="sm" onClick={() => setInspectorView('sessionList')}>
+                <MessageSquare />
+                Sessions ({sessions.length})
+              </Button>
             </div>
           )}
         </section>

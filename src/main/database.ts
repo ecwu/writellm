@@ -9,6 +9,8 @@ import {
   generationCitations,
   knowledgeChunks,
   knowledgeItems,
+  llmGenerationRounds,
+  llmGenerationSessions,
   nodeEdges,
   nodes,
   plainjobJobs,
@@ -17,6 +19,8 @@ import {
   type KnowledgeChunkRow,
   type KnowledgeCitationRow,
   type KnowledgeItemRow,
+  type LlmGenerationRoundRow,
+  type LlmGenerationSessionRow,
   type NodeEdgeRow,
   type NodeRow,
   type PlainjobJobRow
@@ -39,6 +43,10 @@ import type {
   CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
+  GenerationMode,
+  GenerationRoundRecord,
+  GenerationRoundStatus,
+  GenerationSessionRecord,
   KnowledgeChunkRecord,
   KnowledgeCitationRecord,
   KnowledgeChunkDebugRecord,
@@ -54,15 +62,17 @@ import type {
   NodeRecord,
   NodeStats,
   RetrievedKnowledgeSource,
+  KnowledgeRetrievalTraceEvent,
   SectionNodeRecord,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
   WorkspaceSummary
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
+export const LLM_GENERATION_TASK_TYPE = 'llm-generation';
 const SECTION_METADATA_DIR = 'metadata/sections';
 const LLM_OPERATION_COVERAGE_THRESHOLD = 0.4;
 const PLAINJOB_STATUS_PENDING = 0;
@@ -90,6 +100,35 @@ type KnowledgeIngestTaskData = {
   startedAt: string | null;
   finishedAt: string | null;
 };
+
+type CreateGenerationRoundPayload = {
+  sessionId: string;
+  mode: GenerationMode;
+  prompt: string;
+  resolvedPrompt?: string | null;
+  systemPrompt?: string | null;
+  content?: string | null;
+  retrievedSources?: RetrievedKnowledgeSource[];
+  retrievalTrace?: KnowledgeRetrievalTraceEvent[];
+  modelProvider?: string | null;
+  modelName?: string | null;
+  applyPayloadJson?: string | null;
+};
+
+type UpdateGenerationRoundPayload = Partial<{
+  status: GenerationRoundStatus;
+  resolvedPrompt: string | null;
+  systemPrompt: string | null;
+  content: string | null;
+  retrievedSources: RetrievedKnowledgeSource[];
+  retrievalTrace: KnowledgeRetrievalTraceEvent[];
+  modelProvider: string | null;
+  modelName: string | null;
+  errorMessage: string | null;
+  jobId: number | null;
+  applyPayloadJson: string | null;
+  adoptedAt: string | null;
+}>;
 
 export class WriteLLMDatabase {
   readonly db: Database.Database;
@@ -775,6 +814,193 @@ export class WriteLLMDatabase {
     });
   }
 
+  createGenerationSession(sectionId: string, title?: string): { sessionId: string } {
+    if (!this.getSection(sectionId)) {
+      throw new Error(`Section not found: ${sectionId}`);
+    }
+    const timestamp = nowIso();
+    const id = createId('gens');
+    this.orm.insert(llmGenerationSessions).values({
+      id,
+      sectionId,
+      title: title?.trim() || null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
+    return { sessionId: id };
+  }
+
+  createGenerationRound(payload: CreateGenerationRoundPayload): GenerationRoundRecord {
+    const session = this.getGenerationSession(payload.sessionId);
+    if (!session) {
+      throw new Error(`Generation session not found: ${payload.sessionId}`);
+    }
+    const timestamp = nowIso();
+    const id = createId('genr');
+    this.orm.transaction(() => {
+      this.orm.insert(llmGenerationRounds).values({
+        id,
+        sessionId: payload.sessionId,
+        status: 'pending',
+        mode: payload.mode,
+        prompt: payload.prompt,
+        resolvedPrompt: payload.resolvedPrompt ?? null,
+        systemPrompt: payload.systemPrompt ?? null,
+        content: payload.content ?? null,
+        retrievedSources: JSON.stringify(payload.retrievedSources ?? []),
+        retrievalTrace: JSON.stringify(payload.retrievalTrace ?? []),
+        modelProvider: payload.modelProvider ?? null,
+        modelName: payload.modelName ?? null,
+        errorMessage: null,
+        jobId: null,
+        applyPayloadJson: payload.applyPayloadJson ?? null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        adoptedAt: null
+      }).run();
+      this.touchGenerationSession(payload.sessionId, timestamp);
+    });
+    return this.getGenerationRound(id)!;
+  }
+
+  getGenerationSession(sessionId: string): GenerationSessionRecord | null {
+    const row = this.orm
+      .select()
+      .from(llmGenerationSessions)
+      .where(eq(llmGenerationSessions.id, sessionId))
+      .get();
+    return row ? mapGenerationSession(row) : null;
+  }
+
+  listGenerationSessions(sectionId?: string | null): GenerationSessionRecord[] {
+    return this.orm
+      .select()
+      .from(llmGenerationSessions)
+      .where(sectionId ? eq(llmGenerationSessions.sectionId, sectionId) : undefined)
+      .orderBy(desc(llmGenerationSessions.updatedAt))
+      .all()
+      .map(mapGenerationSession);
+  }
+
+  getGenerationRound(roundId: string): GenerationRoundRecord | null {
+    const row = this.orm
+      .select()
+      .from(llmGenerationRounds)
+      .where(eq(llmGenerationRounds.id, roundId))
+      .get();
+    return row ? mapGenerationRound(row) : null;
+  }
+
+  listGenerationRounds(sessionId: string): GenerationRoundRecord[] {
+    return this.orm
+      .select()
+      .from(llmGenerationRounds)
+      .where(eq(llmGenerationRounds.sessionId, sessionId))
+      .orderBy(asc(llmGenerationRounds.createdAt))
+      .all()
+      .map(mapGenerationRound);
+  }
+
+  updateGenerationRound(roundId: string, payload: UpdateGenerationRoundPayload): GenerationRoundRecord {
+    const existing = this.getGenerationRound(roundId);
+    if (!existing) {
+      throw new Error(`Generation round not found: ${roundId}`);
+    }
+    const timestamp = nowIso();
+    const patch: Partial<LlmGenerationRoundRow> = { updatedAt: timestamp };
+    if ('status' in payload) patch.status = payload.status;
+    if ('resolvedPrompt' in payload) patch.resolvedPrompt = payload.resolvedPrompt ?? null;
+    if ('systemPrompt' in payload) patch.systemPrompt = payload.systemPrompt ?? null;
+    if ('content' in payload) patch.content = payload.content ?? null;
+    if ('retrievedSources' in payload) patch.retrievedSources = JSON.stringify(payload.retrievedSources ?? []);
+    if ('retrievalTrace' in payload) patch.retrievalTrace = JSON.stringify(payload.retrievalTrace ?? []);
+    if ('modelProvider' in payload) patch.modelProvider = payload.modelProvider ?? null;
+    if ('modelName' in payload) patch.modelName = payload.modelName ?? null;
+    if ('errorMessage' in payload) patch.errorMessage = payload.errorMessage ?? null;
+    if ('jobId' in payload) patch.jobId = payload.jobId ?? null;
+    if ('applyPayloadJson' in payload) patch.applyPayloadJson = payload.applyPayloadJson ?? null;
+    if ('adoptedAt' in payload) patch.adoptedAt = payload.adoptedAt ?? null;
+    this.orm.transaction(() => {
+      this.orm.update(llmGenerationRounds).set(patch).where(eq(llmGenerationRounds.id, roundId)).run();
+      this.touchGenerationSession(existing.sessionId, timestamp);
+    });
+    return this.getGenerationRound(roundId)!;
+  }
+
+  getRunningRoundForSection(sectionId: string): GenerationRoundRecord | null {
+    const row = this.orm
+      .select({ round: llmGenerationRounds })
+      .from(llmGenerationRounds)
+      .innerJoin(llmGenerationSessions, eq(llmGenerationSessions.id, llmGenerationRounds.sessionId))
+      .where(
+        and(
+          eq(llmGenerationSessions.sectionId, sectionId),
+          or(eq(llmGenerationRounds.status, 'pending'), eq(llmGenerationRounds.status, 'processing'))
+        )
+      )
+      .orderBy(desc(llmGenerationRounds.updatedAt))
+      .limit(1)
+      .get();
+    return row ? mapGenerationRound(row.round) : null;
+  }
+
+  adoptGenerationRound(roundId: string): void {
+    this.updateGenerationRound(roundId, { adoptedAt: nowIso() });
+  }
+
+  deleteGenerationRound(roundId: string): void {
+    const round = this.getGenerationRound(roundId);
+    if (!round) {
+      throw new Error(`Generation round not found: ${roundId}`);
+    }
+    this.orm.transaction(() => {
+      if (round.jobId) {
+        this.orm.delete(plainjobJobs).where(
+          and(
+            eq(plainjobJobs.id, round.jobId),
+            eq(plainjobJobs.type, LLM_GENERATION_TASK_TYPE),
+            eq(plainjobJobs.status, PLAINJOB_STATUS_PENDING)
+          )
+        ).run();
+      }
+      this.orm.delete(llmGenerationRounds).where(eq(llmGenerationRounds.id, roundId)).run();
+      this.touchGenerationSession(round.sessionId, nowIso());
+    });
+  }
+
+  enqueueGenerationJob(roundId: string, data: Record<string, unknown>): { jobId: number } {
+    const now = Date.now();
+    const result = this.orm.insert(plainjobJobs).values({
+      type: LLM_GENERATION_TASK_TYPE,
+      data: JSON.stringify({ roundId, ...data }),
+      status: PLAINJOB_STATUS_PENDING,
+      failedAt: null,
+      error: null,
+      nextRunAt: now,
+      createdAt: now
+    }).run();
+    const jobId = Number(result.lastInsertRowid);
+    this.updateGenerationRound(roundId, { jobId });
+    return { jobId };
+  }
+
+  getGenerationRoundApplyPayload(roundId: string): string | null {
+    const row = this.orm
+      .select({ applyPayloadJson: llmGenerationRounds.applyPayloadJson })
+      .from(llmGenerationRounds)
+      .where(eq(llmGenerationRounds.id, roundId))
+      .get();
+    return row?.applyPayloadJson ?? null;
+  }
+
+  private touchGenerationSession(sessionId: string, timestamp: string): void {
+    this.orm
+      .update(llmGenerationSessions)
+      .set({ updatedAt: timestamp })
+      .where(eq(llmGenerationSessions.id, sessionId))
+      .run();
+  }
+
   listKnowledgeChunks(itemId?: string): KnowledgeChunkRecord[] {
     return this.orm
       .select({
@@ -1366,6 +1592,47 @@ export class WriteLLMDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_generation_citations_node
       ON generation_citations(generation_node_id);
+
+      CREATE TABLE IF NOT EXISTS llm_generation_sessions (
+        id TEXT PRIMARY KEY,
+        section_id TEXT NOT NULL,
+        title TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS llm_generation_rounds (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        resolved_prompt TEXT,
+        system_prompt TEXT,
+        content TEXT,
+        retrieved_sources TEXT,
+        retrieval_trace TEXT,
+        model_provider TEXT,
+        model_name TEXT,
+        error_message TEXT,
+        job_id INTEGER,
+        apply_payload_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        adopted_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_generation_rounds_session
+      ON llm_generation_rounds(session_id);
+
+      CREATE INDEX IF NOT EXISTS idx_generation_rounds_status
+      ON llm_generation_rounds(status, updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_generation_sessions_section
+      ON llm_generation_sessions(section_id);
+
+      CREATE INDEX IF NOT EXISTS idx_generation_sessions_updated
+      ON llm_generation_sessions(updated_at);
 
       CREATE TABLE IF NOT EXISTS plainjob_jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2195,6 +2462,38 @@ function mapKnowledgeCitation(row: KnowledgeCitationRow): KnowledgeCitationRecor
   };
 }
 
+function mapGenerationSession(row: LlmGenerationSessionRow): GenerationSessionRecord {
+  return {
+    id: row.id,
+    sectionId: row.sectionId,
+    title: row.title,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapGenerationRound(row: LlmGenerationRoundRow): GenerationRoundRecord {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    status: isGenerationRoundStatus(row.status) ? row.status : 'error',
+    mode: isGenerationMode(row.mode) ? row.mode : 'append',
+    prompt: row.prompt,
+    resolvedPrompt: row.resolvedPrompt,
+    systemPrompt: row.systemPrompt,
+    content: row.content,
+    retrievedSources: parseJsonArray(row.retrievedSources).filter(isRetrievedKnowledgeSource),
+    retrievalTrace: parseJsonArray(row.retrievalTrace).filter(isKnowledgeRetrievalTraceEvent),
+    modelProvider: row.modelProvider,
+    modelName: row.modelName,
+    errorMessage: row.errorMessage,
+    jobId: row.jobId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    adoptedAt: row.adoptedAt
+  };
+}
+
 function mapKnowledgeIngestJob(row: PlainjobJobRow): KnowledgeIngestJobRecord {
   const data = parseKnowledgeIngestTaskData(row);
   const status = mapPlainjobKnowledgeStatus(row, data.status);
@@ -2213,6 +2512,55 @@ function mapKnowledgeIngestJob(row: PlainjobJobRow): KnowledgeIngestJobRecord {
     startedAt: data.startedAt,
     finishedAt: data.finishedAt
   };
+}
+
+function parseJsonArray(raw: string | null): unknown[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isGenerationMode(value: unknown): value is GenerationMode {
+  return value === 'append' || value === 'rewrite_section' || value === 'rewrite_selection' || value === 'continue';
+}
+
+function isGenerationRoundStatus(value: unknown): value is GenerationRoundStatus {
+  return value === 'pending' ||
+    value === 'processing' ||
+    value === 'done' ||
+    value === 'canceled' ||
+    value === 'error';
+}
+
+function isRetrievedKnowledgeSource(value: unknown): value is RetrievedKnowledgeSource {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<RetrievedKnowledgeSource>;
+  return Boolean(
+    candidate.label &&
+    candidate.publicRef &&
+    candidate.itemId &&
+    candidate.itemPublicRef &&
+    candidate.itemTitle &&
+    candidate.chunkId &&
+    typeof candidate.snippet === 'string' &&
+    typeof candidate.score === 'number'
+  );
+}
+
+function isKnowledgeRetrievalTraceEvent(value: unknown): value is KnowledgeRetrievalTraceEvent {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<KnowledgeRetrievalTraceEvent>;
+  return typeof candidate.type === 'string';
 }
 
 function parseKnowledgeIngestTaskData(row: PlainjobJobRow): KnowledgeIngestTaskData {

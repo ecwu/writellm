@@ -118,6 +118,69 @@
   white-space: pre-wrap;
 }
 
+.inspector-session-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.inspector-session-row {
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  padding: 0.65rem;
+  text-align: left;
+}
+
+.inspector-session-row span {
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.inspector-session-row small {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.inspector-round-detail summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.citation-highlight-text {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.citation-highlight {
+  background: oklch(0.93 0.035 230);
+  border: 1px solid oklch(0.72 0.08 230);
+  border-radius: 0.25rem;
+  color: oklch(0.35 0.09 230);
+  font-size: 0.88em;
+  font-weight: 700;
+  padding: 0 0.12rem;
+}
+
+.dark .citation-highlight {
+  background: oklch(0.28 0.04 230);
+  border-color: oklch(0.54 0.09 230);
+  color: oklch(0.82 0.06 230);
+}
+
+.inspector-round-error {
+  color: var(--destructive);
+  font-size: 0.82rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .citation-source-row {
   align-items: start;
   display: flex;

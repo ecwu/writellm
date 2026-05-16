@@ -14,7 +14,7 @@ import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
-import type { AppearanceSettings, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
+import type { AppearanceSettings, CreateGenerationTaskResult, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
 
 const defaultAppearance: AppearanceSettings = {
   theme: 'system',
@@ -40,6 +40,7 @@ function applyAppearance(appearance: AppearanceSettings) {
 export function App() {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [historySectionId, setHistorySectionId] = useState<string | null>(null);
+  const [generationTarget, setGenerationTarget] = useState<(CreateGenerationTaskResult & { sectionId: string }) | null>(null);
   const {
     apiAvailable,
     state,
@@ -259,6 +260,8 @@ export function App() {
                     onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                     onHistory={(section) => setHistorySectionId(section.id)}
                     onState={setState}
+                    onStatus={notifyStatus}
+                    onGenerationQueued={(result) => setGenerationTarget({ ...result, sectionId: focusSection.id })}
                     onError={notifyError}
                   />
                 ) : currentChildViewMode === 'graph' ? (
@@ -310,6 +313,7 @@ export function App() {
                     onOpenSectionMarkdown={(section) => void openWritingView(section)}
                     onCancelGenerate={() => void cancelLlmDraft()}
                     onAdoptGenerate={saveLlmFlowGeneration}
+                    onGenerationQueued={(sectionId, result) => setGenerationTarget({ ...result, sectionId })}
                     onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
                     onDeleteEdge={() => void deleteSelectedEdge()}
                   />
@@ -341,6 +345,8 @@ export function App() {
                   onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                   onOpenKnowledgeSource={(content) => void openKnowledgeSourceNode(content)}
                   onStatus={notifyStatus}
+                  generationTarget={generationTarget}
+                  onGenerationTargetConsumed={() => setGenerationTarget(null)}
                   onError={notifyError}
                 />
               </SidebarRight>

@@ -1,10 +1,15 @@
 import type {
   ApplySectionLlmEditPayload,
+  AdoptGenerationPayload,
   CreateKnowledgeItemPayload,
+  CreateGenerationTaskPayload,
+  CreateGenerationTaskResult,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
   FocusedWorkspaceState,
+  GenerationRoundRecord,
+  GenerationSessionRecord,
   GenerateLlmPayload,
   GitHistoryRecord,
   GitStatusRecord,
@@ -66,6 +71,14 @@ export const ipcChannels = {
   resolveKnowledgeCitation: 'writellm:resolveKnowledgeCitation',
   getKnowledgeDebugDetails: 'writellm:getKnowledgeDebugDetails',
   getWorkspaceAssetDataUrl: 'writellm:getWorkspaceAssetDataUrl',
+  createGenerationTask: 'writellm:createGenerationTask',
+  cancelGenerationTask: 'writellm:cancelGenerationTask',
+  adoptGenerationTask: 'writellm:adoptGenerationTask',
+  discardGenerationTask: 'writellm:discardGenerationTask',
+  retryGenerationTask: 'writellm:retryGenerationTask',
+  listGenerationSessions: 'writellm:listGenerationSessions',
+  listGenerationRounds: 'writellm:listGenerationRounds',
+  getGenerationRound: 'writellm:getGenerationRound',
   generateWithLlm: 'writellm:generateWithLlm',
   cancelLlmGeneration: 'writellm:cancelLlmGeneration',
   saveLlmGeneration: 'writellm:saveLlmGeneration',
@@ -117,6 +130,14 @@ export type WriteLLMIpc = {
   resolveKnowledgeCitation(payload: ResolveKnowledgeCitationPayload): Promise<KnowledgeSourceTarget | null>;
   getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
   getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
+  createGenerationTask(payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult>;
+  cancelGenerationTask(roundId: string): Promise<GenerationRoundRecord>;
+  adoptGenerationTask(payload: AdoptGenerationPayload): Promise<FocusedWorkspaceState>;
+  discardGenerationTask(roundId: string): Promise<void>;
+  retryGenerationTask(roundId: string): Promise<CreateGenerationTaskResult>;
+  listGenerationSessions(sectionId?: string | null): Promise<GenerationSessionRecord[]>;
+  listGenerationRounds(sessionId: string): Promise<GenerationRoundRecord[]>;
+  getGenerationRound(roundId: string): Promise<GenerationRoundRecord | null>;
   generateWithLlm(
     payload: GenerateLlmPayload
   ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;

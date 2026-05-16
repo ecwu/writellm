@@ -1,3 +1,4 @@
+/** @deprecated New LLM generation runs through background generation tasks and Inspector sessions. */
 import { useMemo, useState } from 'react';
 import { Check, CheckCircle2, ChevronDown, ChevronRight, FileSearch, Info, MessageSquareText, RefreshCw, Send, Sparkles, Trash2, WandSparkles, X, XCircle } from 'lucide-react';
 import { getApi } from '../../api';

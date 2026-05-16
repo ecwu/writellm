@@ -90,6 +90,41 @@ export const generationCitations = sqliteTable('generation_citations', {
   index('idx_generation_citations_node').on(table.generationNodeId)
 ]);
 
+export const llmGenerationSessions = sqliteTable('llm_generation_sessions', {
+  id: text('id').primaryKey(),
+  sectionId: text('section_id').notNull(),
+  title: text('title'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+}, (table) => [
+  index('idx_generation_sessions_section').on(table.sectionId),
+  index('idx_generation_sessions_updated').on(table.updatedAt)
+]);
+
+export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  status: text('status').notNull(),
+  mode: text('mode').notNull(),
+  prompt: text('prompt').notNull(),
+  resolvedPrompt: text('resolved_prompt'),
+  systemPrompt: text('system_prompt'),
+  content: text('content'),
+  retrievedSources: text('retrieved_sources'),
+  retrievalTrace: text('retrieval_trace'),
+  modelProvider: text('model_provider'),
+  modelName: text('model_name'),
+  errorMessage: text('error_message'),
+  jobId: integer('job_id'),
+  applyPayloadJson: text('apply_payload_json'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  adoptedAt: text('adopted_at')
+}, (table) => [
+  index('idx_generation_rounds_session').on(table.sessionId),
+  index('idx_generation_rounds_status').on(table.status, table.updatedAt)
+]);
+
 export const plainjobJobs = sqliteTable('plainjob_jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   type: text('type').notNull(),
@@ -122,6 +157,8 @@ export const schema = {
   knowledgeItems,
   knowledgeChunks,
   generationCitations,
+  llmGenerationSessions,
+  llmGenerationRounds,
   plainjobJobs,
   plainjobScheduledJobs
 };
@@ -132,5 +169,7 @@ export type CanvasNodeLayoutRow = typeof canvasNodeLayouts.$inferSelect;
 export type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
 export type KnowledgeChunkRow = typeof knowledgeChunks.$inferSelect;
 export type KnowledgeCitationRow = typeof generationCitations.$inferSelect;
+export type LlmGenerationSessionRow = typeof llmGenerationSessions.$inferSelect;
+export type LlmGenerationRoundRow = typeof llmGenerationRounds.$inferSelect;
 export type PlainjobJobRow = typeof plainjobJobs.$inferSelect;
 export type PlainjobScheduledJobRow = typeof plainjobScheduledJobs.$inferSelect;

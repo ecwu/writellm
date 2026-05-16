@@ -559,6 +559,62 @@ export type GenerateLlmPayload = {
   systemPrompt?: string;
 };
 
+export type GenerationMode = 'append' | 'rewrite_section' | 'rewrite_selection' | 'continue';
+
+export type GenerationRoundStatus = 'pending' | 'processing' | 'done' | 'canceled' | 'error';
+
+export type GenerationSessionRecord = {
+  id: string;
+  sectionId: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GenerationRoundRecord = {
+  id: string;
+  sessionId: string;
+  status: GenerationRoundStatus;
+  mode: GenerationMode;
+  prompt: string;
+  resolvedPrompt: string | null;
+  systemPrompt: string | null;
+  content: string | null;
+  retrievedSources: RetrievedKnowledgeSource[];
+  retrievalTrace: KnowledgeRetrievalTraceEvent[];
+  modelProvider: string | null;
+  modelName: string | null;
+  errorMessage: string | null;
+  jobId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  adoptedAt: string | null;
+};
+
+export type CreateGenerationTaskPayload = {
+  sectionId: string;
+  focusSectionId?: string | null;
+  mode: GenerationMode;
+  prompt: string;
+  useKnowledgeSources?: boolean;
+  knowledgeRetrievalPrompt?: string;
+  contextNodeIds?: string[];
+  retrievalMode?: KnowledgeRetrievalMode;
+  requireInlineCitations?: boolean;
+  targetStart?: number;
+  targetEnd?: number;
+};
+
+export type CreateGenerationTaskResult = {
+  roundId: string;
+  sessionId: string;
+  status: GenerationRoundStatus;
+};
+
+export type AdoptGenerationPayload = {
+  roundId: string;
+};
+
 export type SaveLlmGenerationPayload = {
   sectionId: string;
   focusSectionId?: string | null;

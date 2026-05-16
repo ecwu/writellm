@@ -1,6 +1,8 @@
-
+import { useState } from 'react';
 import { NotebookPen, PlusCircle, Trash2, WandSparkles } from 'lucide-react';
 import { getApi } from '../../api';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import {
   Field,
   FieldLabel
@@ -21,6 +23,7 @@ import {
 import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
+  CreateGenerationTaskResult,
   EdgeKind,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
@@ -42,6 +45,7 @@ export function FloatingActionToolbar({
   onOpenGenerate,
   onCancelGenerate,
   onAdoptGenerate,
+  onGenerationQueued,
   onUpdateEdgeKind,
   onDeleteEdge
 }: {
@@ -65,9 +69,12 @@ export function FloatingActionToolbar({
     contextNodeIds: string[];
     retrievedSources: RetrievedKnowledgeSource[];
   }) => Promise<void>;
+  onGenerationQueued: (sectionId: string, result: CreateGenerationTaskResult) => void;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
   onDeleteEdge: () => void;
 }) {
+  const [canvasPrompt, setCanvasPrompt] = useState('');
+  const [canvasUseKnowledge, setCanvasUseKnowledge] = useState(true);
   const generateTargetId = selectedSection?.id ?? selectedContent?.parentId ?? focusSection?.id ?? null;
   const generationTarget = selectedSection?.id === generateTargetId ? selectedSection : focusSection;
   const focusSectionId = focusSection?.id ?? generateTargetId;
@@ -140,22 +147,56 @@ export function FloatingActionToolbar({
     });
   }
 
+  async function enqueueCanvasGeneration() {
+    if (!generateTargetId || !canvasPrompt.trim()) {
+      return;
+    }
+    const result = await getApi().createGenerationTask({
+      sectionId: generateTargetId,
+      focusSectionId,
+      mode: 'append',
+      prompt: canvasPrompt,
+      useKnowledgeSources: canvasUseKnowledge,
+      contextNodeIds: llmDraft.contextNodeIds,
+      requireInlineCitations: canvasUseKnowledge
+    });
+    setCanvasPrompt('');
+    onGenerationQueued(generateTargetId, result);
+    onCancelGenerate();
+  }
+
   return (
     <div className="floating-action-toolbar" aria-label="Node actions">
       {llmDraft.open ? (
         <div className="floating-generate-composer">
-          <LlmExecutionFlow
-            label="Generate with LLM"
-            placeholder="Prompt for a new generation"
-            defaultUseKnowledgeSources={llmDraft.useKnowledgeSources}
-            buildKnowledgeRetrievalPrompt={(prompt) =>
-              buildCanvasKnowledgeRetrievalPrompt(prompt, generationTarget, contextNodes, llmDraft.contextNodeIds)
-            }
-            retrieveSources={retrieveFlowSources}
-            generate={generateFlowResult}
-            onAdopt={adoptFlowResult}
-            onCancel={onCancelGenerate}
-          />
+          <div className="canvas-generation-task-creator">
+            <Input
+              value={canvasPrompt}
+              onChange={(event) => setCanvasPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void enqueueCanvasGeneration();
+                }
+              }}
+              placeholder="Prompt for a new generation"
+            />
+            <label>
+              <input
+                type="checkbox"
+                checked={canvasUseKnowledge}
+                onChange={(event) => setCanvasUseKnowledge(event.target.checked)}
+              />
+              <span>Sources</span>
+            </label>
+            <div className="button-row">
+              <Button size="sm" onClick={() => void enqueueCanvasGeneration()} disabled={!canvasPrompt.trim()}>
+                Generate
+              </Button>
+              <Button variant="outline" size="sm" onClick={onCancelGenerate}>
+                Cancel
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
       <div className="floating-action-buttons">

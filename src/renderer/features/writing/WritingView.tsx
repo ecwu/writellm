@@ -15,6 +15,7 @@ import { ViewModeToggle } from '../../layout/ChildrenViewHeader';
 import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
 import type {
   CompositionTreeNode,
+  CreateGenerationTaskResult,
   SectionLlmEditMode,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
@@ -78,6 +79,8 @@ export function WritingView({
   onCitationClick,
   onHistory,
   onState,
+  onStatus,
+  onGenerationQueued,
   onError
 }: {
   section: SectionNodeRecord;
@@ -88,6 +91,8 @@ export function WritingView({
   onCitationClick: (publicRef: string) => void;
   onHistory: (section: SectionNodeRecord) => void;
   onState: (state: FocusedWorkspaceState) => void;
+  onStatus: (message: string) => void;
+  onGenerationQueued: (result: CreateGenerationTaskResult) => void;
   onError: (message: string) => void;
 }) {
   const { draft, saveState, scheduleDraftSave, flushPendingSave } = useAutosaveDraft({
@@ -102,6 +107,10 @@ export function WritingView({
     endOffset: 0
   });
   const [editorLlm, setEditorLlm] = useState<EditorLlmState>(emptyEditorLlm);
+  const [activeGenerationMode, setActiveGenerationMode] = useState<EditorLlmMode>('rewrite-all');
+  const [generationPrompt, setGenerationPrompt] = useState('');
+  const [generationUsesKnowledge, setGenerationUsesKnowledge] = useState(true);
+  const generationInputRef = useRef<HTMLInputElement | null>(null);
   const rootTreeNode = useMemo(
     () => (rootNodeId ? findSectionTreeNode(compositionTree, rootNodeId) : null),
     [compositionTree, rootNodeId]
@@ -310,6 +319,59 @@ export function WritingView({
     setEditorLlm(emptyEditorLlm);
   }
 
+  async function enqueueGenerationTask() {
+    if (!generationPrompt.trim()) {
+      onError('Generation prompt is required.');
+      return;
+    }
+    const editor = editorRef.current;
+    if (!editor) {
+      onError('Editor is not ready.');
+      return;
+    }
+    await flushPendingSave();
+    const currentSelection = editor.getSelection();
+    if (activeGenerationMode === 'rewrite-selection' && currentSelection.startOffset === currentSelection.endOffset) {
+      onError('Select text before rewriting a selection.');
+      return;
+    }
+    try {
+      const result = await getApi().createGenerationTask({
+        sectionId: section.id,
+        focusSectionId: section.id,
+        mode: generationModeFromEditor(activeGenerationMode),
+        prompt: generationPrompt,
+        useKnowledgeSources: generationUsesKnowledge,
+        contextNodeIds: [],
+        requireInlineCitations: generationUsesKnowledge,
+        targetStart: activeGenerationMode === 'rewrite-all' ? 0 : currentSelection.startOffset,
+        targetEnd: activeGenerationMode === 'rewrite-all'
+          ? editor.getValue().length
+          : activeGenerationMode === 'continue'
+            ? currentSelection.startOffset
+            : currentSelection.endOffset
+      });
+      setGenerationPrompt('');
+      onGenerationQueued(result);
+      onStatus('Generation task queued.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  function activateGenerationMode(mode: EditorLlmMode) {
+    if (activeGenerationMode === mode) {
+      generationInputRef.current?.focus();
+      return;
+    }
+    if (mode === 'rewrite-selection' && !hasSelection) {
+      onError('Select text before rewriting a selection.');
+      return;
+    }
+    setActiveGenerationMode(mode);
+    window.setTimeout(() => generationInputRef.current?.focus(), 0);
+  }
+
   return (
     <section className="writing-view">
       <header className="writing-view-header">
@@ -354,56 +416,61 @@ export function WritingView({
             readOnly={isRootMarkdownView}
           />
           {isRootMarkdownView ? null : <div className="writing-floating-toolbar" aria-label="Editor actions">
-            {editorLlm.open ? (
-              <div className="writing-llm-composer">
-                <LlmExecutionFlow
-                  label={`${editorLlmModeLabel(editorLlm.mode)} · ${editorLlmTargetLabel(editorLlm.mode, editorLlm.targetRange, editorRef.current?.getValue() ?? draft)}`}
-                  placeholder={editorLlmPlaceholder(editorLlm.mode)}
-                  defaultUseKnowledgeSources={editorLlm.useKnowledgeSources}
-                  buildKnowledgeRetrievalPrompt={(prompt) =>
-                    buildEditorKnowledgeRetrievalPrompt(editorLlm.mode, {
-                      sectionTitle: section.title,
-                      sectionIntent: section.intent ?? '',
-                      markdown: editorRef.current?.getValue() ?? draft,
-                      instruction: prompt,
-                      targetRange: editorLlm.targetRange ?? selection
-                    })
-                  }
-                  retrieveSources={retrieveEditorFlowSources}
-                  generate={generateEditorFlowResult}
-                  onAdopt={adoptEditorFlowResult}
-                  onCancel={() => void cancelEditorLlm()}
-                />
-              </div>
-            ) : null}
+            <div className="writing-generation-mode" aria-hidden="true">
+              {activeGenerationMode === 'rewrite-all' ? <FilePenLine /> : null}
+              {activeGenerationMode === 'rewrite-selection' ? <WholeWord /> : null}
+              {activeGenerationMode === 'continue' ? <PlusCircle /> : null}
+            </div>
+            <input
+              ref={generationInputRef}
+              value={generationPrompt}
+              onChange={(event) => setGenerationPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void enqueueGenerationTask();
+                }
+              }}
+              placeholder={editorLlmPlaceholder(activeGenerationMode)}
+            />
+            <label className="writing-knowledge-toggle">
+              <input
+                type="checkbox"
+                checked={generationUsesKnowledge}
+                onChange={(event) => setGenerationUsesKnowledge(event.target.checked)}
+              />
+              <span>Sources</span>
+            </label>
+            <Button size="sm" onClick={() => void enqueueGenerationTask()}>
+              Generate
+            </Button>
             <div className="writing-floating-buttons">
               <button
                 type="button"
-                className={editorLlm.open && editorLlm.mode === 'rewrite-all' ? 'active' : undefined}
+                className={activeGenerationMode === 'rewrite-all' ? 'active' : undefined}
                 title="Rewrite section"
                 aria-label="Rewrite section"
-                onClick={() => openEditorLlm('rewrite-all')}
+                onClick={() => activateGenerationMode('rewrite-all')}
               >
                 <FilePenLine />
                 <span className="sr-only">Rewrite section</span>
               </button>
               <button
                 type="button"
-                className={editorLlm.open && editorLlm.mode === 'rewrite-selection' ? 'active' : undefined}
+                className={activeGenerationMode === 'rewrite-selection' ? 'active' : undefined}
                 title="Rewrite selection"
                 aria-label="Rewrite selection"
                 disabled={!hasSelection}
-                onClick={() => openEditorLlm('rewrite-selection')}
+                onClick={() => activateGenerationMode('rewrite-selection')}
               >
                 <WholeWord />
                 <span className="sr-only">Rewrite selection</span>
               </button>
               <button
                 type="button"
-                className={editorLlm.open && editorLlm.mode === 'continue' ? 'active' : undefined}
+                className={activeGenerationMode === 'continue' ? 'active' : undefined}
                 title="Continue writing"
                 aria-label="Continue writing"
-                onClick={() => openEditorLlm('continue')}
+                onClick={() => activateGenerationMode('continue')}
               >
                 <PlusCircle />
                 <span className="sr-only">Continue writing</span>
@@ -479,6 +546,17 @@ function sectionLlmEditMode(mode: EditorLlmMode): SectionLlmEditMode {
       return 'rewrite_selection';
     case 'continue':
       return 'continue_at_cursor';
+  }
+}
+
+function generationModeFromEditor(mode: EditorLlmMode) {
+  switch (mode) {
+    case 'rewrite-all':
+      return 'rewrite_section';
+    case 'rewrite-selection':
+      return 'rewrite_selection';
+    case 'continue':
+      return 'continue';
   }
 }
 
