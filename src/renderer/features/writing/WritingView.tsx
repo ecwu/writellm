@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Code2, Eye, FilePenLine, History, PlusCircle, WholeWord } from 'lucide-react';
 import { getApi } from '../../api';
 import type { ChildViewMode } from '../../app/types';
@@ -16,6 +16,7 @@ import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../.
 import type {
   CompositionTreeNode,
   CreateGenerationTaskResult,
+  GenerationRoundRecord,
   SectionLlmEditMode,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
@@ -110,6 +111,7 @@ export function WritingView({
   const [activeGenerationMode, setActiveGenerationMode] = useState<EditorLlmMode>('rewrite-all');
   const [generationPrompt, setGenerationPrompt] = useState('');
   const [generationUsesKnowledge, setGenerationUsesKnowledge] = useState(true);
+  const [latestRound, setLatestRound] = useState<GenerationRoundRecord | null>(null);
   const generationInputRef = useRef<HTMLInputElement | null>(null);
   const rootTreeNode = useMemo(
     () => (rootNodeId ? findSectionTreeNode(compositionTree, rootNodeId) : null),
@@ -125,6 +127,25 @@ export function WritingView({
   );
   const selectedText = getSelectedText(editorRef.current?.getValue() ?? displayedMarkdown, selection);
   const hasSelection = selectedText.trim().length > 0;
+
+  useEffect(() => {
+    if (!latestRound || latestRound.status !== 'pending' && latestRound.status !== 'processing') {
+      return;
+    }
+    let canceled = false;
+    async function pollRound() {
+      const next = await getApi().getGenerationRound(latestRound!.id);
+      if (!canceled) {
+        setLatestRound(next);
+      }
+    }
+    const timer = window.setInterval(() => void pollRound(), 1000);
+    void pollRound();
+    return () => {
+      canceled = true;
+      window.clearInterval(timer);
+    };
+  }, [latestRound?.id, latestRound?.status]);
   async function handleChildViewMode(mode: ChildViewMode) {
     if (mode === childViewMode) {
       return;
@@ -351,6 +372,25 @@ export function WritingView({
             ? currentSelection.startOffset
             : currentSelection.endOffset
       });
+      setLatestRound({
+        id: result.roundId,
+        sessionId: result.sessionId,
+        status: result.status,
+        mode: generationModeFromEditor(activeGenerationMode),
+        prompt: generationPrompt,
+        resolvedPrompt: null,
+        systemPrompt: null,
+        content: null,
+        retrievedSources: [],
+        retrievalTrace: [],
+        modelProvider: null,
+        modelName: null,
+        errorMessage: null,
+        jobId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        adoptedAt: null
+      });
       setGenerationPrompt('');
       onGenerationQueued(result);
       onStatus('Generation task queued.');
@@ -477,10 +517,87 @@ export function WritingView({
               </button>
             </div>
           </div>}
+          {!isRootMarkdownView && latestRound ? (
+            <WritingPatchNotice
+              round={latestRound}
+              onReview={() => void createPatchForLatestRound(latestRound, { action: 'review' })}
+              onSaveCandidate={() => void createPatchForLatestRound(latestRound, { action: 'candidate' })}
+              onReject={() => void createPatchForLatestRound(latestRound, { action: 'reject' })}
+            />
+          ) : null}
         </div>
       </div>
     </section>
   );
+
+  async function createPatchForLatestRound(round: GenerationRoundRecord, options: { action: 'review' | 'candidate' | 'reject' }) {
+    try {
+      const patch = await getApi().createPatchFromGenerationRound({ roundId: round.id });
+      if (options.action === 'candidate') {
+        const next = await getApi().saveWritingPatchAsCandidate(patch.id);
+        onState(next);
+        onStatus('Patch saved as candidate.');
+      } else if (options.action === 'reject') {
+        await getApi().rejectWritingPatch(patch.id);
+        onStatus('Patch rejected.');
+      } else {
+        onStatus('Patch ready in Inspector.');
+      }
+      setLatestRound(await getApi().getGenerationRound(round.id));
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+}
+
+function WritingPatchNotice({
+  round,
+  onReview,
+  onSaveCandidate,
+  onReject
+}: {
+  round: GenerationRoundRecord;
+  onReview: () => void;
+  onSaveCandidate: () => void;
+  onReject: () => void;
+}) {
+  if (round.status === 'pending' || round.status === 'processing') {
+    return (
+      <div className="writing-patch-notice">
+        <span>Generating patch proposal</span>
+      </div>
+    );
+  }
+  if (round.status === 'done') {
+    return (
+      <div className="writing-patch-notice">
+        <span>Proposed patch ready</span>
+        <div>
+          <Button size="sm" onClick={onReview}>Review Diff</Button>
+          <Button variant="outline" size="sm" onClick={onSaveCandidate}>Save as Candidate</Button>
+          <Button variant="outline" size="sm" onClick={onReject}>Reject</Button>
+        </div>
+      </div>
+    );
+  }
+  if (round.status === 'patch_created') {
+    return (
+      <div className="writing-patch-notice">
+        <span>Patch ready in Inspector</span>
+      </div>
+    );
+  }
+  if (round.status === 'saved_as_candidate' || round.status === 'patch_rejected' || round.status === 'patch_accepted') {
+    return null;
+  }
+  if (round.status === 'error') {
+    return (
+      <div className="writing-patch-notice is-error">
+        <span>{round.errorMessage || 'Patch generation failed'}</span>
+      </div>
+    );
+  }
+  return null;
 }
 
 function getSelectedText(markdown: string, range: EditorSelectionRange): string {

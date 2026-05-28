@@ -45,6 +45,12 @@ const ipcChannels = {
   adoptGenerationTask: 'writellm:adoptGenerationTask',
   discardGenerationTask: 'writellm:discardGenerationTask',
   retryGenerationTask: 'writellm:retryGenerationTask',
+  createPatchFromGenerationRound: 'writellm:createPatchFromGenerationRound',
+  getWritingPatch: 'writellm:getWritingPatch',
+  listWritingPatchesForSection: 'writellm:listWritingPatchesForSection',
+  acceptWritingPatch: 'writellm:acceptWritingPatch',
+  rejectWritingPatch: 'writellm:rejectWritingPatch',
+  saveWritingPatchAsCandidate: 'writellm:saveWritingPatchAsCandidate',
   listGenerationSessions: 'writellm:listGenerationSessions',
   listGenerationRounds: 'writellm:listGenerationRounds',
   getGenerationRound: 'writellm:getGenerationRound',
@@ -111,6 +117,15 @@ const api: WriteLLMIpc = {
   adoptGenerationTask: (payload) => ipcRenderer.invoke(ipcChannels.adoptGenerationTask, payload),
   discardGenerationTask: (roundId) => ipcRenderer.invoke(ipcChannels.discardGenerationTask, roundId),
   retryGenerationTask: (roundId) => ipcRenderer.invoke(ipcChannels.retryGenerationTask, roundId),
+  createPatchFromGenerationRound: (payload) =>
+    ipcRenderer.invoke(ipcChannels.createPatchFromGenerationRound, payload),
+  getWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.getWritingPatch, patchId),
+  listWritingPatchesForSection: (sectionId) =>
+    ipcRenderer.invoke(ipcChannels.listWritingPatchesForSection, sectionId),
+  acceptWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.acceptWritingPatch, patchId),
+  rejectWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.rejectWritingPatch, patchId),
+  saveWritingPatchAsCandidate: (patchId) =>
+    ipcRenderer.invoke(ipcChannels.saveWritingPatchAsCandidate, patchId),
   listGenerationSessions: (sectionId) => ipcRenderer.invoke(ipcChannels.listGenerationSessions, sectionId),
   listGenerationRounds: (sessionId) => ipcRenderer.invoke(ipcChannels.listGenerationRounds, sessionId),
   getGenerationRound: (roundId) => ipcRenderer.invoke(ipcChannels.getGenerationRound, roundId),

@@ -46,7 +46,11 @@ const [
   { extractKnowledgeFileText },
   { restoreSectionVersion },
   { unzipBuffer },
-  citations
+  citations,
+  patchDiff,
+  patchValidator,
+  patchApplier,
+  patchScanners
 ] = await Promise.all([
   import('better-sqlite3'),
   import('jszip'),
@@ -58,7 +62,11 @@ const [
   import('../dist-electron/main/knowledgeTextExtract.js'),
   import('../dist-electron/main/sectionHistory.js'),
   import('../dist-electron/main/zip.js'),
-  import('../dist-electron/shared/citations.js')
+  import('../dist-electron/shared/citations.js'),
+  import('../dist-electron/main/harness/patchDiff.js'),
+  import('../dist-electron/main/harness/patchValidator.js'),
+  import('../dist-electron/main/harness/patchApplier.js'),
+  import('../dist-electron/main/harness/patchScanners.js')
 ]);
 
 const {
@@ -71,6 +79,10 @@ const {
 } = gitSession;
 const { enqueueKnowledgeFiles, processKnowledgeIngestJob } = knowledgeIngest;
 const { citationGroupsFromText, citationRefsFromText } = citations;
+const { createPatchDiff } = patchDiff;
+const { validateWritingPatch } = patchValidator;
+const { markdownAfterWritingPatch } = patchApplier;
+const { hashText } = patchScanners;
 
 const workspacePath = mkdtempSync(path.join(os.tmpdir(), 'writellm-smoke-'));
 
@@ -118,6 +130,52 @@ try {
     throw new Error('Section Markdown DB/file sync failed.');
   }
 
+  const selectionPatch = makeSelectionPatch(updatedIntro, {
+    id: 'wpatch_smoke_selection',
+    before: 'Hello',
+    after: 'Hi',
+    startOffset: 0,
+    endOffset: 5
+  });
+  selectionPatch.validation = validateWritingPatch(selectionPatch, updatedIntro);
+  selectionPatch.diff = createPatchDiff('Hello', 'Hi');
+  selectionPatch.status = selectionPatch.validation.ok ? 'needs_review' : 'blocked';
+  const savedPatch = db.createWritingPatch(selectionPatch);
+  if (savedPatch.id !== selectionPatch.id || savedPatch.patch.diff?.stats.wordsRemoved !== 0) {
+    throw new Error('WritingPatch was not persisted with its diff metadata.');
+  }
+  const patchedMarkdown = markdownAfterWritingPatch(selectionPatch, updatedIntro.markdownContent);
+  db.updateSectionMarkdown(intro.id, patchedMarkdown);
+  const patchedIntro = db.getSection(intro.id);
+  if (!patchedIntro?.markdownContent.startsWith('Hi **Markdown** world.')) {
+    throw new Error('WritingPatch deterministic selection apply failed.');
+  }
+  const stalePatch = makeSelectionPatch(updatedIntro, {
+    id: 'wpatch_smoke_stale',
+    before: 'Hello',
+    after: 'Hey',
+    startOffset: 0,
+    endOffset: 5
+  });
+  const staleValidation = validateWritingPatch(stalePatch, patchedIntro);
+  if (staleValidation.ok || !staleValidation.errors.some((issue) => issue.code === 'BASE_SECTION_HASH_MISMATCH')) {
+    throw new Error('Stale WritingPatch was not blocked by base section hash validation.');
+  }
+  const candidatePatch = makeCandidatePatch(patchedIntro, 'Alternative full section candidate.');
+  candidatePatch.validation = validateWritingPatch(candidatePatch, patchedIntro);
+  const candidateBeforeMarkdown = patchedIntro.markdownContent;
+  const candidateNode = db.createNode({
+    kind: 'content',
+    parentId: intro.id,
+    title: 'Patch candidate',
+    content: candidatePatch.operation.content,
+    isLlm: true,
+    metadata: { writingPatchId: candidatePatch.id }
+  });
+  if (candidateNode.kind !== 'content' || db.getSection(intro.id)?.markdownContent !== candidateBeforeMarkdown) {
+    throw new Error('WritingPatch candidate creation mutated section Markdown.');
+  }
+
   const checkpoint = createGitCheckpoint(workspacePath, 'Smoke checkpoint');
   if (!checkpoint?.hash) {
     throw new Error('Git checkpoint was not created for Markdown changes.');
@@ -140,7 +198,7 @@ try {
     throw new Error('Git diff did not include section Markdown changes.');
   }
   const checkpointMarkdown = getSectionVersion(workspacePath, intro.id, checkpoint.hash);
-  if (!checkpointMarkdown.includes('Hello **Markdown** world.')) {
+  if (!checkpointMarkdown.includes('Hi **Markdown** world.')) {
     throw new Error('Section version lookup did not return checkpoint Markdown.');
   }
   const other = db.createNode({
@@ -156,7 +214,7 @@ try {
   restoreSectionVersion(db, intro.id, checkpoint.hash);
   const restoredIntro = db.getSection(intro.id);
   const dirtyOther = db.getSection(other.id);
-  if (!restoredIntro?.markdownContent.includes('Hello **Markdown** world.')) {
+  if (!restoredIntro?.markdownContent.includes('Hi **Markdown** world.')) {
     throw new Error('Section restore did not restore the requested Markdown.');
   }
   if (!dirtyOther?.markdownContent.includes('Uncheckpointed Markdown.')) {
@@ -175,7 +233,7 @@ try {
 
   const exportPath = exportLatex(db, rootId);
   const output = readFileSync(exportPath, 'utf8');
-  if (!exportPath.endsWith('main.md') || !output.includes('Hello **Markdown** world.')) {
+  if (!exportPath.endsWith('main.md') || !output.includes('Hi **Markdown** world.')) {
     throw new Error('Exported Markdown did not include section Markdown.');
   }
 
@@ -1027,6 +1085,89 @@ function createSamplePdf(text) {
   }
   output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return output;
+}
+
+function makeSelectionPatch(section, { id, before, after, startOffset, endOffset }) {
+  const now = new Date().toISOString();
+  return {
+    id,
+    kind: 'replace_selection',
+    status: 'proposed',
+    origin: {
+      source: 'llm',
+      generationSessionId: 'gens_smoke',
+      generationRoundId: 'genr_smoke',
+      createdAt: now
+    },
+    target: {
+      workspaceId: workspacePath,
+      sectionId: section.id,
+      targetMode: 'section_markdown_file',
+      location: {
+        type: 'text_range',
+        startOffset,
+        endOffset,
+        selectedText: before
+      }
+    },
+    anchors: {
+      baseSectionHash: section.markdownHash,
+      beforeText: before,
+      beforeTextHash: hashText(before),
+      anchorStrategy: 'hash_and_range'
+    },
+    operation: {
+      type: 'replace',
+      before,
+      after
+    },
+    metadata: {
+      rationale: 'Smoke-test selection patch.'
+    },
+    review: {
+      decision: 'pending'
+    }
+  };
+}
+
+function makeCandidatePatch(section, content) {
+  const now = new Date().toISOString();
+  return {
+    id: 'wpatch_smoke_candidate',
+    kind: 'create_content_candidate',
+    status: 'proposed',
+    origin: {
+      source: 'llm',
+      generationSessionId: 'gens_smoke',
+      generationRoundId: 'genr_smoke_candidate',
+      createdAt: now
+    },
+    target: {
+      workspaceId: workspacePath,
+      sectionId: section.id,
+      targetMode: 'new_content_node',
+      location: {
+        type: 'section',
+        sectionHash: section.markdownHash
+      }
+    },
+    anchors: {
+      baseSectionHash: section.markdownHash,
+      anchorStrategy: 'candidate_only'
+    },
+    operation: {
+      type: 'create_candidate',
+      candidateTitle: 'Patch candidate',
+      content,
+      relationToSource: 'revises'
+    },
+    metadata: {
+      rationale: 'Smoke-test candidate patch.'
+    },
+    review: {
+      decision: 'pending'
+    }
+  };
 }
 
 function jsonResponse(payload, status = 200) {

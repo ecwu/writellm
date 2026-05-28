@@ -9,17 +9,22 @@ import type {
   ContentNodeRecord,
   CreateGenerationTaskPayload,
   CreateKnowledgeItemPayload,
+  CreatePatchFromGenerationRoundPayload,
   CreateGenerationTaskResult,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
   GenerationMode,
+  GenerationRoundRecord,
+  GenerationSessionRecord,
   KnowledgeRetrievalMode,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
   LlmOperationRecord,
+  LlmPatchProposal,
+  PatchApplicationResult,
   RetrievedKnowledgeSource,
   NodeRecord,
   SectionNodeRecord,
@@ -27,7 +32,9 @@ import type {
   SaveLlmGenerationPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
-  UpdateNodePayload
+  UpdateNodePayload,
+  WritingPatch,
+  WritingPatchRecord
 } from '../shared/types.js';
 import { exportLatex } from './exportLatex.js';
 import {
@@ -61,6 +68,11 @@ import {
 } from './workspace.js';
 import { createId, nowIso } from './ids.js';
 import { hashMarkdown, sectionMarkdownForStorage } from './sectionMarkdown.js';
+import { markdownAfterWritingPatch } from './harness/patchApplier.js';
+import { createPatchDiff } from './harness/patchDiff.js';
+import { parseLlmPatchProposal } from './harness/patchProtocol.js';
+import { hashText, scanCitations } from './harness/patchScanners.js';
+import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValidator.js';
 
 const llmRuns = new Map<string, AbortController>();
 
@@ -471,12 +483,12 @@ async function retrieveKnowledgeForGeneration(
 }
 
 type GenerationApplyPayload =
-  | { kind: 'append'; sectionId: string; focusSectionId: string | null; prompt: string; contextNodeIds: string[] }
   | {
       kind: 'edit';
       sectionId: string;
       focusSectionId: string | null;
       mode: SectionLlmEditMode;
+      insertionMode?: 'cursor' | 'section_end';
       userPrompt: string;
       resolvedPrompt: string;
       systemPrompt: string;
@@ -502,38 +514,27 @@ function buildGenerationTaskRequest(
   systemPrompt: string | null;
   applyPayload: GenerationApplyPayload;
 } {
-  if (mode === 'append') {
-    return {
-      prompt: input.prompt,
-      systemPrompt: null,
-      applyPayload: {
-        kind: 'append',
-        sectionId: input.section.id,
-        focusSectionId: null,
-        prompt: input.prompt,
-        contextNodeIds: []
-      }
-    };
-  }
-
   const markdown = sectionMarkdownForStorage(input.section.markdownContent);
   const targetStart = clampOffset(input.targetStart ?? (mode === 'rewrite_section' ? 0 : markdown.length), markdown);
   const targetEnd = clampOffset(input.targetEnd ?? (mode === 'rewrite_section' ? markdown.length : targetStart), markdown);
   const normalizedStart = Math.min(targetStart, targetEnd);
   const normalizedEnd = Math.max(targetStart, targetEnd);
-  const editMode: SectionLlmEditMode = mode === 'continue' ? 'continue_at_cursor' : mode;
-  assertSectionLlmEditRange(editMode, markdown, normalizedStart, normalizedEnd);
-  const selectedText = selectedTextForLlmEdit(editMode, markdown, normalizedStart, normalizedEnd);
-  const prefixContext = markdown.slice(Math.max(0, normalizedStart - 2400), normalizedStart);
-  const suffixContext = markdown.slice(normalizedEnd, normalizedEnd + 1600);
+  const editMode: SectionLlmEditMode = mode === 'append' || mode === 'continue' ? 'continue_at_cursor' : mode;
+  const insertionMode = mode === 'append' ? 'section_end' : 'cursor';
+  const resolvedStart = mode === 'append' ? markdown.length : normalizedStart;
+  const resolvedEnd = mode === 'append' ? markdown.length : normalizedEnd;
+  assertSectionLlmEditRange(editMode, markdown, resolvedStart, resolvedEnd);
+  const selectedText = selectedTextForLlmEdit(editMode, markdown, resolvedStart, resolvedEnd);
+  const prefixContext = markdown.slice(Math.max(0, resolvedStart - 2400), resolvedStart);
+  const suffixContext = markdown.slice(resolvedEnd, resolvedEnd + 1600);
   const instruction = input.prompt.trim() || 'No additional requirements.';
   const systemPrompt = editorLlmSystemPromptForGeneration(mode);
   const prompt = editorLlmPromptForGeneration(mode, {
     title: input.section.title,
     markdown,
     instruction,
-    targetStart: normalizedStart,
-    targetEnd: normalizedEnd,
+    targetStart: resolvedStart,
+    targetEnd: resolvedEnd,
     selectedText,
     prefixContext,
     suffixContext
@@ -546,12 +547,13 @@ function buildGenerationTaskRequest(
       sectionId: input.section.id,
       focusSectionId: null,
       mode: editMode,
+      insertionMode,
       userPrompt: input.prompt,
       resolvedPrompt: '',
       systemPrompt: '',
       baseMarkdown: markdown,
-      targetStart: normalizedStart,
-      targetEnd: normalizedEnd,
+      targetStart: resolvedStart,
+      targetEnd: resolvedEnd,
       selectedText,
       prefixContext,
       suffixContext,
@@ -566,15 +568,19 @@ function clampOffset(offset: number, text: string): number {
 
 function editorLlmSystemPromptForGeneration(mode: GenerationMode): string {
   const scope = mode === 'rewrite_section'
-    ? 'Return the full rewritten Markdown section.'
+    ? 'The afterText field must contain a full alternative Markdown section draft.'
     : mode === 'rewrite_selection'
-      ? 'Return only the replacement text for the selected Markdown fragment.'
-      : 'Return only the continuation text to insert at the cursor.';
+      ? 'The afterText field must contain only the replacement text for the selected Markdown fragment.'
+      : mode === 'append'
+        ? 'The afterText field must contain only the text to append to the section.'
+        : 'The afterText field must contain only the continuation text to insert at the cursor.';
   return [
     'You are an expert Markdown editor for academic and technical writing.',
     scope,
+    'Return a structured patch proposal with afterText, rationale, optional warnings, optional changedClaims, optional preservedClaims, and optional affectedCitations.',
     'Preserve Markdown syntax and citation markers unless the user explicitly asks to change them.',
-    'Do not include explanations, alternatives, labels, or fenced wrappers around the answer.'
+    'Do not invent citations. Do not change numerical results unless explicitly requested.',
+    'Do not include explanations, alternatives, labels, or fenced wrappers inside afterText.'
   ].join(' ');
 }
 
@@ -596,7 +602,7 @@ function editorLlmPromptForGeneration(
       `Section title: ${input.title}`,
       `User requirements: ${input.instruction}`,
       '',
-      'Rewrite the full Markdown section below.',
+      'Propose a full-section rewrite as a candidate. Put the full rewritten Markdown in afterText.',
       '',
       input.markdown
     ].join('\n');
@@ -609,7 +615,7 @@ function editorLlmPromptForGeneration(
       'Context before selection:',
       input.prefixContext || '(none)',
       '',
-      'Selected Markdown to rewrite:',
+      'Selected Markdown to rewrite. Put only the replacement Markdown in afterText:',
       input.selectedText,
       '',
       'Context after selection:',
@@ -620,7 +626,9 @@ function editorLlmPromptForGeneration(
     `Section title: ${input.title}`,
     `User requirements: ${input.instruction}`,
     '',
-    'Continue the Markdown section at the insertion point.',
+    mode === 'append'
+      ? 'Append to the end of the Markdown section. Put only the appended Markdown in afterText.'
+      : 'Continue the Markdown section at the insertion point. Put only the inserted Markdown in afterText.',
     '',
     'Context before insertion:',
     input.prefixContext || '(none)',
@@ -1047,7 +1055,8 @@ export function registerIpcHandlers(): void {
       });
       db.enqueueGenerationJob(round.id, {
         prompt: resolvedPrompt,
-        systemPrompt
+        systemPrompt,
+        outputMode: 'patchProposal'
       });
       await startBackgroundTaskWorker(db);
       return { roundId: round.id, sessionId, status: 'pending' };
@@ -1067,47 +1076,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.adoptGenerationTask, (_event, payload: AdoptGenerationPayload) => {
-    const db = getActiveDb();
-    const round = db.getGenerationRound(payload.roundId);
-    if (!round) {
-      throw new Error(`Generation round not found: ${payload.roundId}`);
-    }
-    if (round.status !== 'done' || !round.content?.trim()) {
-      throw new Error('Only completed generation tasks can be adopted.');
-    }
-    const applyPayload = parseGenerationApplyPayload(db.getGenerationRoundApplyPayload(round.id));
-    if (applyPayload.kind === 'append') {
-      const next = applySavedLlmGeneration({
-        sectionId: applyPayload.sectionId,
-        focusSectionId: applyPayload.focusSectionId,
-        prompt: applyPayload.prompt,
-        content: round.content,
-        contextNodeIds: applyPayload.contextNodeIds,
-        retrievedSources: round.retrievedSources,
-        contextRelationType: 'generates'
-      });
-      db.adoptGenerationRound(round.id);
-      return next;
-    }
-    const next = applyGeneratedSectionEdit({
-      sectionId: applyPayload.sectionId,
-      focusSectionId: applyPayload.focusSectionId,
-      mode: applyPayload.mode,
-      userPrompt: applyPayload.userPrompt,
-      resolvedPrompt: applyPayload.resolvedPrompt,
-      systemPrompt: applyPayload.systemPrompt,
-      generatedContent: round.content,
-      baseMarkdown: applyPayload.baseMarkdown,
-      targetStart: applyPayload.targetStart,
-      targetEnd: applyPayload.targetEnd,
-      selectedText: applyPayload.selectedText,
-      prefixContext: applyPayload.prefixContext,
-      suffixContext: applyPayload.suffixContext,
-      retrievedSources: round.retrievedSources,
-      contextNodeIds: applyPayload.contextNodeIds
-    });
-    db.adoptGenerationRound(round.id);
-    return next;
+    return createPatchFromRound(payload.roundId);
   });
 
   ipcMain.handle(ipcChannels.discardGenerationTask, (_event, roundId: string) => {
@@ -1141,11 +1110,37 @@ export function registerIpcHandlers(): void {
     });
     db.enqueueGenerationJob(newRound.id, {
       prompt: newRound.resolvedPrompt ?? newRound.prompt,
-      systemPrompt: newRound.systemPrompt ?? undefined
+      systemPrompt: newRound.systemPrompt ?? undefined,
+      outputMode: 'patchProposal'
     });
     await startBackgroundTaskWorker(db);
     return { roundId: newRound.id, sessionId: newRound.sessionId, status: 'pending' };
   });
+
+  ipcMain.handle(
+    ipcChannels.createPatchFromGenerationRound,
+    (_event, payload: CreatePatchFromGenerationRoundPayload) => createPatchFromRound(payload.roundId)
+  );
+
+  ipcMain.handle(ipcChannels.getWritingPatch, (_event, patchId: string) =>
+    getActiveDb().getWritingPatch(patchId)
+  );
+
+  ipcMain.handle(ipcChannels.listWritingPatchesForSection, (_event, sectionId: string) =>
+    getActiveDb().listWritingPatchesForSection(sectionId)
+  );
+
+  ipcMain.handle(ipcChannels.acceptWritingPatch, (_event, patchId: string) =>
+    acceptWritingPatch(patchId)
+  );
+
+  ipcMain.handle(ipcChannels.rejectWritingPatch, (_event, patchId: string) =>
+    rejectWritingPatch(patchId)
+  );
+
+  ipcMain.handle(ipcChannels.saveWritingPatchAsCandidate, (_event, patchId: string) =>
+    saveWritingPatchAsCandidate(patchId)
+  );
 
   ipcMain.handle(ipcChannels.listGenerationSessions, (_event, sectionId?: string | null) =>
     getActiveDb().listGenerationSessions(sectionId)
@@ -1267,7 +1262,6 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.saveLlmGeneration, (_event, payload: SaveLlmGenerationPayload) => {
-    const settings = readLlmSettings();
     const db = getActiveDb();
     const section = db.getSection(payload.sectionId);
     if (!section) {
@@ -1290,17 +1284,22 @@ export function registerIpcHandlers(): void {
       payload.retrievedSources ?? [],
       true
     );
-    const operationId = createId('llmop');
-    createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
-    const beforeCommit = getGitHead(db.workspacePath);
-    const nextMarkdown = [section.markdownContent.trimEnd(), payload.content.trim()]
-      .filter(Boolean)
-      .join('\n\n');
-    const updatedSection = db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
-
+    const candidate = db.createNode({
+      kind: 'content',
+      parentId: payload.sectionId,
+      title: `LLM candidate · ${section.title}`,
+      content: payload.content.trim(),
+      isLlm: true,
+      metadata: {
+        nodeRole: 'llm-candidate',
+        prompt,
+        resolvedPrompt,
+        retrievedSources: payload.retrievedSources ?? []
+      }
+    });
     const contextRelationType = payload.contextRelationType ?? 'informs';
     contextNodes.forEach((node) => {
-      db.createNodeEdge(node.id, payload.sectionId, contextRelationType, 'llm');
+      db.createNodeEdge(node.id, candidate.id, contextRelationType, 'llm');
     });
     ensureKnowledgeSourceNodes(
       db,
@@ -1319,174 +1318,12 @@ export function registerIpcHandlers(): void {
         score: source.score
       }))
     );
-    const timestamp = nowIso();
-    const operation: LlmOperationRecord = {
-      operationId,
-      type: 'generate_append',
-      status: 'current',
-      createdAt: timestamp,
-      appliedAt: timestamp,
-      sectionId: payload.sectionId,
-      sectionPath: updatedSection.markdownPath,
-      beforeCommit,
-      afterCommit: null,
-      beforeSectionHash: section.markdownHash,
-      afterSectionHash: updatedSection.markdownHash,
-      userPrompt: prompt,
-      resolvedPrompt,
-      systemPrompt: articleSectionContext,
-      model: {
-        provider: settings.chat.provider,
-        baseURL: settings.chat.baseURL,
-        model: settings.chat.model
-      },
-      target: {
-        kind: 'section_append',
-        selectionStart: section.markdownContent.length,
-        selectionEnd: section.markdownContent.length,
-        selectedText: '',
-        prefixContext: section.markdownContent.slice(-500),
-        suffixContext: ''
-      },
-      beforeText: '',
-      afterText: payload.content.trim(),
-      outputHash: hashMarkdown(payload.content.trim()),
-      retainedCoverage: 1,
-      contextNodeIds: payload.contextNodeIds ?? [],
-      retrievedSources: payload.retrievedSources ?? []
-    };
-    db.upsertSectionLlmOperation(payload.sectionId, operation);
-    createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
-    const afterCommit = getGitHead(db.workspacePath);
-    db.upsertSectionLlmOperation(payload.sectionId, {
-      ...operation,
-      afterCommit
-    });
-    createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
     return getState(payload.focusSectionId ?? payload.sectionId);
   });
 
   ipcMain.handle(ipcChannels.applySectionLlmEdit, (_event, payload: ApplySectionLlmEditPayload) => {
-    const settings = readLlmSettings();
-    const db = getActiveDb();
-    const section = db.getSection(payload.sectionId);
-    if (!section) {
-      throw new Error(`Section not found: ${payload.sectionId}`);
-    }
-
-    const baseMarkdown = sectionMarkdownForStorage(payload.baseMarkdown);
-    if (section.markdownContent !== baseMarkdown) {
-      throw new Error('The section changed after this LLM edit was generated. Regenerate before applying it.');
-    }
-
-    const generatedContent = payload.generatedContent.trim();
-    if (!generatedContent) {
-      throw new Error('Generated edit content is required.');
-    }
-
-    assertSectionLlmEditRange(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
-    const beforeText = selectedTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
-    if (payload.mode === 'rewrite_selection' && beforeText !== payload.selectedText) {
-      throw new Error('The selected text changed after this LLM edit was generated. Regenerate before applying it.');
-    }
-
-    const replacementText = replacementTextForLlmEdit(
-      payload.mode,
-      baseMarkdown,
-      payload.targetStart,
-      generatedContent
-    );
-    const nextMarkdown = markdownWithLlmEdit(
-      payload.mode,
-      baseMarkdown,
-      payload.targetStart,
-      payload.targetEnd,
-      replacementText
-    );
-
-    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-    const articleSectionContext = buildArticleSectionContextFromDb(
-      db,
-      payload.sectionId,
-      payload.focusSectionId
-    );
-    const operationId = createId('llmop');
-    createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
-    const beforeCommit = getGitHead(db.workspacePath);
-    const updatedSection = db.updateSectionMarkdown(payload.sectionId, nextMarkdown);
-
-    contextNodes.forEach((node) => {
-      db.createNodeEdge(node.id, payload.sectionId, 'revises', 'llm');
-    });
-    ensureKnowledgeSourceNodes(
-      db,
-      payload.focusSectionId ?? payload.sectionId,
-      payload.sectionId,
-      payload.retrievedSources ?? []
-    );
-    db.saveGenerationCitations(
-      payload.sectionId,
-      (payload.retrievedSources ?? []).map((source) => ({
-        publicRef: source.publicRef,
-        knowledgeItemId: source.itemId,
-        knowledgeChunkId: source.chunkId,
-        label: source.publicRef,
-        snippet: source.snippet,
-        score: source.score
-      }))
-    );
-
-    const timestamp = nowIso();
-    const operation: LlmOperationRecord = {
-      operationId,
-      type: payload.mode,
-      status: 'current',
-      createdAt: timestamp,
-      appliedAt: timestamp,
-      sectionId: payload.sectionId,
-      sectionPath: updatedSection.markdownPath,
-      beforeCommit,
-      afterCommit: null,
-      beforeSectionHash: section.markdownHash,
-      afterSectionHash: updatedSection.markdownHash,
-      userPrompt: payload.userPrompt,
-      resolvedPrompt: payload.resolvedPrompt || buildContextPrompt(
-        payload.userPrompt || editorLlmOperationLabel(payload.mode),
-        contextNodes,
-        articleSectionContext,
-        payload.retrievedSources ?? [],
-        true
-      ),
-      systemPrompt: payload.systemPrompt || articleSectionContext,
-      model: {
-        provider: settings.chat.provider,
-        baseURL: settings.chat.baseURL,
-        model: settings.chat.model
-      },
-      target: {
-        kind: targetKindForLlmEdit(payload.mode),
-        selectionStart: payload.targetStart,
-        selectionEnd: payload.targetEnd,
-        selectedText: beforeText,
-        prefixContext: payload.prefixContext,
-        suffixContext: payload.suffixContext
-      },
-      beforeText,
-      afterText: afterTextForLlmEdit(payload.mode, updatedSection.markdownContent, replacementText),
-      outputHash: hashMarkdown(generatedContent),
-      retainedCoverage: 1,
-      contextNodeIds: payload.contextNodeIds ?? [],
-      retrievedSources: payload.retrievedSources ?? []
-    };
-    db.upsertSectionLlmOperation(payload.sectionId, operation);
-    createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
-    const afterCommit = getGitHead(db.workspacePath);
-    db.upsertSectionLlmOperation(payload.sectionId, {
-      ...operation,
-      afterCommit
-    });
-    createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
-    return getState(payload.focusSectionId ?? payload.sectionId);
+    void payload;
+    throw new Error('Direct LLM edit application is disabled. Create and review a WritingPatch instead.');
   });
 }
 
@@ -1656,12 +1493,414 @@ function applyGeneratedSectionEdit(payload: ApplySectionLlmEditPayload) {
   return getState(payload.focusSectionId ?? payload.sectionId);
 }
 
+function createPatchFromRound(roundId: string): WritingPatchRecord {
+  const db = getActiveDb();
+  const existing = db.getWritingPatchForGenerationRound(roundId);
+  if (existing) {
+    return existing;
+  }
+  const round = db.getGenerationRound(roundId);
+  if (!round) {
+    throw new Error(`Generation round not found: ${roundId}`);
+  }
+  if (round.status !== 'done' || !round.content?.trim()) {
+    throw new Error('Only completed generation tasks can be converted into WritingPatch records.');
+  }
+  const session = db.getGenerationSession(round.sessionId);
+  if (!session) {
+    throw new Error(`Generation session not found: ${round.sessionId}`);
+  }
+  const applyPayload = parseGenerationApplyPayload(db.getGenerationRoundApplyPayload(round.id));
+  const section = db.getSection(applyPayload.sectionId);
+  if (!section) {
+    throw new Error(`Section not found: ${applyPayload.sectionId}`);
+  }
+
+  let proposal: LlmPatchProposal;
+  try {
+    proposal = parseLlmPatchProposal(round.content);
+  } catch (caught) {
+    const patch = buildWritingPatchFromProposal({
+      db,
+      round,
+      session,
+      applyPayload,
+      section,
+      proposal: {
+        afterText: '',
+        rationale: 'The model response could not be parsed as a WritingPatch proposal.',
+        warnings: [caught instanceof Error ? caught.message : String(caught)]
+      },
+      rawProposal: round.content,
+      parseFailed: true
+    });
+    const saved = db.createWritingPatch(patch);
+    db.updateGenerationRound(round.id, { status: 'patch_created' });
+    return saved;
+  }
+
+  const patch = buildWritingPatchFromProposal({
+    db,
+    round,
+    session,
+    applyPayload,
+    section,
+    proposal,
+    rawProposal: round.content,
+    parseFailed: false
+  });
+  const saved = db.createWritingPatch(patch);
+  db.updateGenerationRound(round.id, { status: 'patch_created' });
+  return saved;
+}
+
+function buildWritingPatchFromProposal(input: {
+  db: ReturnType<typeof getActiveDb>;
+  round: GenerationRoundRecord;
+  session: GenerationSessionRecord;
+  applyPayload: GenerationApplyPayload;
+  section: SectionNodeRecord;
+  proposal: LlmPatchProposal;
+  rawProposal: string;
+  parseFailed: boolean;
+}): WritingPatch {
+  const { round, session, applyPayload, section, proposal } = input;
+  const timestamp = nowIso();
+  const beforeText = selectedTextForLlmEdit(
+    applyPayload.mode,
+    applyPayload.baseMarkdown,
+    applyPayload.targetStart,
+    applyPayload.targetEnd
+  );
+  const kind = writingPatchKindForApplyPayload(applyPayload);
+  const afterText = proposal.afterText;
+  const operation: WritingPatch['operation'] = kind === 'replace_selection'
+    ? { type: 'replace', before: beforeText, after: afterText }
+    : kind === 'insert_at_cursor'
+      ? { type: 'insert', text: afterText, position: 'at' }
+      : {
+          type: 'create_candidate',
+          candidateTitle: `${generationModeLabel(round.mode)} · ${section.title}`,
+          content: afterText,
+          relationToSource: 'revises'
+        };
+  const patch: WritingPatch = {
+    id: createId('wpatch'),
+    kind,
+    status: input.parseFailed ? 'parse_failed' : 'proposed',
+    origin: {
+      source: 'llm',
+      generationSessionId: session.id,
+      generationRoundId: round.id,
+      model: round.modelProvider && round.modelName
+        ? {
+            provider: round.modelProvider,
+            modelName: round.modelName,
+            endpointType: round.modelProvider === 'anthropic-compatible' ? 'anthropic-compatible' : 'openai-compatible'
+          }
+        : undefined,
+      promptHash: hashText(round.resolvedPrompt ?? round.prompt),
+      createdAt: timestamp
+    },
+    target: {
+      workspaceId: input.db.workspacePath,
+      sectionId: applyPayload.sectionId,
+      targetMode: kind === 'create_content_candidate' ? 'new_content_node' : 'section_markdown_file',
+      location: kind === 'replace_selection'
+        ? {
+            type: 'text_range',
+            startOffset: applyPayload.targetStart,
+            endOffset: applyPayload.targetEnd,
+            selectedText: beforeText
+          }
+        : kind === 'insert_at_cursor'
+          ? {
+              type: 'insertion',
+              mode: applyPayload.insertionMode === 'section_end' ? 'section_end' : 'cursor',
+              offset: applyPayload.targetStart,
+              insertionAffinity: 'after'
+            }
+          : {
+              type: 'section',
+              sectionHash: section.markdownHash
+            }
+    },
+    anchors: {
+      baseSectionHash: section.markdownHash,
+      beforeText,
+      beforeTextHash: hashText(beforeText),
+      prefixContext: applyPayload.prefixContext,
+      suffixContext: applyPayload.suffixContext,
+      anchorStrategy: kind === 'create_content_candidate' ? 'candidate_only' : 'hash_and_range'
+    },
+    operation,
+    metadata: {
+      title: `${generationModeLabel(round.mode)} patch`,
+      userGoal: applyPayload.userPrompt,
+      actionType: round.mode === 'rewrite_section' || round.mode === 'rewrite_selection' ? 'revise' : 'draft',
+      rationale: proposal.rationale,
+      warnings: proposal.warnings,
+      changedClaims: proposal.changedClaims,
+      preservedClaims: proposal.preservedClaims,
+      affectedCitations: proposal.affectedCitations,
+      rawProposal: input.rawProposal,
+      provenance: {
+        generationRoundId: round.id,
+        retrievedChunkIds: round.retrievedSources.map((source) => source.chunkId),
+        citationMarkers: scanCitations(afterText)
+      }
+    },
+    review: { decision: 'pending' }
+  };
+  patch.validation = input.parseFailed
+    ? {
+        ok: false,
+        riskLevel: 'blocked',
+        status: 'blocked',
+        errors: [{
+          code: 'OUTPUT_PARSE_FAILED',
+          severity: 'blocking',
+          message: 'Model output could not be parsed as the required WritingPatch JSON proposal.',
+          target: { sectionId: applyPayload.sectionId }
+        }],
+        warnings: [],
+        checks: [{
+          checkKind: 'custom',
+          passed: false,
+          severity: 'blocking',
+          message: 'Model output parse failed.'
+        }],
+        validatedAt: timestamp
+      }
+    : validateWritingPatch(patch, section);
+  const diffInput = beforeAfterForPatch(patch);
+  patch.diff = createPatchDiff(diffInput.before, diffInput.after);
+  patch.status = input.parseFailed
+    ? 'parse_failed'
+    : patch.validation.ok
+      ? 'needs_review'
+      : 'blocked';
+  patch.metadata.riskLevel = patch.validation.riskLevel;
+  return patch;
+}
+
+function writingPatchKindForApplyPayload(payload: GenerationApplyPayload): WritingPatch['kind'] {
+  if (payload.mode === 'rewrite_section') {
+    return 'create_content_candidate';
+  }
+  if (payload.mode === 'rewrite_selection') {
+    return 'replace_selection';
+  }
+  return 'insert_at_cursor';
+}
+
+function acceptWritingPatch(patchId: string) {
+  const db = getActiveDb();
+  const record = db.getWritingPatch(patchId);
+  if (!record) {
+    throw new Error(`WritingPatch not found: ${patchId}`);
+  }
+  const patch = record.patch;
+  if (patch.kind === 'create_content_candidate' || patch.kind === 'replace_section') {
+    throw new Error('This patch kind cannot be directly accepted in the MVP. Save it as a candidate instead.');
+  }
+  const section = db.getSection(patch.target.sectionId);
+  const validation = validateWritingPatch(patch, section);
+  if (!validation.ok || !section) {
+    db.updateWritingPatch({
+      ...patch,
+      status: 'blocked',
+      validation
+    });
+    throw new Error(validation.errors[0]?.message ?? 'WritingPatch validation failed.');
+  }
+
+  const previousSectionHash = section.markdownHash;
+  const nextMarkdown = markdownAfterWritingPatch(patch, section.markdownContent);
+  const updatedSection = db.updateSectionMarkdown(section.id, nextMarkdown);
+  const application: PatchApplicationResult = {
+    applied: true,
+    appliedAt: nowIso(),
+    appliedBy: 'user',
+    sectionId: section.id,
+    previousSectionHash,
+    newSectionHash: updatedSection.markdownHash,
+    gitStatus: 'skipped'
+  };
+  const appliedPatch = db.updateWritingPatch({
+    ...patch,
+    status: 'applied',
+    validation,
+    diff: createPatchDiff(beforeAfterForPatch(patch).before, beforeAfterForPatch(patch).after),
+    review: {
+      decision: 'accepted',
+      reviewedBy: 'user',
+      reviewedAt: nowIso()
+    },
+    application
+  }).patch;
+
+  persistPatchProvenance(db, appliedPatch, 'revises');
+  const gitResult = checkpointPatchApplication(db.workspacePath, appliedPatch);
+  db.updateWritingPatch({
+    ...appliedPatch,
+    application: {
+      ...application,
+      ...gitResult
+    }
+  });
+  if (patch.origin.generationRoundId) {
+    db.updateGenerationRound(patch.origin.generationRoundId, {
+      status: 'patch_accepted',
+      adoptedAt: nowIso()
+    });
+  }
+  return getState(section.id);
+}
+
+function rejectWritingPatch(patchId: string): WritingPatchRecord {
+  const db = getActiveDb();
+  const record = db.getWritingPatch(patchId);
+  if (!record) {
+    throw new Error(`WritingPatch not found: ${patchId}`);
+  }
+  const patch = record.patch;
+  const next = db.updateWritingPatch({
+    ...patch,
+    status: 'rejected',
+    review: {
+      decision: 'rejected',
+      reviewedBy: 'user',
+      reviewedAt: nowIso()
+    }
+  });
+  if (patch.origin.generationRoundId) {
+    db.updateGenerationRound(patch.origin.generationRoundId, { status: 'patch_rejected' });
+  }
+  return next;
+}
+
+function saveWritingPatchAsCandidate(patchId: string) {
+  const db = getActiveDb();
+  const record = db.getWritingPatch(patchId);
+  if (!record) {
+    throw new Error(`WritingPatch not found: ${patchId}`);
+  }
+  const patch = record.patch;
+  const section = db.getSection(patch.target.sectionId);
+  if (!section) {
+    throw new Error(`Section not found: ${patch.target.sectionId}`);
+  }
+  const candidateText = beforeAfterForPatch(patch).after.trim();
+  if (!candidateText) {
+    throw new Error('Cannot save an empty WritingPatch as a candidate.');
+  }
+  const created = db.createNode({
+    kind: 'content',
+    parentId: section.id,
+    title: patch.operation.type === 'create_candidate'
+      ? patch.operation.candidateTitle ?? patch.metadata.title ?? 'LLM candidate'
+      : patch.metadata.title ?? 'LLM candidate',
+    content: candidateText,
+    isLlm: true,
+    metadata: {
+      nodeRole: 'llm-candidate',
+      writingPatchId: patch.id,
+      generationRoundId: patch.origin.generationRoundId,
+      generationSessionId: patch.origin.generationSessionId,
+      prompt: patch.metadata.userGoal,
+      rationale: patch.metadata.rationale,
+      retrievedSources: patch.origin.generationRoundId
+        ? db.getGenerationRound(patch.origin.generationRoundId)?.retrievedSources ?? []
+        : []
+    }
+  });
+  if (created.kind === 'content') {
+    db.createNodeEdge(section.id, created.id, 'revises', 'llm');
+  }
+  persistPatchProvenance(db, patch, 'informs');
+  const application: PatchApplicationResult = {
+    applied: false,
+    appliedAt: nowIso(),
+    appliedBy: 'user',
+    sectionId: section.id,
+    previousSectionHash: section.markdownHash,
+    createdContentNodeId: created.id,
+    gitStatus: 'skipped'
+  };
+  db.updateWritingPatch({
+    ...patch,
+    status: 'saved_as_candidate',
+    review: {
+      decision: 'saved_as_candidate',
+      reviewedBy: 'user',
+      reviewedAt: nowIso()
+    },
+    application
+  });
+  if (patch.origin.generationRoundId) {
+    db.updateGenerationRound(patch.origin.generationRoundId, {
+      status: 'saved_as_candidate',
+      adoptedAt: nowIso()
+    });
+  }
+  return getState(section.id);
+}
+
+function persistPatchProvenance(
+  db: ReturnType<typeof getActiveDb>,
+  patch: WritingPatch,
+  contextRelationType: 'informs' | 'revises'
+): void {
+  const round = patch.origin.generationRoundId ? db.getGenerationRound(patch.origin.generationRoundId) : null;
+  if (!round) {
+    return;
+  }
+  const applyPayload = parseGenerationApplyPayload(db.getGenerationRoundApplyPayload(round.id));
+  const contextNodes = getSelectedContextNodes(db, applyPayload.contextNodeIds);
+  contextNodes.forEach((node) => {
+    db.createNodeEdge(node.id, patch.target.sectionId, contextRelationType, 'llm');
+  });
+  ensureKnowledgeSourceNodes(db, applyPayload.focusSectionId ?? patch.target.sectionId, patch.target.sectionId, round.retrievedSources);
+  db.saveGenerationCitations(
+    patch.target.sectionId,
+    round.retrievedSources.map((source) => ({
+      publicRef: source.publicRef,
+      knowledgeItemId: source.itemId,
+      knowledgeChunkId: source.chunkId,
+      label: source.publicRef,
+      snippet: source.snippet,
+      score: source.score
+    }))
+  );
+}
+
+function checkpointPatchApplication(
+  workspacePath: string,
+  patch: WritingPatch
+): Pick<PatchApplicationResult, 'gitStatus' | 'gitCommitHash' | 'gitError'> {
+  try {
+    const checkpoint = createGitCheckpoint(
+      workspacePath,
+      `Apply WritingPatch ${patch.id}: ${patch.kind} on section ${patch.target.sectionId}`
+    );
+    return checkpoint
+      ? { gitStatus: 'created', gitCommitHash: checkpoint.hash }
+      : { gitStatus: 'skipped' };
+  } catch (caught) {
+    return {
+      gitStatus: 'failed',
+      gitError: caught instanceof Error ? caught.message : String(caught)
+    };
+  }
+}
+
 function parseGenerationApplyPayload(raw: string | null): GenerationApplyPayload {
   if (!raw) {
     throw new Error('Generation task is missing adoption metadata.');
   }
   const parsed = JSON.parse(raw) as GenerationApplyPayload;
-  if (!parsed || (parsed.kind !== 'append' && parsed.kind !== 'edit')) {
+  if (!parsed || parsed.kind !== 'edit') {
     throw new Error('Generation task adoption metadata is invalid.');
   }
   return parsed;

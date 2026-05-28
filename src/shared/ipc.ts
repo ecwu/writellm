@@ -1,6 +1,7 @@
 import type {
   ApplySectionLlmEditPayload,
   AdoptGenerationPayload,
+  CreatePatchFromGenerationRoundPayload,
   CreateKnowledgeItemPayload,
   CreateGenerationTaskPayload,
   CreateGenerationTaskResult,
@@ -30,7 +31,8 @@ import type {
   UpdateLlmSettingsPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
-  WorkspaceSummary
+  WorkspaceSummary,
+  WritingPatchRecord
 } from './types.js';
 
 export const ipcChannels = {
@@ -76,6 +78,12 @@ export const ipcChannels = {
   adoptGenerationTask: 'writellm:adoptGenerationTask',
   discardGenerationTask: 'writellm:discardGenerationTask',
   retryGenerationTask: 'writellm:retryGenerationTask',
+  createPatchFromGenerationRound: 'writellm:createPatchFromGenerationRound',
+  getWritingPatch: 'writellm:getWritingPatch',
+  listWritingPatchesForSection: 'writellm:listWritingPatchesForSection',
+  acceptWritingPatch: 'writellm:acceptWritingPatch',
+  rejectWritingPatch: 'writellm:rejectWritingPatch',
+  saveWritingPatchAsCandidate: 'writellm:saveWritingPatchAsCandidate',
   listGenerationSessions: 'writellm:listGenerationSessions',
   listGenerationRounds: 'writellm:listGenerationRounds',
   getGenerationRound: 'writellm:getGenerationRound',
@@ -132,9 +140,15 @@ export type WriteLLMIpc = {
   getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
   createGenerationTask(payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult>;
   cancelGenerationTask(roundId: string): Promise<GenerationRoundRecord>;
-  adoptGenerationTask(payload: AdoptGenerationPayload): Promise<FocusedWorkspaceState>;
+  adoptGenerationTask(payload: AdoptGenerationPayload): Promise<WritingPatchRecord>;
   discardGenerationTask(roundId: string): Promise<void>;
   retryGenerationTask(roundId: string): Promise<CreateGenerationTaskResult>;
+  createPatchFromGenerationRound(payload: CreatePatchFromGenerationRoundPayload): Promise<WritingPatchRecord>;
+  getWritingPatch(patchId: string): Promise<WritingPatchRecord | null>;
+  listWritingPatchesForSection(sectionId: string): Promise<WritingPatchRecord[]>;
+  acceptWritingPatch(patchId: string): Promise<FocusedWorkspaceState>;
+  rejectWritingPatch(patchId: string): Promise<WritingPatchRecord>;
+  saveWritingPatchAsCandidate(patchId: string): Promise<FocusedWorkspaceState>;
   listGenerationSessions(sectionId?: string | null): Promise<GenerationSessionRecord[]>;
   listGenerationRounds(sessionId: string): Promise<GenerationRoundRecord[]>;
   getGenerationRound(roundId: string): Promise<GenerationRoundRecord | null>;

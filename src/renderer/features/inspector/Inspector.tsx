@@ -25,7 +25,8 @@ import type {
   GenerationSessionRecord,
   LlmOperationRecord,
   RetrievedKnowledgeSource,
-  SectionNodeRecord
+  SectionNodeRecord,
+  WritingPatchRecord
 } from '../../../shared/types';
 
 type InspectorProps = {
@@ -69,6 +70,7 @@ export function Inspector(props: InspectorProps) {
   const [roundsBySession, setRoundsBySession] = useState<Record<string, GenerationRoundRecord[]>>({});
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeRound, setActiveRound] = useState<GenerationRoundRecord | null>(null);
+  const [activePatch, setActivePatch] = useState<WritingPatchRecord | null>(null);
 
   useEffect(() => {
     setContentDraft(selectedContent?.content ?? '');
@@ -79,6 +81,7 @@ export function Inspector(props: InspectorProps) {
     setInspectorView('metadata');
     setActiveSessionId(null);
     setActiveRound(null);
+    setActivePatch(null);
   }, [
     selectedContent?.id,
     selectedContent?.title,
@@ -130,6 +133,12 @@ export function Inspector(props: InspectorProps) {
       const next = await getApi().getGenerationRound(activeRound!.id);
       if (!canceled) {
         setActiveRound(next);
+        if (next?.status === 'patch_created' || next?.status === 'patch_accepted' || next?.status === 'saved_as_candidate' || next?.status === 'patch_rejected') {
+          const patches = await getApi().listWritingPatchesForSection(selectedSection!.id);
+          if (!canceled) {
+            setActivePatch(patches.find((patch) => patch.generationRoundId === next.id) ?? null);
+          }
+        }
       }
     }
     void pollRound();
@@ -147,6 +156,7 @@ export function Inspector(props: InspectorProps) {
     setActiveSessionId(generationTarget.sessionId);
     void getApi().getGenerationRound(generationTarget.roundId).then((round) => {
       setActiveRound(round);
+      setActivePatch(null);
       setInspectorView('sessionDetail');
       onGenerationTargetConsumed();
     });
@@ -237,16 +247,58 @@ export function Inspector(props: InspectorProps) {
     setRoundsBySession((current) => ({ ...current, [sessionId]: rounds }));
     setActiveSessionId(sessionId);
     setActiveRound(rounds[rounds.length - 1] ?? null);
+    setActivePatch(null);
     setInspectorView('sessionDetail');
   }
 
   async function adoptRound(roundId: string) {
     try {
-      const next = await getApi().adoptGenerationTask({ roundId });
-      onState(next);
+      const patch = await getApi().adoptGenerationTask({ roundId });
+      setActivePatch(patch);
       const refreshed = await getApi().getGenerationRound(roundId);
       setActiveRound(refreshed);
-      onStatus('Generation adopted.');
+      onStatus('Patch ready for review.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function acceptPatch(patchId: string) {
+    try {
+      const next = await getApi().acceptWritingPatch(patchId);
+      onState(next);
+      setActivePatch(await getApi().getWritingPatch(patchId));
+      if (activeRound) {
+        setActiveRound(await getApi().getGenerationRound(activeRound.id));
+      }
+      onStatus('Patch applied.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+      setActivePatch(await getApi().getWritingPatch(patchId));
+    }
+  }
+
+  async function rejectPatch(patchId: string) {
+    try {
+      setActivePatch(await getApi().rejectWritingPatch(patchId));
+      if (activeRound) {
+        setActiveRound(await getApi().getGenerationRound(activeRound.id));
+      }
+      onStatus('Patch rejected.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function savePatchAsCandidate(patchId: string) {
+    try {
+      const next = await getApi().saveWritingPatchAsCandidate(patchId);
+      onState(next);
+      setActivePatch(await getApi().getWritingPatch(patchId));
+      if (activeRound) {
+        setActiveRound(await getApi().getGenerationRound(activeRound.id));
+      }
+      onStatus('Patch saved as candidate.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -341,12 +393,20 @@ export function Inspector(props: InspectorProps) {
               ) : null}
               <div className="generation-prompt">
                 <span>Output</span>
-                <CitationHighlight text={activeRound.content || ''} />
+                <CitationHighlight text={activePatch ? patchAfterText(activePatch) : activeRound.content || ''} />
               </div>
+              {activePatch ? (
+                <PatchReviewPanel
+                  patch={activePatch}
+                  onAccept={acceptPatch}
+                  onReject={rejectPatch}
+                  onSaveCandidate={savePatchAsCandidate}
+                />
+              ) : null}
               {activeRound.errorMessage ? <p className="inspector-round-error">{activeRound.errorMessage}</p> : null}
               <div className="button-row">
                 {activeRound.status === 'done' && !activeRound.adoptedAt ? (
-                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Adopt</Button>
+                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Review Patch</Button>
                 ) : null}
                 {activeRound.status === 'pending' || activeRound.status === 'processing' ? (
                   <Button variant="destructive" size="sm" onClick={() => void cancelRound(activeRound.id)}>Cancel</Button>
@@ -541,6 +601,85 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
       <p>{value}</p>
     </div>
   );
+}
+
+function PatchReviewPanel({
+  patch,
+  onAccept,
+  onReject,
+  onSaveCandidate
+}: {
+  patch: WritingPatchRecord;
+  onAccept: (patchId: string) => void;
+  onReject: (patchId: string) => void;
+  onSaveCandidate: (patchId: string) => void;
+}) {
+  const writingPatch = patch.patch;
+  const warnings = writingPatch.validation?.warnings ?? [];
+  const errors = writingPatch.validation?.errors ?? [];
+  const canAccept = writingPatch.kind !== 'create_content_candidate' &&
+    writingPatch.kind !== 'replace_section' &&
+    writingPatch.status !== 'applied' &&
+    writingPatch.status !== 'rejected' &&
+    writingPatch.status !== 'saved_as_candidate' &&
+    writingPatch.validation?.ok !== false;
+  const canSaveCandidate = writingPatch.status !== 'saved_as_candidate' && writingPatch.status !== 'rejected';
+  return (
+    <div className="patch-review-panel">
+      <div className="patch-review-header">
+        <div>
+          <span>WritingPatch</span>
+          <p>{writingPatch.metadata.rationale || 'No rationale provided.'}</p>
+        </div>
+        <StatusBadge status={writingPatch.validation?.riskLevel ?? patch.riskLevel ?? 'unknown'} />
+      </div>
+      <div className="patch-review-diff">
+        <div>
+          <span>Before</span>
+          <pre>{writingPatch.diff?.before || '(empty)'}</pre>
+        </div>
+        <div>
+          <span>After</span>
+          <pre>{writingPatch.diff?.after || '(empty)'}</pre>
+        </div>
+      </div>
+      {warnings.length > 0 || errors.length > 0 ? (
+        <div className="patch-review-issues">
+          {[...errors, ...warnings].map((issue, index) => (
+            <p key={`${issue.code}:${index}`}>{issue.severity}: {issue.message}</p>
+          ))}
+        </div>
+      ) : null}
+      {writingPatch.diff ? (
+        <div className="patch-review-stats">
+          <span>+{writingPatch.diff.stats.wordsAdded} words</span>
+          <span>-{writingPatch.diff.stats.wordsRemoved} words</span>
+          <span>{writingPatch.diff.stats.citationsRemoved} citations removed</span>
+          <span>{writingPatch.diff.stats.numbersChanged} numbers changed</span>
+        </div>
+      ) : null}
+      <div className="button-row">
+        {canAccept ? <Button size="sm" onClick={() => onAccept(patch.id)}>Accept</Button> : null}
+        {canSaveCandidate ? (
+          <Button variant="outline" size="sm" onClick={() => onSaveCandidate(patch.id)}>Save as Candidate</Button>
+        ) : null}
+        {writingPatch.status !== 'rejected' && writingPatch.status !== 'applied' ? (
+          <Button variant="outline" size="sm" onClick={() => onReject(patch.id)}>Reject</Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function patchAfterText(patch: WritingPatchRecord): string {
+  const operation = patch.patch.operation;
+  if (operation.type === 'replace') {
+    return operation.after;
+  }
+  if (operation.type === 'insert') {
+    return operation.text;
+  }
+  return operation.content;
 }
 
 function getGenerationSources(node: ContentNodeRecord | null): RetrievedKnowledgeSource[] {

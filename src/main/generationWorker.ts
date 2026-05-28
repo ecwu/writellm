@@ -1,12 +1,14 @@
 import type { GenerateLlmPayload } from '../shared/types.js';
 import type { WriteLLMDatabase } from './database.js';
-import { streamLlmText } from './llmRunner.js';
+import { generateLlmObject, streamLlmText } from './llmRunner.js';
+import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { readLlmSettings } from './llmSettings.js';
 
 type GenerationJobData = {
   roundId: string;
   prompt: string;
   systemPrompt?: string;
+  outputMode?: 'text' | 'patchProposal';
 };
 
 const FLUSH_INTERVAL_MS = 500;
@@ -40,6 +42,22 @@ export async function processLlmGenerationJob(
   let unflushedChars = 0;
 
   try {
+    if (data.outputMode === 'patchProposal') {
+      const proposal = await generateLlmObject(settings.chat, {
+        prompt: data.prompt,
+        systemPrompt: data.systemPrompt,
+        schema: llmPatchProposalSchema
+      });
+      db.updateGenerationRound(round.id, {
+        status: 'done',
+        content: JSON.stringify(proposal, null, 2),
+        modelProvider: settings.chat.provider,
+        modelName: settings.chat.model,
+        errorMessage: null
+      });
+      return;
+    }
+
     for await (const chunk of streamLlmText(settings.chat, generationPayload)) {
       content += chunk;
       unflushedChars += chunk.length;
@@ -90,6 +108,7 @@ function parseGenerationJobData(rawData: string): GenerationJobData {
   return {
     roundId: parsed.roundId,
     prompt: parsed.prompt,
-    systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : undefined
+    systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : undefined,
+    outputMode: parsed.outputMode === 'patchProposal' ? 'patchProposal' : 'text'
   };
 }

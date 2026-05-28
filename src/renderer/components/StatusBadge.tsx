@@ -7,6 +7,10 @@ type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'active';
 const statusToneByValue: Record<string, StatusTone> = {
   indexed: 'success',
   done: 'success',
+  applied: 'success',
+  patch_accepted: 'success',
+  saved_as_candidate: 'success',
+  low: 'success',
   saved: 'success',
   root: 'active',
   saving: 'warning',
@@ -16,8 +20,14 @@ const statusToneByValue: Record<string, StatusTone> = {
   downloading: 'warning',
   indexing: 'warning',
   running: 'warning',
+  patch_created: 'warning',
+  medium: 'warning',
+  high: 'warning',
   error: 'danger',
-  failed: 'danger'
+  failed: 'danger',
+  blocked: 'danger',
+  patch_rejected: 'danger',
+  rejected: 'danger'
 };
 
 const toneClassName: Record<StatusTone, string> = {

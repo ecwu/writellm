@@ -610,7 +610,7 @@ export function useWriteLLMApp() {
       setSelection({ type: 'node', id: llmDraft.targetSectionId! });
       setLlmDraft(emptyLlmDraft);
       return next;
-    }, 'LLM generation applied.');
+    }, 'LLM candidate saved.');
   }
 
   async function saveLlmFlowGeneration(payload: {
@@ -633,7 +633,7 @@ export function useWriteLLMApp() {
       setSelection({ type: 'node', id: payload.sectionId });
       setLlmDraft(emptyLlmDraft);
       return next;
-    }, 'LLM generation applied.');
+    }, 'LLM candidate saved.');
   }
 
   async function createKnowledgeItem(title: string, content: string) {

@@ -125,6 +125,24 @@ export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
   index('idx_generation_rounds_status').on(table.status, table.updatedAt)
 ]);
 
+export const writingPatches = sqliteTable('writing_patches', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull(),
+  kind: text('kind').notNull(),
+  sectionId: text('section_id').notNull(),
+  contentNodeId: text('content_node_id'),
+  generationSessionId: text('generation_session_id'),
+  generationRoundId: text('generation_round_id'),
+  patchJson: text('patch_json').notNull(),
+  riskLevel: text('risk_level'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+}, (table) => [
+  index('idx_writing_patches_section').on(table.sectionId, table.updatedAt),
+  index('idx_writing_patches_generation_round').on(table.generationRoundId),
+  index('idx_writing_patches_status').on(table.status, table.updatedAt)
+]);
+
 export const plainjobJobs = sqliteTable('plainjob_jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   type: text('type').notNull(),
@@ -159,6 +177,7 @@ export const schema = {
   generationCitations,
   llmGenerationSessions,
   llmGenerationRounds,
+  writingPatches,
   plainjobJobs,
   plainjobScheduledJobs
 };
@@ -171,5 +190,6 @@ export type KnowledgeChunkRow = typeof knowledgeChunks.$inferSelect;
 export type KnowledgeCitationRow = typeof generationCitations.$inferSelect;
 export type LlmGenerationSessionRow = typeof llmGenerationSessions.$inferSelect;
 export type LlmGenerationRoundRow = typeof llmGenerationRounds.$inferSelect;
+export type WritingPatchRow = typeof writingPatches.$inferSelect;
 export type PlainjobJobRow = typeof plainjobJobs.$inferSelect;
 export type PlainjobScheduledJobRow = typeof plainjobScheduledJobs.$inferSelect;

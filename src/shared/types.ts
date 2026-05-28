@@ -561,7 +561,16 @@ export type GenerateLlmPayload = {
 
 export type GenerationMode = 'append' | 'rewrite_section' | 'rewrite_selection' | 'continue';
 
-export type GenerationRoundStatus = 'pending' | 'processing' | 'done' | 'canceled' | 'error';
+export type GenerationRoundStatus =
+  | 'pending'
+  | 'processing'
+  | 'done'
+  | 'canceled'
+  | 'error'
+  | 'patch_created'
+  | 'patch_accepted'
+  | 'patch_rejected'
+  | 'saved_as_candidate';
 
 export type GenerationSessionRecord = {
   id: string;
@@ -589,6 +598,286 @@ export type GenerationRoundRecord = {
   createdAt: string;
   updatedAt: string;
   adoptedAt: string | null;
+};
+
+export type WritingPatchStatus =
+  | 'proposed'
+  | 'parse_failed'
+  | 'validated'
+  | 'validation_failed'
+  | 'needs_review'
+  | 'blocked'
+  | 'accepted'
+  | 'rejected'
+  | 'saved_as_candidate'
+  | 'applied'
+  | 'rolled_back';
+
+export type WritingPatchKind =
+  | 'replace_selection'
+  | 'insert_at_cursor'
+  | 'create_content_candidate'
+  | 'replace_section';
+
+export type PatchRiskLevel = 'low' | 'medium' | 'high' | 'blocked';
+
+export type PatchOrigin = {
+  source: 'llm' | 'user' | 'system' | 'import' | 'workflow';
+  generationSessionId?: string;
+  generationRoundId?: string;
+  revisionTaskId?: string;
+  actionId?: string;
+  model?: {
+    provider: string;
+    modelName: string;
+    endpointType?: 'openai-compatible' | 'anthropic-compatible' | 'local' | 'unknown';
+  };
+  promptHash?: string;
+  contextPackId?: string;
+  contextHash?: string;
+  createdAt: string;
+};
+
+export type TextRangeTarget = {
+  type: 'text_range';
+  startOffset: number;
+  endOffset: number;
+  selectedText: string;
+};
+
+export type InsertionTarget = {
+  type: 'insertion';
+  mode: 'cursor' | 'section_end' | 'after_selection';
+  offset: number;
+  insertionAffinity?: 'before' | 'after';
+};
+
+export type SectionTarget = {
+  type: 'section';
+  sectionHash: string;
+};
+
+export type PatchTarget = {
+  workspaceId: string;
+  sectionId: string;
+  contentNodeId?: string;
+  targetMode: 'active_content' | 'specific_content_node' | 'section_markdown_file' | 'new_content_node';
+  location: TextRangeTarget | InsertionTarget | SectionTarget;
+};
+
+export type PatchAnchors = {
+  baseSectionHash: string;
+  baseContentHash?: string;
+  beforeText?: string;
+  beforeTextHash?: string;
+  prefixContext?: string;
+  suffixContext?: string;
+  anchorStrategy: 'hash_and_range' | 'section_replace' | 'candidate_only';
+};
+
+export type ReplaceOperation = {
+  type: 'replace';
+  before: string;
+  after: string;
+  preserveTrailingNewline?: boolean;
+};
+
+export type InsertOperation = {
+  type: 'insert';
+  text: string;
+  position: 'before' | 'after' | 'at';
+};
+
+export type CreateCandidateOperation = {
+  type: 'create_candidate';
+  candidateTitle?: string;
+  content: string;
+  relationToSource?: 'generates' | 'revises' | 'informs' | 'related-to';
+};
+
+export type PatchOperation = ReplaceOperation | InsertOperation | CreateCandidateOperation;
+
+export type PatchConstraint = {
+  type:
+    | 'preserve_claims'
+    | 'preserve_citations'
+    | 'preserve_numbers'
+    | 'preserve_length'
+    | 'no_new_claims'
+    | 'no_new_citations'
+    | 'style_only'
+    | 'target_word_count'
+    | 'terminology';
+  value?: string | number | boolean | string[];
+};
+
+export type ClaimChange = {
+  claimText: string;
+  changeType: 'preserved' | 'added' | 'removed' | 'weakened' | 'strengthened' | 'rephrased' | 'unknown';
+  before?: string;
+  after?: string;
+  requiresReview: boolean;
+};
+
+export type CitationChange = {
+  citation: string;
+  changeType: 'preserved' | 'added' | 'removed' | 'moved' | 'modified' | 'unknown';
+  requiresReview: boolean;
+};
+
+export type PatchMetadata = {
+  title?: string;
+  userGoal?: string;
+  actionType?: 'draft' | 'revise' | 'compress' | 'expand' | 'polish' | 'translate' | 'restructure' | 'manual';
+  rationale?: string;
+  expectedEffect?: string;
+  constraints?: PatchConstraint[];
+  changedClaims?: ClaimChange[];
+  preservedClaims?: string[];
+  affectedCitations?: CitationChange[];
+  riskLevel?: PatchRiskLevel;
+  tags?: string[];
+  warnings?: string[];
+  rawProposal?: string;
+  provenance?: {
+    generationRoundId?: string;
+    retrievedChunkIds?: string[];
+    citationMarkers?: string[];
+  };
+};
+
+export type PatchValidationCode =
+  | 'TARGET_SECTION_NOT_FOUND'
+  | 'TARGET_CONTENT_NOT_FOUND'
+  | 'BASE_SECTION_HASH_MISMATCH'
+  | 'RANGE_OUT_OF_BOUNDS'
+  | 'SELECTED_TEXT_MISMATCH'
+  | 'EMPTY_AFTER_TEXT'
+  | 'SUSPICIOUSLY_SHORT_OUTPUT'
+  | 'SUSPICIOUSLY_LONG_OUTPUT'
+  | 'CITATION_REMOVED'
+  | 'CITATION_MODIFIED'
+  | 'NUMBER_CHANGED'
+  | 'MARKDOWN_BROKEN'
+  | 'LATEX_BROKEN'
+  | 'CLAIM_STRENGTH_INCREASED'
+  | 'OUTPUT_PARSE_FAILED'
+  | 'UNSUPPORTED_PATCH_KIND'
+  | 'UNKNOWN_RISK';
+
+export type PatchValidationIssue = {
+  code: PatchValidationCode;
+  severity: 'info' | 'warning' | 'error' | 'blocking';
+  message: string;
+  target?: {
+    sectionId?: string;
+    range?: {
+      startOffset: number;
+      endOffset: number;
+    };
+  };
+  suggestion?: string;
+};
+
+export type PatchCheckResult = {
+  checkKind: 'anchor' | 'length' | 'citation' | 'number' | 'markdown' | 'latex' | 'claim' | 'custom';
+  passed: boolean;
+  severity: 'info' | 'warning' | 'error' | 'blocking';
+  message: string;
+  details?: unknown;
+};
+
+export type PatchValidationResult = {
+  ok: boolean;
+  riskLevel: PatchRiskLevel;
+  status: 'valid' | 'valid_with_warnings' | 'blocked';
+  errors: PatchValidationIssue[];
+  warnings: PatchValidationIssue[];
+  checks: PatchCheckResult[];
+  validatedAt: string;
+};
+
+export type PatchDiff = {
+  diffKind: 'inline' | 'unified' | 'side_by_side';
+  before: string;
+  after: string;
+  unifiedDiff?: string;
+  stats: {
+    charsAdded: number;
+    charsRemoved: number;
+    wordsAdded: number;
+    wordsRemoved: number;
+    citationsAdded: number;
+    citationsRemoved: number;
+    numbersChanged: number;
+  };
+};
+
+export type PatchReview = {
+  decision: 'pending' | 'accepted' | 'rejected' | 'saved_as_candidate' | 'needs_revision';
+  reviewedBy?: 'user' | 'system';
+  reviewedAt?: string;
+  userNote?: string;
+  selectedWarningsAccepted?: string[];
+};
+
+export type PatchApplicationResult = {
+  applied: boolean;
+  appliedAt?: string;
+  appliedBy?: 'user' | 'system';
+  sectionId: string;
+  contentNodeId?: string;
+  previousSectionHash: string;
+  newSectionHash?: string;
+  previousContentHash?: string;
+  newContentHash?: string;
+  gitCommitHash?: string;
+  gitStatus?: 'created' | 'failed' | 'skipped';
+  gitError?: string;
+  createdContentNodeId?: string;
+  errors?: PatchValidationIssue[];
+};
+
+export type WritingPatch = {
+  id: string;
+  kind: WritingPatchKind;
+  status: WritingPatchStatus;
+  origin: PatchOrigin;
+  target: PatchTarget;
+  anchors: PatchAnchors;
+  operation: PatchOperation;
+  metadata: PatchMetadata;
+  validation?: PatchValidationResult;
+  diff?: PatchDiff;
+  review?: PatchReview;
+  application?: PatchApplicationResult;
+};
+
+export type WritingPatchRecord = {
+  id: string;
+  status: WritingPatchStatus;
+  kind: WritingPatchKind;
+  sectionId: string;
+  contentNodeId: string | null;
+  generationSessionId: string | null;
+  generationRoundId: string | null;
+  riskLevel: PatchRiskLevel | null;
+  patch: WritingPatch;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LlmPatchProposal = {
+  afterText: string;
+  rationale: string;
+  warnings?: string[];
+  changedClaims?: ClaimChange[];
+  preservedClaims?: string[];
+  affectedCitations?: CitationChange[];
+};
+
+export type CreatePatchFromGenerationRoundPayload = {
+  roundId: string;
 };
 
 export type CreateGenerationTaskPayload = {

@@ -15,6 +15,7 @@ import {
   nodes,
   plainjobJobs,
   schema,
+  writingPatches,
   type CanvasNodeLayoutRow,
   type KnowledgeChunkRow,
   type KnowledgeCitationRow,
@@ -23,7 +24,8 @@ import {
   type LlmGenerationSessionRow,
   type NodeEdgeRow,
   type NodeRow,
-  type PlainjobJobRow
+  type PlainjobJobRow,
+  type WritingPatchRow
 } from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
 import { citationRefsFromText } from '../shared/citations.js';
@@ -61,15 +63,20 @@ import type {
   NodeEdgeRecord,
   NodeRecord,
   NodeStats,
+  PatchRiskLevel,
   RetrievedKnowledgeSource,
   KnowledgeRetrievalTraceEvent,
   SectionNodeRecord,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
-  WorkspaceSummary
+  WorkspaceSummary,
+  WritingPatch,
+  WritingPatchKind,
+  WritingPatchRecord,
+  WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 export const LLM_GENERATION_TASK_TYPE = 'llm-generation';
@@ -968,6 +975,81 @@ export class WriteLLMDatabase {
     });
   }
 
+  createWritingPatch(patch: WritingPatch): WritingPatchRecord {
+    const timestamp = nowIso();
+    this.orm.insert(writingPatches).values({
+      id: patch.id,
+      status: patch.status,
+      kind: patch.kind,
+      sectionId: patch.target.sectionId,
+      contentNodeId: patch.target.contentNodeId ?? null,
+      generationSessionId: patch.origin.generationSessionId ?? null,
+      generationRoundId: patch.origin.generationRoundId ?? null,
+      patchJson: JSON.stringify(patch),
+      riskLevel: patch.validation?.riskLevel ?? patch.metadata.riskLevel ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }).run();
+    return this.getWritingPatch(patch.id)!;
+  }
+
+  upsertWritingPatch(patch: WritingPatch): WritingPatchRecord {
+    const existing = this.getWritingPatch(patch.id);
+    if (!existing) {
+      return this.createWritingPatch(patch);
+    }
+    return this.updateWritingPatch(patch);
+  }
+
+  updateWritingPatch(patch: WritingPatch): WritingPatchRecord {
+    this.orm
+      .update(writingPatches)
+      .set({
+        status: patch.status,
+        kind: patch.kind,
+        sectionId: patch.target.sectionId,
+        contentNodeId: patch.target.contentNodeId ?? null,
+        generationSessionId: patch.origin.generationSessionId ?? null,
+        generationRoundId: patch.origin.generationRoundId ?? null,
+        patchJson: JSON.stringify(patch),
+        riskLevel: patch.validation?.riskLevel ?? patch.metadata.riskLevel ?? null,
+        updatedAt: nowIso()
+      })
+      .where(eq(writingPatches.id, patch.id))
+      .run();
+    return this.getWritingPatch(patch.id)!;
+  }
+
+  getWritingPatch(patchId: string): WritingPatchRecord | null {
+    const row = this.orm
+      .select()
+      .from(writingPatches)
+      .where(eq(writingPatches.id, patchId))
+      .get();
+    return row ? mapWritingPatch(row) : null;
+  }
+
+  getWritingPatchForGenerationRound(roundId: string): WritingPatchRecord | null {
+    const row = this.orm
+      .select()
+      .from(writingPatches)
+      .where(eq(writingPatches.generationRoundId, roundId))
+      .orderBy(desc(writingPatches.updatedAt))
+      .limit(1)
+      .get();
+    return row ? mapWritingPatch(row) : null;
+  }
+
+  listWritingPatchesForSection(sectionId: string): WritingPatchRecord[] {
+    return this.orm
+      .select()
+      .from(writingPatches)
+      .where(eq(writingPatches.sectionId, sectionId))
+      .orderBy(desc(writingPatches.updatedAt))
+      .all()
+      .map(mapWritingPatch);
+  }
+
   enqueueGenerationJob(roundId: string, data: Record<string, unknown>): { jobId: number } {
     const now = Date.now();
     const result = this.orm.insert(plainjobJobs).values({
@@ -1633,6 +1715,29 @@ export class WriteLLMDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_generation_sessions_updated
       ON llm_generation_sessions(updated_at);
+
+      CREATE TABLE IF NOT EXISTS writing_patches (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        section_id TEXT NOT NULL,
+        content_node_id TEXT,
+        generation_session_id TEXT,
+        generation_round_id TEXT,
+        patch_json TEXT NOT NULL,
+        risk_level TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_writing_patches_section
+      ON writing_patches(section_id, updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_writing_patches_generation_round
+      ON writing_patches(generation_round_id);
+
+      CREATE INDEX IF NOT EXISTS idx_writing_patches_status
+      ON writing_patches(status, updated_at);
 
       CREATE TABLE IF NOT EXISTS plainjob_jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2462,6 +2567,23 @@ function mapKnowledgeCitation(row: KnowledgeCitationRow): KnowledgeCitationRecor
   };
 }
 
+function mapWritingPatch(row: WritingPatchRow): WritingPatchRecord {
+  const patch = JSON.parse(row.patchJson) as WritingPatch;
+  return {
+    id: row.id,
+    status: row.status as WritingPatchStatus,
+    kind: row.kind as WritingPatchKind,
+    sectionId: row.sectionId,
+    contentNodeId: row.contentNodeId,
+    generationSessionId: row.generationSessionId,
+    generationRoundId: row.generationRoundId,
+    riskLevel: row.riskLevel as PatchRiskLevel | null,
+    patch,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
 function mapGenerationSession(row: LlmGenerationSessionRow): GenerationSessionRecord {
   return {
     id: row.id,
@@ -2535,7 +2657,11 @@ function isGenerationRoundStatus(value: unknown): value is GenerationRoundStatus
     value === 'processing' ||
     value === 'done' ||
     value === 'canceled' ||
-    value === 'error';
+    value === 'error' ||
+    value === 'patch_created' ||
+    value === 'patch_accepted' ||
+    value === 'patch_rejected' ||
+    value === 'saved_as_candidate';
 }
 
 function isRetrievedKnowledgeSource(value: unknown): value is RetrievedKnowledgeSource {

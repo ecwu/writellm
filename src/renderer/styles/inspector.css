@@ -84,6 +84,71 @@
   white-space: pre-wrap;
 }
 
+.patch-review-panel {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.patch-review-header {
+  align-items: start;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.patch-review-header span,
+.patch-review-diff span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.patch-review-header p {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin: 0.15rem 0 0;
+}
+
+.patch-review-diff {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.patch-review-diff pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  margin: 0.25rem 0 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.55rem;
+  white-space: pre-wrap;
+}
+
+.patch-review-issues {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.patch-review-issues p,
+.patch-review-stats span {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  margin: 0;
+}
+
+.patch-review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+}
+
 .metadata-list {
   border: 0;
   border-top: 1px solid var(--border);
