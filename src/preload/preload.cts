@@ -122,7 +122,7 @@ const api: WriteLLMIpc = {
   getWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.getWritingPatch, patchId),
   listWritingPatchesForSection: (sectionId) =>
     ipcRenderer.invoke(ipcChannels.listWritingPatchesForSection, sectionId),
-  acceptWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.acceptWritingPatch, patchId),
+  acceptWritingPatch: (payload) => ipcRenderer.invoke(ipcChannels.acceptWritingPatch, payload),
   rejectWritingPatch: (patchId) => ipcRenderer.invoke(ipcChannels.rejectWritingPatch, patchId),
   saveWritingPatchAsCandidate: (patchId) =>
     ipcRenderer.invoke(ipcChannels.saveWritingPatchAsCandidate, patchId),

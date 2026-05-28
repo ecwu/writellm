@@ -1,6 +1,6 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, Output, streamText } from 'ai';
+import { generateText, streamText } from 'ai';
 import type { z } from 'zod';
 import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
 
@@ -20,7 +20,7 @@ function createModel(settings: ModelEndpointSettings) {
     name: 'openaiCompatible',
     baseURL: settings.baseURL,
     apiKey: settings.apiKey,
-    supportsStructuredOutputs: true
+    supportsStructuredOutputs: false
   });
   return openaiCompatible(settings.model);
 }
@@ -76,6 +76,43 @@ export async function generateLlmText(
   return result.text;
 }
 
+function extractJsonFromText(text: string): string {
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+  const jsonMatch = text.match(/(\{[\s\S]*\})/);
+  if (jsonMatch) {
+    return jsonMatch[1];
+  }
+  return text.trim();
+}
+
+type JsonSchemaType = string | { [key: string]: JsonSchemaType } | JsonSchemaType[];
+
+function zodSchemaToJson(schema: z.ZodTypeAny): JsonSchemaType {
+  const def = (schema as z.ZodTypeAny & { _def: Record<string, unknown> })._def;
+  switch (def.typeName) {
+    case 'ZodString': return 'string';
+    case 'ZodNumber': return 'number';
+    case 'ZodBoolean': return 'boolean';
+    case 'ZodArray': return [zodSchemaToJson(def.type as unknown as z.ZodTypeAny)];
+    case 'ZodObject': {
+      const shape = (def as Record<string, unknown>).shape as Record<string, z.ZodTypeAny>;
+      const result: Record<string, JsonSchemaType> = {};
+      for (const [key, value] of Object.entries(shape)) {
+        result[key] = zodSchemaToJson(value);
+      }
+      return result;
+    }
+    case 'ZodOptional': return zodSchemaToJson(def.innerType as unknown as z.ZodTypeAny);
+    case 'ZodEnum': return def.values as string[];
+    case 'ZodDefault': return zodSchemaToJson(def.type as unknown as z.ZodTypeAny);
+    case 'ZodNullable': return zodSchemaToJson(def.innerType as unknown as z.ZodTypeAny);
+    default: return 'string';
+  }
+}
+
 export async function generateLlmObject<TSchema extends z.ZodType>(
   settings: ModelEndpointSettings,
   payload: {
@@ -89,14 +126,17 @@ export async function generateLlmObject<TSchema extends z.ZodType>(
     throw new Error('LLM API key is required. Add it in Settings first.');
   }
 
+  const jsonInstruction = `\n\nYou must respond with ONLY a valid JSON object (no markdown fences, no commentary). The JSON must conform to this exact schema: ${payload.schema.description ?? JSON.stringify(zodSchemaToJson(payload.schema))}`;
+  const systemWithJson = (payload.systemPrompt ?? '') + jsonInstruction;
+
   const result = await generateText({
     model: createModel(settings),
-    system: payload.systemPrompt,
+    system: systemWithJson || undefined,
     prompt: payload.prompt,
-    output: Output.object({ schema: payload.schema }),
     abortSignal,
     maxRetries: 0
   });
 
-  return result.output as z.infer<TSchema>;
+  const rawJson = extractJsonFromText(result.text);
+  return payload.schema.parse(JSON.parse(rawJson)) as z.infer<TSchema>;
 }

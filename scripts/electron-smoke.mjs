@@ -130,6 +130,69 @@ try {
     throw new Error('Section Markdown DB/file sync failed.');
   }
 
+  const beforeHashMismatchPatch = makeSelectionPatch(updatedIntro, {
+    id: 'wpatch_smoke_before_hash_mismatch',
+    before: 'Hello',
+    after: 'Hi',
+    startOffset: 0,
+    endOffset: 5
+  });
+  beforeHashMismatchPatch.anchors.beforeTextHash = hashText('Different');
+  const beforeHashMismatchValidation = validateWritingPatch(beforeHashMismatchPatch, updatedIntro);
+  if (
+    beforeHashMismatchValidation.ok ||
+    !beforeHashMismatchValidation.errors.some((issue) => issue.code === 'BEFORE_TEXT_HASH_MISMATCH')
+  ) {
+    throw new Error('WritingPatch beforeTextHash mismatch was not blocked.');
+  }
+
+  const baseMismatchCurrent = db.updateSectionMarkdown(intro.id, `${updatedIntro.markdownContent}\nUnrelated user edit.\n`);
+  const baseMismatchValidation = validateWritingPatch(makeSelectionPatch(updatedIntro, {
+    id: 'wpatch_smoke_base_hash_mismatch',
+    before: 'Hello',
+    after: 'Hi',
+    startOffset: 0,
+    endOffset: 5
+  }), baseMismatchCurrent);
+  if (
+    baseMismatchValidation.ok ||
+    !baseMismatchValidation.errors.some((issue) => issue.code === 'BASE_SECTION_HASH_MISMATCH')
+  ) {
+    throw new Error('WritingPatch replacement was not blocked on base section hash mismatch.');
+  }
+
+  const sectionEndPatch = makeInsertPatch(updatedIntro, {
+    id: 'wpatch_smoke_section_end_insert',
+    text: 'Appended generated paragraph.',
+    mode: 'section_end',
+    offset: updatedIntro.markdownContent.length
+  });
+  const sectionEndValidation = validateWritingPatch(sectionEndPatch, baseMismatchCurrent);
+  const sectionEndMarkdown = markdownAfterWritingPatch(sectionEndPatch, baseMismatchCurrent.markdownContent);
+  if (
+    !sectionEndValidation.ok ||
+    !sectionEndValidation.warnings.some((issue) => issue.code === 'BASE_SECTION_HASH_MISMATCH') ||
+    !sectionEndMarkdown.endsWith('Unrelated user edit.\n\nAppended generated paragraph.')
+  ) {
+    throw new Error('Section-end WritingPatch insertion was not treated as a semantic append.');
+  }
+
+  const cursorPatch = makeInsertPatch(updatedIntro, {
+    id: 'wpatch_smoke_stale_cursor_insert',
+    text: 'Cursor insertion.',
+    mode: 'cursor',
+    offset: updatedIntro.markdownContent.length
+  });
+  const cursorValidation = validateWritingPatch(cursorPatch, baseMismatchCurrent);
+  if (
+    cursorValidation.ok ||
+    !cursorValidation.errors.some((issue) => issue.code === 'BASE_SECTION_HASH_MISMATCH')
+  ) {
+    throw new Error('Stale cursor WritingPatch insertion was not blocked.');
+  }
+
+  db.updateSectionMarkdown(intro.id, updatedIntro.markdownContent);
+
   const selectionPatch = makeSelectionPatch(updatedIntro, {
     id: 'wpatch_smoke_selection',
     before: 'Hello',
@@ -150,6 +213,49 @@ try {
   if (!patchedIntro?.markdownContent.startsWith('Hi **Markdown** world.')) {
     throw new Error('WritingPatch deterministic selection apply failed.');
   }
+  const riskyPatch = makeSelectionPatch(patchedIntro, {
+    id: 'wpatch_smoke_risky_patch',
+    before: 'Hi **Markdown** world.',
+    after: 'Short.',
+    startOffset: 0,
+    endOffset: 'Hi **Markdown** world.'.length
+  });
+  riskyPatch.operation.before = 'Hi **Markdown** world [a3f91c8.c1] used 13.33% in 89.07 s.';
+  riskyPatch.operation.after = 'Short.';
+  riskyPatch.target.location.selectedText = riskyPatch.operation.before;
+  riskyPatch.target.location.endOffset = riskyPatch.operation.before.length;
+  db.updateSectionMarkdown(intro.id, `${riskyPatch.operation.before}\n`);
+  const riskyIntro = db.getSection(intro.id);
+  const riskyValidation = validateWritingPatch({
+    ...riskyPatch,
+    anchors: {
+      ...riskyPatch.anchors,
+      baseSectionHash: riskyIntro.markdownHash,
+      beforeText: riskyPatch.operation.before,
+      beforeTextHash: hashText(riskyPatch.operation.before)
+    }
+  }, riskyIntro);
+  if (
+    !riskyValidation.ok ||
+    riskyValidation.riskLevel !== 'high' ||
+    !riskyValidation.warnings.some((issue) => issue.code === 'CITATION_REMOVED') ||
+    !riskyValidation.warnings.some((issue) => issue.code === 'NUMBER_CHANGED') ||
+    !riskyValidation.warnings.some((issue) => issue.code === 'SUSPICIOUSLY_SHORT_OUTPUT')
+  ) {
+    throw new Error('WritingPatch high-risk citation, number, and shortening checks failed.');
+  }
+  const emptyPatch = makeSelectionPatch(riskyIntro, {
+    id: 'wpatch_smoke_empty_patch',
+    before: riskyPatch.operation.before,
+    after: '   ',
+    startOffset: 0,
+    endOffset: riskyPatch.operation.before.length
+  });
+  const emptyValidation = validateWritingPatch(emptyPatch, riskyIntro);
+  if (emptyValidation.ok || !emptyValidation.errors.some((issue) => issue.code === 'EMPTY_AFTER_TEXT')) {
+    throw new Error('Empty WritingPatch replacement was not blocked.');
+  }
+  db.updateSectionMarkdown(intro.id, patchedIntro.markdownContent);
   const stalePatch = makeSelectionPatch(updatedIntro, {
     id: 'wpatch_smoke_stale',
     before: 'Hello',
@@ -164,6 +270,7 @@ try {
   const candidatePatch = makeCandidatePatch(patchedIntro, 'Alternative full section candidate.');
   candidatePatch.validation = validateWritingPatch(candidatePatch, patchedIntro);
   const candidateBeforeMarkdown = patchedIntro.markdownContent;
+  const candidateBeforeActiveMainNodeId = db.getSection(intro.id)?.activeMainNodeId ?? null;
   const candidateNode = db.createNode({
     kind: 'content',
     parentId: intro.id,
@@ -172,7 +279,12 @@ try {
     isLlm: true,
     metadata: { writingPatchId: candidatePatch.id }
   });
-  if (candidateNode.kind !== 'content' || db.getSection(intro.id)?.markdownContent !== candidateBeforeMarkdown) {
+  const candidateAfterSection = db.getSection(intro.id);
+  if (
+    candidateNode.kind !== 'content' ||
+    candidateAfterSection?.markdownContent !== candidateBeforeMarkdown ||
+    candidateAfterSection?.activeMainNodeId !== candidateBeforeActiveMainNodeId
+  ) {
     throw new Error('WritingPatch candidate creation mutated section Markdown.');
   }
 
@@ -1123,6 +1235,49 @@ function makeSelectionPatch(section, { id, before, after, startOffset, endOffset
     },
     metadata: {
       rationale: 'Smoke-test selection patch.'
+    },
+    review: {
+      decision: 'pending'
+    }
+  };
+}
+
+function makeInsertPatch(section, { id, text, mode, offset }) {
+  const now = new Date().toISOString();
+  return {
+    id,
+    kind: 'insert_at_cursor',
+    status: 'proposed',
+    origin: {
+      source: 'llm',
+      generationSessionId: 'gens_smoke',
+      generationRoundId: `${id}_round`,
+      createdAt: now
+    },
+    target: {
+      workspaceId: workspacePath,
+      sectionId: section.id,
+      targetMode: 'section_markdown_file',
+      location: {
+        type: 'insertion',
+        mode,
+        offset,
+        insertionAffinity: 'after'
+      }
+    },
+    anchors: {
+      baseSectionHash: section.markdownHash,
+      beforeText: '',
+      beforeTextHash: hashText(''),
+      anchorStrategy: 'hash_and_range'
+    },
+    operation: {
+      type: 'insert',
+      text,
+      position: 'at'
+    },
+    metadata: {
+      rationale: 'Smoke-test insertion patch.'
     },
     review: {
       decision: 'pending'

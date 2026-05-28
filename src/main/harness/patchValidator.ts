@@ -8,7 +8,7 @@ import type {
   WritingPatch
 } from '../../shared/types.js';
 import { nowIso } from '../ids.js';
-import { scanCitations, scanNumbers } from './patchScanners.js';
+import { hashText, scanCitations, scanNumbers } from './patchScanners.js';
 
 export function validateWritingPatch(
   patch: WritingPatch,
@@ -34,9 +34,17 @@ export function validateWritingPatch(
   }
 
   const currentMarkdown = currentSection.markdownContent;
+  const baseSectionMatches = currentSection.markdownHash === patch.anchors.baseSectionHash;
+  const isSectionEndInsertion = patch.kind === 'insert_at_cursor' &&
+    patch.target.location.type === 'insertion' &&
+    patch.target.location.mode === 'section_end';
   const directMutation = patch.kind === 'replace_selection' || patch.kind === 'insert_at_cursor' || patch.kind === 'replace_section';
-  if (directMutation && currentSection.markdownHash !== patch.anchors.baseSectionHash) {
-    fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this patch was generated.');
+  if (directMutation && !baseSectionMatches) {
+    if (isSectionEndInsertion) {
+      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this patch was generated. The insertion will be reviewed as an append to the current section end.', 'warning');
+    } else {
+      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this patch was generated.');
+    }
   } else {
     checks.push({ checkKind: 'anchor', passed: true, severity: 'info', message: 'Base section hash matches.' });
   }
@@ -53,16 +61,23 @@ export function validateWritingPatch(
       const { startOffset, endOffset, selectedText } = patch.target.location;
       if (startOffset < 0 || endOffset > currentMarkdown.length || startOffset >= endOffset) {
         fail('RANGE_OUT_OF_BOUNDS', 'Selection range is outside the current section.');
-      } else if (currentMarkdown.slice(startOffset, endOffset) !== selectedText || selectedText !== beforeAfter.before) {
-        fail('SELECTED_TEXT_MISMATCH', 'The selected text no longer matches the patch anchor.');
       } else {
-        checks.push({ checkKind: 'anchor', passed: true, severity: 'info', message: 'Selected text still matches.' });
+        const currentRangeText = currentMarkdown.slice(startOffset, endOffset);
+        if (currentRangeText !== selectedText || selectedText !== beforeAfter.before) {
+          fail('SELECTED_TEXT_MISMATCH', 'The selected text no longer matches the patch anchor.');
+        } else if (!patch.anchors.beforeTextHash || hashText(currentRangeText) !== patch.anchors.beforeTextHash) {
+          fail('BEFORE_TEXT_HASH_MISMATCH', 'The selected text hash no longer matches the patch anchor.');
+        } else {
+          checks.push({ checkKind: 'anchor', passed: true, severity: 'info', message: 'Selected text and beforeTextHash still match.' });
+        }
       }
     }
   }
 
   if (patch.kind === 'insert_at_cursor') {
-    if (patch.target.location.type !== 'insertion' || patch.target.location.offset < 0 || patch.target.location.offset > currentMarkdown.length) {
+    if (patch.target.location.type !== 'insertion') {
+      fail('RANGE_OUT_OF_BOUNDS', 'Insertion patch is missing an insertion target.');
+    } else if (patch.target.location.mode !== 'section_end' && (patch.target.location.offset < 0 || patch.target.location.offset > currentMarkdown.length)) {
       fail('RANGE_OUT_OF_BOUNDS', 'Insertion offset is outside the current section.');
     }
   }
@@ -74,7 +89,7 @@ export function validateWritingPatch(
   addLengthIssues(patch, beforeAfter.before, beforeAfter.after, fail);
   addCitationIssues(patch, beforeAfter.before, beforeAfter.after, fail);
   addNumberIssues(patch, beforeAfter.before, beforeAfter.after, fail);
-  addMarkdownIssues(beforeAfter.after, fail);
+  addMarkdownIssues(beforeAfter.before, beforeAfter.after, fail);
   addLatexIssues(beforeAfter.after, fail);
   addClaimRiskIssues(beforeAfter.before, beforeAfter.after, fail);
 
@@ -133,6 +148,9 @@ function addNumberIssues(
   fail: (code: PatchValidationCode, message: string, severity?: PatchValidationIssue['severity']) => void
 ): void {
   if (patch.kind !== 'replace_selection') {
+    if (patch.kind === 'insert_at_cursor' && scanNumbers(after).length > 0) {
+      fail('NUMERIC_CLAIM_ADDED', 'Inserted text introduces numeric claims that require review.', 'warning');
+    }
     return;
   }
   const afterNumbers = new Set(scanNumbers(after));
@@ -144,15 +162,24 @@ function addNumberIssues(
 }
 
 function addMarkdownIssues(
+  before: string,
   after: string,
   fail: (code: PatchValidationCode, message: string, severity?: PatchValidationIssue['severity']) => void
 ): void {
   const fences = after.match(/^ {0,3}(```+|~~~+)/gm) ?? [];
   if (fences.length % 2 !== 0) {
-    fail('MARKDOWN_BROKEN', 'Generated text has an unclosed code fence.', 'warning');
+    const beforeFences = before.match(/^ {0,3}(```+|~~~+)/gm) ?? [];
+    fail(
+      'MARKDOWN_BROKEN',
+      'Generated text has an unclosed code fence.',
+      beforeFences.length % 2 === 0 ? 'error' : 'warning'
+    );
   }
   if (/\[[^\]\n]+\]\([^)\n]*$/.test(after) || /!\[[^\]\n]*\]\([^)\n]*$/.test(after)) {
     fail('MARKDOWN_BROKEN', 'Generated text appears to contain a broken Markdown link or image.', 'warning');
+  }
+  if (hasMalformedTableRow(after)) {
+    fail('MARKDOWN_BROKEN', 'Generated text appears to contain a malformed Markdown table row.', 'warning');
   }
 }
 
@@ -165,6 +192,9 @@ function addLatexIssues(
   }
   if ((after.match(/\$/g) ?? []).length % 2 !== 0) {
     fail('LATEX_BROKEN', 'Generated text appears to contain unbalanced inline math delimiters.', 'warning');
+  }
+  if ((after.match(/\$\$/g) ?? []).length % 2 !== 0 || (after.match(/\\\[/g) ?? []).length !== (after.match(/\\\]/g) ?? []).length) {
+    fail('LATEX_BROKEN', 'Generated text appears to contain unbalanced display math delimiters.', 'warning');
   }
 }
 
@@ -189,7 +219,8 @@ function result(
   checks: PatchCheckResult[]
 ): PatchValidationResult {
   const blocked = errors.some((issue) => issue.severity === 'blocking' || issue.severity === 'error');
-  const riskLevel: PatchRiskLevel = blocked ? 'blocked' : warnings.length > 0 ? 'medium' : 'low';
+  const highRisk = warnings.some((issue) => highRiskCodes.has(issue.code));
+  const riskLevel: PatchRiskLevel = blocked ? 'blocked' : highRisk ? 'high' : warnings.length > 0 ? 'medium' : 'low';
   return {
     ok: !blocked,
     riskLevel,
@@ -212,13 +243,40 @@ function issueFor(
 
 function checkKindForCode(code: PatchValidationCode): PatchCheckResult['checkKind'] {
   if (code.includes('CITATION')) return 'citation';
-  if (code.includes('NUMBER')) return 'number';
+  if (code.includes('NUMBER') || code.includes('NUMERIC')) return 'number';
   if (code.includes('MARKDOWN')) return 'markdown';
   if (code.includes('LATEX')) return 'latex';
   if (code.includes('CLAIM')) return 'claim';
   if (code.includes('HASH') || code.includes('RANGE') || code.includes('TEXT')) return 'anchor';
   if (code.includes('SHORT') || code.includes('LONG') || code.includes('EMPTY')) return 'length';
   return 'custom';
+}
+
+const highRiskCodes = new Set<PatchValidationCode>([
+  'SUSPICIOUSLY_SHORT_OUTPUT',
+  'CITATION_REMOVED',
+  'CITATION_MODIFIED',
+  'NUMBER_CHANGED',
+  'CLAIM_STRENGTH_INCREASED'
+]);
+
+function hasMalformedTableRow(text: string): boolean {
+  const lines = text.split('\n');
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const previous = lines[index - 1];
+    if (!line.includes('|') || !previous.includes('|')) {
+      continue;
+    }
+    if (/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) {
+      const headerCells = previous.split('|').filter((cell) => cell.trim()).length;
+      const separatorCells = line.split('|').filter((cell) => cell.trim()).length;
+      if (headerCells !== separatorCells) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function braceBalance(text: string): number {
@@ -229,4 +287,3 @@ function braceBalance(text: string): number {
   }
   return balance;
 }
-

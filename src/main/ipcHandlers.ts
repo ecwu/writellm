@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
+  AcceptWritingPatchPayload,
   ApplySectionLlmEditPayload,
   AdoptGenerationPayload,
   CompositionTreeNode,
@@ -22,7 +23,6 @@ import type {
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
-  LlmOperationRecord,
   LlmPatchProposal,
   PatchApplicationResult,
   RetrievedKnowledgeSource,
@@ -39,7 +39,6 @@ import type {
 import { exportLatex } from './exportLatex.js';
 import {
   createGitCheckpoint,
-  getGitHead,
   getGitStatus,
   listGitHistory
 } from './gitSession.js';
@@ -67,7 +66,7 @@ import {
   openWorkspace
 } from './workspace.js';
 import { createId, nowIso } from './ids.js';
-import { hashMarkdown, sectionMarkdownForStorage } from './sectionMarkdown.js';
+import { sectionMarkdownForStorage } from './sectionMarkdown.js';
 import { markdownAfterWritingPatch } from './harness/patchApplier.js';
 import { createPatchDiff } from './harness/patchDiff.js';
 import { parseLlmPatchProposal } from './harness/patchProtocol.js';
@@ -577,7 +576,7 @@ function editorLlmSystemPromptForGeneration(mode: GenerationMode): string {
   return [
     'You are an expert Markdown editor for academic and technical writing.',
     scope,
-    'Return a structured patch proposal with afterText, rationale, optional warnings, optional changedClaims, optional preservedClaims, and optional affectedCitations.',
+    'Return a structured json patch proposal with afterText, rationale, optional warnings, optional changedClaims, optional preservedClaims, and optional affectedCitations.',
     'Preserve Markdown syntax and citation markers unless the user explicitly asks to change them.',
     'Do not invent citations. Do not change numerical results unless explicitly requested.',
     'Do not include explanations, alternatives, labels, or fenced wrappers inside afterText.'
@@ -1130,8 +1129,8 @@ export function registerIpcHandlers(): void {
     getActiveDb().listWritingPatchesForSection(sectionId)
   );
 
-  ipcMain.handle(ipcChannels.acceptWritingPatch, (_event, patchId: string) =>
-    acceptWritingPatch(patchId)
+  ipcMain.handle(ipcChannels.acceptWritingPatch, (_event, payload: AcceptWritingPatchPayload) =>
+    acceptWritingPatch(payload)
   );
 
   ipcMain.handle(ipcChannels.rejectWritingPatch, (_event, patchId: string) =>
@@ -1325,172 +1324,6 @@ export function registerIpcHandlers(): void {
     void payload;
     throw new Error('Direct LLM edit application is disabled. Create and review a WritingPatch instead.');
   });
-}
-
-function applySavedLlmGeneration(payload: SaveLlmGenerationPayload) {
-  const settings = readLlmSettings();
-  const db = getActiveDb();
-  const section = db.getSection(payload.sectionId);
-  if (!section) {
-    throw new Error(`Section not found: ${payload.sectionId}`);
-  }
-  const prompt = payload.prompt.trim();
-  if (!prompt) {
-    throw new Error('LLM generation prompt is required.');
-  }
-  const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-  const articleSectionContext = buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId);
-  const resolvedPrompt = buildContextPrompt(prompt, contextNodes, articleSectionContext, payload.retrievedSources ?? [], true);
-  const operationId = createId('llmop');
-  createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
-  const beforeCommit = getGitHead(db.workspacePath);
-  const nextMarkdown = [section.markdownContent.trimEnd(), payload.content.trim()].filter(Boolean).join('\n\n');
-  const updatedSection = db.updateSectionMarkdown(payload.sectionId, `${nextMarkdown}\n`);
-  const contextRelationType = payload.contextRelationType ?? 'informs';
-  contextNodes.forEach((node) => {
-    db.createNodeEdge(node.id, payload.sectionId, contextRelationType, 'llm');
-  });
-  ensureKnowledgeSourceNodes(db, payload.focusSectionId ?? payload.sectionId, payload.sectionId, payload.retrievedSources ?? []);
-  db.saveGenerationCitations(
-    payload.sectionId,
-    (payload.retrievedSources ?? []).map((source) => ({
-      publicRef: source.publicRef,
-      knowledgeItemId: source.itemId,
-      knowledgeChunkId: source.chunkId,
-      label: source.publicRef,
-      snippet: source.snippet,
-      score: source.score
-    }))
-  );
-  const timestamp = nowIso();
-  const operation: LlmOperationRecord = {
-    operationId,
-    type: 'generate_append',
-    status: 'current',
-    createdAt: timestamp,
-    appliedAt: timestamp,
-    sectionId: payload.sectionId,
-    sectionPath: updatedSection.markdownPath,
-    beforeCommit,
-    afterCommit: null,
-    beforeSectionHash: section.markdownHash,
-    afterSectionHash: updatedSection.markdownHash,
-    userPrompt: prompt,
-    resolvedPrompt,
-    systemPrompt: articleSectionContext,
-    model: {
-      provider: settings.chat.provider,
-      baseURL: settings.chat.baseURL,
-      model: settings.chat.model
-    },
-    target: {
-      kind: 'section_append',
-      selectionStart: section.markdownContent.length,
-      selectionEnd: section.markdownContent.length,
-      selectedText: '',
-      prefixContext: section.markdownContent.slice(-500),
-      suffixContext: ''
-    },
-    beforeText: '',
-    afterText: payload.content.trim(),
-    outputHash: hashMarkdown(payload.content.trim()),
-    retainedCoverage: 1,
-    contextNodeIds: payload.contextNodeIds ?? [],
-    retrievedSources: payload.retrievedSources ?? []
-  };
-  db.upsertSectionLlmOperation(payload.sectionId, operation);
-  createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
-  const afterCommit = getGitHead(db.workspacePath);
-  db.upsertSectionLlmOperation(payload.sectionId, { ...operation, afterCommit });
-  createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
-  return getState(payload.focusSectionId ?? payload.sectionId);
-}
-
-function applyGeneratedSectionEdit(payload: ApplySectionLlmEditPayload) {
-  const settings = readLlmSettings();
-  const db = getActiveDb();
-  const section = db.getSection(payload.sectionId);
-  if (!section) {
-    throw new Error(`Section not found: ${payload.sectionId}`);
-  }
-  const baseMarkdown = sectionMarkdownForStorage(payload.baseMarkdown);
-  if (section.markdownContent !== baseMarkdown) {
-    throw new Error('The section changed after this LLM edit was generated. Regenerate before applying it.');
-  }
-  const generatedContent = payload.generatedContent.trim();
-  if (!generatedContent) {
-    throw new Error('Generated edit content is required.');
-  }
-  assertSectionLlmEditRange(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
-  const beforeText = selectedTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd);
-  if (payload.mode === 'rewrite_selection' && beforeText !== payload.selectedText) {
-    throw new Error('The selected text changed after this LLM edit was generated. Regenerate before applying it.');
-  }
-  const replacementText = replacementTextForLlmEdit(payload.mode, baseMarkdown, payload.targetStart, generatedContent);
-  const nextMarkdown = markdownWithLlmEdit(payload.mode, baseMarkdown, payload.targetStart, payload.targetEnd, replacementText);
-  const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-  const articleSectionContext = buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId);
-  const operationId = createId('llmop');
-  createGitCheckpoint(db.workspacePath, `Before LLM op: ${section.title}`);
-  const beforeCommit = getGitHead(db.workspacePath);
-  const updatedSection = db.updateSectionMarkdown(payload.sectionId, nextMarkdown);
-  contextNodes.forEach((node) => {
-    db.createNodeEdge(node.id, payload.sectionId, 'revises', 'llm');
-  });
-  ensureKnowledgeSourceNodes(db, payload.focusSectionId ?? payload.sectionId, payload.sectionId, payload.retrievedSources ?? []);
-  db.saveGenerationCitations(
-    payload.sectionId,
-    (payload.retrievedSources ?? []).map((source) => ({
-      publicRef: source.publicRef,
-      knowledgeItemId: source.itemId,
-      knowledgeChunkId: source.chunkId,
-      label: source.publicRef,
-      snippet: source.snippet,
-      score: source.score
-    }))
-  );
-  const timestamp = nowIso();
-  const operation: LlmOperationRecord = {
-    operationId,
-    type: payload.mode,
-    status: 'current',
-    createdAt: timestamp,
-    appliedAt: timestamp,
-    sectionId: payload.sectionId,
-    sectionPath: updatedSection.markdownPath,
-    beforeCommit,
-    afterCommit: null,
-    beforeSectionHash: section.markdownHash,
-    afterSectionHash: updatedSection.markdownHash,
-    userPrompt: payload.userPrompt,
-    resolvedPrompt: payload.resolvedPrompt || buildContextPrompt(payload.userPrompt || editorLlmOperationLabel(payload.mode), contextNodes, articleSectionContext, payload.retrievedSources ?? [], true),
-    systemPrompt: payload.systemPrompt || articleSectionContext,
-    model: {
-      provider: settings.chat.provider,
-      baseURL: settings.chat.baseURL,
-      model: settings.chat.model
-    },
-    target: {
-      kind: targetKindForLlmEdit(payload.mode),
-      selectionStart: payload.targetStart,
-      selectionEnd: payload.targetEnd,
-      selectedText: beforeText,
-      prefixContext: payload.prefixContext,
-      suffixContext: payload.suffixContext
-    },
-    beforeText,
-    afterText: afterTextForLlmEdit(payload.mode, updatedSection.markdownContent, replacementText),
-    outputHash: hashMarkdown(generatedContent),
-    retainedCoverage: 1,
-    contextNodeIds: payload.contextNodeIds ?? [],
-    retrievedSources: payload.retrievedSources ?? []
-  };
-  db.upsertSectionLlmOperation(payload.sectionId, operation);
-  createGitCheckpoint(db.workspacePath, `LLM op ${operationId}: ${section.title}`);
-  const afterCommit = getGitHead(db.workspacePath);
-  db.upsertSectionLlmOperation(payload.sectionId, { ...operation, afterCommit });
-  createGitCheckpoint(db.workspacePath, `LLM op ${operationId} provenance: ${section.title}`);
-  return getState(payload.focusSectionId ?? payload.sectionId);
 }
 
 function createPatchFromRound(roundId: string): WritingPatchRecord {
@@ -1694,31 +1527,75 @@ function writingPatchKindForApplyPayload(payload: GenerationApplyPayload): Writi
   return 'insert_at_cursor';
 }
 
-function acceptWritingPatch(patchId: string) {
+const terminalPatchStatuses = new Set<WritingPatch['status']>(['applied', 'rejected', 'saved_as_candidate']);
+
+function assertPatchNotTerminal(patch: WritingPatch, action: string): void {
+  if (terminalPatchStatuses.has(patch.status)) {
+    throw new Error(`Cannot ${action} a WritingPatch that is already ${patch.status}.`);
+  }
+}
+
+function assertPatchCanBeAccepted(patch: WritingPatch): void {
+  if (patch.status === 'blocked' || patch.status === 'parse_failed' || patch.status === 'validation_failed' || patch.status === 'rolled_back') {
+    throw new Error(`Cannot accept a WritingPatch with status ${patch.status}.`);
+  }
+}
+
+function applicationProvenance(patch: WritingPatch): Pick<PatchApplicationResult, 'patchId' | 'generationSessionId' | 'generationRoundId'> {
+  return {
+    patchId: patch.id,
+    generationSessionId: patch.origin.generationSessionId,
+    generationRoundId: patch.origin.generationRoundId
+  };
+}
+
+function acceptWritingPatch(payload: AcceptWritingPatchPayload) {
   const db = getActiveDb();
-  const record = db.getWritingPatch(patchId);
+  const record = db.getWritingPatch(payload.patchId);
   if (!record) {
-    throw new Error(`WritingPatch not found: ${patchId}`);
+    throw new Error(`WritingPatch not found: ${payload.patchId}`);
   }
   const patch = record.patch;
+  assertPatchNotTerminal(patch, 'accept');
+  assertPatchCanBeAccepted(patch);
   if (patch.kind === 'create_content_candidate' || patch.kind === 'replace_section') {
     throw new Error('This patch kind cannot be directly accepted in the MVP. Save it as a candidate instead.');
   }
   const section = db.getSection(patch.target.sectionId);
   const validation = validateWritingPatch(patch, section);
+  const diffInput = beforeAfterForPatch(patch);
   if (!validation.ok || !section) {
     db.updateWritingPatch({
       ...patch,
       status: 'blocked',
-      validation
+      validation,
+      metadata: {
+        ...patch.metadata,
+        riskLevel: validation.riskLevel
+      },
+      diff: createPatchDiff(diffInput.before, diffInput.after)
     });
     throw new Error(validation.errors[0]?.message ?? 'WritingPatch validation failed.');
+  }
+  if (validation.riskLevel === 'high' && !payload.confirmHighRisk) {
+    db.updateWritingPatch({
+      ...patch,
+      status: 'needs_review',
+      validation,
+      metadata: {
+        ...patch.metadata,
+        riskLevel: validation.riskLevel
+      },
+      diff: createPatchDiff(diffInput.before, diffInput.after)
+    });
+    throw new Error('This WritingPatch is high risk and requires explicit confirmation before applying.');
   }
 
   const previousSectionHash = section.markdownHash;
   const nextMarkdown = markdownAfterWritingPatch(patch, section.markdownContent);
   const updatedSection = db.updateSectionMarkdown(section.id, nextMarkdown);
   const application: PatchApplicationResult = {
+    ...applicationProvenance(patch),
     applied: true,
     appliedAt: nowIso(),
     appliedBy: 'user',
@@ -1731,7 +1608,11 @@ function acceptWritingPatch(patchId: string) {
     ...patch,
     status: 'applied',
     validation,
-    diff: createPatchDiff(beforeAfterForPatch(patch).before, beforeAfterForPatch(patch).after),
+    metadata: {
+      ...patch.metadata,
+      riskLevel: validation.riskLevel
+    },
+    diff: createPatchDiff(diffInput.before, diffInput.after),
     review: {
       decision: 'accepted',
       reviewedBy: 'user',
@@ -1765,6 +1646,7 @@ function rejectWritingPatch(patchId: string): WritingPatchRecord {
     throw new Error(`WritingPatch not found: ${patchId}`);
   }
   const patch = record.patch;
+  assertPatchNotTerminal(patch, 'reject');
   const next = db.updateWritingPatch({
     ...patch,
     status: 'rejected',
@@ -1787,6 +1669,7 @@ function saveWritingPatchAsCandidate(patchId: string) {
     throw new Error(`WritingPatch not found: ${patchId}`);
   }
   const patch = record.patch;
+  assertPatchNotTerminal(patch, 'save as candidate');
   const section = db.getSection(patch.target.sectionId);
   if (!section) {
     throw new Error(`Section not found: ${patch.target.sectionId}`);
@@ -1820,16 +1703,22 @@ function saveWritingPatchAsCandidate(patchId: string) {
   }
   persistPatchProvenance(db, patch, 'informs');
   const application: PatchApplicationResult = {
+    ...applicationProvenance(patch),
     applied: false,
     appliedAt: nowIso(),
     appliedBy: 'user',
     sectionId: section.id,
+    contentNodeId: created.id,
     previousSectionHash: section.markdownHash,
     createdContentNodeId: created.id,
     gitStatus: 'skipped'
   };
   db.updateWritingPatch({
     ...patch,
+    target: {
+      ...patch.target,
+      contentNodeId: created.id
+    },
     status: 'saved_as_candidate',
     review: {
       decision: 'saved_as_candidate',
@@ -1956,60 +1845,6 @@ function selectedTextForLlmEdit(
     return '';
   }
   return markdown.slice(targetStart, targetEnd);
-}
-
-function replacementTextForLlmEdit(
-  mode: SectionLlmEditMode,
-  markdown: string,
-  targetStart: number,
-  generatedContent: string
-): string {
-  if (mode !== 'continue_at_cursor') {
-    return generatedContent;
-  }
-  const before = markdown.slice(0, targetStart);
-  if (!before.trim() || before.endsWith('\n') || generatedContent.startsWith('\n')) {
-    return generatedContent;
-  }
-  return `\n\n${generatedContent}`;
-}
-
-function markdownWithLlmEdit(
-  mode: SectionLlmEditMode,
-  markdown: string,
-  targetStart: number,
-  targetEnd: number,
-  replacementText: string
-): string {
-  if (mode === 'rewrite_section') {
-    return replacementText;
-  }
-  return `${markdown.slice(0, targetStart)}${replacementText}${markdown.slice(targetEnd)}`;
-}
-
-function targetKindForLlmEdit(mode: SectionLlmEditMode): LlmOperationRecord['target']['kind'] {
-  if (mode === 'rewrite_section') {
-    return 'section_rewrite';
-  }
-  if (mode === 'continue_at_cursor') {
-    return 'insertion';
-  }
-  return 'selection';
-}
-
-function afterTextForLlmEdit(mode: SectionLlmEditMode, updatedMarkdown: string, replacementText: string): string {
-  return mode === 'rewrite_section' ? updatedMarkdown : replacementText;
-}
-
-function editorLlmOperationLabel(mode: SectionLlmEditMode): string {
-  switch (mode) {
-    case 'rewrite_section':
-      return 'Rewrite section';
-    case 'rewrite_selection':
-      return 'Rewrite selection';
-    case 'continue_at_cursor':
-      return 'Continue writing';
-  }
 }
 
 function mimeTypeForPath(filePath: string): string {

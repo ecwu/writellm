@@ -10,10 +10,14 @@ export function markdownAfterWritingPatch(patch: WritingPatch, currentMarkdown: 
   }
 
   if (patch.kind === 'insert_at_cursor' && patch.operation.type === 'insert' && patch.target.location.type === 'insertion') {
+    const semanticSectionEnd = patch.target.location.mode === 'section_end';
+    const offset = semanticSectionEnd ? currentMarkdown.length : patch.target.location.offset;
     return [
-      currentMarkdown.slice(0, patch.target.location.offset),
-      insertionText(currentMarkdown, patch.target.location.offset, patch.operation.text),
-      currentMarkdown.slice(patch.target.location.offset)
+      currentMarkdown.slice(0, offset),
+      semanticSectionEnd
+        ? sectionEndInsertionText(currentMarkdown, patch.operation.text)
+        : insertionText(currentMarkdown, offset, patch.operation.text),
+      currentMarkdown.slice(offset)
     ].join('');
   }
 
@@ -28,3 +32,15 @@ function insertionText(markdown: string, offset: number, text: string): string {
   return `\n\n${text}`;
 }
 
+function sectionEndInsertionText(markdown: string, text: string): string {
+  if (!markdown.trim() || text.startsWith('\n')) {
+    return text;
+  }
+  if (markdown.endsWith('\n\n')) {
+    return text;
+  }
+  if (markdown.endsWith('\n')) {
+    return `\n${text}`;
+  }
+  return `\n\n${text}`;
+}

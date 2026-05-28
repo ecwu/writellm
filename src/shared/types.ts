@@ -750,6 +750,7 @@ export type PatchValidationCode =
   | 'TARGET_SECTION_NOT_FOUND'
   | 'TARGET_CONTENT_NOT_FOUND'
   | 'BASE_SECTION_HASH_MISMATCH'
+  | 'BEFORE_TEXT_HASH_MISMATCH'
   | 'RANGE_OUT_OF_BOUNDS'
   | 'SELECTED_TEXT_MISMATCH'
   | 'EMPTY_AFTER_TEXT'
@@ -758,6 +759,7 @@ export type PatchValidationCode =
   | 'CITATION_REMOVED'
   | 'CITATION_MODIFIED'
   | 'NUMBER_CHANGED'
+  | 'NUMERIC_CLAIM_ADDED'
   | 'MARKDOWN_BROKEN'
   | 'LATEX_BROKEN'
   | 'CLAIM_STRENGTH_INCREASED'
@@ -822,6 +824,9 @@ export type PatchReview = {
 };
 
 export type PatchApplicationResult = {
+  patchId?: string;
+  generationSessionId?: string;
+  generationRoundId?: string;
   applied: boolean;
   appliedAt?: string;
   appliedBy?: 'user' | 'system';
@@ -878,6 +883,11 @@ export type LlmPatchProposal = {
 
 export type CreatePatchFromGenerationRoundPayload = {
   roundId: string;
+};
+
+export type AcceptWritingPatchPayload = {
+  patchId: string;
+  confirmHighRisk?: boolean;
 };
 
 export type CreateGenerationTaskPayload = {

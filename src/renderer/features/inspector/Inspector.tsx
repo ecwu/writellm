@@ -263,13 +263,18 @@ export function Inspector(props: InspectorProps) {
     }
   }
 
-  async function acceptPatch(patchId: string) {
+  async function acceptPatch(patchId: string, confirmHighRisk = false) {
     try {
-      const next = await getApi().acceptWritingPatch(patchId);
+      const next = await getApi().acceptWritingPatch({ patchId, confirmHighRisk });
       onState(next);
-      setActivePatch(await getApi().getWritingPatch(patchId));
+      const refreshedPatch = await getApi().getWritingPatch(patchId);
+      setActivePatch(refreshedPatch);
       if (activeRound) {
         setActiveRound(await getApi().getGenerationRound(activeRound.id));
+      }
+      if (refreshedPatch?.patch.application?.gitStatus === 'failed') {
+        onError(`Patch applied, but Git checkpoint failed: ${refreshedPatch.patch.application.gitError ?? 'Unknown Git error'}`);
+        return;
       }
       onStatus('Patch applied.');
     } catch (caught) {
@@ -280,7 +285,8 @@ export function Inspector(props: InspectorProps) {
 
   async function rejectPatch(patchId: string) {
     try {
-      setActivePatch(await getApi().rejectWritingPatch(patchId));
+      await getApi().rejectWritingPatch(patchId);
+      setActivePatch(await getApi().getWritingPatch(patchId));
       if (activeRound) {
         setActiveRound(await getApi().getGenerationRound(activeRound.id));
       }
@@ -610,7 +616,7 @@ function PatchReviewPanel({
   onSaveCandidate
 }: {
   patch: WritingPatchRecord;
-  onAccept: (patchId: string) => void;
+  onAccept: (patchId: string, confirmHighRisk?: boolean) => void;
   onReject: (patchId: string) => void;
   onSaveCandidate: (patchId: string) => void;
 }) {
@@ -619,11 +625,28 @@ function PatchReviewPanel({
   const errors = writingPatch.validation?.errors ?? [];
   const canAccept = writingPatch.kind !== 'create_content_candidate' &&
     writingPatch.kind !== 'replace_section' &&
+    writingPatch.status !== 'blocked' &&
+    writingPatch.status !== 'parse_failed' &&
+    writingPatch.status !== 'validation_failed' &&
     writingPatch.status !== 'applied' &&
     writingPatch.status !== 'rejected' &&
     writingPatch.status !== 'saved_as_candidate' &&
     writingPatch.validation?.ok !== false;
-  const canSaveCandidate = writingPatch.status !== 'saved_as_candidate' && writingPatch.status !== 'rejected';
+  const canSaveCandidate = writingPatch.status !== 'applied' &&
+    writingPatch.status !== 'saved_as_candidate' &&
+    writingPatch.status !== 'rejected';
+  const riskLevel = writingPatch.validation?.riskLevel ?? patch.riskLevel;
+  const handleAccept = () => {
+    if (riskLevel === 'high') {
+      const confirmed = window.confirm('This WritingPatch is high risk. Apply it anyway?');
+      if (!confirmed) {
+        return;
+      }
+      onAccept(patch.id, true);
+      return;
+    }
+    onAccept(patch.id);
+  };
   return (
     <div className="patch-review-panel">
       <div className="patch-review-header">
@@ -631,7 +654,7 @@ function PatchReviewPanel({
           <span>WritingPatch</span>
           <p>{writingPatch.metadata.rationale || 'No rationale provided.'}</p>
         </div>
-        <StatusBadge status={writingPatch.validation?.riskLevel ?? patch.riskLevel ?? 'unknown'} />
+        <StatusBadge status={riskLevel ?? 'unknown'} />
       </div>
       <div className="patch-review-diff">
         <div>
@@ -659,7 +682,7 @@ function PatchReviewPanel({
         </div>
       ) : null}
       <div className="button-row">
-        {canAccept ? <Button size="sm" onClick={() => onAccept(patch.id)}>Accept</Button> : null}
+        {canAccept ? <Button size="sm" onClick={handleAccept}>Accept</Button> : null}
         {canSaveCandidate ? (
           <Button variant="outline" size="sm" onClick={() => onSaveCandidate(patch.id)}>Save as Candidate</Button>
         ) : null}

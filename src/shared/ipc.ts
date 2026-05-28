@@ -1,4 +1,5 @@
 import type {
+  AcceptWritingPatchPayload,
   ApplySectionLlmEditPayload,
   AdoptGenerationPayload,
   CreatePatchFromGenerationRoundPayload,
@@ -146,7 +147,7 @@ export type WriteLLMIpc = {
   createPatchFromGenerationRound(payload: CreatePatchFromGenerationRoundPayload): Promise<WritingPatchRecord>;
   getWritingPatch(patchId: string): Promise<WritingPatchRecord | null>;
   listWritingPatchesForSection(sectionId: string): Promise<WritingPatchRecord[]>;
-  acceptWritingPatch(patchId: string): Promise<FocusedWorkspaceState>;
+  acceptWritingPatch(payload: AcceptWritingPatchPayload): Promise<FocusedWorkspaceState>;
   rejectWritingPatch(patchId: string): Promise<WritingPatchRecord>;
   saveWritingPatchAsCandidate(patchId: string): Promise<FocusedWorkspaceState>;
   listGenerationSessions(sectionId?: string | null): Promise<GenerationSessionRecord[]>;
