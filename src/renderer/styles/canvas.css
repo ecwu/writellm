@@ -458,6 +458,18 @@
   gap: 0.4rem;
 }
 
+.floating-generation-status {
+  color: oklch(0.82 0.02 150);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.floating-generation-status.is-error {
+  color: oklch(0.82 0.13 30);
+}
+
 .floating-generation-source-controls {
   background: oklch(1 0 0 / 6%);
   border: 1px solid oklch(1 0 0 / 12%);

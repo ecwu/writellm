@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, MessageSquare, Pencil, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, MessageSquare, Pencil, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { getApi } from '../../api';
 import { CitationHighlight } from '../../components/CitationHighlight';
 import { MarkdownEditor } from '../../components/MarkdownEditor';
@@ -148,6 +148,28 @@ export function Inspector(props: InspectorProps) {
       window.clearInterval(timer);
     };
   }, [activeRound?.id, activeRound?.status, inspectorView]);
+
+  useEffect(() => {
+    return getApi().onGenerationEvent((event) => {
+      if (activeRound?.id && event.roundId === activeRound.id) {
+        void getApi().getGenerationRound(event.roundId).then((round) => {
+          setActiveRound(round);
+          if (event.type === 'patch_created' && selectedSection) {
+            void getApi().getWritingPatch(event.patchId).then(setActivePatch);
+          }
+        });
+      }
+      if (selectedSection) {
+        void getApi().listGenerationSessions(selectedSection.id).then(async (nextSessions) => {
+          setSessions(nextSessions);
+          const roundPairs = await Promise.all(
+            nextSessions.map(async (session) => [session.id, await getApi().listGenerationRounds(session.id)] as const)
+          );
+          setRoundsBySession(Object.fromEntries(roundPairs));
+        });
+      }
+    });
+  }, [activeRound?.id, selectedSection?.id]);
 
   useEffect(() => {
     if (!generationTarget || generationTarget.sectionId !== selectedSection?.id) {
@@ -310,6 +332,25 @@ export function Inspector(props: InspectorProps) {
     }
   }
 
+  async function useSelectedContentAsMain() {
+    if (!selectedContent?.parentId) {
+      return;
+    }
+    try {
+      await getApi().updateNode(selectedContent.id, {
+        title: adoptedContentTitle(selectedContent),
+        isMain: true,
+        isLlm: false
+      });
+      const next = await getApi().setActiveMainNode(selectedContent.parentId, selectedContent.id);
+      onState(next);
+      onSelection({ type: 'node', id: selectedContent.id });
+      onStatus('Content marked as main.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   async function cancelRound(roundId: string) {
     try {
       setActiveRound(await getApi().cancelGenerationTask(roundId));
@@ -386,20 +427,8 @@ export function Inspector(props: InspectorProps) {
           {activeRound ? (
             <>
               <div className="generation-prompt">
-                <span>Prompt</span>
-                <p>{activeRound.prompt}</p>
-              </div>
-              {activeRound.retrievalTrace.length > 0 ? (
-                <details className="generation-prompt">
-                  <summary>Retrieval ({activeRound.retrievedSources.length} sources)</summary>
-                  {activeRound.retrievalTrace.map((event, index) => (
-                    <p key={index}>{event.type}</p>
-                  ))}
-                </details>
-              ) : null}
-              <div className="generation-prompt">
                 <span>Output</span>
-                <CitationHighlight text={activePatch ? patchAfterText(activePatch) : activeRound.content || ''} />
+                <CitationHighlight text={generationPrimaryText(activeRound, activePatch)} />
               </div>
               {activePatch ? (
                 <PatchReviewPanel
@@ -412,7 +441,7 @@ export function Inspector(props: InspectorProps) {
               {activeRound.errorMessage ? <p className="inspector-round-error">{activeRound.errorMessage}</p> : null}
               <div className="button-row">
                 {activeRound.status === 'done' && !activeRound.adoptedAt ? (
-                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Review Patch</Button>
+                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Create Patch Review</Button>
                 ) : null}
                 {activeRound.status === 'pending' || activeRound.status === 'processing' ? (
                   <Button variant="destructive" size="sm" onClick={() => void cancelRound(activeRound.id)}>Cancel</Button>
@@ -427,6 +456,30 @@ export function Inspector(props: InspectorProps) {
                   <Button variant="outline" size="sm" onClick={() => void discardRound(activeRound.id)}>Discard</Button>
                 ) : null}
               </div>
+              <details className="generation-prompt inspector-generation-details">
+                <summary>Generation details</summary>
+                <MetadataRow label="Prompt" value={activeRound.prompt} />
+                <MetadataRow label="Mode" value={`${activeRound.mode} · ${activeRound.executionMode}`} />
+                <MetadataRow label="Model" value={[activeRound.modelProvider, activeRound.modelName].filter(Boolean).join(' · ') || 'Not set'} />
+                <MetadataRow label="Timing" value={formatRoundTiming(activeRound)} />
+                {activeRound.retrievedSources.length > 0 ? (
+                  <MetadataRow label="Sources" value={`${activeRound.retrievedSources.length} retrieved`} />
+                ) : null}
+                {activeRound.retrievalTrace.length > 0 ? (
+                  <div className="generation-detail-list">
+                    <span>Retrieval Trace</span>
+                    {activeRound.retrievalTrace.map((event, index) => (
+                      <p key={index}>{event.type}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {activeRound.content ? (
+                  <div className="generation-detail-list">
+                    <span>Raw Output</span>
+                    <pre>{activeRound.content}</pre>
+                  </div>
+                ) : null}
+              </details>
             </>
           ) : (
             <p className="muted">No rounds in this session.</p>
@@ -543,6 +596,12 @@ export function Inspector(props: InspectorProps) {
                 Source
               </Button>
             ) : null}
+            {selectedContent.isLlm ? (
+              <Button size="sm" onClick={() => void useSelectedContentAsMain()}>
+                <Check />
+                Use as Main
+              </Button>
+            ) : null}
             <Button variant="destructive" size="sm" onClick={() => void deleteContent()}>
               <Trash2 />
               Delete
@@ -563,25 +622,6 @@ export function Inspector(props: InspectorProps) {
               <FieldDescription>Used for canvas labels and knowledge source references.</FieldDescription>
             )}
           </Field>
-          {selectedGenerationPrompt ? (
-            <div className="generation-prompt">
-              <span>Input prompt</span>
-              <p>{selectedGenerationPrompt}</p>
-            </div>
-          ) : null}
-          {selectedGenerationSources.length > 0 ? (
-            <div className="generation-prompt">
-              <span>Sources</span>
-              {selectedGenerationSources.map((source) => (
-                <p key={source.chunkId} className="citation-source-row">
-                  <button type="button" onClick={() => onCitationClick(source.publicRef)}>
-                    Open
-                  </button>
-                  [{source.publicRef}] {source.itemTitle}: {source.snippet}
-                </p>
-              ))}
-            </div>
-          ) : null}
           <MarkdownEditor
             key={selectedContent.id}
             value={contentDraft}
@@ -589,6 +629,25 @@ export function Inspector(props: InspectorProps) {
             onCitationClick={onCitationClick}
             citationSources={selectedGenerationSources}
           />
+          {selectedGenerationPrompt || selectedGenerationSources.length > 0 ? (
+            <details className="generation-prompt inspector-generation-details">
+              <summary>Generation details</summary>
+              {selectedGenerationPrompt ? <MetadataRow label="Input prompt" value={selectedGenerationPrompt} /> : null}
+              {selectedGenerationSources.length > 0 ? (
+                <div className="generation-detail-list">
+                  <span>Sources</span>
+                  {selectedGenerationSources.map((source) => (
+                    <p key={source.chunkId} className="citation-source-row">
+                      <button type="button" onClick={() => onCitationClick(source.publicRef)}>
+                        Open
+                      </button>
+                      [{source.publicRef}] {source.itemTitle}: {source.snippet}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </details>
+          ) : null}
         </section>
       ) : !selectedSection ? (
         <section className="panel">
@@ -624,7 +683,6 @@ function PatchReviewPanel({
   const warnings = writingPatch.validation?.warnings ?? [];
   const errors = writingPatch.validation?.errors ?? [];
   const canAccept = writingPatch.kind !== 'create_content_candidate' &&
-    writingPatch.kind !== 'replace_section' &&
     writingPatch.status !== 'blocked' &&
     writingPatch.status !== 'parse_failed' &&
     writingPatch.status !== 'validation_failed' &&
@@ -651,20 +709,10 @@ function PatchReviewPanel({
     <div className="patch-review-panel">
       <div className="patch-review-header">
         <div>
-          <span>WritingPatch</span>
+          <span>Patch review</span>
           <p>{writingPatch.metadata.rationale || 'No rationale provided.'}</p>
         </div>
         <StatusBadge status={riskLevel ?? 'unknown'} />
-      </div>
-      <div className="patch-review-diff">
-        <div>
-          <span>Before</span>
-          <pre>{writingPatch.diff?.before || '(empty)'}</pre>
-        </div>
-        <div>
-          <span>After</span>
-          <pre>{writingPatch.diff?.after || '(empty)'}</pre>
-        </div>
       </div>
       {warnings.length > 0 || errors.length > 0 ? (
         <div className="patch-review-issues">
@@ -673,16 +721,8 @@ function PatchReviewPanel({
           ))}
         </div>
       ) : null}
-      {writingPatch.diff ? (
-        <div className="patch-review-stats">
-          <span>+{writingPatch.diff.stats.wordsAdded} words</span>
-          <span>-{writingPatch.diff.stats.wordsRemoved} words</span>
-          <span>{writingPatch.diff.stats.citationsRemoved} citations removed</span>
-          <span>{writingPatch.diff.stats.numbersChanged} numbers changed</span>
-        </div>
-      ) : null}
       <div className="button-row">
-        {canAccept ? <Button size="sm" onClick={handleAccept}>Accept</Button> : null}
+        {canAccept ? <Button size="sm" onClick={handleAccept}>Apply to Section</Button> : null}
         {canSaveCandidate ? (
           <Button variant="outline" size="sm" onClick={() => onSaveCandidate(patch.id)}>Save as Candidate</Button>
         ) : null}
@@ -690,8 +730,42 @@ function PatchReviewPanel({
           <Button variant="outline" size="sm" onClick={() => onReject(patch.id)}>Reject</Button>
         ) : null}
       </div>
+      {writingPatch.diff ? (
+        <details className="patch-review-details">
+          <summary>Diff details</summary>
+          <div className="patch-review-diff">
+            <div>
+              <span>Before</span>
+              <pre>{writingPatch.diff.before || '(empty)'}</pre>
+            </div>
+            <div>
+              <span>After</span>
+              <pre>{writingPatch.diff.after || '(empty)'}</pre>
+            </div>
+          </div>
+          <div className="patch-review-stats">
+            <span>+{writingPatch.diff.stats.wordsAdded} words</span>
+            <span>-{writingPatch.diff.stats.wordsRemoved} words</span>
+            <span>{writingPatch.diff.stats.citationsRemoved} citations removed</span>
+            <span>{writingPatch.diff.stats.numbersChanged} numbers changed</span>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
+}
+
+function generationPrimaryText(round: GenerationRoundRecord, patch: WritingPatchRecord | null): string {
+  if (patch) {
+    return patchAfterText(patch);
+  }
+  if (round.status === 'pending') {
+    return 'Waiting to start...';
+  }
+  if (round.status === 'processing') {
+    return 'Generating patch proposal...';
+  }
+  return round.content || '';
 }
 
 function patchAfterText(patch: WritingPatchRecord): string {
@@ -703,6 +777,20 @@ function patchAfterText(patch: WritingPatchRecord): string {
     return operation.text;
   }
   return operation.content;
+}
+
+function formatRoundTiming(round: GenerationRoundRecord): string {
+  const started = round.startedAt ? new Date(round.startedAt).toLocaleString() : 'Not started';
+  const completed = round.completedAt ? new Date(round.completedAt).toLocaleString() : 'Not completed';
+  return `${started} -> ${completed}`;
+}
+
+function adoptedContentTitle(content: ContentNodeRecord): string {
+  const trimmedTitle = content.title.trim();
+  if (!trimmedTitle || /^LLM candidate\b/i.test(trimmedTitle)) {
+    return 'Main draft';
+  }
+  return trimmedTitle;
 }
 
 function getGenerationSources(node: ContentNodeRecord | null): RetrievedKnowledgeSource[] {

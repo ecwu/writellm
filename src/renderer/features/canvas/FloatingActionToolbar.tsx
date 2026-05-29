@@ -3,6 +3,7 @@ import { NotebookPen, PlusCircle, Trash2, WandSparkles } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Spinner } from '../../components/ui/spinner';
 import {
   Field,
   FieldLabel
@@ -75,6 +76,9 @@ export function FloatingActionToolbar({
 }) {
   const [canvasPrompt, setCanvasPrompt] = useState('');
   const [canvasUseKnowledge, setCanvasUseKnowledge] = useState(true);
+  const [canvasSubmitting, setCanvasSubmitting] = useState(false);
+  const [canvasStatus, setCanvasStatus] = useState<string | null>(null);
+  const [canvasError, setCanvasError] = useState<string | null>(null);
   const generateTargetId = selectedSection?.id ?? selectedContent?.parentId ?? focusSection?.id ?? null;
   const generationTarget = selectedSection?.id === generateTargetId ? selectedSection : focusSection;
   const focusSectionId = focusSection?.id ?? generateTargetId;
@@ -148,21 +152,30 @@ export function FloatingActionToolbar({
   }
 
   async function enqueueCanvasGeneration() {
-    if (!generateTargetId || !canvasPrompt.trim()) {
+    if (!generateTargetId || !canvasPrompt.trim() || canvasSubmitting) {
       return;
     }
-    const result = await getApi().createGenerationTask({
-      sectionId: generateTargetId,
-      focusSectionId,
-      mode: 'append',
-      prompt: canvasPrompt,
-      useKnowledgeSources: canvasUseKnowledge,
-      contextNodeIds: llmDraft.contextNodeIds,
-      requireInlineCitations: canvasUseKnowledge
-    });
-    setCanvasPrompt('');
-    onGenerationQueued(generateTargetId, result);
-    onCancelGenerate();
+    setCanvasSubmitting(true);
+    setCanvasStatus(null);
+    setCanvasError(null);
+    try {
+      const result = await getApi().createGenerationTask({
+        sectionId: generateTargetId,
+        focusSectionId,
+        mode: 'append',
+        prompt: canvasPrompt,
+        useKnowledgeSources: canvasUseKnowledge,
+        contextNodeIds: llmDraft.contextNodeIds,
+        requireInlineCitations: canvasUseKnowledge
+      });
+      setCanvasPrompt('');
+      setCanvasStatus(result.executionMode === 'interactive' ? 'Generation started. Review it in the Inspector.' : 'Generation queued. Review it in the Inspector.');
+      onGenerationQueued(generateTargetId, result);
+    } catch (caught) {
+      setCanvasError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setCanvasSubmitting(false);
+    }
   }
 
   return (
@@ -174,29 +187,34 @@ export function FloatingActionToolbar({
               value={canvasPrompt}
               onChange={(event) => setCanvasPrompt(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && !canvasSubmitting) {
                   void enqueueCanvasGeneration();
                 }
               }}
               placeholder="Prompt for a new generation"
+              disabled={canvasSubmitting}
             />
             <label>
               <input
                 type="checkbox"
                 checked={canvasUseKnowledge}
                 onChange={(event) => setCanvasUseKnowledge(event.target.checked)}
+                disabled={canvasSubmitting}
               />
               <span>Sources</span>
             </label>
             <div className="button-row">
-              <Button size="sm" onClick={() => void enqueueCanvasGeneration()} disabled={!canvasPrompt.trim()}>
-                Generate
+              <Button size="sm" onClick={() => void enqueueCanvasGeneration()} disabled={!canvasPrompt.trim() || canvasSubmitting}>
+                {canvasSubmitting ? <Spinner /> : null}
+                {canvasSubmitting ? 'Starting' : 'Generate'}
               </Button>
               <Button variant="outline" size="sm" onClick={onCancelGenerate}>
                 Cancel
               </Button>
-            </div>
           </div>
+            {canvasStatus ? <p className="floating-generation-status">{canvasStatus}</p> : null}
+            {canvasError ? <p className="floating-generation-status is-error">{canvasError}</p> : null}
+	          </div>
         </div>
       ) : null}
       <div className="floating-action-buttons">

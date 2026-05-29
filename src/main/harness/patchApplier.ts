@@ -21,6 +21,10 @@ export function markdownAfterWritingPatch(patch: WritingPatch, currentMarkdown: 
     ].join('');
   }
 
+  if (patch.kind === 'replace_section' && patch.operation.type === 'replace') {
+    return patch.operation.after;
+  }
+
   throw new Error(`WritingPatch kind cannot be directly applied in MVP: ${patch.kind}`);
 }
 

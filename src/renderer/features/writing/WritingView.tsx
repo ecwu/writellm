@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Code2, Eye, FilePenLine, History, PlusCircle, WholeWord } from 'lucide-react';
+import { Check, Code2, Eye, FilePenLine, History, PlusCircle, WholeWord, X } from 'lucide-react';
 import { getApi } from '../../api';
 import type { ChildViewMode } from '../../app/types';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
 import { SegmentedIconToggle } from '../../components/SegmentedIconToggle';
 import { Button } from '../../components/ui/button';
+import { Spinner } from '../../components/ui/spinner';
 import { ViewModeToggle } from '../../layout/ChildrenViewHeader';
 import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
 import type {
@@ -13,7 +14,8 @@ import type {
   GenerationRoundRecord,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
-  SectionNodeRecord
+  SectionNodeRecord,
+  WritingPatchRecord
 } from '../../../shared/types';
 import { useAutosaveDraft } from './useAutosaveDraft';
 
@@ -65,6 +67,8 @@ export function WritingView({
   const [generationPrompt, setGenerationPrompt] = useState('');
   const [generationUsesKnowledge, setGenerationUsesKnowledge] = useState(true);
   const [latestRound, setLatestRound] = useState<GenerationRoundRecord | null>(null);
+  const [latestPatch, setLatestPatch] = useState<WritingPatchRecord | null>(null);
+  const [isCreatingGeneration, setIsCreatingGeneration] = useState(false);
   const generationInputRef = useRef<HTMLInputElement | null>(null);
   const rootTreeNode = useMemo(
     () => (rootNodeId ? findSectionTreeNode(compositionTree, rootNodeId) : null),
@@ -80,6 +84,42 @@ export function WritingView({
   );
   const selectedText = getSelectedText(editorRef.current?.getValue() ?? displayedMarkdown, selection);
   const hasSelection = selectedText.trim().length > 0;
+  const latestRoundRunning = latestRound?.status === 'pending' || latestRound?.status === 'processing';
+  const generationDisabled = isCreatingGeneration || latestRoundRunning;
+
+  useEffect(() => {
+    if (isRootMarkdownView) {
+      setLatestRound(null);
+      setLatestPatch(null);
+      return;
+    }
+    let canceled = false;
+    async function loadLatestRoundForSection() {
+      try {
+        const sessions = await getApi().listGenerationSessions(section.id);
+        const roundGroups = await Promise.all(
+          sessions.map((session) => getApi().listGenerationRounds(session.id))
+        );
+        const rounds = roundGroups.flat().sort((left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+        );
+        const nextRound = rounds[0] ?? null;
+        const nextPatch = nextRound?.patchId ? await getApi().getWritingPatch(nextRound.patchId) : null;
+        if (!canceled) {
+          setLatestRound(nextRound);
+          setLatestPatch(nextPatch);
+        }
+      } catch (caught) {
+        if (!canceled) {
+          onError(caught instanceof Error ? caught.message : String(caught));
+        }
+      }
+    }
+    void loadLatestRoundForSection();
+    return () => {
+      canceled = true;
+    };
+  }, [isRootMarkdownView, section.id]);
 
   useEffect(() => {
     if (!latestRound || latestRound.status !== 'pending' && latestRound.status !== 'processing') {
@@ -90,6 +130,12 @@ export function WritingView({
       const next = await getApi().getGenerationRound(latestRound!.id);
       if (!canceled) {
         setLatestRound(next);
+        if (next?.patchId) {
+          const patch = await getApi().getWritingPatch(next.patchId);
+          if (!canceled) {
+            setLatestPatch(patch);
+          }
+        }
       }
     }
     const timer = window.setInterval(() => void pollRound(), 1000);
@@ -99,6 +145,29 @@ export function WritingView({
       window.clearInterval(timer);
     };
   }, [latestRound?.id, latestRound?.status]);
+
+  useEffect(() => {
+    if (!latestRound) {
+      return;
+    }
+    return getApi().onGenerationEvent((event) => {
+      if (event.roundId !== latestRound.id) {
+        return;
+      }
+      void getApi().getGenerationRound(event.roundId).then((round) => {
+        setLatestRound(round);
+        if (round?.patchId) {
+          void getApi().getWritingPatch(round.patchId).then(setLatestPatch);
+        }
+      }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : String(caught)));
+      if (event.type === 'patch_created') {
+        onStatus('Patch ready for review.');
+      } else if (event.type === 'round_error') {
+        onError(event.errorMessage);
+      }
+    });
+  }, [latestRound?.id, onError, onStatus]);
+
   async function handleChildViewMode(mode: ChildViewMode) {
     if (mode === childViewMode) {
       return;
@@ -117,6 +186,9 @@ export function WritingView({
   }
 
   async function enqueueGenerationTask() {
+    if (generationDisabled) {
+      return;
+    }
     if (!generationPrompt.trim()) {
       onError('Generation prompt is required.');
       return;
@@ -132,6 +204,7 @@ export function WritingView({
       onError('Select text before rewriting a selection.');
       return;
     }
+    setIsCreatingGeneration(true);
     try {
       const result = await getApi().createGenerationTask({
         sectionId: section.id,
@@ -153,6 +226,8 @@ export function WritingView({
         sessionId: result.sessionId,
         status: result.status,
         mode: generationModeFromEditor(activeGenerationMode),
+        executionMode: result.executionMode,
+        outputMode: 'patchProposal',
         prompt: generationPrompt,
         resolvedPrompt: null,
         systemPrompt: null,
@@ -163,13 +238,30 @@ export function WritingView({
         modelName: null,
         errorMessage: null,
         jobId: null,
+        patchId: result.patchId ?? null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: null,
         adoptedAt: null
       });
+      setLatestPatch(null);
       setGenerationPrompt('');
       onGenerationQueued(result);
-      onStatus('Generation task queued.');
+      onStatus(result.executionMode === 'interactive' ? 'Generation started.' : 'Generation queued.');
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIsCreatingGeneration(false);
+    }
+  }
+
+  async function cancelLatestRound(round: GenerationRoundRecord) {
+    try {
+      const next = await getApi().cancelGenerationTask(round.id);
+      setLatestRound(next);
+      setLatestPatch(null);
+      onStatus('Generation canceled.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -242,22 +334,25 @@ export function WritingView({
               value={generationPrompt}
               onChange={(event) => setGenerationPrompt(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && !generationDisabled) {
                   void enqueueGenerationTask();
                 }
               }}
               placeholder={editorLlmPlaceholder(activeGenerationMode)}
+              disabled={generationDisabled}
             />
             <label className="writing-knowledge-toggle">
               <input
                 type="checkbox"
                 checked={generationUsesKnowledge}
                 onChange={(event) => setGenerationUsesKnowledge(event.target.checked)}
+                disabled={generationDisabled}
               />
               <span>Sources</span>
             </label>
-            <Button size="sm" onClick={() => void enqueueGenerationTask()}>
-              Generate
+            <Button size="sm" onClick={() => void enqueueGenerationTask()} disabled={generationDisabled || !generationPrompt.trim()}>
+              {generationDisabled ? <Spinner /> : null}
+              {isCreatingGeneration ? 'Starting' : latestRoundRunning ? 'Generating' : 'Generate'}
             </Button>
             <div className="writing-floating-buttons">
               <button
@@ -296,9 +391,12 @@ export function WritingView({
           {!isRootMarkdownView && latestRound ? (
             <WritingPatchNotice
               round={latestRound}
+              patch={latestPatch}
               onReview={() => void createPatchForLatestRound(latestRound, { action: 'review' })}
+              onAccept={() => void createPatchForLatestRound(latestRound, { action: 'accept' })}
               onSaveCandidate={() => void createPatchForLatestRound(latestRound, { action: 'candidate' })}
               onReject={() => void createPatchForLatestRound(latestRound, { action: 'reject' })}
+              onCancel={() => void cancelLatestRound(latestRound)}
             />
           ) : null}
         </div>
@@ -306,13 +404,27 @@ export function WritingView({
     </section>
   );
 
-  async function createPatchForLatestRound(round: GenerationRoundRecord, options: { action: 'review' | 'candidate' | 'reject' }) {
+  async function createPatchForLatestRound(round: GenerationRoundRecord, options: { action: 'review' | 'accept' | 'candidate' | 'reject' }) {
     try {
-      const patch = await getApi().createPatchFromGenerationRound({ roundId: round.id });
+      const patch = round.patchId
+        ? await getApi().getWritingPatch(round.patchId) ?? await getApi().createPatchFromGenerationRound({ roundId: round.id })
+        : await getApi().createPatchFromGenerationRound({ roundId: round.id });
+      setLatestPatch(patch);
       if (options.action === 'candidate') {
         const next = await getApi().saveWritingPatchAsCandidate(patch.id);
         onState(next);
         onStatus('Patch saved as candidate.');
+      } else if (options.action === 'accept') {
+        const riskLevel = patch.patch.validation?.riskLevel ?? patch.riskLevel;
+        if (riskLevel === 'high') {
+          const confirmed = window.confirm('This WritingPatch is high risk. Apply it anyway?');
+          if (!confirmed) {
+            return;
+          }
+        }
+        const next = await getApi().acceptWritingPatch({ patchId: patch.id });
+        onState(next);
+        onStatus('Patch applied.');
       } else if (options.action === 'reject') {
         await getApi().rejectWritingPatch(patch.id);
         onStatus('Patch rejected.');
@@ -328,19 +440,31 @@ export function WritingView({
 
 function WritingPatchNotice({
   round,
+  patch,
   onReview,
+  onAccept,
   onSaveCandidate,
-  onReject
+  onReject,
+  onCancel
 }: {
   round: GenerationRoundRecord;
+  patch: WritingPatchRecord | null;
   onReview: () => void;
+  onAccept: () => void;
   onSaveCandidate: () => void;
   onReject: () => void;
+  onCancel: () => void;
 }) {
   if (round.status === 'pending' || round.status === 'processing') {
     return (
       <div className="writing-patch-notice">
-        <span>Generating patch proposal</span>
+        <span><Spinner /> Generating patch proposal</span>
+        <div>
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            <X />
+            Cancel
+          </Button>
+        </div>
       </div>
     );
   }
@@ -359,7 +483,19 @@ function WritingPatchNotice({
   if (round.status === 'patch_created') {
     return (
       <div className="writing-patch-notice">
-        <span>Patch ready in Inspector</span>
+        <span>Patch ready for review</span>
+        {patch ? <p>{patchPreviewText(patch)}</p> : null}
+        <div>
+          <Button size="sm" onClick={onReview}>Review Diff</Button>
+          {patch && canApplyPatchToSection(patch) ? (
+            <Button size="sm" onClick={onAccept}>
+              <Check />
+              Apply to Section
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={onSaveCandidate}>Save as Candidate</Button>
+          <Button variant="outline" size="sm" onClick={onReject}>Reject</Button>
+        </div>
       </div>
     );
   }
@@ -376,6 +512,23 @@ function WritingPatchNotice({
   return null;
 }
 
+function patchPreviewText(record: WritingPatchRecord): string {
+  const operation = record.patch.operation;
+  const text = operation.type === 'replace'
+    ? operation.after
+    : operation.type === 'insert'
+      ? operation.text
+      : operation.content;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > 240 ? `${normalized.slice(0, 240)}...` : normalized;
+}
+
+function canApplyPatchToSection(record: WritingPatchRecord): boolean {
+  return record.patch.kind === 'replace_selection' ||
+    record.patch.kind === 'insert_at_cursor' ||
+    record.patch.kind === 'replace_section';
+}
+
 function getSelectedText(markdown: string, range: EditorSelectionRange): string {
   const start = Math.max(0, Math.min(range.startOffset, markdown.length));
   const end = Math.max(start, Math.min(range.endOffset, markdown.length));
@@ -385,11 +538,11 @@ function getSelectedText(markdown: string, range: EditorSelectionRange): string 
 function editorLlmPlaceholder(mode: EditorLlmMode): string {
   switch (mode) {
     case 'rewrite-all':
-      return 'Optional requirements for rewriting the whole section';
+      return 'Instructions for rewriting the whole section';
     case 'rewrite-selection':
-      return 'Optional requirements for rewriting the selected text';
+      return 'Instructions for rewriting the selected text';
     case 'continue':
-      return 'Optional requirements for what to write next';
+      return 'Instructions for what to write next';
   }
 }
 

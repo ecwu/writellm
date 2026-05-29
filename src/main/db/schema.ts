@@ -106,6 +106,8 @@ export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
   sessionId: text('session_id').notNull(),
   status: text('status').notNull(),
   mode: text('mode').notNull(),
+  executionMode: text('execution_mode').notNull().default('background'),
+  outputMode: text('output_mode').notNull().default('patchProposal'),
   prompt: text('prompt').notNull(),
   resolvedPrompt: text('resolved_prompt'),
   systemPrompt: text('system_prompt'),
@@ -116,9 +118,12 @@ export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
   modelName: text('model_name'),
   errorMessage: text('error_message'),
   jobId: integer('job_id'),
+  patchId: text('patch_id'),
   applyPayloadJson: text('apply_payload_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
   adoptedAt: text('adopted_at')
 }, (table) => [
   index('idx_generation_rounds_session').on(table.sessionId),

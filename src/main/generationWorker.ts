@@ -1,5 +1,7 @@
 import type { GenerateLlmPayload } from '../shared/types.js';
 import type { WriteLLMDatabase } from './database.js';
+import { emitGenerationEvent } from './generationEvents.js';
+import { createPatchFromGenerationRound } from './generationPatch.js';
 import { generateLlmObject, streamLlmText } from './llmRunner.js';
 import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { readLlmSettings } from './llmSettings.js';
@@ -28,7 +30,13 @@ export async function processLlmGenerationJob(
     return;
   }
 
-  db.updateGenerationRound(round.id, { status: 'processing', jobId: Number(jobId), errorMessage: null });
+  db.updateGenerationRound(round.id, {
+    status: 'processing',
+    jobId: Number(jobId),
+    errorMessage: null,
+    startedAt: new Date().toISOString()
+  });
+  emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'processing' });
   const settings = readLlmSettings();
   const generationPayload: GenerateLlmPayload = {
     runId: round.id,
@@ -48,13 +56,28 @@ export async function processLlmGenerationJob(
         systemPrompt: data.systemPrompt,
         schema: llmPatchProposalSchema
       });
+      if (db.getGenerationRound(round.id)?.status === 'canceled') {
+        db.updateGenerationRound(round.id, { status: 'canceled', completedAt: new Date().toISOString() });
+        emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'canceled' });
+        return;
+      }
       db.updateGenerationRound(round.id, {
         status: 'done',
         content: JSON.stringify(proposal, null, 2),
         modelProvider: settings.chat.provider,
         modelName: settings.chat.model,
-        errorMessage: null
+        errorMessage: null,
+        completedAt: new Date().toISOString()
       });
+      emitGenerationEvent({ type: 'round_done', roundId: round.id, status: 'done' });
+      try {
+        const patch = createPatchFromGenerationRound(db, round.id);
+        emitGenerationEvent({ type: 'patch_created', roundId: round.id, patchId: patch.id, status: 'patch_created' });
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        db.updateGenerationRound(round.id, { status: 'done', errorMessage: message });
+        emitGenerationEvent({ type: 'round_error', roundId: round.id, errorMessage: message });
+      }
       return;
     }
 
@@ -64,7 +87,8 @@ export async function processLlmGenerationJob(
       const now = Date.now();
       if (now - lastFlushAt >= FLUSH_INTERVAL_MS || unflushedChars >= FLUSH_CHARS) {
         if (db.getGenerationRound(round.id)?.status === 'canceled') {
-          db.updateGenerationRound(round.id, { status: 'canceled', content });
+          db.updateGenerationRound(round.id, { status: 'canceled', content, completedAt: new Date().toISOString() });
+          emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'canceled' });
           return;
         }
         db.updateGenerationRound(round.id, { content });
@@ -74,7 +98,8 @@ export async function processLlmGenerationJob(
     }
 
     if (db.getGenerationRound(round.id)?.status === 'canceled') {
-      db.updateGenerationRound(round.id, { status: 'canceled', content });
+      db.updateGenerationRound(round.id, { status: 'canceled', content, completedAt: new Date().toISOString() });
+      emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'canceled' });
       return;
     }
     db.updateGenerationRound(round.id, {
@@ -82,20 +107,25 @@ export async function processLlmGenerationJob(
       content,
       modelProvider: settings.chat.provider,
       modelName: settings.chat.model,
-      errorMessage: null
+      errorMessage: null,
+      completedAt: new Date().toISOString()
     });
+    emitGenerationEvent({ type: 'round_done', roundId: round.id, status: 'done' });
   } catch (caught) {
     const latest = db.getGenerationRound(round.id);
     const message = caught instanceof Error ? caught.message : String(caught);
     if (latest?.status === 'canceled') {
-      db.updateGenerationRound(round.id, { status: 'canceled', content });
+      db.updateGenerationRound(round.id, { status: 'canceled', content, completedAt: new Date().toISOString() });
+      emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'canceled' });
       return;
     }
     db.updateGenerationRound(round.id, {
       status: 'error',
       content,
-      errorMessage: message
+      errorMessage: message,
+      completedAt: new Date().toISOString()
     });
+    emitGenerationEvent({ type: 'round_error', roundId: round.id, errorMessage: message });
     throw new Error(message);
   }
 }

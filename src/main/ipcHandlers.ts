@@ -16,14 +16,12 @@ import type {
   CreateNodePayload,
   EdgeKind,
   GenerateLlmPayload,
+  GenerationExecutionMode,
   GenerationMode,
-  GenerationRoundRecord,
-  GenerationSessionRecord,
   KnowledgeRetrievalMode,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
-  LlmPatchProposal,
   PatchApplicationResult,
   RetrievedKnowledgeSource,
   NodeRecord,
@@ -43,8 +41,10 @@ import {
   listGitHistory
 } from './gitSession.js';
 import { startBackgroundTaskWorker } from './backgroundTasks.js';
+import { emitGenerationEvent } from './generationEvents.js';
+import { createPatchFromGenerationRound } from './generationPatch.js';
 import { enqueueKnowledgeFiles, setKnowledgeIngestUpdateNotifier } from './knowledgeIngest.js';
-import { streamLlmText } from './llmRunner.js';
+import { generateLlmObject, streamLlmText } from './llmRunner.js';
 import {
   readLlmSettings,
   readPublicLlmSettings,
@@ -69,11 +69,11 @@ import { createId, nowIso } from './ids.js';
 import { sectionMarkdownForStorage } from './sectionMarkdown.js';
 import { markdownAfterWritingPatch } from './harness/patchApplier.js';
 import { createPatchDiff } from './harness/patchDiff.js';
-import { parseLlmPatchProposal } from './harness/patchProtocol.js';
-import { hashText, scanCitations } from './harness/patchScanners.js';
+import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValidator.js';
 
 const llmRuns = new Map<string, AbortController>();
+const interactiveGenerationRuns = new Map<string, AbortController>();
 
 function titleFromPrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim() || 'LLM generation';
@@ -637,6 +637,87 @@ function editorLlmPromptForGeneration(
   ].join('\n');
 }
 
+function resolveGenerationExecutionMode(
+  requestedMode: GenerationExecutionMode | undefined,
+  generationMode: GenerationMode
+): 'interactive' | 'background' {
+  if (requestedMode === 'interactive' || requestedMode === 'background') {
+    return requestedMode;
+  }
+  return generationMode === 'rewrite_section' ? 'background' : 'interactive';
+}
+
+async function runInteractiveGenerationTask(
+  db: ReturnType<typeof getActiveDb>,
+  roundId: string,
+  payload: {
+    prompt: string;
+    systemPrompt?: string;
+  }
+): Promise<void> {
+  const controller = new AbortController();
+  interactiveGenerationRuns.set(roundId, controller);
+  try {
+    const round = db.getGenerationRound(roundId);
+    if (!round || round.status === 'canceled') {
+      return;
+    }
+    const settings = readLlmSettings();
+    db.updateGenerationRound(roundId, {
+      status: 'processing',
+      startedAt: nowIso(),
+      errorMessage: null
+    });
+    emitGenerationEvent({ type: 'round_status', roundId, status: 'processing' });
+
+    const proposal = await generateLlmObject(settings.chat, {
+      prompt: payload.prompt,
+      systemPrompt: payload.systemPrompt,
+      schema: llmPatchProposalSchema
+    }, controller.signal);
+
+    if (controller.signal.aborted || db.getGenerationRound(roundId)?.status === 'canceled') {
+      db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
+      emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+      return;
+    }
+
+    db.updateGenerationRound(roundId, {
+      status: 'done',
+      content: JSON.stringify(proposal, null, 2),
+      modelProvider: settings.chat.provider,
+      modelName: settings.chat.model,
+      errorMessage: null,
+      completedAt: nowIso()
+    });
+    emitGenerationEvent({ type: 'round_done', roundId, status: 'done' });
+
+    try {
+      const patch = createPatchFromGenerationRound(db, roundId);
+      emitGenerationEvent({ type: 'patch_created', roundId, patchId: patch.id, status: 'patch_created' });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      db.updateGenerationRound(roundId, { status: 'done', errorMessage: message });
+      emitGenerationEvent({ type: 'round_error', roundId, errorMessage: message });
+    }
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    if (controller.signal.aborted || db.getGenerationRound(roundId)?.status === 'canceled') {
+      db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
+      emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+      return;
+    }
+    db.updateGenerationRound(roundId, {
+      status: 'error',
+      errorMessage: message,
+      completedAt: nowIso()
+    });
+    emitGenerationEvent({ type: 'round_error', roundId, errorMessage: message });
+  } finally {
+    interactiveGenerationRuns.delete(roundId);
+  }
+}
+
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -984,9 +1065,6 @@ export function registerIpcHandlers(): void {
       if (!section) {
         throw new Error(`Section not found: ${payload.sectionId}`);
       }
-      if (db.getRunningRoundForSection(payload.sectionId)) {
-        throw new Error('This section already has a generation task in progress.');
-      }
       const userPrompt = payload.prompt.trim();
       if (!userPrompt) {
         throw new Error('LLM generation prompt is required.');
@@ -1006,6 +1084,7 @@ export function registerIpcHandlers(): void {
         targetStart: payload.targetStart,
         targetEnd: payload.targetEnd
       });
+      const executionMode = resolveGenerationExecutionMode(payload.executionMode, payload.mode);
       const useKnowledgeSources = payload.useKnowledgeSources !== false;
       const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || userPrompt;
       const retrievalTrace: KnowledgeRetrievalTraceEvent[] = [];
@@ -1043,6 +1122,8 @@ export function registerIpcHandlers(): void {
       const round = db.createGenerationRound({
         sessionId,
         mode: payload.mode,
+        executionMode,
+        outputMode: 'patchProposal',
         prompt: userPrompt,
         resolvedPrompt,
         systemPrompt,
@@ -1052,13 +1133,27 @@ export function registerIpcHandlers(): void {
         modelName: settings.chat.model,
         applyPayloadJson: JSON.stringify(applyPayload)
       });
-      db.enqueueGenerationJob(round.id, {
-        prompt: resolvedPrompt,
-        systemPrompt,
-        outputMode: 'patchProposal'
+      emitGenerationEvent({
+        type: 'round_created',
+        roundId: round.id,
+        sessionId,
+        executionMode,
+        status: 'pending'
       });
-      await startBackgroundTaskWorker(db);
-      return { roundId: round.id, sessionId, status: 'pending' };
+      if (executionMode === 'background') {
+        db.enqueueGenerationJob(round.id, {
+          prompt: resolvedPrompt,
+          systemPrompt,
+          outputMode: 'patchProposal'
+        });
+        await startBackgroundTaskWorker(db);
+      } else {
+        void runInteractiveGenerationTask(db, round.id, {
+          prompt: resolvedPrompt,
+          systemPrompt
+        });
+      }
+      return { roundId: round.id, sessionId, status: 'pending', executionMode };
     }
   );
 
@@ -1068,10 +1163,13 @@ export function registerIpcHandlers(): void {
     if (!round) {
       throw new Error(`Generation round not found: ${roundId}`);
     }
-    if (round.status === 'done' || round.status === 'error') {
+    if (round.status !== 'pending' && round.status !== 'processing') {
       return round;
     }
-    return db.updateGenerationRound(roundId, { status: 'canceled' });
+    interactiveGenerationRuns.get(roundId)?.abort();
+    const canceled = db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
+    emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+    return canceled;
   });
 
   ipcMain.handle(ipcChannels.adoptGenerationTask, (_event, payload: AdoptGenerationPayload) => {
@@ -1079,6 +1177,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.discardGenerationTask, (_event, roundId: string) => {
+    interactiveGenerationRuns.get(roundId)?.abort();
     getActiveDb().deleteGenerationRound(roundId);
   });
 
@@ -1092,12 +1191,11 @@ export function registerIpcHandlers(): void {
     if (!session) {
       throw new Error(`Generation session not found: ${round.sessionId}`);
     }
-    if (db.getRunningRoundForSection(session.sectionId)) {
-      throw new Error('This section already has a generation task in progress.');
-    }
     const newRound = db.createGenerationRound({
       sessionId: round.sessionId,
       mode: round.mode,
+      executionMode: round.executionMode,
+      outputMode: round.outputMode,
       prompt: round.prompt,
       resolvedPrompt: round.resolvedPrompt,
       systemPrompt: round.systemPrompt,
@@ -1107,13 +1205,32 @@ export function registerIpcHandlers(): void {
       modelName: round.modelName,
       applyPayloadJson: db.getGenerationRoundApplyPayload(round.id)
     });
-    db.enqueueGenerationJob(newRound.id, {
-      prompt: newRound.resolvedPrompt ?? newRound.prompt,
-      systemPrompt: newRound.systemPrompt ?? undefined,
-      outputMode: 'patchProposal'
+    emitGenerationEvent({
+      type: 'round_created',
+      roundId: newRound.id,
+      sessionId: newRound.sessionId,
+      executionMode: newRound.executionMode,
+      status: 'pending'
     });
-    await startBackgroundTaskWorker(db);
-    return { roundId: newRound.id, sessionId: newRound.sessionId, status: 'pending' };
+    if (newRound.executionMode === 'background') {
+      db.enqueueGenerationJob(newRound.id, {
+        prompt: newRound.resolvedPrompt ?? newRound.prompt,
+        systemPrompt: newRound.systemPrompt ?? undefined,
+        outputMode: 'patchProposal'
+      });
+      await startBackgroundTaskWorker(db);
+    } else {
+      void runInteractiveGenerationTask(db, newRound.id, {
+        prompt: newRound.resolvedPrompt ?? newRound.prompt,
+        systemPrompt: newRound.systemPrompt ?? undefined
+      });
+    }
+    return {
+      roundId: newRound.id,
+      sessionId: newRound.sessionId,
+      status: 'pending',
+      executionMode: newRound.executionMode
+    };
   });
 
   ipcMain.handle(
@@ -1327,204 +1444,9 @@ export function registerIpcHandlers(): void {
 }
 
 function createPatchFromRound(roundId: string): WritingPatchRecord {
-  const db = getActiveDb();
-  const existing = db.getWritingPatchForGenerationRound(roundId);
-  if (existing) {
-    return existing;
-  }
-  const round = db.getGenerationRound(roundId);
-  if (!round) {
-    throw new Error(`Generation round not found: ${roundId}`);
-  }
-  if (round.status !== 'done' || !round.content?.trim()) {
-    throw new Error('Only completed generation tasks can be converted into WritingPatch records.');
-  }
-  const session = db.getGenerationSession(round.sessionId);
-  if (!session) {
-    throw new Error(`Generation session not found: ${round.sessionId}`);
-  }
-  const applyPayload = parseGenerationApplyPayload(db.getGenerationRoundApplyPayload(round.id));
-  const section = db.getSection(applyPayload.sectionId);
-  if (!section) {
-    throw new Error(`Section not found: ${applyPayload.sectionId}`);
-  }
-
-  let proposal: LlmPatchProposal;
-  try {
-    proposal = parseLlmPatchProposal(round.content);
-  } catch (caught) {
-    const patch = buildWritingPatchFromProposal({
-      db,
-      round,
-      session,
-      applyPayload,
-      section,
-      proposal: {
-        afterText: '',
-        rationale: 'The model response could not be parsed as a WritingPatch proposal.',
-        warnings: [caught instanceof Error ? caught.message : String(caught)]
-      },
-      rawProposal: round.content,
-      parseFailed: true
-    });
-    const saved = db.createWritingPatch(patch);
-    db.updateGenerationRound(round.id, { status: 'patch_created' });
-    return saved;
-  }
-
-  const patch = buildWritingPatchFromProposal({
-    db,
-    round,
-    session,
-    applyPayload,
-    section,
-    proposal,
-    rawProposal: round.content,
-    parseFailed: false
-  });
-  const saved = db.createWritingPatch(patch);
-  db.updateGenerationRound(round.id, { status: 'patch_created' });
-  return saved;
-}
-
-function buildWritingPatchFromProposal(input: {
-  db: ReturnType<typeof getActiveDb>;
-  round: GenerationRoundRecord;
-  session: GenerationSessionRecord;
-  applyPayload: GenerationApplyPayload;
-  section: SectionNodeRecord;
-  proposal: LlmPatchProposal;
-  rawProposal: string;
-  parseFailed: boolean;
-}): WritingPatch {
-  const { round, session, applyPayload, section, proposal } = input;
-  const timestamp = nowIso();
-  const beforeText = selectedTextForLlmEdit(
-    applyPayload.mode,
-    applyPayload.baseMarkdown,
-    applyPayload.targetStart,
-    applyPayload.targetEnd
-  );
-  const kind = writingPatchKindForApplyPayload(applyPayload);
-  const afterText = proposal.afterText;
-  const operation: WritingPatch['operation'] = kind === 'replace_selection'
-    ? { type: 'replace', before: beforeText, after: afterText }
-    : kind === 'insert_at_cursor'
-      ? { type: 'insert', text: afterText, position: 'at' }
-      : {
-          type: 'create_candidate',
-          candidateTitle: `${generationModeLabel(round.mode)} · ${section.title}`,
-          content: afterText,
-          relationToSource: 'revises'
-        };
-  const patch: WritingPatch = {
-    id: createId('wpatch'),
-    kind,
-    status: input.parseFailed ? 'parse_failed' : 'proposed',
-    origin: {
-      source: 'llm',
-      generationSessionId: session.id,
-      generationRoundId: round.id,
-      model: round.modelProvider && round.modelName
-        ? {
-            provider: round.modelProvider,
-            modelName: round.modelName,
-            endpointType: round.modelProvider === 'anthropic-compatible' ? 'anthropic-compatible' : 'openai-compatible'
-          }
-        : undefined,
-      promptHash: hashText(round.resolvedPrompt ?? round.prompt),
-      createdAt: timestamp
-    },
-    target: {
-      workspaceId: input.db.workspacePath,
-      sectionId: applyPayload.sectionId,
-      targetMode: kind === 'create_content_candidate' ? 'new_content_node' : 'section_markdown_file',
-      location: kind === 'replace_selection'
-        ? {
-            type: 'text_range',
-            startOffset: applyPayload.targetStart,
-            endOffset: applyPayload.targetEnd,
-            selectedText: beforeText
-          }
-        : kind === 'insert_at_cursor'
-          ? {
-              type: 'insertion',
-              mode: applyPayload.insertionMode === 'section_end' ? 'section_end' : 'cursor',
-              offset: applyPayload.targetStart,
-              insertionAffinity: 'after'
-            }
-          : {
-              type: 'section',
-              sectionHash: section.markdownHash
-            }
-    },
-    anchors: {
-      baseSectionHash: section.markdownHash,
-      beforeText,
-      beforeTextHash: hashText(beforeText),
-      prefixContext: applyPayload.prefixContext,
-      suffixContext: applyPayload.suffixContext,
-      anchorStrategy: kind === 'create_content_candidate' ? 'candidate_only' : 'hash_and_range'
-    },
-    operation,
-    metadata: {
-      title: `${generationModeLabel(round.mode)} patch`,
-      userGoal: applyPayload.userPrompt,
-      actionType: round.mode === 'rewrite_section' || round.mode === 'rewrite_selection' ? 'revise' : 'draft',
-      rationale: proposal.rationale,
-      warnings: proposal.warnings,
-      changedClaims: proposal.changedClaims,
-      preservedClaims: proposal.preservedClaims,
-      affectedCitations: proposal.affectedCitations,
-      rawProposal: input.rawProposal,
-      provenance: {
-        generationRoundId: round.id,
-        retrievedChunkIds: round.retrievedSources.map((source) => source.chunkId),
-        citationMarkers: scanCitations(afterText)
-      }
-    },
-    review: { decision: 'pending' }
-  };
-  patch.validation = input.parseFailed
-    ? {
-        ok: false,
-        riskLevel: 'blocked',
-        status: 'blocked',
-        errors: [{
-          code: 'OUTPUT_PARSE_FAILED',
-          severity: 'blocking',
-          message: 'Model output could not be parsed as the required WritingPatch JSON proposal.',
-          target: { sectionId: applyPayload.sectionId }
-        }],
-        warnings: [],
-        checks: [{
-          checkKind: 'custom',
-          passed: false,
-          severity: 'blocking',
-          message: 'Model output parse failed.'
-        }],
-        validatedAt: timestamp
-      }
-    : validateWritingPatch(patch, section);
-  const diffInput = beforeAfterForPatch(patch);
-  patch.diff = createPatchDiff(diffInput.before, diffInput.after);
-  patch.status = input.parseFailed
-    ? 'parse_failed'
-    : patch.validation.ok
-      ? 'needs_review'
-      : 'blocked';
-  patch.metadata.riskLevel = patch.validation.riskLevel;
+  const patch = createPatchFromGenerationRound(getActiveDb(), roundId);
+  emitGenerationEvent({ type: 'patch_created', roundId, patchId: patch.id, status: 'patch_created' });
   return patch;
-}
-
-function writingPatchKindForApplyPayload(payload: GenerationApplyPayload): WritingPatch['kind'] {
-  if (payload.mode === 'rewrite_section') {
-    return 'create_content_candidate';
-  }
-  if (payload.mode === 'rewrite_selection') {
-    return 'replace_selection';
-  }
-  return 'insert_at_cursor';
 }
 
 const terminalPatchStatuses = new Set<WritingPatch['status']>(['applied', 'rejected', 'saved_as_candidate']);
@@ -1558,8 +1480,8 @@ function acceptWritingPatch(payload: AcceptWritingPatchPayload) {
   const patch = record.patch;
   assertPatchNotTerminal(patch, 'accept');
   assertPatchCanBeAccepted(patch);
-  if (patch.kind === 'create_content_candidate' || patch.kind === 'replace_section') {
-    throw new Error('This patch kind cannot be directly accepted in the MVP. Save it as a candidate instead.');
+  if (patch.kind === 'create_content_candidate') {
+    throw new Error('This patch kind cannot be directly accepted. Save it as a candidate instead.');
   }
   const section = db.getSection(patch.target.sectionId);
   const validation = validateWritingPatch(patch, section);

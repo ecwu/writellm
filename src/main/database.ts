@@ -46,6 +46,7 @@ import type {
   EdgeKind,
   FocusedWorkspaceState,
   GenerationMode,
+  GenerationOutputMode,
   GenerationRoundRecord,
   GenerationRoundStatus,
   GenerationSessionRecord,
@@ -65,6 +66,7 @@ import type {
   NodeStats,
   PatchRiskLevel,
   RetrievedKnowledgeSource,
+  ResolvedGenerationExecutionMode,
   KnowledgeRetrievalTraceEvent,
   SectionNodeRecord,
   UpdateNodeLayoutPayload,
@@ -76,7 +78,7 @@ import type {
   WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 export const LLM_GENERATION_TASK_TYPE = 'llm-generation';
@@ -111,6 +113,8 @@ type KnowledgeIngestTaskData = {
 type CreateGenerationRoundPayload = {
   sessionId: string;
   mode: GenerationMode;
+  executionMode?: ResolvedGenerationExecutionMode;
+  outputMode?: GenerationOutputMode;
   prompt: string;
   resolvedPrompt?: string | null;
   systemPrompt?: string | null;
@@ -119,7 +123,10 @@ type CreateGenerationRoundPayload = {
   retrievalTrace?: KnowledgeRetrievalTraceEvent[];
   modelProvider?: string | null;
   modelName?: string | null;
+  patchId?: string | null;
   applyPayloadJson?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
 };
 
 type UpdateGenerationRoundPayload = Partial<{
@@ -133,7 +140,10 @@ type UpdateGenerationRoundPayload = Partial<{
   modelName: string | null;
   errorMessage: string | null;
   jobId: number | null;
+  patchId: string | null;
   applyPayloadJson: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
   adoptedAt: string | null;
 }>;
 
@@ -850,6 +860,8 @@ export class WriteLLMDatabase {
         sessionId: payload.sessionId,
         status: 'pending',
         mode: payload.mode,
+        executionMode: payload.executionMode ?? 'background',
+        outputMode: payload.outputMode ?? 'patchProposal',
         prompt: payload.prompt,
         resolvedPrompt: payload.resolvedPrompt ?? null,
         systemPrompt: payload.systemPrompt ?? null,
@@ -860,9 +872,12 @@ export class WriteLLMDatabase {
         modelName: payload.modelName ?? null,
         errorMessage: null,
         jobId: null,
+        patchId: payload.patchId ?? null,
         applyPayloadJson: payload.applyPayloadJson ?? null,
         createdAt: timestamp,
         updatedAt: timestamp,
+        startedAt: payload.startedAt ?? null,
+        completedAt: payload.completedAt ?? null,
         adoptedAt: null
       }).run();
       this.touchGenerationSession(payload.sessionId, timestamp);
@@ -925,7 +940,10 @@ export class WriteLLMDatabase {
     if ('modelName' in payload) patch.modelName = payload.modelName ?? null;
     if ('errorMessage' in payload) patch.errorMessage = payload.errorMessage ?? null;
     if ('jobId' in payload) patch.jobId = payload.jobId ?? null;
+    if ('patchId' in payload) patch.patchId = payload.patchId ?? null;
     if ('applyPayloadJson' in payload) patch.applyPayloadJson = payload.applyPayloadJson ?? null;
+    if ('startedAt' in payload) patch.startedAt = payload.startedAt ?? null;
+    if ('completedAt' in payload) patch.completedAt = payload.completedAt ?? null;
     if ('adoptedAt' in payload) patch.adoptedAt = payload.adoptedAt ?? null;
     this.orm.transaction(() => {
       this.orm.update(llmGenerationRounds).set(patch).where(eq(llmGenerationRounds.id, roundId)).run();
@@ -1688,6 +1706,8 @@ export class WriteLLMDatabase {
         session_id TEXT NOT NULL,
         status TEXT NOT NULL,
         mode TEXT NOT NULL,
+        execution_mode TEXT NOT NULL DEFAULT 'background',
+        output_mode TEXT NOT NULL DEFAULT 'patchProposal',
         prompt TEXT NOT NULL,
         resolved_prompt TEXT,
         system_prompt TEXT,
@@ -1698,9 +1718,12 @@ export class WriteLLMDatabase {
         model_name TEXT,
         error_message TEXT,
         job_id INTEGER,
+        patch_id TEXT,
         apply_payload_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
         adopted_at TEXT
       );
 
@@ -1773,6 +1796,11 @@ export class WriteLLMDatabase {
     this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_path', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_hash', 'TEXT');
+    this.addColumnIfMissing('llm_generation_rounds', 'execution_mode', "TEXT NOT NULL DEFAULT 'background'");
+    this.addColumnIfMissing('llm_generation_rounds', 'output_mode', "TEXT NOT NULL DEFAULT 'patchProposal'");
+    this.addColumnIfMissing('llm_generation_rounds', 'patch_id', 'TEXT');
+    this.addColumnIfMissing('llm_generation_rounds', 'started_at', 'TEXT');
+    this.addColumnIfMissing('llm_generation_rounds', 'completed_at', 'TEXT');
 
     if (previousSchemaVersion < 7) {
       this.clearLegacyKnowledgeData();
@@ -2600,6 +2628,8 @@ function mapGenerationRound(row: LlmGenerationRoundRow): GenerationRoundRecord {
     sessionId: row.sessionId,
     status: isGenerationRoundStatus(row.status) ? row.status : 'error',
     mode: isGenerationMode(row.mode) ? row.mode : 'append',
+    executionMode: isResolvedGenerationExecutionMode(row.executionMode) ? row.executionMode : 'background',
+    outputMode: isGenerationOutputMode(row.outputMode) ? row.outputMode : 'patchProposal',
     prompt: row.prompt,
     resolvedPrompt: row.resolvedPrompt,
     systemPrompt: row.systemPrompt,
@@ -2610,8 +2640,11 @@ function mapGenerationRound(row: LlmGenerationRoundRow): GenerationRoundRecord {
     modelName: row.modelName,
     errorMessage: row.errorMessage,
     jobId: row.jobId,
+    patchId: row.patchId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
     adoptedAt: row.adoptedAt
   };
 }
@@ -2650,6 +2683,14 @@ function parseJsonArray(raw: string | null): unknown[] {
 
 function isGenerationMode(value: unknown): value is GenerationMode {
   return value === 'append' || value === 'rewrite_section' || value === 'rewrite_selection' || value === 'continue';
+}
+
+function isResolvedGenerationExecutionMode(value: unknown): value is ResolvedGenerationExecutionMode {
+  return value === 'interactive' || value === 'background';
+}
+
+function isGenerationOutputMode(value: unknown): value is GenerationOutputMode {
+  return value === 'patchProposal' || value === 'freeform';
 }
 
 function isGenerationRoundStatus(value: unknown): value is GenerationRoundStatus {

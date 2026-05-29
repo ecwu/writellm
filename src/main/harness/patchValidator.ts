@@ -49,11 +49,10 @@ export function validateWritingPatch(
     checks.push({ checkKind: 'anchor', passed: true, severity: 'info', message: 'Base section hash matches.' });
   }
 
-  if (patch.kind === 'replace_section') {
-    fail('UNSUPPORTED_PATCH_KIND', 'Direct whole-section replacement is not supported in the WritingPatch MVP.');
-  }
-
   const beforeAfter = beforeAfterForPatch(patch);
+  if (patch.kind === 'replace_section' && patch.target.location.type !== 'section') {
+    fail('UNSUPPORTED_PATCH_KIND', 'Whole-section replacement patch is missing a section target.');
+  }
   if (patch.kind === 'replace_selection') {
     if (patch.target.location.type !== 'text_range') {
       fail('RANGE_OUT_OF_BOUNDS', 'Selection replacement patch is missing a text range.');

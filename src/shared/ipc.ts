@@ -12,6 +12,7 @@ import type {
   FocusedWorkspaceState,
   GenerationRoundRecord,
   GenerationSessionRecord,
+  GenerationEvent,
   GenerateLlmPayload,
   GitHistoryRecord,
   GitStatusRecord,
@@ -93,6 +94,7 @@ export const ipcChannels = {
   saveLlmGeneration: 'writellm:saveLlmGeneration',
   applySectionLlmEdit: 'writellm:applySectionLlmEdit',
   llmStream: 'writellm:llmStream',
+  generationEvent: 'writellm:generationEvent',
   knowledgeRetrievalStream: 'writellm:knowledgeRetrievalStream',
   knowledgeIngestUpdated: 'writellm:knowledgeIngestUpdated'
 } as const;
@@ -160,6 +162,7 @@ export type WriteLLMIpc = {
   saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
   applySectionLlmEdit(payload: ApplySectionLlmEditPayload): Promise<FocusedWorkspaceState>;
   onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;
+  onGenerationEvent(callback: (event: GenerationEvent) => void): () => void;
   onKnowledgeRetrievalStream(callback: (event: KnowledgeRetrievalTraceEvent) => void): () => void;
   onKnowledgeIngestUpdated(callback: () => void): () => void;
 };

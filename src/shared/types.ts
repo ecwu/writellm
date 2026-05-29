@@ -560,6 +560,9 @@ export type GenerateLlmPayload = {
 };
 
 export type GenerationMode = 'append' | 'rewrite_section' | 'rewrite_selection' | 'continue';
+export type GenerationExecutionMode = 'interactive' | 'background' | 'auto';
+export type ResolvedGenerationExecutionMode = Exclude<GenerationExecutionMode, 'auto'>;
+export type GenerationOutputMode = 'patchProposal' | 'freeform';
 
 export type GenerationRoundStatus =
   | 'pending'
@@ -585,6 +588,8 @@ export type GenerationRoundRecord = {
   sessionId: string;
   status: GenerationRoundStatus;
   mode: GenerationMode;
+  executionMode: ResolvedGenerationExecutionMode;
+  outputMode: GenerationOutputMode;
   prompt: string;
   resolvedPrompt: string | null;
   systemPrompt: string | null;
@@ -595,8 +600,11 @@ export type GenerationRoundRecord = {
   modelName: string | null;
   errorMessage: string | null;
   jobId: number | null;
+  patchId: string | null;
   createdAt: string;
   updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
   adoptedAt: string | null;
 };
 
@@ -894,6 +902,7 @@ export type CreateGenerationTaskPayload = {
   sectionId: string;
   focusSectionId?: string | null;
   mode: GenerationMode;
+  executionMode?: GenerationExecutionMode;
   prompt: string;
   useKnowledgeSources?: boolean;
   knowledgeRetrievalPrompt?: string;
@@ -908,6 +917,8 @@ export type CreateGenerationTaskResult = {
   roundId: string;
   sessionId: string;
   status: GenerationRoundStatus;
+  executionMode: ResolvedGenerationExecutionMode;
+  patchId?: string;
 };
 
 export type AdoptGenerationPayload = {
@@ -969,4 +980,34 @@ export type LlmStreamEvent =
       type: 'error';
       runId: string;
       message: string;
+    };
+
+export type GenerationEvent =
+  | {
+      type: 'round_created';
+      roundId: string;
+      sessionId: string;
+      executionMode: ResolvedGenerationExecutionMode;
+      status: GenerationRoundStatus;
+    }
+  | {
+      type: 'round_status';
+      roundId: string;
+      status: GenerationRoundStatus;
+    }
+  | {
+      type: 'round_done';
+      roundId: string;
+      status: GenerationRoundStatus;
+    }
+  | {
+      type: 'round_error';
+      roundId: string;
+      errorMessage: string;
+    }
+  | {
+      type: 'patch_created';
+      roundId: string;
+      patchId: string;
+      status: GenerationRoundStatus;
     };
