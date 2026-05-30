@@ -25,7 +25,7 @@ export function markdownAfterWritingPatch(patch: WritingPatch, currentMarkdown: 
     return patch.operation.after;
   }
 
-  throw new Error(`WritingPatch kind cannot be directly applied in MVP: ${patch.kind}`);
+  throw new Error(`This suggestion type cannot be applied directly: ${patch.kind}`);
 }
 
 function insertionText(markdown: string, offset: number, text: string): string {

@@ -41,9 +41,9 @@ export function validateWritingPatch(
   const directMutation = patch.kind === 'replace_selection' || patch.kind === 'insert_at_cursor' || patch.kind === 'replace_section';
   if (directMutation && !baseSectionMatches) {
     if (isSectionEndInsertion) {
-      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this patch was generated. The insertion will be reviewed as an append to the current section end.', 'warning');
+      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this suggestion was drafted. The insertion will be reviewed as an append to the current section end.', 'warning');
     } else {
-      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this patch was generated.');
+      fail('BASE_SECTION_HASH_MISMATCH', 'The section changed after this suggestion was drafted.');
     }
   } else {
     checks.push({ checkKind: 'anchor', passed: true, severity: 'info', message: 'Base section hash matches.' });
@@ -51,11 +51,11 @@ export function validateWritingPatch(
 
   const beforeAfter = beforeAfterForPatch(patch);
   if (patch.kind === 'replace_section' && patch.target.location.type !== 'section') {
-    fail('UNSUPPORTED_PATCH_KIND', 'Whole-section replacement patch is missing a section target.');
+    fail('UNSUPPORTED_PATCH_KIND', 'Whole-section replacement is missing a section target.');
   }
   if (patch.kind === 'replace_selection') {
     if (patch.target.location.type !== 'text_range') {
-      fail('RANGE_OUT_OF_BOUNDS', 'Selection replacement patch is missing a text range.');
+      fail('RANGE_OUT_OF_BOUNDS', 'Selection replacement is missing a text range.');
     } else {
       const { startOffset, endOffset, selectedText } = patch.target.location;
       if (startOffset < 0 || endOffset > currentMarkdown.length || startOffset >= endOffset) {
@@ -63,7 +63,7 @@ export function validateWritingPatch(
       } else {
         const currentRangeText = currentMarkdown.slice(startOffset, endOffset);
         if (currentRangeText !== selectedText || selectedText !== beforeAfter.before) {
-          fail('SELECTED_TEXT_MISMATCH', 'The selected text no longer matches the patch anchor.');
+          fail('SELECTED_TEXT_MISMATCH', 'The selected text no longer matches the suggestion anchor.');
         } else if (!patch.anchors.beforeTextHash || hashText(currentRangeText) !== patch.anchors.beforeTextHash) {
           fail('BEFORE_TEXT_HASH_MISMATCH', 'The selected text hash no longer matches the patch anchor.');
         } else {
@@ -75,14 +75,14 @@ export function validateWritingPatch(
 
   if (patch.kind === 'insert_at_cursor') {
     if (patch.target.location.type !== 'insertion') {
-      fail('RANGE_OUT_OF_BOUNDS', 'Insertion patch is missing an insertion target.');
+      fail('RANGE_OUT_OF_BOUNDS', 'Insertion is missing a target.');
     } else if (patch.target.location.mode !== 'section_end' && (patch.target.location.offset < 0 || patch.target.location.offset > currentMarkdown.length)) {
       fail('RANGE_OUT_OF_BOUNDS', 'Insertion offset is outside the current section.');
     }
   }
 
   if (!beforeAfter.after.trim()) {
-    fail('EMPTY_AFTER_TEXT', 'Generated patch text is empty.');
+    fail('EMPTY_AFTER_TEXT', 'Suggestion text is empty.');
   }
 
   addLengthIssues(patch, beforeAfter.before, beforeAfter.after, fail);

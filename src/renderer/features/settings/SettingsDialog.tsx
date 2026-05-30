@@ -182,7 +182,7 @@ const navGroups: {
     ]
   },
   {
-    label: 'LLM',
+    label: 'Models',
     items: [
       { id: 'chat', label: 'Chat', icon: <MessageSquareText /> },
       { id: 'embedding', label: 'Embeddings', icon: <Database /> },
@@ -529,7 +529,7 @@ export function SettingsDialog({
               ) : activeSection === 'chat' ? (
                 <EndpointSettings
                   title="Chat"
-                  description="Used for writing, generation, and model-assisted workspace operations."
+                  description="Used for writing assist and model-assisted workspace operations."
                   endpoint={chat}
                   hasApiKey={settings?.chat.hasApiKey ?? false}
                   onProviderChange={(provider) => updateProvider('chat', provider)}
@@ -777,7 +777,7 @@ function KnowledgeSettings({
 
         <FieldSet className="settings-subsection">
           <FieldLegend variant="label">Retrieval</FieldLegend>
-          <FieldDescription>Control how many knowledge chunks are gathered, reranked, and sent into generation.</FieldDescription>
+          <FieldDescription>Control how many knowledge chunks are gathered, reranked, and sent into assistant suggestions.</FieldDescription>
           <div className="grid gap-4 sm:grid-cols-2">
             <NumberSettingField
               id="knowledge-max-retrieved-chunks"
@@ -785,7 +785,7 @@ function KnowledgeSettings({
               value={knowledge.retrieval.maxRetrievedChunks}
               min={1}
               max={20}
-              description="Maximum source chunks sent to the LLM."
+              description="Maximum source chunks sent to the assistant."
               onChange={(value) => updateRetrieval('maxRetrievedChunks', value)}
             />
             <NumberSettingField

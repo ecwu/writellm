@@ -38,6 +38,22 @@ const toneClassName: Record<StatusTone, string> = {
   active: 'border-primary/20 bg-primary/10 text-primary'
 };
 
+const statusLabelByValue: Record<string, string> = {
+  pending: 'queued',
+  processing: 'drafting',
+  done: 'ready',
+  patch_created: 'ready',
+  patch_accepted: 'applied',
+  saved_as_candidate: 'saved copy',
+  patch_rejected: 'dismissed',
+  canceled: 'canceled',
+  adopted: 'applied',
+  low: 'ok',
+  medium: 'check',
+  high: 'check',
+  blocked: 'needs attention'
+};
+
 export function StatusBadge({
   status,
   children,
@@ -47,10 +63,11 @@ export function StatusBadge({
   children?: ReactNode;
   className?: string;
 }) {
-  const tone = statusToneByValue[status.toLowerCase()] ?? 'neutral';
+  const normalizedStatus = status.toLowerCase();
+  const tone = statusToneByValue[normalizedStatus] ?? 'neutral';
   return (
     <Badge variant={tone === 'neutral' ? 'outline' : 'secondary'} className={cn(toneClassName[tone], className)}>
-      {children ?? status}
+      {children ?? statusLabelByValue[normalizedStatus] ?? status}
     </Badge>
   );
 }

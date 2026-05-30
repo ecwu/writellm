@@ -47,7 +47,7 @@ export function formatNodeStats(stats?: NodeStats) {
     formatCount(counts.sectionCount, 'section'),
     formatCount(counts.contentCount, 'content'),
     formatCount(counts.mainContentCount, 'main'),
-    formatCount(counts.llmCount, 'LLM')
+    formatCount(counts.llmCount, 'assistant draft')
   ].join(' · ');
 }
 
@@ -57,11 +57,11 @@ export function formatContentFlags(node: ContentNodeRecord) {
   }
   const flags = [
     node.isMain ? 'main' : null,
-    node.isLlm ? 'LLM' : null
+    node.isLlm ? 'assistant' : null
   ].filter(Boolean);
   return flags.length > 0 ? flags.join(' · ') : 'content';
 }
 
 function formatCount(count: number, label: string) {
-  return `${count} ${label}${count === 1 || label === 'LLM' ? '' : 's'}`;
+  return `${count} ${label}${count === 1 ? '' : 's'}`;
 }

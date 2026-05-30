@@ -279,7 +279,7 @@ export function Inspector(props: InspectorProps) {
       setActivePatch(patch);
       const refreshed = await getApi().getGenerationRound(roundId);
       setActiveRound(refreshed);
-      onStatus('Patch ready for review.');
+      onStatus('Suggestion ready.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -295,10 +295,10 @@ export function Inspector(props: InspectorProps) {
         setActiveRound(await getApi().getGenerationRound(activeRound.id));
       }
       if (refreshedPatch?.patch.application?.gitStatus === 'failed') {
-        onError(`Patch applied, but Git checkpoint failed: ${refreshedPatch.patch.application.gitError ?? 'Unknown Git error'}`);
+        onError(`Suggestion applied, but Git checkpoint failed: ${refreshedPatch.patch.application.gitError ?? 'Unknown Git error'}`);
         return;
       }
-      onStatus('Patch applied.');
+      onStatus('Suggestion applied.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
       setActivePatch(await getApi().getWritingPatch(patchId));
@@ -312,7 +312,7 @@ export function Inspector(props: InspectorProps) {
       if (activeRound) {
         setActiveRound(await getApi().getGenerationRound(activeRound.id));
       }
-      onStatus('Patch rejected.');
+      onStatus('Suggestion dismissed.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -326,7 +326,7 @@ export function Inspector(props: InspectorProps) {
       if (activeRound) {
         setActiveRound(await getApi().getGenerationRound(activeRound.id));
       }
-      onStatus('Patch saved as candidate.');
+      onStatus('Suggestion saved as a separate draft.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -354,7 +354,7 @@ export function Inspector(props: InspectorProps) {
   async function cancelRound(roundId: string) {
     try {
       setActiveRound(await getApi().cancelGenerationTask(roundId));
-      onStatus('Generation canceled.');
+      onStatus('Suggestion canceled.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -365,7 +365,7 @@ export function Inspector(props: InspectorProps) {
       await getApi().discardGenerationTask(roundId);
       setInspectorView('sessionList');
       setActiveRound(null);
-      onStatus('Generation discarded.');
+      onStatus('Suggestion dismissed.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -375,7 +375,7 @@ export function Inspector(props: InspectorProps) {
     try {
       const result = await getApi().retryGenerationTask(roundId);
       await openSessionDetail(result.sessionId, { refresh: true });
-      onStatus('Generation retried.');
+      onStatus('Trying again.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -387,7 +387,7 @@ export function Inspector(props: InspectorProps) {
         <section className="panel">
           <div className="panel-heading">
             <div>
-              <h2>Sessions</h2>
+              <h2>Assist History</h2>
               <p className="muted">{selectedSection.title}</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => setInspectorView('metadata')}>
@@ -396,7 +396,7 @@ export function Inspector(props: InspectorProps) {
             </Button>
           </div>
           <div className="inspector-session-list">
-            {sessions.length === 0 ? <p className="muted">No generation sessions.</p> : null}
+            {sessions.length === 0 ? <p className="muted">No suggestions yet.</p> : null}
             {sessions.map((session) => {
               const latestRound = roundsBySession[session.id]?.at(-1);
               return (
@@ -427,7 +427,7 @@ export function Inspector(props: InspectorProps) {
           {activeRound ? (
             <>
               <div className="generation-prompt">
-                <span>Output</span>
+                <span>Suggestion</span>
                 <CitationHighlight text={generationPrimaryText(activeRound, activePatch)} />
               </div>
               {activePatch ? (
@@ -441,7 +441,7 @@ export function Inspector(props: InspectorProps) {
               {activeRound.errorMessage ? <p className="inspector-round-error">{activeRound.errorMessage}</p> : null}
               <div className="button-row">
                 {activeRound.status === 'done' && !activeRound.adoptedAt ? (
-                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Create Patch Review</Button>
+                  <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Prepare Suggestion</Button>
                 ) : null}
                 {activeRound.status === 'pending' || activeRound.status === 'processing' ? (
                   <Button variant="destructive" size="sm" onClick={() => void cancelRound(activeRound.id)}>Cancel</Button>
@@ -453,11 +453,11 @@ export function Inspector(props: InspectorProps) {
                   </Button>
                 ) : null}
                 {activeRound.status !== 'processing' ? (
-                  <Button variant="outline" size="sm" onClick={() => void discardRound(activeRound.id)}>Discard</Button>
+                  <Button variant="outline" size="sm" onClick={() => void discardRound(activeRound.id)}>Dismiss</Button>
                 ) : null}
               </div>
               <details className="generation-prompt inspector-generation-details">
-                <summary>Generation details</summary>
+                <summary>Assist details</summary>
                 <MetadataRow label="Prompt" value={activeRound.prompt} />
                 <MetadataRow label="Mode" value={`${activeRound.mode} · ${activeRound.executionMode}`} />
                 <MetadataRow label="Model" value={[activeRound.modelProvider, activeRound.modelName].filter(Boolean).join(' · ') || 'Not set'} />
@@ -467,7 +467,7 @@ export function Inspector(props: InspectorProps) {
                 ) : null}
                 {activeRound.retrievalTrace.length > 0 ? (
                   <div className="generation-detail-list">
-                    <span>Retrieval Trace</span>
+                    <span>Source Trace</span>
                     {activeRound.retrievalTrace.map((event, index) => (
                       <p key={index}>{event.type}</p>
                     ))}
@@ -475,14 +475,14 @@ export function Inspector(props: InspectorProps) {
                 ) : null}
                 {activeRound.content ? (
                   <div className="generation-detail-list">
-                    <span>Raw Output</span>
+                    <span>Raw Assist Output</span>
                     <pre>{activeRound.content}</pre>
                   </div>
                 ) : null}
               </details>
             </>
           ) : (
-            <p className="muted">No rounds in this session.</p>
+            <p className="muted">No suggestions in this session.</p>
           )}
         </section>
       </div>
@@ -534,7 +534,7 @@ export function Inspector(props: InspectorProps) {
                   onChange={(event) => setSectionIntent(event.target.value)}
                   placeholder="Writing intent for this section"
                 />
-                <FieldDescription>Guide model generation and retrieval for this section.</FieldDescription>
+                <FieldDescription>Guide assistant suggestions and source retrieval for this section.</FieldDescription>
               </Field>
               <div className="button-row">
                 <Button size="sm" onClick={() => void saveSection()} disabled={!sectionTitle.trim()}>
@@ -570,13 +570,13 @@ export function Inspector(props: InspectorProps) {
               <MetadataRow label="Intent" value={selectedSection.intent || 'Not set'} />
               <MetadataRow label="Markdown" value={selectedSection.markdownPath} />
               {selectedSectionLlmSummary ? (
-                <MetadataRow label="LLM ops" value={selectedSectionLlmSummary} />
+                <MetadataRow label="Assist" value={selectedSectionLlmSummary} />
               ) : null}
               <MetadataRow label="Node ID" value={selectedSection.id} />
               <MetadataRow label="Updated" value={selectedSection.updatedAt} />
               <Button variant="outline" size="sm" onClick={() => setInspectorView('sessionList')}>
                 <MessageSquare />
-                Sessions ({sessions.length})
+                Assist ({sessions.length})
               </Button>
             </div>
           )}
@@ -631,7 +631,7 @@ export function Inspector(props: InspectorProps) {
           />
           {selectedGenerationPrompt || selectedGenerationSources.length > 0 ? (
             <details className="generation-prompt inspector-generation-details">
-              <summary>Generation details</summary>
+              <summary>Assist details</summary>
               {selectedGenerationPrompt ? <MetadataRow label="Input prompt" value={selectedGenerationPrompt} /> : null}
               {selectedGenerationSources.length > 0 ? (
                 <div className="generation-detail-list">
@@ -696,7 +696,7 @@ function PatchReviewPanel({
   const riskLevel = writingPatch.validation?.riskLevel ?? patch.riskLevel;
   const handleAccept = () => {
     if (riskLevel === 'high') {
-      const confirmed = window.confirm('This WritingPatch is high risk. Apply it anyway?');
+      const confirmed = window.confirm('This suggestion changes sensitive details such as citations or numbers. Apply it anyway?');
       if (!confirmed) {
         return;
       }
@@ -709,30 +709,33 @@ function PatchReviewPanel({
     <div className="patch-review-panel">
       <div className="patch-review-header">
         <div>
-          <span>Patch review</span>
-          <p>{writingPatch.metadata.rationale || 'No rationale provided.'}</p>
+          <span>Assistant suggestion</span>
+          <p>{writingPatch.metadata.rationale || 'Ready to apply or save as a separate draft.'}</p>
         </div>
-        <StatusBadge status={riskLevel ?? 'unknown'} />
+        {errors.length > 0 ? <StatusBadge status="blocked">Needs attention</StatusBadge> : null}
       </div>
       {warnings.length > 0 || errors.length > 0 ? (
-        <div className="patch-review-issues">
-          {[...errors, ...warnings].map((issue, index) => (
-            <p key={`${issue.code}:${index}`}>{issue.severity}: {issue.message}</p>
-          ))}
-        </div>
+        <details className="patch-review-details">
+          <summary>Assistant checks</summary>
+          <div className="patch-review-issues">
+            {[...errors, ...warnings].map((issue, index) => (
+              <p key={`${issue.code}:${index}`}>{assistIssueLabel(issue.severity)}: {issue.message}</p>
+            ))}
+          </div>
+        </details>
       ) : null}
       <div className="button-row">
-        {canAccept ? <Button size="sm" onClick={handleAccept}>Apply to Section</Button> : null}
+        {canAccept ? <Button size="sm" onClick={handleAccept}>Apply</Button> : null}
         {canSaveCandidate ? (
-          <Button variant="outline" size="sm" onClick={() => onSaveCandidate(patch.id)}>Save as Candidate</Button>
+          <Button variant="outline" size="sm" onClick={() => onSaveCandidate(patch.id)}>Save Copy</Button>
         ) : null}
         {writingPatch.status !== 'rejected' && writingPatch.status !== 'applied' ? (
-          <Button variant="outline" size="sm" onClick={() => onReject(patch.id)}>Reject</Button>
+          <Button variant="outline" size="sm" onClick={() => onReject(patch.id)}>Dismiss</Button>
         ) : null}
       </div>
       {writingPatch.diff ? (
         <details className="patch-review-details">
-          <summary>Diff details</summary>
+          <summary>Compare changes</summary>
           <div className="patch-review-diff">
             <div>
               <span>Before</span>
@@ -763,9 +766,19 @@ function generationPrimaryText(round: GenerationRoundRecord, patch: WritingPatch
     return 'Waiting to start...';
   }
   if (round.status === 'processing') {
-    return 'Generating patch proposal...';
+    return 'Drafting a suggestion...';
   }
   return round.content || '';
+}
+
+function assistIssueLabel(severity: string): string {
+  if (severity === 'blocking' || severity === 'error') {
+    return 'Needs attention';
+  }
+  if (severity === 'warning') {
+    return 'Check';
+  }
+  return 'Note';
 }
 
 function patchAfterText(patch: WritingPatchRecord): string {
@@ -787,7 +800,7 @@ function formatRoundTiming(round: GenerationRoundRecord): string {
 
 function adoptedContentTitle(content: ContentNodeRecord): string {
   const trimmedTitle = content.title.trim();
-  if (!trimmedTitle || /^LLM candidate\b/i.test(trimmedTitle)) {
+  if (!trimmedTitle || /^(LLM candidate|Assistant draft)\b/i.test(trimmedTitle)) {
     return 'Main draft';
   }
   return trimmedTitle;
@@ -822,7 +835,7 @@ function formatSectionLlmOperationSummary(section: SectionNodeRecord | null): st
     return null;
   }
   const latest = operations[operations.length - 1];
-  return `${operations.length} operation${operations.length === 1 ? '' : 's'} · latest ${latest.status}`;
+  return `${operations.length} assist run${operations.length === 1 ? '' : 's'} · latest ${latest.status}`;
 }
 
 function getSectionLlmOperations(section: SectionNodeRecord | null): LlmOperationRecord[] {

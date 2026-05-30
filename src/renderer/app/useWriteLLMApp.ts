@@ -610,30 +610,7 @@ export function useWriteLLMApp() {
       setSelection({ type: 'node', id: llmDraft.targetSectionId! });
       setLlmDraft(emptyLlmDraft);
       return next;
-    }, 'LLM candidate saved.');
-  }
-
-  async function saveLlmFlowGeneration(payload: {
-    sectionId: string;
-    prompt: string;
-    content: string;
-    contextNodeIds: string[];
-    retrievedSources: RetrievedKnowledgeSource[];
-  }) {
-    await run(async () => {
-      const next = await getApi().saveLlmGeneration({
-        sectionId: payload.sectionId,
-        focusSectionId: state.focusSectionId ?? payload.sectionId,
-        prompt: payload.prompt,
-        content: payload.content,
-        contextNodeIds: payload.contextNodeIds,
-        retrievedSources: payload.retrievedSources,
-        contextRelationType: DEFAULT_EDGE_KIND
-      });
-      setSelection({ type: 'node', id: payload.sectionId });
-      setLlmDraft(emptyLlmDraft);
-      return next;
-    }, 'LLM candidate saved.');
+    }, 'Suggestion saved as a separate draft.');
   }
 
   async function createKnowledgeItem(title: string, content: string) {
@@ -801,7 +778,6 @@ export function useWriteLLMApp() {
     startLlmGeneration,
     cancelLlmDraft,
     saveLlmDraft,
-    saveLlmFlowGeneration,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,

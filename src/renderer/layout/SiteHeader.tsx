@@ -238,7 +238,7 @@ type HeaderModelStatus = {
 
 function modelStatusItems(settings: PublicLlmSettings | null): HeaderModelStatus[] {
   return [
-    modelStatusItem('llm', 'LLM', settings?.chat.model, settings?.chat.hasApiKey),
+    modelStatusItem('llm', 'Assistant', settings?.chat.model, settings?.chat.hasApiKey),
     modelStatusItem('embedding', 'Embedding', settings?.embedding.model, settings?.embedding.hasApiKey),
     modelStatusItem(
       'rerank',

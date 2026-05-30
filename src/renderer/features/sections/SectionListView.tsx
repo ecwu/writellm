@@ -365,12 +365,12 @@ function formatContentStatsLine(stats?: NodeStats) {
   return [
     formatCount(stats?.contentCount ?? 0, 'content'),
     formatCount(stats?.mainContentCount ?? 0, 'main'),
-    formatCount(stats?.llmCount ?? 0, 'LLM')
+    formatCount(stats?.llmCount ?? 0, 'assistant draft')
   ].join(' · ');
 }
 
 function formatCount(count: number, label: string) {
-  return `${count} ${label}${count === 1 || label === 'LLM' ? '' : 's'}`;
+  return `${count} ${label}${count === 1 ? '' : 's'}`;
 }
 
 

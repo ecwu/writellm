@@ -47,7 +47,7 @@ export function createPatchFromGenerationRound(
     throw new Error(`Generation round not found: ${roundId}`);
   }
   if (round.status !== 'done' || !round.content?.trim()) {
-    throw new Error('Only completed generation tasks can be converted into WritingPatch records.');
+    throw new Error('Only completed suggestions can be prepared for review.');
   }
   const session = db.getGenerationSession(round.sessionId);
   if (!session) {
@@ -71,7 +71,7 @@ export function createPatchFromGenerationRound(
       section,
       proposal: {
         afterText: '',
-        rationale: 'The model response could not be parsed as a WritingPatch proposal.',
+        rationale: 'The assistant response could not be prepared for review.',
         warnings: [caught instanceof Error ? caught.message : String(caught)]
       },
       rawProposal: round.content,
@@ -203,7 +203,7 @@ function buildWritingPatchFromProposal(input: {
         errors: [{
           code: 'OUTPUT_PARSE_FAILED',
           severity: 'blocking',
-          message: 'Model output could not be parsed as the required WritingPatch JSON proposal.',
+          message: 'Assistant output could not be prepared for review.',
           target: { sectionId: applyPayload.sectionId }
         }],
         warnings: [],
@@ -211,7 +211,7 @@ function buildWritingPatchFromProposal(input: {
           checkKind: 'custom',
           passed: false,
           severity: 'blocking',
-          message: 'Model output parse failed.'
+          message: 'Assistant output parse failed.'
         }],
         validatedAt: timestamp
       }

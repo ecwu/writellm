@@ -90,7 +90,6 @@ export function App() {
     deleteSelectedNode,
     openGenerateComposer,
     cancelLlmDraft,
-    saveLlmFlowGeneration,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -305,15 +304,12 @@ export function App() {
                     selectedEdge={selectedEdge ?? null}
                     focusSection={focusSection ?? null}
                     llmDraft={llmDraft}
-                    contextNodes={state.contextNodes}
                     onCreateInSection={(sectionId, preset) => void createContentInSection(sectionId, preset)}
                     onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
                     onDeleteNode={() => void deleteSelectedNode()}
                     onOpenGenerate={openGenerateComposer}
                     onOpenSectionMarkdown={(section) => void openWritingView(section)}
                     onCancelGenerate={() => void cancelLlmDraft()}
-                    onAdoptGenerate={saveLlmFlowGeneration}
-                    onGenerationQueued={(sectionId, result) => setGenerationTarget({ ...result, sectionId })}
                     onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
                     onDeleteEdge={() => void deleteSelectedEdge()}
                   />

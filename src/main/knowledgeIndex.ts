@@ -392,7 +392,7 @@ function parseJsonObject(text: string): unknown {
     if (start >= 0 && end > start) {
       return JSON.parse(raw.slice(start, end + 1));
     }
-    throw new Error('LLM metadata response did not contain a JSON object.');
+    throw new Error('Assistant metadata response did not contain a JSON object.');
   }
 }
 

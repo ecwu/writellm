@@ -15,19 +15,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '../../components/ui/select';
-import {
-  LlmExecutionFlow,
-  type LlmFlowAdoptInput,
-  type LlmFlowGenerateInput,
-  type LlmFlowGenerateProgress
-} from '../llm/LlmExecutionFlow';
 import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
-  CreateGenerationTaskResult,
   EdgeKind,
   FocusedWorkspaceState,
-  RetrievedKnowledgeSource,
   SectionNodeRecord
 } from '../../../shared/types';
 
@@ -38,15 +30,12 @@ export function FloatingActionToolbar({
   selectedEdge,
   focusSection,
   llmDraft,
-  contextNodes,
   onCreateInSection,
   onCreateConnectedContent,
   onOpenSectionMarkdown,
   onDeleteNode,
   onOpenGenerate,
   onCancelGenerate,
-  onAdoptGenerate,
-  onGenerationQueued,
   onUpdateEdgeKind,
   onDeleteEdge
 }: {
@@ -56,21 +45,12 @@ export function FloatingActionToolbar({
   selectedEdge: FocusedWorkspaceState['edges'][number] | null;
   focusSection: SectionNodeRecord | null;
   llmDraft: LlmDraftState;
-  contextNodes: ContentNodeRecord[];
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
   onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
   onDeleteNode: () => void;
   onOpenGenerate: (sectionId: string) => void;
   onCancelGenerate: () => void;
-  onAdoptGenerate: (payload: {
-    sectionId: string;
-    prompt: string;
-    content: string;
-    contextNodeIds: string[];
-    retrievedSources: RetrievedKnowledgeSource[];
-  }) => Promise<void>;
-  onGenerationQueued: (sectionId: string, result: CreateGenerationTaskResult) => void;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
   onDeleteEdge: () => void;
 }) {
@@ -80,76 +60,7 @@ export function FloatingActionToolbar({
   const [canvasStatus, setCanvasStatus] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const generateTargetId = selectedSection?.id ?? selectedContent?.parentId ?? focusSection?.id ?? null;
-  const generationTarget = selectedSection?.id === generateTargetId ? selectedSection : focusSection;
   const focusSectionId = focusSection?.id ?? generateTargetId;
-
-  async function retrieveFlowSources(
-    knowledgeRetrievalPrompt: string,
-    options: { retrievalMode: 'classic' | 'sourcev2'; runId?: string }
-  ): Promise<RetrievedKnowledgeSource[]> {
-    if (!generateTargetId) {
-      throw new Error('Choose a section before generating.');
-    }
-    return getApi().searchKnowledge({
-      query: knowledgeRetrievalPrompt,
-      sectionId: generateTargetId,
-      focusSectionId,
-      contextNodeIds: llmDraft.contextNodeIds,
-      retrievalMode: options.retrievalMode,
-      runId: options.runId
-    });
-  }
-
-  async function generateFlowResult(
-    input: LlmFlowGenerateInput,
-    onProgress: (progress: LlmFlowGenerateProgress) => void
-  ) {
-    if (!generateTargetId) {
-      throw new Error('Choose a section before generating.');
-    }
-    const runId = globalThis.crypto.randomUUID();
-    const unsubscribe = getApi().onLlmStream((event) => {
-      if (event.runId !== runId) {
-        return;
-      }
-      if (event.type === 'chunk') {
-        onProgress({ content: event.content });
-        return;
-      }
-      if (event.type === 'done') {
-        onProgress({ content: event.content.trim(), sources: event.sources ?? input.sources });
-      }
-    });
-    const result = await getApi().generateWithLlm({
-      runId,
-      sectionId: generateTargetId,
-      focusSectionId,
-      prompt: input.prompt,
-      useKnowledgeSources: input.useKnowledgeSources,
-      retrievalMode: input.retrievalMode,
-      knowledgeRetrievalPrompt: input.knowledgeRetrievalPrompt,
-      contextNodeIds: llmDraft.contextNodeIds,
-      prefetchedKnowledgeSources: input.useKnowledgeSources ? input.sources : undefined,
-      requireInlineCitations: input.useKnowledgeSources
-    }).finally(unsubscribe);
-    const content = result.content.trim();
-    const sources = result.sources ?? input.sources;
-    onProgress({ content, sources });
-    return { content, sources };
-  }
-
-  async function adoptFlowResult(input: LlmFlowAdoptInput): Promise<void> {
-    if (!generateTargetId) {
-      throw new Error('Choose a section before generating.');
-    }
-    await onAdoptGenerate({
-      sectionId: generateTargetId,
-      prompt: input.prompt,
-      content: input.content,
-      contextNodeIds: llmDraft.contextNodeIds,
-      retrievedSources: input.useKnowledgeSources ? input.sources : []
-    });
-  }
 
   async function enqueueCanvasGeneration() {
     if (!generateTargetId || !canvasPrompt.trim() || canvasSubmitting) {
@@ -169,8 +80,7 @@ export function FloatingActionToolbar({
         requireInlineCitations: canvasUseKnowledge
       });
       setCanvasPrompt('');
-      setCanvasStatus(result.executionMode === 'interactive' ? 'Generation started. Review it in the Inspector.' : 'Generation queued. Review it in the Inspector.');
-      onGenerationQueued(generateTargetId, result);
+      setCanvasStatus(result.executionMode === 'interactive' ? 'Suggestion started. It will appear in Assist.' : 'Suggestion queued. It will appear in Assist.');
     } catch (caught) {
       setCanvasError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -191,7 +101,7 @@ export function FloatingActionToolbar({
                   void enqueueCanvasGeneration();
                 }
               }}
-              placeholder="Prompt for a new generation"
+              placeholder="Ask for a writing suggestion"
               disabled={canvasSubmitting}
             />
             <label>
@@ -206,15 +116,15 @@ export function FloatingActionToolbar({
             <div className="button-row">
               <Button size="sm" onClick={() => void enqueueCanvasGeneration()} disabled={!canvasPrompt.trim() || canvasSubmitting}>
                 {canvasSubmitting ? <Spinner /> : null}
-                {canvasSubmitting ? 'Starting' : 'Generate'}
+                {canvasSubmitting ? 'Starting' : 'Suggest'}
               </Button>
               <Button variant="outline" size="sm" onClick={onCancelGenerate}>
                 Cancel
               </Button>
-          </div>
+            </div>
             {canvasStatus ? <p className="floating-generation-status">{canvasStatus}</p> : null}
             {canvasError ? <p className="floating-generation-status is-error">{canvasError}</p> : null}
-	          </div>
+          </div>
         </div>
       ) : null}
       <div className="floating-action-buttons">
@@ -232,12 +142,12 @@ export function FloatingActionToolbar({
             <button
               type="button"
               className={llmDraft.open ? 'active' : undefined}
-              title="Generate with LLM"
-              aria-label="Generate with LLM"
+              title="Writing assist"
+              aria-label="Writing assist"
               onClick={() => onOpenGenerate(selectedSection.id)}
             >
               <WandSparkles />
-              <span className="sr-only">Generate with LLM</span>
+              <span className="sr-only">Writing assist</span>
             </button>
           </>
         ) : null}
@@ -247,12 +157,12 @@ export function FloatingActionToolbar({
               <button
                 type="button"
                 className={llmDraft.open ? 'active' : undefined}
-                title="Generate with LLM"
-                aria-label="Generate with LLM"
+                title="Writing assist"
+                aria-label="Writing assist"
                 onClick={() => onOpenGenerate(generateTargetId)}
               >
                 <WandSparkles />
-                <span className="sr-only">Generate with LLM</span>
+                <span className="sr-only">Writing assist</span>
               </button>
             ) : null}
             <button
@@ -299,24 +209,4 @@ export function FloatingActionToolbar({
       </div>
     </div>
   );
-}
-
-function buildCanvasKnowledgeRetrievalPrompt(
-  prompt: string,
-  targetSection: SectionNodeRecord | null,
-  contextNodes: ContentNodeRecord[],
-  selectedContextNodeIds: string[]
-): string {
-  const selectedIds = new Set(selectedContextNodeIds);
-  const selectedContext = contextNodes
-    .filter((node) => selectedIds.has(node.id))
-    .map((node) => `${node.title}\n${node.content.trim().slice(0, 900)}`)
-    .filter((text) => text.trim())
-    .join('\n\n---\n\n');
-  return [
-    `Section title: ${targetSection?.title ?? 'Untitled section'}`,
-    `Section intent: ${targetSection?.intent?.trim() || 'Not provided'}`,
-    `User prompt: ${prompt}`,
-    selectedContext ? `Selected context:\n${selectedContext}` : null
-  ].filter(Boolean).join('\n\n');
 }

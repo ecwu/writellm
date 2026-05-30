@@ -338,7 +338,7 @@ export function KnowledgePage({
         ) : (
           <div className="knowledge-empty">
             <h2>No sources</h2>
-            <p>Add text sources or import files to make them available during generation.</p>
+            <p>Add text sources or import files to make them available to writing assist.</p>
             <div className="button-row">
               <Button variant="outline" size="sm" onClick={onImportFiles}>
                 <FileUp />
@@ -421,7 +421,7 @@ export function KnowledgePage({
               {contentMissing ? (
                 <FieldError>Source text is required before saving.</FieldError>
               ) : (
-                <FieldDescription>This text is indexed for retrieval during generation.</FieldDescription>
+                <FieldDescription>This text is indexed for writing assist retrieval.</FieldDescription>
               )}
             </Field>
             {debugEnabled ? (
@@ -556,7 +556,7 @@ function KnowledgeDisplayMetadataDebug({ item }: { item: KnowledgeItemRecord }) 
   }
   return (
     <div className="knowledge-display-metadata-debug">
-      <span>LLM metadata</span>
+      <span>Assistant metadata</span>
       {metadata.title ? <p>{metadata.title}</p> : null}
       {metadata.description ? <p>{metadata.description}</p> : null}
       {error ? <code>{error}</code> : null}

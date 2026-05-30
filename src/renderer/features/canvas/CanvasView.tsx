@@ -12,7 +12,7 @@ import {
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
 import { FloatingActionToolbar } from './FloatingActionToolbar';
 import type { ChildViewMode, ContentPreset, LlmDraftState, Selection } from '../../app/types';
-import type { ContentNodeRecord, CreateGenerationTaskResult, EdgeKind, FocusedWorkspaceState, RetrievedKnowledgeSource, SectionNodeRecord } from '../../../shared/types';
+import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
 
 export function CanvasView({
   title,
@@ -34,15 +34,12 @@ export function CanvasView({
   selectedEdge,
   focusSection,
   llmDraft,
-  contextNodes,
   onCreateInSection,
   onCreateConnectedContent,
   onOpenSectionMarkdown,
   onDeleteNode,
   onOpenGenerate,
   onCancelGenerate,
-  onAdoptGenerate,
-  onGenerationQueued,
   onUpdateEdgeKind,
   onDeleteEdge
 }: {
@@ -65,21 +62,12 @@ export function CanvasView({
   selectedEdge: FocusedWorkspaceState['edges'][number] | null;
   focusSection: SectionNodeRecord | null;
   llmDraft: LlmDraftState;
-  contextNodes: ContentNodeRecord[];
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
   onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
   onDeleteNode: () => void;
   onOpenGenerate: (sectionId: string) => void;
   onCancelGenerate: () => void;
-  onAdoptGenerate: (payload: {
-    sectionId: string;
-    prompt: string;
-    content: string;
-    contextNodeIds: string[];
-    retrievedSources: RetrievedKnowledgeSource[];
-  }) => Promise<void>;
-  onGenerationQueued: (sectionId: string, result: CreateGenerationTaskResult) => void;
   onUpdateEdgeKind: (relationType: EdgeKind) => void;
   onDeleteEdge: () => void;
 }) {
@@ -114,15 +102,12 @@ export function CanvasView({
         selectedEdge={selectedEdge}
         focusSection={focusSection}
         llmDraft={llmDraft}
-        contextNodes={contextNodes}
         onCreateInSection={onCreateInSection}
         onCreateConnectedContent={onCreateConnectedContent}
         onOpenSectionMarkdown={onOpenSectionMarkdown}
         onDeleteNode={onDeleteNode}
         onOpenGenerate={onOpenGenerate}
         onCancelGenerate={onCancelGenerate}
-        onAdoptGenerate={onAdoptGenerate}
-        onGenerationQueued={onGenerationQueued}
         onUpdateEdgeKind={onUpdateEdgeKind}
         onDeleteEdge={onDeleteEdge}
       />

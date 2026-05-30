@@ -133,7 +133,7 @@ export async function processLlmGenerationJob(
 function parseGenerationJobData(rawData: string): GenerationJobData {
   const parsed = JSON.parse(rawData) as Partial<GenerationJobData>;
   if (!parsed || typeof parsed.roundId !== 'string' || typeof parsed.prompt !== 'string') {
-    throw new Error('Invalid LLM generation job data.');
+    throw new Error('Invalid assistant suggestion job data.');
   }
   return {
     roundId: parsed.roundId,

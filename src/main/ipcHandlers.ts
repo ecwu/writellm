@@ -76,7 +76,7 @@ const llmRuns = new Map<string, AbortController>();
 const interactiveGenerationRuns = new Map<string, AbortController>();
 
 function titleFromPrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim() || 'LLM generation';
+  return prompt.replace(/\s+/g, ' ').trim() || 'Assistant suggestion';
 }
 
 function formatArticleStructure(
@@ -1067,7 +1067,7 @@ export function registerIpcHandlers(): void {
       }
       const userPrompt = payload.prompt.trim();
       if (!userPrompt) {
-        throw new Error('LLM generation prompt is required.');
+        throw new Error('Tell the assistant what to change first.');
       }
 
       const settings = readLlmSettings();
@@ -1385,7 +1385,7 @@ export function registerIpcHandlers(): void {
     }
     const prompt = payload.prompt.trim();
     if (!prompt) {
-      throw new Error('LLM generation prompt is required.');
+      throw new Error('Tell the assistant what to write first.');
     }
     const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
     const articleSectionContext = buildArticleSectionContextFromDb(
@@ -1403,7 +1403,7 @@ export function registerIpcHandlers(): void {
     const candidate = db.createNode({
       kind: 'content',
       parentId: payload.sectionId,
-      title: `LLM candidate · ${section.title}`,
+      title: `Assistant draft · ${section.title}`,
       content: payload.content.trim(),
       isLlm: true,
       metadata: {
@@ -1439,7 +1439,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(ipcChannels.applySectionLlmEdit, (_event, payload: ApplySectionLlmEditPayload) => {
     void payload;
-    throw new Error('Direct LLM edit application is disabled. Create and review a WritingPatch instead.');
+    throw new Error('Direct edits are disabled. Use an assistant suggestion and apply it from the review step.');
   });
 }
 
@@ -1451,15 +1451,32 @@ function createPatchFromRound(roundId: string): WritingPatchRecord {
 
 const terminalPatchStatuses = new Set<WritingPatch['status']>(['applied', 'rejected', 'saved_as_candidate']);
 
+function assistStatusLabel(status: WritingPatch['status']): string {
+  switch (status) {
+    case 'applied':
+      return 'applied';
+    case 'rejected':
+      return 'dismissed';
+    case 'saved_as_candidate':
+      return 'saved as a separate draft';
+    case 'blocked':
+    case 'parse_failed':
+    case 'validation_failed':
+      return 'needing attention';
+    default:
+      return status.replace(/_/g, ' ');
+  }
+}
+
 function assertPatchNotTerminal(patch: WritingPatch, action: string): void {
   if (terminalPatchStatuses.has(patch.status)) {
-    throw new Error(`Cannot ${action} a WritingPatch that is already ${patch.status}.`);
+    throw new Error(`Cannot ${action} a suggestion that is already ${assistStatusLabel(patch.status)}.`);
   }
 }
 
 function assertPatchCanBeAccepted(patch: WritingPatch): void {
   if (patch.status === 'blocked' || patch.status === 'parse_failed' || patch.status === 'validation_failed' || patch.status === 'rolled_back') {
-    throw new Error(`Cannot accept a WritingPatch with status ${patch.status}.`);
+    throw new Error(`This suggestion needs attention before it can be applied.`);
   }
 }
 
@@ -1475,13 +1492,13 @@ function acceptWritingPatch(payload: AcceptWritingPatchPayload) {
   const db = getActiveDb();
   const record = db.getWritingPatch(payload.patchId);
   if (!record) {
-    throw new Error(`WritingPatch not found: ${payload.patchId}`);
+    throw new Error(`Suggestion not found: ${payload.patchId}`);
   }
   const patch = record.patch;
   assertPatchNotTerminal(patch, 'accept');
   assertPatchCanBeAccepted(patch);
   if (patch.kind === 'create_content_candidate') {
-    throw new Error('This patch kind cannot be directly accepted. Save it as a candidate instead.');
+    throw new Error('This suggestion can be saved as a separate draft.');
   }
   const section = db.getSection(patch.target.sectionId);
   const validation = validateWritingPatch(patch, section);
@@ -1497,7 +1514,7 @@ function acceptWritingPatch(payload: AcceptWritingPatchPayload) {
       },
       diff: createPatchDiff(diffInput.before, diffInput.after)
     });
-    throw new Error(validation.errors[0]?.message ?? 'WritingPatch validation failed.');
+    throw new Error(validation.errors[0]?.message ?? 'The suggestion needs attention before it can be applied.');
   }
   if (validation.riskLevel === 'high' && !payload.confirmHighRisk) {
     db.updateWritingPatch({
@@ -1510,7 +1527,7 @@ function acceptWritingPatch(payload: AcceptWritingPatchPayload) {
       },
       diff: createPatchDiff(diffInput.before, diffInput.after)
     });
-    throw new Error('This WritingPatch is high risk and requires explicit confirmation before applying.');
+    throw new Error('This suggestion changes sensitive details and needs explicit confirmation before applying.');
   }
 
   const previousSectionHash = section.markdownHash;
@@ -1565,7 +1582,7 @@ function rejectWritingPatch(patchId: string): WritingPatchRecord {
   const db = getActiveDb();
   const record = db.getWritingPatch(patchId);
   if (!record) {
-    throw new Error(`WritingPatch not found: ${patchId}`);
+    throw new Error(`Suggestion not found: ${patchId}`);
   }
   const patch = record.patch;
   assertPatchNotTerminal(patch, 'reject');
@@ -1588,7 +1605,7 @@ function saveWritingPatchAsCandidate(patchId: string) {
   const db = getActiveDb();
   const record = db.getWritingPatch(patchId);
   if (!record) {
-    throw new Error(`WritingPatch not found: ${patchId}`);
+    throw new Error(`Suggestion not found: ${patchId}`);
   }
   const patch = record.patch;
   assertPatchNotTerminal(patch, 'save as candidate');
@@ -1598,14 +1615,14 @@ function saveWritingPatchAsCandidate(patchId: string) {
   }
   const candidateText = beforeAfterForPatch(patch).after.trim();
   if (!candidateText) {
-    throw new Error('Cannot save an empty WritingPatch as a candidate.');
+    throw new Error('Cannot save an empty suggestion.');
   }
   const created = db.createNode({
     kind: 'content',
     parentId: section.id,
     title: patch.operation.type === 'create_candidate'
-      ? patch.operation.candidateTitle ?? patch.metadata.title ?? 'LLM candidate'
-      : patch.metadata.title ?? 'LLM candidate',
+      ? patch.operation.candidateTitle ?? patch.metadata.title ?? 'Assistant draft'
+      : patch.metadata.title ?? 'Assistant draft',
     content: candidateText,
     isLlm: true,
     metadata: {
@@ -1693,7 +1710,7 @@ function checkpointPatchApplication(
   try {
     const checkpoint = createGitCheckpoint(
       workspacePath,
-      `Apply WritingPatch ${patch.id}: ${patch.kind} on section ${patch.target.sectionId}`
+      `Apply assistant suggestion ${patch.id}: ${patch.kind} on section ${patch.target.sectionId}`
     );
     return checkpoint
       ? { gitStatus: 'created', gitCommitHash: checkpoint.hash }
@@ -1741,10 +1758,10 @@ function assertSectionLlmEditRange(
   targetEnd: number
 ): void {
   if (!Number.isInteger(targetStart) || !Number.isInteger(targetEnd)) {
-    throw new Error('LLM edit range must use integer offsets.');
+    throw new Error('Assistant edit range must use integer offsets.');
   }
   if (targetStart < 0 || targetEnd < targetStart || targetEnd > markdown.length) {
-    throw new Error('LLM edit range is outside the current section.');
+    throw new Error('Assistant edit range is outside the current section.');
   }
   if (mode === 'rewrite_selection' && targetStart === targetEnd) {
     throw new Error('A selected text range is required for selection rewrite.');

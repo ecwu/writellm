@@ -15,16 +15,18 @@ const citationChangeSchema = z.object({
   requiresReview: z.boolean()
 });
 
+const optionalArray = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => value === null ? undefined : value, z.array(schema).optional());
+
 export const llmPatchProposalSchema = z.object({
   afterText: z.string(),
   rationale: z.string(),
-  warnings: z.array(z.string()).optional(),
-  changedClaims: z.array(claimChangeSchema).optional(),
-  preservedClaims: z.array(z.string()).optional(),
-  affectedCitations: z.array(citationChangeSchema).optional()
+  warnings: optionalArray(z.string()),
+  changedClaims: optionalArray(claimChangeSchema),
+  preservedClaims: optionalArray(z.string()),
+  affectedCitations: optionalArray(citationChangeSchema)
 });
 
 export function parseLlmPatchProposal(raw: string): LlmPatchProposal {
   return llmPatchProposalSchema.parse(JSON.parse(raw));
 }
-
