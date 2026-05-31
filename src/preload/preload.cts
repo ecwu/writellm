@@ -25,6 +25,8 @@ const ipcChannels = {
   updateNodeEdge: 'writellm:updateNodeEdge',
   deleteNodeEdge: 'writellm:deleteNodeEdge',
   updateNodeLayout: 'writellm:updateNodeLayout',
+  updateProjectBrief: 'writellm:updateProjectBrief',
+  suggestProjectBrief: 'writellm:suggestProjectBrief',
   exportLatex: 'writellm:exportLatex',
   getLlmSettings: 'writellm:getLlmSettings',
   updateLlmSettings: 'writellm:updateLlmSettings',
@@ -95,6 +97,8 @@ const api: WriteLLMIpc = {
   deleteNodeEdge: (edgeId, focusSectionId) =>
     ipcRenderer.invoke(ipcChannels.deleteNodeEdge, edgeId, focusSectionId),
   updateNodeLayout: (payload) => ipcRenderer.invoke(ipcChannels.updateNodeLayout, payload),
+  updateProjectBrief: (payload) => ipcRenderer.invoke(ipcChannels.updateProjectBrief, payload),
+  suggestProjectBrief: (payload) => ipcRenderer.invoke(ipcChannels.suggestProjectBrief, payload),
   exportLatex: (rootNodeId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootNodeId),
   getLlmSettings: () => ipcRenderer.invoke(ipcChannels.getLlmSettings),
   updateLlmSettings: (payload) => ipcRenderer.invoke(ipcChannels.updateLlmSettings, payload),

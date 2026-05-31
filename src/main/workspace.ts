@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroundTasks.js';
-import { WriteLLMDatabase } from './database.js';
+import { WriteLLMDatabase, emptyProjectBrief } from './database.js';
 import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
 import { closeRetrievalWorker } from './retrievalWorkerClient.js';
@@ -44,6 +44,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
   if (!activeDb) {
     return {
       workspace: null,
+      projectBrief: emptyProjectBrief(),
       compositionTree: [],
       focusSectionId: null,
       nodes: [],

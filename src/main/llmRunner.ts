@@ -1,13 +1,13 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, streamText } from 'ai';
+import { Output, generateText, streamText } from 'ai';
 import type { z } from 'zod';
 import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
 
 const defaultWritingSystemPrompt =
   'You are a writing assistant. Generate only the specific section or fragment requested by the user. Do not generate unrelated sections, surrounding document content, explanations, commentary, notes, introductions, conclusions, or meta text.';
 
-function createModel(settings: ModelEndpointSettings) {
+function createModel(settings: ModelEndpointSettings, options: { structuredOutputs?: boolean } = {}) {
   if (settings.provider === 'anthropic-compatible') {
     const anthropic = createAnthropic({
       baseURL: settings.baseURL,
@@ -20,7 +20,7 @@ function createModel(settings: ModelEndpointSettings) {
     name: 'openaiCompatible',
     baseURL: settings.baseURL,
     apiKey: settings.apiKey,
-    supportsStructuredOutputs: false
+    supportsStructuredOutputs: options.structuredOutputs ?? false
   });
   return openaiCompatible(settings.model);
 }
@@ -124,6 +124,21 @@ export async function generateLlmObject<TSchema extends z.ZodType>(
 ): Promise<z.infer<TSchema>> {
   if (!settings.apiKey.trim()) {
     throw new Error('LLM API key is required. Add it in Settings first.');
+  }
+
+  try {
+    const result = await generateText({
+      model: createModel(settings, { structuredOutputs: true }),
+      system: payload.systemPrompt,
+      prompt: payload.prompt,
+      output: Output.object({ schema: payload.schema }),
+      abortSignal,
+      maxRetries: 0
+    });
+    return result.output as z.infer<TSchema>;
+  } catch {
+    // Some OpenAI-compatible endpoints ignore or reject JSON schema response_format.
+    // Fall back to the looser instruction-based path so older providers still work.
   }
 
   const jsonInstruction = `\n\nYou must respond with ONLY a valid JSON object (no markdown fences, no commentary). The JSON must conform to this exact schema: ${payload.schema.description ?? JSON.stringify(zodSchemaToJson(payload.schema))}`;

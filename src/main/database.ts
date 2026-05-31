@@ -14,6 +14,7 @@ import {
   nodeEdges,
   nodes,
   plainjobJobs,
+  projectBrief,
   schema,
   writingPatches,
   type CanvasNodeLayoutRow,
@@ -25,6 +26,7 @@ import {
   type NodeEdgeRow,
   type NodeRow,
   type PlainjobJobRow,
+  type ProjectBriefRow,
   type WritingPatchRow
 } from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
@@ -65,6 +67,10 @@ import type {
   NodeRecord,
   NodeStats,
   PatchRiskLevel,
+  ProjectBriefRecord,
+  ProjectFramework,
+  ProjectGlossary,
+  ProjectMotivation,
   RetrievedKnowledgeSource,
   ResolvedGenerationExecutionMode,
   KnowledgeRetrievalTraceEvent,
@@ -78,11 +84,12 @@ import type {
   WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 export const LLM_GENERATION_TASK_TYPE = 'llm-generation';
 const SECTION_METADATA_DIR = 'metadata/sections';
+const PROJECT_BRIEF_ID = 'project';
 const LLM_OPERATION_COVERAGE_THRESHOLD = 0.4;
 const PLAINJOB_STATUS_PENDING = 0;
 const PLAINJOB_STATUS_PROCESSING = 1;
@@ -489,6 +496,53 @@ export class WriteLLMDatabase {
         }
       })
       .run();
+  }
+
+  getProjectBrief(): ProjectBriefRecord {
+    const row = this.orm
+      .select()
+      .from(projectBrief)
+      .where(eq(projectBrief.id, PROJECT_BRIEF_ID))
+      .get();
+    return row ? mapProjectBrief(row) : emptyProjectBrief();
+  }
+
+  updateProjectBrief(payload: {
+    glossary?: ProjectGlossary;
+    motivation?: ProjectMotivation;
+    framework?: ProjectFramework;
+  }): ProjectBriefRecord {
+    const current = this.getProjectBrief();
+    const timestamp = nowIso();
+    const createdAt = current.createdAt ?? timestamp;
+    const next = {
+      glossary: normalizeProjectGlossary(payload.glossary ?? current.glossary),
+      motivation: normalizeProjectMotivation(payload.motivation ?? current.motivation),
+      framework: normalizeProjectFramework(payload.framework ?? current.framework),
+      createdAt,
+      updatedAt: timestamp
+    };
+    this.orm
+      .insert(projectBrief)
+      .values({
+        id: PROJECT_BRIEF_ID,
+        glossaryJson: JSON.stringify(next.glossary),
+        motivationJson: JSON.stringify(next.motivation),
+        frameworkJson: JSON.stringify(next.framework),
+        createdAt,
+        updatedAt: timestamp
+      })
+      .onConflictDoUpdate({
+        target: projectBrief.id,
+        set: {
+          glossaryJson: JSON.stringify(next.glossary),
+          motivationJson: JSON.stringify(next.motivation),
+          frameworkJson: JSON.stringify(next.framework),
+          updatedAt: timestamp
+        }
+      })
+      .run();
+    return this.getProjectBrief();
   }
 
   listKnowledgeItems(): KnowledgeItemRecord[] {
@@ -1490,6 +1544,7 @@ export class WriteLLMDatabase {
 
     return {
       workspace: this.summary(),
+      projectBrief: this.getProjectBrief(),
       compositionTree: this.buildCompositionTree(),
       focusSectionId: focusId,
       nodes,
@@ -1649,6 +1704,15 @@ export class WriteLLMDatabase {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS project_brief (
+        id TEXT PRIMARY KEY,
+        glossary_json TEXT NOT NULL,
+        motivation_json TEXT NOT NULL,
+        framework_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_knowledge_items_status
@@ -2311,6 +2375,134 @@ export class WriteLLMDatabase {
       throw new Error('Active main content must belong to the selected section.');
     }
   }
+}
+
+export function emptyProjectBrief(): ProjectBriefRecord {
+  return {
+    glossary: { entries: [], notes: '' },
+    motivation: {
+      audience: '',
+      problem: '',
+      thesis: '',
+      contribution: '',
+      desiredReaderAction: '',
+      constraints: '',
+      notes: ''
+    },
+    framework: { narrativeArc: '', sectionPlan: [], notes: '' },
+    createdAt: null,
+    updatedAt: null
+  };
+}
+
+function mapProjectBrief(row: ProjectBriefRow): ProjectBriefRecord {
+  return {
+    glossary: normalizeProjectGlossary(parseJsonObject(row.glossaryJson)),
+    motivation: normalizeProjectMotivation(parseJsonObject(row.motivationJson)),
+    framework: normalizeProjectFramework(parseJsonObject(row.frameworkJson)),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function normalizeProjectGlossary(value: unknown): ProjectGlossary {
+  const record = asRecord(value);
+  const entries = Array.isArray(record?.entries) ? record.entries : [];
+  return {
+    entries: entries
+      .map((entry) => {
+        const item = asRecord(entry);
+        if (!item) {
+          return null;
+        }
+        return {
+          id: readString(item.id) || createId('term'),
+          term: readString(item.term),
+          aliases: readStringArray(item.aliases),
+          definition: readString(item.definition),
+          preferredUsage: readString(item.preferredUsage),
+          avoidUsage: readString(item.avoidUsage),
+          examples: readStringArray(item.examples)
+        };
+      })
+      .filter((entry): entry is ProjectGlossary['entries'][number] =>
+        Boolean(entry && (entry.term || entry.definition || entry.aliases.length > 0))
+      ),
+    notes: readString(record?.notes)
+  };
+}
+
+function normalizeProjectMotivation(value: unknown): ProjectMotivation {
+  const record = asRecord(value);
+  return {
+    audience: readString(record?.audience),
+    problem: readString(record?.problem),
+    thesis: readString(record?.thesis),
+    contribution: readString(record?.contribution),
+    desiredReaderAction: readString(record?.desiredReaderAction),
+    constraints: readString(record?.constraints),
+    notes: readString(record?.notes)
+  };
+}
+
+function normalizeProjectFramework(value: unknown): ProjectFramework {
+  const record = asRecord(value);
+  const sectionPlan = Array.isArray(record?.sectionPlan) ? record.sectionPlan : [];
+  return {
+    narrativeArc: readString(record?.narrativeArc),
+    sectionPlan: sectionPlan
+      .map((section) => {
+        const item = asRecord(section);
+        if (!item) {
+          return null;
+        }
+        return {
+          id: readString(item.id) || createId('briefsec'),
+          title: readString(item.title),
+          purpose: readString(item.purpose),
+          keyMoves: readString(item.keyMoves),
+          evidence: readString(item.evidence)
+        };
+      })
+      .filter((section): section is ProjectFramework['sectionPlan'][number] =>
+        Boolean(section && (section.title || section.purpose || section.keyMoves || section.evidence))
+      ),
+    notes: readString(record?.notes)
+  };
+}
+
+function parseJsonObject(raw: string | null): unknown {
+  if (!raw) {
+    return {};
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(readString).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 function mapNode(row: NodeRow): NodeRecord {

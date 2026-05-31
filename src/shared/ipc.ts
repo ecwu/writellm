@@ -23,16 +23,19 @@ import type {
   LlmStreamEvent,
   NodeEdgeRecord,
   PublicLlmSettings,
+  ProjectBriefSuggestion,
   RecentWorkspace,
   RetrievedKnowledgeSource,
   ResolveKnowledgeCitationPayload,
   SaveLlmGenerationPayload,
   SectionHistoryDetail,
+  SuggestProjectBriefPayload,
   UpdateAppearanceSettingsPayload,
   UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
+  UpdateProjectBriefPayload,
   WorkspaceSummary,
   WritingPatchRecord
 } from './types.js';
@@ -60,6 +63,8 @@ export const ipcChannels = {
   updateNodeEdge: 'writellm:updateNodeEdge',
   deleteNodeEdge: 'writellm:deleteNodeEdge',
   updateNodeLayout: 'writellm:updateNodeLayout',
+  updateProjectBrief: 'writellm:updateProjectBrief',
+  suggestProjectBrief: 'writellm:suggestProjectBrief',
   exportLatex: 'writellm:exportLatex',
   getLlmSettings: 'writellm:getLlmSettings',
   updateLlmSettings: 'writellm:updateLlmSettings',
@@ -126,6 +131,8 @@ export type WriteLLMIpc = {
   ): Promise<FocusedWorkspaceState>;
   deleteNodeEdge(edgeId: string, focusSectionId?: string | null): Promise<FocusedWorkspaceState>;
   updateNodeLayout(payload: UpdateNodeLayoutPayload): Promise<FocusedWorkspaceState>;
+  updateProjectBrief(payload: UpdateProjectBriefPayload): Promise<FocusedWorkspaceState>;
+  suggestProjectBrief(payload: SuggestProjectBriefPayload): Promise<ProjectBriefSuggestion>;
   exportLatex(rootNodeId: string): Promise<{ path: string }>;
   getLlmSettings(): Promise<PublicLlmSettings>;
   updateLlmSettings(payload: UpdateLlmSettingsPayload): Promise<PublicLlmSettings>;

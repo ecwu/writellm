@@ -43,6 +43,15 @@ export const canvasNodeLayouts = sqliteTable('canvas_node_layouts', {
   primaryKey({ columns: [table.canvasSectionId, table.nodeId] })
 ]);
 
+export const projectBrief = sqliteTable('project_brief', {
+  id: text('id').primaryKey(),
+  glossaryJson: text('glossary_json').notNull(),
+  motivationJson: text('motivation_json').notNull(),
+  frameworkJson: text('framework_json').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+});
+
 export const knowledgeItems = sqliteTable('knowledge_items', {
   id: text('id').primaryKey(),
   publicRef: text('public_ref').notNull(),
@@ -177,6 +186,7 @@ export const schema = {
   nodes,
   nodeEdges,
   canvasNodeLayouts,
+  projectBrief,
   knowledgeItems,
   knowledgeChunks,
   generationCitations,
@@ -190,6 +200,7 @@ export const schema = {
 export type NodeRow = typeof nodes.$inferSelect;
 export type NodeEdgeRow = typeof nodeEdges.$inferSelect;
 export type CanvasNodeLayoutRow = typeof canvasNodeLayouts.$inferSelect;
+export type ProjectBriefRow = typeof projectBrief.$inferSelect;
 export type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
 export type KnowledgeChunkRow = typeof knowledgeChunks.$inferSelect;
 export type KnowledgeCitationRow = typeof generationCitations.$inferSelect;

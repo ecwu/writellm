@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
   AcceptWritingPatchPayload,
@@ -23,14 +24,22 @@ import type {
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
   PatchApplicationResult,
+  ProjectBriefRecord,
+  ProjectBriefSuggestion,
+  ProjectBriefSuggestionTarget,
+  ProjectFramework,
+  ProjectGlossary,
+  ProjectMotivation,
   RetrievedKnowledgeSource,
   NodeRecord,
   SectionNodeRecord,
   SectionLlmEditMode,
   SaveLlmGenerationPayload,
+  SuggestProjectBriefPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
   UpdateNodePayload,
+  UpdateProjectBriefPayload,
   WritingPatch,
   WritingPatchRecord
 } from '../shared/types.js';
@@ -74,6 +83,52 @@ import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValida
 
 const llmRuns = new Map<string, AbortController>();
 const interactiveGenerationRuns = new Map<string, AbortController>();
+
+const projectGlossaryTermSchema = z.object({
+  id: z.string().optional().default(''),
+  term: z.string().optional().default(''),
+  aliases: z.array(z.string()).optional().default([]),
+  definition: z.string().optional().default(''),
+  preferredUsage: z.string().optional().default(''),
+  avoidUsage: z.string().optional().default(''),
+  examples: z.array(z.string()).optional().default([])
+});
+
+const projectGlossarySchema = z.object({
+  entries: z.array(projectGlossaryTermSchema).optional().default([]),
+  notes: z.string().optional().default('')
+});
+
+const projectMotivationSchema = z.object({
+  audience: z.string().optional().default(''),
+  problem: z.string().optional().default(''),
+  thesis: z.string().optional().default(''),
+  contribution: z.string().optional().default(''),
+  desiredReaderAction: z.string().optional().default(''),
+  constraints: z.string().optional().default(''),
+  notes: z.string().optional().default('')
+});
+
+const projectFrameworkSectionSchema = z.object({
+  id: z.string().optional().default(''),
+  title: z.string().optional().default(''),
+  purpose: z.string().optional().default(''),
+  keyMoves: z.string().optional().default(''),
+  evidence: z.string().optional().default('')
+});
+
+const projectFrameworkSchema = z.object({
+  narrativeArc: z.string().optional().default(''),
+  sectionPlan: z.array(projectFrameworkSectionSchema).optional().default([]),
+  notes: z.string().optional().default('')
+});
+
+const projectBriefSuggestionSchema = z.object({
+  glossary: projectGlossarySchema.optional(),
+  motivation: projectMotivationSchema.optional(),
+  framework: projectFrameworkSchema.optional(),
+  rationale: z.string().optional().default('')
+});
 
 function titleFromPrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim() || 'Assistant suggestion';
@@ -168,6 +223,86 @@ function buildArticleSectionContextFromDb(
   const focusSection = findSectionInTree(articleStructure, resolvedFocusSectionId) ?? targetSection;
 
   return buildArticleSectionContext(focusSection, targetSection, articleStructure);
+}
+
+function buildProjectAwareArticleContextFromDb(
+  db: ReturnType<typeof getActiveDb>,
+  targetSectionId: string,
+  focusSectionId?: string | null
+): string {
+  return [buildProjectBriefPromptContext(db), buildArticleSectionContextFromDb(db, targetSectionId, focusSectionId)]
+    .filter((section) => section.trim())
+    .join('\n\n');
+}
+
+function buildProjectBriefPromptContext(db: ReturnType<typeof getActiveDb>): string {
+  const brief = db.getProjectBrief();
+  const sections: string[] = [];
+  const glossaryLines = brief.glossary.entries
+    .filter((entry) => entry.term.trim() || entry.definition.trim())
+    .map((entry) => {
+      const parts = [
+        entry.term.trim() ? `canonical: ${entry.term.trim()}` : '',
+        entry.aliases.length > 0 ? `aliases for understanding: ${entry.aliases.join(', ')}` : '',
+        entry.definition.trim() ? `definition: ${entry.definition.trim()}` : '',
+        entry.preferredUsage.trim() ? `preferred usage: ${entry.preferredUsage.trim()}` : '',
+        entry.avoidUsage.trim() ? `avoid: ${entry.avoidUsage.trim()}` : '',
+        entry.examples.length > 0 ? `examples: ${entry.examples.join('; ')}` : ''
+      ].filter(Boolean);
+      return `- ${parts.join(' | ')}`;
+    });
+  if (glossaryLines.length > 0 || brief.glossary.notes.trim()) {
+    sections.push([
+      'Project glossary and terminology constraints:',
+      ...glossaryLines,
+      brief.glossary.notes.trim() ? `Notes: ${brief.glossary.notes.trim()}` : '',
+      'Use canonical terms consistently. Treat aliases as source-language variants, not preferred output terms. Do not use avoided terms unless quoting source text.'
+    ].filter(Boolean).join('\n'));
+  }
+
+  const motivationLines = [
+    ['Audience', brief.motivation.audience],
+    ['Problem', brief.motivation.problem],
+    ['Thesis', brief.motivation.thesis],
+    ['Contribution', brief.motivation.contribution],
+    ['Desired reader action', brief.motivation.desiredReaderAction],
+    ['Constraints', brief.motivation.constraints],
+    ['Notes', brief.motivation.notes]
+  ]
+    .filter(([, value]) => value.trim())
+    .map(([label, value]) => `- ${label}: ${value.trim()}`);
+  if (motivationLines.length > 0) {
+    sections.push(['Project writing motivation:', ...motivationLines].join('\n'));
+  }
+
+  const frameworkLines = brief.framework.sectionPlan
+    .filter((section) => section.title.trim() || section.purpose.trim() || section.keyMoves.trim() || section.evidence.trim())
+    .map((section) => {
+      const parts = [
+        section.title.trim() ? `section: ${section.title.trim()}` : '',
+        section.purpose.trim() ? `purpose: ${section.purpose.trim()}` : '',
+        section.keyMoves.trim() ? `key moves: ${section.keyMoves.trim()}` : '',
+        section.evidence.trim() ? `evidence: ${section.evidence.trim()}` : ''
+      ].filter(Boolean);
+      return `- ${parts.join(' | ')}`;
+    });
+  if (brief.framework.narrativeArc.trim() || frameworkLines.length > 0 || brief.framework.notes.trim()) {
+    sections.push([
+      'Project narrative framework:',
+      brief.framework.narrativeArc.trim() ? `Narrative arc: ${brief.framework.narrativeArc.trim()}` : '',
+      ...frameworkLines,
+      brief.framework.notes.trim() ? `Notes: ${brief.framework.notes.trim()}` : ''
+    ].filter(Boolean).join('\n'));
+  }
+
+  if (sections.length === 0) {
+    return '';
+  }
+  return [
+    'Project brief:',
+    ...sections,
+    'Use this project brief as global writing guidance. Do not print these labels unless explicitly requested.'
+  ].join('\n\n');
 }
 
 function buildCompositionTreeFromSections(sections: SectionNodeRecord[]): CompositionTreeNode[] {
@@ -479,6 +614,146 @@ async function retrieveKnowledgeForGeneration(
     abortSignal: options.abortSignal,
     onTrace: options.onTrace
   });
+}
+
+async function suggestProjectBrief(
+  db: ReturnType<typeof getActiveDb>,
+  payload: SuggestProjectBriefPayload
+): Promise<ProjectBriefSuggestion> {
+  const settings = readLlmSettings();
+  const prompt = buildProjectBriefSuggestionPrompt(db, payload);
+  const result = await generateLlmObject(settings.chat, {
+    systemPrompt: [
+      'You help academic writers create project-level writing guidance.',
+      'Infer concise, useful configuration from uploaded source material and the current document structure.',
+      'Return only fields requested by the target. Do not invent specific claims that are not supported by the provided context.'
+    ].join(' '),
+    prompt,
+    schema: projectBriefSuggestionSchema
+  });
+  return normalizeProjectBriefSuggestion(payload.target, result);
+}
+
+function buildProjectBriefSuggestionPrompt(
+  db: ReturnType<typeof getActiveDb>,
+  payload: SuggestProjectBriefPayload
+): string {
+  const currentBrief = payload.currentBrief ?? db.getProjectBrief();
+  return [
+    `Target: ${payload.target}`,
+    '',
+    'Current project brief JSON:',
+    JSON.stringify(currentBrief, null, 2).slice(0, 8000),
+    '',
+    'Current article structure:',
+    formatArticleStructure(buildCompositionTreeFromSections(db.listSectionsForContext()), db.rootNodeId, db.rootNodeId),
+    '',
+    'Uploaded source context:',
+    buildKnowledgeItemsForBriefSuggestion(db),
+    '',
+    'Return JSON shape:',
+    '{"glossary":{"entries":[{"id":"","term":"","aliases":[""],"definition":"","preferredUsage":"","avoidUsage":"","examples":[""]}],"notes":""},"motivation":{"audience":"","problem":"","thesis":"","contribution":"","desiredReaderAction":"","constraints":"","notes":""},"framework":{"narrativeArc":"","sectionPlan":[{"id":"","title":"","purpose":"","keyMoves":"","evidence":""}],"notes":""},"rationale":""}',
+    '',
+    'Rules:',
+    '- For glossary, include only recurring domain terms, method names, constructs, datasets, or project-specific terminology.',
+    '- For motivation, describe audience, problem, thesis, contribution, reader action, constraints, and notes when inferable.',
+    '- For framework, align sectionPlan titles with the current article structure when possible.',
+    '- If target is not all, include only that requested top-level object plus rationale.'
+  ].join('\n');
+}
+
+function buildKnowledgeItemsForBriefSuggestion(db: ReturnType<typeof getActiveDb>): string {
+  const items = db.listKnowledgeItems().slice(0, 8);
+  if (items.length === 0) {
+    return 'No uploaded knowledge sources yet.';
+  }
+  let remainingChars = 9000;
+  const blocks: string[] = [];
+  for (const item of items) {
+    if (remainingChars <= 0) {
+      break;
+    }
+    const metadata = item.metadata.knowledgeDisplayMetadata ?? item.metadata.knowledgeMetadata;
+    const metadataRecord = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? metadata as Record<string, unknown>
+      : null;
+    const rawDescription = metadataRecord?.description;
+    const description = typeof rawDescription === 'string' ? rawDescription : '';
+    const sample = item.content.trim().slice(0, Math.min(1400, remainingChars));
+    remainingChars -= sample.length;
+    blocks.push([
+      `Source: ${item.title}`,
+      description.trim() ? `Description: ${description.trim()}` : '',
+      `Status: ${item.indexStatus}`,
+      'Sample:',
+      sample || '(empty)'
+    ].filter(Boolean).join('\n'));
+  }
+  return blocks.join('\n\n---\n\n');
+}
+
+function normalizeProjectBriefSuggestion(
+  target: ProjectBriefSuggestionTarget,
+  value: z.infer<typeof projectBriefSuggestionSchema>
+): ProjectBriefSuggestion {
+  return {
+    target,
+    glossary: (target === 'all' || target === 'glossary') && value.glossary
+      ? normalizeSuggestedGlossary(value.glossary)
+      : undefined,
+    motivation: (target === 'all' || target === 'motivation') && value.motivation
+      ? normalizeSuggestedMotivation(value.motivation)
+      : undefined,
+    framework: (target === 'all' || target === 'framework') && value.framework
+      ? normalizeSuggestedFramework(value.framework)
+      : undefined,
+    rationale: value.rationale?.trim() || 'Generated from uploaded sources and the current article structure.'
+  };
+}
+
+function normalizeSuggestedGlossary(value: z.infer<typeof projectGlossarySchema>): ProjectGlossary {
+  return {
+    entries: value.entries
+      .map((entry) => ({
+        id: entry.id.trim() || createId('term'),
+        term: entry.term.trim(),
+        aliases: entry.aliases.map((alias) => alias.trim()).filter(Boolean),
+        definition: entry.definition.trim(),
+        preferredUsage: entry.preferredUsage.trim(),
+        avoidUsage: entry.avoidUsage.trim(),
+        examples: entry.examples.map((example) => example.trim()).filter(Boolean)
+      }))
+      .filter((entry) => entry.term || entry.definition || entry.aliases.length > 0),
+    notes: value.notes.trim()
+  };
+}
+
+function normalizeSuggestedMotivation(value: z.infer<typeof projectMotivationSchema>): ProjectMotivation {
+  return {
+    audience: value.audience.trim(),
+    problem: value.problem.trim(),
+    thesis: value.thesis.trim(),
+    contribution: value.contribution.trim(),
+    desiredReaderAction: value.desiredReaderAction.trim(),
+    constraints: value.constraints.trim(),
+    notes: value.notes.trim()
+  };
+}
+
+function normalizeSuggestedFramework(value: z.infer<typeof projectFrameworkSchema>): ProjectFramework {
+  return {
+    narrativeArc: value.narrativeArc.trim(),
+    sectionPlan: value.sectionPlan
+      .map((section) => ({
+        id: section.id.trim() || createId('briefsec'),
+        title: section.title.trim(),
+        purpose: section.purpose.trim(),
+        keyMoves: section.keyMoves.trim(),
+        evidence: section.evidence.trim()
+      }))
+      .filter((section) => section.title || section.purpose || section.keyMoves || section.evidence),
+    notes: value.notes.trim()
+  };
 }
 
 type GenerationApplyPayload =
@@ -893,6 +1168,16 @@ export function registerIpcHandlers(): void {
     }
   );
 
+  ipcMain.handle(ipcChannels.updateProjectBrief, (_event, payload: UpdateProjectBriefPayload) => {
+    const db = getActiveDb();
+    db.updateProjectBrief(payload);
+    return getState(payload.focusSectionId ?? undefined);
+  });
+
+  ipcMain.handle(ipcChannels.suggestProjectBrief, (_event, payload: SuggestProjectBriefPayload) =>
+    suggestProjectBrief(getActiveDb(), payload)
+  );
+
   ipcMain.handle(
     ipcChannels.createNodeEdge,
     (_event, fromNodeId: string, toNodeId: string, relationType: EdgeKind) =>
@@ -1010,8 +1295,8 @@ export function registerIpcHandlers(): void {
     const settings = readLlmSettings();
     const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
     const articleSectionContext = payload.sectionId
-      ? buildArticleSectionContextFromDb(db, payload.sectionId, payload.focusSectionId)
-      : '';
+      ? buildProjectAwareArticleContextFromDb(db, payload.sectionId, payload.focusSectionId)
+      : buildProjectBriefPromptContext(db);
     const queries = articleSectionContext
       ? buildKnowledgeRetrievalQueries(payload.query, articleSectionContext, contextNodes)
       : [payload.query];
@@ -1073,7 +1358,7 @@ export function registerIpcHandlers(): void {
       const settings = readLlmSettings();
       const contextNodeIds = payload.contextNodeIds ?? [];
       const contextNodes = getSelectedContextNodes(db, contextNodeIds);
-      const articleSectionContext = buildArticleSectionContextFromDb(
+      const articleSectionContext = buildProjectAwareArticleContextFromDb(
         db,
         payload.sectionId,
         payload.focusSectionId
@@ -1284,7 +1569,7 @@ export function registerIpcHandlers(): void {
         throw new Error(`Section not found: ${payload.sectionId}`);
       }
       const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-      const articleSectionContext = buildArticleSectionContextFromDb(
+      const articleSectionContext = buildProjectAwareArticleContextFromDb(
         db,
         payload.sectionId,
         payload.focusSectionId
@@ -1388,7 +1673,7 @@ export function registerIpcHandlers(): void {
       throw new Error('Tell the assistant what to write first.');
     }
     const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-    const articleSectionContext = buildArticleSectionContextFromDb(
+    const articleSectionContext = buildProjectAwareArticleContextFromDb(
       db,
       payload.sectionId,
       payload.focusSectionId

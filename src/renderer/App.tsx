@@ -7,6 +7,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { CanvasView } from './features/canvas/CanvasView';
 import { Inspector } from './features/inspector/Inspector';
 import { KnowledgePage } from './features/knowledge/KnowledgePage';
+import { ProjectBriefPage } from './features/project/ProjectBriefPage';
 import { SectionHistoryDialog } from './features/sections/SectionHistoryDialog';
 import { SectionListView } from './features/sections/SectionListView';
 import { SettingsDialog } from './features/settings/SettingsDialog';
@@ -236,6 +237,16 @@ export function App() {
               onDeleteIngest={(jobId) => void deleteKnowledgeIngestJob(jobId)}
               debugEnabled={debugEnabled}
               onDebugError={notifyError}
+            />
+          ) : activePage === 'project' ? (
+            <ProjectBriefPage
+              brief={state.projectBrief}
+              focusSectionId={state.focusSectionId}
+              compositionTree={state.compositionTree}
+              knowledgeCount={state.knowledgeItems.length}
+              onState={setState}
+              onStatus={notifyStatus}
+              onError={notifyError}
             />
           ) : (
             <div className="flex min-h-0 flex-1">

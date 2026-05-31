@@ -115,7 +115,7 @@ export function useWriteLLMApp() {
 
   function setActivePage(page: AppPage) {
     setActivePageState(page);
-    if (page === 'knowledge') {
+    if (page !== 'workspace') {
       if (llmDraft.status === 'running' && llmDraft.runId) {
         void getApi().cancelLlmGeneration(llmDraft.runId);
       }

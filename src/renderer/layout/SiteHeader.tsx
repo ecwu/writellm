@@ -206,6 +206,7 @@ export function SiteHeader({
         }}
       >
         <ToggleGroupItem value="workspace">Workspace</ToggleGroupItem>
+        <ToggleGroupItem value="project">Project Brief</ToggleGroupItem>
         <ToggleGroupItem value="knowledge">Knowledge</ToggleGroupItem>
       </ToggleGroup>
       <Button

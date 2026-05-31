@@ -129,6 +129,53 @@ try {
   ) {
     throw new Error('Section Markdown DB/file sync failed.');
   }
+  const initialBrief = db.getProjectBrief();
+  if (initialBrief.glossary.entries.length !== 0 || initialBrief.createdAt !== null || initialBrief.updatedAt !== null) {
+    throw new Error('Project brief did not initialize as an empty workspace-level record.');
+  }
+  const savedBrief = db.updateProjectBrief({
+    glossary: {
+      entries: [{
+        id: 'term_smoke',
+        term: 'canonical smoke term',
+        aliases: ['smoke alias'],
+        definition: 'A controlled term for smoke testing.',
+        preferredUsage: 'Use the canonical term in generated prose.',
+        avoidUsage: 'Avoid the alias in final prose.',
+        examples: ['canonical smoke term example']
+      }],
+      notes: 'Glossary smoke notes.'
+    },
+    motivation: {
+      audience: 'Smoke-test readers',
+      problem: 'Project guidance needs workspace-level persistence.',
+      thesis: 'A persisted project brief improves generation context.',
+      contribution: 'Adds terminology, motivation, and framework guidance.',
+      desiredReaderAction: 'Trust the persisted guidance.',
+      constraints: 'Keep the record project-scoped.',
+      notes: 'Motivation smoke notes.'
+    },
+    framework: {
+      narrativeArc: 'Move from problem to contribution.',
+      sectionPlan: [{
+        id: 'briefsec_smoke',
+        title: intro.title,
+        purpose: 'Introduce the smoke-test claim.',
+        keyMoves: 'Define the problem and contribution.',
+        evidence: 'Use the uploaded source context.'
+      }],
+      notes: 'Framework smoke notes.'
+    }
+  });
+  const rawBrief = db.db.prepare('SELECT glossary_json, motivation_json, framework_json FROM project_brief WHERE id = ?').get('project');
+  if (
+    savedBrief.glossary.entries[0]?.term !== 'canonical smoke term' ||
+    savedBrief.motivation.thesis !== 'A persisted project brief improves generation context.' ||
+    savedBrief.framework.sectionPlan[0]?.title !== intro.title ||
+    JSON.parse(rawBrief.glossary_json).entries[0]?.avoidUsage !== 'Avoid the alias in final prose.'
+  ) {
+    throw new Error('Project brief was not persisted with glossary, motivation, and framework fields.');
+  }
 
   const beforeHashMismatchPatch = makeSelectionPatch(updatedIntro, {
     id: 'wpatch_smoke_before_hash_mismatch',

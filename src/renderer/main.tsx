@@ -12,6 +12,7 @@ import './styles/inspector.css';
 import './styles/sections.css';
 import './styles/writing.css';
 import './styles/knowledge.css';
+import './styles/project.css';
 import { App } from './App';
 
 const queryClient = new QueryClient({

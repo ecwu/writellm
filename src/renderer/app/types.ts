@@ -6,7 +6,7 @@ export type Selection = { type: 'node'; id: string } | { type: 'edge'; id: strin
 
 export type ContentPreset = 'main';
 
-export type AppPage = 'workspace' | 'knowledge';
+export type AppPage = 'workspace' | 'knowledge' | 'project';
 
 export type ChildViewMode = 'graph' | 'list' | 'markdown';
 

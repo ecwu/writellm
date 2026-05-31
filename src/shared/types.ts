@@ -75,8 +75,78 @@ export type RecentWorkspace = {
   openedAt: string;
 };
 
+export type ProjectGlossaryTerm = {
+  id: string;
+  term: string;
+  aliases: string[];
+  definition: string;
+  preferredUsage: string;
+  avoidUsage: string;
+  examples: string[];
+};
+
+export type ProjectGlossary = {
+  entries: ProjectGlossaryTerm[];
+  notes: string;
+};
+
+export type ProjectMotivation = {
+  audience: string;
+  problem: string;
+  thesis: string;
+  contribution: string;
+  desiredReaderAction: string;
+  constraints: string;
+  notes: string;
+};
+
+export type ProjectFrameworkSection = {
+  id: string;
+  title: string;
+  purpose: string;
+  keyMoves: string;
+  evidence: string;
+};
+
+export type ProjectFramework = {
+  narrativeArc: string;
+  sectionPlan: ProjectFrameworkSection[];
+  notes: string;
+};
+
+export type ProjectBriefRecord = {
+  glossary: ProjectGlossary;
+  motivation: ProjectMotivation;
+  framework: ProjectFramework;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type UpdateProjectBriefPayload = {
+  glossary?: ProjectGlossary;
+  motivation?: ProjectMotivation;
+  framework?: ProjectFramework;
+  focusSectionId?: string | null;
+};
+
+export type ProjectBriefSuggestionTarget = 'all' | 'glossary' | 'motivation' | 'framework';
+
+export type SuggestProjectBriefPayload = {
+  target: ProjectBriefSuggestionTarget;
+  currentBrief?: ProjectBriefRecord;
+};
+
+export type ProjectBriefSuggestion = {
+  target: ProjectBriefSuggestionTarget;
+  glossary?: ProjectGlossary;
+  motivation?: ProjectMotivation;
+  framework?: ProjectFramework;
+  rationale: string;
+};
+
 export type FocusedWorkspaceState = {
   workspace: WorkspaceSummary | null;
+  projectBrief: ProjectBriefRecord;
   compositionTree: CompositionTreeNode[];
   focusSectionId: string | null;
   nodes: NodeRecord[];
