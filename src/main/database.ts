@@ -2882,7 +2882,7 @@ function isResolvedGenerationExecutionMode(value: unknown): value is ResolvedGen
 }
 
 function isGenerationOutputMode(value: unknown): value is GenerationOutputMode {
-  return value === 'patchProposal' || value === 'freeform';
+  return value === 'patchProposal';
 }
 
 function isGenerationRoundStatus(value: unknown): value is GenerationRoundStatus {

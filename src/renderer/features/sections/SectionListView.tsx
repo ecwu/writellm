@@ -21,7 +21,8 @@ import {
 import { Textarea } from '../../components/ui/textarea';
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
 import type { ChildViewMode, Selection } from '../../app/types';
-import type { CompositionTreeNode, FocusedWorkspaceState, NodeStats } from '../../../shared/types';
+import type { CompositionTreeNode, FocusedWorkspaceState, LlmOperationRecord } from '../../../shared/types';
+import { citationRefsFromText } from '../../../shared/citations';
 import { cn } from '../../lib/utils';
 
 type SectionListItem = {
@@ -104,7 +105,7 @@ export function SectionListView({
               <TableRow className="section-list-heading">
                 <TableHead className="section-list-title-column">Section</TableHead>
                 <TableHead className="section-list-intent-column">Intent</TableHead>
-                <TableHead className="section-list-meta-column">Metadata</TableHead>
+                <TableHead className="section-list-meta-column">Draft</TableHead>
                 <TableHead className="section-list-action-column" />
               </TableRow>
             </TableHeader>
@@ -117,7 +118,6 @@ export function SectionListView({
                 selected={selection?.type === 'node' && selection.id === node.id}
                 expanded={expandedIds.has(node.id)}
                 rootNodeId={rootNodeId}
-                stats={state.nodeStats[node.id]}
                 focusSectionId={focusSectionId}
                 onSelection={onSelection}
                 onFocusSection={onFocusSection}
@@ -151,7 +151,6 @@ function SectionListRow({
   selected,
   expanded,
   rootNodeId,
-  stats,
   focusSectionId,
   onSelection,
   onFocusSection,
@@ -165,7 +164,6 @@ function SectionListRow({
   selected: boolean;
   expanded: boolean;
   rootNodeId: string | null;
-  stats: NodeStats | undefined;
   focusSectionId: string;
   onSelection: (selection: Selection) => void;
   onFocusSection: (sectionId: string) => void;
@@ -180,6 +178,7 @@ function SectionListRow({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const hasChildren = node.children.length > 0;
+  const metadataSummary = useMemo(() => buildSectionMetadataSummary(node), [node]);
 
   useEffect(() => {
     setTitle(node.title);
@@ -324,10 +323,13 @@ function SectionListRow({
       </TableCell>
       <TableCell>
         <div className="section-list-meta-cell">
-          <span>{formatSectionStatsLine(stats)}</span>
-          <span>{formatContentStatsLine(stats)}</span>
-          {node.id === rootNodeId ? <StatusBadge status="root">Root</StatusBadge> : null}
-          {saving ? <StatusBadge status="saving">Saving</StatusBadge> : null}
+          {metadataSummary.lines.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+          <div className="section-list-meta-badges">
+            {node.id === rootNodeId ? <StatusBadge status="root">Root</StatusBadge> : null}
+            {saving ? <StatusBadge status="saving">Saving</StatusBadge> : null}
+          </div>
         </div>
       </TableCell>
       <TableCell className="section-list-action-cell">
@@ -357,22 +359,110 @@ function SectionListRow({
   );
 }
 
-function formatSectionStatsLine(stats?: NodeStats) {
-  return formatCount(stats?.sectionCount ?? 0, 'section');
-}
+function buildSectionMetadataSummary(node: CompositionTreeNode): { lines: string[] } {
+  const textStats = getMarkdownTextStats(node.markdownContent);
+  const sourceStats = getSourceStats(node);
+  const latestAssist = getLatestLlmOperation(node);
 
-function formatContentStatsLine(stats?: NodeStats) {
-  return [
-    formatCount(stats?.contentCount ?? 0, 'content'),
-    formatCount(stats?.mainContentCount ?? 0, 'main'),
-    formatCount(stats?.llmCount ?? 0, 'assistant draft')
-  ].join(' · ');
+  return {
+    lines: [
+      textStats.visibleChars > 0
+        ? `${formatCount(textStats.visibleChars, 'char')} · ${formatCount(textStats.paragraphCount, 'paragraph')}`
+        : 'Empty draft',
+      sourceStats.refCount > 0 || sourceStats.sourceCount > 0
+        ? `${formatCount(sourceStats.refCount, 'ref')} · ${formatCount(sourceStats.sourceCount, 'source')}`
+        : 'No citations',
+      latestAssist
+        ? `${formatCount(latestAssist.operationCount, 'assist run')} · latest ${latestAssist.status}`
+        : `Updated ${formatSectionDate(node.updatedAt)}`
+    ]
+  };
 }
 
 function formatCount(count: number, label: string) {
   return `${count} ${label}${count === 1 ? '' : 's'}`;
 }
 
+function getMarkdownTextStats(markdown: string): { visibleChars: number; paragraphCount: number } {
+  const plainText = markdownToReadableText(markdown);
+  if (!plainText) {
+    return { visibleChars: 0, paragraphCount: 0 };
+  }
+  return {
+    visibleChars: [...plainText.replace(/\s/g, '')].length,
+    paragraphCount: plainText.split(/\n{2,}/).filter((paragraph) => paragraph.trim()).length
+  };
+}
+
+function markdownToReadableText(markdown: string): string {
+  return markdown
+    .replace(/\[[a-f0-9]{7}\.c\d+(?:\s*,\s*[a-f0-9]{7}\.c\d+)*\]/gi, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^ {0,3}#{1,6}\s+/gm, '')
+    .replace(/^ {0,3}>\s?/gm, '')
+    .replace(/^ {0,3}(?:[-*+]|\d+\.)\s+/gm, '')
+    .replace(/[*_~]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getSourceStats(node: CompositionTreeNode): { refCount: number; sourceCount: number } {
+  const refs = citationRefsFromText(node.markdownContent);
+  const sourceIds = new Set(
+    node.citationSources
+      .map((source) => source.itemId || source.itemPublicRef || source.publicRef)
+      .filter(Boolean)
+  );
+  return {
+    refCount: refs.length,
+    sourceCount: sourceIds.size
+  };
+}
+
+function getLatestLlmOperation(
+  node: CompositionTreeNode
+): { operationCount: number; status: LlmOperationRecord['status'] } | null {
+  const operations = getSectionLlmOperations(node);
+  const latest = operations.at(-1);
+  if (!latest) {
+    return null;
+  }
+  return {
+    operationCount: operations.length,
+    status: latest.status
+  };
+}
+
+function getSectionLlmOperations(node: CompositionTreeNode): LlmOperationRecord[] {
+  const operations = node.metadata.llmOperations;
+  if (!Array.isArray(operations)) {
+    return [];
+  }
+  return operations.filter((operation): operation is LlmOperationRecord => {
+    if (!operation || typeof operation !== 'object') {
+      return false;
+    }
+    const candidate = operation as Partial<LlmOperationRecord>;
+    return Boolean(candidate.operationId && candidate.status && candidate.type);
+  });
+}
+
+function formatSectionDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'unknown';
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
+}
 
 function findSectionTreeNode(nodes: CompositionTreeNode[], id: string): CompositionTreeNode | null {
   for (const node of nodes) {

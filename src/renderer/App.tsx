@@ -62,8 +62,7 @@ export function App() {
     setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
-    llmDraft,
-    setLlmDraft,
+    assistComposer,
     focusSection,
     selectedSection,
     selectedContent,
@@ -90,7 +89,7 @@ export function App() {
     createConnectedContent,
     deleteSelectedNode,
     openGenerateComposer,
-    cancelLlmDraft,
+    closeAssistComposer,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -314,13 +313,13 @@ export function App() {
                     selectedContent={selectedContent}
                     selectedEdge={selectedEdge ?? null}
                     focusSection={focusSection ?? null}
-                    llmDraft={llmDraft}
+                    assistComposer={assistComposer}
                     onCreateInSection={(sectionId, preset) => void createContentInSection(sectionId, preset)}
                     onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
                     onDeleteNode={() => void deleteSelectedNode()}
                     onOpenGenerate={openGenerateComposer}
                     onOpenSectionMarkdown={(section) => void openWritingView(section)}
-                    onCancelGenerate={() => void cancelLlmDraft()}
+                    onCancelGenerate={closeAssistComposer}
                     onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
                     onDeleteEdge={() => void deleteSelectedEdge()}
                   />

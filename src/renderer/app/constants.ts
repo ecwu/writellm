@@ -1,6 +1,6 @@
 
 import type { EdgeKind, FocusedWorkspaceState } from '../../shared/types';
-import type { LlmDraftState } from './types';
+import type { AssistComposerState } from './types';
 
 export const emptyState: FocusedWorkspaceState = {
   workspace: null,
@@ -31,19 +31,10 @@ export const emptyState: FocusedWorkspaceState = {
   nodeLayouts: []
 };
 
-export const emptyLlmDraft: LlmDraftState = {
+export const emptyAssistComposer: AssistComposerState = {
   open: false,
-  runId: null,
   targetSectionId: null,
-  prompt: '',
-  useKnowledgeSources: true,
-  knowledgeRetrievalPrompt: '',
-  contextNodeIds: [],
-  retrievedSources: [],
-  excludedKnowledgeItemIds: [],
-  excludedKnowledgeChunkIds: [],
-  content: '',
-  status: 'idle'
+  contextNodeIds: []
 };
 
 export const DEFAULT_NODE_WIDTH = 210;

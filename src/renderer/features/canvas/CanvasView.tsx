@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import { ChildrenViewHeader } from '../../layout/ChildrenViewHeader';
 import { FloatingActionToolbar } from './FloatingActionToolbar';
-import type { ChildViewMode, ContentPreset, LlmDraftState, Selection } from '../../app/types';
+import type { AssistComposerState, ChildViewMode, ContentPreset, Selection } from '../../app/types';
 import type { ContentNodeRecord, EdgeKind, FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
 
 export function CanvasView({
@@ -33,7 +33,7 @@ export function CanvasView({
   selectedContent,
   selectedEdge,
   focusSection,
-  llmDraft,
+  assistComposer,
   onCreateInSection,
   onCreateConnectedContent,
   onOpenSectionMarkdown,
@@ -61,7 +61,7 @@ export function CanvasView({
   selectedContent: ContentNodeRecord | null;
   selectedEdge: FocusedWorkspaceState['edges'][number] | null;
   focusSection: SectionNodeRecord | null;
-  llmDraft: LlmDraftState;
+  assistComposer: AssistComposerState;
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
   onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
@@ -101,7 +101,7 @@ export function CanvasView({
         selectedContent={selectedContent}
         selectedEdge={selectedEdge}
         focusSection={focusSection}
-        llmDraft={llmDraft}
+        assistComposer={assistComposer}
         onCreateInSection={onCreateInSection}
         onCreateConnectedContent={onCreateConnectedContent}
         onOpenSectionMarkdown={onOpenSectionMarkdown}

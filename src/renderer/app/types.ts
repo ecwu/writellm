@@ -10,20 +10,10 @@ export type AppPage = 'workspace' | 'knowledge' | 'project';
 
 export type ChildViewMode = 'graph' | 'list' | 'markdown';
 
-export type LlmDraftState = {
+export type AssistComposerState = {
   open: boolean;
-  runId: string | null;
   targetSectionId: string | null;
-  prompt: string;
-  useKnowledgeSources: boolean;
-  knowledgeRetrievalPrompt: string;
   contextNodeIds: string[];
-  retrievedSources: RetrievedKnowledgeSource[];
-  excludedKnowledgeItemIds: string[];
-  excludedKnowledgeChunkIds: string[];
-  content: string;
-  status: 'idle' | 'running' | 'done' | 'error';
-  error?: string;
 };
 
 export type PaperNodeData = Record<string, unknown> & {

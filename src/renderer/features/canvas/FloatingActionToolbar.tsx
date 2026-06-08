@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '../../components/ui/select';
-import type { ContentPreset, LlmDraftState, Selection } from '../../app/types';
+import type { AssistComposerState, ContentPreset, Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
   EdgeKind,
@@ -29,7 +29,7 @@ export function FloatingActionToolbar({
   selectedContent,
   selectedEdge,
   focusSection,
-  llmDraft,
+  assistComposer,
   onCreateInSection,
   onCreateConnectedContent,
   onOpenSectionMarkdown,
@@ -44,7 +44,7 @@ export function FloatingActionToolbar({
   selectedContent: ContentNodeRecord | null;
   selectedEdge: FocusedWorkspaceState['edges'][number] | null;
   focusSection: SectionNodeRecord | null;
-  llmDraft: LlmDraftState;
+  assistComposer: AssistComposerState;
   onCreateInSection: (sectionId: string, preset: ContentPreset) => void;
   onCreateConnectedContent: (nodeId: string, preset: ContentPreset) => void;
   onOpenSectionMarkdown: (section: SectionNodeRecord) => void;
@@ -76,7 +76,7 @@ export function FloatingActionToolbar({
         mode: 'append',
         prompt: canvasPrompt,
         useKnowledgeSources: canvasUseKnowledge,
-        contextNodeIds: llmDraft.contextNodeIds,
+        contextNodeIds: assistComposer.contextNodeIds,
         requireInlineCitations: canvasUseKnowledge
       });
       setCanvasPrompt('');
@@ -90,7 +90,7 @@ export function FloatingActionToolbar({
 
   return (
     <div className="floating-action-toolbar" aria-label="Node actions">
-      {llmDraft.open ? (
+      {assistComposer.open ? (
         <div className="floating-generate-composer">
           <div className="canvas-generation-task-creator">
             <Input
@@ -141,7 +141,7 @@ export function FloatingActionToolbar({
             </button>
             <button
               type="button"
-              className={llmDraft.open ? 'active' : undefined}
+              className={assistComposer.open ? 'active' : undefined}
               title="Writing assist"
               aria-label="Writing assist"
               onClick={() => onOpenGenerate(selectedSection.id)}
@@ -156,7 +156,7 @@ export function FloatingActionToolbar({
             {generateTargetId ? (
               <button
                 type="button"
-                className={llmDraft.open ? 'active' : undefined}
+                className={assistComposer.open ? 'active' : undefined}
                 title="Writing assist"
                 aria-label="Writing assist"
                 onClick={() => onOpenGenerate(generateTargetId)}

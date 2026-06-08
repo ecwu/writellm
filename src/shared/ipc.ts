@@ -1,6 +1,5 @@
 import type {
   AcceptWritingPatchPayload,
-  ApplySectionLlmEditPayload,
   AdoptGenerationPayload,
   CreatePatchFromGenerationRoundPayload,
   CreateKnowledgeItemPayload,
@@ -13,21 +12,18 @@ import type {
   GenerationRoundRecord,
   GenerationSessionRecord,
   GenerationEvent,
-  GenerateLlmPayload,
   GitHistoryRecord,
   GitStatusRecord,
   KnowledgeDebugDetails,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSearchPayload,
   KnowledgeSourceTarget,
-  LlmStreamEvent,
   NodeEdgeRecord,
   PublicLlmSettings,
   ProjectBriefSuggestion,
   RecentWorkspace,
   RetrievedKnowledgeSource,
   ResolveKnowledgeCitationPayload,
-  SaveLlmGenerationPayload,
   SectionHistoryDetail,
   SuggestProjectBriefPayload,
   UpdateAppearanceSettingsPayload,
@@ -94,11 +90,6 @@ export const ipcChannels = {
   listGenerationSessions: 'writellm:listGenerationSessions',
   listGenerationRounds: 'writellm:listGenerationRounds',
   getGenerationRound: 'writellm:getGenerationRound',
-  generateWithLlm: 'writellm:generateWithLlm',
-  cancelLlmGeneration: 'writellm:cancelLlmGeneration',
-  saveLlmGeneration: 'writellm:saveLlmGeneration',
-  applySectionLlmEdit: 'writellm:applySectionLlmEdit',
-  llmStream: 'writellm:llmStream',
   generationEvent: 'writellm:generationEvent',
   knowledgeRetrievalStream: 'writellm:knowledgeRetrievalStream',
   knowledgeIngestUpdated: 'writellm:knowledgeIngestUpdated'
@@ -162,13 +153,6 @@ export type WriteLLMIpc = {
   listGenerationSessions(sectionId?: string | null): Promise<GenerationSessionRecord[]>;
   listGenerationRounds(sessionId: string): Promise<GenerationRoundRecord[]>;
   getGenerationRound(roundId: string): Promise<GenerationRoundRecord | null>;
-  generateWithLlm(
-    payload: GenerateLlmPayload
-  ): Promise<{ runId: string; content: string; canceled: boolean; sources?: RetrievedKnowledgeSource[] }>;
-  cancelLlmGeneration(runId: string): Promise<void>;
-  saveLlmGeneration(payload: SaveLlmGenerationPayload): Promise<FocusedWorkspaceState>;
-  applySectionLlmEdit(payload: ApplySectionLlmEditPayload): Promise<FocusedWorkspaceState>;
-  onLlmStream(callback: (event: LlmStreamEvent) => void): () => void;
   onGenerationEvent(callback: (event: GenerationEvent) => void): () => void;
   onKnowledgeRetrievalStream(callback: (event: KnowledgeRetrievalTraceEvent) => void): () => void;
   onKnowledgeIngestUpdated(callback: () => void): () => void;

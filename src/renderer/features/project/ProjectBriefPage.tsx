@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Check,
+  Eye,
   FileText,
   Lightbulb,
+  Pencil,
   Plus,
   Route,
   Save,
@@ -57,6 +59,7 @@ export function ProjectBriefPage({
   onError: (message: string) => void;
 }) {
   const [draft, setDraft] = useState<ProjectBriefRecord>(() => cloneBrief(brief));
+  const [editing, setEditing] = useState(false);
   const [suggestion, setSuggestion] = useState<SuggestionState | null>(null);
   const [suggestingTarget, setSuggestingTarget] = useState<ProjectBriefSuggestionTarget | null>(null);
   const [saving, setSaving] = useState(false);
@@ -78,6 +81,7 @@ export function ProjectBriefPage({
       });
       onState(next);
       onStatus('Project brief saved.');
+      setEditing(false);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -119,6 +123,28 @@ export function ProjectBriefPage({
     setSuggestion(null);
   }
 
+  function startEditing() {
+    setDraft(cloneBrief(brief));
+    setSuggestion(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    reset();
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <ProjectBriefReadView
+        brief={brief}
+        compositionTree={compositionTree}
+        knowledgeCount={knowledgeCount}
+        onEdit={startEditing}
+      />
+    );
+  }
+
   return (
     <main className="project-brief-page">
       <aside className="project-brief-sidebar">
@@ -132,6 +158,10 @@ export function ProjectBriefPage({
           <Button size="sm" onClick={() => void save()} disabled={!dirty || saving}>
             <Save />
             {saving ? 'Saving' : 'Save'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={cancelEditing}>
+            <Eye />
+            View
           </Button>
           <Button variant="outline" size="sm" onClick={reset} disabled={!dirty && !suggestion}>
             <X />
@@ -188,6 +218,193 @@ export function ProjectBriefPage({
         </div>
       </ScrollArea>
     </main>
+  );
+}
+
+function ProjectBriefReadView({
+  brief,
+  compositionTree,
+  knowledgeCount,
+  onEdit
+}: {
+  brief: ProjectBriefRecord;
+  compositionTree: CompositionTreeNode[];
+  knowledgeCount: number;
+  onEdit: () => void;
+}) {
+  const outlineCount = flattenSections(compositionTree).length;
+  const filledMotivationFields = motivationFields.filter((field) => hasText(brief.motivation[field.key])).length;
+
+  return (
+    <main className="project-brief-page project-brief-page-read">
+      <aside className="project-brief-sidebar">
+        <div className="project-brief-header">
+          <div>
+            <h1>Project Brief</h1>
+            <p>{knowledgeCount} source{knowledgeCount === 1 ? '' : 's'} available</p>
+          </div>
+        </div>
+        <div className="project-brief-actions project-brief-view-actions">
+          <Button size="sm" onClick={onEdit}>
+            <Pencil />
+            Edit
+          </Button>
+        </div>
+        <div className="project-brief-summary-list">
+          <ProjectBriefSummaryItem label="Terms" value={brief.glossary.entries.length} />
+          <ProjectBriefSummaryItem label="Motivation" value={`${filledMotivationFields}/${motivationFields.length}`} />
+          <ProjectBriefSummaryItem label="Planned sections" value={brief.framework.sectionPlan.length} />
+          <ProjectBriefSummaryItem label="Outline sections" value={outlineCount} />
+        </div>
+      </aside>
+
+      <ScrollArea className="project-brief-scroll">
+        <div className="project-brief-view">
+          <section className="project-brief-view-section">
+            <SectionHeading
+              icon={<Lightbulb />}
+              title="Motivation"
+              detail={`${filledMotivationFields} populated field${filledMotivationFields === 1 ? '' : 's'}`}
+            />
+            <div className="project-brief-view-grid">
+              {motivationFields.map((field) => (
+                <ViewField
+                  key={field.key}
+                  label={field.label}
+                  value={brief.motivation[field.key]}
+                  wide={field.long}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="project-brief-view-section">
+            <SectionHeading
+              icon={<FileText />}
+              title="Glossary"
+              detail={`${brief.glossary.entries.length} term${brief.glossary.entries.length === 1 ? '' : 's'}`}
+            />
+            {brief.glossary.entries.length ? (
+              <div className="project-glossary-view-list">
+                {brief.glossary.entries.map((entry) => (
+                  <article key={entry.id} className="project-glossary-view-row">
+                    <header>
+                      <h3>{entry.term.trim() || 'Untitled term'}</h3>
+                      {entry.aliases.length ? (
+                        <div className="project-brief-chip-row" aria-label="Aliases">
+                          {entry.aliases.map((alias) => (
+                            <span key={alias} className="project-brief-chip">{alias}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </header>
+                    <ViewField label="Definition" value={entry.definition} />
+                    <div className="project-brief-view-grid project-brief-view-grid-tight">
+                      <ViewField label="Preferred usage" value={entry.preferredUsage} />
+                      <ViewField label="Avoid usage" value={entry.avoidUsage} />
+                    </div>
+                    {entry.examples.length ? (
+                      <ViewList label="Examples" values={entry.examples} />
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="project-brief-empty">Empty</p>
+            )}
+            {hasText(brief.glossary.notes) ? <ViewField label="Notes" value={brief.glossary.notes} /> : null}
+          </section>
+
+          <section className="project-brief-view-section">
+            <SectionHeading
+              icon={<Route />}
+              title="Framework"
+              detail={`${brief.framework.sectionPlan.length} planned section${brief.framework.sectionPlan.length === 1 ? '' : 's'}`}
+            />
+            <ViewField label="Narrative arc" value={brief.framework.narrativeArc} wide />
+            {brief.framework.sectionPlan.length ? (
+              <div className="project-framework-view-list">
+                {brief.framework.sectionPlan.map((section, index) => (
+                  <article key={section.id} className="project-framework-view-row">
+                    <header>
+                      <span>{index + 1}</span>
+                      <h3>{section.title.trim() || 'Untitled section'}</h3>
+                    </header>
+                    <div className="project-brief-view-grid">
+                      <ViewField label="Purpose" value={section.purpose} />
+                      <ViewField label="Key moves" value={section.keyMoves} />
+                      <ViewField label="Evidence" value={section.evidence} wide />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="project-brief-empty">Empty</p>
+            )}
+            {hasText(brief.framework.notes) ? <ViewField label="Notes" value={brief.framework.notes} wide /> : null}
+          </section>
+        </div>
+      </ScrollArea>
+    </main>
+  );
+}
+
+function ProjectBriefSummaryItem({
+  label,
+  value
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="project-brief-summary-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ViewField({
+  label,
+  value,
+  wide
+}: {
+  label: string;
+  value: string;
+  wide?: boolean;
+}) {
+  const text = value.trim();
+
+  return (
+    <div className={wide ? 'project-brief-view-field project-brief-grid-wide' : 'project-brief-view-field'}>
+      <span>{label}</span>
+      {text ? <p>{text}</p> : <p className="project-brief-empty">Empty</p>}
+    </div>
+  );
+}
+
+function ViewList({
+  label,
+  values
+}: {
+  label: string;
+  values: string[];
+}) {
+  const items = values.map((value) => value.trim()).filter(Boolean);
+
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <div className="project-brief-view-field">
+      <span>{label}</span>
+      <ul className="project-brief-view-list">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -510,6 +727,10 @@ function mergeGlossary(current: ProjectGlossary, suggestion: ProjectGlossary): P
 
 function normalizeTermKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function hasText(value: string): boolean {
+  return value.trim().length > 0;
 }
 
 function flattenSections(nodes: CompositionTreeNode[]): CompositionTreeNode[] {

@@ -56,11 +56,6 @@ const ipcChannels = {
   listGenerationSessions: 'writellm:listGenerationSessions',
   listGenerationRounds: 'writellm:listGenerationRounds',
   getGenerationRound: 'writellm:getGenerationRound',
-  generateWithLlm: 'writellm:generateWithLlm',
-  cancelLlmGeneration: 'writellm:cancelLlmGeneration',
-  saveLlmGeneration: 'writellm:saveLlmGeneration',
-  applySectionLlmEdit: 'writellm:applySectionLlmEdit',
-  llmStream: 'writellm:llmStream',
   generationEvent: 'writellm:generationEvent',
   knowledgeRetrievalStream: 'writellm:knowledgeRetrievalStream',
   knowledgeIngestUpdated: 'writellm:knowledgeIngestUpdated'
@@ -134,19 +129,6 @@ const api: WriteLLMIpc = {
   listGenerationSessions: (sectionId) => ipcRenderer.invoke(ipcChannels.listGenerationSessions, sectionId),
   listGenerationRounds: (sessionId) => ipcRenderer.invoke(ipcChannels.listGenerationRounds, sessionId),
   getGenerationRound: (roundId) => ipcRenderer.invoke(ipcChannels.getGenerationRound, roundId),
-  generateWithLlm: (payload) => ipcRenderer.invoke(ipcChannels.generateWithLlm, payload),
-  cancelLlmGeneration: (runId) => ipcRenderer.invoke(ipcChannels.cancelLlmGeneration, runId),
-  saveLlmGeneration: (payload) => ipcRenderer.invoke(ipcChannels.saveLlmGeneration, payload),
-  applySectionLlmEdit: (payload) => ipcRenderer.invoke(ipcChannels.applySectionLlmEdit, payload),
-  onLlmStream: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, message: Parameters<typeof callback>[0]) => {
-      callback(message);
-    };
-    ipcRenderer.on(ipcChannels.llmStream, listener);
-    return () => {
-      ipcRenderer.removeListener(ipcChannels.llmStream, listener);
-    };
-  },
   onGenerationEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, message: Parameters<typeof callback>[0]) => {
       callback(message);

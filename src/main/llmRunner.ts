@@ -1,11 +1,8 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { Output, generateText, streamText } from 'ai';
+import { Output, generateText } from 'ai';
 import type { z } from 'zod';
-import type { GenerateLlmPayload, ModelEndpointSettings } from '../shared/types.js';
-
-const defaultWritingSystemPrompt =
-  'You are a writing assistant. Generate only the specific section or fragment requested by the user. Do not generate unrelated sections, surrounding document content, explanations, commentary, notes, introductions, conclusions, or meta text.';
+import type { ModelEndpointSettings } from '../shared/types.js';
 
 function createModel(settings: ModelEndpointSettings, options: { structuredOutputs?: boolean } = {}) {
   if (settings.provider === 'anthropic-compatible') {
@@ -23,30 +20,6 @@ function createModel(settings: ModelEndpointSettings, options: { structuredOutpu
     supportsStructuredOutputs: options.structuredOutputs ?? false
   });
   return openaiCompatible(settings.model);
-}
-
-export async function* streamLlmText(
-  settings: ModelEndpointSettings,
-  payload: GenerateLlmPayload,
-  abortSignal?: AbortSignal
-) {
-  if (!settings.apiKey.trim()) {
-    throw new Error('LLM API key is required. Add it in Settings first.');
-  }
-
-  const result = streamText({
-    model: createModel(settings),
-    system: payload.systemPrompt?.trim()
-      ? `${defaultWritingSystemPrompt}\n\n${payload.systemPrompt.trim()}`
-      : defaultWritingSystemPrompt,
-    prompt: payload.prompt,
-    abortSignal,
-    maxRetries: 0
-  });
-
-  for await (const textPart of result.textStream) {
-    yield textPart;
-  }
 }
 
 export async function generateLlmText(

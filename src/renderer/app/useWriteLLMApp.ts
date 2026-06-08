@@ -3,7 +3,7 @@ import { applyNodeChanges, type Connection, type Node, type NodeChange, type Nod
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getApi } from '../api';
-import { emptyLlmDraft, emptyState, DEFAULT_EDGE_KIND } from './constants';
+import { emptyAssistComposer, emptyState, DEFAULT_EDGE_KIND } from './constants';
 import type { AppPage, ChildViewMode, ContentPreset, PaperNodeData, Selection } from './types';
 import { PaperFlowNode } from '../features/canvas/PaperFlowNode';
 import { buildGraph, reconcileNodes } from '../features/canvas/graph';
@@ -14,7 +14,6 @@ import type {
   KnowledgeSourceTarget,
   PublicLlmSettings,
   RecentWorkspace,
-  RetrievedKnowledgeSource,
   SectionNodeRecord,
   UpdateNodeLayoutPayload
 } from '../../shared/types';
@@ -34,7 +33,7 @@ export function useWriteLLMApp() {
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
-  const [llmDraft, setLlmDraft] = useState(emptyLlmDraft);
+  const [assistComposer, setAssistComposer] = useState(emptyAssistComposer);
   const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
@@ -116,10 +115,7 @@ export function useWriteLLMApp() {
   function setActivePage(page: AppPage) {
     setActivePageState(page);
     if (page !== 'workspace') {
-      if (llmDraft.status === 'running' && llmDraft.runId) {
-        void getApi().cancelLlmGeneration(llmDraft.runId);
-      }
-      setLlmDraft(emptyLlmDraft);
+      setAssistComposer(emptyAssistComposer);
     }
   }
 
@@ -164,43 +160,10 @@ export function useWriteLLMApp() {
       notifyError('Run this app through Electron to use local workspace features.');
       return;
     }
-    const unsubscribeLlm = getApi().onLlmStream((event) => {
-      if (event.type === 'started') {
-        setLlmDraft((current) =>
-          current.runId === event.runId ? { ...current, status: 'running', content: '', error: undefined } : current
-        );
-        return;
-      }
-
-      if (event.type === 'chunk' || event.type === 'done') {
-        setLlmDraft((current) =>
-          current.runId === event.runId
-            ? {
-                ...current,
-                content: event.content,
-                status: event.type === 'done' ? 'done' : 'running',
-                retrievedSources: event.type === 'done' ? event.sources ?? current.retrievedSources : current.retrievedSources
-              }
-            : current
-        );
-        return;
-      }
-
-      if (event.type === 'canceled') {
-        setLlmDraft((current) => (current.runId === event.runId ? emptyLlmDraft : current));
-        return;
-      }
-
-      setLlmDraft((current) =>
-        current.runId === event.runId ? { ...current, status: 'error', error: event.message } : current
-      );
-      notifyError(event.message);
-    });
     const unsubscribeKnowledgeIngest = getApi().onKnowledgeIngestUpdated(() => {
       void refresh();
     });
     return () => {
-      unsubscribeLlm();
       unsubscribeKnowledgeIngest();
     };
   }, [apiAvailable]);
@@ -508,109 +471,15 @@ export function useWriteLLMApp() {
   }
 
   function openGenerateComposer(sectionId: string) {
-    if (llmDraft.status === 'running' && llmDraft.runId) {
-      void getApi().cancelLlmGeneration(llmDraft.runId);
-    }
-    setLlmDraft({
+    setAssistComposer({
       open: true,
-      runId: null,
       targetSectionId: sectionId,
-      prompt: '',
-      useKnowledgeSources: true,
-      knowledgeRetrievalPrompt: '',
-      contextNodeIds: [],
-      retrievedSources: [],
-      excludedKnowledgeItemIds: [],
-      excludedKnowledgeChunkIds: [],
-      content: '',
-      status: 'idle'
+      contextNodeIds: []
     });
   }
 
-  async function startLlmGeneration(prompt: string, sectionId: string, contextNodeIds: string[]) {
-    const runId = globalThis.crypto.randomUUID();
-    const useKnowledgeSources = llmDraft.useKnowledgeSources;
-    const knowledgeRetrievalPrompt = llmDraft.knowledgeRetrievalPrompt.trim() || prompt;
-    let prefetchedKnowledgeSources: RetrievedKnowledgeSource[] | undefined;
-    const previewSources = useKnowledgeSources
-      ? await getApi().searchKnowledge({
-          query: knowledgeRetrievalPrompt,
-          sectionId,
-          focusSectionId: state.focusSectionId ?? sectionId,
-          contextNodeIds,
-          excludedItemIds: llmDraft.excludedKnowledgeItemIds,
-          excludedChunkIds: llmDraft.excludedKnowledgeChunkIds
-        })
-          .then((sources) => {
-            prefetchedKnowledgeSources = sources;
-            return sources;
-          })
-          .catch(() => [])
-      : [];
-    setLlmDraft({
-      open: true,
-      runId,
-      targetSectionId: sectionId,
-      prompt,
-      useKnowledgeSources,
-      knowledgeRetrievalPrompt,
-      contextNodeIds,
-      retrievedSources: previewSources,
-      excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
-      excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
-      content: '',
-      status: 'running'
-    });
-
-    try {
-      await getApi().generateWithLlm({
-        runId,
-        sectionId,
-        focusSectionId: state.focusSectionId ?? sectionId,
-        prompt,
-        useKnowledgeSources,
-        knowledgeRetrievalPrompt,
-        contextNodeIds,
-        prefetchedKnowledgeSources,
-        excludedKnowledgeItemIds: llmDraft.excludedKnowledgeItemIds,
-        excludedKnowledgeChunkIds: llmDraft.excludedKnowledgeChunkIds,
-        requireInlineCitations: useKnowledgeSources
-      });
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      setLlmDraft((current) =>
-        current.runId === runId ? { ...current, status: 'error', error: message } : current
-      );
-    }
-  }
-
-  async function cancelLlmDraft() {
-    const runId = llmDraft.runId;
-    if (llmDraft.status === 'running' && runId) {
-      await getApi().cancelLlmGeneration(runId);
-    }
-    setLlmDraft(emptyLlmDraft);
-  }
-
-  async function saveLlmDraft() {
-    if (!llmDraft.targetSectionId || !llmDraft.content.trim()) {
-      return;
-    }
-
-    await run(async () => {
-      const next = await getApi().saveLlmGeneration({
-        sectionId: llmDraft.targetSectionId!,
-        focusSectionId: state.focusSectionId ?? llmDraft.targetSectionId,
-        prompt: llmDraft.prompt,
-        content: llmDraft.content,
-        contextNodeIds: llmDraft.contextNodeIds,
-        retrievedSources: llmDraft.retrievedSources,
-        contextRelationType: DEFAULT_EDGE_KIND
-      });
-      setSelection({ type: 'node', id: llmDraft.targetSectionId! });
-      setLlmDraft(emptyLlmDraft);
-      return next;
-    }, 'Suggestion saved as a separate draft.');
+  function closeAssistComposer() {
+    setAssistComposer(emptyAssistComposer);
   }
 
   async function createKnowledgeItem(title: string, content: string) {
@@ -691,15 +560,6 @@ export function useWriteLLMApp() {
     );
   }
 
-  function excludeKnowledgeSource(itemId: string, chunkId: string) {
-    setLlmDraft((current) => ({
-      ...current,
-      retrievedSources: current.retrievedSources.filter((source) => source.chunkId !== chunkId),
-      excludedKnowledgeItemIds: current.excludedKnowledgeItemIds,
-      excludedKnowledgeChunkIds: [...new Set([...current.excludedKnowledgeChunkIds, chunkId])]
-    }));
-  }
-
   async function exportLatex() {
     const rootId = state.workspace?.rootNodeId;
     if (!rootId) {
@@ -747,8 +607,8 @@ export function useWriteLLMApp() {
     setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
-    llmDraft,
-    setLlmDraft,
+    assistComposer,
+    setAssistComposer,
     focusSection,
     selectedSection,
     selectedContent,
@@ -775,9 +635,7 @@ export function useWriteLLMApp() {
     createConnectedContent,
     deleteSelectedNode,
     openGenerateComposer,
-    startLlmGeneration,
-    cancelLlmDraft,
-    saveLlmDraft,
+    closeAssistComposer,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -785,7 +643,6 @@ export function useWriteLLMApp() {
     reindexKnowledgeItem,
     retryKnowledgeIngestJob,
     deleteKnowledgeIngestJob,
-    excludeKnowledgeSource,
     exportLatex,
     createGitCheckpoint,
     setFocusedChildViewMode,

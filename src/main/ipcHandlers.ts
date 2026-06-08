@@ -5,9 +5,7 @@ import { z } from 'zod';
 import { ipcChannels } from '../shared/ipc.js';
 import type {
   AcceptWritingPatchPayload,
-  ApplySectionLlmEditPayload,
   AdoptGenerationPayload,
-  CompositionTreeNode,
   ContentNodeRecord,
   CreateGenerationTaskPayload,
   CreateKnowledgeItemPayload,
@@ -16,10 +14,8 @@ import type {
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
-  GenerateLlmPayload,
   GenerationExecutionMode,
   GenerationMode,
-  KnowledgeRetrievalMode,
   KnowledgeRetrievalTraceEvent,
   KnowledgeSourceTarget,
   KnowledgeSearchPayload,
@@ -34,7 +30,6 @@ import type {
   NodeRecord,
   SectionNodeRecord,
   SectionLlmEditMode,
-  SaveLlmGenerationPayload,
   SuggestProjectBriefPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodeLayoutPayload,
@@ -52,8 +47,17 @@ import {
 import { startBackgroundTaskWorker } from './backgroundTasks.js';
 import { emitGenerationEvent } from './generationEvents.js';
 import { createPatchFromGenerationRound } from './generationPatch.js';
+import {
+  buildCompositionTreeFromSections,
+  buildContextPrompt,
+  buildKnowledgeRetrievalQueries,
+  buildProjectAwareArticleContextFromDb,
+  buildProjectBriefPromptContext,
+  formatArticleStructure,
+  retrieveKnowledgeForGeneration
+} from './generationContext.js';
 import { enqueueKnowledgeFiles, setKnowledgeIngestUpdateNotifier } from './knowledgeIngest.js';
-import { generateLlmObject, streamLlmText } from './llmRunner.js';
+import { generateLlmObject } from './llmRunner.js';
 import {
   readLlmSettings,
   readPublicLlmSettings,
@@ -62,11 +66,9 @@ import {
 } from './llmSettings.js';
 import { getSectionHistoryDetail, restoreSectionVersion } from './sectionHistory.js';
 import {
-  formatSourcesForPrompt,
   getKnowledgeChunkingDebugConfig,
   indexKnowledgeItem
 } from './knowledgeIndex.js';
-import { retrieveKnowledgeInWorker } from './retrievalWorkerClient.js';
 import {
   createWorkspace,
   getActiveDb,
@@ -81,7 +83,6 @@ import { createPatchDiff } from './harness/patchDiff.js';
 import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValidator.js';
 
-const llmRuns = new Map<string, AbortController>();
 const interactiveGenerationRuns = new Map<string, AbortController>();
 
 const projectGlossaryTermSchema = z.object({
@@ -132,203 +133,6 @@ const projectBriefSuggestionSchema = z.object({
 
 function titleFromPrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim() || 'Assistant suggestion';
-}
-
-function formatArticleStructure(
-  nodes: CompositionTreeNode[],
-  focusSectionId: string,
-  targetSectionId: string
-): string {
-  const lines: string[] = [];
-
-  const visit = (node: CompositionTreeNode, depth: number): void => {
-    const prefix = '  '.repeat(depth);
-    const markers = [
-      node.id === focusSectionId ? 'focused section' : null,
-      node.id === targetSectionId && node.id !== focusSectionId ? 'generation target' : null
-    ].filter(Boolean);
-    const markerText = markers.length > 0 ? ` (${markers.join(', ')})` : '';
-    lines.push(`${prefix}- ${node.title}${markerText}`);
-    node.children.forEach((child) => visit(child, depth + 1));
-  };
-
-  nodes.forEach((node) => visit(node, 0));
-  return lines.join('\n') || '- No sections';
-}
-
-function formatSectionContext(label: string, section: CompositionTreeNode): string {
-  const trimmedIntent = section.intent?.trim();
-  const trimmedMarkdown = section.markdownContent.trim();
-
-  return [
-    `${label}:`,
-    `- Section title: ${section.title}`,
-    `- Section intent: ${trimmedIntent || 'Not provided'}`,
-    `- Current Markdown: ${trimmedMarkdown || 'Empty'}`
-  ].join('\n');
-}
-
-function buildArticleSectionContext(
-  focusSection: CompositionTreeNode,
-  targetSection: CompositionTreeNode,
-  articleStructure: CompositionTreeNode[]
-): string {
-  const sections = [
-    'Article structure:',
-    formatArticleStructure(articleStructure, focusSection.id, targetSection.id),
-    '',
-    formatSectionContext('Focused section context', focusSection)
-  ];
-
-  if (targetSection.id !== focusSection.id) {
-    sections.push('', formatSectionContext('Generation target section context', targetSection));
-  }
-
-  sections.push(
-    '',
-    'Use the article structure, focused section context, and generation target context to scope the generation. Do not include these metadata labels in the output unless explicitly requested.'
-  );
-
-  return sections.join('\n');
-}
-
-function findSectionInTree(
-  nodes: CompositionTreeNode[],
-  sectionId: string
-): CompositionTreeNode | null {
-  for (const node of nodes) {
-    if (node.id === sectionId) {
-      return node;
-    }
-    const child = findSectionInTree(node.children, sectionId);
-    if (child) {
-      return child;
-    }
-  }
-
-  return null;
-}
-
-function buildArticleSectionContextFromDb(
-  db: ReturnType<typeof getActiveDb>,
-  targetSectionId: string,
-  focusSectionId?: string | null
-): string {
-  const resolvedFocusSectionId = focusSectionId ?? targetSectionId;
-  const articleStructure = buildCompositionTreeFromSections(db.listSectionsForContext());
-  const targetSection = findSectionInTree(articleStructure, targetSectionId);
-  if (!targetSection) {
-    throw new Error(`Section not found: ${targetSectionId}`);
-  }
-  const focusSection = findSectionInTree(articleStructure, resolvedFocusSectionId) ?? targetSection;
-
-  return buildArticleSectionContext(focusSection, targetSection, articleStructure);
-}
-
-function buildProjectAwareArticleContextFromDb(
-  db: ReturnType<typeof getActiveDb>,
-  targetSectionId: string,
-  focusSectionId?: string | null
-): string {
-  return [buildProjectBriefPromptContext(db), buildArticleSectionContextFromDb(db, targetSectionId, focusSectionId)]
-    .filter((section) => section.trim())
-    .join('\n\n');
-}
-
-function buildProjectBriefPromptContext(db: ReturnType<typeof getActiveDb>): string {
-  const brief = db.getProjectBrief();
-  const sections: string[] = [];
-  const glossaryLines = brief.glossary.entries
-    .filter((entry) => entry.term.trim() || entry.definition.trim())
-    .map((entry) => {
-      const parts = [
-        entry.term.trim() ? `canonical: ${entry.term.trim()}` : '',
-        entry.aliases.length > 0 ? `aliases for understanding: ${entry.aliases.join(', ')}` : '',
-        entry.definition.trim() ? `definition: ${entry.definition.trim()}` : '',
-        entry.preferredUsage.trim() ? `preferred usage: ${entry.preferredUsage.trim()}` : '',
-        entry.avoidUsage.trim() ? `avoid: ${entry.avoidUsage.trim()}` : '',
-        entry.examples.length > 0 ? `examples: ${entry.examples.join('; ')}` : ''
-      ].filter(Boolean);
-      return `- ${parts.join(' | ')}`;
-    });
-  if (glossaryLines.length > 0 || brief.glossary.notes.trim()) {
-    sections.push([
-      'Project glossary and terminology constraints:',
-      ...glossaryLines,
-      brief.glossary.notes.trim() ? `Notes: ${brief.glossary.notes.trim()}` : '',
-      'Use canonical terms consistently. Treat aliases as source-language variants, not preferred output terms. Do not use avoided terms unless quoting source text.'
-    ].filter(Boolean).join('\n'));
-  }
-
-  const motivationLines = [
-    ['Audience', brief.motivation.audience],
-    ['Problem', brief.motivation.problem],
-    ['Thesis', brief.motivation.thesis],
-    ['Contribution', brief.motivation.contribution],
-    ['Desired reader action', brief.motivation.desiredReaderAction],
-    ['Constraints', brief.motivation.constraints],
-    ['Notes', brief.motivation.notes]
-  ]
-    .filter(([, value]) => value.trim())
-    .map(([label, value]) => `- ${label}: ${value.trim()}`);
-  if (motivationLines.length > 0) {
-    sections.push(['Project writing motivation:', ...motivationLines].join('\n'));
-  }
-
-  const frameworkLines = brief.framework.sectionPlan
-    .filter((section) => section.title.trim() || section.purpose.trim() || section.keyMoves.trim() || section.evidence.trim())
-    .map((section) => {
-      const parts = [
-        section.title.trim() ? `section: ${section.title.trim()}` : '',
-        section.purpose.trim() ? `purpose: ${section.purpose.trim()}` : '',
-        section.keyMoves.trim() ? `key moves: ${section.keyMoves.trim()}` : '',
-        section.evidence.trim() ? `evidence: ${section.evidence.trim()}` : ''
-      ].filter(Boolean);
-      return `- ${parts.join(' | ')}`;
-    });
-  if (brief.framework.narrativeArc.trim() || frameworkLines.length > 0 || brief.framework.notes.trim()) {
-    sections.push([
-      'Project narrative framework:',
-      brief.framework.narrativeArc.trim() ? `Narrative arc: ${brief.framework.narrativeArc.trim()}` : '',
-      ...frameworkLines,
-      brief.framework.notes.trim() ? `Notes: ${brief.framework.notes.trim()}` : ''
-    ].filter(Boolean).join('\n'));
-  }
-
-  if (sections.length === 0) {
-    return '';
-  }
-  return [
-    'Project brief:',
-    ...sections,
-    'Use this project brief as global writing guidance. Do not print these labels unless explicitly requested.'
-  ].join('\n\n');
-}
-
-function buildCompositionTreeFromSections(sections: SectionNodeRecord[]): CompositionTreeNode[] {
-  const byParent = new Map<string | null, CompositionTreeNode[]>();
-  sections.forEach((section) => {
-    const siblings = byParent.get(section.parentId) ?? [];
-    siblings.push({
-      ...section,
-      children: []
-    });
-    byParent.set(section.parentId, siblings);
-  });
-  byParent.forEach((siblings) => {
-    siblings.sort((left, right) =>
-      left.sortOrder - right.sortOrder ||
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.id.localeCompare(right.id)
-    );
-  });
-
-  const build = (section: CompositionTreeNode): CompositionTreeNode => ({
-    ...section,
-    children: (byParent.get(section.id) ?? []).map(build)
-  });
-
-  return (byParent.get(null) ?? []).map(build);
 }
 
 function getSelectedContextNodes(
@@ -504,116 +308,6 @@ function ensureKnowledgeSourceNodes(
       db.createNodeEdge(sourceNode.id, targetSectionId, 'cites', 'llm');
     }
   }
-}
-
-function buildContextPrompt(
-  basePrompt: string,
-  contextNodes: ContentNodeRecord[],
-  articleSectionContext: string,
-  retrievedSources: RetrievedKnowledgeSource[] = [],
-  requireInlineCitations = true
-): string {
-  const promptSections = [
-    'Use the following article and section context for this generation.',
-    articleSectionContext
-  ];
-
-  const sourcesPrompt = formatSourcesForPrompt(retrievedSources);
-  if (sourcesPrompt) {
-    promptSections.push('', sourcesPrompt);
-    if (requireInlineCitations) {
-      promptSections.push(
-        '',
-        'Inline citations are required for source-backed claims. Keep citation markers in the generated text. Use one source reference per bracket, for example [a3f91c8.c1] [b7e12aa.c2], not [a3f91c8.c1, b7e12aa.c2].'
-      );
-    }
-  }
-
-  if (contextNodes.length > 0) {
-    const contextText = contextNodes
-      .map((node, index) => {
-        const flags = [
-          node.isMain ? 'main' : null,
-          node.isLlm ? 'llm' : null
-        ].filter(Boolean).join(', ') || 'content';
-        return [
-          `[${index + 1}] ${node.title} (${flags})`,
-          node.content.trim() || '(empty)'
-        ].join('\n');
-      })
-      .join('\n\n---\n\n');
-
-    promptSections.push(
-      '',
-      'Use the following selected content nodes as additional context. Do not copy them verbatim unless the user asks for it.',
-      contextText
-    );
-  }
-
-  promptSections.push('', 'User prompt:', basePrompt);
-  return promptSections.join('\n');
-}
-
-function buildKnowledgeRetrievalQueries(
-  prompt: string,
-  articleSectionContext: string,
-  contextNodes: ContentNodeRecord[]
-): string[] {
-  const queries = [prompt];
-  const sectionLines = articleSectionContext
-    .split('\n')
-    .filter((line) =>
-      line.startsWith('- Section title:') ||
-      line.startsWith('- Section intent:') ||
-      line.startsWith('- Current Markdown:')
-    )
-    .join('\n')
-    .slice(0, 1800);
-  if (sectionLines.trim()) {
-    queries.push(`${sectionLines}\n\n${prompt}`);
-  }
-  const contextSummary = contextNodes
-    .map((node) => `${node.title}\n${node.content.trim().slice(0, 900)}`)
-    .filter((text) => text.trim())
-    .join('\n\n---\n\n')
-    .slice(0, 2200);
-  if (contextSummary.trim()) {
-    queries.push(`${contextSummary}\n\n${prompt}`);
-  }
-  return queries;
-}
-
-async function retrieveKnowledgeForGeneration(
-  db: ReturnType<typeof getActiveDb>,
-  query: string,
-  options: {
-    excludedItemIds?: string[];
-    excludedChunkIds?: string[];
-    maxChunks?: number;
-    queries?: string[];
-    retrievalMode?: KnowledgeRetrievalMode;
-    runId?: string;
-    settings: ReturnType<typeof readLlmSettings>;
-    onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
-    abortSignal?: AbortSignal;
-  }
-): Promise<RetrievedKnowledgeSource[]> {
-  return retrieveKnowledgeInWorker(db.workspacePath, {
-    query,
-    embeddingSettings: options.settings.embedding,
-    chatSettings: options.settings.chat,
-    excludedItemIds: options.excludedItemIds,
-    excludedChunkIds: options.excludedChunkIds,
-    maxChunks: options.maxChunks,
-    queries: options.queries,
-    retrievalMode: options.retrievalMode,
-    runId: options.runId,
-    rerankSettings: options.settings.rerank,
-    retrievalSettings: options.settings.knowledge.retrieval
-  }, {
-    abortSignal: options.abortSignal,
-    onTrace: options.onTrace
-  });
 }
 
 async function suggestProjectBrief(
@@ -1555,177 +1249,6 @@ export function registerIpcHandlers(): void {
     getActiveDb().getGenerationRound(roundId)
   );
 
-  ipcMain.handle(ipcChannels.generateWithLlm, async (event, payload: GenerateLlmPayload) => {
-    const settings = readLlmSettings();
-    const db = getActiveDb();
-    const controller = new AbortController();
-    llmRuns.set(payload.runId, controller);
-
-    let content = '';
-    let retrievedSources: RetrievedKnowledgeSource[] = [];
-    try {
-      const section = db.getSection(payload.sectionId);
-      if (!section) {
-        throw new Error(`Section not found: ${payload.sectionId}`);
-      }
-      const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-      const articleSectionContext = buildProjectAwareArticleContextFromDb(
-        db,
-        payload.sectionId,
-        payload.focusSectionId
-      );
-      const useKnowledgeSources = payload.useKnowledgeSources !== false;
-      const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || payload.prompt;
-      retrievedSources = useKnowledgeSources
-        ? payload.prefetchedKnowledgeSources ?? await retrieveKnowledgeForGeneration(
-            db,
-            knowledgeRetrievalPrompt,
-            {
-              excludedItemIds: payload.excludedKnowledgeItemIds,
-              excludedChunkIds: payload.excludedKnowledgeChunkIds,
-              maxChunks: payload.maxKnowledgeChunks,
-              queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
-              retrievalMode: payload.retrievalMode,
-              runId: payload.runId,
-              settings,
-              abortSignal: controller.signal,
-              onTrace: (traceEvent) => {
-                event.sender.send(ipcChannels.knowledgeRetrievalStream, traceEvent);
-              }
-            }
-          )
-        : [];
-      if (controller.signal.aborted) {
-        event.sender.send(ipcChannels.llmStream, {
-          type: 'canceled',
-          runId: payload.runId
-        });
-        return { runId: payload.runId, content, canceled: true };
-      }
-      const generationPayload: GenerateLlmPayload = {
-        ...payload,
-        prompt: buildContextPrompt(
-          payload.prompt,
-          contextNodes,
-          articleSectionContext,
-          retrievedSources,
-          useKnowledgeSources && (payload.requireInlineCitations ?? true)
-        ),
-        systemPrompt: payload.systemPrompt?.trim()
-          ? `${articleSectionContext}\n\n${payload.systemPrompt.trim()}`
-          : articleSectionContext
-      };
-
-      event.sender.send(ipcChannels.llmStream, {
-        type: 'started',
-        runId: payload.runId,
-        sectionId: payload.sectionId
-      });
-
-      for await (const chunk of streamLlmText(settings.chat, generationPayload, controller.signal)) {
-        content += chunk;
-        event.sender.send(ipcChannels.llmStream, {
-          type: 'chunk',
-          runId: payload.runId,
-          content
-        });
-      }
-      event.sender.send(ipcChannels.llmStream, {
-        type: 'done',
-        runId: payload.runId,
-        content,
-        sources: retrievedSources
-      });
-      return { runId: payload.runId, content, canceled: false, sources: retrievedSources };
-    } catch (caught) {
-      if (controller.signal.aborted) {
-        event.sender.send(ipcChannels.llmStream, {
-          type: 'canceled',
-          runId: payload.runId
-        });
-        return { runId: payload.runId, content, canceled: true };
-      }
-
-      const message = caught instanceof Error ? caught.message : String(caught);
-      event.sender.send(ipcChannels.llmStream, {
-        type: 'error',
-        runId: payload.runId,
-        message
-      });
-      throw new Error(message);
-    } finally {
-      llmRuns.delete(payload.runId);
-    }
-  });
-
-  ipcMain.handle(ipcChannels.cancelLlmGeneration, (_event, runId: string) => {
-    llmRuns.get(runId)?.abort();
-  });
-
-  ipcMain.handle(ipcChannels.saveLlmGeneration, (_event, payload: SaveLlmGenerationPayload) => {
-    const db = getActiveDb();
-    const section = db.getSection(payload.sectionId);
-    if (!section) {
-      throw new Error(`Section not found: ${payload.sectionId}`);
-    }
-    const prompt = payload.prompt.trim();
-    if (!prompt) {
-      throw new Error('Tell the assistant what to write first.');
-    }
-    const contextNodes = getSelectedContextNodes(db, payload.contextNodeIds);
-    const articleSectionContext = buildProjectAwareArticleContextFromDb(
-      db,
-      payload.sectionId,
-      payload.focusSectionId
-    );
-    const resolvedPrompt = buildContextPrompt(
-      prompt,
-      contextNodes,
-      articleSectionContext,
-      payload.retrievedSources ?? [],
-      true
-    );
-    const candidate = db.createNode({
-      kind: 'content',
-      parentId: payload.sectionId,
-      title: `Assistant draft · ${section.title}`,
-      content: payload.content.trim(),
-      isLlm: true,
-      metadata: {
-        nodeRole: 'llm-candidate',
-        prompt,
-        resolvedPrompt,
-        retrievedSources: payload.retrievedSources ?? []
-      }
-    });
-    const contextRelationType = payload.contextRelationType ?? 'informs';
-    contextNodes.forEach((node) => {
-      db.createNodeEdge(node.id, candidate.id, contextRelationType, 'llm');
-    });
-    ensureKnowledgeSourceNodes(
-      db,
-      payload.focusSectionId ?? payload.sectionId,
-      payload.sectionId,
-      payload.retrievedSources ?? []
-    );
-    db.saveGenerationCitations(
-      payload.sectionId,
-      (payload.retrievedSources ?? []).map((source) => ({
-        publicRef: source.publicRef,
-        knowledgeItemId: source.itemId,
-        knowledgeChunkId: source.chunkId,
-        label: source.publicRef,
-        snippet: source.snippet,
-        score: source.score
-      }))
-    );
-    return getState(payload.focusSectionId ?? payload.sectionId);
-  });
-
-  ipcMain.handle(ipcChannels.applySectionLlmEdit, (_event, payload: ApplySectionLlmEditPayload) => {
-    void payload;
-    throw new Error('Direct edits are disabled. Use an assistant suggestion and apply it from the review step.');
-  });
 }
 
 function createPatchFromRound(roundId: string): WritingPatchRecord {

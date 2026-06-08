@@ -612,27 +612,10 @@ export type KnowledgeDebugDetails = {
   generatedAt: string;
 };
 
-export type GenerateLlmPayload = {
-  runId: string;
-  sectionId: string;
-  focusSectionId?: string | null;
-  prompt: string;
-  useKnowledgeSources?: boolean;
-  knowledgeRetrievalPrompt?: string;
-  contextNodeIds?: string[];
-  prefetchedKnowledgeSources?: RetrievedKnowledgeSource[];
-  excludedKnowledgeItemIds?: string[];
-  excludedKnowledgeChunkIds?: string[];
-  maxKnowledgeChunks?: number;
-  retrievalMode?: KnowledgeRetrievalMode;
-  requireInlineCitations?: boolean;
-  systemPrompt?: string;
-};
-
 export type GenerationMode = 'append' | 'rewrite_section' | 'rewrite_selection' | 'continue';
 export type GenerationExecutionMode = 'interactive' | 'background' | 'auto';
 export type ResolvedGenerationExecutionMode = Exclude<GenerationExecutionMode, 'auto'>;
-export type GenerationOutputMode = 'patchProposal' | 'freeform';
+export type GenerationOutputMode = 'patchProposal';
 
 export type GenerationRoundStatus =
   | 'pending'
@@ -995,62 +978,7 @@ export type AdoptGenerationPayload = {
   roundId: string;
 };
 
-export type SaveLlmGenerationPayload = {
-  sectionId: string;
-  focusSectionId?: string | null;
-  prompt: string;
-  content: string;
-  contextNodeIds?: string[];
-  retrievedSources?: RetrievedKnowledgeSource[];
-  contextRelationType?: EdgeKind;
-};
-
 export type SectionLlmEditMode = 'rewrite_section' | 'rewrite_selection' | 'continue_at_cursor';
-
-export type ApplySectionLlmEditPayload = {
-  sectionId: string;
-  focusSectionId?: string | null;
-  mode: SectionLlmEditMode;
-  userPrompt: string;
-  resolvedPrompt: string;
-  systemPrompt: string;
-  generatedContent: string;
-  baseMarkdown: string;
-  targetStart: number;
-  targetEnd: number;
-  selectedText: string;
-  prefixContext: string;
-  suffixContext: string;
-  retrievedSources?: RetrievedKnowledgeSource[];
-  contextNodeIds?: string[];
-};
-
-export type LlmStreamEvent =
-  | {
-      type: 'started';
-      runId: string;
-      sectionId: string;
-    }
-  | {
-      type: 'chunk';
-      runId: string;
-      content: string;
-    }
-  | {
-      type: 'done';
-      runId: string;
-      content: string;
-      sources?: RetrievedKnowledgeSource[];
-    }
-  | {
-      type: 'canceled';
-      runId: string;
-    }
-  | {
-      type: 'error';
-      runId: string;
-      message: string;
-    };
 
 export type GenerationEvent =
   | {
