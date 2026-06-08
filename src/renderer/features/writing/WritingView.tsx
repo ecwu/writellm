@@ -84,7 +84,7 @@ export function WritingView({
   );
   const selectedText = getSelectedText(editorRef.current?.getValue() ?? displayedMarkdown, selection);
   const hasSelection = selectedText.trim().length > 0;
-  const latestRoundRunning = latestRound?.status === 'pending' || latestRound?.status === 'processing';
+  const latestRoundRunning = latestRound?.status === 'pending' || latestRound?.status === 'retrieving' || latestRound?.status === 'processing';
   const generationDisabled = isCreatingGeneration || latestRoundRunning;
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export function WritingView({
   }, [isRootMarkdownView, section.id]);
 
   useEffect(() => {
-    if (!latestRound || latestRound.status !== 'pending' && latestRound.status !== 'processing') {
+    if (!latestRound || latestRound.status !== 'pending' && latestRound.status !== 'retrieving' && latestRound.status !== 'processing') {
       return;
     }
     let canceled = false;
@@ -248,7 +248,7 @@ export function WritingView({
         adoptedAt: null
       });
       setGenerationPrompt('');
-      onStatus(result.executionMode === 'interactive' ? 'Suggestion started.' : 'Suggestion queued.');
+      onStatus(result.status === 'retrieving' ? 'Collecting sources.' : result.executionMode === 'interactive' ? 'Suggestion started.' : 'Suggestion queued.');
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -387,7 +387,7 @@ export function WritingView({
             </label>
             <Button size="sm" onClick={() => void enqueueGenerationTask()} disabled={generationDisabled || !generationPrompt.trim()}>
               {generationDisabled ? <Spinner /> : null}
-              {isCreatingGeneration ? 'Starting' : latestRoundRunning ? 'Drafting' : 'Suggest'}
+              {generationButtonLabel(isCreatingGeneration, latestRound)}
             </Button>
             <div className="writing-floating-buttons">
               <button
@@ -503,10 +503,10 @@ function WritingPatchNotice({
   onRetry: () => void;
   onDismiss: () => void;
 }) {
-  if (round.status === 'pending' || round.status === 'processing') {
+  if (round.status === 'pending' || round.status === 'retrieving' || round.status === 'processing') {
     return (
       <div className="writing-patch-notice">
-        <span><Spinner /> Drafting a suggestion</span>
+        <span><Spinner /> {generationRunningLabel(round.status)}</span>
         <div>
           <Button variant="outline" size="sm" onClick={onCancel}>
             <X />
@@ -565,6 +565,29 @@ function WritingPatchNotice({
     );
   }
   return null;
+}
+
+function generationButtonLabel(isCreatingGeneration: boolean, round: GenerationRoundRecord | null): string {
+  if (isCreatingGeneration) {
+    return 'Starting';
+  }
+  if (round?.status === 'retrieving') {
+    return 'Collecting';
+  }
+  if (round?.status === 'pending' || round?.status === 'processing') {
+    return 'Drafting';
+  }
+  return 'Suggest';
+}
+
+function generationRunningLabel(status: GenerationRoundRecord['status']): string {
+  if (status === 'retrieving') {
+    return 'Collecting sources';
+  }
+  if (status === 'pending') {
+    return 'Queued to draft';
+  }
+  return 'Drafting a suggestion';
 }
 
 function formatSuggestionError(message: string | null | undefined): string {

@@ -619,6 +619,7 @@ export type GenerationOutputMode = 'patchProposal';
 
 export type GenerationRoundStatus =
   | 'pending'
+  | 'retrieving'
   | 'processing'
   | 'done'
   | 'canceled'

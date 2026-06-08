@@ -17,6 +17,7 @@ const statusToneByValue: Record<string, StatusTone> = {
   queued: 'warning',
   uploading: 'warning',
   extracting: 'warning',
+  retrieving: 'warning',
   downloading: 'warning',
   indexing: 'warning',
   running: 'warning',
@@ -40,6 +41,7 @@ const toneClassName: Record<StatusTone, string> = {
 
 const statusLabelByValue: Record<string, string> = {
   pending: 'queued',
+  retrieving: 'collecting sources',
   processing: 'drafting',
   done: 'ready',
   patch_created: 'ready',

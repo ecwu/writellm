@@ -80,7 +80,11 @@ export function FloatingActionToolbar({
         requireInlineCitations: canvasUseKnowledge
       });
       setCanvasPrompt('');
-      setCanvasStatus(result.executionMode === 'interactive' ? 'Suggestion started. It will appear in Assist.' : 'Suggestion queued. It will appear in Assist.');
+      setCanvasStatus(result.status === 'retrieving'
+        ? 'Collecting sources. It will appear in Assist.'
+        : result.executionMode === 'interactive'
+          ? 'Suggestion started. It will appear in Assist.'
+          : 'Suggestion queued. It will appear in Assist.');
     } catch (caught) {
       setCanvasError(caught instanceof Error ? caught.message : String(caught));
     } finally {

@@ -142,7 +142,7 @@ export function Inspector(props: InspectorProps) {
       }
     }
     void pollRound();
-    const timer = window.setInterval(pollRound, activeRound.status === 'pending' || activeRound.status === 'processing' ? 500 : 1500);
+    const timer = window.setInterval(pollRound, isGenerationRunning(activeRound.status) ? 500 : 1500);
     return () => {
       canceled = true;
       window.clearInterval(timer);
@@ -443,7 +443,7 @@ export function Inspector(props: InspectorProps) {
                 {activeRound.status === 'done' && !activeRound.adoptedAt ? (
                   <Button size="sm" onClick={() => void adoptRound(activeRound.id)}>Prepare Suggestion</Button>
                 ) : null}
-                {activeRound.status === 'pending' || activeRound.status === 'processing' ? (
+                {isGenerationRunning(activeRound.status) ? (
                   <Button variant="destructive" size="sm" onClick={() => void cancelRound(activeRound.id)}>Cancel</Button>
                 ) : null}
                 {activeRound.status === 'error' ? (
@@ -452,7 +452,7 @@ export function Inspector(props: InspectorProps) {
                     Retry
                   </Button>
                 ) : null}
-                {activeRound.status !== 'processing' ? (
+                {!isGenerationRunning(activeRound.status) ? (
                   <Button variant="outline" size="sm" onClick={() => void discardRound(activeRound.id)}>Dismiss</Button>
                 ) : null}
               </div>
@@ -765,10 +765,17 @@ function generationPrimaryText(round: GenerationRoundRecord, patch: WritingPatch
   if (round.status === 'pending') {
     return 'Waiting to start...';
   }
+  if (round.status === 'retrieving') {
+    return 'Collecting sources...';
+  }
   if (round.status === 'processing') {
     return 'Drafting a suggestion...';
   }
   return round.content || '';
+}
+
+function isGenerationRunning(status: GenerationRoundRecord['status']): boolean {
+  return status === 'pending' || status === 'retrieving' || status === 'processing';
 }
 
 function assistIssueLabel(severity: string): string {

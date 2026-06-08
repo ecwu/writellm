@@ -84,6 +84,7 @@ import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValidator.js';
 
 const interactiveGenerationRuns = new Map<string, AbortController>();
+const retrievalGenerationRuns = new Map<string, AbortController>();
 
 const projectGlossaryTermSchema = z.object({
   id: z.string().optional().default(''),
@@ -687,6 +688,103 @@ async function runInteractiveGenerationTask(
   }
 }
 
+async function prepareAndStartGenerationTask(
+  db: ReturnType<typeof getActiveDb>,
+  roundId: string,
+  payload: {
+    request: ReturnType<typeof buildGenerationTaskRequest>;
+    contextNodes: ContentNodeRecord[];
+    articleSectionContext: string;
+    useKnowledgeSources: boolean;
+    knowledgeRetrievalPrompt: string;
+    retrievalMode?: CreateGenerationTaskPayload['retrievalMode'];
+    requireInlineCitations?: boolean;
+    settings: ReturnType<typeof readLlmSettings>;
+    executionMode: 'interactive' | 'background';
+    applyPayload: Record<string, unknown>;
+  }
+): Promise<void> {
+  const retrievalTrace: KnowledgeRetrievalTraceEvent[] = [];
+  const retrievalController = payload.useKnowledgeSources ? new AbortController() : null;
+  if (retrievalController) {
+    retrievalGenerationRuns.set(roundId, retrievalController);
+  }
+  try {
+    const retrievedSources = payload.useKnowledgeSources
+      ? await retrieveKnowledgeForGeneration(db, payload.knowledgeRetrievalPrompt, {
+          queries: buildKnowledgeRetrievalQueries(
+            payload.knowledgeRetrievalPrompt,
+            payload.articleSectionContext,
+            payload.contextNodes
+          ),
+          retrievalMode: payload.retrievalMode,
+          settings: payload.settings,
+          runId: createId('retrieval'),
+          onTrace: (traceEvent) => {
+            retrievalTrace.push(traceEvent);
+          },
+          abortSignal: retrievalController?.signal
+        })
+      : [];
+    retrievalGenerationRuns.delete(roundId);
+    if (db.getGenerationRound(roundId)?.status === 'canceled') {
+      return;
+    }
+
+    const resolvedPrompt = buildContextPrompt(
+      payload.request.prompt,
+      payload.contextNodes,
+      payload.articleSectionContext,
+      retrievedSources,
+      payload.useKnowledgeSources && (payload.requireInlineCitations ?? true)
+    );
+    const systemPrompt = payload.request.systemPrompt?.trim()
+      ? `${payload.articleSectionContext}\n\n${payload.request.systemPrompt.trim()}`
+      : payload.articleSectionContext;
+    const applyPayload = {
+      ...payload.applyPayload,
+      ...(payload.request.applyPayload.kind === 'edit' ? { resolvedPrompt, systemPrompt } : {})
+    };
+
+    db.updateGenerationRound(roundId, {
+      status: 'pending',
+      resolvedPrompt,
+      systemPrompt,
+      retrievedSources,
+      retrievalTrace,
+      applyPayloadJson: JSON.stringify(applyPayload)
+    });
+    emitGenerationEvent({ type: 'round_status', roundId, status: 'pending' });
+
+    if (payload.executionMode === 'background') {
+      db.enqueueGenerationJob(roundId, {
+        prompt: resolvedPrompt,
+        systemPrompt,
+        outputMode: 'patchProposal'
+      });
+      await startBackgroundTaskWorker(db);
+    } else {
+      void runInteractiveGenerationTask(db, roundId, {
+        prompt: resolvedPrompt,
+        systemPrompt
+      });
+    }
+  } catch (caught) {
+    retrievalGenerationRuns.delete(roundId);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    if (db.getGenerationRound(roundId)?.status === 'canceled') {
+      return;
+    }
+    db.updateGenerationRound(roundId, {
+      status: 'error',
+      retrievalTrace,
+      errorMessage: message,
+      completedAt: nowIso()
+    });
+    emitGenerationEvent({ type: 'round_error', roundId, errorMessage: message });
+  }
+}
+
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -1064,35 +1162,12 @@ export function registerIpcHandlers(): void {
         targetEnd: payload.targetEnd
       });
       const executionMode = resolveGenerationExecutionMode(payload.executionMode, payload.mode);
-      const useKnowledgeSources = payload.useKnowledgeSources !== false;
+      const useKnowledgeSources = payload.useKnowledgeSources !== false && db.hasIndexedKnowledgeChunks();
       const knowledgeRetrievalPrompt = payload.knowledgeRetrievalPrompt?.trim() || userPrompt;
-      const retrievalTrace: KnowledgeRetrievalTraceEvent[] = [];
-      const retrievedSources = useKnowledgeSources
-        ? await retrieveKnowledgeForGeneration(db, knowledgeRetrievalPrompt, {
-            queries: buildKnowledgeRetrievalQueries(knowledgeRetrievalPrompt, articleSectionContext, contextNodes),
-            retrievalMode: payload.retrievalMode,
-            settings,
-            runId: createId('retrieval'),
-            onTrace: (traceEvent) => {
-              retrievalTrace.push(traceEvent);
-            }
-          })
-        : [];
-      const resolvedPrompt = buildContextPrompt(
-        request.prompt,
-        contextNodes,
-        articleSectionContext,
-        retrievedSources,
-        useKnowledgeSources && (payload.requireInlineCitations ?? true)
-      );
-      const systemPrompt = request.systemPrompt?.trim()
-        ? `${articleSectionContext}\n\n${request.systemPrompt.trim()}`
-        : articleSectionContext;
       const applyPayload = {
         ...request.applyPayload,
         focusSectionId: payload.focusSectionId ?? payload.sectionId,
-        contextNodeIds,
-        ...(request.applyPayload.kind === 'edit' ? { resolvedPrompt, systemPrompt } : {})
+        contextNodeIds
       };
       const { sessionId } = db.createGenerationSession(
         payload.sectionId,
@@ -1104,35 +1179,40 @@ export function registerIpcHandlers(): void {
         executionMode,
         outputMode: 'patchProposal',
         prompt: userPrompt,
-        resolvedPrompt,
-        systemPrompt,
-        retrievedSources,
-        retrievalTrace,
+        resolvedPrompt: null,
+        systemPrompt: null,
+        retrievedSources: [],
+        retrievalTrace: [],
         modelProvider: settings.chat.provider,
         modelName: settings.chat.model,
         applyPayloadJson: JSON.stringify(applyPayload)
       });
+      if (useKnowledgeSources) {
+        db.updateGenerationRound(round.id, { status: 'retrieving' });
+      }
       emitGenerationEvent({
         type: 'round_created',
         roundId: round.id,
         sessionId,
         executionMode,
-        status: 'pending'
+        status: useKnowledgeSources ? 'retrieving' : 'pending'
       });
-      if (executionMode === 'background') {
-        db.enqueueGenerationJob(round.id, {
-          prompt: resolvedPrompt,
-          systemPrompt,
-          outputMode: 'patchProposal'
-        });
-        await startBackgroundTaskWorker(db);
-      } else {
-        void runInteractiveGenerationTask(db, round.id, {
-          prompt: resolvedPrompt,
-          systemPrompt
-        });
+      if (useKnowledgeSources) {
+        emitGenerationEvent({ type: 'round_status', roundId: round.id, status: 'retrieving' });
       }
-      return { roundId: round.id, sessionId, status: 'pending', executionMode };
+      void prepareAndStartGenerationTask(db, round.id, {
+        request,
+        contextNodes,
+        articleSectionContext,
+        useKnowledgeSources,
+        knowledgeRetrievalPrompt,
+        retrievalMode: payload.retrievalMode,
+        requireInlineCitations: payload.requireInlineCitations,
+        settings,
+        executionMode,
+        applyPayload
+      });
+      return { roundId: round.id, sessionId, status: useKnowledgeSources ? 'retrieving' : 'pending', executionMode };
     }
   );
 
@@ -1142,10 +1222,12 @@ export function registerIpcHandlers(): void {
     if (!round) {
       throw new Error(`Generation round not found: ${roundId}`);
     }
-    if (round.status !== 'pending' && round.status !== 'processing') {
+    if (round.status !== 'pending' && round.status !== 'retrieving' && round.status !== 'processing') {
       return round;
     }
     interactiveGenerationRuns.get(roundId)?.abort();
+    retrievalGenerationRuns.get(roundId)?.abort(new Error('Generation canceled.'));
+    retrievalGenerationRuns.delete(roundId);
     const canceled = db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
     emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
     return canceled;

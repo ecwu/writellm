@@ -1014,7 +1014,11 @@ export class WriteLLMDatabase {
       .where(
         and(
           eq(llmGenerationSessions.sectionId, sectionId),
-          or(eq(llmGenerationRounds.status, 'pending'), eq(llmGenerationRounds.status, 'processing'))
+          or(
+            eq(llmGenerationRounds.status, 'pending'),
+            eq(llmGenerationRounds.status, 'retrieving'),
+            eq(llmGenerationRounds.status, 'processing')
+          )
         )
       )
       .orderBy(desc(llmGenerationRounds.updatedAt))
@@ -1183,6 +1187,21 @@ export class WriteLLMDatabase {
       .orderBy(desc(knowledgeItems.updatedAt), asc(knowledgeChunks.chunkIndex))
       .all()
       .map(mapKnowledgeChunk);
+  }
+
+  hasIndexedKnowledgeChunks(): boolean {
+    const row = this.db
+      .prepare(`
+        SELECT 1
+        FROM knowledge_chunks AS chunks
+        INNER JOIN knowledge_items AS items ON items.id = chunks.item_id
+        WHERE items.deleted_at IS NULL
+          AND chunks.embedding_dimensions > 0
+          AND chunks.vector_rowid IS NOT NULL
+        LIMIT 1
+      `)
+      .get();
+    return Boolean(row);
   }
 
   resolveKnowledgeSourceTarget(options: {
@@ -2887,6 +2906,7 @@ function isGenerationOutputMode(value: unknown): value is GenerationOutputMode {
 
 function isGenerationRoundStatus(value: unknown): value is GenerationRoundStatus {
   return value === 'pending' ||
+    value === 'retrieving' ||
     value === 'processing' ||
     value === 'done' ||
     value === 'canceled' ||
