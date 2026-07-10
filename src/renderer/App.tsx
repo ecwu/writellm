@@ -1,21 +1,23 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react';
 import { formatWorkspaceTitle } from './app/formatters';
 import { useWriteLLMApp } from './app/useWriteLLMApp';
 import { Toaster } from './components/ui/sonner';
 import { SidebarInset, SidebarProvider } from './components/ui/sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
-import { CanvasView } from './features/canvas/CanvasView';
-import { Inspector } from './features/inspector/Inspector';
-import { KnowledgePage } from './features/knowledge/KnowledgePage';
-import { ProjectBriefPage } from './features/project/ProjectBriefPage';
-import { SectionHistoryDialog } from './features/sections/SectionHistoryDialog';
+import { GenerationHub } from './features/generation/GenerationHub';
 import { SectionListView } from './features/sections/SectionListView';
-import { SettingsDialog } from './features/settings/SettingsDialog';
-import { WritingView } from './features/writing/WritingView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
-import type { AppearanceSettings, CreateGenerationTaskResult, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
+import type { AppearanceSettings, PublicLlmSettings, SectionNodeRecord } from '../shared/types';
+
+const CitationCoverageView = lazy(() => import('./features/research/CitationCoverageView').then(({ CitationCoverageView }) => ({ default: CitationCoverageView })));
+const Inspector = lazy(() => import('./features/inspector/Inspector').then(({ Inspector }) => ({ default: Inspector })));
+const KnowledgePage = lazy(() => import('./features/knowledge/KnowledgePage').then(({ KnowledgePage }) => ({ default: KnowledgePage })));
+const ProjectBriefPage = lazy(() => import('./features/project/ProjectBriefPage').then(({ ProjectBriefPage }) => ({ default: ProjectBriefPage })));
+const SectionHistoryDialog = lazy(() => import('./features/sections/SectionHistoryDialog').then(({ SectionHistoryDialog }) => ({ default: SectionHistoryDialog })));
+const SettingsDialog = lazy(() => import('./features/settings/SettingsDialog').then(({ SettingsDialog }) => ({ default: SettingsDialog })));
+const WritingView = lazy(() => import('./features/writing/WritingView').then(({ WritingView }) => ({ default: WritingView })));
 
 const defaultAppearance: AppearanceSettings = {
   theme: 'system',
@@ -41,7 +43,6 @@ function applyAppearance(appearance: AppearanceSettings) {
 export function App() {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [historySectionId, setHistorySectionId] = useState<string | null>(null);
-  const [generationTarget, setGenerationTarget] = useState<(CreateGenerationTaskResult & { sectionId: string }) | null>(null);
   const {
     apiAvailable,
     state,
@@ -50,7 +51,6 @@ export function App() {
     setWorkspacePath,
     selection,
     setSelection,
-    flowNodes,
     settingsOpen,
     setSettingsOpen,
     workspaceChooserOpen,
@@ -62,14 +62,10 @@ export function App() {
     setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
-    assistComposer,
     focusSection,
     selectedSection,
     selectedContent,
-    selectedEdge,
     currentChildViewMode,
-    graph,
-    nodeTypes,
     notifyStatus,
     notifyError,
     refresh,
@@ -81,15 +77,7 @@ export function App() {
     openKnowledgeSourceNode,
     openWritingView,
     moveSectionInOutline,
-    onConnect,
-    updateSelectedEdgeKind,
-    deleteSelectedEdge,
     createSection,
-    createContentInSection,
-    createConnectedContent,
-    deleteSelectedNode,
-    openGenerateComposer,
-    closeAssistComposer,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -99,9 +87,7 @@ export function App() {
     deleteKnowledgeIngestJob,
     exportLatex,
     createGitCheckpoint,
-    setFocusedChildViewMode,
-    onNodesChange,
-    persistNodeLayoutFromNode
+    setFocusedChildViewMode
   } = useWriteLLMApp();
   const appearance = llmSettings?.appearance ?? defaultAppearance;
   const historySection = historySectionId
@@ -178,6 +164,7 @@ export function App() {
             hasSelection={Boolean(selection)}
             tasks={state.knowledgeIngestJobs}
           />
+          <Suspense fallback={null}>
           <SettingsDialog
             open={settingsOpen}
             settings={llmSettings}
@@ -270,58 +257,15 @@ export function App() {
                     onHistory={(section) => setHistorySectionId(section.id)}
                     onState={setState}
                     onStatus={notifyStatus}
-                    onGenerationQueued={(result) => setGenerationTarget({ ...result, sectionId: focusSection.id })}
                     onError={notifyError}
                   />
-                ) : currentChildViewMode === 'graph' ? (
-                  <CanvasView
-                    title={focusSection?.title ?? 'No focused section'}
-                    visibleNodeCount={graph.nodes.length}
+                ) : currentChildViewMode === 'references' ? (
+                  <CitationCoverageView
+                    state={state}
                     mode={currentChildViewMode}
                     onModeChange={setFocusedChildViewMode}
-                    nodes={flowNodes}
-                    edges={graph.edges}
-                    nodeTypes={nodeTypes}
-                    onNodesChange={onNodesChange}
-                    onNodeDragStop={persistNodeLayoutFromNode}
-                    onConnect={(connection) => void onConnect(connection)}
-                    onEdgeClick={(edge) => {
-                      if (state.edges.some((processEdge) => processEdge.id === edge.id)) {
-                        setSelection({ type: 'edge', id: edge.id });
-                      }
-                    }}
-                    onNodeClick={(node) => setSelection({ type: 'node', id: node.id })}
-                    onNodeDoubleClick={(node) => {
-                      const record = state.nodes.find((candidate) => candidate.id === node.id);
-                      if (record?.kind === 'section') {
-                        void openWritingView(record);
-                      } else if (record?.kind === 'content') {
-                        if (record.metadata.nodeRole === 'knowledge-source') {
-                          void openKnowledgeSourceNode(record);
-                        } else {
-                          const parent = state.nodes.find(
-                            (candidate) => candidate.kind === 'section' && candidate.id === record.parentId
-                          );
-                          if (parent?.kind === 'section') {
-                            void openWritingView(parent);
-                          }
-                        }
-                      }
-                    }}
-                    selection={selection}
-                    selectedSection={selectedSection}
-                    selectedContent={selectedContent}
-                    selectedEdge={selectedEdge ?? null}
-                    focusSection={focusSection ?? null}
-                    assistComposer={assistComposer}
-                    onCreateInSection={(sectionId, preset) => void createContentInSection(sectionId, preset)}
-                    onCreateConnectedContent={(nodeId, preset) => void createConnectedContent(nodeId, preset)}
-                    onDeleteNode={() => void deleteSelectedNode()}
-                    onOpenGenerate={openGenerateComposer}
-                    onOpenSectionMarkdown={(section) => void openWritingView(section)}
-                    onCancelGenerate={closeAssistComposer}
-                    onUpdateEdgeKind={(relationType) => void updateSelectedEdgeKind(relationType)}
-                    onDeleteEdge={() => void deleteSelectedEdge()}
+                    onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
+                    onError={notifyError}
                   />
                 ) : (
                   <SectionListView
@@ -351,13 +295,15 @@ export function App() {
                   onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
                   onOpenKnowledgeSource={(content) => void openKnowledgeSourceNode(content)}
                   onStatus={notifyStatus}
-                  generationTarget={generationTarget}
-                  onGenerationTargetConsumed={() => setGenerationTarget(null)}
                   onError={notifyError}
                 />
               </SidebarRight>
             </div>
           )}
+          {state.workspace ? (
+            <GenerationHub onState={setState} onStatus={notifyStatus} onError={notifyError} />
+          ) : null}
+          </Suspense>
         </SidebarProvider>
         <Toaster richColors position="top-center" />
       </div>

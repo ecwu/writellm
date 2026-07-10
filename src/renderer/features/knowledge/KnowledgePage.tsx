@@ -166,9 +166,26 @@ export function KnowledgePage({
     () => items.filter((item) => item.indexStatus === 'indexed').length,
     [items]
   );
-  const visibleIngestJobs = useMemo(() => {
-    return ingestJobs.filter((job) => job.status !== 'indexed');
+  const ingestTaskWindow = useMemo(() => {
+    const byNewest = [...ingestJobs].sort((left, right) =>
+      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+    );
+    const current = byNewest.filter((job) => isActiveIngestStatus(job.status) && job.status !== 'queued').slice(0, 1);
+    const currentIds = new Set(current.map((job) => job.id));
+    const recent = byNewest.filter((job) => job.status === 'indexed' || job.status === 'error').slice(0, 1);
+    const upcoming = [...ingestJobs]
+      .filter((job) => job.status === 'queued' && !currentIds.has(job.id))
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      .slice(0, 2);
+    return {
+      recent,
+      current,
+      upcoming,
+      queuedCount: ingestJobs.filter((job) => job.status === 'queued').length
+    };
   }, [ingestJobs]);
+  const visibleIngestJobCount =
+    ingestTaskWindow.recent.length + ingestTaskWindow.current.length + ingestTaskWindow.upcoming.length;
   const debugRefreshKey = useMemo(
     () => items.map((item) => `${item.id}:${item.indexStatus}:${item.updatedAt}`).join('|'),
     [items]
@@ -253,49 +270,35 @@ export function KnowledgePage({
             </Button>
           </div>
         </div>
-        {items.length > 0 || visibleIngestJobs.length > 0 ? (
+        {items.length > 0 || visibleIngestJobCount > 0 ? (
           <ScrollArea className="knowledge-sidebar-scroll">
             <div className="knowledge-sidebar-scroll-content">
-              {visibleIngestJobs.length > 0 ? (
+              {visibleIngestJobCount > 0 ? (
                 <div className="knowledge-ingest-list">
-                  <p>Import queue</p>
-                  {visibleIngestJobs.map((job) => {
-                    const progress = getKnowledgeIngestProgressView(job);
-                    return (
-                      <div key={job.id} className="knowledge-ingest-job">
-                        <div className="knowledge-ingest-job-heading">
-                          <span className="knowledge-source-title">{job.fileName}</span>
-                          <KnowledgeIngestStatusPopover job={job} />
-                        </div>
-                        {job.errorMessage ? (
-                          <span className="knowledge-source-preview">{job.errorMessage}</span>
-                        ) : (
-                          <span className="knowledge-source-preview">
-                            {progress?.label ?? `${formatFileSize(job.fileSize)} ${job.fileExt}`}
-                          </span>
-                        )}
-                        {progress && progress.percent !== null ? (
-                          <Progress
-                            className="knowledge-ingest-progress"
-                            value={progress.percent}
-                            aria-label={progress.label}
-                          />
-                        ) : null}
-                        <div className="button-row">
-                          {job.status === 'error' ? (
-                            <Button variant="outline" size="sm" onClick={() => onRetryIngest(job.id)}>
-                              <RefreshCw />
-                              Retry
-                            </Button>
-                          ) : null}
-                          <Button variant="destructive" size="sm" onClick={() => onDeleteIngest(job.id)}>
-                            <Trash2 />
-                            Delete
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <div className="knowledge-ingest-list-heading">
+                    <p>Import queue</p>
+                    {ingestTaskWindow.queuedCount > ingestTaskWindow.upcoming.length ? (
+                      <span>{ingestTaskWindow.queuedCount} waiting</span>
+                    ) : null}
+                  </div>
+                  <KnowledgeIngestTaskGroup
+                    title="Just finished"
+                    jobs={ingestTaskWindow.recent}
+                    onRetryIngest={onRetryIngest}
+                    onDeleteIngest={onDeleteIngest}
+                  />
+                  <KnowledgeIngestTaskGroup
+                    title="In progress"
+                    jobs={ingestTaskWindow.current}
+                    onRetryIngest={onRetryIngest}
+                    onDeleteIngest={onDeleteIngest}
+                  />
+                  <KnowledgeIngestTaskGroup
+                    title="Up next"
+                    jobs={ingestTaskWindow.upcoming}
+                    onRetryIngest={onRetryIngest}
+                    onDeleteIngest={onDeleteIngest}
+                  />
                 </div>
               ) : null}
               {items.length > 0 ? (
@@ -463,6 +466,64 @@ export function KnowledgePage({
         )}
       </section>
     </main>
+  );
+}
+
+function KnowledgeIngestTaskGroup({
+  title,
+  jobs,
+  onRetryIngest,
+  onDeleteIngest
+}: {
+  title: string;
+  jobs: KnowledgeIngestJobRecord[];
+  onRetryIngest: (jobId: string) => void;
+  onDeleteIngest: (jobId: string) => void;
+}) {
+  if (jobs.length === 0) {
+    return null;
+  }
+  return (
+    <section className="knowledge-ingest-group">
+      <p>{title}</p>
+      {jobs.map((job) => {
+        const progress = getKnowledgeIngestProgressView(job);
+        return (
+          <div key={job.id} className="knowledge-ingest-job">
+            <div className="knowledge-ingest-job-heading">
+              <span className="knowledge-source-title">{job.fileName}</span>
+              <KnowledgeIngestStatusPopover job={job} />
+            </div>
+            {job.errorMessage ? (
+              <span className="knowledge-source-preview">{job.errorMessage}</span>
+            ) : (
+              <span className="knowledge-source-preview">
+                {progress?.label ?? `${formatFileSize(job.fileSize)} ${job.fileExt}`}
+              </span>
+            )}
+            {progress && progress.percent !== null ? (
+              <Progress
+                className="knowledge-ingest-progress"
+                value={progress.percent}
+                aria-label={progress.label}
+              />
+            ) : null}
+            <div className="button-row">
+              {job.status === 'error' ? (
+                <Button variant="outline" size="sm" onClick={() => onRetryIngest(job.id)}>
+                  <RefreshCw />
+                  Retry
+                </Button>
+              ) : null}
+              <Button variant="destructive" size="sm" onClick={() => onDeleteIngest(job.id)}>
+                <Trash2 />
+                Delete
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+    </section>
   );
 }
 
@@ -1121,6 +1182,14 @@ function getKnowledgeIngestStatusView(status: KnowledgeIngestStatus) {
     case 'error':
       return { label: 'Error', icon: CircleAlert, spin: false };
   }
+}
+
+function isActiveIngestStatus(status: KnowledgeIngestStatus): boolean {
+  return status === 'queued' ||
+    status === 'uploading' ||
+    status === 'extracting' ||
+    status === 'downloading' ||
+    status === 'indexing';
 }
 
 function formatDateTime(value: string | null): string {

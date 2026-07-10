@@ -59,7 +59,7 @@ The closest thing to integration tests is `scripts/electron-smoke.mjs`, which ru
 - **UI components**: shadcn/ui (radix-nova style) with Lucide icons. Components in `src/renderer/components/ui/`.
 - **State management**: TanStack React Query (`@tanstack/react-query`).
 - **LLM integration**: Vercel AI SDK (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`).
-- **Canvas**: `@xyflow/react` for node graph canvas.
+- **Evidence coverage**: section-to-literature citation coverage is derived from Markdown citations and exposed through the workspace evidence view.
 - **Task queue**: `plainjob` for background knowledge ingest jobs (`src/main/backgroundTasks.ts`).
 - **Native module**: `better-sqlite3` requires `electron-rebuild` after Electron version changes (`bun run rebuild:native`).
 - **Workspace format**: `.writellm` directories containing a git repo and SQLite database. The `.gitignore` excludes `*.writellm/` and `*.sqlite` files.

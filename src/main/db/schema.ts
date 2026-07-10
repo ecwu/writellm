@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const nodes = sqliteTable('nodes', {
   id: text('id').primaryKey(),
@@ -30,18 +30,6 @@ export const nodeEdges = sqliteTable('node_edges', {
   createdAt: text('created_at').notNull(),
   deletedAt: text('deleted_at')
 });
-
-export const canvasNodeLayouts = sqliteTable('canvas_node_layouts', {
-  canvasSectionId: text('canvas_section_id').notNull(),
-  nodeId: text('node_id').notNull(),
-  x: real('x').notNull(),
-  y: real('y').notNull(),
-  width: real('width').notNull(),
-  height: real('height').notNull(),
-  updatedAt: text('updated_at').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.canvasSectionId, table.nodeId] })
-]);
 
 export const projectBrief = sqliteTable('project_brief', {
   id: text('id').primaryKey(),
@@ -115,7 +103,6 @@ export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
   sessionId: text('session_id').notNull(),
   status: text('status').notNull(),
   mode: text('mode').notNull(),
-  executionMode: text('execution_mode').notNull().default('background'),
   outputMode: text('output_mode').notNull().default('patchProposal'),
   prompt: text('prompt').notNull(),
   resolvedPrompt: text('resolved_prompt'),
@@ -126,7 +113,6 @@ export const llmGenerationRounds = sqliteTable('llm_generation_rounds', {
   modelProvider: text('model_provider'),
   modelName: text('model_name'),
   errorMessage: text('error_message'),
-  jobId: integer('job_id'),
   patchId: text('patch_id'),
   applyPayloadJson: text('apply_payload_json'),
   createdAt: text('created_at').notNull(),
@@ -185,7 +171,6 @@ export const plainjobScheduledJobs = sqliteTable('plainjob_scheduled_jobs', {
 export const schema = {
   nodes,
   nodeEdges,
-  canvasNodeLayouts,
   projectBrief,
   knowledgeItems,
   knowledgeChunks,
@@ -199,7 +184,6 @@ export const schema = {
 
 export type NodeRow = typeof nodes.$inferSelect;
 export type NodeEdgeRow = typeof nodeEdges.$inferSelect;
-export type CanvasNodeLayoutRow = typeof canvasNodeLayouts.$inferSelect;
 export type ProjectBriefRow = typeof projectBrief.$inferSelect;
 export type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
 export type KnowledgeChunkRow = typeof knowledgeChunks.$inferSelect;

@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startBackgroundTaskWorker, stopBackgroundTaskWorker } from './backgroundTasks.js';
+import { startKnowledgeIngestWorker, stopKnowledgeIngestWorker } from './backgroundTasks.js';
 import { WriteLLMDatabase, emptyProjectBrief } from './database.js';
 import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
@@ -53,15 +53,14 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
       knowledgeItems: [],
       knowledgeIngestJobs: [],
       nodeStats: {},
-      edges: [],
-      nodeLayouts: []
+      edges: []
     };
   }
   return activeDb.getState(focusSectionId);
 }
 
 async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
-  await stopBackgroundTaskWorker();
+  await stopKnowledgeIngestWorker();
   closeRetrievalWorker();
   const nextDb = new WriteLLMDatabase(workspacePath);
   ensureGitSession(workspacePath);
@@ -69,7 +68,9 @@ async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSumma
     activeDb.close();
   }
   activeDb = nextDb;
-  await startBackgroundTaskWorker(activeDb);
+  if (activeDb.listRunnableKnowledgeIngestJobs().length > 0) {
+    await startKnowledgeIngestWorker(activeDb);
+  }
   return activeDb.summary();
 }
 
@@ -106,15 +107,11 @@ function readRecentWorkspaces(): RecentWorkspace[] {
     return [];
   }
 
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.filter(isRecentWorkspace).slice(0, MAX_RECENT_WORKSPACES);
-  } catch {
-    return [];
+  const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Recent workspace history is invalid: ${filePath}`);
   }
+  return parsed.filter(isRecentWorkspace).slice(0, MAX_RECENT_WORKSPACES);
 }
 
 function rememberWorkspace(workspacePath: string): void {

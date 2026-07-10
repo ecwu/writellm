@@ -1,5 +1,5 @@
 
-import { FileText, GitBranch, List } from 'lucide-react';
+import { BookOpenCheck, FileText, List } from 'lucide-react';
 import { SegmentedIconToggle } from '../components/SegmentedIconToggle';
 import type { ChildViewMode } from '../app/types';
 
@@ -17,7 +17,7 @@ export function ViewModeToggle({
       className="view-mode-toggle"
       onValueChange={onModeChange}
       options={[
-        { value: 'graph', label: 'Graph view', icon: <GitBranch /> },
+        { value: 'references', label: 'Evidence coverage', icon: <BookOpenCheck /> },
         { value: 'list', label: 'List view', icon: <List /> },
         { value: 'markdown', label: 'Markdown view', icon: <FileText /> }
       ]}

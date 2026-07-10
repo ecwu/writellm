@@ -19,7 +19,6 @@ import { formatContentFlags, getGenerationPrompt } from '../../app/formatters';
 import type { Selection } from '../../app/types';
 import type {
   ContentNodeRecord,
-  CreateGenerationTaskResult,
   FocusedWorkspaceState,
   GenerationRoundRecord,
   GenerationSessionRecord,
@@ -39,8 +38,6 @@ type InspectorProps = {
   onCitationClick: (publicRef: string) => void;
   onOpenKnowledgeSource: (content: ContentNodeRecord) => void;
   onStatus: (message: string) => void;
-  generationTarget: (CreateGenerationTaskResult & { sectionId: string }) | null;
-  onGenerationTargetConsumed: () => void;
   onError: (message: string) => void;
 };
 
@@ -55,8 +52,6 @@ export function Inspector(props: InspectorProps) {
     onCitationClick,
     onOpenKnowledgeSource,
     onStatus,
-    generationTarget,
-    onGenerationTargetConsumed,
     onError
   } = props;
   const [contentDraft, setContentDraft] = useState('');
@@ -170,19 +165,6 @@ export function Inspector(props: InspectorProps) {
       }
     });
   }, [activeRound?.id, selectedSection?.id]);
-
-  useEffect(() => {
-    if (!generationTarget || generationTarget.sectionId !== selectedSection?.id) {
-      return;
-    }
-    setActiveSessionId(generationTarget.sessionId);
-    void getApi().getGenerationRound(generationTarget.roundId).then((round) => {
-      setActiveRound(round);
-      setActivePatch(null);
-      setInspectorView('sessionDetail');
-      onGenerationTargetConsumed();
-    });
-  }, [generationTarget, selectedSection?.id]);
 
   function scheduleContentSave(value: string) {
     setContentDraft(value);
@@ -459,7 +441,7 @@ export function Inspector(props: InspectorProps) {
               <details className="generation-prompt inspector-generation-details">
                 <summary>Assist details</summary>
                 <MetadataRow label="Prompt" value={activeRound.prompt} />
-                <MetadataRow label="Mode" value={`${activeRound.mode} · ${activeRound.executionMode}`} />
+                <MetadataRow label="Mode" value={activeRound.mode} />
                 <MetadataRow label="Model" value={[activeRound.modelProvider, activeRound.modelName].filter(Boolean).join(' · ') || 'Not set'} />
                 <MetadataRow label="Timing" value={formatRoundTiming(activeRound)} />
                 {activeRound.retrievedSources.length > 0 ? (

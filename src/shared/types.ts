@@ -54,16 +54,6 @@ export type NodeEdgeRecord = {
   createdAt: string;
 };
 
-export type CanvasNodeLayout = {
-  canvasSectionId: string;
-  nodeId: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  updatedAt: string;
-};
-
 export type WorkspaceSummary = {
   path: string;
   rootNodeId: string;
@@ -156,7 +146,6 @@ export type FocusedWorkspaceState = {
   knowledgeIngestJobs: KnowledgeIngestJobRecord[];
   nodeStats: Record<string, NodeStats>;
   edges: NodeEdgeRecord[];
-  nodeLayouts: CanvasNodeLayout[];
 };
 
 export type CreateSectionNodePayload = {
@@ -195,9 +184,7 @@ export type UpdateContentNodePayload = {
 
 export type UpdateNodePayload = UpdateSectionNodePayload | UpdateContentNodePayload;
 
-export type UpdateNodeLayoutPayload = Omit<CanvasNodeLayout, 'updatedAt'>;
-
-export type LlmProviderKind = 'openai-compatible' | 'anthropic-compatible';
+export type LlmProviderKind = 'openai-compatible' | 'anthropic-compatible' | 'deepseek';
 
 export type RerankProviderKind = 'siliconflow-compatible';
 
@@ -394,6 +381,33 @@ export type KnowledgeCitationRecord = {
   createdAt: string;
 };
 
+export type SectionCitationUsage = {
+  sectionId: string;
+  sectionTitle: string;
+  citationCount: number;
+  sources: Array<{
+    publicRef: string;
+    itemId: string | null;
+    itemTitle: string | null;
+    mentions: number;
+  }>;
+};
+
+export type KnowledgeCitationCoverage = {
+  itemId: string;
+  itemPublicRef: string;
+  itemTitle: string;
+  indexStatus: KnowledgeIndexStatus;
+  representativePublicRef: string | null;
+  citationCount: number;
+  sectionIds: string[];
+};
+
+export type CitationCoverageReport = {
+  sections: SectionCitationUsage[];
+  sources: KnowledgeCitationCoverage[];
+};
+
 export type RetrievedKnowledgeSource = {
   label: string;
   publicRef: string;
@@ -530,6 +544,11 @@ export type KnowledgeSearchPayload = {
 
 export type KnowledgeRetrievalTraceEvent =
   | {
+      type: 'query_plan';
+      runId: string;
+      queries: string[];
+    }
+  | {
       type: 'started';
       runId: string;
       query: string;
@@ -613,8 +632,6 @@ export type KnowledgeDebugDetails = {
 };
 
 export type GenerationMode = 'append' | 'rewrite_section' | 'rewrite_selection' | 'continue';
-export type GenerationExecutionMode = 'interactive' | 'background' | 'auto';
-export type ResolvedGenerationExecutionMode = Exclude<GenerationExecutionMode, 'auto'>;
 export type GenerationOutputMode = 'patchProposal';
 
 export type GenerationRoundStatus =
@@ -642,7 +659,6 @@ export type GenerationRoundRecord = {
   sessionId: string;
   status: GenerationRoundStatus;
   mode: GenerationMode;
-  executionMode: ResolvedGenerationExecutionMode;
   outputMode: GenerationOutputMode;
   prompt: string;
   resolvedPrompt: string | null;
@@ -653,7 +669,6 @@ export type GenerationRoundRecord = {
   modelProvider: string | null;
   modelName: string | null;
   errorMessage: string | null;
-  jobId: number | null;
   patchId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -692,7 +707,7 @@ export type PatchOrigin = {
   model?: {
     provider: string;
     modelName: string;
-    endpointType?: 'openai-compatible' | 'anthropic-compatible' | 'local' | 'unknown';
+    endpointType?: 'openai-compatible' | 'anthropic-compatible' | 'deepseek' | 'local' | 'unknown';
   };
   promptHash?: string;
   contextPackId?: string;
@@ -956,7 +971,6 @@ export type CreateGenerationTaskPayload = {
   sectionId: string;
   focusSectionId?: string | null;
   mode: GenerationMode;
-  executionMode?: GenerationExecutionMode;
   prompt: string;
   useKnowledgeSources?: boolean;
   knowledgeRetrievalPrompt?: string;
@@ -971,7 +985,6 @@ export type CreateGenerationTaskResult = {
   roundId: string;
   sessionId: string;
   status: GenerationRoundStatus;
-  executionMode: ResolvedGenerationExecutionMode;
   patchId?: string;
 };
 
@@ -986,7 +999,6 @@ export type GenerationEvent =
       type: 'round_created';
       roundId: string;
       sessionId: string;
-      executionMode: ResolvedGenerationExecutionMode;
       status: GenerationRoundStatus;
     }
   | {
@@ -1009,4 +1021,14 @@ export type GenerationEvent =
       roundId: string;
       patchId: string;
       status: GenerationRoundStatus;
+    }
+  | {
+      type: 'retrieval_trace';
+      roundId: string;
+      event: KnowledgeRetrievalTraceEvent;
+    }
+  | {
+      type: 'stream_delta';
+      roundId: string;
+      text: string;
     };

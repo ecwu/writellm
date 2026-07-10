@@ -114,6 +114,7 @@ const defaultKnowledgeRetrieval: KnowledgeRetrievalSettings = {
 };
 
 const providerOptions: { value: LlmProviderKind; label: string }[] = [
+  { value: 'deepseek', label: 'DeepSeek' },
   { value: 'openai-compatible', label: 'OpenAI compatible' },
   { value: 'anthropic-compatible', label: 'Anthropic compatible' }
 ];
@@ -242,6 +243,12 @@ function rerankFromSettings(settings: PublicLlmSettings | null): RerankEndpointD
 }
 
 function defaultsForProvider(provider: LlmProviderKind, currentModel: string) {
+  if (provider === 'deepseek') {
+    return {
+      baseURL: 'https://api.deepseek.com',
+      model: currentModel === 'text-embedding-3-small' ? currentModel : 'deepseek-v4-flash'
+    };
+  }
   if (provider === 'anthropic-compatible') {
     return {
       baseURL: 'https://api.anthropic.com/v1',
@@ -366,7 +373,9 @@ export function SettingsDialog({
     updateEndpoint(section, (current) => {
       const nextDefaults = defaultsForProvider(provider, current.model);
       const shouldReplaceBaseURL =
-        current.baseURL === 'https://api.openai.com/v1' || current.baseURL === 'https://api.anthropic.com/v1';
+        current.baseURL === 'https://api.openai.com/v1' ||
+        current.baseURL === 'https://api.anthropic.com/v1' ||
+        current.baseURL === 'https://api.deepseek.com';
 
       return {
         ...current,
@@ -1123,6 +1132,9 @@ function EndpointSettings({
   onProviderChange: (provider: LlmProviderKind) => void;
   onChange: (updater: (current: EndpointDraft) => EndpointDraft) => void;
 }) {
+  const endpointProviderOptions = title === 'Chat'
+    ? providerOptions
+    : providerOptions.filter((provider) => provider.value !== 'deepseek');
   const fieldIdPrefix = title.toLowerCase().replace(/\s+/g, '-');
   const baseUrlMissing = !endpoint.baseURL.trim();
   const modelMissing = !endpoint.model.trim();
@@ -1146,14 +1158,18 @@ function EndpointSettings({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {providerOptions.map((provider) => (
+              {endpointProviderOptions.map((provider) => (
                 <SelectItem key={provider.value} value={provider.value}>
                   {provider.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <FieldDescription>Select the provider compatibility profile for this endpoint.</FieldDescription>
+          <FieldDescription>
+            {title === 'Chat'
+              ? 'Select the provider compatibility profile for the writing assistant.'
+              : 'Select the provider compatibility profile for this endpoint.'}
+          </FieldDescription>
         </Field>
 
         <Field data-invalid={baseUrlMissing}>

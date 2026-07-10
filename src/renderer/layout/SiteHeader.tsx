@@ -280,19 +280,17 @@ function GlobalTaskQueuePopover({
   onRetryTask: (jobId: string) => void;
   onDeleteTask: (jobId: string) => void;
 }) {
-  const activeCount = tasks.filter((task) => isActiveTaskStatus(task.status)).length;
+  const taskWindow = getTaskWindow(tasks);
+  const activeCount = taskWindow.current.length;
+  const queuedCount = tasks.filter((task) => task.status === 'queued').length;
   const failedCount = tasks.filter((task) => task.status === 'error').length;
-  const completedCount = tasks.filter((task) => task.status === 'indexed').length;
   const summary = failedCount > 0
     ? `${failedCount} failed task${failedCount === 1 ? '' : 's'}`
     : activeCount > 0
-      ? `${activeCount} active task${activeCount === 1 ? '' : 's'}`
-      : completedCount > 0
-        ? `${completedCount} completed task${completedCount === 1 ? '' : 's'}`
-        : 'No background tasks';
-  const sortedTasks = [...tasks].sort((left, right) =>
-    new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-  );
+      ? `${activeCount} importing · ${queuedCount} remaining`
+      : queuedCount > 0
+        ? `${queuedCount} import task${queuedCount === 1 ? '' : 's'} waiting`
+        : 'No active imports';
 
   return (
     <Popover>
@@ -311,26 +309,61 @@ function GlobalTaskQueuePopover({
       </PopoverTrigger>
       <PopoverContent align="end" className="global-task-popover">
         <PopoverHeader>
-          <PopoverTitle>Background tasks</PopoverTitle>
+          <PopoverTitle>Import queue</PopoverTitle>
           <PopoverDescription>{summary}</PopoverDescription>
         </PopoverHeader>
-        {sortedTasks.length > 0 ? (
+        {taskWindow.recent.length + taskWindow.current.length + taskWindow.upNext.length > 0 ? (
           <ItemGroup className="global-task-list">
-            {sortedTasks.map((task) => (
-              <GlobalTaskRow
-                key={task.id}
-                task={task}
-                onRetryTask={onRetryTask}
-                onDeleteTask={onDeleteTask}
-              />
-            ))}
+            <TaskQueueGroup title="Just finished" tasks={taskWindow.recent} onRetryTask={onRetryTask} onDeleteTask={onDeleteTask} />
+            <TaskQueueGroup title="In progress" tasks={taskWindow.current} onRetryTask={onRetryTask} onDeleteTask={onDeleteTask} />
+            <TaskQueueGroup title={queuedCount > taskWindow.upNext.length ? `Up next · ${queuedCount} waiting` : 'Up next'} tasks={taskWindow.upNext} onRetryTask={onRetryTask} onDeleteTask={onDeleteTask} />
           </ItemGroup>
         ) : (
-          <p className="global-task-empty">No queued, running, or archived tasks.</p>
+          <p className="global-task-empty">No import tasks.</p>
         )}
       </PopoverContent>
     </Popover>
   );
+}
+
+function TaskQueueGroup({
+  title,
+  tasks,
+  onRetryTask,
+  onDeleteTask
+}: {
+  title: string;
+  tasks: KnowledgeIngestJobRecord[];
+  onRetryTask: (jobId: string) => void;
+  onDeleteTask: (jobId: string) => void;
+}) {
+  if (tasks.length === 0) {
+    return null;
+  }
+  return (
+    <section className="global-task-group">
+      <p>{title}</p>
+      {tasks.map((task) => (
+        <GlobalTaskRow key={task.id} task={task} onRetryTask={onRetryTask} onDeleteTask={onDeleteTask} />
+      ))}
+    </section>
+  );
+}
+
+function getTaskWindow(tasks: KnowledgeIngestJobRecord[]) {
+  const byNewest = [...tasks].sort((left, right) =>
+    new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  );
+  const current = byNewest.filter((task) => isActiveTaskStatus(task.status) && task.status !== 'queued').slice(0, 1);
+  const currentIds = new Set(current.map((task) => task.id));
+  return {
+    recent: byNewest.filter((task) => task.status === 'indexed' || task.status === 'error').slice(0, 1),
+    current,
+    upNext: [...tasks]
+      .filter((task) => task.status === 'queued' && !currentIds.has(task.id))
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      .slice(0, 2)
+  };
 }
 
 function GlobalTaskRow({

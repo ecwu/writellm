@@ -118,14 +118,34 @@
   gap: 0;
 }
 
-.knowledge-ingest-list > p {
+.knowledge-ingest-list-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 1rem 0.35rem;
+}
+
+.knowledge-ingest-list-heading > p,
+.knowledge-ingest-group > p {
   color: var(--muted-foreground);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0;
   margin: 0;
-  padding: 0.25rem 1rem 0.35rem;
   text-transform: uppercase;
+}
+
+.knowledge-ingest-list-heading > span {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.knowledge-ingest-group + .knowledge-ingest-group {
+  border-top: 1px solid var(--border);
+}
+
+.knowledge-ingest-group > p {
+  padding: 0.45rem 1rem 0.2rem;
 }
 
 .knowledge-ingest-job {

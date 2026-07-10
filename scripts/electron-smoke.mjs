@@ -460,6 +460,11 @@ try {
   if (!groupedRefs.has(chunks[0].publicRef.toLowerCase()) || !groupedRefs.has(rankedChunks[0].publicRef.toLowerCase())) {
     throw new Error('Grouped citation refs were not resolved into section citation sources.');
   }
+  const citationCoverage = db.getCitationCoverage();
+  const coveredSource = citationCoverage.sources.find((source) => source.itemId === knowledge.id);
+  if (!coveredSource || coveredSource.citationCount < 1 || !coveredSource.sectionIds.includes(intro.id)) {
+    throw new Error('Citation coverage did not connect a source to the citing section.');
+  }
 
   const txtPath = path.join(workspacePath, 'source.txt');
   const mdPath = path.join(workspacePath, 'notes.md');
@@ -1121,18 +1126,6 @@ try {
     throw new Error('Deleting an ingest job did not remove its knowledge item.');
   }
 
-  db.updateNodeLayout({
-    canvasSectionId: intro.id,
-    nodeId: source.id,
-    x: 10,
-    y: 20,
-    width: 240,
-    height: 160
-  });
-  if (db.listCanvasNodeLayouts(intro.id).length !== 1) {
-    throw new Error('Canvas layout was not saved.');
-  }
-
   db.updateNode(intro.id, { title: 'Renamed intro', intent: 'State the problem.' });
   const renamed = db.getSection(intro.id);
   if (renamed?.title !== 'Renamed intro' || renamed.intent !== 'State the problem.') {
@@ -1142,10 +1135,6 @@ try {
   db.deleteNode(source.id);
   if (db.listEdges().length !== 0) {
     throw new Error('Deleting content did not clean up edges.');
-  }
-
-  if (db.listCanvasNodeLayouts(intro.id).length !== 0) {
-    throw new Error('Deleting content did not clean up layouts.');
   }
 
   db.deleteNode(intro.id);

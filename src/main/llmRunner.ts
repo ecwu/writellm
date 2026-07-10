@@ -1,10 +1,29 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createDeepSeek } from '@ai-sdk/deepseek';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { Output, generateText } from 'ai';
+import { Output, generateText, streamText } from 'ai';
 import type { z } from 'zod';
 import type { ModelEndpointSettings } from '../shared/types.js';
 
-function createModel(settings: ModelEndpointSettings, options: { structuredOutputs?: boolean } = {}) {
+function createModel(settings: ModelEndpointSettings, options: { jsonMode?: boolean; structuredOutputs?: boolean } = {}) {
+  if (settings.provider === 'deepseek') {
+    if (options.jsonMode) {
+      const deepseekJson = createOpenAICompatible({
+        name: 'deepseek-json',
+        baseURL: settings.baseURL,
+        apiKey: settings.apiKey,
+        transformRequestBody: (body) => ({
+          ...body,
+          response_format: { type: 'json_object' }
+        })
+      });
+      return deepseekJson(settings.model);
+    }
+    return createDeepSeek({
+      baseURL: settings.baseURL,
+      apiKey: settings.apiKey
+    })(settings.model);
+  }
   if (settings.provider === 'anthropic-compatible') {
     const anthropic = createAnthropic({
       baseURL: settings.baseURL,
@@ -50,40 +69,64 @@ export async function generateLlmText(
 }
 
 function extractJsonFromText(text: string): string {
-  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
+  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/i)?.[1] ?? text;
+  const candidate = firstCompleteJsonObject(fenced);
+  if (!candidate) {
+    throw new Error(`Model did not return a complete JSON object. Received: ${text}`);
   }
-  const jsonMatch = text.match(/(\{[\s\S]*\})/);
-  if (jsonMatch) {
-    return jsonMatch[1];
-  }
-  return text.trim();
+  return candidate;
 }
 
-type JsonSchemaType = string | { [key: string]: JsonSchemaType } | JsonSchemaType[];
-
-function zodSchemaToJson(schema: z.ZodTypeAny): JsonSchemaType {
-  const def = (schema as z.ZodTypeAny & { _def: Record<string, unknown> })._def;
-  switch (def.typeName) {
-    case 'ZodString': return 'string';
-    case 'ZodNumber': return 'number';
-    case 'ZodBoolean': return 'boolean';
-    case 'ZodArray': return [zodSchemaToJson(def.type as unknown as z.ZodTypeAny)];
-    case 'ZodObject': {
-      const shape = (def as Record<string, unknown>).shape as Record<string, z.ZodTypeAny>;
-      const result: Record<string, JsonSchemaType> = {};
-      for (const [key, value] of Object.entries(shape)) {
-        result[key] = zodSchemaToJson(value);
+function firstCompleteJsonObject(text: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (start < 0) {
+      if (character === '{') {
+        start = index;
+        depth = 1;
       }
-      return result;
+      continue;
     }
-    case 'ZodOptional': return zodSchemaToJson(def.innerType as unknown as z.ZodTypeAny);
-    case 'ZodEnum': return def.values as string[];
-    case 'ZodDefault': return zodSchemaToJson(def.type as unknown as z.ZodTypeAny);
-    case 'ZodNullable': return zodSchemaToJson(def.innerType as unknown as z.ZodTypeAny);
-    default: return 'string';
+    if (quoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        quoted = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const candidate = text.slice(start, index + 1);
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          start = -1;
+        }
+      }
+    }
   }
+  return null;
+}
+
+function jsonSystemPrompt(systemPrompt: string | undefined, jsonExample?: string): string {
+  return [
+    systemPrompt?.trim(),
+    'Return only one complete JSON object. Do not wrap it in Markdown and do not add commentary.',
+    jsonExample ? `Use this exact JSON shape (replace values, keep every key): ${jsonExample}` : null
+  ].filter(Boolean).join('\n\n');
 }
 
 export async function generateLlmObject<TSchema extends z.ZodType>(
@@ -92,6 +135,8 @@ export async function generateLlmObject<TSchema extends z.ZodType>(
     prompt: string;
     systemPrompt?: string;
     schema: TSchema;
+    jsonExample?: string;
+    maxOutputTokens?: number;
   },
   abortSignal?: AbortSignal
 ): Promise<z.infer<TSchema>> {
@@ -99,32 +144,62 @@ export async function generateLlmObject<TSchema extends z.ZodType>(
     throw new Error('LLM API key is required. Add it in Settings first.');
   }
 
-  try {
+  if (settings.provider !== 'deepseek') {
     const result = await generateText({
       model: createModel(settings, { structuredOutputs: true }),
-      system: payload.systemPrompt,
+      system: jsonSystemPrompt(payload.systemPrompt, payload.jsonExample),
       prompt: payload.prompt,
       output: Output.object({ schema: payload.schema }),
       abortSignal,
+      maxOutputTokens: payload.maxOutputTokens,
       maxRetries: 0
     });
     return result.output as z.infer<TSchema>;
-  } catch {
-    // Some OpenAI-compatible endpoints ignore or reject JSON schema response_format.
-    // Fall back to the looser instruction-based path so older providers still work.
   }
 
-  const jsonInstruction = `\n\nYou must respond with ONLY a valid JSON object (no markdown fences, no commentary). The JSON must conform to this exact schema: ${payload.schema.description ?? JSON.stringify(zodSchemaToJson(payload.schema))}`;
-  const systemWithJson = (payload.systemPrompt ?? '') + jsonInstruction;
-
   const result = await generateText({
-    model: createModel(settings),
-    system: systemWithJson || undefined,
+    model: createModel(settings, { jsonMode: settings.provider === 'deepseek' }),
+    system: jsonSystemPrompt(payload.systemPrompt, payload.jsonExample),
     prompt: payload.prompt,
     abortSignal,
+    maxOutputTokens: payload.maxOutputTokens,
+    temperature: settings.provider === 'deepseek' ? 0.2 : undefined,
     maxRetries: 0
   });
 
   const rawJson = extractJsonFromText(result.text);
   return payload.schema.parse(JSON.parse(rawJson)) as z.infer<TSchema>;
+}
+
+export async function streamLlmObject<TSchema extends z.ZodType>(
+  settings: ModelEndpointSettings,
+  payload: {
+    prompt: string;
+    systemPrompt?: string;
+    schema: TSchema;
+    onTextDelta: (text: string) => void;
+    jsonExample?: string;
+    maxOutputTokens?: number;
+  },
+  abortSignal?: AbortSignal
+): Promise<z.infer<TSchema>> {
+  if (!settings.apiKey.trim()) {
+    throw new Error('LLM API key is required. Add it in Settings first.');
+  }
+
+  const result = streamText({
+    model: createModel(settings, { jsonMode: settings.provider === 'deepseek' }),
+    system: jsonSystemPrompt(payload.systemPrompt, payload.jsonExample),
+    prompt: payload.prompt,
+    abortSignal,
+    maxOutputTokens: payload.maxOutputTokens,
+    temperature: settings.provider === 'deepseek' ? 0.2 : undefined,
+    maxRetries: 0
+  });
+  let text = '';
+  for await (const delta of result.textStream) {
+    text += delta;
+    payload.onTextDelta(delta);
+  }
+  return payload.schema.parse(JSON.parse(extractJsonFromText(text))) as z.infer<TSchema>;
 }

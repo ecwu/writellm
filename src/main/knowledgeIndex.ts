@@ -169,11 +169,10 @@ export async function indexKnowledgeItem(
     return db.replaceKnowledgeChunks(itemId, []);
   }
 
-  await extractAndStoreKnowledgeItemDisplayMetadata(db, item.id, metadataSettings, {
-    replaceExisting: false
-  });
-
   try {
+    await extractAndStoreKnowledgeItemDisplayMetadata(db, item.id, metadataSettings, {
+      replaceExisting: false
+    });
     const embeddings = await embedTexts(
       embeddingSettings,
       chunks,
@@ -207,23 +206,19 @@ export async function extractAndStoreKnowledgeItemDisplayMetadata(
     return;
   }
 
-  try {
-    const item = db.getKnowledgeItem(itemId);
-    if (!item) {
-      return;
-    }
-    if (!options.replaceExisting && hasCompleteKnowledgeDisplayMetadata(item.metadata)) {
-      return;
-    }
-
-    const sample = await extractKnowledgeDisplayMetadataSample(item);
-    await extractAndStoreKnowledgeDisplayMetadata(db, itemId, settings, sample.text, {
-      replaceExisting: options.replaceExisting,
-      source: options.source ?? sample.source
-    });
-  } catch (caught) {
-    writeKnowledgeDisplayMetadataError(db, itemId, caught);
+  const item = db.getKnowledgeItem(itemId);
+  if (!item) {
+    return;
   }
+  if (!options.replaceExisting && hasCompleteKnowledgeDisplayMetadata(item.metadata)) {
+    return;
+  }
+
+  const sample = await extractKnowledgeDisplayMetadataSample(item);
+  await extractAndStoreKnowledgeDisplayMetadata(db, itemId, settings, sample.text, {
+    replaceExisting: options.replaceExisting,
+    source: options.source ?? sample.source
+  });
 }
 
 async function extractKnowledgeDisplayMetadataSample(item: {
@@ -276,50 +271,29 @@ async function extractAndStoreKnowledgeDisplayMetadata(
     return;
   }
 
-  try {
-    const extracted = await extractKnowledgeMetadata(settings, sample);
-    if (!extracted.title && !extracted.description) {
-      return;
-    }
-    const latestItem = db.getKnowledgeItem(itemId);
-    if (!latestItem) {
-      return;
-    }
-    const latestMetadata = latestItem.metadata;
-    if (!options.replaceExisting && hasCompleteKnowledgeDisplayMetadata(latestMetadata)) {
-      return;
-    }
-    const existingDisplayMetadata = readKnowledgeDisplayMetadata(latestMetadata);
-    const metadata = {
-      ...latestMetadata,
-      [DISPLAY_METADATA_KEY]: {
-        title: extracted.title || existingDisplayMetadata.title || latestItem.title,
-        description: extracted.description || existingDisplayMetadata.description,
-        model: settings.model,
-        sampleChars: sample.length,
-        source: options.source ?? 'content-sample',
-        extractedAt: new Date().toISOString()
-      }
-    };
-    db.updateKnowledgeItemMetadata(itemId, metadata);
-  } catch (caught) {
-    writeKnowledgeDisplayMetadataError(db, itemId, caught);
-    // Metadata improves source display, but indexing should still succeed when it fails.
+  const extracted = await extractKnowledgeMetadata(settings, sample);
+  if (!extracted.title && !extracted.description) {
+    return;
   }
-}
-
-function writeKnowledgeDisplayMetadataError(
-  db: WriteLLMDatabase,
-  itemId: string,
-  caught: unknown
-): void {
   const latestItem = db.getKnowledgeItem(itemId);
   if (!latestItem) {
     return;
   }
+  const latestMetadata = latestItem.metadata;
+  if (!options.replaceExisting && hasCompleteKnowledgeDisplayMetadata(latestMetadata)) {
+    return;
+  }
+  const existingDisplayMetadata = readKnowledgeDisplayMetadata(latestMetadata);
   db.updateKnowledgeItemMetadata(itemId, {
-    ...latestItem.metadata,
-    knowledgeDisplayMetadataError: caught instanceof Error ? caught.message : String(caught)
+    ...latestMetadata,
+    [DISPLAY_METADATA_KEY]: {
+      title: extracted.title || existingDisplayMetadata.title || latestItem.title,
+      description: extracted.description || existingDisplayMetadata.description,
+      model: settings.model,
+      sampleChars: sample.length,
+      source: options.source ?? 'content-sample',
+      extractedAt: new Date().toISOString()
+    }
   });
 }
 
@@ -360,40 +334,12 @@ async function extractKnowledgeMetadata(
     schema: metadataResponseSchema,
     systemPrompt,
     prompt
-  }).catch(() => extractKnowledgeMetadataFromText(settings, systemPrompt, prompt));
+  });
 
   return {
     title: cleanMetadataText(parsed.title, METADATA_TITLE_MAX_CHARS),
     description: cleanMetadataText(parsed.description, METADATA_DESCRIPTION_MAX_CHARS)
   };
-}
-
-async function extractKnowledgeMetadataFromText(
-  settings: ModelEndpointSettings,
-  systemPrompt: string,
-  prompt: string
-): Promise<{ title: string; description: string }> {
-  const text = await generateLlmText(settings, {
-    systemPrompt,
-    prompt: `${prompt}\n\nReturn only valid JSON.`
-  });
-  return metadataResponseSchema.parse(parseJsonObject(text));
-}
-
-function parseJsonObject(text: string): unknown {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced?.[1]?.trim() || trimmed;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const start = raw.indexOf('{');
-    const end = raw.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(raw.slice(start, end + 1));
-    }
-    throw new Error('Assistant metadata response did not contain a JSON object.');
-  }
 }
 
 function cleanMetadataText(value: unknown, maxChars: number): string {
@@ -477,7 +423,7 @@ export async function retrieveKnowledgeSources(
     maxChunks,
     topN: retrievalSettings.rerankTopN,
     abortSignal: options.abortSignal
-  }).catch(() => expanded.slice(0, maxChunks));
+  });
   const diversified = diversifyCandidatesByItem(
     reranked,
     maxChunks,
@@ -633,23 +579,7 @@ export async function retrieveKnowledgeSourcesV2(
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
     trace({ type: 'error', runId, message });
-    const fallback = await retrieveKnowledgeSources(db, embeddingSettings, query, {
-      excludedItemIds: options.excludedItemIds,
-      excludedChunkIds: options.excludedChunkIds,
-      maxChunks,
-      maxCandidates,
-      queries: initialQueries,
-      rerankSettings: options.rerankSettings,
-      retrievalSettings,
-      abortSignal: options.abortSignal
-    });
-    trace({
-      type: 'done',
-      runId,
-      sources: fallback,
-      stopReason: `Source v2 failed: ${message}. Returned classic retrieval results.`
-    });
-    return fallback;
+    throw caught;
   }
 
   const finalSources = finalizeSourceV2Sources(

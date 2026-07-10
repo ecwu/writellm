@@ -24,7 +24,6 @@ const ipcChannels = {
   createNodeEdge: 'writellm:createNodeEdge',
   updateNodeEdge: 'writellm:updateNodeEdge',
   deleteNodeEdge: 'writellm:deleteNodeEdge',
-  updateNodeLayout: 'writellm:updateNodeLayout',
   updateProjectBrief: 'writellm:updateProjectBrief',
   suggestProjectBrief: 'writellm:suggestProjectBrief',
   exportLatex: 'writellm:exportLatex',
@@ -41,6 +40,7 @@ const ipcChannels = {
   searchKnowledge: 'writellm:searchKnowledge',
   resolveKnowledgeCitation: 'writellm:resolveKnowledgeCitation',
   getKnowledgeDebugDetails: 'writellm:getKnowledgeDebugDetails',
+  getCitationCoverage: 'writellm:getCitationCoverage',
   getWorkspaceAssetDataUrl: 'writellm:getWorkspaceAssetDataUrl',
   createGenerationTask: 'writellm:createGenerationTask',
   cancelGenerationTask: 'writellm:cancelGenerationTask',
@@ -91,7 +91,6 @@ const api: WriteLLMIpc = {
     ipcRenderer.invoke(ipcChannels.updateNodeEdge, edgeId, relationType, focusSectionId),
   deleteNodeEdge: (edgeId, focusSectionId) =>
     ipcRenderer.invoke(ipcChannels.deleteNodeEdge, edgeId, focusSectionId),
-  updateNodeLayout: (payload) => ipcRenderer.invoke(ipcChannels.updateNodeLayout, payload),
   updateProjectBrief: (payload) => ipcRenderer.invoke(ipcChannels.updateProjectBrief, payload),
   suggestProjectBrief: (payload) => ipcRenderer.invoke(ipcChannels.suggestProjectBrief, payload),
   exportLatex: (rootNodeId) => ipcRenderer.invoke(ipcChannels.exportLatex, rootNodeId),
@@ -110,6 +109,7 @@ const api: WriteLLMIpc = {
   searchKnowledge: (payload) => ipcRenderer.invoke(ipcChannels.searchKnowledge, payload),
   resolveKnowledgeCitation: (payload) => ipcRenderer.invoke(ipcChannels.resolveKnowledgeCitation, payload),
   getKnowledgeDebugDetails: () => ipcRenderer.invoke(ipcChannels.getKnowledgeDebugDetails),
+  getCitationCoverage: () => ipcRenderer.invoke(ipcChannels.getCitationCoverage),
   getWorkspaceAssetDataUrl: (relativePath) =>
     ipcRenderer.invoke(ipcChannels.getWorkspaceAssetDataUrl, relativePath),
   createGenerationTask: (payload) => ipcRenderer.invoke(ipcChannels.createGenerationTask, payload),

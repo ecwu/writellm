@@ -73,12 +73,12 @@ export function useAutosaveDraft({
         timerRef.current = null;
       }
       if (draftRef.current !== lastSavedRef.current) {
-        void persistDraft(draftRef.current, true, false);
+        void persistDraft(draftRef.current, false);
       }
     };
   }, []);
 
-  function persistDraft(value: string, silent = false, applyState = true) {
+  function persistDraft(value: string, applyState = true) {
     const normalizedValue = sectionMarkdownForStorage(value);
     if (normalizedValue === lastSavedRef.current) {
       return saveChainRef.current;
@@ -91,7 +91,7 @@ export function useAutosaveDraft({
       }
 
       try {
-        if (!silent) {
+        if (applyState) {
           setSaveState('saving');
         }
         const next = await getApi().updateSectionMarkdown(targetSectionId, normalizedValue);
@@ -99,15 +99,15 @@ export function useAutosaveDraft({
         if (applyState) {
           onStateRef.current(next);
         }
-        if (!silent) {
+        if (applyState) {
           setSaveState(draftRef.current === normalizedValue ? 'saved' : 'saving');
         }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
-        if (!silent) {
+        if (applyState) {
           setSaveState(draftRef.current === normalizedValue ? 'error' : 'saving');
-          onErrorRef.current(message);
         }
+        onErrorRef.current(message);
       }
     });
 

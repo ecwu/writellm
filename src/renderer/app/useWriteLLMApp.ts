@@ -1,21 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { applyNodeChanges, type Connection, type Node, type NodeChange, type NodeTypes } from '@xyflow/react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getApi } from '../api';
-import { emptyAssistComposer, emptyState, DEFAULT_EDGE_KIND } from './constants';
-import type { AppPage, ChildViewMode, ContentPreset, PaperNodeData, Selection } from './types';
-import { PaperFlowNode } from '../features/canvas/PaperFlowNode';
-import { buildGraph, reconcileNodes } from '../features/canvas/graph';
+import { emptyState } from './constants';
+import type { AppPage, ChildViewMode, Selection } from './types';
 import type {
   ContentNodeRecord,
-  EdgeKind,
   FocusedWorkspaceState,
   KnowledgeSourceTarget,
   PublicLlmSettings,
   RecentWorkspace,
   SectionNodeRecord,
-  UpdateNodeLayoutPayload
 } from '../../shared/types';
 
 const queryKeys = {
@@ -30,11 +25,9 @@ export function useWriteLLMApp() {
     '/Users/zhenghaowu/Developer/llm-write-canvas/my-paper.writellm'
   );
   const [selection, setSelection] = useState<Selection>(null);
-  const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
-  const [assistComposer, setAssistComposer] = useState(emptyAssistComposer);
-  const [childViewModes, setChildViewModes] = useState<Record<string, ChildViewMode>>({});
+  const [currentChildViewMode, setCurrentChildViewMode] = useState<ChildViewMode>('list');
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
@@ -91,32 +84,12 @@ export function useWriteLLMApp() {
     selection?.type === 'node' ? state.nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedSection = selectedNode?.kind === 'section' ? selectedNode : null;
   const selectedContent = selectedNode?.kind === 'content' ? selectedNode : null;
-  const selectedEdge =
-    selection?.type === 'edge' ? state.edges.find((edge) => edge.id === selection.id) : null;
-  const currentChildViewMode = state.focusSectionId
-    ? getChildViewMode(state.focusSectionId)
-    : 'graph';
-
-  function getChildViewMode(sectionId: string): ChildViewMode {
-    return childViewModes[sectionId] ?? (sectionId === state.workspace?.rootNodeId ? 'list' : 'graph');
-  }
-
   function setFocusedChildViewMode(mode: ChildViewMode) {
-    const focusId = state.focusSectionId;
-    if (!focusId) {
-      return;
-    }
-    setChildViewModes((current) => ({ ...current, [focusId]: mode }));
-    if (mode !== 'graph' && selection?.type !== 'node') {
-      setSelection({ type: 'node', id: focusId });
-    }
+    setCurrentChildViewMode(mode);
   }
 
   function setActivePage(page: AppPage) {
     setActivePageState(page);
-    if (page !== 'workspace') {
-      setAssistComposer(emptyAssistComposer);
-    }
   }
 
   function openKnowledgeTarget(target: KnowledgeSourceTarget) {
@@ -183,22 +156,18 @@ export function useWriteLLMApp() {
       setSelection({ type: 'node', id: state.focusSectionId });
       return;
     }
-    if (selection.type === 'edge' && !state.edges.some((edge) => edge.id === selection.id)) {
-      setSelection({ type: 'node', id: state.focusSectionId });
-      return;
-    }
     if (selection.type === 'node' && !state.nodes.some((node) => node.id === selection.id)) {
       setSelection({ type: 'node', id: state.focusSectionId });
     }
-  }, [selection, state.edges, state.focusSectionId, state.nodes]);
+  }, [selection, state.focusSectionId, state.nodes]);
 
-  function notifyStatus(message: string) {
+  const notifyStatus = useCallback((message: string) => {
     toast.success(message);
-  }
+  }, []);
 
-  function notifyError(message: string) {
+  const notifyError = useCallback((message: string) => {
     toast.error(message);
-  }
+  }, []);
 
   async function refresh(focusSectionId = state.focusSectionId ?? undefined) {
     const next = await getApi().getState(focusSectionId);
@@ -206,8 +175,6 @@ export function useWriteLLMApp() {
     queryClient.setQueryData(queryKeys.workspaceState, next);
     if (!selection && next.focusSectionId) {
       setSelection({ type: 'node', id: next.focusSectionId });
-    } else if (selection?.type === 'edge' && !next.edges.some((edge) => edge.id === selection.id)) {
-      setSelection(next.focusSectionId ? { type: 'node', id: next.focusSectionId } : null);
     } else if (selection?.type === 'node' && !next.nodes.some((node) => node.id === selection.id)) {
       setSelection(next.focusSectionId ? { type: 'node', id: next.focusSectionId } : null);
     }
@@ -223,54 +190,7 @@ export function useWriteLLMApp() {
   }
 
   async function run(action: () => Promise<FocusedWorkspaceState | void>, message?: string) {
-    await workspaceMutation.mutateAsync({ action, message }).catch(() => undefined);
-  }
-
-  const persistNodeLayout = useCallback(async (payload: UpdateNodeLayoutPayload) => {
-    try {
-      const next = await getApi().updateNodeLayout(payload);
-      setState(next);
-    } catch (caught) {
-      notifyError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, []);
-
-  const graph = useMemo(
-    () => buildGraph(state, selection, (payload) => void persistNodeLayout(payload)),
-    [persistNodeLayout, state, selection]
-  );
-  const nodeTypes = useMemo<NodeTypes>(() => ({ paper: PaperFlowNode }), []);
-
-  useEffect(() => {
-    setFlowNodes((current) => reconcileNodes(graph.nodes, current));
-  }, [graph.nodes]);
-
-  function onNodesChange(changes: NodeChange[]) {
-    setFlowNodes((current) => applyNodeChanges(changes, current));
-  }
-
-  function persistNodeLayoutFromNode(node: Node) {
-    const data = node.data as PaperNodeData;
-    if (data.virtual) {
-      return;
-    }
-    if (!data.canvasSectionId || !data.nodeId) {
-      return;
-    }
-    const width = node.width ?? node.measured?.width;
-    const height = node.height ?? node.measured?.height;
-    if (!width || !height) {
-      return;
-    }
-
-    void persistNodeLayout({
-      canvasSectionId: data.canvasSectionId,
-      nodeId: data.nodeId,
-      x: node.position.x,
-      y: node.position.y,
-      width,
-      height
-    });
+    await workspaceMutation.mutateAsync({ action, message });
   }
 
   async function createOrOpenWorkspace(mode: 'create' | 'open', pathOverride?: string) {
@@ -333,7 +253,7 @@ export function useWriteLLMApp() {
     if (state.focusSectionId !== section.id) {
       await run(async () => getApi().getState(section.id));
     }
-    setChildViewModes((current) => ({ ...current, [section.id]: 'markdown' }));
+    setCurrentChildViewMode('markdown');
   }
 
   async function moveSectionInOutline(sectionId: string, parentId: string | null, index: number) {
@@ -347,47 +267,6 @@ export function useWriteLLMApp() {
       },
       'Composition order updated.'
     );
-  }
-
-  async function onConnect(connection: Connection) {
-    if (!connection.source || !connection.target) {
-      return;
-    }
-    const source = state.nodes.find((node) => node.id === connection.source);
-    const target = state.nodes.find((node) => node.id === connection.target);
-    if (source?.kind !== 'content' || target?.kind !== 'content') {
-      notifyError('Process edges can only connect content nodes.');
-      return;
-    }
-    await run(async () => {
-      const edge = await getApi().createNodeEdge(source.id, target.id, DEFAULT_EDGE_KIND);
-      setSelection({ type: 'edge', id: edge.id });
-      return getApi().getState(state.focusSectionId ?? undefined);
-    }, 'Process edge created.');
-  }
-
-  async function updateSelectedEdgeKind(relationType: EdgeKind) {
-    if (!selectedEdge) {
-      return;
-    }
-
-    await run(async () => {
-      const next = await getApi().updateNodeEdge(selectedEdge.id, relationType, state.focusSectionId);
-      setSelection({ type: 'edge', id: selectedEdge.id });
-      return next;
-    }, 'Process edge updated.');
-  }
-
-  async function deleteSelectedEdge() {
-    if (!selectedEdge) {
-      return;
-    }
-
-    await run(async () => {
-      const next = await getApi().deleteNodeEdge(selectedEdge.id, state.focusSectionId);
-      setSelection(next.focusSectionId ? { type: 'node', id: next.focusSectionId } : null);
-      return next;
-    }, 'Process edge deleted.');
   }
 
   async function createSection(parentId: string | null) {
@@ -408,78 +287,6 @@ export function useWriteLLMApp() {
       }
       return next;
     }, 'Section created.');
-  }
-
-  async function createContentInSection(sectionId: string, preset: ContentPreset) {
-    const existingIds = new Set(state.nodes.map((node) => node.id));
-    const payload = {
-      kind: 'content' as const,
-      parentId: sectionId,
-      title: 'Main draft',
-      content: 'Write confirmed Markdown text here.',
-      isMain: true,
-      isLlm: false
-    };
-
-    await run(async () => {
-      const next = await getApi().createNode(payload);
-      const created = next.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
-      if (created) {
-        setSelection({ type: 'node', id: created.id });
-      }
-      return next;
-    }, 'Main content created.');
-  }
-
-  async function createConnectedContent(fromNodeId: string, preset: ContentPreset) {
-    const source = state.nodes.find((node) => node.id === fromNodeId);
-    if (source?.kind !== 'content') {
-      notifyError('Select a content node before adding connected content.');
-      return;
-    }
-    const existingIds = new Set(state.nodes.map((node) => node.id));
-    await run(async () => {
-      const createdState = await getApi().createNode({
-        kind: 'content',
-        parentId: source.parentId,
-        title: 'Main draft',
-        content: 'Write confirmed Markdown text here.',
-        isMain: preset === 'main',
-        isLlm: false
-      });
-      const created = createdState.nodes.find((node) => !existingIds.has(node.id) && node.kind === 'content');
-      if (!created) {
-        return createdState;
-      }
-      await getApi().createNodeEdge(fromNodeId, created.id, DEFAULT_EDGE_KIND);
-      const next = await getApi().getState(state.focusSectionId ?? source.parentId);
-      setSelection({ type: 'node', id: created.id });
-      return next;
-    }, 'Content created and connected.');
-  }
-
-  async function deleteSelectedNode() {
-    if (!selectedNode) {
-      return;
-    }
-
-    await run(async () => {
-      const next = await getApi().deleteNode(selectedNode.id);
-      setSelection(next.focusSectionId ? { type: 'node', id: next.focusSectionId } : null);
-      return next;
-    }, selectedNode.kind === 'section' ? 'Section deleted.' : 'Content deleted.');
-  }
-
-  function openGenerateComposer(sectionId: string) {
-    setAssistComposer({
-      open: true,
-      targetSectionId: sectionId,
-      contextNodeIds: []
-    });
-  }
-
-  function closeAssistComposer() {
-    setAssistComposer(emptyAssistComposer);
   }
 
   async function createKnowledgeItem(title: string, content: string) {
@@ -595,7 +402,6 @@ export function useWriteLLMApp() {
     setWorkspacePath,
     selection,
     setSelection,
-    flowNodes,
     settingsOpen,
     setSettingsOpen,
     workspaceChooserOpen,
@@ -607,15 +413,10 @@ export function useWriteLLMApp() {
     setKnowledgeTarget,
     llmSettings,
     setLlmSettings,
-    assistComposer,
-    setAssistComposer,
     focusSection,
     selectedSection,
     selectedContent,
-    selectedEdge,
     currentChildViewMode,
-    graph,
-    nodeTypes,
     notifyStatus,
     notifyError,
     refresh,
@@ -627,15 +428,7 @@ export function useWriteLLMApp() {
     openKnowledgeSourceNode,
     openWritingView,
     moveSectionInOutline,
-    onConnect,
-    updateSelectedEdgeKind,
-    deleteSelectedEdge,
     createSection,
-    createContentInSection,
-    createConnectedContent,
-    deleteSelectedNode,
-    openGenerateComposer,
-    closeAssistComposer,
     createKnowledgeItem,
     importKnowledgeFiles,
     updateKnowledgeItem,
@@ -645,8 +438,6 @@ export function useWriteLLMApp() {
     deleteKnowledgeIngestJob,
     exportLatex,
     createGitCheckpoint,
-    setFocusedChildViewMode,
-    onNodesChange,
-    persistNodeLayoutFromNode
+    setFocusedChildViewMode
   };
 }

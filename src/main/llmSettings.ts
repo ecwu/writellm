@@ -131,8 +131,9 @@ function readEndpoint(
   fallback: ModelEndpointSettings
 ): ModelEndpointSettings {
   return {
-    provider:
-      parsed?.provider === 'anthropic-compatible' ? 'anthropic-compatible' : 'openai-compatible',
+    provider: parsed?.provider === 'anthropic-compatible' || parsed?.provider === 'deepseek'
+      ? parsed.provider
+      : 'openai-compatible',
     baseURL: parsed?.baseURL?.trim() || fallback.baseURL,
     model: parsed?.model?.trim() || fallback.model,
     apiKey: parsed?.apiKey ?? fallback.apiKey
@@ -272,19 +273,15 @@ export function readLlmSettings(): LlmSettings {
     return defaultSettings;
   }
 
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<LlmSettings>;
-    return {
-      chat: readEndpoint(parsed.chat, defaultSettings.chat),
-      embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
-      rerank: readRerankEndpoint(parsed.rerank, defaultSettings.rerank),
-      vision: readEndpoint(parsed.vision, defaultSettings.vision),
-      appearance: readAppearance(parsed.appearance, defaultSettings.appearance),
-      knowledge: readKnowledge(parsed.knowledge, defaultSettings.knowledge)
-    };
-  } catch {
-    return defaultSettings;
-  }
+  const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<LlmSettings>;
+  return {
+    chat: readEndpoint(parsed.chat, defaultSettings.chat),
+    embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
+    rerank: readRerankEndpoint(parsed.rerank, defaultSettings.rerank),
+    vision: readEndpoint(parsed.vision, defaultSettings.vision),
+    appearance: readAppearance(parsed.appearance, defaultSettings.appearance),
+    knowledge: readKnowledge(parsed.knowledge, defaultSettings.knowledge)
+  };
 }
 
 export function readPublicLlmSettings(): PublicLlmSettings {

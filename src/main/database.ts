@@ -5,7 +5,6 @@ import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import {
-  canvasNodeLayouts,
   generationCitations,
   knowledgeChunks,
   knowledgeItems,
@@ -17,7 +16,6 @@ import {
   projectBrief,
   schema,
   writingPatches,
-  type CanvasNodeLayoutRow,
   type KnowledgeChunkRow,
   type KnowledgeCitationRow,
   type KnowledgeItemRow,
@@ -30,7 +28,7 @@ import {
   type WritingPatchRow
 } from './db/schema.js';
 import { createId, createShortRef, nowIso } from './ids.js';
-import { citationRefsFromText } from '../shared/citations.js';
+import { citationGroupsFromText, citationRefsFromText } from '../shared/citations.js';
 import {
   defaultSectionMarkdown,
   ensureSectionsDirectory,
@@ -41,7 +39,7 @@ import {
   writeSectionMarkdownFile
 } from './sectionMarkdown.js';
 import type {
-  CanvasNodeLayout,
+  CitationCoverageReport,
   CompositionTreeNode,
   ContentNodeRecord,
   CreateNodePayload,
@@ -72,10 +70,8 @@ import type {
   ProjectGlossary,
   ProjectMotivation,
   RetrievedKnowledgeSource,
-  ResolvedGenerationExecutionMode,
   KnowledgeRetrievalTraceEvent,
   SectionNodeRecord,
-  UpdateNodeLayoutPayload,
   UpdateNodePayload,
   WorkspaceSummary,
   WritingPatch,
@@ -84,10 +80,9 @@ import type {
   WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 17;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
-export const LLM_GENERATION_TASK_TYPE = 'llm-generation';
 const SECTION_METADATA_DIR = 'metadata/sections';
 const PROJECT_BRIEF_ID = 'project';
 const LLM_OPERATION_COVERAGE_THRESHOLD = 0.4;
@@ -120,7 +115,6 @@ type KnowledgeIngestTaskData = {
 type CreateGenerationRoundPayload = {
   sessionId: string;
   mode: GenerationMode;
-  executionMode?: ResolvedGenerationExecutionMode;
   outputMode?: GenerationOutputMode;
   prompt: string;
   resolvedPrompt?: string | null;
@@ -146,7 +140,6 @@ type UpdateGenerationRoundPayload = Partial<{
   modelProvider: string | null;
   modelName: string | null;
   errorMessage: string | null;
-  jobId: number | null;
   patchId: string | null;
   applyPayloadJson: string | null;
   startedAt: string | null;
@@ -339,9 +332,6 @@ export class WriteLLMDatabase {
           )
         )
         .run();
-      tx.delete(canvasNodeLayouts)
-        .where(or(inArray(canvasNodeLayouts.canvasSectionId, nodeIds), inArray(canvasNodeLayouts.nodeId, nodeIds)))
-        .run();
     });
     this.writeManifest();
   }
@@ -459,43 +449,6 @@ export class WriteLLMDatabase {
     if (result.changes === 0) {
       throw new Error(`Node edge not found: ${edgeId}`);
     }
-  }
-
-  updateNodeLayout(payload: UpdateNodeLayoutPayload): void {
-    const values = [payload.x, payload.y, payload.width, payload.height];
-    if (!values.every(Number.isFinite) || payload.width <= 0 || payload.height <= 0) {
-      throw new Error('Canvas node layout dimensions must be finite positive numbers.');
-    }
-    if (!this.getSection(payload.canvasSectionId)) {
-      throw new Error(`Canvas section not found: ${payload.canvasSectionId}`);
-    }
-    if (!this.getNode(payload.nodeId)) {
-      throw new Error(`Node not found: ${payload.nodeId}`);
-    }
-
-    const timestamp = nowIso();
-    this.orm
-      .insert(canvasNodeLayouts)
-      .values({
-        canvasSectionId: payload.canvasSectionId,
-        nodeId: payload.nodeId,
-        x: payload.x,
-        y: payload.y,
-        width: payload.width,
-        height: payload.height,
-        updatedAt: timestamp
-      })
-      .onConflictDoUpdate({
-        target: [canvasNodeLayouts.canvasSectionId, canvasNodeLayouts.nodeId],
-        set: {
-          x: payload.x,
-          y: payload.y,
-          width: payload.width,
-          height: payload.height,
-          updatedAt: timestamp
-        }
-      })
-      .run();
   }
 
   getProjectBrief(): ProjectBriefRecord {
@@ -914,7 +867,6 @@ export class WriteLLMDatabase {
         sessionId: payload.sessionId,
         status: 'pending',
         mode: payload.mode,
-        executionMode: payload.executionMode ?? 'background',
         outputMode: payload.outputMode ?? 'patchProposal',
         prompt: payload.prompt,
         resolvedPrompt: payload.resolvedPrompt ?? null,
@@ -925,7 +877,6 @@ export class WriteLLMDatabase {
         modelProvider: payload.modelProvider ?? null,
         modelName: payload.modelName ?? null,
         errorMessage: null,
-        jobId: null,
         patchId: payload.patchId ?? null,
         applyPayloadJson: payload.applyPayloadJson ?? null,
         createdAt: timestamp,
@@ -993,7 +944,6 @@ export class WriteLLMDatabase {
     if ('modelProvider' in payload) patch.modelProvider = payload.modelProvider ?? null;
     if ('modelName' in payload) patch.modelName = payload.modelName ?? null;
     if ('errorMessage' in payload) patch.errorMessage = payload.errorMessage ?? null;
-    if ('jobId' in payload) patch.jobId = payload.jobId ?? null;
     if ('patchId' in payload) patch.patchId = payload.patchId ?? null;
     if ('applyPayloadJson' in payload) patch.applyPayloadJson = payload.applyPayloadJson ?? null;
     if ('startedAt' in payload) patch.startedAt = payload.startedAt ?? null;
@@ -1037,15 +987,6 @@ export class WriteLLMDatabase {
       throw new Error(`Generation round not found: ${roundId}`);
     }
     this.orm.transaction(() => {
-      if (round.jobId) {
-        this.orm.delete(plainjobJobs).where(
-          and(
-            eq(plainjobJobs.id, round.jobId),
-            eq(plainjobJobs.type, LLM_GENERATION_TASK_TYPE),
-            eq(plainjobJobs.status, PLAINJOB_STATUS_PENDING)
-          )
-        ).run();
-      }
       this.orm.delete(llmGenerationRounds).where(eq(llmGenerationRounds.id, roundId)).run();
       this.touchGenerationSession(round.sessionId, nowIso());
     });
@@ -1124,22 +1065,6 @@ export class WriteLLMDatabase {
       .orderBy(desc(writingPatches.updatedAt))
       .all()
       .map(mapWritingPatch);
-  }
-
-  enqueueGenerationJob(roundId: string, data: Record<string, unknown>): { jobId: number } {
-    const now = Date.now();
-    const result = this.orm.insert(plainjobJobs).values({
-      type: LLM_GENERATION_TASK_TYPE,
-      data: JSON.stringify({ roundId, ...data }),
-      status: PLAINJOB_STATUS_PENDING,
-      failedAt: null,
-      error: null,
-      nextRunAt: now,
-      createdAt: now
-    }).run();
-    const jobId = Number(result.lastInsertRowid);
-    this.updateGenerationRound(roundId, { jobId });
-    return { jobId };
   }
 
   getGenerationRoundApplyPayload(roundId: string): string | null {
@@ -1270,6 +1195,86 @@ export class WriteLLMDatabase {
         chunks
       };
     });
+  }
+
+  getCitationCoverage(): CitationCoverageReport {
+    const sections = this.orm
+      .select()
+      .from(nodes)
+      .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .all()
+      .map(mapNode)
+      .filter((node): node is SectionNodeRecord => node.kind === 'section');
+    const sourceRows = this.orm
+      .select({
+        itemId: knowledgeItems.id,
+        itemPublicRef: knowledgeItems.publicRef,
+        itemTitle: knowledgeItems.title,
+        indexStatus: knowledgeItems.indexStatus,
+        publicRef: knowledgeChunks.publicRef
+      })
+      .from(knowledgeItems)
+      .leftJoin(knowledgeChunks, eq(knowledgeChunks.itemId, knowledgeItems.id))
+      .where(isNull(knowledgeItems.deletedAt))
+      .all();
+    const sourceByRef = new Map<string, { itemId: string; itemTitle: string }>();
+    const coverageByItem = new Map<string, {
+      itemId: string;
+      itemPublicRef: string;
+      itemTitle: string;
+      indexStatus: KnowledgeIndexStatus;
+      representativePublicRef: string | null;
+      citationCount: number;
+      sectionIds: Set<string>;
+    }>();
+    sourceRows.forEach((row) => {
+      if (!coverageByItem.has(row.itemId)) {
+        coverageByItem.set(row.itemId, {
+          itemId: row.itemId,
+          itemPublicRef: row.itemPublicRef,
+          itemTitle: knowledgeDisplayTitle(row.itemTitle, null),
+          indexStatus: row.indexStatus as KnowledgeIndexStatus,
+          representativePublicRef: row.publicRef,
+          citationCount: 0,
+          sectionIds: new Set()
+        });
+      }
+      if (row.publicRef) {
+        sourceByRef.set(row.publicRef.toLowerCase(), { itemId: row.itemId, itemTitle: knowledgeDisplayTitle(row.itemTitle, null) });
+      }
+    });
+    const sectionUsage = sections.map((section) => {
+      const mentionsByRef = new Map<string, number>();
+      citationGroupsFromText(section.markdownContent).forEach((group) => {
+        group.refs.forEach((ref) => mentionsByRef.set(ref, (mentionsByRef.get(ref) ?? 0) + 1));
+      });
+      const sources = Array.from(mentionsByRef, ([publicRef, mentions]) => {
+        const source = sourceByRef.get(publicRef);
+        if (source) {
+          const coverage = coverageByItem.get(source.itemId)!;
+          coverage.citationCount += mentions;
+          coverage.sectionIds.add(section.id);
+        }
+        return {
+          publicRef,
+          itemId: source?.itemId ?? null,
+          itemTitle: source?.itemTitle ?? null,
+          mentions
+        };
+      }).sort((left, right) => right.mentions - left.mentions || left.publicRef.localeCompare(right.publicRef));
+      return {
+        sectionId: section.id,
+        sectionTitle: section.title,
+        citationCount: sources.reduce((total, source) => total + source.mentions, 0),
+        sources
+      };
+    });
+    return {
+      sections: sectionUsage,
+      sources: Array.from(coverageByItem.values())
+        .map((source) => ({ ...source, sectionIds: Array.from(source.sectionIds) }))
+        .sort((left, right) => right.citationCount - left.citationCount || left.itemTitle.localeCompare(right.itemTitle))
+    };
   }
 
   searchKnowledgeChunks(options: {
@@ -1577,8 +1582,7 @@ export class WriteLLMDatabase {
       knowledgeItems: this.listKnowledgeItems(),
       knowledgeIngestJobs: this.listKnowledgeIngestJobs(),
       nodeStats: this.buildNodeStats(nodes),
-      edges,
-      nodeLayouts: this.listCanvasNodeLayouts(focusId)
+      edges
     };
   }
 
@@ -1610,15 +1614,6 @@ export class WriteLLMDatabase {
       .where(isNull(nodeEdges.deletedAt))
       .all()
       .map(mapEdge);
-  }
-
-  listCanvasNodeLayouts(canvasSectionId: string): CanvasNodeLayout[] {
-    return this.orm
-      .select()
-      .from(canvasNodeLayouts)
-      .where(eq(canvasNodeLayouts.canvasSectionId, canvasSectionId))
-      .all()
-      .map(mapCanvasNodeLayout);
   }
 
   getExportRows(rootSectionId: string): { section: SectionNodeRecord; markdown: string; depth: number }[] {
@@ -1699,16 +1694,6 @@ export class WriteLLMDatabase {
         deleted_at TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS canvas_node_layouts (
-        canvas_section_id TEXT NOT NULL,
-        node_id TEXT NOT NULL,
-        x REAL NOT NULL,
-        y REAL NOT NULL,
-        width REAL NOT NULL,
-        height REAL NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (canvas_section_id, node_id)
-      );
     `);
 
     this.db.exec(`
@@ -1789,7 +1774,6 @@ export class WriteLLMDatabase {
         session_id TEXT NOT NULL,
         status TEXT NOT NULL,
         mode TEXT NOT NULL,
-        execution_mode TEXT NOT NULL DEFAULT 'background',
         output_mode TEXT NOT NULL DEFAULT 'patchProposal',
         prompt TEXT NOT NULL,
         resolved_prompt TEXT,
@@ -1800,7 +1784,6 @@ export class WriteLLMDatabase {
         model_provider TEXT,
         model_name TEXT,
         error_message TEXT,
-        job_id INTEGER,
         patch_id TEXT,
         apply_payload_json TEXT,
         created_at TEXT NOT NULL,
@@ -1879,7 +1862,6 @@ export class WriteLLMDatabase {
     this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_path', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_hash', 'TEXT');
-    this.addColumnIfMissing('llm_generation_rounds', 'execution_mode', "TEXT NOT NULL DEFAULT 'background'");
     this.addColumnIfMissing('llm_generation_rounds', 'output_mode', "TEXT NOT NULL DEFAULT 'patchProposal'");
     this.addColumnIfMissing('llm_generation_rounds', 'patch_id', 'TEXT');
     this.addColumnIfMissing('llm_generation_rounds', 'started_at', 'TEXT');
@@ -1891,6 +1873,12 @@ export class WriteLLMDatabase {
     }
 
     this.db.exec('DROP TABLE IF EXISTS knowledge_ingest_jobs;');
+    this.db.exec('DROP TABLE IF EXISTS canvas_node_layouts;');
+    this.orm.delete(plainjobJobs).where(eq(plainjobJobs.type, 'llm-generation')).run();
+    if (previousSchemaVersion < 17) {
+      this.dropColumnIfPresent('llm_generation_rounds', 'execution_mode');
+      this.dropColumnIfPresent('llm_generation_rounds', 'job_id');
+    }
 
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_items_public_ref
@@ -1909,6 +1897,13 @@ export class WriteLLMDatabase {
       return;
     }
     this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+
+  private dropColumnIfPresent(tableName: string, columnName: string): void {
+    const columns = this.db.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
+    if (columns.some((column) => column.name === columnName)) {
+      this.db.exec(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
+    }
   }
 
   private insertKnowledgeVector(chunkId: string, embedding: number[]): number | null {
@@ -2573,18 +2568,6 @@ function mapEdge(row: NodeEdgeRow): NodeEdgeRecord {
   };
 }
 
-function mapCanvasNodeLayout(row: CanvasNodeLayoutRow): CanvasNodeLayout {
-  return {
-    canvasSectionId: row.canvasSectionId,
-    nodeId: row.nodeId,
-    x: row.x,
-    y: row.y,
-    width: row.width,
-    height: row.height,
-    updatedAt: row.updatedAt
-  };
-}
-
 function readLlmOperations(metadata: Record<string, unknown>): LlmOperationRecord[] {
   const value = metadata.llmOperations;
   if (!Array.isArray(value)) {
@@ -2839,7 +2822,6 @@ function mapGenerationRound(row: LlmGenerationRoundRow): GenerationRoundRecord {
     sessionId: row.sessionId,
     status: isGenerationRoundStatus(row.status) ? row.status : 'error',
     mode: isGenerationMode(row.mode) ? row.mode : 'append',
-    executionMode: isResolvedGenerationExecutionMode(row.executionMode) ? row.executionMode : 'background',
     outputMode: isGenerationOutputMode(row.outputMode) ? row.outputMode : 'patchProposal',
     prompt: row.prompt,
     resolvedPrompt: row.resolvedPrompt,
@@ -2850,7 +2832,6 @@ function mapGenerationRound(row: LlmGenerationRoundRow): GenerationRoundRecord {
     modelProvider: row.modelProvider,
     modelName: row.modelName,
     errorMessage: row.errorMessage,
-    jobId: row.jobId,
     patchId: row.patchId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -2894,10 +2875,6 @@ function parseJsonArray(raw: string | null): unknown[] {
 
 function isGenerationMode(value: unknown): value is GenerationMode {
   return value === 'append' || value === 'rewrite_section' || value === 'rewrite_selection' || value === 'continue';
-}
-
-function isResolvedGenerationExecutionMode(value: unknown): value is ResolvedGenerationExecutionMode {
-  return value === 'interactive' || value === 'background';
 }
 
 function isGenerationOutputMode(value: unknown): value is GenerationOutputMode {

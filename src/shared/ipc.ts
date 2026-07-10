@@ -2,6 +2,7 @@ import type {
   AcceptWritingPatchPayload,
   AdoptGenerationPayload,
   CreatePatchFromGenerationRoundPayload,
+  CitationCoverageReport,
   CreateKnowledgeItemPayload,
   CreateGenerationTaskPayload,
   CreateGenerationTaskResult,
@@ -29,7 +30,6 @@ import type {
   UpdateAppearanceSettingsPayload,
   UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
-  UpdateNodeLayoutPayload,
   UpdateNodePayload,
   UpdateProjectBriefPayload,
   WorkspaceSummary,
@@ -58,7 +58,6 @@ export const ipcChannels = {
   createNodeEdge: 'writellm:createNodeEdge',
   updateNodeEdge: 'writellm:updateNodeEdge',
   deleteNodeEdge: 'writellm:deleteNodeEdge',
-  updateNodeLayout: 'writellm:updateNodeLayout',
   updateProjectBrief: 'writellm:updateProjectBrief',
   suggestProjectBrief: 'writellm:suggestProjectBrief',
   exportLatex: 'writellm:exportLatex',
@@ -75,6 +74,7 @@ export const ipcChannels = {
   searchKnowledge: 'writellm:searchKnowledge',
   resolveKnowledgeCitation: 'writellm:resolveKnowledgeCitation',
   getKnowledgeDebugDetails: 'writellm:getKnowledgeDebugDetails',
+  getCitationCoverage: 'writellm:getCitationCoverage',
   getWorkspaceAssetDataUrl: 'writellm:getWorkspaceAssetDataUrl',
   createGenerationTask: 'writellm:createGenerationTask',
   cancelGenerationTask: 'writellm:cancelGenerationTask',
@@ -121,7 +121,6 @@ export type WriteLLMIpc = {
     focusSectionId?: string | null
   ): Promise<FocusedWorkspaceState>;
   deleteNodeEdge(edgeId: string, focusSectionId?: string | null): Promise<FocusedWorkspaceState>;
-  updateNodeLayout(payload: UpdateNodeLayoutPayload): Promise<FocusedWorkspaceState>;
   updateProjectBrief(payload: UpdateProjectBriefPayload): Promise<FocusedWorkspaceState>;
   suggestProjectBrief(payload: SuggestProjectBriefPayload): Promise<ProjectBriefSuggestion>;
   exportLatex(rootNodeId: string): Promise<{ path: string }>;
@@ -138,6 +137,7 @@ export type WriteLLMIpc = {
   searchKnowledge(payload: KnowledgeSearchPayload): Promise<RetrievedKnowledgeSource[]>;
   resolveKnowledgeCitation(payload: ResolveKnowledgeCitationPayload): Promise<KnowledgeSourceTarget | null>;
   getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
+  getCitationCoverage(): Promise<CitationCoverageReport>;
   getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
   createGenerationTask(payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult>;
   cancelGenerationTask(roundId: string): Promise<GenerationRoundRecord>;

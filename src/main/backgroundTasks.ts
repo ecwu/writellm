@@ -1,24 +1,21 @@
 import Database from 'better-sqlite3';
 import { better, defineQueue, defineWorker, type Queue, type Worker } from 'plainjob';
 import path from 'node:path';
-import { LLM_GENERATION_TASK_TYPE, type WriteLLMDatabase } from './database.js';
-import { processLlmGenerationJob } from './generationWorker.js';
+import type { WriteLLMDatabase } from './database.js';
 import { processKnowledgeIngestJob } from './knowledgeIngest.js';
 
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 const KEEP_ARCHIVED_TASKS_MS = Number.MAX_SAFE_INTEGER;
 
-type BackgroundTaskRuntime = {
+type KnowledgeIngestRuntime = {
   workspacePath: string;
   connection: Database.Database;
   queue: Queue;
   worker: Worker;
-  generationWorker: Worker;
   workerRun: Promise<void>;
-  generationWorkerRun: Promise<void>;
 };
 
-let activeRuntime: BackgroundTaskRuntime | null = null;
+let activeRuntime: KnowledgeIngestRuntime | null = null;
 
 const quietLogger = {
   error: console.error.bind(console),
@@ -27,11 +24,11 @@ const quietLogger = {
   debug: () => {}
 };
 
-export async function startBackgroundTaskWorker(db: WriteLLMDatabase): Promise<void> {
+export async function startKnowledgeIngestWorker(db: WriteLLMDatabase): Promise<void> {
   if (activeRuntime?.workspacePath === db.workspacePath) {
     return;
   }
-  await stopBackgroundTaskWorker();
+  await stopKnowledgeIngestWorker();
 
   const connection = new Database(path.join(db.workspacePath, 'project.sqlite'));
   const queue = defineQueue({
@@ -54,43 +51,23 @@ export async function startBackgroundTaskWorker(db: WriteLLMDatabase): Promise<v
       logger: quietLogger
     }
   );
-  const generationWorker = defineWorker(
-    LLM_GENERATION_TASK_TYPE,
-    async (job) => {
-      await processLlmGenerationJob(db, String(job.id), job.data);
-    },
-    {
-      queue,
-      pollIntervall: 500,
-      logger: quietLogger
-    }
-  );
-  const workerRun = worker.start().catch((caught) => {
-    console.error(caught);
-  });
-  const generationWorkerRun = generationWorker.start().catch((caught) => {
-    console.error(caught);
-  });
+  const workerRun = worker.start();
   activeRuntime = {
     workspacePath: db.workspacePath,
     connection,
     queue,
     worker,
-    generationWorker,
-    workerRun,
-    generationWorkerRun
+    workerRun
   };
 }
 
-export async function stopBackgroundTaskWorker(): Promise<void> {
+export async function stopKnowledgeIngestWorker(): Promise<void> {
   const runtime = activeRuntime;
   if (!runtime) {
     return;
   }
   activeRuntime = null;
   await runtime.worker.stop();
-  await runtime.generationWorker.stop();
   await runtime.workerRun;
-  await runtime.generationWorkerRun;
   runtime.queue.close();
 }
