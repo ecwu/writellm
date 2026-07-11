@@ -16,7 +16,8 @@ const createNodeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('section'),
     parentId: nullableIdSchema,
     title: shortTextSchema,
-    intent: shortTextSchema.optional()
+    intent: shortTextSchema.optional(),
+    description: shortTextSchema.optional()
   }).strict(),
   z.object({
     kind: z.literal('content'),
@@ -32,6 +33,7 @@ const createNodeSchema = z.discriminatedUnion('kind', [
 const updateNodeSchema = z.object({
   title: shortTextSchema.optional(),
   intent: shortTextSchema.nullable().optional(),
+  description: shortTextSchema.nullable().optional(),
   activeMainNodeId: nullableIdSchema.optional(),
   markdownContent: markdownSchema.optional(),
   content: markdownSchema.optional(),
@@ -61,6 +63,20 @@ const piRunPayloadSchema = z.object({
   prompt: shortTextSchema.min(1),
   targetStart: z.number().int().min(0).max(MAX_STRING_LENGTH).optional(),
   targetEnd: z.number().int().min(0).max(MAX_STRING_LENGTH).optional()
+}).strict();
+
+const documentBlockKindSchema = z.enum(['paragraph', 'heading', 'quote', 'code', 'list_item', 'divider', 'image']);
+const createDocumentBlockSchema = z.object({
+  sectionId: idSchema,
+  afterBlockId: nullableIdSchema.optional(),
+  kind: documentBlockKindSchema.optional(),
+  content: markdownSchema.optional(),
+  attributes: recordSchema.optional()
+}).strict();
+const updateDocumentBlockSchema = z.object({
+  kind: documentBlockKindSchema.optional(),
+  content: markdownSchema.optional(),
+  attributes: recordSchema.optional()
 }).strict();
 
 const llmSettingsSchema = z.object({
@@ -123,6 +139,12 @@ export function validateIpcArguments(channel: string, args: unknown[]): unknown[
       return [nullableIdSchema.optional().parse(args[0])];
     case ipcChannels.updateSectionMarkdown:
       return [idSchema.parse(args[0]), markdownSchema.parse(args[1])];
+    case ipcChannels.createDocumentBlock:
+      return [createDocumentBlockSchema.parse(args[0])];
+    case ipcChannels.updateDocumentBlock:
+      return [idSchema.parse(args[0]), updateDocumentBlockSchema.parse(args[1])];
+    case ipcChannels.deleteDocumentBlock:
+      return [idSchema.parse(args[0])];
     case ipcChannels.createGitCheckpoint:
       return [shortTextSchema.optional().parse(args[0])];
     case ipcChannels.listGitHistory:

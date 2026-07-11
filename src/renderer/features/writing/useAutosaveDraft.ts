@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApi } from '../../api';
-import { sectionMarkdownForStorage } from '../../../shared/sectionMarkdown';
 import type { FocusedWorkspaceState, SectionNodeRecord } from '../../../shared/types';
 
 export type DraftSaveState = 'saved' | 'saving' | 'error';
@@ -14,12 +13,12 @@ export function useAutosaveDraft({
   onState: (state: FocusedWorkspaceState) => void;
   onError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState(sectionMarkdownForStorage(section.markdownContent));
+  const [draft, setDraft] = useState(section.markdownContent);
   const [saveState, setSaveState] = useState<DraftSaveState>('saved');
   const timerRef = useRef<number | null>(null);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const draftRef = useRef(sectionMarkdownForStorage(section.markdownContent));
-  const lastSavedRef = useRef(sectionMarkdownForStorage(section.markdownContent));
+  const draftRef = useRef(section.markdownContent);
+  const lastSavedRef = useRef(section.markdownContent);
   const sectionIdRef = useRef(section.id);
   const sectionHashRef = useRef(section.markdownHash);
   const onStateRef = useRef(onState);
@@ -35,7 +34,7 @@ export function useAutosaveDraft({
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    const nextDraft = sectionMarkdownForStorage(section.markdownContent);
+    const nextDraft = section.markdownContent;
     draftRef.current = nextDraft;
     lastSavedRef.current = nextDraft;
     sectionIdRef.current = section.id;
@@ -51,7 +50,7 @@ export function useAutosaveDraft({
     if (section.markdownHash === sectionHashRef.current) {
       return;
     }
-    const nextDraft = sectionMarkdownForStorage(section.markdownContent);
+    const nextDraft = section.markdownContent;
     sectionHashRef.current = section.markdownHash;
     if (nextDraft === lastSavedRef.current) {
       return;
@@ -79,7 +78,7 @@ export function useAutosaveDraft({
   }, []);
 
   function persistDraft(value: string, applyState = true) {
-    const normalizedValue = sectionMarkdownForStorage(value);
+    const normalizedValue = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     if (normalizedValue === lastSavedRef.current) {
       return saveChainRef.current;
     }
@@ -115,7 +114,7 @@ export function useAutosaveDraft({
   }
 
   function scheduleDraftSave(value: string) {
-    const normalizedValue = sectionMarkdownForStorage(value);
+    const normalizedValue = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     setDraft(normalizedValue);
     draftRef.current = normalizedValue;
     setSaveState(normalizedValue === lastSavedRef.current ? 'saved' : 'saving');

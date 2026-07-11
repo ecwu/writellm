@@ -9,7 +9,7 @@ initiative_prd: ../pi-agent-harness-prd.md
 task_tracker: ../task-tracker.md
 prd_decisions: [PIA-D-002, PIA-D-004, PIA-D-010]
 related_tasks: [PIA-006, PIA-007, PIA-009, PIA-010, PIA-011, PIA-012, PER-001]
-depends_on: [ADR-0002, ADR-0011, ADR-0012, ADR-0016, ADR-0017, ADR-0018]
+depends_on: [ADR-0002, ADR-0011, ADR-0012, ADR-0016, ADR-0017, ADR-0018, ADR-0020]
 external_task_gates: [REL-001]
 supersedes: []
 superseded_by: null
@@ -36,7 +36,7 @@ These failures refine, rather than reverse, the existing trust boundary. Pi orch
 
 Keep `PiAgentManager`, the Pi `Agent`, provider preflight, tool authorization, run budgets, section locks, lifecycle registration, terminal classification, and renderer IPC in Electron main.
 
-Execute each Pi `source` call in a dedicated Node Worker. The Worker receives an immutable, minimum-necessary snapshot containing the workspace path, validated query, bounded retrieval options, provider settings required for embedding/rerank, and the already-evaluated outbound-data policy. It does not read Electron `safeStorage`, access the renderer, invoke Pi, mutate author content, or persist credentials.
+Execute each Pi `source` call in a dedicated Node Worker. The Worker receives an immutable, minimum-necessary snapshot containing the workspace path, validated query, bounded retrieval options, provider settings required for embedding/rerank, and the already-evaluated outbound-data policy under ADR-0020. It does not read Electron `safeStorage`, access the renderer, invoke Pi, mutate author content, or persist credentials.
 
 The Worker owns the complete blocking retrieval operation: query embedding, sqlite-vec lookup, FTS, candidate fusion, optional reranking, and bounded provenance formatting. Electron main retains the authoritative 45-second deadline and run `AbortSignal`. Cancellation, deadline expiry, worker error, or abnormal exit terminates the Worker and yields one classified `source` failure; a stuck Worker is never trusted for a later call.
 

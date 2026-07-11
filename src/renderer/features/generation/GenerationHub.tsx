@@ -15,11 +15,31 @@ type HubRun = {
   sectionId: string;
   status: PiRunStatus;
   events: PiRunEvent[];
-  streamedDraft: string;
+  assistantMessages: AssistantMessage[];
   patch: WritingPatchRecord | null;
 };
 
-const MAX_STREAMED_DRAFT_CHARS = 40_000;
+type AssistantMessage = {
+  startSequence: number;
+  endSequence?: number;
+  text: string;
+  stopReason?: string;
+  hasToolCalls?: boolean;
+};
+
+type TimelineItem = {
+  sequence: number;
+  key: string;
+  kind: 'agent' | 'tool' | 'background' | 'result' | 'system';
+  label: string;
+  detail?: string;
+  text?: string;
+  tone: 'active' | 'complete' | 'error';
+};
+
+const MAX_ASSISTANT_MESSAGES = 12;
+const MAX_ASSISTANT_MESSAGE_CHARS = 40_000;
+const MAX_SEMANTIC_EVENTS = 120;
 
 export function GenerationHub({
   onState,
@@ -32,6 +52,7 @@ export function GenerationHub({
 }) {
   const [runs, setRuns] = useState<HubRun[]>([]);
   const [collapsed, setCollapsed] = useState(true);
+  const [pendingPatchId, setPendingPatchId] = useState<string | null>(null);
   const hubRef = useRef<HTMLElement>(null);
   const pendingEventsRef = useRef<PiRunEvent[]>([]);
   const eventFrameRef = useRef<number | null>(null);
@@ -98,35 +119,54 @@ export function GenerationHub({
   }
 
   async function apply(patch: WritingPatchRecord) {
+    setPendingPatchId(patch.id);
     try {
       const riskLevel = patch.patch.validation?.riskLevel ?? patch.riskLevel;
       if (riskLevel === 'high' && !window.confirm('This suggestion changes citations or numbers. Apply it?')) {
         return;
       }
       onState(await getApi().acceptWritingPatch({ patchId: patch.id, confirmHighRisk: riskLevel === 'high' }));
+      await refreshRunPatch(patch.id);
       onStatus('Pi proposal applied.');
     } catch (caught) {
       onError(errorMessage(caught));
+    } finally {
+      setPendingPatchId((current) => current === patch.id ? null : current);
     }
   }
 
   async function saveCopy(patch: WritingPatchRecord) {
+    setPendingPatchId(patch.id);
     try {
       onState(await getApi().saveWritingPatchAsCandidate(patch.id));
+      await refreshRunPatch(patch.id);
       onStatus('Pi proposal saved as a separate draft.');
     } catch (caught) {
       onError(errorMessage(caught));
+    } finally {
+      setPendingPatchId((current) => current === patch.id ? null : current);
     }
   }
 
   async function reject(patch: WritingPatchRecord) {
+    setPendingPatchId(patch.id);
     try {
       await getApi().rejectWritingPatch(patch.id);
-      setRuns((current) => current.map((run) => run.patch?.id === patch.id ? { ...run, patch: null } : run));
+      await refreshRunPatch(patch.id);
       onStatus('Pi proposal dismissed.');
     } catch (caught) {
       onError(errorMessage(caught));
+    } finally {
+      setPendingPatchId((current) => current === patch.id ? null : current);
     }
+  }
+
+  async function refreshRunPatch(patchId: string) {
+    const refreshedPatch = await getApi().getWritingPatch(patchId);
+    if (!refreshedPatch) {
+      return;
+    }
+    setRuns((current) => current.map((run) => run.patch?.id === patchId ? { ...run, patch: refreshedPatch } : run));
   }
 
   if (runs.length === 0) {
@@ -155,7 +195,7 @@ export function GenerationHub({
         </span>
       </button>
       {!collapsed ? <div id="generation-hub-runs" className="generation-hub-runs">
-        {runs.map((run) => <PiRunCard
+        {runs.map((run) => <PiRunLog
           key={run.runId}
           run={run}
           onCancel={() => void cancel(run.runId)}
@@ -163,19 +203,21 @@ export function GenerationHub({
           onApply={run.patch ? () => void apply(run.patch!) : undefined}
           onSaveCopy={run.patch ? () => void saveCopy(run.patch!) : undefined}
           onReject={run.patch ? () => void reject(run.patch!) : undefined}
+          actionPending={pendingPatchId === run.patch?.id}
         />)}
       </div> : null}
     </section>
   );
 }
 
-function PiRunCard({
+function PiRunLog({
   run,
   onCancel,
   onDismiss,
   onApply,
   onSaveCopy,
-  onReject
+  onReject,
+  actionPending
 }: {
   run: HubRun;
   onCancel: () => void;
@@ -183,52 +225,58 @@ function PiRunCard({
   onApply?: () => void;
   onSaveCopy?: () => void;
   onReject?: () => void;
+  actionPending: boolean;
 }) {
   const failure = latestFailure(run.events);
-  const draft = patchText(run.patch) || run.streamedDraft;
+  const proposalPreview = patchText(run.patch);
   const sourceCount = run.events.reduce((count, event) => count + (numberData(event, 'sourceCount') ?? 0), 0);
   const activeTool = activeToolName(run.events);
   const running = run.status === 'running';
+  const timeline = buildTimeline(run);
+  const archivedProposal = archivedProposalStatus(run.patch);
   const tone = failure || run.status === 'failed' || run.status === 'timed_out' || run.status === 'budget_exhausted' ? 'error' : running ? 'active' : 'ready';
-  const title = failure
-    ? 'Pi run needs attention'
-    : run.patch
-      ? 'Proposal ready for review'
-      : running
-        ? activeTool === 'source' ? 'Generating embedding and searching sources' : sourceCount > 0 ? 'Working with indexed evidence' : 'Pi agent is working'
-        : statusLabel(run.status);
-  const detail = failure?.cause ?? (activeTool === 'source'
-    ? 'RAG is running in an isolated worker; the editor and Cancel action remain available.'
-    : sourceCount > 0 ? `${sourceCount} source${sourceCount === 1 ? '' : 's'} returned to the agent.` : running ? 'Events are streamed from the main-process Pi runtime.' : 'The live run is no longer retained after this window closes.');
+  const { title, detail } = runPresentation(run, failure, activeTool, sourceCount);
 
   return (
-    <article className="generation-hub-run">
-      <div className="generation-hub-run-title">
+    <article className="generation-hub-run" data-tone={tone}>
+      <header className="generation-hub-run-header">
         <div>
-          <span>Section {run.sectionId}</span>
+          <span className="generation-hub-run-section">Section {run.sectionId}</span>
           <p>{statusLabel(run.status)}</p>
         </div>
         {running ? <Spinner /> : tone === 'error' ? <CircleAlert /> : <Check />}
-      </div>
-      <section className="generation-hub-runtime" data-tone={tone}>
-        <div className="generation-hub-runtime-title">
+      </header>
+      <div className="generation-hub-run-summary">
+        <div className="generation-hub-run-summary-title">
           {sourceCount > 0 ? <Search /> : run.patch ? <Check /> : <Sparkles />}
           <span>{title}</span>
           {running ? <Spinner /> : null}
         </div>
         <p>{detail}</p>
-        {draft ? <pre className="generation-hub-draft">{draft}</pre> : null}
-        <ol className="generation-detail-list" aria-label="Pi run activity">
-          {run.events.filter(isTimelineEvent).slice(-8).map((event) => <li key={event.sequence}>{eventLabel(event)}</li>)}
-        </ol>
-      </section>
+      </div>
+      <ol className="generation-hub-timeline" aria-label="Pi run activity">
+        {timeline.map((item) => <li key={item.key} className="generation-hub-timeline-row" data-kind={item.kind} data-tone={item.tone}>
+          <span className="generation-hub-timeline-marker" aria-hidden="true" />
+          <span className="generation-hub-timeline-kind">{activityKindLabel(item.kind)}</span>
+          <div className="generation-hub-timeline-copy">
+            <strong>{item.label}</strong>
+            {item.detail ? <span>{item.detail}</span> : null}
+            {item.text ? <pre className="generation-hub-assistant-output" aria-live="polite">{item.text}</pre> : null}
+          </div>
+        </li>)}
+      </ol>
+      {proposalPreview ? <section className="generation-hub-proposal-preview" aria-label={archivedProposal ? 'Archived proposal preview' : 'Reviewable proposal preview'}>
+        <strong>{archivedProposal ? 'Archived proposal' : 'Reviewable proposal'}</strong>
+        <pre>{proposalPreview}</pre>
+      </section> : null}
       <div className="generation-hub-actions">
         {running ? <Button variant="outline" size="sm" onClick={onCancel}><X /> Cancel</Button> : null}
-        {run.patch ? <>
-          {canApply(run.patch) ? <Button size="sm" onClick={onApply}>Apply</Button> : null}
-          <Button variant="outline" size="sm" onClick={onSaveCopy}>Save copy</Button>
-          <Button variant="outline" size="sm" onClick={onReject}><X /> Dismiss proposal</Button>
+        {run.patch && !archivedProposal ? <>
+          {canApply(run.patch) ? <Button size="sm" onClick={onApply} disabled={actionPending}>Apply</Button> : null}
+          <Button variant="outline" size="sm" onClick={onSaveCopy} disabled={actionPending}>Save copy</Button>
+          <Button variant="outline" size="sm" onClick={onReject} disabled={actionPending}><X /> Dismiss proposal</Button>
         </> : null}
+        {archivedProposal ? <span className="generation-hub-archive-status" role="status">Archived · {archivedProposal}</span> : null}
         {!running ? <Button variant="outline" size="sm" onClick={onDismiss}>Dismiss activity</Button> : null}
       </div>
     </article>
@@ -239,7 +287,7 @@ function mergeLiveRuns(current: HubRun[], liveRuns: Array<{ runId: string; secti
   const next = current.slice();
   liveRuns.forEach((run) => {
     if (!next.some((candidate) => candidate.runId === run.runId)) {
-      next.unshift({ runId: run.runId, sectionId: run.sectionId, status: 'running', events: [], streamedDraft: '', patch: null });
+      next.unshift({ runId: run.runId, sectionId: run.sectionId, status: 'running', events: [], assistantMessages: [], patch: null });
     }
   });
   return next;
@@ -249,17 +297,12 @@ function applyPiEvent(current: HubRun[], event: PiRunEvent): HubRun[] {
   const existing = current.find((run) => run.runId === event.runId);
   const sectionId = stringData(event, 'sectionId') ?? existing?.sectionId ?? 'active section';
   const status = event.type === 'run_terminal' ? statusData(event) : existing?.status ?? 'running';
-  const delta = event.type === 'message_delta' ? stringData(event, 'text') ?? '' : '';
-  const streamedDraft = `${existing?.streamedDraft ?? ''}${delta}`.slice(-MAX_STREAMED_DRAFT_CHARS);
-  const events = event.type === 'message_delta'
-    ? existing?.events ?? []
-    : [...(existing?.events ?? []), event].slice(-60);
   const nextRun: HubRun = {
     runId: event.runId,
     sectionId,
     status,
-    events,
-    streamedDraft,
+    events: mergeSemanticEvent(existing?.events ?? [], event),
+    assistantMessages: mergeAssistantMessage(existing?.assistantMessages ?? [], event),
     patch: existing?.patch ?? null
   };
   return [nextRun, ...current.filter((run) => run.runId !== event.runId)];
@@ -272,11 +315,74 @@ function statusData(event: PiRunEvent): PiRunStatus {
     : 'failed';
 }
 
-function latestFailure(events: PiRunEvent[]): { cause: string } | null {
+function mergeSemanticEvent(events: PiRunEvent[], event: PiRunEvent): PiRunEvent[] {
+  if (event.type === 'message_delta' || events.some((candidate) => candidate.sequence === event.sequence)) {
+    return events;
+  }
+  return [...events, event]
+    .sort((left, right) => left.sequence - right.sequence)
+    .slice(-MAX_SEMANTIC_EVENTS);
+}
+
+function mergeAssistantMessage(messages: AssistantMessage[], event: PiRunEvent): AssistantMessage[] {
+  if (!isAssistantEvent(event)) {
+    return messages;
+  }
+  if (event.type === 'message_start') {
+    if (messages.some((message) => message.startSequence === event.sequence)) {
+      return messages;
+    }
+    return [...messages, { startSequence: event.sequence, text: '' }]
+      .sort((left, right) => left.startSequence - right.startSequence)
+      .slice(-MAX_ASSISTANT_MESSAGES);
+  }
+  const activeIndex = findActiveAssistantMessage(messages);
+  if (event.type === 'message_delta') {
+    const text = stringData(event, 'text') ?? '';
+    if (!text || activeIndex < 0) {
+      return messages;
+    }
+    return messages.map((message, index) => index === activeIndex
+      ? { ...message, text: `${message.text}${text}`.slice(0, MAX_ASSISTANT_MESSAGE_CHARS) }
+      : message);
+  }
+  if (event.type === 'message_end' && activeIndex >= 0) {
+    return messages.map((message, index) => index === activeIndex
+      ? {
+          ...message,
+          endSequence: event.sequence,
+          stopReason: stringData(event, 'stopReason') ?? undefined,
+          hasToolCalls: booleanData(event, 'hasToolCalls') ?? false
+        }
+      : message);
+  }
+  return messages;
+}
+
+function findActiveAssistantMessage(messages: AssistantMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.endSequence === undefined) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function isAssistantEvent(event: PiRunEvent): boolean {
+  return (event.type === 'message_start' || event.type === 'message_end' || event.type === 'message_delta')
+    && stringData(event, 'role') === 'assistant';
+}
+
+function latestFailure(events: PiRunEvent[]): { category: string; cause: string; retryable: boolean } | null {
   for (const event of [...events].reverse()) {
     const failure = event.data?.failure;
     if (failure && typeof failure === 'object' && typeof (failure as { cause?: unknown }).cause === 'string') {
-      return { cause: (failure as { cause: string }).cause };
+      const candidate = failure as { category?: unknown; cause: string; retryable?: unknown };
+      return {
+        category: typeof candidate.category === 'string' ? candidate.category : 'agent_failure',
+        cause: candidate.cause,
+        retryable: candidate.retryable === true
+      };
     }
   }
   return null;
@@ -289,29 +395,185 @@ function patchText(patch: WritingPatchRecord | null): string {
 }
 
 function canApply(patch: WritingPatchRecord): boolean {
-  return patch.patch.kind !== 'create_content_candidate' && patch.patch.validation?.ok !== false && !['blocked', 'applied', 'rejected', 'saved_as_candidate'].includes(patch.patch.status);
+  return patch.patch.kind !== 'create_content_candidate' && patch.patch.validation?.ok !== false && !archivedProposalStatus(patch);
 }
 
-function eventLabel(event: PiRunEvent): string {
-  if (event.type === 'tool_execution_start') return `Started ${stringData(event, 'toolName') ?? 'tool'}.`;
+function archivedProposalStatus(patch: WritingPatchRecord | null): string | null {
+  if (!patch) {
+    return null;
+  }
+  switch (patch.patch.status) {
+    case 'applied':
+      return 'Applied';
+    case 'saved_as_candidate':
+      return 'Saved copy';
+    case 'rejected':
+      return 'Dismissed';
+    default:
+      return null;
+  }
+}
+
+function buildTimeline(run: HubRun): TimelineItem[] {
+  const semanticItems = run.events
+    .filter(isTimelineEvent)
+    .map((event) => ({
+      sequence: event.sequence,
+      key: `event-${event.sequence}`,
+      ...eventPresentation(event)
+    }));
+  const assistantItems = run.assistantMessages
+    .filter((message) => message.endSequence !== undefined && !message.hasToolCalls && message.stopReason !== 'error' && message.stopReason !== 'aborted' && Boolean(message.text.trim()))
+    .map((message) => assistantMessagePresentation(message));
+  return [...semanticItems, ...assistantItems].sort((left, right) => left.sequence - right.sequence);
+}
+
+function eventPresentation(event: PiRunEvent): Omit<TimelineItem, 'sequence' | 'key'> {
+  if (event.type === 'run_started') {
+    return { kind: 'system', label: 'Pi run started', detail: 'The task is scoped to this section and uses bounded tools.', tone: 'active' };
+  }
+  if (event.type === 'agent_start') {
+    return { kind: 'agent', label: 'Agent started', detail: 'Preparing the first bounded turn.', tone: 'active' };
+  }
+  if (event.type === 'agent_end') {
+    return { kind: 'agent', label: 'Agent finished', detail: 'No more agent turns will be started for this run.', tone: 'complete' };
+  }
+  if (event.type === 'turn_start') {
+    return { kind: 'agent', label: 'Agent turn started', detail: 'Assessing the next safe action.', tone: 'active' };
+  }
+  if (event.type === 'turn_end') {
+    return { kind: 'agent', label: 'Agent turn completed', tone: 'complete' };
+  }
+  if (event.type === 'message_start') {
+    return { kind: 'agent', label: 'Preparing the next action', detail: 'The UI shows tool and lifecycle progress, not private reasoning.', tone: 'active' };
+  }
+  if (event.type === 'message_end') {
+    const hasToolCalls = booleanData(event, 'hasToolCalls');
+    const stopReason = stringData(event, 'stopReason');
+    if (hasToolCalls) {
+      return { kind: 'agent', label: 'Selected a writing tool', detail: 'The next activity row identifies the allowlisted tool.', tone: 'complete' };
+    }
+    if (stopReason === 'error' || stopReason === 'aborted') {
+      return { kind: 'result', label: 'Assistant response stopped', tone: 'error' };
+    }
+    return { kind: 'result', label: 'Assistant response completed', tone: 'complete' };
+  }
+  if (event.type === 'tool_execution_start') {
+    const toolName = stringData(event, 'toolName');
+    return {
+      kind: isBackgroundTool(toolName) ? 'background' : 'tool',
+      label: `Started ${toolLabel(toolName)}`,
+      detail: isBackgroundTool(toolName) ? 'Running outside the Electron main loop so the editor remains responsive.' : undefined,
+      tone: 'active'
+    };
+  }
   if (event.type === 'tool_execution_end') {
     const refs = Array.isArray(event.data?.publicRefs)
       ? event.data.publicRefs.filter((value): value is string => typeof value === 'string').join(', ')
       : '';
-    return `${stringData(event, 'toolName') ?? 'Tool'} ${stringData(event, 'status') === 'error' ? 'reported an error.' : refs ? `completed: ${refs}.` : 'completed.'}`;
+    const failure = event.data?.failure;
+    const cause = failure && typeof failure === 'object' && typeof (failure as { cause?: unknown }).cause === 'string'
+      ? (failure as { cause: string }).cause
+      : null;
+    const toolName = stringData(event, 'toolName');
+    const kind = isBackgroundTool(toolName) ? 'background' : 'tool';
+    return stringData(event, 'status') === 'error'
+      ? { kind, label: `${toolLabel(toolName)} reported an error`, detail: cause ?? undefined, tone: 'error' }
+      : { kind, label: `${toolLabel(toolName)} completed`, detail: refs ? `Evidence: ${refs}` : undefined, tone: 'complete' };
   }
-  if (event.type === 'turn_start') return 'Started an agent turn.';
-  if (event.type === 'turn_end') return 'Completed an agent turn.';
-  if (event.type === 'run_terminal') return `Run ${statusData(event).replace(/_/g, ' ')}.`;
-  return event.type.replace(/_/g, ' ');
+  if (event.type === 'run_terminal') {
+    return { kind: 'result', label: `Run ${statusLabel(statusData(event)).toLowerCase()}`, tone: statusData(event) === 'succeeded' ? 'complete' : 'error' };
+  }
+  return { kind: 'system', label: event.type.replace(/_/g, ' '), tone: 'complete' };
 }
 
 function isTimelineEvent(event: PiRunEvent): boolean {
-  return event.type === 'tool_execution_start'
-    || event.type === 'tool_execution_end'
-    || event.type === 'turn_start'
-    || event.type === 'turn_end'
-    || event.type === 'run_terminal';
+  return event.type !== 'message_delta';
+}
+
+function assistantMessagePresentation(message: AssistantMessage): TimelineItem {
+  return {
+    sequence: message.endSequence ?? message.startSequence,
+    key: `assistant-${message.startSequence}`,
+    kind: 'result',
+    label: 'Assistant response',
+    detail: 'User-facing response',
+    text: message.text,
+    tone: 'complete'
+  };
+}
+
+function runPresentation(
+  run: HubRun,
+  failure: ReturnType<typeof latestFailure>,
+  activeTool: string | null,
+  sourceCount: number
+): { title: string; detail: string } {
+  if (run.status === 'timed_out') {
+    return {
+      title: run.patch ? 'Run timed out after creating a proposal' : 'Run timed out before a proposal was ready',
+      detail: 'The 120-second run limit ended this work. No document content was changed.'
+    };
+  }
+  if (run.status === 'budget_exhausted') {
+    return {
+      title: 'Run reached its turn budget',
+      detail: 'The bounded agent run stopped before it could take another turn. No document content was changed.'
+    };
+  }
+  if (run.status === 'canceled') {
+    return { title: 'Run canceled', detail: 'The run stopped safely. No document content was changed.' };
+  }
+  if (run.status === 'failed') {
+    return { title: 'Pi run needs attention', detail: failure?.cause ?? 'The run stopped before a proposal was ready. No document content was changed.' };
+  }
+  if (failure) {
+    return { title: 'Run completed with an issue', detail: failure.cause };
+  }
+  const archivedProposal = archivedProposalStatus(run.patch);
+  if (archivedProposal) {
+    return { title: 'Proposal archived', detail: `Author decision recorded: ${archivedProposal.toLowerCase()}.` };
+  }
+  if (run.patch) {
+    return { title: 'Proposal ready for review', detail: 'Review the patch before applying, saving, or dismissing it.' };
+  }
+  if (activeTool === 'source') {
+    return { title: 'Generating embedding and searching sources', detail: 'RAG is running in an isolated worker; the editor and Cancel action remain available.' };
+  }
+  if (sourceCount > 0) {
+    return { title: 'Working with indexed evidence', detail: `${sourceCount} source${sourceCount === 1 ? '' : 's'} returned to the agent.` };
+  }
+  return run.status === 'running'
+    ? { title: 'Pi agent is working', detail: 'Activity appears below in the order it executes.' }
+    : { title: statusLabel(run.status), detail: 'The live run is no longer retained after this window closes.' };
+}
+
+function toolLabel(toolName: string | null): string {
+  switch (toolName) {
+    case 'get_article_context': return 'article context read';
+    case 'read_section_snapshot': return 'section snapshot read';
+    case 'source': return 'indexed-source search';
+    case 'resolve_citation': return 'citation resolution';
+    case 'inspect_citation_coverage': return 'citation coverage inspection';
+    case 'propose_patch': return 'reviewable patch proposal';
+    default: return 'writing tool';
+  }
+}
+
+function isBackgroundTool(toolName: string | null): boolean {
+  return toolName === 'source';
+}
+
+function activityKindLabel(kind: TimelineItem['kind']): string {
+  return kind === 'agent'
+    ? 'AGENT'
+    : kind === 'tool'
+      ? 'TOOL'
+      : kind === 'background'
+        ? 'BACKGROUND'
+        : kind === 'result'
+          ? 'RESULT'
+          : 'SYSTEM';
 }
 
 function activeToolName(events: PiRunEvent[]): string | null {
@@ -340,6 +602,10 @@ function stringData(event: PiRunEvent, key: string): string | null {
 
 function numberData(event: PiRunEvent, key: string): number | null {
   return typeof event.data?.[key] === 'number' ? event.data[key] as number : null;
+}
+
+function booleanData(event: PiRunEvent, key: string): boolean | null {
+  return typeof event.data?.[key] === 'boolean' ? event.data[key] as boolean : null;
 }
 
 function errorMessage(caught: unknown): string {

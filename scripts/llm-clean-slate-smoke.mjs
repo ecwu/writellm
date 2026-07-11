@@ -45,9 +45,19 @@ try {
   original.db.exec('CREATE TABLE IF NOT EXISTS knowledge_chunk_vectors_d2 (embedding BLOB, chunk_id TEXT);');
   original.db.prepare('INSERT INTO knowledge_chunk_vectors_d2 (embedding, chunk_id) VALUES (?, ?)').run(Buffer.from([1, 2]), 'chunk-1');
   original.db.prepare(`
-    INSERT INTO nodes (id, kind, title, metadata_json, sort_order, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run('section-1', 'section', 'Author section', JSON.stringify({ llmOperations: [{ operationId: 'old-run' }], keep: 'author metadata' }), 1, now, now);
+    INSERT INTO nodes (id, kind, title, content, markdown_path, metadata_json, sort_order, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'section-1',
+    'section',
+    'Author section',
+    'Stored fallback',
+    'sections/section-1.md',
+    JSON.stringify({ llmOperations: [{ operationId: 'old-run' }], keep: 'author metadata' }),
+    1,
+    now,
+    now
+  );
   original.db.prepare('INSERT INTO llm_generation_sessions (id, section_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
     .run('session-1', 'section-1', 'Legacy run', now, now);
   original.db.prepare(`
@@ -62,9 +72,12 @@ try {
     INSERT INTO generation_citations (id, generation_node_id, knowledge_item_id, knowledge_chunk_id, label, snippet, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run('citation-1', 'section-1', 'item-1', 'chunk-1', 'Legacy citation', 'Indexed source body', now);
-  writeFileSync(path.join(workspacePath, 'sections', 'author.md'), '# Author Markdown\n', 'utf8');
+  mkdirSync(path.join(workspacePath, 'sections'), { recursive: true });
+  writeFileSync(path.join(workspacePath, 'sections', 'section-1.md'), 'Author Markdown\n', 'utf8');
   mkdirSync(path.join(workspacePath, 'metadata', 'sections'), { recursive: true });
   writeFileSync(path.join(workspacePath, 'metadata', 'sections', 'section-1.llm.json'), '{"llmOperations":["legacy"]}\n', 'utf8');
+  original.db.prepare('DELETE FROM document_blocks').run();
+  original.db.prepare('DELETE FROM document_metadata').run();
   original.db.pragma('user_version = 17');
   original.close();
 
@@ -81,8 +94,15 @@ try {
   if (metadataRow.metadataJson !== JSON.stringify({ keep: 'author metadata' })) {
     throw new Error('Legacy LLM operations were not removed from section metadata.');
   }
-  if (!existsSync(path.join(workspacePath, 'sections', 'author.md'))) {
+  if (!existsSync(path.join(workspacePath, 'sections', 'section-1.md'))) {
     throw new Error('Author Markdown was removed during clean-slate migration.');
+  }
+  const migratedSection = migrated.getSection('section-1');
+  if (
+    migratedSection?.markdownContent !== 'Author Markdown\n' ||
+    migrated.listDocumentBlocks('section-1').length !== 1
+  ) {
+    throw new Error('Legacy section Markdown was not migrated into the block document.');
   }
   if (existsSync(path.join(workspacePath, 'metadata', 'sections', 'section-1.llm.json'))) {
     throw new Error('Legacy LLM sidecar survived clean-slate migration.');

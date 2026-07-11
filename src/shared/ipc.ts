@@ -6,6 +6,8 @@ import type {
   CreateKnowledgeItemPayload,
   CreateGenerationTaskPayload,
   CreateGenerationTaskResult,
+  CreateDocumentBlockPayload,
+  DocumentBlockRecord,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
@@ -34,6 +36,7 @@ import type {
   UpdateKnowledgeItemPayload,
   UpdateLlmSettingsPayload,
   UpdateNodePayload,
+  UpdateDocumentBlockPayload,
   UpdateProjectBriefPayload,
   WorkspaceSummary,
   WritingPatchRecord
@@ -48,6 +51,9 @@ export const ipcChannels = {
   pickKnowledgeFiles: 'writellm:pickKnowledgeFiles',
   getState: 'writellm:getState',
   updateSectionMarkdown: 'writellm:updateSectionMarkdown',
+  createDocumentBlock: 'writellm:createDocumentBlock',
+  updateDocumentBlock: 'writellm:updateDocumentBlock',
+  deleteDocumentBlock: 'writellm:deleteDocumentBlock',
   getGitStatus: 'writellm:getGitStatus',
   createGitCheckpoint: 'writellm:createGitCheckpoint',
   listGitHistory: 'writellm:listGitHistory',
@@ -111,6 +117,9 @@ export type WriteLLMIpc = {
   pickKnowledgeFiles(): Promise<string[]>;
   getState(focusSectionId?: string): Promise<FocusedWorkspaceState>;
   updateSectionMarkdown(sectionId: string, markdown: string): Promise<FocusedWorkspaceState>;
+  createDocumentBlock(payload: CreateDocumentBlockPayload): Promise<FocusedWorkspaceState>;
+  updateDocumentBlock(blockId: string, payload: UpdateDocumentBlockPayload): Promise<FocusedWorkspaceState>;
+  deleteDocumentBlock(blockId: string): Promise<FocusedWorkspaceState>;
   getGitStatus(): Promise<GitStatusRecord>;
   createGitCheckpoint(message?: string): Promise<GitHistoryRecord | null>;
   listGitHistory(sectionId?: string): Promise<GitHistoryRecord[]>;

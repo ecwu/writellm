@@ -2,10 +2,12 @@ import Database from 'better-sqlite3';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import path from 'node:path';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import {
   generationCitations,
+  documentBlocks,
+  documentMetadata,
   knowledgeChunks,
   knowledgeItems,
   llmGenerationRounds,
@@ -23,6 +25,7 @@ import {
   type LlmGenerationSessionRow,
   type NodeEdgeRow,
   type NodeRow,
+  type DocumentBlockRow,
   type PlainjobJobRow,
   type ProjectBriefRow,
   type WritingPatchRow
@@ -31,18 +34,25 @@ import { createId, createShortRef, nowIso } from './ids.js';
 import { citationGroupsFromText, citationRefsFromText } from '../shared/citations.js';
 import {
   defaultSectionMarkdown,
-  ensureSectionsDirectory,
   hashMarkdown,
-  readSectionMarkdownFile,
-  sectionMarkdownForStorage,
   sectionMarkdownPath,
-  writeSectionMarkdownFile
+  readSectionMarkdownFile,
+  sectionMarkdownForStorage
 } from './sectionMarkdown.js';
+import {
+  blocksFromMarkdown,
+  compareDocumentBlockOrder,
+  markdownFromBlocks,
+  type BlockDocumentSnapshot
+} from '../shared/documentBlocks.js';
 import type {
   CitationCoverageReport,
   CompositionTreeNode,
   ContentNodeRecord,
+  CreateDocumentBlockPayload,
   CreateNodePayload,
+  DocumentBlockRecord,
+  DocumentBlockKind,
   EdgeKind,
   FocusedWorkspaceState,
   GenerationMode,
@@ -73,6 +83,7 @@ import type {
   KnowledgeRetrievalTraceEvent,
   SectionNodeRecord,
   UpdateNodePayload,
+  UpdateDocumentBlockPayload,
   WorkspaceSummary,
   WritingPatch,
   WritingPatchKind,
@@ -80,10 +91,11 @@ import type {
   WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
-const SECTION_METADATA_DIR = 'metadata/sections';
+const BLOCK_DOCUMENT_MIGRATION_KEY = 'block-document-v1';
+const BLOCK_DOCUMENT_SNAPSHOT_FILE = 'document.json';
 const PROJECT_BRIEF_ID = 'project';
 const LLM_OPERATION_COVERAGE_THRESHOLD = 0.4;
 const PLAINJOB_STATUS_PENDING = 0;
@@ -166,7 +178,6 @@ export class WriteLLMDatabase {
       mkdirSync(path.join(workspacePath, 'snapshots'), { recursive: true });
       mkdirSync(path.join(workspacePath, 'cache'), { recursive: true });
       mkdirSync(path.join(workspacePath, 'logs'), { recursive: true });
-      ensureSectionsDirectory(workspacePath);
     }
     this.db = new Database(path.join(workspacePath, 'project.sqlite'));
     this.orm = drizzle(this.db, { schema });
@@ -180,7 +191,7 @@ export class WriteLLMDatabase {
     this.backfillMineruMarkdownContent();
     this.rebuildKnowledgeChunksFts();
     this.rootNodeId = this.ensureRootSection();
-    this.reconcileSectionMarkdownFiles();
+    this.migrateLegacySectionsToBlockDocument();
     this.writeManifest();
   }
 
@@ -206,7 +217,7 @@ export class WriteLLMDatabase {
 
   createNode(payload: CreateNodePayload): NodeRecord {
     if (payload.kind === 'section') {
-      return this.createSection(payload.parentId, payload.title, payload.intent);
+      return this.createSection(payload.parentId, payload.title, payload.intent, payload.description);
     }
 
     return this.createContent(payload);
@@ -222,6 +233,7 @@ export class WriteLLMDatabase {
     if (node.kind === 'section') {
       const title = payload.title?.trim() || node.title;
       const intent = 'intent' in payload ? payload.intent ?? null : node.intent;
+      const description = 'description' in payload ? payload.description ?? null : node.description;
       const activeMainNodeId =
         'activeMainNodeId' in payload ? payload.activeMainNodeId ?? null : node.activeMainNodeId;
       const markdownContent = 'markdownContent' in payload ? payload.markdownContent : undefined;
@@ -230,7 +242,7 @@ export class WriteLLMDatabase {
       }
       this.orm
         .update(nodes)
-        .set({ title, intent, activeMainNodeId, updatedAt: timestamp })
+        .set({ title, intent, description, activeMainNodeId, updatedAt: timestamp })
         .where(and(eq(nodes.id, nodeId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
         .run();
       if (typeof markdownContent === 'string') {
@@ -265,23 +277,128 @@ export class WriteLLMDatabase {
     if (!section) {
       throw new Error(`Section not found: ${sectionId}`);
     }
-    const markdownPath = section.markdownPath || sectionMarkdownPath(sectionId);
-    const normalizedMarkdown = sectionMarkdownForStorage(markdown);
-    writeSectionMarkdownFile(this.workspacePath, markdownPath, normalizedMarkdown);
+    const normalizedMarkdown = sectionMarkdownForStorage(normalizeDocumentMarkdown(markdown));
+    const existingBlocks = this.listDocumentBlocks(sectionId);
+    const nextBlocks = blocksFromMarkdown(normalizedMarkdown);
     const markdownHash = hashMarkdown(normalizedMarkdown);
-    this.orm
-      .update(nodes)
-      .set({
-        content: normalizedMarkdown,
-        markdownPath,
-        markdownHash,
-        updatedAt: nowIso()
-      })
-      .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
-      .run();
+    const timestamp = nowIso();
+    this.orm.transaction(() => {
+      this.orm.delete(documentBlocks).where(eq(documentBlocks.sectionId, sectionId)).run();
+      nextBlocks.forEach((block, index) => {
+        const matched = existingBlocks.find((existing) =>
+          existing.kind === block.kind &&
+          existing.content === block.content &&
+          JSON.stringify(existing.attributes) === JSON.stringify(block.attributes)
+        );
+        this.orm.insert(documentBlocks).values({
+          id: matched?.id ?? createId('blk'),
+          sectionId,
+          parentId: null,
+          kind: block.kind,
+          content: block.content,
+          attributesJson: JSON.stringify(block.attributes),
+          sortOrder: index,
+          createdAt: matched?.createdAt ?? timestamp,
+          updatedAt: timestamp
+        }).run();
+      });
+      this.orm
+        .update(nodes)
+        .set({ content: null, markdownPath: null, markdownHash: markdownHash, updatedAt: timestamp })
+        .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+        .run();
+    });
     this.refreshSectionLlmOperationStatuses(sectionId, normalizedMarkdown, markdownHash);
     this.writeManifest();
     return this.getSection(sectionId)!;
+  }
+
+  listDocumentBlocks(sectionId?: string): DocumentBlockRecord[] {
+    return this.orm
+      .select()
+      .from(documentBlocks)
+      .where(sectionId ? eq(documentBlocks.sectionId, sectionId) : undefined)
+      .orderBy(asc(documentBlocks.sortOrder), asc(documentBlocks.createdAt))
+      .all()
+      .map(mapDocumentBlock);
+  }
+
+  createDocumentBlock(payload: CreateDocumentBlockPayload): DocumentBlockRecord {
+    if (!this.getSection(payload.sectionId)) {
+      throw new Error(`Logical section not found: ${payload.sectionId}`);
+    }
+    const siblings = this.listDocumentBlocks(payload.sectionId).filter((block) => block.parentId === null);
+    const afterIndex = payload.afterBlockId
+      ? siblings.findIndex((block) => block.id === payload.afterBlockId)
+      : siblings.length - 1;
+    if (payload.afterBlockId && afterIndex < 0) {
+      throw new Error(`Block not found in logical section: ${payload.afterBlockId}`);
+    }
+    const timestamp = nowIso();
+    const block: DocumentBlockRecord = {
+      id: createId('blk'),
+      sectionId: payload.sectionId,
+      parentId: null,
+      kind: payload.kind ?? 'paragraph',
+      content: payload.content ?? '',
+      attributes: payload.attributes ?? (siblings.length === 0 ? {} : { leadingNewlines: '\n\n' }),
+      sortOrder: afterIndex + 1,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    this.orm.transaction(() => {
+      const next = [...siblings];
+      next.splice(block.sortOrder, 0, block);
+      this.rewriteDocumentBlockOrder(next, timestamp);
+      this.touchLogicalSection(payload.sectionId, timestamp);
+    });
+    this.writeManifest();
+    return this.getDocumentBlock(block.id)!;
+  }
+
+  updateDocumentBlock(blockId: string, payload: UpdateDocumentBlockPayload): DocumentBlockRecord {
+    const existing = this.getDocumentBlock(blockId);
+    if (!existing) {
+      throw new Error(`Document block not found: ${blockId}`);
+    }
+    const timestamp = nowIso();
+    this.orm
+      .update(documentBlocks)
+      .set({
+        kind: payload.kind ?? existing.kind,
+        content: 'content' in payload ? payload.content ?? '' : existing.content,
+        attributesJson: JSON.stringify('attributes' in payload ? payload.attributes ?? {} : existing.attributes),
+        updatedAt: timestamp
+      })
+      .where(eq(documentBlocks.id, blockId))
+      .run();
+    this.touchLogicalSection(existing.sectionId, timestamp);
+    this.writeManifest();
+    return this.getDocumentBlock(blockId)!;
+  }
+
+  deleteDocumentBlock(blockId: string): void {
+    const existing = this.getDocumentBlock(blockId);
+    if (!existing) {
+      throw new Error(`Document block not found: ${blockId}`);
+    }
+    const timestamp = nowIso();
+    this.orm.transaction(() => {
+      this.orm.delete(documentBlocks).where(eq(documentBlocks.id, blockId)).run();
+      const remaining = this.listDocumentBlocks(existing.sectionId).filter((block) => block.parentId === null);
+      this.rewriteDocumentBlockOrder(remaining, timestamp);
+      this.touchLogicalSection(existing.sectionId, timestamp);
+    });
+    this.writeManifest();
+  }
+
+  getDocumentBlock(blockId: string): DocumentBlockRecord | null {
+    const row = this.orm
+      .select()
+      .from(documentBlocks)
+      .where(eq(documentBlocks.id, blockId))
+      .get();
+    return row ? mapDocumentBlock(row) : null;
   }
 
   upsertSectionLlmOperation(sectionId: string, operation: LlmOperationRecord): SectionNodeRecord {
@@ -322,6 +439,9 @@ export class WriteLLMDatabase {
       tx.update(nodes)
         .set({ activeMainNodeId: null, updatedAt: timestamp })
         .where(and(inArray(nodes.activeMainNodeId, nodeIds), isNull(nodes.deletedAt)))
+        .run();
+      tx.delete(documentBlocks)
+        .where(inArray(documentBlocks.sectionId, nodeIds))
         .run();
       tx.update(nodeEdges)
         .set({ deletedAt: timestamp })
@@ -1204,7 +1324,7 @@ export class WriteLLMDatabase {
       .from(nodes)
       .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
       .all()
-      .map(mapNode)
+      .map((row) => this.hydrateNode(row))
       .filter((node): node is SectionNodeRecord => node.kind === 'section');
     const sourceRows = this.orm
       .select({
@@ -1573,6 +1693,7 @@ export class WriteLLMDatabase {
       compositionTree: this.buildCompositionTree(),
       focusSectionId: focusId,
       nodes,
+      documentBlocks: this.listDocumentBlocks(),
       visibleNodes,
       contextNodes: nodes.filter(
         (node): node is ContentNodeRecord =>
@@ -1594,7 +1715,7 @@ export class WriteLLMDatabase {
       .where(isNull(nodes.deletedAt))
       .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
       .all()
-      .map((row) => this.attachSectionCitationSources(mapNode(row)));
+      .map((row) => this.attachSectionCitationSources(this.hydrateNode(row)));
   }
 
   listSectionsForContext(): SectionNodeRecord[] {
@@ -1604,7 +1725,7 @@ export class WriteLLMDatabase {
       .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
       .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
       .all()
-      .map(mapNode)
+      .map((row) => this.hydrateNode(row))
       .filter((node): node is SectionNodeRecord => node.kind === 'section');
   }
 
@@ -1648,7 +1769,7 @@ export class WriteLLMDatabase {
       .from(nodes)
       .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
       .get();
-    return row ? mapNode(row) : null;
+    return row ? this.hydrateNode(row) : null;
   }
 
   getSection(sectionId: string): SectionNodeRecord | null {
@@ -1657,6 +1778,19 @@ export class WriteLLMDatabase {
       return null;
     }
     return this.attachSectionCitationSources(node) as SectionNodeRecord;
+  }
+
+  private hydrateNode(row: NodeRow): NodeRecord {
+    const node = mapNode(row);
+    if (node.kind !== 'section') {
+      return node;
+    }
+    const markdownContent = markdownFromBlocks(this.listDocumentBlocks(node.id));
+    return {
+      ...node,
+      markdownContent,
+      markdownHash: hashMarkdown(markdownContent)
+    };
   }
 
   private migrate(): void {
@@ -1669,6 +1803,7 @@ export class WriteLLMDatabase {
         parent_id TEXT,
         title TEXT NOT NULL,
         intent TEXT,
+        description TEXT,
         active_main_node_id TEXT,
         content TEXT,
         markdown_path TEXT,
@@ -1684,6 +1819,27 @@ export class WriteLLMDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_nodes_parent_kind_order
       ON nodes(parent_id, kind, sort_order);
+
+      CREATE TABLE IF NOT EXISTS document_blocks (
+        id TEXT PRIMARY KEY,
+        section_id TEXT NOT NULL,
+        parent_id TEXT,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        attributes_json TEXT NOT NULL DEFAULT '{}',
+        sort_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_document_blocks_section_parent_order
+      ON document_blocks(section_id, parent_id, sort_order);
+
+      CREATE TABLE IF NOT EXISTS document_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
 
       CREATE TABLE IF NOT EXISTS node_edges (
         id TEXT PRIMARY KEY,
@@ -1863,6 +2019,7 @@ export class WriteLLMDatabase {
     this.addColumnIfMissing('generation_citations', 'public_ref', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_path', 'TEXT');
     this.addColumnIfMissing('nodes', 'markdown_hash', 'TEXT');
+    this.addColumnIfMissing('nodes', 'description', 'TEXT');
     this.addColumnIfMissing('llm_generation_rounds', 'output_mode', "TEXT NOT NULL DEFAULT 'patchProposal'");
     this.addColumnIfMissing('llm_generation_rounds', 'patch_id', 'TEXT');
     this.addColumnIfMissing('llm_generation_rounds', 'started_at', 'TEXT');
@@ -2108,7 +2265,90 @@ export class WriteLLMDatabase {
           .run();
       }
     });
-    rmSync(path.join(this.workspacePath, SECTION_METADATA_DIR), { recursive: true, force: true });
+    rmSync(path.join(this.workspacePath, 'metadata', 'sections'), { recursive: true, force: true });
+  }
+
+  private migrateLegacySectionsToBlockDocument(): void {
+    const marker = this.orm
+      .select({ value: documentMetadata.value })
+      .from(documentMetadata)
+      .where(eq(documentMetadata.key, BLOCK_DOCUMENT_MIGRATION_KEY))
+      .get();
+    if (marker) {
+      return;
+    }
+
+    const sectionRows = this.orm
+      .select()
+      .from(nodes)
+      .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
+      .all();
+    const hasLegacyStorage = sectionRows.some((section) =>
+      Boolean(section.content || section.markdownPath || section.markdownHash)
+    );
+
+    if (hasLegacyStorage) {
+      this.createPreBlockMigrationSnapshot();
+    }
+
+    const timestamp = nowIso();
+    this.orm.transaction(() => {
+      for (const section of sectionRows) {
+        const legacyMarkdown = this.readLegacySectionMarkdown(section);
+        const blocks = blocksFromMarkdown(legacyMarkdown);
+        this.orm.delete(documentBlocks).where(eq(documentBlocks.sectionId, section.id)).run();
+        blocks.forEach((block, index) => {
+          this.orm.insert(documentBlocks).values({
+            id: createId('blk'),
+            sectionId: section.id,
+            parentId: null,
+            kind: block.kind,
+            content: block.content,
+            attributesJson: JSON.stringify(block.attributes),
+            sortOrder: index,
+            createdAt: timestamp,
+            updatedAt: timestamp
+          }).run();
+        });
+        this.orm
+          .update(nodes)
+          .set({ content: null, markdownPath: null, markdownHash: null, updatedAt: timestamp })
+          .where(eq(nodes.id, section.id))
+          .run();
+      }
+      this.orm.insert(documentMetadata).values({
+        key: BLOCK_DOCUMENT_MIGRATION_KEY,
+        value: 'complete',
+        updatedAt: timestamp
+      }).onConflictDoUpdate({
+        target: documentMetadata.key,
+        set: { value: 'complete', updatedAt: timestamp }
+      }).run();
+    });
+  }
+
+  private readLegacySectionMarkdown(section: NodeRow): string {
+    const relativePath = section.markdownPath ?? sectionMarkdownPath(section.id);
+    try {
+      const fileContent = readSectionMarkdownFile(this.workspacePath, relativePath);
+      if (fileContent !== null) {
+        return normalizeDocumentMarkdown(fileContent);
+      }
+    } catch {
+      // Invalid legacy paths must never redirect the migration outside the workspace.
+    }
+    return normalizeDocumentMarkdown(section.content ?? defaultSectionMarkdown());
+  }
+
+  private createPreBlockMigrationSnapshot(): void {
+    const snapshotsDir = path.join(this.workspacePath, 'snapshots');
+    mkdirSync(snapshotsDir, { recursive: true });
+    this.db.pragma('wal_checkpoint(FULL)');
+    const destination = path.join(snapshotsDir, 'pre-block-document-migration.sqlite');
+    if (!existsSync(destination)) {
+      copyFileSync(path.join(this.workspacePath, 'project.sqlite'), destination);
+    }
   }
 
   private createUniqueKnowledgeItemPublicRef(): string {
@@ -2141,27 +2381,22 @@ export class WriteLLMDatabase {
 
     const id = createId('sec');
     const timestamp = nowIso();
-    const markdownPath = sectionMarkdownPath(id);
-    const markdownContent = defaultSectionMarkdown();
     this.orm.insert(nodes).values({
       id,
       kind: 'section',
       parentId: null,
       title: 'Paper',
       intent: 'Document root',
+      description: 'The logical root of this document.',
       activeMainNodeId: null,
-      content: markdownContent,
-      markdownPath,
-      markdownHash: hashMarkdown(markdownContent),
       sortOrder: 0,
       createdAt: timestamp,
       updatedAt: timestamp
     }).run();
-    writeSectionMarkdownFile(this.workspacePath, markdownPath, markdownContent);
     return id;
   }
 
-  private createSection(parentId: string | null, title: string, intent?: string): SectionNodeRecord {
+  private createSection(parentId: string | null, title: string, intent?: string, description?: string): SectionNodeRecord {
     if (parentId && !this.getSection(parentId)) {
       throw new Error(`Parent section not found: ${parentId}`);
     }
@@ -2169,23 +2404,18 @@ export class WriteLLMDatabase {
     const timestamp = nowIso();
     const sortOrder = this.nextSiblingOrder(parentId, 'section');
     const resolvedTitle = title.trim() || 'New section';
-    const markdownPath = sectionMarkdownPath(id);
-    const markdownContent = defaultSectionMarkdown();
     this.orm.insert(nodes).values({
       id,
       kind: 'section',
       parentId,
       title: resolvedTitle,
       intent: intent ?? null,
+      description: description ?? null,
       activeMainNodeId: null,
-      content: markdownContent,
-      markdownPath,
-      markdownHash: hashMarkdown(markdownContent),
       sortOrder,
       createdAt: timestamp,
       updatedAt: timestamp
     }).run();
-    writeSectionMarkdownFile(this.workspacePath, markdownPath, markdownContent);
     this.writeManifest();
     return this.getSection(id)!;
   }
@@ -2254,37 +2484,6 @@ export class WriteLLMDatabase {
     return (byParent.get(null) ?? []).map(build);
   }
 
-  private reconcileSectionMarkdownFiles(): void {
-    const sections = this.listNodes().filter((node): node is SectionNodeRecord => node.kind === 'section');
-    for (const section of sections) {
-      const markdownPath = section.markdownPath || sectionMarkdownPath(section.id);
-      const fileContent = readSectionMarkdownFile(this.workspacePath, markdownPath);
-      const storedContent = section.markdownContent || defaultSectionMarkdown();
-      const nextContent = sectionMarkdownForStorage(fileContent ?? storedContent);
-      const nextHash = hashMarkdown(nextContent);
-      if (fileContent === null || fileContent !== nextContent) {
-        writeSectionMarkdownFile(this.workspacePath, markdownPath, nextContent);
-      }
-      if (
-        section.markdownPath !== markdownPath ||
-        section.markdownContent !== nextContent ||
-        section.markdownHash !== nextHash
-      ) {
-        this.orm
-          .update(nodes)
-          .set({
-            content: nextContent,
-            markdownPath,
-            markdownHash: nextHash,
-            updatedAt: nowIso()
-          })
-          .where(and(eq(nodes.id, section.id), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
-          .run();
-        this.refreshSectionLlmOperationStatuses(section.id, nextContent, nextHash);
-      }
-    }
-  }
-
   private refreshSectionLlmOperationStatuses(
     sectionId: string,
     markdownContent: string,
@@ -2321,7 +2520,6 @@ export class WriteLLMDatabase {
       .set({ metadataJson: JSON.stringify(metadata), updatedAt: timestamp })
       .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
       .run();
-    writeSectionLlmMetadataSidecar(this.workspacePath, sectionId, section.markdownPath, metadata);
     this.writeManifest();
   }
 
@@ -2334,19 +2532,51 @@ export class WriteLLMDatabase {
         parentId: section.parentId,
         title: section.title,
         intent: section.intent,
+        description: section.description,
         sortOrder: section.sortOrder,
-        markdownPath: section.markdownPath,
         markdownHash: section.markdownHash,
+        blockCount: this.listDocumentBlocks(section.id).length,
         updatedAt: section.updatedAt
       }));
     const manifest = {
-      version: 1,
+      version: 2,
       rootNodeId: this.rootNodeId,
+      blockDocumentPath: BLOCK_DOCUMENT_SNAPSHOT_FILE,
       sections
     };
     writeFileSync(
       path.join(this.workspacePath, '.writellm-manifest.json'),
       `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8'
+    );
+    this.writeBlockDocumentSnapshot();
+  }
+
+  private writeBlockDocumentSnapshot(): void {
+    const sections = this.orm
+      .select()
+      .from(nodes)
+      .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .orderBy(asc(nodes.sortOrder), asc(nodes.createdAt))
+      .all()
+      .map((section) => ({
+        id: section.id,
+        parentId: section.parentId,
+        title: section.title,
+        intent: section.intent,
+        description: section.description,
+        sortOrder: section.sortOrder,
+        createdAt: section.createdAt,
+        updatedAt: section.updatedAt
+      }));
+    const snapshot: BlockDocumentSnapshot = {
+      version: 1,
+      sections,
+      blocks: this.listDocumentBlocks()
+    };
+    writeFileSync(
+      path.join(this.workspacePath, BLOCK_DOCUMENT_SNAPSHOT_FILE),
+      `${JSON.stringify(snapshot, null, 2)}\n`,
       'utf8'
     );
   }
@@ -2411,6 +2641,37 @@ export class WriteLLMDatabase {
     siblings.forEach((node, sortOrder) => {
       this.orm.update(nodes).set({ sortOrder, updatedAt: timestamp }).where(eq(nodes.id, node.id)).run();
     });
+  }
+
+  private rewriteDocumentBlockOrder(blocks: DocumentBlockRecord[], timestamp: string): void {
+    blocks.forEach((block, sortOrder) => {
+      this.orm
+        .insert(documentBlocks)
+        .values({
+          id: block.id,
+          sectionId: block.sectionId,
+          parentId: block.parentId,
+          kind: block.kind,
+          content: block.content,
+          attributesJson: JSON.stringify(block.attributes),
+          sortOrder,
+          createdAt: block.createdAt,
+          updatedAt: timestamp
+        })
+        .onConflictDoUpdate({
+          target: documentBlocks.id,
+          set: { sortOrder, updatedAt: timestamp }
+        })
+        .run();
+    });
+  }
+
+  private touchLogicalSection(sectionId: string, timestamp: string): void {
+    this.orm
+      .update(nodes)
+      .set({ content: null, markdownPath: null, markdownHash: null, updatedAt: timestamp })
+      .where(and(eq(nodes.id, sectionId), eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+      .run();
   }
 
   private assertContentBelongsToSection(contentNodeId: string, sectionId: string): void {
@@ -2552,6 +2813,10 @@ function readStringArray(value: unknown): string[] {
   return [];
 }
 
+function normalizeDocumentMarkdown(markdown: string): string {
+  return markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 function mapNode(row: NodeRow): NodeRecord {
   const base = {
     id: row.id,
@@ -2564,16 +2829,14 @@ function mapNode(row: NodeRow): NodeRecord {
   };
 
   if (row.kind === 'section') {
-    const markdownContent = row.content ?? '';
-    const markdownHash = row.markdownHash ?? hashMarkdown(markdownContent);
     return {
       ...base,
       kind: 'section',
       intent: row.intent,
+      description: row.description,
       activeMainNodeId: row.activeMainNodeId,
-      markdownPath: row.markdownPath ?? sectionMarkdownPath(row.id),
-      markdownContent,
-      markdownHash,
+      markdownContent: '',
+      markdownHash: '',
       metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {},
       citationSources: []
     };
@@ -2587,6 +2850,20 @@ function mapNode(row: NodeRow): NodeRecord {
     isMain: Boolean(row.isMain),
     isLlm: Boolean(row.isLlm),
     metadata: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : {}
+  };
+}
+
+function mapDocumentBlock(row: DocumentBlockRow): DocumentBlockRecord {
+  return {
+    id: row.id,
+    sectionId: row.sectionId,
+    parentId: row.parentId,
+    kind: row.kind as DocumentBlockKind,
+    content: row.content,
+    attributes: parseMetadata(row.attributesJson),
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
@@ -2701,34 +2978,6 @@ function provenanceUnits(value: string): string[] {
     units.push(compact.slice(index, index + 3));
   }
   return units;
-}
-
-function writeSectionLlmMetadataSidecar(
-  workspacePath: string,
-  sectionId: string,
-  sectionPath: string,
-  metadata: Record<string, unknown>
-): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(sectionId)) {
-    throw new Error('Section id is invalid.');
-  }
-  const relativePath = path.posix.join(SECTION_METADATA_DIR, `${sectionId}.llm.json`);
-  const absolutePath = path.resolve(workspacePath, relativePath);
-  const metadataRoot = path.resolve(workspacePath, 'metadata');
-  if (!absolutePath.startsWith(`${metadataRoot}${path.sep}`)) {
-    throw new Error('Section metadata path must be inside the workspace metadata directory.');
-  }
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  writeFileSync(
-    absolutePath,
-    `${JSON.stringify({
-      version: 1,
-      sectionId,
-      sectionPath,
-      llmOperations: readLlmOperations(metadata)
-    }, null, 2)}\n`,
-    'utf8'
-  );
 }
 
 function mapKnowledgeItem(row: KnowledgeItemRow): KnowledgeItemRecord {

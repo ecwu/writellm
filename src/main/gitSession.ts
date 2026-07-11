@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { markdownFromSnapshotSection, parseBlockDocumentSnapshot } from '../shared/documentBlocks.js';
 
 export type GitStatusRecord = {
   branch: string | null;
@@ -18,7 +19,8 @@ export type GitHistoryRecord = {
   authorDate: string;
 };
 
-const TRACKED_PATHS = ['sections', 'metadata', '.writellm-manifest.json'];
+const BLOCK_DOCUMENT_PATH = 'document.json';
+const TRACKED_PATHS = [BLOCK_DOCUMENT_PATH, 'metadata', '.writellm-manifest.json'];
 const DEFAULT_GITIGNORE = [
   'project.sqlite',
   'project.sqlite-*',
@@ -43,7 +45,7 @@ export function ensureGitSession(workspacePath: string): void {
 export function getGitStatus(workspacePath: string): GitStatusRecord {
   ensureGitSession(workspacePath);
   const branch = runGit(workspacePath, ['branch', '--show-current'], { allowFailure: true }).trim() || null;
-  const porcelain = runGit(workspacePath, ['status', '--short', '--', ...TRACKED_PATHS], { allowFailure: true });
+  const porcelain = runGit(workspacePath, ['status', '--short', '--', ...trackedPaths(workspacePath)], { allowFailure: true });
   const entries = porcelain
     .split('\n')
     .map((line) => line.trimEnd())
@@ -71,7 +73,7 @@ export function getGitHead(workspacePath: string): string | null {
 }
 
 function createGitCheckpointWithoutEnsure(workspacePath: string, message?: string): GitHistoryRecord | null {
-  runGit(workspacePath, ['add', ...TRACKED_PATHS]);
+  runGit(workspacePath, ['add', '-A', '--', ...trackedPaths(workspacePath)]);
   const staged = runGit(workspacePath, ['diff', '--cached', '--quiet'], { allowFailure: true, returnStatus: true });
   if (staged === 0) {
     return null;
@@ -102,9 +104,9 @@ export function listGitHistory(
     '--format=%H%x1f%h%x1f%ad%x1f%s',
     '--date=iso-strict'
   ];
-  const targetPath = sectionId ? `sections/${sectionId}.md` : undefined;
-  if (targetPath) {
-    args.push('--', targetPath);
+  if (sectionId) {
+    // Include legacy section-file commits so pre-migration text remains restorable.
+    args.push('--', BLOCK_DOCUMENT_PATH, `sections/${sectionId}.md`);
   }
   const output = runGit(workspacePath, args, { allowFailure: true });
   return output
@@ -133,9 +135,9 @@ export function getGitDiff(
     args.push(options.base);
   }
   if (options.sectionId) {
-    args.push('--', `sections/${options.sectionId}.md`);
+    args.push('--', BLOCK_DOCUMENT_PATH, `sections/${options.sectionId}.md`);
   } else {
-    args.push('--', ...TRACKED_PATHS);
+    args.push('--', ...trackedPaths(workspacePath));
   }
   return runGit(workspacePath, args, { allowFailure: true });
 }
@@ -144,6 +146,11 @@ export function getSectionVersion(workspacePath: string, sectionId: string, comm
   ensureGitSession(workspacePath);
   assertSectionId(sectionId);
   assertCommitHash(commitHash);
+  const snapshot = runGit(workspacePath, ['show', `${commitHash}:${BLOCK_DOCUMENT_PATH}`], { allowFailure: true });
+  const parsed = snapshot ? parseBlockDocumentSnapshot(snapshot) : null;
+  if (parsed) {
+    return markdownFromSnapshotSection(parsed, sectionId);
+  }
   return runGit(workspacePath, ['show', `${commitHash}:sections/${sectionId}.md`]);
 }
 
@@ -179,13 +186,19 @@ function ensureInitialCheckpoint(workspacePath: string): void {
   if (hasHead) {
     return;
   }
-  const status = runGit(workspacePath, ['status', '--short', '--', ...TRACKED_PATHS], {
+  const status = runGit(workspacePath, ['status', '--short', '--', ...trackedPaths(workspacePath)], {
     allowFailure: true
   });
   if (!status.trim()) {
     return;
   }
   createGitCheckpointWithoutEnsure(workspacePath, 'Initial workspace');
+}
+
+function trackedPaths(workspacePath: string): string[] {
+  return existsSync(path.join(workspacePath, BLOCK_DOCUMENT_PATH))
+    ? TRACKED_PATHS
+    : [...TRACKED_PATHS.filter((item) => item !== BLOCK_DOCUMENT_PATH), 'sections'];
 }
 
 function assertCommitHash(commitHash: string): void {

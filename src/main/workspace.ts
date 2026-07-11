@@ -51,6 +51,7 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
       compositionTree: [],
       focusSectionId: null,
       nodes: [],
+      documentBlocks: [],
       visibleNodes: [],
       contextNodes: [],
       knowledgeItems: [],

@@ -6,6 +6,7 @@ export const nodes = sqliteTable('nodes', {
   parentId: text('parent_id'),
   title: text('title').notNull(),
   intent: text('intent'),
+  description: text('description'),
   activeMainNodeId: text('active_main_node_id'),
   content: text('content'),
   markdownPath: text('markdown_path'),
@@ -29,6 +30,26 @@ export const nodeEdges = sqliteTable('node_edges', {
   createdBy: text('created_by').notNull(),
   createdAt: text('created_at').notNull(),
   deletedAt: text('deleted_at')
+});
+
+export const documentBlocks = sqliteTable('document_blocks', {
+  id: text('id').primaryKey(),
+  sectionId: text('section_id').notNull(),
+  parentId: text('parent_id'),
+  kind: text('kind').notNull(),
+  content: text('content').notNull(),
+  attributesJson: text('attributes_json').notNull().default('{}'),
+  sortOrder: integer('sort_order').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+}, (table) => [
+  index('idx_document_blocks_section_parent_order').on(table.sectionId, table.parentId, table.sortOrder)
+]);
+
+export const documentMetadata = sqliteTable('document_metadata', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull()
 });
 
 export const projectBrief = sqliteTable('project_brief', {
@@ -171,6 +192,8 @@ export const plainjobScheduledJobs = sqliteTable('plainjob_scheduled_jobs', {
 export const schema = {
   nodes,
   nodeEdges,
+  documentBlocks,
+  documentMetadata,
   projectBrief,
   knowledgeItems,
   knowledgeChunks,
@@ -184,6 +207,7 @@ export const schema = {
 
 export type NodeRow = typeof nodes.$inferSelect;
 export type NodeEdgeRow = typeof nodeEdges.$inferSelect;
+export type DocumentBlockRow = typeof documentBlocks.$inferSelect;
 export type ProjectBriefRow = typeof projectBrief.$inferSelect;
 export type KnowledgeItemRow = typeof knowledgeItems.$inferSelect;
 export type KnowledgeChunkRow = typeof knowledgeChunks.$inferSelect;

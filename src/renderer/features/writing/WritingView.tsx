@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Code2, Eye, FilePenLine, History, PlusCircle, WholeWord } from 'lucide-react';
 import { getApi } from '../../api';
 import type { ChildViewMode } from '../../app/types';
+import { BlockEditor, type BlockEditorHandle } from '../../components/BlockEditor';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../../components/MarkdownEditor';
 import { SegmentedIconToggle } from '../../components/SegmentedIconToggle';
 import { Button } from '../../components/ui/button';
 import { Spinner } from '../../components/ui/spinner';
 import { ViewModeToggle } from '../../layout/ChildrenViewHeader';
-import { sectionMarkdownForStorage, sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
+import { sectionTreeMarkdownForExport } from '../../../shared/sectionMarkdown';
 import type {
   CompositionTreeNode,
+  DocumentBlockRecord,
   FocusedWorkspaceState,
   RetrievedKnowledgeSource,
   SectionNodeRecord
@@ -22,10 +24,11 @@ type EditorSelectionRange = {
 };
 
 type EditorLlmMode = 'rewrite-all' | 'rewrite-selection' | 'continue';
-type EditorViewMode = 'raw' | 'decorated';
+type EditorViewMode = 'blocks' | 'markdown';
 
 export function WritingView({
   section,
+  blocks,
   compositionTree,
   rootNodeId,
   childViewMode,
@@ -37,6 +40,7 @@ export function WritingView({
   onError
 }: {
   section: SectionNodeRecord;
+  blocks: DocumentBlockRecord[];
   compositionTree: CompositionTreeNode[];
   rootNodeId: string | null;
   childViewMode: ChildViewMode;
@@ -53,7 +57,8 @@ export function WritingView({
     onError
   });
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
-  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('decorated');
+  const blockEditorRef = useRef<BlockEditorHandle | null>(null);
+  const [editorViewMode, setEditorViewMode] = useState<EditorViewMode>('blocks');
   const [selection, setSelection] = useState<EditorSelectionRange>({
     startOffset: 0,
     endOffset: 0
@@ -67,6 +72,7 @@ export function WritingView({
     [compositionTree, rootNodeId]
   );
   const isRootMarkdownView = Boolean(rootTreeNode && section.id === rootNodeId);
+  const isBlockView = !isRootMarkdownView && editorViewMode === 'blocks';
   const displayedMarkdown = isRootMarkdownView && rootTreeNode
     ? sectionTreeMarkdownForExport(rootTreeNode)
     : draft;
@@ -74,7 +80,10 @@ export function WritingView({
     () => isRootMarkdownView && rootTreeNode ? getSectionTreeSources(rootTreeNode) : getSectionSources(section),
     [isRootMarkdownView, rootTreeNode, section]
   );
-  const selectedText = getSelectedText(editorRef.current?.getValue() ?? displayedMarkdown, selection);
+  const selectedText = getSelectedText(
+    (isBlockView ? blockEditorRef.current : editorRef.current)?.getValue() ?? displayedMarkdown,
+    selection
+  );
   const hasSelection = selectedText.trim().length > 0;
   const generationDisabled = isCreatingGeneration;
 
@@ -82,14 +91,18 @@ export function WritingView({
     if (mode === childViewMode) {
       return;
     }
-    if (!isRootMarkdownView) {
+    if (isBlockView) {
+      await blockEditorRef.current?.flushPendingChanges();
+    } else if (!isRootMarkdownView) {
       await flushPendingSave();
     }
     onChildViewMode(mode);
   }
 
   async function handleHistory() {
-    if (!isRootMarkdownView) {
+    if (isBlockView) {
+      await blockEditorRef.current?.flushPendingChanges();
+    } else if (!isRootMarkdownView) {
       await flushPendingSave();
     }
     onHistory(section);
@@ -103,12 +116,16 @@ export function WritingView({
       onError('Tell the assistant what to change first.');
       return;
     }
-    const editor = editorRef.current;
+    const editor = isBlockView ? blockEditorRef.current : editorRef.current;
     if (!editor) {
       onError('Editor is not ready.');
       return;
     }
-    await flushPendingSave();
+    if (isBlockView) {
+      await blockEditorRef.current?.flushPendingChanges();
+    } else {
+      await flushPendingSave();
+    }
     const currentSelection = editor.getSelection();
     if (activeGenerationMode === 'rewrite-selection' && currentSelection.startOffset === currentSelection.endOffset) {
       onError('Select text before rewriting a selection.');
@@ -150,16 +167,43 @@ export function WritingView({
     window.setTimeout(() => generationInputRef.current?.focus(), 0);
   }
 
+  async function createBlock(afterBlockId: string | null) {
+    try {
+      const next = await getApi().createDocumentBlock({ sectionId: section.id, afterBlockId });
+      onState(next);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function updateBlock(blockId: string, payload: { content?: string; kind?: DocumentBlockRecord['kind']; attributes?: Record<string, unknown> }) {
+    try {
+      const next = await getApi().updateDocumentBlock(blockId, payload);
+      onState(next);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function deleteBlock(blockId: string) {
+    try {
+      const next = await getApi().deleteDocumentBlock(blockId);
+      onState(next);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   return (
     <section className="writing-view">
       <header className="writing-view-header">
         <div className="writing-view-title">
-          <p>{isRootMarkdownView ? 'Document Markdown' : 'Section Markdown'}</p>
+          <p>{isRootMarkdownView ? 'Block document preview' : 'Logical section'}</p>
           <h1>{section.title}</h1>
         </div>
         <div className="writing-view-controls">
           <div className="writing-view-meta" aria-live="polite">
-            <span>{isRootMarkdownView ? 'Composition preview' : section.markdownPath}</span>
+            <span>{isRootMarkdownView ? 'Composition preview' : 'SQLite block range'}</span>
             <span>{isRootMarkdownView ? 'Generated' : saveState === 'saving' ? 'Saving' : saveState === 'error' ? 'Save failed' : 'Saved'}</span>
           </div>
           <Button variant="outline" size="sm" onClick={() => void handleHistory()}>
@@ -172,8 +216,8 @@ export function WritingView({
             className="writing-view-mode-toggle"
             onValueChange={setEditorViewMode}
             options={[
-              { value: 'raw', label: 'Raw Markdown view', icon: <Code2 /> },
-              { value: 'decorated', label: 'Decorated Markdown view', icon: <Eye /> }
+              { value: 'blocks', label: 'Block editor view', icon: <Eye /> },
+              { value: 'markdown', label: 'Markdown interchange view', icon: <Code2 /> }
             ]}
           />
           <ViewModeToggle mode={childViewMode} onModeChange={(mode) => void handleChildViewMode(mode)} />
@@ -181,18 +225,28 @@ export function WritingView({
       </header>
       <div className="writing-view-body">
         <div className="writing-editor-shell">
-          <MarkdownEditor
-            ref={editorRef}
-            key={`${section.id}:${isRootMarkdownView ? 'composition' : 'section'}`}
-            value={displayedMarkdown}
-            onChange={isRootMarkdownView ? noop : scheduleDraftSave}
-            onSelectionChange={setSelection}
-            normalizeValue={isRootMarkdownView ? undefined : sectionMarkdownForStorage}
-            onCitationClick={onCitationClick}
-            citationSources={citationSources}
-            renderMarkdown={editorViewMode === 'decorated'}
-            readOnly={isRootMarkdownView}
-          />
+          {isBlockView ? (
+            <BlockEditor
+              ref={blockEditorRef}
+              blocks={blocks}
+              onCreateBlock={createBlock}
+              onUpdateBlock={updateBlock}
+              onDeleteBlock={deleteBlock}
+              onSelectionChange={setSelection}
+            />
+          ) : (
+            <MarkdownEditor
+              ref={editorRef}
+              key={`${section.id}:${isRootMarkdownView ? 'composition' : 'section'}`}
+              value={displayedMarkdown}
+              onChange={isRootMarkdownView ? noop : scheduleDraftSave}
+              onSelectionChange={setSelection}
+              onCitationClick={onCitationClick}
+              citationSources={citationSources}
+              renderMarkdown
+              readOnly={isRootMarkdownView}
+            />
+          )}
           {isRootMarkdownView ? null : <div className="writing-floating-toolbar" aria-label="Editor actions">
             <div className="writing-generation-mode" aria-hidden="true">
               {activeGenerationMode === 'rewrite-all' ? <FilePenLine /> : null}

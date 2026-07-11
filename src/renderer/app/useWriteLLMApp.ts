@@ -27,7 +27,7 @@ export function useWriteLLMApp() {
   const [selection, setSelection] = useState<Selection>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceChooserOpen, setWorkspaceChooserOpen] = useState(true);
-  const [currentChildViewMode, setCurrentChildViewMode] = useState<ChildViewMode>('list');
+  const [currentChildViewMode, setCurrentChildViewMode] = useState<ChildViewMode>('markdown');
   const [activePage, setActivePageState] = useState<AppPage>('workspace');
   const [knowledgeTarget, setKnowledgeTarget] = useState<KnowledgeSourceTarget | null>(null);
 
@@ -209,6 +209,7 @@ export function useWriteLLMApp() {
       setState(next);
       setWorkspacePath(summary.path);
       setActivePageState('workspace');
+      setCurrentChildViewMode('markdown');
       setWorkspaceChooserOpen(false);
       await refreshRecentWorkspaces();
       notifyStatus(mode === 'create' ? 'Workspace created.' : 'Workspace opened.');
@@ -246,13 +247,6 @@ export function useWriteLLMApp() {
   async function focusSectionById(sectionId: string) {
     await run(async () => getApi().getState(sectionId));
     setSelection({ type: 'node', id: sectionId });
-  }
-
-  async function openWritingView(section: SectionNodeRecord) {
-    setSelection({ type: 'node', id: section.id });
-    if (state.focusSectionId !== section.id) {
-      await run(async () => getApi().getState(section.id));
-    }
     setCurrentChildViewMode('markdown');
   }
 
@@ -426,7 +420,6 @@ export function useWriteLLMApp() {
     focusSectionById,
     openKnowledgeCitation,
     openKnowledgeSourceNode,
-    openWritingView,
     moveSectionInOutline,
     createSection,
     createKnowledgeItem,

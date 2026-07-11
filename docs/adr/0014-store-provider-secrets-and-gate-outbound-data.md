@@ -12,8 +12,8 @@ related_tasks: [SEC-003, SEC-004, PIA-004, PIA-007, PIA-012]
 depends_on: [ADR-0013]
 external_task_gates: []
 supersedes: []
-superseded_by: null
-decision_status: ACCEPTED
+superseded_by: ADR-0020
+decision_status: SUPERSEDED
 implementation_status: IMPLEMENTED
 last_updated: 2026-07-11
 ---
@@ -70,3 +70,4 @@ External provider processing defaults off. A user must explicitly enable it in S
 | --- | --- | --- |
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | SEC-003 selected main-process Electron `safeStorage`, consent-gated external processing, and fail-closed unsupported secret storage. |
 | 2026-07-11 | ACCEPTED | IMPLEMENTED | Main-process secure credential store, plaintext-settings migration, public projections, consent UI/state, and remote service gates were implemented. Typecheck and targeted security/lifecycle tests passed; final full-suite smoke evidence is recorded in SEC-003. |
+| 2026-07-11 | SUPERSEDED | IMPLEMENTED | ADR-0020 retains encrypted storage, consent, fail-closed behavior, and renderer redaction but replaces the literal “main-process-only” runtime rule with a privileged-backend boundary for statically defined, main-owned Workers. |

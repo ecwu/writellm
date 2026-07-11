@@ -109,25 +109,44 @@ try {
   if (intro.kind !== 'section') {
     throw new Error('Child section was not created.');
   }
-  if (!intro.markdownPath || !intro.markdownHash) {
-    throw new Error('Section did not receive Markdown metadata.');
+  if (!intro.markdownHash || intro.markdownContent !== '') {
+    throw new Error('Logical section did not initialize with an empty block range.');
   }
-  const introMarkdownPath = path.join(workspacePath, intro.markdownPath);
-  if (!existsSync(introMarkdownPath)) {
-    throw new Error('Section Markdown file was not created.');
+  if (existsSync(path.join(workspacePath, 'sections'))) {
+    throw new Error('New block-document workspace created physical section files.');
   }
   const manifestPath = path.join(workspacePath, '.writellm-manifest.json');
-  if (!existsSync(manifestPath) || !readFileSync(manifestPath, 'utf8').includes(intro.id)) {
-    throw new Error('Workspace manifest was not written.');
+  const documentSnapshotPath = path.join(workspacePath, 'document.json');
+  if (
+    !existsSync(manifestPath) ||
+    !existsSync(documentSnapshotPath) ||
+    !readFileSync(manifestPath, 'utf8').includes(intro.id) ||
+    !readFileSync(documentSnapshotPath, 'utf8').includes(intro.id)
+  ) {
+    throw new Error('Block document snapshot or manifest was not written.');
   }
   db.updateSectionMarkdown(intro.id, '# Intro\n\nHello **Markdown** world.\n');
   const updatedIntro = db.getSection(intro.id);
   if (
     !updatedIntro ||
     updatedIntro.markdownContent !== 'Hello **Markdown** world.\n' ||
-    readFileSync(introMarkdownPath, 'utf8') !== updatedIntro.markdownContent
+    db.listDocumentBlocks(intro.id).length !== 1 ||
+    !readFileSync(documentSnapshotPath, 'utf8').includes('Hello **Markdown** world.')
   ) {
-    throw new Error('Section Markdown DB/file sync failed.');
+    throw new Error('Logical section block serialization failed.');
+  }
+  const appendedBlock = db.createDocumentBlock({
+    sectionId: intro.id,
+    afterBlockId: db.listDocumentBlocks(intro.id)[0]?.id ?? null,
+    content: 'Supporting block.'
+  });
+  db.updateDocumentBlock(appendedBlock.id, { kind: 'quote', content: '> Updated supporting block.' });
+  if (db.getSection(intro.id)?.markdownContent !== 'Hello **Markdown** world.\n\n> Updated supporting block.\n') {
+    throw new Error('Direct block edits did not update the logical section serialization.');
+  }
+  db.deleteDocumentBlock(appendedBlock.id);
+  if (db.getSection(intro.id)?.markdownContent !== updatedIntro.markdownContent) {
+    throw new Error('Deleting a block did not restore the logical section serialization.');
   }
   const initialBrief = db.getProjectBrief();
   if (initialBrief.glossary.entries.length !== 0 || initialBrief.createdAt !== null || initialBrief.updatedAt !== null) {

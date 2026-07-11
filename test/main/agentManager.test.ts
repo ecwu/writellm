@@ -123,6 +123,45 @@ describe('PiAgentManager', () => {
       .toBeLessThan(events.findIndex((event) => event.type === 'message_end' && event.data?.role === 'assistant'));
   });
 
+  test('keeps intermediate tool-use text in the main process and projects only the completed response', async () => {
+    const faux = fauxProvider();
+    faux.setResponses([
+      fauxAssistantMessage([
+        fauxText('Internal working draft that must not appear in the author timeline.'),
+        fauxToolCall('echo', {})
+      ], { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxText('The reviewable proposal is ready.'))
+    ]);
+    const echo: AgentTool = {
+      name: 'echo',
+      label: 'Echo',
+      description: 'Echo',
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: 'text', text: 'done' }] })
+    };
+    const { manager } = createManager();
+    const events: PiRunEvent[] = [];
+    manager.subscribe((event) => events.push(event));
+
+    await manager.start({
+      workspacePath: '/workspace.writellm',
+      sectionId: 'section-1',
+      prompt: 'Make a proposal.',
+      systemPrompt: 'Use echo before responding.',
+      adapter: adapterFor(faux),
+      tools: tools([echo])
+    }).completion;
+
+    const projectedText = events
+      .filter((event) => event.type === 'message_delta')
+      .map((event) => String(event.data?.text ?? ''))
+      .join('');
+    const toolUseMessage = events.find((event) => event.type === 'message_end' && event.data?.hasToolCalls === true);
+    expect(projectedText).toContain('The reviewable proposal is ready.');
+    expect(projectedText).not.toContain('Internal working draft');
+    expect(toolUseMessage?.data).not.toHaveProperty('text');
+  });
+
   test('projects a typed tool failure without exposing raw arguments and lets Pi continue', async () => {
     const faux = fauxProvider();
     faux.setResponses([

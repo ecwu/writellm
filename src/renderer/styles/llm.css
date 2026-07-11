@@ -191,7 +191,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   left: auto;
-  max-height: min(42svh, 27rem);
+  max-height: min(56svh, 34rem);
   max-width: min(36rem, calc(100vw - 2rem));
   overflow: hidden;
   position: fixed;
@@ -233,14 +233,14 @@
 }
 
 .generation-hub-header-title,
-.generation-hub-run-title span {
+.generation-hub-run-section {
   font-size: 0.84rem;
   font-weight: 700;
 }
 
 .generation-hub-header-detail,
-.generation-hub-run-title p,
-.generation-hub-runtime p {
+.generation-hub-run-header p,
+.generation-hub-run-summary p {
   color: oklch(0.76 0.008 240);
   font-size: 0.76rem;
   line-height: 1.4;
@@ -275,61 +275,46 @@
 
 .generation-hub-runs {
   display: grid;
-  gap: 0.75rem;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0.75rem 1rem 1rem;
+  padding: 0 1rem 0.35rem;
 }
 
 .generation-hub-run {
-  background: oklch(1 0 0 / 5%);
-  border: 1px solid oklch(1 0 0 / 12%);
-  border-radius: 0.6rem;
   display: grid;
-  gap: 0.65rem;
+  gap: 0.55rem;
   min-width: 0;
-  padding: 0.75rem;
+  padding: 0.85rem 0;
 }
 
-.generation-hub-run-title {
+.generation-hub-run + .generation-hub-run {
+  border-top: 1px solid oklch(1 0 0 / 14%);
+}
+
+.generation-hub-run-header {
   align-items: center;
   display: flex;
   justify-content: space-between;
 }
 
-.generation-hub-run-title > svg {
+.generation-hub-run-header > svg {
   color: oklch(0.76 0.12 175);
   height: 1rem;
   width: 1rem;
 }
 
-.generation-hub-runtime {
-  background: oklch(0 0 0 / 13%);
-  border: 1px solid transparent;
-  border-radius: 0.4rem;
+.generation-hub-run[data-tone="error"] .generation-hub-run-header > svg {
+  color: oklch(0.8 0.14 28);
+}
+
+.generation-hub-run-summary {
   display: grid;
-  gap: 0.45rem;
-  max-height: min(12rem, 24svh);
+  gap: 0.2rem;
   min-width: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: 0.55rem;
 }
 
-.generation-hub-runtime[data-tone="active"] {
-  border-color: oklch(0.68 0.08 210 / 72%);
-}
-
-.generation-hub-runtime[data-tone="ready"] {
-  border-color: oklch(0.71 0.1 160 / 62%);
-}
-
-.generation-hub-runtime[data-tone="error"] {
-  border-color: oklch(0.7 0.14 28 / 72%);
-}
-
-.generation-hub-runtime-title {
+.generation-hub-run-summary-title {
   align-items: center;
   color: oklch(0.9 0.016 235);
   display: flex;
@@ -338,36 +323,151 @@
   gap: 0.35rem;
 }
 
-.generation-hub-runtime-title > svg {
+.generation-hub-run-summary-title > svg {
   color: oklch(0.74 0.09 205);
   flex: 0 0 auto;
   height: 0.9rem;
   width: 0.9rem;
 }
 
-.generation-hub-runtime[data-tone="error"] .generation-hub-runtime-title,
-.generation-hub-runtime[data-tone="error"] .generation-hub-runtime-title > svg {
+.generation-hub-run[data-tone="error"] .generation-hub-run-summary-title,
+.generation-hub-run[data-tone="error"] .generation-hub-run-summary-title > svg {
   color: oklch(0.8 0.14 28);
 }
 
-.generation-hub-runtime-title [role="status"] {
+.generation-hub-run-summary-title [role="status"] {
   margin-left: auto;
 }
 
-.generation-hub-draft {
+.generation-hub-timeline {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.generation-hub-timeline-row {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 0.7rem 5.1rem minmax(0, 1fr);
+  min-width: 0;
+  padding: 0.46rem 0 0.46rem 0.1rem;
+}
+
+.generation-hub-timeline-row + .generation-hub-timeline-row {
+  border-top: 1px solid oklch(1 0 0 / 9%);
+}
+
+.generation-hub-timeline-marker {
+  background: oklch(0.72 0.08 210);
+  border-radius: 999px;
+  height: 0.38rem;
+  margin: 0.28rem 0 0 0.08rem;
+  width: 0.38rem;
+}
+
+.generation-hub-timeline-kind {
+  color: oklch(0.64 0.025 220);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1.5;
+}
+
+.generation-hub-timeline-row[data-kind="tool"] .generation-hub-timeline-marker,
+.generation-hub-timeline-row[data-kind="tool"] .generation-hub-timeline-kind {
+  color: oklch(0.72 0.08 210);
+}
+
+.generation-hub-timeline-row[data-kind="tool"] .generation-hub-timeline-marker {
+  background: oklch(0.72 0.08 210);
+}
+
+.generation-hub-timeline-row[data-kind="background"] .generation-hub-timeline-marker,
+.generation-hub-timeline-row[data-kind="background"] .generation-hub-timeline-kind {
+  color: oklch(0.78 0.08 80);
+}
+
+.generation-hub-timeline-row[data-kind="background"] .generation-hub-timeline-marker {
+  background: oklch(0.78 0.08 80);
+}
+
+.generation-hub-timeline-row[data-kind="result"] .generation-hub-timeline-marker,
+.generation-hub-timeline-row[data-kind="result"] .generation-hub-timeline-kind {
+  color: oklch(0.72 0.1 165);
+}
+
+.generation-hub-timeline-row[data-kind="result"] .generation-hub-timeline-marker {
+  background: oklch(0.72 0.1 165);
+}
+
+.generation-hub-timeline-row[data-tone="complete"] .generation-hub-timeline-marker {
+  background: oklch(0.72 0.1 165);
+  box-shadow: 0 0 0 1px oklch(0.72 0.1 165 / 45%);
+}
+
+.generation-hub-timeline-row[data-tone="error"] .generation-hub-timeline-marker {
+  background: oklch(0.78 0.14 28);
+  box-shadow: 0 0 0 1px oklch(0.78 0.14 28 / 45%);
+}
+
+.generation-hub-timeline-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.generation-hub-timeline-copy strong,
+.generation-hub-proposal-preview strong {
+  color: oklch(0.9 0.025 215);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.generation-hub-timeline-copy > span {
+  color: oklch(0.76 0.008 240);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.generation-hub-assistant-output,
+.generation-hub-proposal-preview pre {
   color: oklch(0.92 0.006 240);
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.73rem;
   line-height: 1.45;
-  margin: 0.45rem 0 0;
+  margin: 0.35rem 0 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.generation-hub-proposal-preview {
+  border-left: 2px solid oklch(0.72 0.1 165 / 75%);
+  display: grid;
+  gap: 0.15rem;
+  margin: 0.15rem 0 0 1.25rem;
+  padding-left: 0.65rem;
 }
 
 .generation-hub-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.generation-hub-archive-status {
+  align-items: center;
+  background: oklch(0.72 0.1 165 / 14%);
+  border: 1px solid oklch(0.72 0.1 165 / 36%);
+  border-radius: 999px;
+  color: oklch(0.82 0.12 165);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0 0.6rem;
 }
 
 /* The hub has its own dark surface even when the app uses the light theme. */

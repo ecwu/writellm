@@ -58,6 +58,7 @@ export function Inspector(props: InspectorProps) {
   const [contentTitle, setContentTitle] = useState('');
   const [sectionTitle, setSectionTitle] = useState('');
   const [sectionIntent, setSectionIntent] = useState('');
+  const [sectionDescription, setSectionDescription] = useState('');
   const [sectionEditing, setSectionEditing] = useState(false);
   const [saveTimer, setSaveTimer] = useState<number | null>(null);
   const [inspectorView, setInspectorView] = useState<'metadata' | 'sessionList' | 'sessionDetail'>('metadata');
@@ -72,6 +73,7 @@ export function Inspector(props: InspectorProps) {
     setContentTitle(selectedContent?.title ?? '');
     setSectionTitle(selectedSection?.title ?? '');
     setSectionIntent(selectedSection?.intent ?? '');
+    setSectionDescription(selectedSection?.description ?? '');
     setSectionEditing(false);
     setInspectorView('metadata');
     setActiveSessionId(null);
@@ -83,7 +85,8 @@ export function Inspector(props: InspectorProps) {
     selectedContent?.content,
     selectedSection?.id,
     selectedSection?.title,
-    selectedSection?.intent
+    selectedSection?.intent,
+    selectedSection?.description
   ]);
 
   useEffect(() => {
@@ -199,7 +202,8 @@ export function Inspector(props: InspectorProps) {
     try {
       await getApi().updateNode(selectedSection.id, {
         title: sectionTitle.trim(),
-        intent: sectionIntent
+        intent: sectionIntent,
+        description: sectionDescription
       });
       onState(await getApi().getState(state.focusSectionId ?? undefined));
       setSectionEditing(false);
@@ -509,7 +513,7 @@ export function Inspector(props: InspectorProps) {
                 )}
               </Field>
               <Field>
-                <FieldLabel htmlFor="inspector-section-intent">Intent</FieldLabel>
+                <FieldLabel htmlFor="inspector-section-intent">Intention</FieldLabel>
                 <Textarea
                   id="inspector-section-intent"
                   value={sectionIntent}
@@ -517,6 +521,16 @@ export function Inspector(props: InspectorProps) {
                   placeholder="Writing intent for this section"
                 />
                 <FieldDescription>Guide assistant suggestions and source retrieval for this section.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="inspector-section-description">Description</FieldLabel>
+                <Textarea
+                  id="inspector-section-description"
+                  value={sectionDescription}
+                  onChange={(event) => setSectionDescription(event.target.value)}
+                  placeholder="What belongs in this logical section?"
+                />
+                <FieldDescription>Describe the scope for readers and future block-level operations.</FieldDescription>
               </Field>
               <div className="button-row">
                 <Button size="sm" onClick={() => void saveSection()} disabled={!sectionTitle.trim()}>
@@ -529,6 +543,7 @@ export function Inspector(props: InspectorProps) {
                   onClick={() => {
                     setSectionTitle(selectedSection.title);
                     setSectionIntent(selectedSection.intent ?? '');
+                    setSectionDescription(selectedSection.description ?? '');
                     setSectionEditing(false);
                   }}
                 >
@@ -549,8 +564,9 @@ export function Inspector(props: InspectorProps) {
           ) : (
             <div className="metadata-list">
               <MetadataRow label="Title" value={selectedSection.title} />
-              <MetadataRow label="Intent" value={selectedSection.intent || 'Not set'} />
-              <MetadataRow label="Markdown" value={selectedSection.markdownPath} />
+              <MetadataRow label="Intention" value={selectedSection.intent || 'Not set'} />
+              <MetadataRow label="Description" value={selectedSection.description || 'Not set'} />
+              <MetadataRow label="Storage" value="SQLite block document" />
               {selectedSectionLlmSummary ? (
                 <MetadataRow label="Assist" value={selectedSectionLlmSummary} />
               ) : null}

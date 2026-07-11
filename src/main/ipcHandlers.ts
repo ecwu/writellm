@@ -11,6 +11,7 @@ import type {
   CreateKnowledgeItemPayload,
   CreatePatchFromGenerationRoundPayload,
   CreateGenerationTaskResult,
+  CreateDocumentBlockPayload,
   EnqueueKnowledgeFilesPayload,
   CreateNodePayload,
   EdgeKind,
@@ -33,6 +34,7 @@ import type {
   SuggestProjectBriefPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodePayload,
+  UpdateDocumentBlockPayload,
   UpdateProjectBriefPayload,
   WritingPatch,
   WritingPatchRecord
@@ -909,6 +911,35 @@ export function registerIpcHandlers(): void {
       return getState(sectionId);
     }
   );
+
+  ipcMain.handle(ipcChannels.createDocumentBlock, (_event, payload: CreateDocumentBlockPayload) => {
+    const db = getActiveDb();
+    db.createDocumentBlock(payload);
+    return getState(payload.sectionId);
+  });
+
+  ipcMain.handle(
+    ipcChannels.updateDocumentBlock,
+    (_event, blockId: string, payload: UpdateDocumentBlockPayload) => {
+      const db = getActiveDb();
+      const existing = db.getDocumentBlock(blockId);
+      if (!existing) {
+        throw new Error(`Document block not found: ${blockId}`);
+      }
+      db.updateDocumentBlock(blockId, payload);
+      return getState(existing.sectionId);
+    }
+  );
+
+  ipcMain.handle(ipcChannels.deleteDocumentBlock, (_event, blockId: string) => {
+    const db = getActiveDb();
+    const existing = db.getDocumentBlock(blockId);
+    if (!existing) {
+      throw new Error(`Document block not found: ${blockId}`);
+    }
+    db.deleteDocumentBlock(blockId);
+    return getState(existing.sectionId);
+  });
 
   ipcMain.handle(ipcChannels.getGitStatus, () =>
     getGitStatus(getActiveDb().workspacePath)
@@ -1826,6 +1857,7 @@ function piRunSystemPrompt(mode: StartPiRunPayload['mode']): string {
     'You are WriteLLM\'s writing agent. Your task is to ' + action + '.',
     'First use get_article_context and read_section_snapshot. Use source only when indexed evidence is useful; cite retrieved evidence using its exact public reference.',
     'When you have a proposed edit, call propose_patch exactly once with only the requested replacement or insertion Markdown, a concise rationale, and the retrieved evidence references supporting new citations.',
+    'Do not put hidden reasoning, tool plans, or intermediate draft text in assistant messages. Call tools directly. After a proposal is created, return only a concise user-facing completion note.',
     'Do not claim to have applied a patch. The author reviews and applies proposals separately.'
   ].join('\n');
 }

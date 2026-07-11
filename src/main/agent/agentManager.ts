@@ -22,12 +22,14 @@ import {
 const DEFAULT_RUN_TIMEOUT_MS = 120_000;
 const MAX_TURNS = 6;
 const MAX_EVENT_TEXT_CHARS = 4_000;
+const MAX_BUFFERED_ASSISTANT_TEXT_CHARS = 40_000;
 const MAX_EVENT_CAUSE_CHARS = 500;
 const MAX_PUBLIC_REFS_PER_EVENT = 8;
-// Pi can emit one message_update per token. Sending each token across Electron
-// IPC makes the renderer perform thousands of state updates and can starve the
-// UI event loop. Keep the stream responsive while bounding IPC/render churn.
-const MESSAGE_DELTA_FLUSH_MS = 50;
+// Pi can emit one message_update per token. Do not forward the raw stream: an
+// assistant message that later calls a tool is an internal working message, not
+// a user-facing draft. Buffer it in the privileged process, then project only a
+// completed non-tool response in bounded chunks. The UI still receives ordered
+// lifecycle and tool progress while the model is working.
 const MESSAGE_DELTA_YIELD_INTERVAL = 128;
 const TOOL_NAMES = new Set([
   'get_article_context',
@@ -102,10 +104,9 @@ type ManagedRun = {
   unsubscribe: () => void;
   cancellation: Promise<void>;
   resolveCancellation: () => void;
-  pendingMessageDeltas: string[];
-  pendingMessageDeltaChars: number;
+  pendingAssistantText: string[];
+  pendingAssistantTextChars: number;
   deltaEventsSinceYield: number;
-  messageDeltaTimer?: ReturnType<typeof setTimeout>;
 };
 
 type ToolFailure = NonNullable<PiRunTerminalResult['failure']>;
@@ -203,8 +204,8 @@ export class PiAgentManager {
       unsubscribe,
       cancellation,
       resolveCancellation,
-      pendingMessageDeltas: [],
-      pendingMessageDeltaChars: 0,
+      pendingAssistantText: [],
+      pendingAssistantTextChars: 0,
       deltaEventsSinceYield: 0
     };
     this.runs.set(runId, run);
@@ -240,7 +241,7 @@ export class PiAgentManager {
       const promptCompletion = run.agent.prompt(prompt);
       await Promise.race([promptCompletion, run.cancellation]);
       const terminal = this.toTerminalResult(run);
-      this.flushMessageDelta(run);
+      this.discardPendingAssistantText(run);
       this.emit(run, {
         origin: 'writellm',
         type: 'run_terminal',
@@ -251,7 +252,7 @@ export class PiAgentManager {
       const message = caught instanceof Error ? caught.message : String(caught);
       run.failure ??= { category: 'agent_failure', retryable: true, cause: boundedText(message, MAX_EVENT_CAUSE_CHARS) };
       const terminal = this.toTerminalResult(run, 'failed');
-      this.flushMessageDelta(run);
+      this.discardPendingAssistantText(run);
       this.emit(run, {
         origin: 'writellm',
         type: 'run_terminal',
@@ -260,9 +261,6 @@ export class PiAgentManager {
       return terminal;
     } finally {
       clearTimeout(run.timeout);
-      if (run.messageDeltaTimer) {
-        clearTimeout(run.messageDeltaTimer);
-      }
       run.unsubscribe();
       run.lifecycle.complete();
       this.runs.delete(run.runId);
@@ -276,6 +274,9 @@ export class PiAgentManager {
     }
     if (event.type === 'turn_start') {
       run.turnCount += 1;
+    }
+    if (event.type === 'message_start' && event.message.role === 'assistant') {
+      this.discardPendingAssistantText(run);
     }
     if (event.type === 'message_end') {
       const stopReason = assistantStopReason(event.message);
@@ -293,12 +294,13 @@ export class PiAgentManager {
           cause: 'The Pi writing run was canceled.'
         };
       }
+      this.publishCompletedAssistantText(run, event.message);
     }
     if (event.type === 'turn_end' && run.turnCount >= MAX_TURNS && assistantHasToolCalls(event.message) && !run.statusOverride) {
       this.cancel(run.runId, `The ${MAX_TURNS}-turn Pi run budget was exhausted.`, 'budget_exhausted');
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-      this.queueMessageDelta(run, event.assistantMessageEvent.delta);
+      this.queueAssistantText(run, event.assistantMessageEvent.delta);
       run.deltaEventsSinceYield += 1;
       if (run.deltaEventsSinceYield >= MESSAGE_DELTA_YIELD_INTERVAL) {
         run.deltaEventsSinceYield = 0;
@@ -306,44 +308,37 @@ export class PiAgentManager {
       }
       return;
     }
-    this.flushMessageDelta(run);
     this.emit(run, projectAgentEvent(event));
   }
 
-  private queueMessageDelta(run: ManagedRun, delta: string): void {
-    run.pendingMessageDeltas.push(delta);
-    run.pendingMessageDeltaChars += delta.length;
-    if (run.pendingMessageDeltaChars >= MAX_EVENT_TEXT_CHARS) {
-      this.flushMessageDelta(run);
+  private queueAssistantText(run: ManagedRun, delta: string): void {
+    const remaining = MAX_BUFFERED_ASSISTANT_TEXT_CHARS - run.pendingAssistantTextChars;
+    if (remaining <= 0) {
       return;
     }
-    if (run.messageDeltaTimer) {
-      return;
-    }
-    run.messageDeltaTimer = setTimeout(() => {
-      run.messageDeltaTimer = undefined;
-      this.flushMessageDelta(run);
-    }, MESSAGE_DELTA_FLUSH_MS);
+    const boundedDelta = delta.slice(0, remaining);
+    run.pendingAssistantText.push(boundedDelta);
+    run.pendingAssistantTextChars += boundedDelta.length;
   }
 
-  private flushMessageDelta(run: ManagedRun): void {
-    if (run.messageDeltaTimer) {
-      clearTimeout(run.messageDeltaTimer);
-      run.messageDeltaTimer = undefined;
-    }
-    if (run.pendingMessageDeltaChars === 0) {
+  private publishCompletedAssistantText(run: ManagedRun, message: AgentMessage): void {
+    const text = run.pendingAssistantText.join('');
+    this.discardPendingAssistantText(run);
+    if (!isUserFacingAssistantMessage(message) || !text) {
       return;
     }
-    const text = run.pendingMessageDeltas.join('');
-    run.pendingMessageDeltas = [];
-    run.pendingMessageDeltaChars = 0;
     for (let offset = 0; offset < text.length; offset += MAX_EVENT_TEXT_CHARS) {
       this.emit(run, {
         origin: 'pi',
         type: 'message_delta',
-        data: { role: 'assistant', text: text.slice(offset, offset + MAX_EVENT_TEXT_CHARS) }
+        data: { role: 'assistant', visibility: 'final', text: text.slice(offset, offset + MAX_EVENT_TEXT_CHARS) }
       });
     }
+  }
+
+  private discardPendingAssistantText(run: ManagedRun): void {
+    run.pendingAssistantText = [];
+    run.pendingAssistantTextChars = 0;
   }
 
   private toTerminalResult(run: ManagedRun, fallback: Exclude<PiRunStatus, 'running'> = 'succeeded'): PiRunTerminalResult {
@@ -481,11 +476,10 @@ function projectMessage(message: AgentMessage): Record<string, unknown> {
   if (message.role === 'toolResult') {
     return { role: 'tool' };
   }
-  const content = 'content' in message ? message.content : [];
   return {
     role: message.role,
-    text: boundedText(extractText(content), MAX_EVENT_TEXT_CHARS),
-    stopReason: message.role === 'assistant' ? message.stopReason : undefined
+    stopReason: message.role === 'assistant' ? message.stopReason : undefined,
+    hasToolCalls: message.role === 'assistant' ? assistantHasToolCalls(message) : undefined
   };
 }
 
@@ -568,14 +562,12 @@ function assistantHasToolCalls(message: unknown): boolean {
     : false;
 }
 
-function extractText(content: unknown): string {
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .filter((part): part is { type: 'text'; text: string } => Boolean(part) && typeof part === 'object' && (part as { type?: unknown }).type === 'text' && typeof (part as { text?: unknown }).text === 'string')
-    .map((part) => part.text)
-    .join('');
+function isUserFacingAssistantMessage(message: AgentMessage): boolean {
+  const stopReason = assistantStopReason(message);
+  return message.role === 'assistant'
+    && !assistantHasToolCalls(message)
+    && stopReason !== 'error'
+    && stopReason !== 'aborted';
 }
 
 function safeToolName(value: string): string {

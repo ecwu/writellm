@@ -21,6 +21,7 @@ export const emptyState: FocusedWorkspaceState = {
   compositionTree: [],
   focusSectionId: null,
   nodes: [],
+  documentBlocks: [],
   visibleNodes: [],
   contextNodes: [],
   knowledgeItems: [],

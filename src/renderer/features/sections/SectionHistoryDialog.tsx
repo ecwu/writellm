@@ -155,7 +155,7 @@ export function SectionHistoryDialog({
         <DialogHeader>
           <DialogTitle>Section history</DialogTitle>
           <DialogDescription>
-            {section ? `${section.title} · ${section.markdownPath}` : 'No section selected'}
+            {section ? `${section.title} · logical block range` : 'No section selected'}
           </DialogDescription>
         </DialogHeader>
 

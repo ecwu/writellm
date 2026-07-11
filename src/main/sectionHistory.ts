@@ -1,6 +1,6 @@
 import type { SectionHistoryDetail, SectionNodeRecord } from '../shared/types.js';
 import type { WriteLLMDatabase } from './database.js';
-import { createGitCheckpoint, getGitDiff, getSectionVersion, listGitHistory } from './gitSession.js';
+import { createGitCheckpoint, getSectionVersion, listGitHistory } from './gitSession.js';
 
 const SECTION_HISTORY_LIMIT = 200;
 
@@ -43,12 +43,8 @@ export function getSectionHistoryDetail(
     ? getSectionVersion(db.workspacePath, sectionId, parentCommit.hash)
     : '';
   const unifiedDiff = parentCommit
-    ? getGitDiff(db.workspacePath, {
-        sectionId,
-        base: parentCommit.hash,
-        head: selectedCommit.hash
-      })
-    : buildInitialSectionDiff(section.markdownPath, afterMarkdown);
+    ? buildSectionDiff(section.id, beforeMarkdown, afterMarkdown)
+    : buildInitialSectionDiff(section.id, afterMarkdown);
 
   return {
     sectionId,
@@ -60,7 +56,7 @@ export function getSectionHistoryDetail(
   };
 }
 
-function buildInitialSectionDiff(sectionPath: string, markdown: string): string {
+function buildInitialSectionDiff(sectionId: string, markdown: string): string {
   const lines = markdown.length > 0 ? markdown.split('\n') : [];
   while (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();
@@ -70,12 +66,28 @@ function buildInitialSectionDiff(sectionPath: string, markdown: string): string 
   }
 
   return [
-    `diff --git a/${sectionPath} b/${sectionPath}`,
+    `diff --git a/document.json#${sectionId} b/document.json#${sectionId}`,
     'new file mode 100644',
     'index 0000000..0000000',
     '--- /dev/null',
-    `+++ b/${sectionPath}`,
+    `+++ b/document.json#${sectionId}`,
     `@@ -0,0 +1,${lines.length} @@`,
     ...lines.map((line) => `+${line}`)
+  ].join('\n');
+}
+
+function buildSectionDiff(sectionId: string, before: string, after: string): string {
+  if (before === after) {
+    return '';
+  }
+  const beforeLines = before.length > 0 ? before.split('\n') : [];
+  const afterLines = after.length > 0 ? after.split('\n') : [];
+  return [
+    `diff --git a/document.json#${sectionId} b/document.json#${sectionId}`,
+    `--- a/document.json#${sectionId}`,
+    `+++ b/document.json#${sectionId}`,
+    `@@ -1,${Math.max(1, beforeLines.length)} +1,${Math.max(1, afterLines.length)} @@`,
+    ...beforeLines.map((line) => `-${line}`),
+    ...afterLines.map((line) => `+${line}`)
   ].join('\n');
 }

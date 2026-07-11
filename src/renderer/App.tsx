@@ -5,7 +5,6 @@ import { Toaster } from './components/ui/sonner';
 import { SidebarInset, SidebarProvider } from './components/ui/sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
 import { GenerationHub } from './features/generation/GenerationHub';
-import { SectionListView } from './features/sections/SectionListView';
 import { SiteHeader } from './layout/SiteHeader';
 import { SidebarLeft, SidebarRight } from './layout/Sidebars';
 import { WorkspaceChooserDialog } from './layout/WorkspaceChooserDialog';
@@ -75,7 +74,6 @@ export function App() {
     focusSectionById,
     openKnowledgeCitation,
     openKnowledgeSourceNode,
-    openWritingView,
     moveSectionInOutline,
     createSection,
     createKnowledgeItem,
@@ -245,10 +243,19 @@ export function App() {
               />
 
               <SidebarInset className="min-h-[calc(100svh-var(--header-height))] overflow-hidden">
-                {currentChildViewMode === 'markdown' && focusSection ? (
+                {currentChildViewMode === 'references' ? (
+                  <CitationCoverageView
+                    state={state}
+                    mode={currentChildViewMode}
+                    onModeChange={setFocusedChildViewMode}
+                    onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
+                    onError={notifyError}
+                  />
+                ) : focusSection ? (
                   <WritingView
                     key={focusSection.id}
                     section={focusSection}
+                    blocks={state.documentBlocks.filter((block) => block.sectionId === focusSection.id)}
                     compositionTree={state.compositionTree}
                     rootNodeId={state.workspace?.rootNodeId ?? null}
                     childViewMode={currentChildViewMode}
@@ -259,28 +266,10 @@ export function App() {
                     onStatus={notifyStatus}
                     onError={notifyError}
                   />
-                ) : currentChildViewMode === 'references' ? (
-                  <CitationCoverageView
-                    state={state}
-                    mode={currentChildViewMode}
-                    onModeChange={setFocusedChildViewMode}
-                    onCitationClick={(publicRef) => void openKnowledgeCitation(publicRef)}
-                    onError={notifyError}
-                  />
                 ) : (
-                  <SectionListView
-                    state={state}
-                    focusSectionId={state.focusSectionId}
-                    rootNodeId={state.workspace?.rootNodeId ?? null}
-                    selection={selection}
-                    onSelection={setSelection}
-                    onFocusSection={(id) => void focusSectionById(id)}
-                    onOpenHistory={(section) => setHistorySectionId(section.id)}
-                    childViewMode={currentChildViewMode}
-                    onChildViewMode={setFocusedChildViewMode}
-                    onState={setState}
-                    onError={notifyError}
-                  />
+                  <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                    Select a section from the composition outline to edit its Markdown.
+                  </div>
                 )}
               </SidebarInset>
 

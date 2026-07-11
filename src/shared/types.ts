@@ -1,5 +1,26 @@
 export type NodeKind = 'section' | 'content';
 
+export type DocumentBlockKind =
+  | 'paragraph'
+  | 'heading'
+  | 'quote'
+  | 'code'
+  | 'list_item'
+  | 'divider'
+  | 'image';
+
+export type DocumentBlockRecord = {
+  id: string;
+  sectionId: string;
+  parentId: string | null;
+  kind: DocumentBlockKind;
+  content: string;
+  attributes: Record<string, unknown>;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type EdgeKind = 'informs' | 'generates' | 'revises' | 'related-to' | 'cites';
 
 export type BaseNodeRecord = {
@@ -15,8 +36,8 @@ export type BaseNodeRecord = {
 export type SectionNodeRecord = BaseNodeRecord & {
   kind: 'section';
   intent: string | null;
+  description: string | null;
   activeMainNodeId: string | null;
-  markdownPath: string;
   markdownContent: string;
   markdownHash: string;
   metadata: Record<string, unknown>;
@@ -140,6 +161,7 @@ export type FocusedWorkspaceState = {
   compositionTree: CompositionTreeNode[];
   focusSectionId: string | null;
   nodes: NodeRecord[];
+  documentBlocks: DocumentBlockRecord[];
   visibleNodes: NodeRecord[];
   contextNodes: ContentNodeRecord[];
   knowledgeItems: KnowledgeItemRecord[];
@@ -153,6 +175,7 @@ export type CreateSectionNodePayload = {
   parentId: string | null;
   title: string;
   intent?: string;
+  description?: string;
 };
 
 export type CreateContentNodePayload = {
@@ -170,8 +193,23 @@ export type CreateNodePayload = CreateSectionNodePayload | CreateContentNodePayl
 export type UpdateSectionNodePayload = {
   title?: string;
   intent?: string | null;
+  description?: string | null;
   activeMainNodeId?: string | null;
   markdownContent?: string;
+};
+
+export type CreateDocumentBlockPayload = {
+  sectionId: string;
+  afterBlockId?: string | null;
+  kind?: DocumentBlockKind;
+  content?: string;
+  attributes?: Record<string, unknown>;
+};
+
+export type UpdateDocumentBlockPayload = {
+  kind?: DocumentBlockKind;
+  content?: string;
+  attributes?: Record<string, unknown>;
 };
 
 export type UpdateContentNodePayload = {

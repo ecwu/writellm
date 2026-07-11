@@ -99,9 +99,12 @@ The initial records below belong to the PIA initiative. New records may belong t
 | [ADR-0011](0011-bound-generation-retrieval-worker-lifecycles.md) | GEN | Bound generation retrieval worker lifecycles | ACCEPTED | IMPLEMENTED | GEN-002 |
 | [ADR-0012](0012-replace-interactive-generation-with-pi-agent-event-runtime.md) | PIA | Replace interactive generation with the Pi Agent event runtime | ACCEPTED | IN_PROGRESS | PIA-004 through PIA-016, PIA-018, GEN-002 |
 | [ADR-0013](0013-harden-electron-renderer-and-ipc-boundaries.md) | SEC | Harden Electron renderer and IPC boundaries | ACCEPTED | IMPLEMENTED | SEC-001, SEC-002, SEC-003, PIA-007, PIA-009, PIA-012 |
-| [ADR-0014](0014-store-provider-secrets-and-gate-outbound-data.md) | SEC | Store provider secrets securely and gate outbound data | ACCEPTED | IMPLEMENTED | SEC-003, PIA-004, PIA-007, PIA-012 |
+| [ADR-0014](0014-store-provider-secrets-and-gate-outbound-data.md) | SEC | Store provider secrets securely and gate outbound data | SUPERSEDED | IMPLEMENTED | SEC-003, PIA-004, PIA-007, PIA-012 |
 | [ADR-0015](0015-preserve-workspace-data-through-migrations-and-recovery.md) | DAT | Preserve workspace data through migrations and recovery | ACCEPTED | NOT_STARTED | DAT-001, DAT-002, PIA-005, PIA-016 |
 | [ADR-0016](0016-own-active-workspace-lifecycles.md) | REL | Own active workspace lifecycles centrally | ACCEPTED | IMPLEMENTED | REL-001, PIA-006, PIA-011, PIA-012 |
 | [ADR-0017](0017-expose-bounded-knowledge-retrieval-through-pi-tool.md) | PIA | Expose bounded knowledge retrieval through the Pi `source` tool | ACCEPTED | IN_PROGRESS | PIA-007, PIA-011, PIA-012, PIA-014, PIA-016, PIA-019 |
 | [ADR-0018](0018-rebuild-llm-and-rag-on-pi-without-legacy-compatibility.md) | PIA | Rebuild LLM and RAG on Pi without legacy compatibility | ACCEPTED | IN_PROGRESS | PIA-004 through PIA-016 |
 | [ADR-0019](0019-isolate-pi-retrieval-and-backpressure-live-events.md) | PIA | Isolate Pi retrieval and backpressure live events | ACCEPTED | IN_PROGRESS | PIA-006, PIA-007, PIA-009 through PIA-012, PER-001 |
+| [ADR-0020](0020-limit-provider-secrets-to-the-privileged-backend.md) | SEC | Limit provider secrets to the privileged backend | ACCEPTED | IN_PROGRESS | SEC-003, SEC-004, PIA-004, PIA-007, PIA-012 |
+| [ADR-0021](0021-open-focused-sections-in-markdown.md) | DOC | Open focused sections directly in Markdown | ACCEPTED | IMPLEMENTED | DOC-002 |
+| [ADR-0022](0022-store-manuscript-as-block-document.md) | DOC | Store the manuscript as one block document with logical section ranges | ACCEPTED | IN_PROGRESS | DOC-003 |
