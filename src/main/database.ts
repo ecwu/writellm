@@ -335,13 +335,25 @@ export class WriteLLMDatabase {
       throw new Error(`Block not found in logical section: ${payload.afterBlockId}`);
     }
     const timestamp = nowIso();
+    const appendAfterLast = afterIndex === siblings.length - 1;
+    const afterBlock = appendAfterLast ? siblings[afterIndex] : null;
+    const trailingNewlines = afterBlock && typeof afterBlock.attributes.trailingNewlines === 'string'
+      ? afterBlock.attributes.trailingNewlines
+      : '';
+    if (afterBlock && trailingNewlines) {
+      const { trailingNewlines: _discarded, ...attributes } = afterBlock.attributes;
+      siblings[afterIndex] = { ...afterBlock, attributes };
+    }
     const block: DocumentBlockRecord = {
       id: createId('blk'),
       sectionId: payload.sectionId,
       parentId: null,
       kind: payload.kind ?? 'paragraph',
       content: payload.content ?? '',
-      attributes: payload.attributes ?? (siblings.length === 0 ? {} : { leadingNewlines: '\n\n' }),
+      attributes: payload.attributes ?? {
+        ...(siblings.length === 0 ? {} : { leadingNewlines: '\n\n' }),
+        ...(trailingNewlines ? { trailingNewlines } : {})
+      },
       sortOrder: afterIndex + 1,
       createdAt: timestamp,
       updatedAt: timestamp
@@ -386,6 +398,17 @@ export class WriteLLMDatabase {
     this.orm.transaction(() => {
       this.orm.delete(documentBlocks).where(eq(documentBlocks.id, blockId)).run();
       const remaining = this.listDocumentBlocks(existing.sectionId).filter((block) => block.parentId === null);
+      const previous = remaining.find((block) => block.sortOrder === existing.sortOrder - 1);
+      const trailingNewlines = typeof existing.attributes.trailingNewlines === 'string'
+        ? existing.attributes.trailingNewlines
+        : '';
+      if (previous && trailingNewlines && !previous.attributes.trailingNewlines) {
+        const index = remaining.findIndex((block) => block.id === previous.id);
+        remaining[index] = {
+          ...previous,
+          attributes: { ...previous.attributes, trailingNewlines }
+        };
+      }
       this.rewriteDocumentBlockOrder(remaining, timestamp);
       this.touchLogicalSection(existing.sectionId, timestamp);
     });
@@ -2660,7 +2683,15 @@ export class WriteLLMDatabase {
         })
         .onConflictDoUpdate({
           target: documentBlocks.id,
-          set: { sortOrder, updatedAt: timestamp }
+          set: {
+            sectionId: block.sectionId,
+            parentId: block.parentId,
+            kind: block.kind,
+            content: block.content,
+            attributesJson: JSON.stringify(block.attributes),
+            sortOrder,
+            updatedAt: timestamp
+          }
         })
         .run();
     });

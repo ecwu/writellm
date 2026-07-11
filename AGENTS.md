@@ -4,6 +4,8 @@
 
 WriteLLM is an Electron desktop app for long-form academic/structured writing with LLM assistance, knowledge retrieval, and section versioning. It uses a SQLite database (better-sqlite3 + drizzle-orm) with a git-backed workspace for section history. The app has no web server — the renderer loads via Vite dev server in dev or from `dist/` in production.
 
+DO NOT send optional commentary.
+
 ## Planning documents
 
 - [Master Product PRD](docs/project-prd.md) is the source of truth for WriteLLM product scope, whole-project requirements, priorities, and initiative routing. Read it before product work.
