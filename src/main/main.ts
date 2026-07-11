@@ -1,30 +1,36 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerIpcHandlers } from './ipcHandlers.js';
-import { clearTrustedRenderer, configureTrustedRenderer } from './security.js';
-import { shutdownActiveWorkspace } from './workspace.js';
+import { ipcChannels, type RuntimeInfo } from '../shared/ipc.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
+const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+const isDevelopment = Boolean(devServerUrl);
+const rendererDirectory = path.join(__dirname, '../../dist');
 
-registerIpcHandlers();
+function registerIpcHandlers(): void {
+  ipcMain.handle(ipcChannels.getRuntimeInfo, (): RuntimeInfo => ({
+    appName: app.getName(),
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    isPackaged: app.isPackaged
+  }));
+}
 
 async function createWindow(): Promise<void> {
   const preloadPath = path.join(__dirname, '../preload/preload.cjs');
-  const productionRendererDirectory = path.join(__dirname, '../../dist');
   if (!existsSync(preloadPath)) {
-    console.error(`Preload file not found: ${preloadPath}`);
+    throw new Error(`Preload file not found: ${preloadPath}`);
   }
 
   const window = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
-    title: 'writellm',
+    width: 1200,
+    height: 800,
+    minWidth: 960,
+    minHeight: 640,
+    title: 'WriteLLM v2',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -35,40 +41,37 @@ async function createWindow(): Promise<void> {
     }
   });
 
-  configureTrustedRenderer(window, {
-    devServerUrl: isDev ? process.env.VITE_DEV_SERVER_URL : undefined,
-    productionRendererDirectory
-  });
-  window.on('closed', () => clearTrustedRenderer(window.webContents));
-
-  window.webContents.on('console-message', (_event, level, _message, line, sourceId) => {
-    console.warn(`[renderer:${level}] console payload suppressed (${sourceId}:${line})`);
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://')) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
   });
 
-  if (isDev) {
-    await window.loadURL(process.env.VITE_DEV_SERVER_URL!);
-  } else {
-    await window.loadFile(path.join(productionRendererDirectory, 'index.html'));
+  window.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+
+  if (isDevelopment) {
+    await window.loadURL(devServerUrl!);
+    return;
   }
+
+  await window.loadFile(path.join(rendererDirectory, 'index.html'));
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  registerIpcHandlers();
+  return createWindow();
+}).catch((error: unknown) => {
+  console.error('WriteLLM v2 failed to start.', error);
+  app.quit();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-let shutdownInProgress = false;
-
-app.on('before-quit', (event) => {
-  if (shutdownInProgress) {
-    return;
-  }
-  shutdownInProgress = true;
-  event.preventDefault();
-  void shutdownActiveWorkspace().finally(() => app.exit(0));
 });
 
 app.on('activate', () => {

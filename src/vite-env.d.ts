@@ -1,9 +1,11 @@
 /// <reference types="vite/client" />
 
-import type { WriteLLMApi } from './renderer/api';
+import type { WriteLLMIpc } from './shared/ipc';
 
 declare global {
   interface Window {
-    writellm?: WriteLLMApi;
+    writellm: WriteLLMIpc;
   }
 }
+
+export {};

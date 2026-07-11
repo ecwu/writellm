@@ -1,7 +1,4 @@
 node_modules/
 dist/
 dist-electron/
-*.writellm/
-*.sqlite
-*.sqlite-*
 .DS_Store
