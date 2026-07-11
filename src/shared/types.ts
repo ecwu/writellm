@@ -214,6 +214,7 @@ export type UpdateLlmSettingsPayload = {
   mineruEnableTable?: boolean;
   mineruEnableFormula?: boolean;
   knowledgeRetrieval?: Partial<KnowledgeRetrievalSettings>;
+  allowExternalProcessing?: boolean;
 };
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -312,11 +313,18 @@ export type PublicModelSettingsProfile = {
 export type LlmSettings = ModelSettingsProfile & {
   appearance: AppearanceSettings;
   knowledge: KnowledgeSettings;
+  outboundData: OutboundDataPolicy;
 };
 
 export type PublicLlmSettings = PublicModelSettingsProfile & {
   appearance: AppearanceSettings;
   knowledge: PublicKnowledgeSettings;
+  outboundData: OutboundDataPolicy;
+};
+
+export type OutboundDataPolicy = {
+  externalProcessingEnabled: boolean;
+  consentedAt: string | null;
 };
 
 export type KnowledgeIndexStatus = 'pending' | 'indexed' | 'error';
@@ -818,7 +826,9 @@ export type PatchMetadata = {
   rawProposal?: string;
   provenance?: {
     generationRoundId?: string;
+    piRunId?: string;
     retrievedChunkIds?: string[];
+    evidencePublicRefs?: string[];
     citationMarkers?: string[];
   };
 };
@@ -835,6 +845,7 @@ export type PatchValidationCode =
   | 'SUSPICIOUSLY_LONG_OUTPUT'
   | 'CITATION_REMOVED'
   | 'CITATION_MODIFIED'
+  | 'UNRESOLVED_CITATION'
   | 'NUMBER_CHANGED'
   | 'NUMERIC_CLAIM_ADDED'
   | 'MARKDOWN_BROKEN'
@@ -993,6 +1004,77 @@ export type AdoptGenerationPayload = {
 };
 
 export type SectionLlmEditMode = 'rewrite_section' | 'rewrite_selection' | 'continue_at_cursor';
+
+export type PiWritingMode = 'rewrite_section' | 'rewrite_selection' | 'continue' | 'append';
+
+export type StartPiRunPayload = {
+  sectionId: string;
+  focusSectionId?: string | null;
+  mode: PiWritingMode;
+  prompt: string;
+  targetStart?: number;
+  targetEnd?: number;
+};
+
+export type PiRunStatus = 'running' | 'succeeded' | 'failed' | 'canceled' | 'timed_out' | 'budget_exhausted';
+
+export type PiRunFailureCategory =
+  | 'tool_policy_denied'
+  | 'embedding_configuration'
+  | 'embedding_timeout'
+  | 'embedding_transport'
+  | 'local_search_failure'
+  | 'rerank_timeout'
+  | 'rerank_transport'
+  | 'retrieval_timeout'
+  | 'canceled'
+  | 'tool_budget_exhausted'
+  | 'scope_denied'
+  | 'patch_proposal_denied'
+  | 'tool_execution_failed'
+  | 'run_timeout'
+  | 'turn_budget_exhausted'
+  | 'agent_failure';
+
+export type PiRunEvent = {
+  runId: string;
+  sequence: number;
+  timestamp: string;
+  origin: 'pi' | 'writellm';
+  type:
+    | 'run_started'
+    | 'agent_start'
+    | 'agent_end'
+    | 'turn_start'
+    | 'turn_end'
+    | 'message_start'
+    | 'message_delta'
+    | 'message_end'
+    | 'tool_execution_start'
+    | 'tool_execution_end'
+    | 'run_terminal';
+  data?: Record<string, unknown>;
+};
+
+export type PiRunSummary = {
+  runId: string;
+  workspacePath: string;
+  sectionId: string;
+  status: 'running';
+  startedAt: string;
+  turnCount: number;
+};
+
+export type PiRunTerminalResult = Omit<PiRunSummary, 'status' | 'turnCount'> & {
+  status: Exclude<PiRunStatus, 'running'>;
+  completedAt: string;
+  turnCount: number;
+  failure?: {
+    category: PiRunFailureCategory;
+    retryable: boolean;
+    cause: string;
+  };
+};
 
 export type GenerationEvent =
   | {

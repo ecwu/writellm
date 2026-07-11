@@ -47,7 +47,7 @@ PIA-017 replaces the local Electron package, regenerates the native `better-sqli
 - Electron and better-sqlite3 are pinned exactly in both `package.json` and `bun.lock`; a later update requires an audit/rebuild/smoke review.
 - better-sqlite3 12.11.1 must be rebuilt for Electron 40.10.5 before smoke tests run.
 - The Pi coding-agent CLI, default tools, resource loader, extensions, and skills remain prohibited; this decision changes only the runtime floor.
-- Pi mode remains default-off under ADR-0007, so the runtime upgrade does not expose agent workflows by itself.
+- Installing the runtime alone does not expose a generation workflow. ADR-0012 now owns the full-pipeline `generation.enabled` kill-switch policy that will be implemented at cutover.
 - Non-Electron audit findings, including provider-library paths shared with existing dependencies, remain tracked for SEC/QAL review and cannot be treated as release approval.
 
 ## Linked implementation work
@@ -56,7 +56,7 @@ PIA-017 replaces the local Electron package, regenerates the native `better-sqli
 | --- | --- |
 | PIA-017 | Install Electron 40.10.5 and better-sqlite3 12.11.1, rebuild the native binding, run typecheck/build/smoke, and verify the Electron audit finding is gone. |
 | PIA-003 | Re-run the Electron main-process Pi Core import after PIA-017 and record the reviewed lockfile/risk result. |
-| PIA-016 | Rehearse the default-off agent flag and rollback path on the supported runtime. |
+| PIA-016 | Rehearse the ADR-0012 full-generation kill switch and cutover recovery path on the supported runtime. |
 
 ### Completion conditions
 
@@ -73,3 +73,4 @@ PIA-017 replaces the local Electron package, regenerates the native `better-sqli
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-017 claimed the Electron 40.10.5 installation, native rebuild, and repeated runtime/audit verification. |
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | Electron 40.10.5 exposed better-sqlite3 11.10.0's removed-V8-API build failure. PIA-017 selected exact better-sqlite3 12.11.1 after confirming its Node 20–26 support; no WriteLLM data migration is part of this runtime task. |
 | 2026-07-11 | ACCEPTED | IMPLEMENTED | Electron 40.10.5 / Node 24.15.0, better-sqlite3 12.11.1 rebuild, typecheck, build, Electron smoke, and Electron-main Pi import passed. A repeat audit removed the direct Electron finding; QAL-001 owns the remaining release-risk triage. |
+| 2026-07-11 | ACCEPTED | IMPLEMENTED | ADR-0012 superseded the separate default-off agent-mode policy. This runtime remains the verified dependency foundation; it does not itself enable the future full-generation path. |

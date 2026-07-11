@@ -60,7 +60,6 @@ export function WritingView({
   });
   const [activeGenerationMode, setActiveGenerationMode] = useState<EditorLlmMode>('rewrite-all');
   const [generationPrompt, setGenerationPrompt] = useState('');
-  const [generationUsesKnowledge, setGenerationUsesKnowledge] = useState(true);
   const [isCreatingGeneration, setIsCreatingGeneration] = useState(false);
   const generationInputRef = useRef<HTMLInputElement | null>(null);
   const rootTreeNode = useMemo(
@@ -117,14 +116,11 @@ export function WritingView({
     }
     setIsCreatingGeneration(true);
     try {
-      const result = await getApi().createGenerationTask({
+      const result = await getApi().startPiRun({
         sectionId: section.id,
         focusSectionId: section.id,
         mode: generationModeFromEditor(activeGenerationMode),
         prompt: generationPrompt,
-        useKnowledgeSources: generationUsesKnowledge,
-        contextNodeIds: [],
-        requireInlineCitations: generationUsesKnowledge,
         targetStart: activeGenerationMode === 'rewrite-all' ? 0 : currentSelection.startOffset,
         targetEnd: activeGenerationMode === 'rewrite-all'
           ? editor.getValue().length
@@ -133,7 +129,7 @@ export function WritingView({
             : currentSelection.endOffset
       });
       setGenerationPrompt('');
-      onStatus(result.status === 'retrieving' ? 'Collecting sources in the bottom hub.' : 'Drafting in the bottom hub.');
+      onStatus(`Pi agent run ${result.runId.slice(0, 12)} started in the assistant hub.`);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -215,15 +211,6 @@ export function WritingView({
               placeholder={editorLlmPlaceholder(activeGenerationMode)}
               disabled={generationDisabled}
             />
-            <label className="writing-knowledge-toggle">
-              <input
-                type="checkbox"
-                checked={generationUsesKnowledge}
-                onChange={(event) => setGenerationUsesKnowledge(event.target.checked)}
-                disabled={generationDisabled}
-              />
-              <span>Sources</span>
-            </label>
             <Button size="sm" onClick={() => void enqueueGenerationTask()} disabled={generationDisabled || !generationPrompt.trim()}>
               {generationDisabled ? <Spinner /> : null}
               {generationButtonLabel(isCreatingGeneration)}

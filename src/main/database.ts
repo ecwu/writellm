@@ -80,7 +80,7 @@ import type {
   WritingPatchStatus
 } from '../shared/types.js';
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const VECTOR_TABLE_PREFIX = 'knowledge_chunk_vectors_d';
 const KNOWLEDGE_INGEST_TASK_TYPE = 'knowledge-ingest';
 const SECTION_METADATA_DIR = 'metadata/sections';
@@ -1880,6 +1880,9 @@ export class WriteLLMDatabase {
       this.dropColumnIfPresent('llm_generation_rounds', 'execution_mode');
       this.dropColumnIfPresent('llm_generation_rounds', 'job_id');
     }
+    if (previousSchemaVersion < 18) {
+      this.clearLegacyLlmHistory();
+    }
 
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_items_public_ref
@@ -2077,6 +2080,35 @@ export class WriteLLMDatabase {
       this.orm.delete(knowledgeItems).run();
     });
     rmSync(path.join(this.workspacePath, 'assets', 'knowledge'), { recursive: true, force: true });
+  }
+
+  private clearLegacyLlmHistory(): void {
+    this.orm.transaction(() => {
+      this.orm.delete(generationCitations).run();
+      this.orm.delete(writingPatches).run();
+      this.orm.delete(llmGenerationRounds).run();
+      this.orm.delete(llmGenerationSessions).run();
+      this.orm.delete(plainjobJobs).where(eq(plainjobJobs.type, 'llm-generation')).run();
+
+      const sectionRows = this.orm
+        .select({ id: nodes.id, metadataJson: nodes.metadataJson })
+        .from(nodes)
+        .where(and(eq(nodes.kind, 'section'), isNull(nodes.deletedAt)))
+        .all();
+      for (const row of sectionRows) {
+        const metadata = asRecord(parseJsonObject(row.metadataJson));
+        if (!metadata || !Object.hasOwn(metadata, 'llmOperations')) {
+          continue;
+        }
+        delete metadata.llmOperations;
+        this.orm
+          .update(nodes)
+          .set({ metadataJson: JSON.stringify(metadata), updatedAt: nowIso() })
+          .where(eq(nodes.id, row.id))
+          .run();
+      }
+    });
+    rmSync(path.join(this.workspacePath, SECTION_METADATA_DIR), { recursive: true, force: true });
   }
 
   private createUniqueKnowledgeItemPublicRef(): string {

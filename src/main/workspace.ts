@@ -6,9 +6,12 @@ import { WriteLLMDatabase, emptyProjectBrief } from './database.js';
 import { ensureGitSession } from './gitSession.js';
 import { nowIso } from './ids.js';
 import { closeRetrievalWorker } from './retrievalWorkerClient.js';
+import { cancelAndDrainWorkspaceWork } from './workspaceLifecycle.js';
 import type { FocusedWorkspaceState, RecentWorkspace, WorkspaceSummary } from '../shared/types.js';
 
 let activeDb: WriteLLMDatabase | null = null;
+let workspaceTransition: Promise<void> = Promise.resolve();
+let pendingWorkspaceTransitions = 0;
 const MAX_RECENT_WORKSPACES = 10;
 const WORKSPACE_EXTENSION = '.writellm';
 
@@ -60,6 +63,24 @@ export function getState(focusSectionId?: string): FocusedWorkspaceState {
 }
 
 async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
+  pendingWorkspaceTransitions += 1;
+  const next = workspaceTransition.then(() => activateWorkspace(workspacePath));
+  workspaceTransition = next.then(() => undefined, () => undefined);
+  return next.finally(() => {
+    pendingWorkspaceTransitions -= 1;
+  });
+}
+
+export function assertActiveWorkspaceWorkAllowed(): void {
+  if (pendingWorkspaceTransitions > 0) {
+    throw new Error('Workspace is switching. Wait for the active workspace to finish changing before starting work.');
+  }
+}
+
+async function activateWorkspace(workspacePath: string): Promise<WorkspaceSummary> {
+  if (activeDb) {
+    await cancelAndDrainWorkspaceWork('Workspace switched before the operation completed.', activeDb.workspacePath);
+  }
   await stopKnowledgeIngestWorker();
   closeRetrievalWorker();
   const nextDb = new WriteLLMDatabase(workspacePath);
@@ -72,6 +93,14 @@ async function setActiveWorkspace(workspacePath: string): Promise<WorkspaceSumma
     await startKnowledgeIngestWorker(activeDb);
   }
   return activeDb.summary();
+}
+
+export async function shutdownActiveWorkspace(): Promise<void> {
+  await cancelAndDrainWorkspaceWork('Application shutdown canceled the operation.');
+  await stopKnowledgeIngestWorker();
+  closeRetrievalWorker();
+  activeDb?.close();
+  activeDb = null;
 }
 
 function normalizeWorkspacePath(workspacePath: string): string {

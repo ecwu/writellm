@@ -11,6 +11,7 @@ export type RetrievalWorkerRequest = {
   query: string;
   embeddingSettings: ModelEndpointSettings;
   chatSettings: ModelEndpointSettings;
+  externalProcessingEnabled: boolean;
   retrievalMode?: KnowledgeRetrievalMode;
   excludedItemIds?: string[];
   excludedChunkIds?: string[];

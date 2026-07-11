@@ -295,6 +295,7 @@ export async function retrieveKnowledgeForGeneration(
     query,
     embeddingSettings: options.settings.embedding,
     chatSettings: options.settings.chat,
+    externalProcessingEnabled: options.settings.outboundData.externalProcessingEnabled,
     excludedItemIds: options.excludedItemIds,
     excludedChunkIds: options.excludedChunkIds,
     maxChunks: options.maxChunks,

@@ -12,9 +12,9 @@ related_tasks: [PIA-005, PIA-006, PIA-009, PIA-011, PIA-012, DAT-001, REL-001]
 depends_on: [ADR-0002]
 external_task_gates: [DAT-001, REL-001]
 supersedes: []
-superseded_by: null
-decision_status: ACCEPTED
-implementation_status: NOT_STARTED
+superseded_by: ADR-0018
+decision_status: SUPERSEDED
+implementation_status: ABANDONED
 last_updated: 2026-07-11
 ---
 
@@ -69,3 +69,4 @@ An in-flight MVP run is not resumable. On restart or workspace switch, it become
 | Date | Decision status | Implementation status | Change and evidence |
 | --- | --- | --- | --- |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Formalized the PRD persistence model as an accepted architecture decision. |
+| 2026-07-11 | SUPERSEDED | ABANDONED | ADR-0018 adopts ephemeral live Pi runs and explicitly deletes LLM history while retaining indexed knowledge sources. |

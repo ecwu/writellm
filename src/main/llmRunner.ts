@@ -4,6 +4,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { Output, generateText, streamText } from 'ai';
 import type { z } from 'zod';
 import type { ModelEndpointSettings } from '../shared/types.js';
+import { assertOutboundDataAllowed, type OutboundDataPolicySnapshot } from './llmSettings.js';
 
 function createModel(settings: ModelEndpointSettings, options: { jsonMode?: boolean; structuredOutputs?: boolean } = {}) {
   if (settings.provider === 'deepseek') {
@@ -49,8 +50,10 @@ export async function generateLlmText(
     maxOutputTokens?: number;
     timeoutMs?: number;
   },
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  outboundDataPolicy?: OutboundDataPolicySnapshot
 ): Promise<string> {
+  assertOutboundDataAllowed(settings.baseURL, 'chat', outboundDataPolicy);
   if (!settings.apiKey.trim()) {
     throw new Error('LLM API key is required. Add it in Settings first.');
   }
@@ -138,8 +141,10 @@ export async function generateLlmObject<TSchema extends z.ZodType>(
     jsonExample?: string;
     maxOutputTokens?: number;
   },
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  outboundDataPolicy?: OutboundDataPolicySnapshot
 ): Promise<z.infer<TSchema>> {
+  assertOutboundDataAllowed(settings.baseURL, 'chat', outboundDataPolicy);
   if (!settings.apiKey.trim()) {
     throw new Error('LLM API key is required. Add it in Settings first.');
   }
@@ -181,8 +186,10 @@ export async function streamLlmObject<TSchema extends z.ZodType>(
     jsonExample?: string;
     maxOutputTokens?: number;
   },
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  outboundDataPolicy?: OutboundDataPolicySnapshot
 ): Promise<z.infer<TSchema>> {
+  assertOutboundDataAllowed(settings.baseURL, 'chat', outboundDataPolicy);
   if (!settings.apiKey.trim()) {
     throw new Error('LLM API key is required. Add it in Settings first.');
   }

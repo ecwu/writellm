@@ -82,10 +82,10 @@ This map records the observed product baseline in the repository. It is not a cl
 | PRJ — Project brief | The manuscript has reusable audience, terminology, argument, and structure guidance. | Project Brief editors and reviewable LLM suggestions for glossary, motivation, and framework. |
 | KNO — Knowledge | An author can ingest and search local supporting material. | Manual sources plus text/Markdown/PDF ingest, background jobs, chunking, embeddings, optional rerank, retrieval traces, and reindex/retry operations. |
 | EVD — Evidence | Sources and citations remain navigable and auditable. | Stable public references, editor citation navigation, source reader, citation-coverage report, and section/source matrix. |
-| GEN — Assisted writing | LLM assistance produces bounded, reviewable writing proposals. | Scoped rewrite/continue flow, retrieval planning, streaming, cancel/retry, structured generation rounds, WritingPatch validation, and human Apply/Save Candidate/Reject. |
+| GEN — Assisted writing | LLM assistance produces bounded, reviewable writing proposals. | The observed baseline is a scoped rewrite/continue path with retrieval planning, streaming, legacy generation rounds, WritingPatch validation, and human Apply/Save Candidate/Reject. ADR-0012 replaces its active runtime and presentation contract with Pi Agent Core while retaining the review boundary. |
 | HIS — History and export | An author can checkpoint, compare, restore, and take a portable copy of work. | Git checkpoints, section history/diff/restore, and Markdown export to exports/main.md. The current exportLatex name is not evidence of a true LaTeX exporter. |
 | CFG — Configuration | An author can configure appearance and compatible local/remote services. | Local settings for chat, embedding, rerank, vision, PDF processing, retrieval, and appearance; secure secret storage and outbound-data policy remain product requirements. |
-| PIA — Agent harness | Research-intensive writing can gain bounded multi-step orchestration. | Planned initiative; see the [Pi Agent Harness initiative PRD](pi-agent-harness-prd.md). |
+| PIA — Agent harness | Interactive writing generation gains bounded Pi multi-step orchestration. | Accepted project-wide rearchitecture; see ADR-0012 and the [Pi Agent Harness initiative PRD](pi-agent-harness-prd.md). |
 
 ## 5. Functional requirements
 
@@ -100,7 +100,7 @@ This map records the observed product baseline in the repository. It is not a cl
 | WLL-FR-007 | Must | Offer controlled LLM writing assistance through a typed, reviewable proposal boundary. | No successful generation directly mutates manuscript content; validation warnings, diff, cancellation, retry, and explicit author actions remain available. |
 | WLL-FR-008 | Must | Provide version recovery and an honest portable export contract. | Authors can checkpoint and restore section history; every export command and file extension accurately describes the artifact produced. |
 | WLL-FR-009 | Must | Allow configurable providers and processing services while showing their capabilities and data consequences. | Unsupported capability is surfaced before work begins; settings exclude secrets from renderer-facing responses and explain external processing when enabled. |
-| WLL-FR-010 | Should | Add optional bounded agent workflows only through a separately specified initiative. | Any agent mode follows the Pi initiative's tool, review, audit, budget, and feature-flag requirements; legacy writing flows remain available. |
+| WLL-FR-010 | Should | Use a bounded Pi runtime for all interactive writing-generation workflows through a separately specified initiative. | Every active generation route follows the Pi initiative's tool, review, audit, budget, event-projection, and kill-switch requirements; the retired legacy generator is not an active fallback. |
 
 ## 6. Cross-cutting quality requirements
 
@@ -181,3 +181,4 @@ The [task tracker](task-tracker.md) contains the only live work board. It includ
 | Date | Change | Evidence |
 | --- | --- | --- |
 | 2026-07-11 | Created master product PRD and established project-wide planning hierarchy. | Links to task tracker, Pi initiative PRD, and ADR register. |
+| 2026-07-11 | Accepted a full Pi Agent Core rearchitecture of interactive generation and its progress presentation. | ADR-0012 supersedes the prior optional-agent/legacy-fallback scope; task tracker and Pi initiative PRD define the migration and removal work. |

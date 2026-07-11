@@ -13,7 +13,7 @@
     "start": "bun run build && electron .",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "test:smoke": "bun run build && node scripts/electron-smoke.mjs",
+    "test:smoke": "bun run build && node scripts/electron-smoke.mjs && node scripts/llm-clean-slate-smoke.mjs",
     "test:all": "bun run test && bun run test:smoke",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },

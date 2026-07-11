@@ -9,12 +9,18 @@ import type {
   RetrievalWorkerRequest
 } from './retrievalWorkerProtocol.js';
 
+export const DEFAULT_RETRIEVAL_TIMEOUT_MS = 45_000;
+
+type WorkerFactory = (workspacePath: string) => Worker;
+
 type RetrievalTask = {
   taskId: string;
   request: RetrievalWorkerRequest;
   onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
   abortSignal?: AbortSignal;
   abortListener?: () => void;
+  timeoutMs: number;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
   canceled: boolean;
   settled: boolean;
   resolve: (sources: RetrievedKnowledgeSource[]) => void;
@@ -30,6 +36,7 @@ export function retrieveKnowledgeInWorker(
   options: {
     abortSignal?: AbortSignal;
     onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+    timeoutMs?: number;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
   const client = getRetrievalWorkerClient(workspacePath);
@@ -41,6 +48,19 @@ export function closeRetrievalWorker(): void {
   activeClient = null;
 }
 
+function createRetrievalWorker(workspacePath: string): Worker {
+  return new Worker(new URL('./retrievalWorker.js', import.meta.url), {
+    workerData: { workspacePath }
+  });
+}
+
+function resolveTimeoutMs(timeoutMs: number | undefined): number {
+  if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs <= 0) {
+    return DEFAULT_RETRIEVAL_TIMEOUT_MS;
+  }
+  return Math.trunc(timeoutMs);
+}
+
 function getRetrievalWorkerClient(workspacePath: string): RetrievalWorkerClient {
   if (activeClient?.workspacePath !== workspacePath) {
     closeRetrievalWorker();
@@ -49,13 +69,16 @@ function getRetrievalWorkerClient(workspacePath: string): RetrievalWorkerClient 
   return activeClient;
 }
 
-class RetrievalWorkerClient {
+export class RetrievalWorkerClient {
   readonly workspacePath: string;
   private worker: Worker | null = null;
   private current: RetrievalTask | null = null;
   private readonly queue: RetrievalTask[] = [];
 
-  constructor(workspacePath: string) {
+  constructor(
+    workspacePath: string,
+    private readonly workerFactory: WorkerFactory = createRetrievalWorker
+  ) {
     this.workspacePath = workspacePath;
   }
 
@@ -64,6 +87,7 @@ class RetrievalWorkerClient {
     options: {
       abortSignal?: AbortSignal;
       onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
+      timeoutMs?: number;
     }
   ): Promise<RetrievedKnowledgeSource[]> {
     if (options.abortSignal?.aborted) {
@@ -76,6 +100,7 @@ class RetrievalWorkerClient {
         request,
         onTrace: options.onTrace,
         abortSignal: options.abortSignal,
+        timeoutMs: resolveTimeoutMs(options.timeoutMs),
         canceled: false,
         settled: false,
         resolve,
@@ -97,11 +122,7 @@ class RetrievalWorkerClient {
     while (this.queue.length > 0) {
       this.rejectTask(this.queue.shift() ?? null, error);
     }
-    if (this.worker) {
-      this.post({ type: 'shutdown' });
-      void this.worker.terminate();
-      this.worker = null;
-    }
+    this.stopWorker(true);
   }
 
   private pump(): void {
@@ -115,25 +136,30 @@ class RetrievalWorkerClient {
       return;
     }
     this.current = next;
-    this.ensureWorker();
-    this.post({
-      type: 'retrieve',
-      taskId: next.taskId,
-      request: next.request
-    });
+    try {
+      this.ensureWorker();
+      this.startTaskTimeout(next);
+      this.post({
+        type: 'retrieve',
+        taskId: next.taskId,
+        request: next.request
+      });
+    } catch (caught) {
+      this.handleWorkerFailure(toError(caught));
+    }
   }
 
   private ensureWorker(): void {
     if (this.worker) {
       return;
     }
-    const worker = new Worker(new URL('./retrievalWorker.js', import.meta.url), {
-      workerData: {
-        workspacePath: this.workspacePath
+    const worker = this.workerFactory(this.workspacePath);
+    worker.on('message', (message: RetrievalWorkerOutboundMessage) => this.handleMessage(message));
+    worker.on('error', (error) => {
+      if (this.worker === worker) {
+        this.handleWorkerFailure(error);
       }
     });
-    worker.on('message', (message: RetrievalWorkerOutboundMessage) => this.handleMessage(message));
-    worker.on('error', (error) => this.handleWorkerFailure(error));
     worker.on('exit', (code) => {
       if (code !== 0 && this.worker === worker) {
         this.handleWorkerFailure(new Error(`Retrieval worker exited with code ${code}.`));
@@ -192,11 +218,10 @@ class RetrievalWorkerClient {
   private cancelTask(task: RetrievalTask): void {
     task.canceled = true;
     if (this.current?.taskId === task.taskId) {
-      this.post({ type: 'cancel', taskId: task.taskId });
-      if (!task.settled) {
-        task.settled = true;
-        task.reject(new Error('Retrieval canceled.'));
-      }
+      this.current = null;
+      this.rejectTask(task, new Error('Retrieval canceled.'));
+      this.stopWorker();
+      this.pump();
       return;
     }
     const index = this.queue.findIndex((candidate) => candidate.taskId === task.taskId);
@@ -230,6 +255,10 @@ class RetrievalWorkerClient {
   }
 
   private cleanupTask(task: RetrievalTask): void {
+    if (task.timeoutHandle) {
+      clearTimeout(task.timeoutHandle);
+      task.timeoutHandle = undefined;
+    }
     if (task.abortSignal && task.abortListener) {
       task.abortSignal.removeEventListener('abort', task.abortListener);
       task.abortListener = undefined;
@@ -239,4 +268,32 @@ class RetrievalWorkerClient {
   private post(message: RetrievalWorkerInboundMessage): void {
     this.worker?.postMessage(message);
   }
+
+  private startTaskTimeout(task: RetrievalTask): void {
+    task.timeoutHandle = setTimeout(() => {
+      if (this.current?.taskId !== task.taskId || task.settled) {
+        return;
+      }
+      this.current = null;
+      this.rejectTask(task, new Error(`Retrieval timed out after ${task.timeoutMs}ms.`));
+      this.stopWorker();
+      this.pump();
+    }, task.timeoutMs);
+  }
+
+  private stopWorker(sendShutdown = false): void {
+    const worker = this.worker;
+    this.worker = null;
+    if (!worker) {
+      return;
+    }
+    if (sendShutdown) {
+      worker.postMessage({ type: 'shutdown' });
+    }
+    void worker.terminate();
+  }
+}
+
+function toError(caught: unknown): Error {
+  return caught instanceof Error ? caught : new Error(String(caught));
 }

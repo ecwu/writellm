@@ -2,6 +2,9 @@ import type { WriteLLMIpc } from '../shared/ipc.js';
 
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
 
+// Sandboxed Electron preloads may require only Electron/Node built-ins. Keep this
+// named allowlist in sync with src/shared/ipc.ts; never replace it with a generic
+// invoke/send bridge or a non-builtin require.
 const ipcChannels = {
   createWorkspace: 'writellm:createWorkspace',
   openWorkspace: 'writellm:openWorkspace',
@@ -42,6 +45,10 @@ const ipcChannels = {
   getKnowledgeDebugDetails: 'writellm:getKnowledgeDebugDetails',
   getCitationCoverage: 'writellm:getCitationCoverage',
   getWorkspaceAssetDataUrl: 'writellm:getWorkspaceAssetDataUrl',
+  startPiRun: 'writellm:startPiRun',
+  cancelPiRun: 'writellm:cancelPiRun',
+  listLivePiRuns: 'writellm:listLivePiRuns',
+  piRunEvent: 'writellm:piRunEvent',
   createGenerationTask: 'writellm:createGenerationTask',
   cancelGenerationTask: 'writellm:cancelGenerationTask',
   adoptGenerationTask: 'writellm:adoptGenerationTask',
@@ -112,6 +119,18 @@ const api: WriteLLMIpc = {
   getCitationCoverage: () => ipcRenderer.invoke(ipcChannels.getCitationCoverage),
   getWorkspaceAssetDataUrl: (relativePath) =>
     ipcRenderer.invoke(ipcChannels.getWorkspaceAssetDataUrl, relativePath),
+  startPiRun: (payload) => ipcRenderer.invoke(ipcChannels.startPiRun, payload),
+  cancelPiRun: (runId) => ipcRenderer.invoke(ipcChannels.cancelPiRun, runId),
+  listLivePiRuns: () => ipcRenderer.invoke(ipcChannels.listLivePiRuns),
+  onPiRunEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: Parameters<typeof callback>[0]) => {
+      callback(message);
+    };
+    ipcRenderer.on(ipcChannels.piRunEvent, listener);
+    return () => {
+      ipcRenderer.removeListener(ipcChannels.piRunEvent, listener);
+    };
+  },
   createGenerationTask: (payload) => ipcRenderer.invoke(ipcChannels.createGenerationTask, payload),
   cancelGenerationTask: (roundId) => ipcRenderer.invoke(ipcChannels.cancelGenerationTask, roundId),
   adoptGenerationTask: (payload) => ipcRenderer.invoke(ipcChannels.adoptGenerationTask, payload),

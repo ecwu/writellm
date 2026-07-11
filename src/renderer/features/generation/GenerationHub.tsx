@@ -1,40 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, CircleAlert, FileText, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, CircleAlert, Search, Sparkles, X } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Spinner } from '../../components/ui/spinner';
 import type {
   FocusedWorkspaceState,
-  GenerationRoundRecord,
-  GenerationSessionRecord,
-  KnowledgeRetrievalTraceEvent,
+  PiRunEvent,
+  PiRunStatus,
   WritingPatchRecord
 } from '../../../shared/types';
 
 type HubRun = {
-  round: GenerationRoundRecord;
-  session: GenerationSessionRecord;
+  runId: string;
+  sectionId: string;
+  status: PiRunStatus;
+  events: PiRunEvent[];
+  streamedDraft: string;
   patch: WritingPatchRecord | null;
-  streamText: string;
-  liveTrace: KnowledgeRetrievalTraceEvent[];
 };
 
-type RuntimeStage = {
-  icon: ReactNode;
-  title: string;
-  detail: string;
-  content?: string;
-  tone: 'active' | 'ready' | 'error';
-};
-
-const visibleStatuses = new Set<GenerationRoundRecord['status']>([
-  'retrieving',
-  'pending',
-  'processing',
-  'done',
-  'error',
-  'patch_created'
-]);
+const MAX_STREAMED_DRAFT_CHARS = 40_000;
 
 export function GenerationHub({
   onState,
@@ -48,48 +33,43 @@ export function GenerationHub({
   const [runs, setRuns] = useState<HubRun[]>([]);
   const [collapsed, setCollapsed] = useState(true);
   const hubRef = useRef<HTMLElement>(null);
-
-  const refresh = useCallback(async () => {
-    const sessions = await getApi().listGenerationSessions();
-    const roundGroups = await Promise.all(sessions.map((session) => getApi().listGenerationRounds(session.id)));
-    const loaded = await Promise.all(roundGroups.flatMap((rounds, groupIndex) =>
-      rounds.map(async (round) => ({
-        round,
-        session: sessions[groupIndex]!,
-        patch: round.patchId ? await getApi().getWritingPatch(round.patchId) : null
-      }))
-    ));
-    const next = loaded
-      .filter(({ round }) => visibleStatuses.has(round.status))
-      .sort(compareHubRuns);
-    setRuns((current) => next.map((entry) => {
-      const previous = current.find((run) => run.round.id === entry.round.id);
-      return {
-        ...entry,
-        streamText: previous?.streamText ?? '',
-        liveTrace: previous?.liveTrace ?? entry.round.retrievalTrace
-      };
-    }));
-  }, []);
+  const pendingEventsRef = useRef<PiRunEvent[]>([]);
+  const eventFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    void refresh().catch((caught: unknown) => onError(errorMessage(caught)));
-    return getApi().onGenerationEvent((event) => {
-      if (event.type === 'stream_delta') {
-        setRuns((current) => current.map((run) =>
-          run.round.id === event.roundId ? { ...run, streamText: run.streamText + event.text } : run
-        ));
-        return;
+    void getApi().listLivePiRuns().then((liveRuns) => {
+      setRuns((current) => mergeLiveRuns(current, liveRuns));
+    }).catch((caught: unknown) => onError(errorMessage(caught)));
+    const unsubscribe = getApi().onPiRunEvent((event) => {
+      pendingEventsRef.current.push(event);
+      if (eventFrameRef.current === null) {
+        eventFrameRef.current = window.requestAnimationFrame(() => {
+          eventFrameRef.current = null;
+          const pending = pendingEventsRef.current;
+          pendingEventsRef.current = [];
+          setRuns((current) => pending.reduce(applyPiEvent, current));
+        });
       }
-      if (event.type === 'retrieval_trace') {
-        setRuns((current) => current.map((run) =>
-          run.round.id === event.roundId ? { ...run, liveTrace: [...run.liveTrace, event.event] } : run
-        ));
-        return;
+      if (event.type === 'tool_execution_end') {
+        const proposalId = stringData(event, 'proposalId');
+        if (proposalId) {
+          void getApi().getWritingPatch(proposalId).then((patch) => {
+            if (patch) {
+              setRuns((current) => current.map((run) => run.runId === event.runId ? { ...run, patch } : run));
+            }
+          }).catch((caught: unknown) => onError(errorMessage(caught)));
+        }
       }
-      void refresh().catch((caught: unknown) => onError(errorMessage(caught)));
     });
-  }, [onError, refresh]);
+    return () => {
+      unsubscribe();
+      if (eventFrameRef.current !== null) {
+        window.cancelAnimationFrame(eventFrameRef.current);
+        eventFrameRef.current = null;
+      }
+      pendingEventsRef.current = [];
+    };
+  }, [onError]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -98,12 +78,8 @@ export function GenerationHub({
       root.style.removeProperty('--generation-hub-offset');
       return;
     }
-
-    const updateOffset = () => {
-      root.style.setProperty('--generation-hub-offset', `${Math.ceil(hub.getBoundingClientRect().height + 16)}px`);
-    };
+    const updateOffset = () => root.style.setProperty('--generation-hub-offset', `${Math.ceil(hub.getBoundingClientRect().height + 16)}px`);
     updateOffset();
-
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateOffset);
     observer?.observe(hub);
     return () => {
@@ -112,33 +88,10 @@ export function GenerationHub({
     };
   }, [collapsed, runs.length]);
 
-  async function cancel(roundId: string) {
+  async function cancel(runId: string) {
     try {
-      await getApi().cancelGenerationTask(roundId);
-      setRuns((current) => current.filter((run) => run.round.id !== roundId));
-      await refresh();
-      onStatus('Generation canceled.');
-    } catch (caught) {
-      onError(errorMessage(caught));
-    }
-  }
-
-  async function discard(roundId: string) {
-    try {
-      await getApi().discardGenerationTask(roundId);
-      setRuns((current) => current.filter((run) => run.round.id !== roundId));
-      await refresh();
-      onStatus('Generation task deleted.');
-    } catch (caught) {
-      onError(errorMessage(caught));
-    }
-  }
-
-  async function retry(roundId: string) {
-    try {
-      await getApi().retryGenerationTask(roundId);
-      await refresh();
-      onStatus('Generation restarted.');
+      await getApi().cancelPiRun(runId);
+      onStatus('Pi agent run canceled.');
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -151,8 +104,7 @@ export function GenerationHub({
         return;
       }
       onState(await getApi().acceptWritingPatch({ patchId: patch.id, confirmHighRisk: riskLevel === 'high' }));
-      await refresh();
-      onStatus('Suggestion applied.');
+      onStatus('Pi proposal applied.');
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -161,8 +113,7 @@ export function GenerationHub({
   async function saveCopy(patch: WritingPatchRecord) {
     try {
       onState(await getApi().saveWritingPatchAsCandidate(patch.id));
-      await refresh();
-      onStatus('Suggestion saved as a separate draft.');
+      onStatus('Pi proposal saved as a separate draft.');
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -171,8 +122,8 @@ export function GenerationHub({
   async function reject(patch: WritingPatchRecord) {
     try {
       await getApi().rejectWritingPatch(patch.id);
-      await refresh();
-      onStatus('Suggestion dismissed.');
+      setRuns((current) => current.map((run) => run.patch?.id === patch.id ? { ...run, patch: null } : run));
+      onStatus('Pi proposal dismissed.');
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -182,296 +133,213 @@ export function GenerationHub({
     return null;
   }
 
-  const summary = summarizeHubRuns(runs);
+  const running = runs.filter((run) => run.status === 'running').length;
+  const summary = running > 0 ? `${running} working · ${runs.length} live in this window` : `${runs.length} recent Pi run${runs.length === 1 ? '' : 's'}`;
 
   return (
-    <section
-      ref={hubRef}
-      className="generation-hub"
-      data-state={collapsed ? 'collapsed' : 'expanded'}
-      aria-label="Assistant generation hub"
-    >
+    <section ref={hubRef} className="generation-hub" data-state={collapsed ? 'collapsed' : 'expanded'} aria-label="Pi assistant hub">
       <button
         type="button"
         className="generation-hub-header"
         aria-controls="generation-hub-runs"
         aria-expanded={!collapsed}
-        aria-label={collapsed ? 'Expand assistant hub' : 'Collapse assistant hub'}
         onClick={() => setCollapsed((current) => !current)}
       >
         <span className="generation-hub-header-copy">
-          <span className="generation-hub-header-title">Assistant hub</span>
+          <span className="generation-hub-header-title">Pi assistant</span>
           <span className="generation-hub-header-detail">{summary}</span>
         </span>
         <span className="generation-hub-header-toggle">
-          <span>{collapsed ? 'Show tasks' : 'Hide tasks'}</span>
+          <span>{collapsed ? 'Show activity' : 'Hide activity'}</span>
           <ChevronDown className={collapsed ? undefined : 'is-expanded'} aria-hidden="true" />
         </span>
       </button>
-      {!collapsed ? (
-        <div id="generation-hub-runs" className="generation-hub-runs">
-          {runs.map((run) => (
-            <GenerationRunCard
-              key={run.round.id}
-              run={run}
-              onCancel={() => void cancel(run.round.id)}
-              onDiscard={() => void discard(run.round.id)}
-              onRetry={() => void retry(run.round.id)}
-              onApply={run.patch ? () => void apply(run.patch!) : undefined}
-              onSaveCopy={run.patch ? () => void saveCopy(run.patch!) : undefined}
-              onReject={run.patch ? () => void reject(run.patch!) : undefined}
-            />
-          ))}
-        </div>
-      ) : null}
+      {!collapsed ? <div id="generation-hub-runs" className="generation-hub-runs">
+        {runs.map((run) => <PiRunCard
+          key={run.runId}
+          run={run}
+          onCancel={() => void cancel(run.runId)}
+          onDismiss={() => setRuns((current) => current.filter((candidate) => candidate.runId !== run.runId))}
+          onApply={run.patch ? () => void apply(run.patch!) : undefined}
+          onSaveCopy={run.patch ? () => void saveCopy(run.patch!) : undefined}
+          onReject={run.patch ? () => void reject(run.patch!) : undefined}
+        />)}
+      </div> : null}
     </section>
   );
 }
 
-function GenerationRunCard({
+function PiRunCard({
   run,
   onCancel,
-  onDiscard,
-  onRetry,
+  onDismiss,
   onApply,
   onSaveCopy,
   onReject
 }: {
   run: HubRun;
   onCancel: () => void;
-  onDiscard: () => void;
-  onRetry: () => void;
+  onDismiss: () => void;
   onApply?: () => void;
   onSaveCopy?: () => void;
   onReject?: () => void;
 }) {
-  const running = isRunning(run.round.status);
-  const trace = run.liveTrace.length > 0 ? run.liveTrace : run.round.retrievalTrace;
-  const candidate = patchText(run.patch) || streamedCandidate(run.streamText) || run.streamText;
-  const stage = currentRuntimeStage(run.round, trace, candidate);
+  const failure = latestFailure(run.events);
+  const draft = patchText(run.patch) || run.streamedDraft;
+  const sourceCount = run.events.reduce((count, event) => count + (numberData(event, 'sourceCount') ?? 0), 0);
+  const activeTool = activeToolName(run.events);
+  const running = run.status === 'running';
+  const tone = failure || run.status === 'failed' || run.status === 'timed_out' || run.status === 'budget_exhausted' ? 'error' : running ? 'active' : 'ready';
+  const title = failure
+    ? 'Pi run needs attention'
+    : run.patch
+      ? 'Proposal ready for review'
+      : running
+        ? activeTool === 'source' ? 'Generating embedding and searching sources' : sourceCount > 0 ? 'Working with indexed evidence' : 'Pi agent is working'
+        : statusLabel(run.status);
+  const detail = failure?.cause ?? (activeTool === 'source'
+    ? 'RAG is running in an isolated worker; the editor and Cancel action remain available.'
+    : sourceCount > 0 ? `${sourceCount} source${sourceCount === 1 ? '' : 's'} returned to the agent.` : running ? 'Events are streamed from the main-process Pi runtime.' : 'The live run is no longer retained after this window closes.');
 
   return (
     <article className="generation-hub-run">
       <div className="generation-hub-run-title">
         <div>
-          <span>{run.session.title || 'Assistant suggestion'}</span>
-          <p>{statusLabel(run.round.status)}</p>
+          <span>Section {run.sectionId}</span>
+          <p>{statusLabel(run.status)}</p>
         </div>
-        {running ? <Spinner /> : run.round.status === 'error' ? <CircleAlert /> : <Check />}
+        {running ? <Spinner /> : tone === 'error' ? <CircleAlert /> : <Check />}
       </div>
-      <section className="generation-hub-runtime" data-tone={stage.tone}>
+      <section className="generation-hub-runtime" data-tone={tone}>
         <div className="generation-hub-runtime-title">
-          {stage.icon}
-          <span>{stage.title}</span>
-          {stage.tone === 'active' ? <Spinner /> : null}
+          {sourceCount > 0 ? <Search /> : run.patch ? <Check /> : <Sparkles />}
+          <span>{title}</span>
+          {running ? <Spinner /> : null}
         </div>
-        <p>{stage.detail}</p>
-        {stage.content ? <pre className="generation-hub-draft">{stage.content}</pre> : null}
+        <p>{detail}</p>
+        {draft ? <pre className="generation-hub-draft">{draft}</pre> : null}
+        <ol className="generation-detail-list" aria-label="Pi run activity">
+          {run.events.filter(isTimelineEvent).slice(-8).map((event) => <li key={event.sequence}>{eventLabel(event)}</li>)}
+        </ol>
       </section>
       <div className="generation-hub-actions">
         {running ? <Button variant="outline" size="sm" onClick={onCancel}><X /> Cancel</Button> : null}
-        {run.round.status === 'error' ? <Button size="sm" onClick={onRetry}>Retry</Button> : null}
         {run.patch ? <>
           {canApply(run.patch) ? <Button size="sm" onClick={onApply}>Apply</Button> : null}
           <Button variant="outline" size="sm" onClick={onSaveCopy}>Save copy</Button>
-          <Button variant="outline" size="sm" onClick={onReject}><X /> Dismiss</Button>
+          <Button variant="outline" size="sm" onClick={onReject}><X /> Dismiss proposal</Button>
         </> : null}
-        <Button variant="destructive" size="sm" onClick={onDiscard}><Trash2 /> Delete</Button>
+        {!running ? <Button variant="outline" size="sm" onClick={onDismiss}>Dismiss activity</Button> : null}
       </div>
     </article>
   );
 }
 
-function currentRuntimeStage(
-  round: GenerationRoundRecord,
-  trace: KnowledgeRetrievalTraceEvent[],
-  candidate: string
-): RuntimeStage {
-  if (round.status === 'error') {
-    return {
-      icon: <CircleAlert />,
-      title: 'Generation failed',
-      detail: round.errorMessage || 'The generation stopped before a draft was ready.',
-      tone: 'error'
-    };
-  }
-  if (round.status === 'patch_created') {
-    return {
-      icon: <Check />,
-      title: 'Draft ready for review',
-      detail: candidate ? 'Review the generated draft below.' : 'The generated draft is ready for review.',
-      content: candidate || undefined,
-      tone: 'ready'
-    };
-  }
-  if (round.status === 'done') {
-    return {
-      icon: <Sparkles />,
-      title: 'Preparing suggestion',
-      detail: 'Validating the generated draft before it is ready for review.',
-      tone: 'active'
-    };
-  }
-  if (round.status === 'pending' || round.status === 'processing') {
-    return {
-      icon: <FileText />,
-      title: round.status === 'pending' ? 'Preparing draft' : 'Streaming draft',
-      detail: candidate ? 'Draft text is arriving.' : 'Waiting for the model response…',
-      content: candidate || undefined,
-      tone: 'active'
-    };
-  }
-
-  return retrievalRuntimeStage(trace);
-}
-
-function retrievalRuntimeStage(trace: KnowledgeRetrievalTraceEvent[]): RuntimeStage {
-  const latest = trace.at(-1);
-  if (!latest) {
-    return {
-      icon: <Search />,
-      title: 'RAG retrieval',
-      detail: 'Preparing the evidence search…',
-      tone: 'active'
-    };
-  }
-
-  switch (latest.type) {
-    case 'query_plan':
-      return {
-        icon: <Search />,
-        title: 'RAG retrieval',
-        detail: latest.queries.length > 0
-          ? `Searching for: ${latest.queries.join(' · ')}`
-          : 'Searching the knowledge base…',
-        tone: 'active'
-      };
-    case 'started':
-      return {
-        icon: <Search />,
-        title: 'RAG retrieval',
-        detail: `Retrieving evidence for: ${latest.query}`,
-        tone: 'active'
-      };
-    case 'round_started':
-      return {
-        icon: <Search />,
-        title: 'RAG retrieval',
-        detail: `Searching evidence, round ${latest.round}: ${latest.queries.join(' · ')}`,
-        tone: 'active'
-      };
-    case 'round_candidates':
-      return {
-        icon: <Search />,
-        title: 'RAG retrieval',
-        detail: `${latest.sources.length} candidate source${latest.sources.length === 1 ? '' : 's'} found.`,
-        tone: 'active'
-      };
-    case 'round_evaluating':
-      return {
-        icon: <Sparkles />,
-        title: 'Agent retrieval',
-        detail: `Assessing ${latest.candidateCount} evidence candidate${latest.candidateCount === 1 ? '' : 's'} in round ${latest.round}.`,
-        tone: 'active'
-      };
-    case 'round_evaluation': {
-      const nextQueries = latest.nextQueries.length > 0 ? ` Next: ${latest.nextQueries.join(' · ')}` : '';
-      return {
-        icon: <Sparkles />,
-        title: 'Agent retrieval',
-        detail: `${latest.reason || `Evidence assessment: ${latest.decision}.`}${nextQueries}`,
-        tone: 'active'
-      };
+function mergeLiveRuns(current: HubRun[], liveRuns: Array<{ runId: string; sectionId: string }>): HubRun[] {
+  const next = current.slice();
+  liveRuns.forEach((run) => {
+    if (!next.some((candidate) => candidate.runId === run.runId)) {
+      next.unshift({ runId: run.runId, sectionId: run.sectionId, status: 'running', events: [], streamedDraft: '', patch: null });
     }
-    case 'done':
-      return {
-        icon: <Sparkles />,
-        title: 'Agent retrieval',
-        detail: `${latest.sources.length} source${latest.sources.length === 1 ? '' : 's'} selected. Preparing the draft…`,
-        tone: 'active'
-      };
-    case 'error':
-      return {
-        icon: <CircleAlert />,
-        title: 'Retrieval failed',
-        detail: latest.message,
-        tone: 'error'
-      };
-  }
+  });
+  return next;
 }
 
-function compareHubRuns(left: Pick<HubRun, 'round'>, right: Pick<HubRun, 'round'>): number {
-  const priorityDifference = hubRunPriority(left.round.status) - hubRunPriority(right.round.status);
-  if (priorityDifference !== 0) {
-    return priorityDifference;
-  }
-  return new Date(right.round.updatedAt).getTime() - new Date(left.round.updatedAt).getTime();
+function applyPiEvent(current: HubRun[], event: PiRunEvent): HubRun[] {
+  const existing = current.find((run) => run.runId === event.runId);
+  const sectionId = stringData(event, 'sectionId') ?? existing?.sectionId ?? 'active section';
+  const status = event.type === 'run_terminal' ? statusData(event) : existing?.status ?? 'running';
+  const delta = event.type === 'message_delta' ? stringData(event, 'text') ?? '' : '';
+  const streamedDraft = `${existing?.streamedDraft ?? ''}${delta}`.slice(-MAX_STREAMED_DRAFT_CHARS);
+  const events = event.type === 'message_delta'
+    ? existing?.events ?? []
+    : [...(existing?.events ?? []), event].slice(-60);
+  const nextRun: HubRun = {
+    runId: event.runId,
+    sectionId,
+    status,
+    events,
+    streamedDraft,
+    patch: existing?.patch ?? null
+  };
+  return [nextRun, ...current.filter((run) => run.runId !== event.runId)];
 }
 
-function hubRunPriority(status: GenerationRoundRecord['status']): number {
-  if (isRunning(status)) {
-    return 0;
-  }
-  return status === 'patch_created' || status === 'done' ? 1 : 2;
+function statusData(event: PiRunEvent): PiRunStatus {
+  const value = stringData(event, 'status');
+  return value === 'succeeded' || value === 'failed' || value === 'canceled' || value === 'timed_out' || value === 'budget_exhausted'
+    ? value
+    : 'failed';
 }
 
-function summarizeHubRuns(runs: HubRun[]): string {
-  const running = runs.filter((run) => isRunning(run.round.status)).length;
-  const ready = runs.filter((run) => run.round.status === 'patch_created' || run.round.status === 'done').length;
-  const failed = runs.filter((run) => run.round.status === 'error').length;
-  const summary = [
-    running > 0 ? `${running} running` : null,
-    ready > 0 ? `${ready} ready` : null,
-    failed > 0 ? `${failed} failed` : null
-  ].filter((part): part is string => Boolean(part));
-  return summary.length > 0 ? summary.join(' · ') : `${runs.length} task${runs.length === 1 ? '' : 's'}`;
+function latestFailure(events: PiRunEvent[]): { cause: string } | null {
+  for (const event of [...events].reverse()) {
+    const failure = event.data?.failure;
+    if (failure && typeof failure === 'object' && typeof (failure as { cause?: unknown }).cause === 'string') {
+      return { cause: (failure as { cause: string }).cause };
+    }
+  }
+  return null;
 }
 
 function patchText(patch: WritingPatchRecord | null): string {
-  if (!patch) {
-    return '';
-  }
+  if (!patch) return '';
   const operation = patch.patch.operation;
-  return operation.type === 'replace'
-    ? operation.after
-    : operation.type === 'insert'
-      ? operation.text
-      : operation.content;
-}
-
-function streamedCandidate(text: string): string {
-  if (!text) {
-    return '';
-  }
-  try {
-    const proposal = JSON.parse(text) as { afterText?: unknown };
-    return typeof proposal.afterText === 'string' ? proposal.afterText : '';
-  } catch {
-    const match = text.match(/"afterText"\s*:\s*"([\s\S]*)/);
-    return match ? match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : '';
-  }
+  return operation.type === 'replace' ? operation.after : operation.type === 'insert' ? operation.text : operation.content;
 }
 
 function canApply(patch: WritingPatchRecord): boolean {
-  return patch.patch.kind !== 'create_content_candidate' &&
-    patch.patch.validation?.ok !== false &&
-    !['blocked', 'parse_failed', 'validation_failed', 'applied', 'rejected', 'saved_as_candidate'].includes(patch.patch.status);
+  return patch.patch.kind !== 'create_content_candidate' && patch.patch.validation?.ok !== false && !['blocked', 'applied', 'rejected', 'saved_as_candidate'].includes(patch.patch.status);
 }
 
-function isRunning(status: GenerationRoundRecord['status']): boolean {
-  return status === 'retrieving' || status === 'pending' || status === 'processing';
-}
-
-function statusLabel(status: GenerationRoundRecord['status']): string {
-  switch (status) {
-    case 'retrieving': return 'Retrieving evidence';
-    case 'pending': return 'Preparing the draft';
-    case 'processing': return 'Streaming the draft';
-    case 'patch_created': return 'Ready for your review';
-    case 'done': return 'Preparing suggestion';
-    case 'error': return 'Generation failed';
-    default: return status;
+function eventLabel(event: PiRunEvent): string {
+  if (event.type === 'tool_execution_start') return `Started ${stringData(event, 'toolName') ?? 'tool'}.`;
+  if (event.type === 'tool_execution_end') {
+    const refs = Array.isArray(event.data?.publicRefs)
+      ? event.data.publicRefs.filter((value): value is string => typeof value === 'string').join(', ')
+      : '';
+    return `${stringData(event, 'toolName') ?? 'Tool'} ${stringData(event, 'status') === 'error' ? 'reported an error.' : refs ? `completed: ${refs}.` : 'completed.'}`;
   }
+  if (event.type === 'turn_start') return 'Started an agent turn.';
+  if (event.type === 'turn_end') return 'Completed an agent turn.';
+  if (event.type === 'run_terminal') return `Run ${statusData(event).replace(/_/g, ' ')}.`;
+  return event.type.replace(/_/g, ' ');
+}
+
+function isTimelineEvent(event: PiRunEvent): boolean {
+  return event.type === 'tool_execution_start'
+    || event.type === 'tool_execution_end'
+    || event.type === 'turn_start'
+    || event.type === 'turn_end'
+    || event.type === 'run_terminal';
+}
+
+function activeToolName(events: PiRunEvent[]): string | null {
+  const completed = new Set(events
+    .filter((event) => event.type === 'tool_execution_end')
+    .map((event) => stringData(event, 'toolCallId'))
+    .filter((value): value is string => Boolean(value)));
+  for (const event of [...events].reverse()) {
+    if (event.type === 'tool_execution_start') {
+      const toolCallId = stringData(event, 'toolCallId');
+      if (!toolCallId || !completed.has(toolCallId)) {
+        return stringData(event, 'toolName');
+      }
+    }
+  }
+  return null;
+}
+
+function statusLabel(status: PiRunStatus): string {
+  return status === 'running' ? 'Working' : status === 'timed_out' ? 'Timed out' : status === 'budget_exhausted' ? 'Budget exhausted' : status === 'canceled' ? 'Canceled' : status === 'failed' ? 'Failed' : 'Completed';
+}
+
+function stringData(event: PiRunEvent, key: string): string | null {
+  return typeof event.data?.[key] === 'string' ? event.data[key] as string : null;
+}
+
+function numberData(event: PiRunEvent, key: string): number | null {
+  return typeof event.data?.[key] === 'number' ? event.data[key] as number : null;
 }
 
 function errorMessage(caught: unknown): string {

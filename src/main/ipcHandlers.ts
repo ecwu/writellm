@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain as electronIpcMain, type IpcMainInvokeEvent } from 'electron';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -29,6 +29,7 @@ import type {
   NodeRecord,
   SectionNodeRecord,
   SectionLlmEditMode,
+  StartPiRunPayload,
   SuggestProjectBriefPayload,
   UpdateKnowledgeItemPayload,
   UpdateNodePayload,
@@ -70,6 +71,7 @@ import {
 } from './knowledgeIndex.js';
 import {
   createWorkspace,
+  assertActiveWorkspaceWorkAllowed,
   getActiveDb,
   getState,
   listRecentWorkspaces,
@@ -81,9 +83,32 @@ import { markdownAfterWritingPatch } from './harness/patchApplier.js';
 import { createPatchDiff } from './harness/patchDiff.js';
 import { llmPatchProposalSchema } from './harness/patchProtocol.js';
 import { beforeAfterForPatch, validateWritingPatch } from './harness/patchValidator.js';
+import { validateIpcArguments } from './ipcValidation.js';
+import { assertTrustedIpcSender, sendToTrustedRenderer } from './security.js';
+import { registerActiveWorkspaceWork } from './workspaceLifecycle.js';
+import { PiAgentManager } from './agent/agentManager.js';
+import { createPiModelAdapter } from './agent/modelAdapter.js';
+import { createPiPatchProposal } from './agent/patchProposal.js';
+import { createWriteLlmTools } from './agent/writeLlmTools.js';
+import { searchIndexedSourcesInWorker } from './agent/sourceWorkerClient.js';
+
+type MainIpcHandler = (event: IpcMainInvokeEvent, ...args: any[]) => unknown;
+
+const ipcMain = {
+  handle(channel: string, handler: MainIpcHandler): void {
+    electronIpcMain.handle(channel, (event, ...args) => {
+      assertTrustedIpcSender(event);
+      return handler(event, ...validateIpcArguments(channel, args));
+    });
+  }
+};
 
 const interactiveGenerationRuns = new Map<string, AbortController>();
 const retrievalGenerationRuns = new Map<string, AbortController>();
+const piAgentManager = new PiAgentManager();
+piAgentManager.subscribe((event) => {
+  sendToTrustedRenderer(ipcChannels.piRunEvent, event);
+});
 const patchProposalJsonExample = JSON.stringify({
   afterText: 'replacement Markdown only',
   rationale: 'short explanation',
@@ -624,6 +649,7 @@ async function runGeneration(
 ): Promise<void> {
   const controller = new AbortController();
   interactiveGenerationRuns.set(roundId, controller);
+  const lifecycleWork = registerActiveWorkspaceWork(db.workspacePath, (reason) => controller.abort(reason));
   try {
     const round = db.getGenerationRound(roundId);
     if (!round || round.status === 'canceled') {
@@ -691,6 +717,7 @@ async function runGeneration(
     emitGenerationEvent({ type: 'round_error', roundId, errorMessage: message });
   } finally {
     interactiveGenerationRuns.delete(roundId);
+    lifecycleWork.complete();
   }
 }
 
@@ -711,6 +738,9 @@ async function prepareAndStartGenerationTask(
 ): Promise<void> {
   const retrievalTrace: KnowledgeRetrievalTraceEvent[] = [];
   const retrievalController = payload.useKnowledgeSources ? new AbortController() : null;
+  const lifecycleWork = retrievalController
+    ? registerActiveWorkspaceWork(db.workspacePath, (reason) => retrievalController.abort(reason))
+    : null;
   if (retrievalController) {
     retrievalGenerationRuns.set(roundId, retrievalController);
   }
@@ -796,14 +826,14 @@ async function prepareAndStartGenerationTask(
       completedAt: nowIso()
     });
     emitGenerationEvent({ type: 'round_error', roundId, errorMessage: message });
+  } finally {
+    lifecycleWork?.complete();
   }
 }
 
 export function registerIpcHandlers(): void {
   setKnowledgeIngestUpdateNotifier(() => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(ipcChannels.knowledgeIngestUpdated);
-    }
+    sendToTrustedRenderer(ipcChannels.knowledgeIngestUpdated);
   });
 
   ipcMain.handle(ipcChannels.createWorkspace, async (_event, workspacePath: string) =>
@@ -1013,6 +1043,7 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle(ipcChannels.createKnowledgeItem, async (_event, payload: CreateKnowledgeItemPayload) => {
+    assertActiveWorkspaceWorkAllowed();
     const db = getActiveDb();
     const item = db.createKnowledgeItem(payload.title, payload.content);
     const settings = readLlmSettings();
@@ -1027,6 +1058,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.enqueueKnowledgeFiles, async (_event, payload: EnqueueKnowledgeFilesPayload) => {
+    assertActiveWorkspaceWorkAllowed();
     const db = getActiveDb();
     await enqueueKnowledgeFiles(db, payload.filePaths, readLlmSettings().knowledge);
     await startKnowledgeIngestWorker(db);
@@ -1034,6 +1066,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.retryKnowledgeIngestJob, async (_event, jobId: string) => {
+    assertActiveWorkspaceWorkAllowed();
     const db = getActiveDb();
     db.retryKnowledgeIngestJob(jobId);
     await startKnowledgeIngestWorker(db);
@@ -1048,6 +1081,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     ipcChannels.updateKnowledgeItem,
     async (_event, itemId: string, payload: UpdateKnowledgeItemPayload) => {
+      assertActiveWorkspaceWorkAllowed();
       const db = getActiveDb();
       const item = db.updateKnowledgeItem(itemId, payload);
       const settings = readLlmSettings();
@@ -1068,6 +1102,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.reindexKnowledgeItem, async (_event, itemId: string) => {
+    assertActiveWorkspaceWorkAllowed();
     const db = getActiveDb();
     const settings = readLlmSettings();
     await indexKnowledgeItem(
@@ -1134,9 +1169,56 @@ export function registerIpcHandlers(): void {
     return `data:${mimeTypeForPath(resolvedPath)};base64,${data.toString('base64')}`;
   });
 
+  ipcMain.handle(ipcChannels.startPiRun, (_event, payload: StartPiRunPayload) => {
+    assertActiveWorkspaceWorkAllowed();
+    const db = getActiveDb();
+    const section = db.getSection(payload.sectionId);
+    if (!section) {
+      throw new Error(`Section not found: ${payload.sectionId}`);
+    }
+    const scope = piRunScope(payload, section.markdownContent.length);
+    const runId = createId('pi-run');
+    const settings = readLlmSettings();
+    const adapter = createPiModelAdapter(settings.chat, settings.outboundData);
+    const tools = createWriteLlmTools({
+      db,
+      scope: {
+        runId,
+        sectionId: payload.sectionId,
+        focusSectionId: payload.focusSectionId ?? payload.sectionId,
+        selection: scope.selection,
+        patchTarget: scope.patchTarget
+      },
+      articleContext: () => buildProjectAwareArticleContextFromDb(db, payload.sectionId, payload.focusSectionId ?? payload.sectionId),
+      embedding: settings.embedding,
+      rerank: settings.rerank,
+      outboundDataPolicy: settings.outboundData,
+      searchSources: (_sourceDb, options) => searchIndexedSourcesInWorker(db.workspacePath, options),
+      createPatchProposal: (request, signal) => createPiPatchProposal(db, request, signal)
+    });
+    const started = piAgentManager.start({
+      runId,
+      workspacePath: db.workspacePath,
+      sectionId: payload.sectionId,
+      prompt: payload.prompt,
+      systemPrompt: piRunSystemPrompt(payload.mode),
+      adapter,
+      tools
+    });
+    return { runId: started.runId };
+  });
+
+  ipcMain.handle(ipcChannels.cancelPiRun, (_event, runId: string) => piAgentManager.cancel(runId));
+
+  ipcMain.handle(ipcChannels.listLivePiRuns, () => {
+    const db = getActiveDb();
+    return piAgentManager.listLiveRuns(db.workspacePath);
+  });
+
   ipcMain.handle(
     ipcChannels.createGenerationTask,
     async (_event, payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult> => {
+      assertActiveWorkspaceWorkAllowed();
       const db = getActiveDb();
       const section = db.getSection(payload.sectionId);
       if (!section) {
@@ -1241,6 +1323,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(ipcChannels.retryGenerationTask, async (_event, roundId: string): Promise<CreateGenerationTaskResult> => {
+    assertActiveWorkspaceWorkAllowed();
     const db = getActiveDb();
     const round = db.getGenerationRound(roundId);
     if (!round) {
@@ -1697,6 +1780,54 @@ function assertSectionLlmEditRange(
   if (mode === 'continue_at_cursor' && targetStart !== targetEnd) {
     throw new Error('Continuation edits must target a cursor position.');
   }
+}
+
+function piRunScope(
+  payload: StartPiRunPayload,
+  markdownLength: number
+): {
+  selection?: { start: number; end: number };
+  patchTarget: 'replace_section' | 'replace_selection' | 'insert_at_cursor' | 'append_to_section';
+} {
+  if (payload.mode === 'rewrite_section') {
+    return { patchTarget: 'replace_section' };
+  }
+  if (payload.mode === 'append') {
+    return { patchTarget: 'append_to_section' };
+  }
+  const start = payload.targetStart;
+  const end = payload.targetEnd;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start! < 0 || end! < start! || end! > markdownLength) {
+    throw new Error('The Pi writing range is outside the current section.');
+  }
+  const resolvedStart = start as number;
+  const resolvedEnd = end as number;
+  if (payload.mode === 'rewrite_selection') {
+    if (resolvedStart === resolvedEnd) {
+      throw new Error('Select text before asking Pi to rewrite a selection.');
+    }
+    return { selection: { start: resolvedStart, end: resolvedEnd }, patchTarget: 'replace_selection' };
+  }
+  if (resolvedStart !== resolvedEnd) {
+    throw new Error('Pi continuation requires a single cursor position.');
+  }
+  return { selection: { start: resolvedStart, end: resolvedEnd }, patchTarget: 'insert_at_cursor' };
+}
+
+function piRunSystemPrompt(mode: StartPiRunPayload['mode']): string {
+  const action = mode === 'rewrite_section'
+    ? 'rewrite the complete active section'
+    : mode === 'rewrite_selection'
+      ? 'rewrite only the active selected range'
+      : mode === 'append'
+        ? 'append a new continuation to the active section'
+        : 'continue at the active cursor position';
+  return [
+    'You are WriteLLM\'s writing agent. Your task is to ' + action + '.',
+    'First use get_article_context and read_section_snapshot. Use source only when indexed evidence is useful; cite retrieved evidence using its exact public reference.',
+    'When you have a proposed edit, call propose_patch exactly once with only the requested replacement or insertion Markdown, a concise rationale, and the retrieved evidence references supporting new citations.',
+    'Do not claim to have applied a patch. The author reviews and applies proposals separately.'
+  ].join('\n');
 }
 
 function selectedTextForLlmEdit(

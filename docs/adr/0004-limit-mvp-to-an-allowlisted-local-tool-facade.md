@@ -14,7 +14,7 @@ external_task_gates: [SEC-001]
 supersedes: []
 superseded_by: null
 decision_status: ACCEPTED
-implementation_status: NOT_STARTED
+implementation_status: IN_PROGRESS
 last_updated: 2026-07-11
 ---
 
@@ -30,7 +30,7 @@ The MVP registers only these WriteLLM-owned tools:
 
 - get_article_context;
 - read_section_snapshot;
-- search_knowledge;
+- source;
 - resolve_citation;
 - inspect_citation_coverage; and
 - propose_patch, which creates a review artifact rather than a persistent write.
@@ -65,7 +65,7 @@ All tools validate typed inputs, enforce workspace and section scope, honor canc
 
 ### Completion conditions
 
-- [ ] Runtime registration matches exactly the six MVP tools.
+- [x] Runtime registration matches exactly the six MVP tools.
 - [ ] Policy tests deny shell, arbitrary paths, raw Git, web/network, settings, direct apply, and raw database access.
 - [ ] Retrieval and patch output carry bounded evidence provenance.
 
@@ -74,3 +74,4 @@ All tools validate typed inputs, enforce workspace and section scope, honor canc
 | Date | Decision status | Implementation status | Change and evidence |
 | --- | --- | --- | --- |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Migrated accepted PRD decision PIA-D-004 into the ADR register. |
+| 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-007 added the closed six-tool Pi registry, scoped schemas, output caps, untrusted-evidence instructions, live-only evidence manifest, and source/tool budgets. PIA-008 and PIA-012 still complete proposal validation and broader policy coverage. |

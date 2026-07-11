@@ -14,7 +14,7 @@ external_task_gates: [REL-001]
 supersedes: []
 superseded_by: null
 decision_status: ACCEPTED
-implementation_status: NOT_STARTED
+implementation_status: IN_PROGRESS
 last_updated: 2026-07-11
 ---
 
@@ -66,3 +66,4 @@ A request for a second run for the same section returns a typed conflict or uses
 | Date | Decision status | Implementation status | Change and evidence |
 | --- | --- | --- | --- |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Formalized the section-level concurrency key for the accepted MVP scope. |
+| 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-006 implemented workspace-plus-section locks in `PiAgentManager`; conflicts are rejected and all cancellation/terminal paths release the live lock. PIA-011 adds broader switch/shutdown regression coverage. |

@@ -86,13 +86,22 @@ The initial records below belong to the PIA initiative. New records may belong t
 
 | ADR | Initiative | Decision | Decision status | Implementation status | Linked tasks |
 | --- | --- | --- | --- | --- | --- |
-| [ADR-0001](0001-use-pi-agent-core-as-controlled-writing-runtime.md) | PIA | Use Pi Agent Core as the controlled writing runtime | ACCEPTED | IN_PROGRESS | PIA-003, PIA-004, PIA-006 |
-| [ADR-0002](0002-run-agent-only-in-electron-main-process.md) | PIA | Run the agent only in Electron main process | ACCEPTED | NOT_STARTED | SEC-001, SEC-002, REL-001, PIA-006, PIA-009, PIA-011, PIA-012 |
-| [ADR-0003](0003-preserve-human-reviewed-writingpatch-boundary.md) | PIA | Keep human-reviewed WritingPatch as the sole write boundary | ACCEPTED | NOT_STARTED | PIA-008, PIA-010, PIA-012, PIA-013, PIA-014 |
-| [ADR-0004](0004-limit-mvp-to-an-allowlisted-local-tool-facade.md) | PIA | Limit the MVP to scoped local tools and a review-only patch proposal | ACCEPTED | NOT_STARTED | SEC-001, PIA-007, PIA-008, PIA-012, PIA-014 |
-| [ADR-0005](0005-select-pi-model-adapter-strategy.md) | PIA | Select the Pi model-adapter strategy | PROPOSED | NOT_STARTED | SEC-003, PIA-004, PIA-006, PIA-012 |
+| [ADR-0001](0001-use-pi-agent-core-as-controlled-writing-runtime.md) | PIA | Use Pi Agent Core as a separate controlled writing runtime | SUPERSEDED | ABANDONED | PIA-003, PIA-004, PIA-006 |
+| [ADR-0002](0002-run-agent-only-in-electron-main-process.md) | PIA | Run the agent only in Electron main process | ACCEPTED | IN_PROGRESS | SEC-001, SEC-002, REL-001, PIA-006, PIA-009, PIA-011, PIA-012 |
+| [ADR-0003](0003-preserve-human-reviewed-writingpatch-boundary.md) | PIA | Keep human-reviewed WritingPatch as the sole write boundary | ACCEPTED | IN_PROGRESS | PIA-008, PIA-010, PIA-012, PIA-013, PIA-014 |
+| [ADR-0004](0004-limit-mvp-to-an-allowlisted-local-tool-facade.md) | PIA | Limit the MVP to scoped local tools and a review-only patch proposal | ACCEPTED | IN_PROGRESS | SEC-001, PIA-007, PIA-008, PIA-012, PIA-014 |
+| [ADR-0005](0005-select-pi-model-adapter-strategy.md) | PIA | Select the Pi model-adapter strategy | ACCEPTED | IMPLEMENTED | SEC-003, PIA-004, PIA-006, PIA-012, PIA-018 |
 | [ADR-0006](0006-select-supported-electron-pi-runtime-path.md) | PIA | Select the supported Electron/Pi runtime path | SUPERSEDED | ABANDONED | PIA-001, PIA-002, PIA-003, PIA-016 |
-| [ADR-0007](0007-gate-agent-mode-with-a-local-feature-flag.md) | PIA | Gate agent mode with a local feature flag and safe rollback | ACCEPTED | NOT_STARTED | PIA-001, PIA-010, PIA-016 |
-| [ADR-0008](0008-persist-agent-audit-traces-in-dedicated-tables.md) | PIA | Persist redacted agent audit traces in dedicated tables | ACCEPTED | NOT_STARTED | DAT-001, REL-001, PIA-005, PIA-006, PIA-009, PIA-011, PIA-012 |
-| [ADR-0009](0009-use-section-level-agent-run-locks.md) | PIA | Use section-level locks for agent runs | ACCEPTED | NOT_STARTED | REL-001, PIA-006, PIA-010, PIA-011, PIA-012 |
+| [ADR-0007](0007-gate-agent-mode-with-a-local-feature-flag.md) | PIA | Gate a separate agent mode with a legacy fallback | SUPERSEDED | ABANDONED | PIA-001, PIA-010, PIA-016 |
+| [ADR-0008](0008-persist-agent-audit-traces-in-dedicated-tables.md) | PIA | Persist redacted agent audit traces in dedicated tables | SUPERSEDED | ABANDONED | DAT-001, REL-001, PIA-005, PIA-006, PIA-009, PIA-011, PIA-012 |
+| [ADR-0009](0009-use-section-level-agent-run-locks.md) | PIA | Use section-level locks for agent runs | ACCEPTED | IN_PROGRESS | REL-001, PIA-006, PIA-010, PIA-011, PIA-012 |
 | [ADR-0010](0010-use-a-supported-patched-electron-runtime-for-pi.md) | PIA | Use a supported, patched Electron runtime for Pi | ACCEPTED | IMPLEMENTED | PIA-003, PIA-016, PIA-017 |
+| [ADR-0011](0011-bound-generation-retrieval-worker-lifecycles.md) | GEN | Bound generation retrieval worker lifecycles | ACCEPTED | IMPLEMENTED | GEN-002 |
+| [ADR-0012](0012-replace-interactive-generation-with-pi-agent-event-runtime.md) | PIA | Replace interactive generation with the Pi Agent event runtime | ACCEPTED | IN_PROGRESS | PIA-004 through PIA-016, PIA-018, GEN-002 |
+| [ADR-0013](0013-harden-electron-renderer-and-ipc-boundaries.md) | SEC | Harden Electron renderer and IPC boundaries | ACCEPTED | IMPLEMENTED | SEC-001, SEC-002, SEC-003, PIA-007, PIA-009, PIA-012 |
+| [ADR-0014](0014-store-provider-secrets-and-gate-outbound-data.md) | SEC | Store provider secrets securely and gate outbound data | ACCEPTED | IMPLEMENTED | SEC-003, PIA-004, PIA-007, PIA-012 |
+| [ADR-0015](0015-preserve-workspace-data-through-migrations-and-recovery.md) | DAT | Preserve workspace data through migrations and recovery | ACCEPTED | NOT_STARTED | DAT-001, DAT-002, PIA-005, PIA-016 |
+| [ADR-0016](0016-own-active-workspace-lifecycles.md) | REL | Own active workspace lifecycles centrally | ACCEPTED | IMPLEMENTED | REL-001, PIA-006, PIA-011, PIA-012 |
+| [ADR-0017](0017-expose-bounded-knowledge-retrieval-through-pi-tool.md) | PIA | Expose bounded knowledge retrieval through the Pi `source` tool | ACCEPTED | IN_PROGRESS | PIA-007, PIA-011, PIA-012, PIA-014, PIA-016, PIA-019 |
+| [ADR-0018](0018-rebuild-llm-and-rag-on-pi-without-legacy-compatibility.md) | PIA | Rebuild LLM and RAG on Pi without legacy compatibility | ACCEPTED | IN_PROGRESS | PIA-004 through PIA-016 |
+| [ADR-0019](0019-isolate-pi-retrieval-and-backpressure-live-events.md) | PIA | Isolate Pi retrieval and backpressure live events | ACCEPTED | IN_PROGRESS | PIA-006, PIA-007, PIA-009 through PIA-012, PER-001 |

@@ -13,7 +13,7 @@ depends_on: [ADR-0002]
 supersedes: []
 superseded_by: null
 decision_status: ACCEPTED
-implementation_status: NOT_STARTED
+implementation_status: IN_PROGRESS
 last_updated: 2026-07-11
 ---
 
@@ -63,3 +63,4 @@ An agent may create only a typed proposal that enters the existing WritingPatch 
 | Date | Decision status | Implementation status | Change and evidence |
 | --- | --- | --- | --- |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Migrated accepted PRD decision PIA-D-003 into the ADR register. |
+| 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-008 added a Pi proposal bridge that reuses WritingPatch validation, diff, and review records without session/round history or direct Markdown mutation. It records live-run evidence provenance and blocks unresolved new citations. |

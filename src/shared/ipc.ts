@@ -13,6 +13,9 @@ import type {
   GenerationRoundRecord,
   GenerationSessionRecord,
   GenerationEvent,
+  PiRunEvent,
+  PiRunSummary,
+  StartPiRunPayload,
   GitHistoryRecord,
   GitStatusRecord,
   KnowledgeDebugDetails,
@@ -76,6 +79,10 @@ export const ipcChannels = {
   getKnowledgeDebugDetails: 'writellm:getKnowledgeDebugDetails',
   getCitationCoverage: 'writellm:getCitationCoverage',
   getWorkspaceAssetDataUrl: 'writellm:getWorkspaceAssetDataUrl',
+  startPiRun: 'writellm:startPiRun',
+  cancelPiRun: 'writellm:cancelPiRun',
+  listLivePiRuns: 'writellm:listLivePiRuns',
+  piRunEvent: 'writellm:piRunEvent',
   createGenerationTask: 'writellm:createGenerationTask',
   cancelGenerationTask: 'writellm:cancelGenerationTask',
   adoptGenerationTask: 'writellm:adoptGenerationTask',
@@ -139,6 +146,10 @@ export type WriteLLMIpc = {
   getKnowledgeDebugDetails(): Promise<KnowledgeDebugDetails>;
   getCitationCoverage(): Promise<CitationCoverageReport>;
   getWorkspaceAssetDataUrl(relativePath: string): Promise<string>;
+  startPiRun(payload: StartPiRunPayload): Promise<{ runId: string }>;
+  cancelPiRun(runId: string): Promise<boolean>;
+  listLivePiRuns(): Promise<PiRunSummary[]>;
+  onPiRunEvent(callback: (event: PiRunEvent) => void): () => void;
   createGenerationTask(payload: CreateGenerationTaskPayload): Promise<CreateGenerationTaskResult>;
   cancelGenerationTask(roundId: string): Promise<GenerationRoundRecord>;
   adoptGenerationTask(payload: AdoptGenerationPayload): Promise<WritingPatchRecord>;

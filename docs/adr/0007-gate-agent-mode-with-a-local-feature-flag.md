@@ -11,9 +11,9 @@ prd_decisions: [PIA-D-007]
 related_tasks: [PIA-001, PIA-010, PIA-016]
 depends_on: [ADR-0010]
 supersedes: []
-superseded_by: null
-decision_status: ACCEPTED
-implementation_status: NOT_STARTED
+superseded_by: ADR-0012
+decision_status: SUPERSEDED
+implementation_status: ABANDONED
 last_updated: 2026-07-11
 ---
 
@@ -23,7 +23,7 @@ last_updated: 2026-07-11
 
 Agent mode introduces a new runtime, dependency, persistence model, and author workflow. A safe rollout needs a reversible way to stop new runs without damaging existing quick-generation actions or deleting already stored audit history.
 
-## Decision
+## Former decision
 
 Protect agent mode with a local, default-off feature flag. When disabled, the application does not expose or start new agent runs, but retains readable historical traces and leaves all legacy generation behavior unchanged.
 
@@ -65,3 +65,4 @@ The flag is persisted as `agent.enabled` in the existing local `writellm-setting
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Formalized PRD feature-flag requirement PIA-FR-014 as an accepted architecture decision. |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | PIA-001 selected local `agent.enabled`, default false, in the existing user-data settings file; main-process enforcement and rollback rehearsal remain implementation work. |
 | 2026-07-11 | ACCEPTED | NOT_STARTED | Updated the runtime dependency to ADR-0010 after ADR-0006 was superseded; feature-flag policy and implementation scope are unchanged. |
+| 2026-07-11 | SUPERSEDED | ABANDONED | ADR-0012 removes the legacy-generation fallback and replaces this optional-mode, default-off policy with a full-generation main-process kill switch. Historical agent artifacts remain governed by the successor decision. |

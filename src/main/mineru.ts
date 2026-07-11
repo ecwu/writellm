@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { KnowledgeIngestJobRecord, KnowledgeSettings, MineruSettings } from '../shared/types.js';
 import { nowIso } from './ids.js';
 import type { WriteLLMDatabase } from './database.js';
+import { assertOutboundDataAllowed } from './llmSettings.js';
 import { unzipBuffer, type ZipEntry } from './zip.js';
 
 type MineruExtractOptions = {
@@ -44,6 +45,7 @@ const mineruContentBlockSchema = z.record(z.string(), z.unknown());
 const mineruContentBlocksSchema = z.array(mineruContentBlockSchema);
 
 export async function extractPdfWithMineru(options: MineruExtractOptions): Promise<MineruExtraction> {
+  assertOutboundDataAllowed(MINERU_API_BASE, 'pdf');
   const { db, itemId, settings } = options;
   const knowledgeItem = db.getKnowledgeItem(itemId);
   if (!knowledgeItem) {

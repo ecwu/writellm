@@ -190,13 +190,14 @@
   color: oklch(0.94 0.006 240);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  left: 50%;
+  left: auto;
   max-height: min(42svh, 27rem);
-  max-width: min(68rem, calc(100vw - 2rem));
+  max-width: min(36rem, calc(100vw - 2rem));
   overflow: hidden;
   position: fixed;
-  transform: translateX(-50%);
-  width: min(68rem, calc(100vw - 2rem));
+  right: 1rem;
+  transform: none;
+  width: min(36rem, calc(100vw - 2rem));
   z-index: 45;
 }
 

@@ -11,9 +11,9 @@ prd_decisions: [PIA-D-001]
 related_tasks: [PIA-003, PIA-004, PIA-006]
 depends_on: [ADR-0010]
 supersedes: []
-superseded_by: null
-decision_status: ACCEPTED
-implementation_status: IN_PROGRESS
+superseded_by: ADR-0012
+decision_status: SUPERSEDED
+implementation_status: ABANDONED
 last_updated: 2026-07-11
 ---
 
@@ -44,7 +44,7 @@ WriteLLM remains responsible for its own permissions, persistence, tool registry
 - Pi imports stay behind the local main-process adapter boundary.
 - No Pi-provided tool becomes available unless WriteLLM explicitly registers a scoped replacement.
 - Pi dependency versioning follows ADR-0010's supported Electron/Node runtime decision.
-- Existing quick-generation actions continue to use their current path.
+- This former decision's separate-agent scope is superseded by ADR-0012, which makes Pi Agent Core the sole interactive-generation runtime after cutover.
 
 ### Dependency evidence
 
@@ -76,3 +76,4 @@ Task state, owner, and evidence are canonical in the project task tracker.
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-002 completed the compatible Electron upgrade and PIA-003 began the exact Pi Core dependency review. |
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-017 replaced the superseded runtime with verified Electron 40.10.5 / Node 24.15.0; PIA-003 resumed final Pi Core dependency evidence. |
 | 2026-07-11 | ACCEPTED | IN_PROGRESS | PIA-003 completed exact Core 0.80.3 installation, lock review, prohibited-component check, Electron-main import, unit tests, typecheck, build, and smoke. Adapter isolation, policy, and lifecycle implementation remain with PIA-004/PIA-006. |
+| 2026-07-11 | SUPERSEDED | ABANDONED | ADR-0012 replaces the optional, separate-agent scope with a full Pi-powered interactive-generation runtime. The reviewed dependency/runtime preparation remains reusable evidence, but no further implementation proceeds under this narrower decision. |

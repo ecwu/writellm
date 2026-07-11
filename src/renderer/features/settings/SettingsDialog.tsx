@@ -303,6 +303,9 @@ export function SettingsDialog({
   const [vision, setVision] = useState<EndpointDraft>(() => endpointFromSettings(settings, 'vision'));
   const [knowledge, setKnowledge] = useState<KnowledgeDraft>(() => knowledgeFromSettings(settings));
   const [appearance, setAppearance] = useState<AppearanceSettings>(settings?.appearance ?? defaultAppearance);
+  const [allowExternalProcessing, setAllowExternalProcessing] = useState(
+    settings?.outboundData.externalProcessingEnabled ?? false
+  );
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -312,6 +315,7 @@ export function SettingsDialog({
     setRerank(rerankFromSettings(settings));
     setVision(endpointFromSettings(settings, 'vision'));
     setKnowledge(knowledgeFromSettings(settings));
+    setAllowExternalProcessing(settings?.outboundData.externalProcessingEnabled ?? false);
   }, [
     settings?.chat.provider,
     settings?.chat.baseURL,
@@ -340,6 +344,7 @@ export function SettingsDialog({
     settings?.knowledge.retrieval.chunkTargetChars,
     settings?.knowledge.retrieval.chunkOverlapChars,
     settings?.knowledge.retrieval.embeddingBatchSize,
+    settings?.outboundData.externalProcessingEnabled,
     open
   ]);
 
@@ -414,7 +419,8 @@ export function SettingsDialog({
         mineruIsOcr: knowledge.mineruIsOcr,
         mineruEnableTable: knowledge.mineruEnableTable,
         mineruEnableFormula: knowledge.mineruEnableFormula,
-        knowledgeRetrieval: knowledge.retrieval
+        knowledgeRetrieval: knowledge.retrieval,
+        allowExternalProcessing
       });
       onSaved(next);
       setChat((current) => ({ ...current, apiKey: '' }));
@@ -522,6 +528,8 @@ export function SettingsDialog({
                 <GeneralSettings
                   debugEnabled={debugEnabled}
                   onDebugEnabledChange={onDebugEnabledChange}
+                  allowExternalProcessing={allowExternalProcessing}
+                  onAllowExternalProcessingChange={setAllowExternalProcessing}
                 />
               ) : activeSection === 'appearance' ? (
                 <AppearanceSettingsPanel
@@ -585,7 +593,7 @@ export function SettingsDialog({
 
 function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
   if (activeSection === 'general') {
-    return 'Debug mode is saved automatically.';
+    return 'Debug mode is saved automatically; external processing consent is saved with Save settings.';
   }
   if (activeSection === 'appearance') {
     return 'Appearance changes apply immediately.';
@@ -598,10 +606,14 @@ function getSettingsFooterMessage(activeSection: SettingsSectionId): string {
 
 function GeneralSettings({
   debugEnabled,
-  onDebugEnabledChange
+  onDebugEnabledChange,
+  allowExternalProcessing,
+  onAllowExternalProcessingChange
 }: {
   debugEnabled: boolean;
   onDebugEnabledChange: (enabled: boolean) => void;
+  allowExternalProcessing: boolean;
+  onAllowExternalProcessingChange: (enabled: boolean) => void;
 }) {
   return (
     <FieldGroup className="mx-auto w-full max-w-3xl gap-6">
@@ -620,6 +632,24 @@ function GeneralSettings({
         <FieldDescription className="flex items-center gap-2">
           <Bug className="size-4" />
           <span>{debugEnabled ? 'Debug details are visible.' : 'Debug details are hidden.'}</span>
+        </FieldDescription>
+      </FieldSet>
+      <FieldSet className="border-b pb-6">
+        <Field orientation="horizontal" className="items-start justify-between gap-4">
+          <FieldContent>
+            <FieldLabel htmlFor="settings-external-processing">Allow external processing</FieldLabel>
+            <FieldDescription>
+              When enabled, selected manuscript text, knowledge excerpts, and PDF content may be sent to the configured chat, embedding, rerank, vision, or MinerU provider. Local endpoints stay available without this permission.
+            </FieldDescription>
+          </FieldContent>
+          <Checkbox
+            id="settings-external-processing"
+            checked={allowExternalProcessing}
+            onCheckedChange={(checked) => onAllowExternalProcessingChange(checked === true)}
+          />
+        </Field>
+        <FieldDescription>
+          Credentials are stored in the operating-system secret store and never returned to the renderer.
         </FieldDescription>
       </FieldSet>
     </FieldGroup>

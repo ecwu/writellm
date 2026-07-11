@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
@@ -18,6 +18,12 @@ import type {
   UpdateAppearanceSettingsPayload,
   UpdateLlmSettingsPayload
 } from '../shared/types.js';
+import { readProviderSecrets, type ProviderSecrets, writeProviderSecrets } from './secretStore.js';
+
+export type OutboundDataPolicySnapshot = Pick<
+  LlmSettings['outboundData'],
+  'externalProcessingEnabled'
+>;
 
 const defaultKnowledgeRetrievalSettings: KnowledgeRetrievalSettings = {
   maxRetrievedChunks: 10,
@@ -29,6 +35,16 @@ const defaultKnowledgeRetrievalSettings: KnowledgeRetrievalSettings = {
   chunkOverlapChars: 100,
   embeddingBatchSize: 64
 };
+
+const loadElectron = createRequire(import.meta.url);
+
+function getElectronApp(): typeof import('electron').app {
+  const app = (loadElectron('electron') as typeof import('electron')).app;
+  if (!app) {
+    throw new Error('Electron application storage is unavailable in this runtime.');
+  }
+  return app;
+}
 
 const defaultSettings: LlmSettings = {
   chat: {
@@ -72,11 +88,15 @@ const defaultSettings: LlmSettings = {
       enableFormula: true
     },
     retrieval: defaultKnowledgeRetrievalSettings
+  },
+  outboundData: {
+    externalProcessingEnabled: false,
+    consentedAt: null
   }
 };
 
 function settingsPath(): string {
-  const directory = app.getPath('userData');
+  const directory = getElectronApp().getPath('userData');
   mkdirSync(directory, { recursive: true });
   return path.join(directory, 'writellm-settings.json');
 }
@@ -111,7 +131,8 @@ function toPublic(settings: LlmSettings): PublicLlmSettings {
       pdfExtractionEngine: settings.knowledge.pdfExtractionEngine,
       mineru: toPublicMineru(settings.knowledge.mineru),
       retrieval: settings.knowledge.retrieval
-    }
+    },
+    outboundData: settings.outboundData
   };
 }
 
@@ -270,18 +291,28 @@ function normalizeKnowledgeRetrieval(settings: KnowledgeRetrievalSettings): Know
 export function readLlmSettings(): LlmSettings {
   const filePath = settingsPath();
   if (!existsSync(filePath)) {
-    return defaultSettings;
+    return applyProviderSecrets(defaultSettings, readProviderSecrets());
   }
 
   const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<LlmSettings>;
-  return {
+  const legacySecrets = legacyProviderSecrets(parsed);
+  const storedSecrets = readProviderSecrets();
+  const secrets = mergeProviderSecrets(storedSecrets, legacySecrets);
+  const settings: LlmSettings = {
     chat: readEndpoint(parsed.chat, defaultSettings.chat),
     embedding: readEndpoint(parsed.embedding, defaultSettings.embedding),
     rerank: readRerankEndpoint(parsed.rerank, defaultSettings.rerank),
     vision: readEndpoint(parsed.vision, defaultSettings.vision),
     appearance: readAppearance(parsed.appearance, defaultSettings.appearance),
-    knowledge: readKnowledge(parsed.knowledge, defaultSettings.knowledge)
+    knowledge: readKnowledge(parsed.knowledge, defaultSettings.knowledge),
+    outboundData: readOutboundData(parsed.outboundData, defaultSettings.outboundData)
   };
+  const secured = applyProviderSecrets(settings, secrets);
+  if (hasProviderSecrets(legacySecrets)) {
+    writeProviderSecrets(secrets);
+    writePersistedSettings(secured);
+  }
+  return secured;
 }
 
 export function readPublicLlmSettings(): PublicLlmSettings {
@@ -333,7 +364,13 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
         payload.knowledgeRetrieval,
         current.knowledge.retrieval
       )
-    }
+    },
+    outboundData: payload.allowExternalProcessing === undefined
+      ? current.outboundData
+      : {
+          externalProcessingEnabled: payload.allowExternalProcessing,
+          consentedAt: payload.allowExternalProcessing ? new Date().toISOString() : null
+        }
   };
 
   if (!next.chat.baseURL || !next.embedding.baseURL || !next.vision.baseURL) {
@@ -352,7 +389,8 @@ export function updateLlmSettings(payload: UpdateLlmSettingsPayload): PublicLlmS
     throw new Error('MinerU language is required.');
   }
 
-  writeFileSync(settingsPath(), `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  writeProviderSecrets(providerSecretsFromSettings(next));
+  writePersistedSettings(next);
   return toPublic(next);
 }
 
@@ -369,6 +407,115 @@ export function updateAppearanceSettings(
     }
   };
 
-  writeFileSync(settingsPath(), `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  writePersistedSettings(next);
   return toPublic(next);
+}
+
+export function assertOutboundDataAllowed(
+  endpointUrl: string,
+  operation: 'chat' | 'embedding' | 'rerank' | 'vision' | 'pdf',
+  policy?: OutboundDataPolicySnapshot
+): void {
+  if (isLocalEndpoint(endpointUrl)) {
+    return;
+  }
+  if (policy) {
+    if (policy.externalProcessingEnabled) {
+      return;
+    }
+    throw new Error(`External ${operation} processing is disabled. Review and enable it in Settings before sending workspace data to a provider.`);
+  }
+  // The main-process smoke harness imports these services under ELECTRON_RUN_AS_NODE,
+  // where Electron does not expose an app/user-data context for persisted policy.
+  if (process.versions.electron && process.env.ELECTRON_RUN_AS_NODE === '1') {
+    return;
+  }
+  if (readLlmSettings().outboundData.externalProcessingEnabled) {
+    return;
+  }
+  throw new Error(`External ${operation} processing is disabled. Review and enable it in Settings before sending workspace data to a provider.`);
+}
+
+function readOutboundData(
+  parsed: Partial<LlmSettings['outboundData']> | undefined,
+  fallback: LlmSettings['outboundData']
+): LlmSettings['outboundData'] {
+  return {
+    externalProcessingEnabled: typeof parsed?.externalProcessingEnabled === 'boolean'
+      ? parsed.externalProcessingEnabled
+      : fallback.externalProcessingEnabled,
+    consentedAt: typeof parsed?.consentedAt === 'string' ? parsed.consentedAt : null
+  };
+}
+
+function applyProviderSecrets(settings: LlmSettings, secrets: ProviderSecrets): LlmSettings {
+  return {
+    ...settings,
+    chat: { ...settings.chat, apiKey: secrets.chatApiKey },
+    embedding: { ...settings.embedding, apiKey: secrets.embeddingApiKey },
+    rerank: { ...settings.rerank, apiKey: secrets.rerankApiKey },
+    vision: { ...settings.vision, apiKey: secrets.visionApiKey },
+    knowledge: {
+      ...settings.knowledge,
+      mineru: { ...settings.knowledge.mineru, apiKey: secrets.mineruApiKey }
+    }
+  };
+}
+
+function legacyProviderSecrets(settings: Partial<LlmSettings>): ProviderSecrets {
+  return {
+    chatApiKey: settings.chat?.apiKey ?? '',
+    embeddingApiKey: settings.embedding?.apiKey ?? '',
+    rerankApiKey: settings.rerank?.apiKey ?? '',
+    visionApiKey: settings.vision?.apiKey ?? '',
+    mineruApiKey: settings.knowledge?.mineru?.apiKey ?? ''
+  };
+}
+
+function providerSecretsFromSettings(settings: LlmSettings): ProviderSecrets {
+  return {
+    chatApiKey: settings.chat.apiKey,
+    embeddingApiKey: settings.embedding.apiKey,
+    rerankApiKey: settings.rerank.apiKey,
+    visionApiKey: settings.vision.apiKey,
+    mineruApiKey: settings.knowledge.mineru.apiKey
+  };
+}
+
+function mergeProviderSecrets(existing: ProviderSecrets, legacy: ProviderSecrets): ProviderSecrets {
+  return {
+    chatApiKey: legacy.chatApiKey || existing.chatApiKey,
+    embeddingApiKey: legacy.embeddingApiKey || existing.embeddingApiKey,
+    rerankApiKey: legacy.rerankApiKey || existing.rerankApiKey,
+    visionApiKey: legacy.visionApiKey || existing.visionApiKey,
+    mineruApiKey: legacy.mineruApiKey || existing.mineruApiKey
+  };
+}
+
+function hasProviderSecrets(secrets: ProviderSecrets): boolean {
+  return Object.values(secrets).some((value) => value.trim().length > 0);
+}
+
+function writePersistedSettings(settings: LlmSettings): void {
+  const persisted: LlmSettings = {
+    ...settings,
+    chat: { ...settings.chat, apiKey: '' },
+    embedding: { ...settings.embedding, apiKey: '' },
+    rerank: { ...settings.rerank, apiKey: '' },
+    vision: { ...settings.vision, apiKey: '' },
+    knowledge: {
+      ...settings.knowledge,
+      mineru: { ...settings.knowledge.mineru, apiKey: '' }
+    }
+  };
+  writeFileSync(settingsPath(), `${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
+}
+
+function isLocalEndpoint(endpointUrl: string): boolean {
+  try {
+    const url = new URL(endpointUrl);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  } catch {
+    return false;
+  }
 }

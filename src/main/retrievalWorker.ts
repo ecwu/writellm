@@ -50,6 +50,9 @@ async function runRetrieval(message: Extract<RetrievalWorkerInboundMessage, { ty
             runId: request.runId,
             rerankSettings: request.rerankSettings,
             retrievalSettings: request.retrievalSettings,
+            outboundDataPolicy: {
+              externalProcessingEnabled: request.externalProcessingEnabled
+            },
             abortSignal: controller.signal,
             onTrace: (event) => {
               post({ type: 'trace', taskId: message.taskId, event });
@@ -67,6 +70,9 @@ async function runRetrieval(message: Extract<RetrievalWorkerInboundMessage, { ty
             queries: request.queries,
             rerankSettings: request.rerankSettings,
             retrievalSettings: request.retrievalSettings,
+            outboundDataPolicy: {
+              externalProcessingEnabled: request.externalProcessingEnabled
+            },
             abortSignal: controller.signal
           }
         );

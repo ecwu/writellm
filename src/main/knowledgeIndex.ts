@@ -15,6 +15,7 @@ import type {
 import type { WriteLLMDatabase } from './database.js';
 import { extractKnowledgeFileTextSample } from './knowledgeTextExtract.js';
 import { generateLlmObject, generateLlmText } from './llmRunner.js';
+import { assertOutboundDataAllowed, type OutboundDataPolicySnapshot } from './llmSettings.js';
 
 const CHUNK_TARGET_CHARS = 700;
 const CHUNK_OVERLAP_CHARS = 100;
@@ -363,6 +364,7 @@ export async function retrieveKnowledgeSources(
     queries?: string[];
     rerankSettings?: RerankEndpointSettings;
     retrievalSettings?: KnowledgeRetrievalSettings;
+    outboundDataPolicy?: OutboundDataPolicySnapshot;
     abortSignal?: AbortSignal;
   } = {}
 ): Promise<RetrievedKnowledgeSource[]> {
@@ -379,7 +381,13 @@ export async function retrieveKnowledgeSources(
     Math.min(options.maxCandidates ?? retrievalSettings.maxCandidateChunks, 80)
   );
   const candidateMap = new Map<string, RetrievalCandidate>();
-  const embeddings = await embedTexts(embeddingSettings, queries, retrievalSettings.embeddingBatchSize, options.abortSignal);
+  const embeddings = await embedTexts(
+    embeddingSettings,
+    queries,
+    retrievalSettings.embeddingBatchSize,
+    options.abortSignal,
+    options.outboundDataPolicy
+  );
 
   queries.forEach((retrievalQuery, queryIndex) => {
     throwIfAborted(options.abortSignal);
@@ -422,6 +430,7 @@ export async function retrieveKnowledgeSources(
     candidates: expanded,
     maxChunks,
     topN: retrievalSettings.rerankTopN,
+    outboundDataPolicy: options.outboundDataPolicy,
     abortSignal: options.abortSignal
   });
   const diversified = diversifyCandidatesByItem(
@@ -452,6 +461,7 @@ export async function retrieveKnowledgeSourcesV2(
     queries?: string[];
     rerankSettings?: RerankEndpointSettings;
     retrievalSettings?: KnowledgeRetrievalSettings;
+    outboundDataPolicy?: OutboundDataPolicySnapshot;
     runId?: string;
     onTrace?: (event: KnowledgeRetrievalTraceEvent) => void;
     abortSignal?: AbortSignal;
@@ -503,6 +513,7 @@ export async function retrieveKnowledgeSourcesV2(
         queries: roundQueries,
         rerankSettings: undefined,
         retrievalSettings,
+        outboundDataPolicy: options.outboundDataPolicy,
         abortSignal: options.abortSignal
       })).map((source) => ({
         ...source,
@@ -542,6 +553,7 @@ export async function retrieveKnowledgeSourcesV2(
         round,
         maxChunks,
         sources: Array.from(allSources.values()),
+        outboundDataPolicy: options.outboundDataPolicy,
         abortSignal: options.abortSignal
       });
       const validSelectedIds = evaluation.selectedChunkIds.filter((chunkId) => allSources.has(chunkId));
@@ -620,6 +632,7 @@ async function evaluateSourceV2Round(
     round: number;
     maxChunks: number;
     sources: RetrievedKnowledgeSource[];
+    outboundDataPolicy?: OutboundDataPolicySnapshot;
     abortSignal?: AbortSignal;
   }
 ): Promise<{
@@ -649,7 +662,7 @@ async function evaluateSourceV2Round(
     prompt: evaluatorPrompt,
     maxOutputTokens: SOURCE_V2_EVALUATION_MAX_OUTPUT_TOKENS,
     timeoutMs: SOURCE_V2_EVALUATION_TIMEOUT_MS
-  }, options.abortSignal);
+  }, options.abortSignal, options.outboundDataPolicy);
   const rawJson = parseJsonObjectFromText(text);
   const parsed = sourceV2EvaluationSchema.safeParse(rawJson);
   if (!parsed.success) {
@@ -862,12 +875,14 @@ async function rerankKnowledgeCandidates(options: {
   candidates: RetrievalCandidate[];
   maxChunks: number;
   topN: number;
+  outboundDataPolicy?: OutboundDataPolicySnapshot;
   abortSignal?: AbortSignal;
 }): Promise<RetrievalCandidate[]> {
   const { settings, query, candidates, maxChunks, topN } = options;
   if (!settings?.enabled || !settings.apiKey.trim() || candidates.length === 0 || !query.trim()) {
     return candidates.slice(0, maxChunks);
   }
+  assertOutboundDataAllowed(settings.baseURL, 'rerank', options.outboundDataPolicy);
   throwIfAborted(options.abortSignal);
   const endpoint = `${settings.baseURL.replace(/\/+$/, '')}/rerank`;
   const timeoutSignal = AbortSignal.timeout(15000);
@@ -1001,9 +1016,11 @@ async function embedTexts(
   settings: ModelEndpointSettings,
   texts: string[],
   batchSize = EMBEDDING_BATCH_SIZE,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  outboundDataPolicy?: OutboundDataPolicySnapshot
 ): Promise<number[][]> {
   throwIfAborted(abortSignal);
+  assertOutboundDataAllowed(settings.baseURL, 'embedding', outboundDataPolicy);
   if (!settings.apiKey.trim()) {
     throw new Error('Embedding API key is required. Add it in Settings first.');
   }
