@@ -369,6 +369,18 @@
   gap: 0.45rem;
 }
 
+/* The hub has its own dark surface even when the app uses the light theme. */
+.generation-hub-actions [data-variant="outline"] {
+  background: oklch(1 0 0 / 10%);
+  border-color: oklch(1 0 0 / 24%);
+  color: oklch(0.96 0.006 240);
+}
+
+.generation-hub-actions [data-variant="outline"]:hover {
+  background: oklch(1 0 0 / 18%);
+  color: oklch(0.98 0.004 240);
+}
+
 .llm-flow {
   display: grid;
   gap: 0.625rem;

@@ -4,6 +4,13 @@
 
 WriteLLM is an Electron desktop app for long-form academic/structured writing with LLM assistance, knowledge retrieval, and section versioning. It uses a SQLite database (better-sqlite3 + drizzle-orm) with a git-backed workspace for section history. The app has no web server — the renderer loads via Vite dev server in dev or from `dist/` in production.
 
+## Planning documents
+
+- [Master Product PRD](docs/project-prd.md) is the source of truth for WriteLLM product scope, whole-project requirements, priorities, and initiative routing. Read it before product work.
+- [Project task tracker](docs/task-tracker.md) is the only source of truth for every task's status, owner, dates, blocker, and evidence. Claim and update work there, not in an initiative PRD or ADR.
+- [Pi Agent Harness initiative PRD](docs/pi-agent-harness-prd.md) defines Pi-specific requirements, dependencies, and acceptance criteria. Read it for a PIA task, but update live PIA task state in the global tracker.
+- [ADR register](docs/adr/README.md) is the source of truth for whole-project architecture decisions and their implementation roll-up. Read linked ADRs before architecture-affecting work; update their status history only when the decision-level state changes.
+
 ## Architecture
 
 ```
@@ -17,7 +24,7 @@ src/
     knowledgeIndex.ts / knowledgeIngest.ts / retrievalWorker*.ts
                    Knowledge base: embedding, ingestion, retrieval
     gitSession.ts  Git-based section versioning
-    exportLatex.ts Export workspace to Markdown/LaTeX
+    exportLatex.ts Export workspace (currently Markdown main.md; export contract is tracked in EXP-001)
     sectionHistory.ts / sectionMarkdown.ts
     backgroundTasks.ts  plainjob-based background task queue
   preload/       contextBridge API (preload.cts → CJS)
@@ -45,12 +52,15 @@ src/
 - `bun run dev:electron` — Full Electron dev: compiles main/preload with `tsc`, starts Vite, then launches Electron with `VITE_DEV_SERVER_URL`
 - `bun run build` — `tsc -p tsconfig.electron.json && vite build` (production build)
 - `bun run start` — Build + launch Electron in production mode
+- `bun run test` — Run Bun unit tests
+- `bun run test:smoke` — Build and run the Electron main-process smoke test
+- `bun run test:all` — Run unit tests plus the smoke test
 - `bun run typecheck` — Checks both configs: `tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json`
 - `bun run rebuild:native` — Rebuild better-sqlite3 native module for current Electron version
 
-**No linter, formatter, or test runner is configured.** There are no `test`, `lint`, or `format` scripts. The only verification is `bun run typecheck`.
+**No linter or formatter is configured.** Bun tests are configured in `test/main/` and `test/shared/`; use the narrowest relevant test command plus `bun run typecheck`.
 
-The closest thing to integration tests is `scripts/electron-smoke.mjs`, which runs against the compiled main-process code via `ELECTRON_RUN_AS_NODE=1`. It must be run after `bun run build` since it imports from `dist-electron/`.
+The Electron smoke test in `scripts/electron-smoke.mjs` runs against compiled main-process code via `ELECTRON_RUN_AS_NODE=1`. It must be run after `bun run build` since it imports from `dist-electron/`; `bun run test:smoke` performs both steps.
 
 ## Key conventions
 
