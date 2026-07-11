@@ -25,6 +25,8 @@
 .section-list-table {
   min-height: 0;
   overflow: auto;
+  padding-bottom: var(--generation-hub-offset, 0px);
+  scroll-padding-bottom: var(--generation-hub-offset, 0px);
 }
 
 .section-list-table [data-slot="table-container"] {

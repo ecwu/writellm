@@ -188,11 +188,12 @@
   bottom: 0;
   box-shadow: 0 -1rem 3rem oklch(0 0 0 / 28%);
   color: oklch(0.94 0.006 240);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   left: 50%;
-  max-height: min(48svh, 32rem);
+  max-height: min(42svh, 27rem);
   max-width: min(68rem, calc(100vw - 2rem));
-  overflow: auto;
-  padding: 0.8rem 1rem 1rem;
+  overflow: hidden;
   position: fixed;
   transform: translateX(-50%);
   width: min(68rem, calc(100vw - 2rem));
@@ -200,40 +201,93 @@
 }
 
 .generation-hub-header {
-  align-items: baseline;
-  border-bottom: 1px solid oklch(1 0 0 / 13%);
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
-  padding: 0 0 0.65rem;
+  min-width: 0;
+  padding: 0.7rem 1rem;
+  text-align: left;
+  width: 100%;
 }
 
-.generation-hub-header > div > span,
+.generation-hub[data-state="expanded"] .generation-hub-header {
+  border-bottom: 1px solid oklch(1 0 0 / 13%);
+}
+
+.generation-hub-header:focus-visible {
+  outline: 2px solid oklch(0.7 0.09 210);
+  outline-offset: -2px;
+}
+
+.generation-hub-header-copy {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.generation-hub-header-title,
 .generation-hub-run-title span {
   font-size: 0.84rem;
   font-weight: 700;
 }
 
-.generation-hub-header p,
+.generation-hub-header-detail,
 .generation-hub-run-title p,
-.generation-hub-stage p,
-.generation-hub-error {
+.generation-hub-runtime p {
   color: oklch(0.76 0.008 240);
   font-size: 0.76rem;
   line-height: 1.4;
   margin: 0.15rem 0 0;
 }
 
+.generation-hub-header-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-hub-header-toggle {
+  align-items: center;
+  color: oklch(0.76 0.008 240);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  font-weight: 650;
+  gap: 0.35rem;
+}
+
+.generation-hub-header-toggle svg {
+  height: 1rem;
+  transition: transform 150ms ease;
+  width: 1rem;
+}
+
+.generation-hub-header-toggle svg.is-expanded {
+  transform: rotate(180deg);
+}
+
 .generation-hub-runs {
   display: grid;
   gap: 0.75rem;
-  padding-top: 0.75rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.75rem 1rem 1rem;
 }
 
 .generation-hub-run {
   background: oklch(1 0 0 / 5%);
   border: 1px solid oklch(1 0 0 / 12%);
   border-radius: 0.6rem;
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
   padding: 0.75rem;
 }
 
@@ -249,26 +303,32 @@
   width: 1rem;
 }
 
-.generation-hub-stages {
-  display: grid;
-  gap: 0.45rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 0.65rem;
-}
-
-.generation-hub-stage {
+.generation-hub-runtime {
   background: oklch(0 0 0 / 13%);
   border: 1px solid transparent;
   border-radius: 0.4rem;
+  display: grid;
+  gap: 0.45rem;
+  max-height: min(12rem, 24svh);
   min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 0.55rem;
 }
 
-.generation-hub-stage.is-active {
+.generation-hub-runtime[data-tone="active"] {
   border-color: oklch(0.68 0.08 210 / 72%);
 }
 
-.generation-hub-stage-title {
+.generation-hub-runtime[data-tone="ready"] {
+  border-color: oklch(0.71 0.1 160 / 62%);
+}
+
+.generation-hub-runtime[data-tone="error"] {
+  border-color: oklch(0.7 0.14 28 / 72%);
+}
+
+.generation-hub-runtime-title {
   align-items: center;
   color: oklch(0.9 0.016 235);
   display: flex;
@@ -277,10 +337,20 @@
   gap: 0.35rem;
 }
 
-.generation-hub-stage-title svg {
+.generation-hub-runtime-title > svg {
   color: oklch(0.74 0.09 205);
+  flex: 0 0 auto;
   height: 0.9rem;
   width: 0.9rem;
+}
+
+.generation-hub-runtime[data-tone="error"] .generation-hub-runtime-title,
+.generation-hub-runtime[data-tone="error"] .generation-hub-runtime-title > svg {
+  color: oklch(0.8 0.14 28);
+}
+
+.generation-hub-runtime-title [role="status"] {
+  margin-left: auto;
 }
 
 .generation-hub-draft {
@@ -289,27 +359,14 @@
   font-size: 0.73rem;
   line-height: 1.45;
   margin: 0.45rem 0 0;
-  max-height: 10rem;
-  overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.generation-hub-error {
-  color: oklch(0.76 0.16 28);
 }
 
 .generation-hub-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  margin-top: 0.7rem;
-}
-
-@media (max-width: 760px) {
-  .generation-hub-stages {
-    grid-template-columns: 1fr;
-  }
 }
 
 .llm-flow {

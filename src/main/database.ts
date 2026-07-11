@@ -987,6 +987,7 @@ export class WriteLLMDatabase {
       throw new Error(`Generation round not found: ${roundId}`);
     }
     this.orm.transaction(() => {
+      this.orm.delete(writingPatches).where(eq(writingPatches.generationRoundId, roundId)).run();
       this.orm.delete(llmGenerationRounds).where(eq(llmGenerationRounds.id, roundId)).run();
       this.touchGenerationSession(round.sessionId, nowIso());
     });

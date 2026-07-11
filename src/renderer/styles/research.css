@@ -10,7 +10,8 @@
   gap: 1rem;
   min-height: 0;
   overflow: auto;
-  padding: 1rem 1.25rem 10rem;
+  padding: 1rem 1.25rem calc(1rem + var(--generation-hub-offset, 0px));
+  scroll-padding-bottom: var(--generation-hub-offset, 0px);
 }
 
 .citation-coverage-loading,

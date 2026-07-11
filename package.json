@@ -11,6 +11,10 @@
     "build": "tsc -p tsconfig.electron.json && vite build",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "start": "bun run build && electron .",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:smoke": "bun run build && node scripts/electron-smoke.mjs",
+    "test:all": "bun run test && bun run test:smoke",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },
   "dependencies": {

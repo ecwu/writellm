@@ -27,7 +27,7 @@ export function scanCitations(text: string): string[] {
 }
 
 export function scanNumbers(text: string): string[] {
-  return (text.match(/(?:Top@\d+|[-+]?\d+(?:,\d{3})*(?:\.\d+)?%?(?:\s*(?:ms|s|sec|KB|MB|GB|pages?|x))?)/g) ?? [])
+  return (text.match(/(?<![\p{L}\p{N}_])(?:Top@\d+|[-+]?\d+(?:,\d{3})*(?:\.\d+)?%?(?:\s*(?:ms|s|sec|KB|MB|GB|pages?|x))?)(?![\p{L}\p{N}_])/gu) ?? [])
     .map((value) => value.replace(/\s+/g, ' ').trim())
     .filter((value) => /[0-9]/.test(value));
 }
@@ -35,4 +35,3 @@ export function scanNumbers(text: string): string[] {
 export function wordCount(text: string): number {
   return text.match(/[\p{L}\p{N}_]+/gu)?.length ?? 0;
 }
-

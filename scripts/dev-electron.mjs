@@ -4,6 +4,12 @@ import { createServer } from 'node:net';
 const host = '127.0.0.1';
 const preferredPort = 5173;
 const children = new Set();
+let electron = null;
+let restartingElectron = false;
+let shuttingDown = false;
+let restartTimer = null;
+let skipInitialTypecheckWatchBuild = true;
+let typecheckWatchOutput = '';
 
 function run(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -66,6 +72,13 @@ async function findAvailablePort(startPort) {
 }
 
 function shutdown(code = 0) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+  }
   for (const child of children) {
     child.kill('SIGTERM');
   }
@@ -75,23 +88,91 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(130));
 process.on('SIGTERM', () => shutdown(143));
 
+function startElectron(devServerUrl) {
+  if (shuttingDown) {
+    return;
+  }
+  const nextElectron = run('bun', ['x', 'electron', '.'], {
+    env: {
+      ...process.env,
+      VITE_DEV_SERVER_URL: devServerUrl
+    }
+  });
+  electron = nextElectron;
+  nextElectron.on('exit', (code) => {
+    if (electron !== nextElectron) {
+      return;
+    }
+    electron = null;
+    if (shuttingDown) {
+      return;
+    }
+    if (restartingElectron) {
+      restartingElectron = false;
+      startElectron(devServerUrl);
+      return;
+    }
+    shutdown(code ?? 0);
+  });
+}
+
+function scheduleElectronRestart(devServerUrl) {
+  if (shuttingDown || restartTimer) {
+    return;
+  }
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    if (shuttingDown || restartingElectron) {
+      return;
+    }
+    if (!electron) {
+      startElectron(devServerUrl);
+      return;
+    }
+    restartingElectron = true;
+    electron.kill('SIGTERM');
+  }, 150);
+}
+
+function startElectronTypecheckWatch(devServerUrl) {
+  const typecheck = run(
+    'bun',
+    ['x', 'tsc', '-p', 'tsconfig.electron.json', '--watch', '--preserveWatchOutput', '--pretty', 'false'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  const handleOutput = (chunk, output) => {
+    const text = chunk.toString();
+    output.write(text);
+    typecheckWatchOutput = `${typecheckWatchOutput}${text}`;
+    if (!typecheckWatchOutput.includes('Found 0 errors. Watching for file changes.')) {
+      typecheckWatchOutput = typecheckWatchOutput.slice(-512);
+      return;
+    }
+    typecheckWatchOutput = '';
+    if (skipInitialTypecheckWatchBuild) {
+      skipInitialTypecheckWatchBuild = false;
+      return;
+    }
+    scheduleElectronRestart(devServerUrl);
+  };
+  typecheck.stdout.on('data', (chunk) => handleOutput(chunk, process.stdout));
+  typecheck.stderr.on('data', (chunk) => handleOutput(chunk, process.stderr));
+  typecheck.on('exit', (code) => {
+    if (!shuttingDown) {
+      console.error('Electron TypeScript watcher stopped.');
+      shutdown(code ?? 1);
+    }
+  });
+}
+
 try {
   await runOnce('bun', ['x', 'tsc', '-p', 'tsconfig.electron.json']);
   const port = await findAvailablePort(preferredPort);
   const devServerUrl = `http://${host}:${port}`;
   const vite = run('bun', ['x', 'vite', '--host', host, '--port', String(port), '--strictPort']);
   await waitForServer(devServerUrl);
-  const electron = run('bun', ['x', 'electron', '.'], {
-    env: {
-      ...process.env,
-      VITE_DEV_SERVER_URL: devServerUrl
-    }
-  });
-
-  electron.on('exit', (code) => {
-    vite.kill('SIGTERM');
-    process.exit(code ?? 0);
-  });
+  startElectronTypecheckWatch(devServerUrl);
+  startElectron(devServerUrl);
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   shutdown(1);

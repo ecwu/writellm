@@ -646,9 +646,15 @@ async function runGeneration(
       maxOutputTokens: 12_000
     }, controller.signal);
 
-    if (controller.signal.aborted || db.getGenerationRound(roundId)?.status === 'canceled') {
-      db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
-      emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+    const currentRound = db.getGenerationRound(roundId);
+    if (!currentRound) {
+      return;
+    }
+    if (controller.signal.aborted || currentRound.status === 'canceled') {
+      if (currentRound.status !== 'canceled') {
+        db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
+        emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+      }
       return;
     }
 
@@ -666,9 +672,15 @@ async function runGeneration(
     emitGenerationEvent({ type: 'patch_created', roundId, patchId: patch.id, status: 'patch_created' });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
-    if (controller.signal.aborted || db.getGenerationRound(roundId)?.status === 'canceled') {
-      db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
-      emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+    const currentRound = db.getGenerationRound(roundId);
+    if (!currentRound) {
+      return;
+    }
+    if (controller.signal.aborted || currentRound.status === 'canceled') {
+      if (currentRound.status !== 'canceled') {
+        db.updateGenerationRound(roundId, { status: 'canceled', completedAt: nowIso() });
+        emitGenerationEvent({ type: 'round_status', roundId, status: 'canceled' });
+      }
       return;
     }
     db.updateGenerationRound(roundId, {
@@ -736,7 +748,8 @@ async function prepareAndStartGenerationTask(
         })
       : [];
     retrievalGenerationRuns.delete(roundId);
-    if (db.getGenerationRound(roundId)?.status === 'canceled') {
+    const currentRound = db.getGenerationRound(roundId);
+    if (!currentRound || currentRound.status === 'canceled') {
       return;
     }
 
@@ -772,7 +785,8 @@ async function prepareAndStartGenerationTask(
   } catch (caught) {
     retrievalGenerationRuns.delete(roundId);
     const message = caught instanceof Error ? caught.message : String(caught);
-    if (db.getGenerationRound(roundId)?.status === 'canceled') {
+    const currentRound = db.getGenerationRound(roundId);
+    if (!currentRound || currentRound.status === 'canceled') {
       return;
     }
     db.updateGenerationRound(roundId, {

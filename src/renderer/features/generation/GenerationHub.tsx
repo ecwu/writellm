@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Check, CircleAlert, FileText, Search, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, CircleAlert, FileText, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { getApi } from '../../api';
 import { Button } from '../../components/ui/button';
 import { Spinner } from '../../components/ui/spinner';
@@ -17,6 +17,14 @@ type HubRun = {
   patch: WritingPatchRecord | null;
   streamText: string;
   liveTrace: KnowledgeRetrievalTraceEvent[];
+};
+
+type RuntimeStage = {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  content?: string;
+  tone: 'active' | 'ready' | 'error';
 };
 
 const visibleStatuses = new Set<GenerationRoundRecord['status']>([
@@ -38,6 +46,8 @@ export function GenerationHub({
   onError: (message: string) => void;
 }) {
   const [runs, setRuns] = useState<HubRun[]>([]);
+  const [collapsed, setCollapsed] = useState(true);
+  const hubRef = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
     const sessions = await getApi().listGenerationSessions();
@@ -51,8 +61,7 @@ export function GenerationHub({
     ));
     const next = loaded
       .filter(({ round }) => visibleStatuses.has(round.status))
-      .sort((left, right) => new Date(right.round.updatedAt).getTime() - new Date(left.round.updatedAt).getTime())
-      .slice(0, 3);
+      .sort(compareHubRuns);
     setRuns((current) => next.map((entry) => {
       const previous = current.find((run) => run.round.id === entry.round.id);
       return {
@@ -82,11 +91,44 @@ export function GenerationHub({
     });
   }, [onError, refresh]);
 
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const hub = hubRef.current;
+    if (!hub) {
+      root.style.removeProperty('--generation-hub-offset');
+      return;
+    }
+
+    const updateOffset = () => {
+      root.style.setProperty('--generation-hub-offset', `${Math.ceil(hub.getBoundingClientRect().height + 16)}px`);
+    };
+    updateOffset();
+
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateOffset);
+    observer?.observe(hub);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty('--generation-hub-offset');
+    };
+  }, [collapsed, runs.length]);
+
   async function cancel(roundId: string) {
     try {
       await getApi().cancelGenerationTask(roundId);
+      setRuns((current) => current.filter((run) => run.round.id !== roundId));
       await refresh();
       onStatus('Generation canceled.');
+    } catch (caught) {
+      onError(errorMessage(caught));
+    }
+  }
+
+  async function discard(roundId: string) {
+    try {
+      await getApi().discardGenerationTask(roundId);
+      setRuns((current) => current.filter((run) => run.round.id !== roundId));
+      await refresh();
+      onStatus('Generation task deleted.');
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -140,27 +182,48 @@ export function GenerationHub({
     return null;
   }
 
+  const summary = summarizeHubRuns(runs);
+
   return (
-    <section className="generation-hub" aria-label="Assistant generation hub">
-      <header className="generation-hub-header">
-        <div>
-          <span>Assistant hub</span>
-          <p>Retrieval, planning, streaming draft, and your approval stay in one place.</p>
+    <section
+      ref={hubRef}
+      className="generation-hub"
+      data-state={collapsed ? 'collapsed' : 'expanded'}
+      aria-label="Assistant generation hub"
+    >
+      <button
+        type="button"
+        className="generation-hub-header"
+        aria-controls="generation-hub-runs"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? 'Expand assistant hub' : 'Collapse assistant hub'}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span className="generation-hub-header-copy">
+          <span className="generation-hub-header-title">Assistant hub</span>
+          <span className="generation-hub-header-detail">{summary}</span>
+        </span>
+        <span className="generation-hub-header-toggle">
+          <span>{collapsed ? 'Show tasks' : 'Hide tasks'}</span>
+          <ChevronDown className={collapsed ? undefined : 'is-expanded'} aria-hidden="true" />
+        </span>
+      </button>
+      {!collapsed ? (
+        <div id="generation-hub-runs" className="generation-hub-runs">
+          {runs.map((run) => (
+            <GenerationRunCard
+              key={run.round.id}
+              run={run}
+              onCancel={() => void cancel(run.round.id)}
+              onDiscard={() => void discard(run.round.id)}
+              onRetry={() => void retry(run.round.id)}
+              onApply={run.patch ? () => void apply(run.patch!) : undefined}
+              onSaveCopy={run.patch ? () => void saveCopy(run.patch!) : undefined}
+              onReject={run.patch ? () => void reject(run.patch!) : undefined}
+            />
+          ))}
         </div>
-      </header>
-      <div className="generation-hub-runs">
-        {runs.map((run) => (
-          <GenerationRunCard
-            key={run.round.id}
-            run={run}
-            onCancel={() => void cancel(run.round.id)}
-            onRetry={() => void retry(run.round.id)}
-            onApply={run.patch ? () => void apply(run.patch!) : undefined}
-            onSaveCopy={run.patch ? () => void saveCopy(run.patch!) : undefined}
-            onReject={run.patch ? () => void reject(run.patch!) : undefined}
-          />
-        ))}
-      </div>
+      ) : null}
     </section>
   );
 }
@@ -168,6 +231,7 @@ export function GenerationHub({
 function GenerationRunCard({
   run,
   onCancel,
+  onDiscard,
   onRetry,
   onApply,
   onSaveCopy,
@@ -175,6 +239,7 @@ function GenerationRunCard({
 }: {
   run: HubRun;
   onCancel: () => void;
+  onDiscard: () => void;
   onRetry: () => void;
   onApply?: () => void;
   onSaveCopy?: () => void;
@@ -183,8 +248,7 @@ function GenerationRunCard({
   const running = isRunning(run.round.status);
   const trace = run.liveTrace.length > 0 ? run.liveTrace : run.round.retrievalTrace;
   const candidate = patchText(run.patch) || streamedCandidate(run.streamText) || run.streamText;
-  const ragSummary = summarizeRag(trace);
-  const planning = summarizePlanning(trace);
+  const stage = currentRuntimeStage(run.round, trace, candidate);
 
   return (
     <article className="generation-hub-run">
@@ -195,19 +259,15 @@ function GenerationRunCard({
         </div>
         {running ? <Spinner /> : run.round.status === 'error' ? <CircleAlert /> : <Check />}
       </div>
-      <div className="generation-hub-stages">
-        <HubStage icon={<Search />} title="RAG retrieval" detail={ragSummary} active={run.round.status === 'retrieving'} />
-        <HubStage icon={<Sparkles />} title="Agent retrieval plan" detail={planning} active={run.round.status === 'retrieving'} />
-        <HubStage
-          icon={<FileText />}
-          title="Streaming draft"
-          detail={running && !candidate ? 'Waiting for the model response…' : undefined}
-          active={run.round.status === 'processing' || run.round.status === 'pending'}
-        >
-          {candidate ? <pre className="generation-hub-draft">{candidate}</pre> : null}
-        </HubStage>
-      </div>
-      {run.round.errorMessage ? <p className="generation-hub-error">{run.round.errorMessage}</p> : null}
+      <section className="generation-hub-runtime" data-tone={stage.tone}>
+        <div className="generation-hub-runtime-title">
+          {stage.icon}
+          <span>{stage.title}</span>
+          {stage.tone === 'active' ? <Spinner /> : null}
+        </div>
+        <p>{stage.detail}</p>
+        {stage.content ? <pre className="generation-hub-draft">{stage.content}</pre> : null}
+      </section>
       <div className="generation-hub-actions">
         {running ? <Button variant="outline" size="sm" onClick={onCancel}><X /> Cancel</Button> : null}
         {run.round.status === 'error' ? <Button size="sm" onClick={onRetry}>Retry</Button> : null}
@@ -216,63 +276,155 @@ function GenerationRunCard({
           <Button variant="outline" size="sm" onClick={onSaveCopy}>Save copy</Button>
           <Button variant="outline" size="sm" onClick={onReject}><X /> Dismiss</Button>
         </> : null}
+        <Button variant="destructive" size="sm" onClick={onDiscard}><Trash2 /> Delete</Button>
       </div>
     </article>
   );
 }
 
-function HubStage({
-  icon,
-  title,
-  detail,
-  active,
-  children
-}: {
-  icon: ReactNode;
-  title: string;
-  detail?: string;
-  active: boolean;
-  children?: ReactNode;
-}) {
-  return (
-    <section className={`generation-hub-stage ${active ? 'is-active' : ''}`}>
-      <div className="generation-hub-stage-title">{icon}<span>{title}</span></div>
-      {detail ? <p>{detail}</p> : null}
-      {children}
-    </section>
-  );
+function currentRuntimeStage(
+  round: GenerationRoundRecord,
+  trace: KnowledgeRetrievalTraceEvent[],
+  candidate: string
+): RuntimeStage {
+  if (round.status === 'error') {
+    return {
+      icon: <CircleAlert />,
+      title: 'Generation failed',
+      detail: round.errorMessage || 'The generation stopped before a draft was ready.',
+      tone: 'error'
+    };
+  }
+  if (round.status === 'patch_created') {
+    return {
+      icon: <Check />,
+      title: 'Draft ready for review',
+      detail: candidate ? 'Review the generated draft below.' : 'The generated draft is ready for review.',
+      content: candidate || undefined,
+      tone: 'ready'
+    };
+  }
+  if (round.status === 'done') {
+    return {
+      icon: <Sparkles />,
+      title: 'Preparing suggestion',
+      detail: 'Validating the generated draft before it is ready for review.',
+      tone: 'active'
+    };
+  }
+  if (round.status === 'pending' || round.status === 'processing') {
+    return {
+      icon: <FileText />,
+      title: round.status === 'pending' ? 'Preparing draft' : 'Streaming draft',
+      detail: candidate ? 'Draft text is arriving.' : 'Waiting for the model response…',
+      content: candidate || undefined,
+      tone: 'active'
+    };
+  }
+
+  return retrievalRuntimeStage(trace);
 }
 
-function summarizeRag(trace: KnowledgeRetrievalTraceEvent[]): string {
-  const started = trace.find((event) => event.type === 'started');
-  const done = [...trace].reverse().find((event) => event.type === 'done');
-  const candidates = trace.filter((event) => event.type === 'round_candidates').at(-1);
-  const queryPlan = trace.find((event) => event.type === 'query_plan');
-  if (done?.type === 'done') {
-    return `${done.sources.length} sources selected · ${done.stopReason}`;
+function retrievalRuntimeStage(trace: KnowledgeRetrievalTraceEvent[]): RuntimeStage {
+  const latest = trace.at(-1);
+  if (!latest) {
+    return {
+      icon: <Search />,
+      title: 'RAG retrieval',
+      detail: 'Preparing the evidence search…',
+      tone: 'active'
+    };
   }
-  if (candidates?.type === 'round_candidates') {
-    return `${candidates.sources.length} candidate sources found.`;
-  }
-  if (queryPlan?.type === 'query_plan') {
-    return 'Query plan ready; searching the knowledge base…';
-  }
-  return started?.type === 'started' ? `Retrieving evidence for: ${started.query}` : 'No knowledge retrieval requested.';
-}
 
-function summarizePlanning(trace: KnowledgeRetrievalTraceEvent[]): string {
-  const queryPlan = trace.find((event) => event.type === 'query_plan');
-  const evaluations = trace.filter((event) => event.type === 'round_evaluation');
-  const latest = evaluations.at(-1);
-  const initialQueries = queryPlan?.type === 'query_plan' ? `Initial: ${queryPlan.queries.join(' · ')}` : '';
-  if (!latest || latest.type !== 'round_evaluation') {
-    if (trace.some((event) => event.type === 'round_evaluating')) {
-      return initialQueries ? `${initialQueries}. Assessing retrieval candidates…` : 'Assessing retrieval candidates…';
+  switch (latest.type) {
+    case 'query_plan':
+      return {
+        icon: <Search />,
+        title: 'RAG retrieval',
+        detail: latest.queries.length > 0
+          ? `Searching for: ${latest.queries.join(' · ')}`
+          : 'Searching the knowledge base…',
+        tone: 'active'
+      };
+    case 'started':
+      return {
+        icon: <Search />,
+        title: 'RAG retrieval',
+        detail: `Retrieving evidence for: ${latest.query}`,
+        tone: 'active'
+      };
+    case 'round_started':
+      return {
+        icon: <Search />,
+        title: 'RAG retrieval',
+        detail: `Searching evidence, round ${latest.round}: ${latest.queries.join(' · ')}`,
+        tone: 'active'
+      };
+    case 'round_candidates':
+      return {
+        icon: <Search />,
+        title: 'RAG retrieval',
+        detail: `${latest.sources.length} candidate source${latest.sources.length === 1 ? '' : 's'} found.`,
+        tone: 'active'
+      };
+    case 'round_evaluating':
+      return {
+        icon: <Sparkles />,
+        title: 'Agent retrieval',
+        detail: `Assessing ${latest.candidateCount} evidence candidate${latest.candidateCount === 1 ? '' : 's'} in round ${latest.round}.`,
+        tone: 'active'
+      };
+    case 'round_evaluation': {
+      const nextQueries = latest.nextQueries.length > 0 ? ` Next: ${latest.nextQueries.join(' · ')}` : '';
+      return {
+        icon: <Sparkles />,
+        title: 'Agent retrieval',
+        detail: `${latest.reason || `Evidence assessment: ${latest.decision}.`}${nextQueries}`,
+        tone: 'active'
+      };
     }
-    return initialQueries || 'No follow-up retrieval query was needed.';
+    case 'done':
+      return {
+        icon: <Sparkles />,
+        title: 'Agent retrieval',
+        detail: `${latest.sources.length} source${latest.sources.length === 1 ? '' : 's'} selected. Preparing the draft…`,
+        tone: 'active'
+      };
+    case 'error':
+      return {
+        icon: <CircleAlert />,
+        title: 'Retrieval failed',
+        detail: latest.message,
+        tone: 'error'
+      };
   }
-  const queries = latest.nextQueries.length > 0 ? ` Next: ${latest.nextQueries.join(' · ')}` : '';
-  return [initialQueries, `${latest.reason || latest.decision}.${queries}`].filter(Boolean).join(' ');
+}
+
+function compareHubRuns(left: Pick<HubRun, 'round'>, right: Pick<HubRun, 'round'>): number {
+  const priorityDifference = hubRunPriority(left.round.status) - hubRunPriority(right.round.status);
+  if (priorityDifference !== 0) {
+    return priorityDifference;
+  }
+  return new Date(right.round.updatedAt).getTime() - new Date(left.round.updatedAt).getTime();
+}
+
+function hubRunPriority(status: GenerationRoundRecord['status']): number {
+  if (isRunning(status)) {
+    return 0;
+  }
+  return status === 'patch_created' || status === 'done' ? 1 : 2;
+}
+
+function summarizeHubRuns(runs: HubRun[]): string {
+  const running = runs.filter((run) => isRunning(run.round.status)).length;
+  const ready = runs.filter((run) => run.round.status === 'patch_created' || run.round.status === 'done').length;
+  const failed = runs.filter((run) => run.round.status === 'error').length;
+  const summary = [
+    running > 0 ? `${running} running` : null,
+    ready > 0 ? `${ready} ready` : null,
+    failed > 0 ? `${failed} failed` : null
+  ].filter((part): part is string => Boolean(part));
+  return summary.length > 0 ? summary.join(' · ') : `${runs.length} task${runs.length === 1 ? '' : 's'}`;
 }
 
 function patchText(patch: WritingPatchRecord | null): string {
