@@ -111,7 +111,7 @@ export class RecentProjectIndex {
     return toSummary(record);
   }
 
-  async remove(recentId: string): Promise<void | ProjectError> {
+  async remove(recentId: string): Promise<undefined | ProjectError> {
     if (!this.get(recentId))
       return { code: 'RECENT_NOT_FOUND', message: 'Recent project record was not found.' };
     const next = this.records.filter((record) => record.recentId !== recentId);

@@ -61,8 +61,11 @@ export class WritingOrientationRepository {
         const createdItemIds: SaveOrientationValue['createdItemIds'] = [];
         const byId = new Map(current.outlineItems.map((item) => [item.outlineItemId, item]));
         const outlineItems = input.outlineItems.map((item) => {
-          if ('outlineItemId' in item && item.outlineItemId)
-            return { ...item, chapterRef: byId.get(item.outlineItemId)!.chapterRef };
+          if ('outlineItemId' in item && item.outlineItemId) {
+            const existing = byId.get(item.outlineItemId);
+            if (!existing) throw new Error('Saved outline item was not found.');
+            return { ...item, chapterRef: existing.chapterRef };
+          }
           const outlineItemId = randomUUID();
           createdItemIds.push({ clientDraftId: item.clientDraftId!, outlineItemId });
           return {

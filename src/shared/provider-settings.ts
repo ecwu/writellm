@@ -142,8 +142,7 @@ export function parseProviderConfig(value: unknown): ProviderConfig | ProviderEr
       field: 'baseUrl',
     };
   const modelId = typeof value.modelId === 'string' ? value.modelId.trim() : '';
-  if (!modelId || modelId.length > 256 || /[\u0000-\u001f\u007f]/.test(modelId))
-    return invalid('model');
+  if (!modelId || modelId.length > 256 || hasControlCharacters(modelId)) return invalid('model');
   if (
     !Number.isInteger(value.contextWindow) ||
     (value.contextWindow as number) < 1024 ||
@@ -180,8 +179,14 @@ export function validateSecret(value: unknown): value is string {
     value.length >= 1 &&
     value.length <= 4096 &&
     !/^\s+$/.test(value) &&
-    !/[\u0000-\u001f\u007f]/.test(value)
+    !hasControlCharacters(value)
   );
+}
+function hasControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
 }
 export function deriveHarnessProfile(config: ProviderConfig): HarnessModelProfileV1 {
   return {

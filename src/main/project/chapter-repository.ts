@@ -7,8 +7,6 @@ import {
   type ChapterDocument,
   type ChapterError,
   type ChapterResult,
-  type OpenChapterInput,
-  type SaveChapterInput,
 } from '../../shared/chapters.js';
 import type { WritingOrientationDocument } from '../../shared/writing-orientation.js';
 import { parseDiskDocument } from '../writing-orientation/parser.js';

@@ -1,7 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  type AppearancePreferences,
   defaultAppearancePreferences,
   type GetAppearanceResult,
   parseAppearanceInput,

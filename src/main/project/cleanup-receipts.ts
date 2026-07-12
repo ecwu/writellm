@@ -4,7 +4,6 @@ import path from 'node:path';
 import {
   CLEANUP_INDEX_KIND,
   type CleanupReceipt,
-  type CleanupReceiptIndex,
   isRecord,
   PROJECT_SCHEMA_VERSION,
 } from '../../shared/project.js';

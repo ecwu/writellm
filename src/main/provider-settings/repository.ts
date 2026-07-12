@@ -171,7 +171,7 @@ export class ProviderSettingsRepository {
           } as ProviderError,
         };
       }
-      return this.publish(this.settings!.config, cipher, true);
+      return this.publish(this.settings?.config ?? null, cipher, true);
     });
   }
   async remove(expected: string) {
@@ -184,7 +184,7 @@ export class ProviderSettingsRepository {
               message: 'Settings changed. Reload and review before retrying.',
             } as ProviderError,
           }
-        : this.publish(this.settings!.config, null, false),
+        : this.publish(this.settings?.config ?? null, null, false),
     );
   }
   private async publish(config: ProviderConfig | null, cipher: string | null, configured: boolean) {

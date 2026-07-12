@@ -68,11 +68,12 @@ function isRecentRequest(value: unknown): value is RecentProjectRequest {
 
 function registerIpcHandlers(): void {
   if (handlersRegistered || !repository) return;
+  const projectRepository = repository;
   handlersRegistered = true;
   ipcMain.handle(ipcChannels.listRecentProjects, async (event) => {
     if (!isExpectedSender(event)) return safeError();
     try {
-      return await repository!.listRecentProjects();
+      return await projectRepository.listRecentProjects();
     } catch {
       return safeError('Recent projects could not be loaded.');
     }
@@ -85,7 +86,7 @@ function registerIpcHandlers(): void {
         error: { code: 'INVALID_PROJECT_NAME', message: 'Project name is invalid.' },
       };
     try {
-      return await repository!.createProject(request.displayName);
+      return await projectRepository.createProject(request.displayName);
     } catch {
       return safeError('The project could not be created safely.');
     }
@@ -93,7 +94,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(ipcChannels.openProjectFromDialog, async (event) => {
     if (!isExpectedSender(event)) return safeError();
     try {
-      return await repository!.openProjectFromDialog();
+      return await projectRepository.openProjectFromDialog();
     } catch {
       return safeError('The project could not be opened.');
     }
@@ -109,7 +110,7 @@ function registerIpcHandlers(): void {
         },
       };
     try {
-      return await repository!.openRecentProject(request.recentId);
+      return await projectRepository.openRecentProject(request.recentId);
     } catch {
       return safeError('The recent project could not be opened.');
     }
@@ -125,7 +126,7 @@ function registerIpcHandlers(): void {
         },
       };
     try {
-      return await repository!.relinkRecentProject(request.recentId);
+      return await projectRepository.relinkRecentProject(request.recentId);
     } catch {
       return safeError('The recent project could not be relinked.');
     }
@@ -141,7 +142,7 @@ function registerIpcHandlers(): void {
         },
       };
     try {
-      return await repository!.removeRecentProject(request.recentId);
+      return await projectRepository.removeRecentProject(request.recentId);
     } catch {
       return safeError('The recent project record could not be removed.');
     }

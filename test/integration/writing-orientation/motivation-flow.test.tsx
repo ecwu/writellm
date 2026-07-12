@@ -42,5 +42,5 @@ test('motivation stays mounted after failure and an unchanged retry reuses its m
   await user.click(view.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(view.getByText('Saved')).toBeTruthy());
   expect(inputs).toHaveLength(2);
-  expect(inputs[1]!.mutationId).toBe(inputs[0]!.mutationId);
+  expect(inputs[1]?.mutationId).toBe(inputs[0]?.mutationId);
 });

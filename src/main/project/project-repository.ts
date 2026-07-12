@@ -7,7 +7,6 @@ import type {
   OpenProjectResult,
   ProjectError,
   ProjectSnapshot,
-  RecentProjectSummary,
   RemoveRecentResult,
 } from '../../shared/project.js';
 import { CleanupReceipts } from './cleanup-receipts.js';
