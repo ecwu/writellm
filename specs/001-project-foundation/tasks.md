@@ -2,135 +2,143 @@
 
 **Input**: Design documents from `/specs/001-project-foundation/`
 
-**Prerequisites**: `spec.md`, `plan.md`, `research.md`, `data-model.md`,
-`contracts/contract.md`, `quickstart.md`
+**Prerequisites**: Accepted `spec.md`, `plan.md`, `docs/adr/002-project-foundation.md`,
+`data-model.md`, `contracts/contract.md`, `research.md`, and `quickstart.md`.
 
-**Implementation gate**: `spec.md`、`plan.md`、project storage ADR 和 project IPC
-contract 必须先被接受。T001 是硬门槛；在 T001 完成前不得执行会修改产品代码的任务。
+**Implementation gate**: The planning gate is accepted. Work MUST follow the frozen
+manifest-only schema and six-method IPC contract. `docs/adr/001-project-storage.md` is not a
+001 prerequisite. Dependency-upgrade tasks T001–T003 are blocking and MUST pass before any
+product-feature task begins.
 
-**Tests**: 本 feature 改变 Electron startup、preload/shared IPC、安全边界和用户旅程，
-因此包含 unit、contract、integration 和 compiled Electron smoke tasks。
+**Tests**: Required because this feature changes Electron startup, preload/shared IPC,
+filesystem safety, security boundaries, and documented user journeys.
 
-**Organization**: Tasks are grouped by user story so each story can be implemented and
-tested as an incremental slice after the foundational phase.
+**Organization**: Tasks are grouped by user story. Tests precede the implementation they
+verify, and every story has an independent runtime or end-to-end checkpoint.
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup — Frozen toolchain baseline
 
-**Purpose**: Confirm the acceptance gate and prepare deterministic local fixtures without
-adding dependencies.
+**Purpose**: Upgrade and verify the accepted stable dependency baseline before product work.
 
-- [ ] T001 Confirm acceptance of `spec.md`, `plan.md`, the applicable portable-root/recent-index sections of `docs/adr/001-project-storage.md`, and the IPC contract; record the decision in `specs/001-project-foundation/checklists/plan-decisions.md`.
-- [ ] T002 Verify the existing Electron/Bun toolchain and keep the dependency set unchanged in `package.json`, `bun.lock`, and `specs/001-project-foundation/research.md`.
-- [ ] T003 [P] Create deterministic valid/invalid project fixtures and temporary-directory helpers in `test/fixtures/project/project-fixtures.ts`.
+- [ ] T001 Upgrade and exactly pin Bun 1.3.14, TypeScript 7.0.2, Electron 43.1.0, React/React DOM 19.2.7, Vite 8.1.4, `@vitejs/plugin-react` 6.0.3, `@types/node` 26.1.1, `@types/react` 19.2.17, and `@types/react-dom` 19.2.3 in `package.json` and `bun.lock` without adding runtime libraries.
+- [ ] T002 Resolve TypeScript 7 and Vite 8 compatibility in `tsconfig.json`, `tsconfig.electron.json`, `vite.config.ts`, `scripts/dev-electron.mjs`, and `scripts/electron-smoke.mjs` while preserving the Electron security baseline.
+- [ ] T003 Run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` against `package.json` and `bun.lock`; stop before T004 if any upgraded-baseline regression remains.
 
----
-
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Purpose**: Build the shared domain, storage, validation, and typed IPC foundation that all
-user stories require. No story implementation is complete without this phase.
-
-- [ ] T004 [P] Define `ProjectManifest`, `WorkspaceState`, `RecentIndex`, `RecentRecord`, DTOs, and bounded error unions in `src/shared/project.ts` according to `specs/001-project-foundation/data-model.md`.
-- [ ] T005 [P] Add the seven project channel constants and complete `WriteLLMIpc` method signatures in `src/shared/ipc.ts` without exposing generic IPC.
-- [ ] T006 [P] Write table-driven validation tests for names, UUIDs, schema versions, required directories, timestamps, and read-only invalid-project diagnostics in `test/unit/project/project-validation.test.ts`.
-- [ ] T007 [P] Write atomic JSON and create-transaction failure tests for temp-file/temporary-directory cleanup and no-valid-half-project guarantees in `test/unit/project/atomic-json.test.ts`.
-- [ ] T008 [P] Write recent-index tests for five-record bounding, newest-first ordering, projectId upsert, availability refresh, and atomic index writes in `test/unit/project/recent-index.test.ts`.
-- [ ] T009 [P] Implement same-directory temporary-file/temporary-directory writes and safe cleanup in `src/main/project/atomic-json.ts`, preserving existing valid data on failure.
-- [ ] T010 [P] Implement portable project-name normalization, manifest/state parsing, schemaVersion checks, and required-directory validation in `src/main/project/project-validation.ts`.
-- [ ] T011 Implement main-owned recent index loading, availability refresh, five-record upsert/removal, and redacted DTO projection in `src/main/project/recent-index.ts`.
-- [ ] T012 Implement project create/open/validate/workspace-state operations with sibling temp-directory rename semantics in `src/main/project/project-repository.ts`.
-- [ ] T013 Wire all seven named project channels through sender validation and explicit preload wrappers, updating `src/main/main.ts`, `src/preload/preload.cts`, and `src/vite-env.d.ts` without exposing paths or raw Electron objects.
-
-**Checkpoint**: shared types, storage primitives, repository validation, recent index, and
-typed bridge are ready; user-story work can proceed in priority order.
+**Checkpoint**: The frozen toolchain passes all four repository commands with no product changes.
 
 ---
 
-## Phase 3: User Story 1 - 创建或打开项目 (Priority: P1) 🎯 MVP
+## Phase 2: Foundational — Shared domain and safe storage primitives
 
-**Goal**: On first launch, an author can create or open a valid portable project and enter an
-empty workspace; cancel, collision, validation, and storage failures are explicit.
+**Purpose**: Build the typed, main-owned primitives required by every user story.
 
-**Independent Test**: With a temporary userData directory, create a project, close and reopen
-the compiled app, open it from the launch page, and verify the empty workspace without using
-any later writing feature.
+**⚠️ CRITICAL**: No user-story phase may begin until this phase is complete.
+
+- [ ] T004 [P] Create deterministic valid, invalid, moved, collision, and cleanup-receipt fixtures with tree-hash helpers in `test/fixtures/project/project-fixtures.ts`.
+- [ ] T005 [P] Define `ProjectManifest`, `RecentIndex`, `RecentRecord`, cleanup receipt types, renderer-safe DTOs, result unions, and stable error codes in `src/shared/project.ts`.
+- [ ] T006 Define exactly six project IPC channel constants and `WriteLLMIpc` signatures in `src/shared/ipc.ts`, removing the legacy runtime-info contract and excluding paths, generic IPC, workspace save, default-location configuration, and project deletion.
+- [ ] T007 [P] Write atomic JSON and cleanup authorization failure tests in `test/unit/project/atomic-json.test.ts` and `test/unit/project/cleanup-receipts.test.ts`.
+- [ ] T008 [P] Write manifest, current-platform leaf-name, UUID, timestamp, schema-version, and required-directory validation tests in `test/unit/project/project-validation.test.ts`.
+- [ ] T009 [P] Write recent-index tests for corrupt/missing input, atomic replacement, projectId upsert, stable recentId, newest-first ordering, and the five-record limit in `test/unit/project/recent-index.test.ts`.
+- [ ] T010 Implement same-directory tokenized JSON writes and rename publication with failure injection in `src/main/project/atomic-json.ts`.
+- [ ] T011 Implement main-only non-resumable cleanup receipt persistence and conservative startup cleanup in `src/main/project/cleanup-receipts.ts`.
+- [ ] T012 Implement explicit v1 manifest, name, UUID, timestamp, and required-directory validators without repair or migration in `src/main/project/project-validation.ts`.
+- [ ] T013 Implement atomic recent-index loading, safe warning projection, availability refresh, projectId upsert, sorting, eviction, and removal in `src/main/project/recent-index.ts`.
+- [ ] T014 Implement shared project repository seams for native dialog results, filesystem failure injection, serialized writes, and redacted errors in `src/main/project/project-repository.ts`.
+- [ ] T015 Add shared renderer declarations for the six-method bridge and safe DTOs in `src/vite-env.d.ts`.
+
+**Checkpoint**: Shared types and main-only storage primitives enforce the frozen schema without exposing filesystem authority.
+
+---
+
+## Phase 3: User Story 1 — 创建或打开项目 (Priority: P1) 🎯 MVP
+
+**Goal**: Let an author create or open a valid portable project, enter an empty workspace,
+and keep only one active application instance.
+
+**Independent Test**: With isolated temporary `userData`, create a project through the native
+parent-directory dialog, restart, open it through the native project-directory dialog, and
+verify a secondary Electron process exits while the primary restores its single window.
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Add contract tests for create/open request validation, dialog cancellation, bounded snapshots, stable errors, and no absolute-path leakage in `test/contract/project/create-open-ipc.test.ts`.
-- [ ] T015 [P] [US1] Add launch integration tests for first-launch empty state, create success, open success, invalid-project diagnosis, collision, and cancel behavior in `test/integration/project/launch-create-open.test.ts`.
+- [ ] T016 [P] [US1] Write collision-safe create, manifest-last publication, cancellation, invalid-name, unsupported-schema, and no-half-project repository tests in `test/unit/project/project-repository.test.ts`.
+- [ ] T017 [P] [US1] Write six-method preload exposure, sender/input validation, cancellation, stable-error, and redaction contract tests in `test/contract/project/project-ipc.test.ts`.
+- [ ] T018 [P] [US1] Write first-launch, loading, empty, create, open, cancellation, invalid-project, and safe-error state tests in `test/integration/project/launch-page.test.ts`.
+- [ ] T019 [P] [US1] Write compiled Electron create/open/restart and real dual-process single-instance scenarios in `test/runtime/project/project-runtime.test.ts`.
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Implement `createProject` and `openProjectFromDialog` main handlers using the repository and native main-owned directory dialogs in `src/main/main.ts`.
-- [ ] T017 [US1] Implement launch-page loading, empty-recent, project-name input, create/open actions, operation errors, and empty-workspace success state in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/launch/launchState.ts`.
-- [ ] T018 [US1] Replace the foundation status page with the launch-page/app composition in `src/renderer/App.tsx` while preserving the existing runtime error boundary.
-- [ ] T019 [P] [US1] Add accessible labels, focus-visible states, dialog/error layout, and empty-workspace styling in `src/renderer/styles.css`.
-- [ ] T020 [US1] Extend the compiled Electron smoke path in `scripts/electron-smoke.mjs` to verify create → open workspace → close/restart → open from recent, including canceled and failed results.
+- [ ] T020 [US1] Implement collision-safe create and read-only open with main-owned native directory dialogs in `src/main/project/project-repository.ts`.
+- [ ] T021 [US1] Acquire the single-instance lock before bootstrap, implement idempotent restore/show/focus, and register validated create/open handlers once in `src/main/main.ts`.
+- [ ] T022 [US1] Expose explicit `listRecentProjects`, `createProject`, and `openProjectFromDialog` wrappers without paths or generic IPC in `src/preload/preload.cts`.
+- [ ] T023 [P] [US1] Implement launch loading, empty, create/open, canceled, failure, and opened-workspace transitions in `src/renderer/launch/launchState.ts`.
+- [ ] T024 [US1] Implement semantic create/open controls, visible status/error output, and the empty workspace view in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/App.tsx`.
+- [ ] T025 [P] [US1] Add responsive launch layout, visible keyboard focus, and accessible status styling in `src/renderer/styles.css`.
+- [ ] T026 [US1] Extend the compiled runtime harness for isolated `userData`, dialog fixtures, lifecycle markers, and dual-process assertions in `scripts/electron-smoke.mjs`.
+- [ ] T027 [US1] Run the US1 unit, contract, integration, and compiled runtime checks from `test/unit/project/project-repository.test.ts`, `test/contract/project/project-ipc.test.ts`, `test/integration/project/launch-page.test.ts`, and `test/runtime/project/project-runtime.test.ts`.
 
-**Checkpoint**: US1 independently demonstrates FR-001–FR-004 and FR-009–FR-010.
+**Checkpoint**: User Story 1 independently creates, restarts, opens, and enters an empty workspace with one active app instance.
 
 ---
 
-## Phase 4: User Story 2 - 移动后重新发现项目 (Priority: P1)
+## Phase 4: User Story 2 — 移动后重新发现项目 (Priority: P1)
 
-**Goal**: A moved or renamed project is reopened as the same project, while malformed or
-non-matching projects produce read-only diagnostics and never replace the original record.
+**Goal**: Recover stable project identity after a move or rename without modifying any project file.
 
-**Independent Test**: Move a valid fixture, open it from its new location, relink an invalid
-recent record with the same stable ID, then attempt relinking with a different valid project
-and verify that the original record remains unchanged.
+**Independent Test**: Hash an existing project tree, move it, open it from the new location and
+relink its old recent record; confirm identity recovery, mismatch rejection, and byte-for-byte
+project-tree preservation.
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] Add integration tests for move/rename reopening, malformed manifest, missing required directory, permission failure, no auto-repair, and unchanged project files in `test/integration/project/move-validation.test.ts`.
-- [ ] T022 [P] [US2] Add contract tests for relink success, `PROJECT_ID_MISMATCH`, canceled relink, and error redaction in `test/contract/project/relink-ipc.test.ts`.
+- [ ] T028 [P] [US2] Write moved-project identity, direct-open upsert, strict read-only tree hash, immutable timestamp, unknown-file preservation, and relink mismatch tests in `test/unit/project/project-move.test.ts`.
+- [ ] T029 [P] [US2] Write relink request, sender validation, `PROJECT_ID_MISMATCH`, unchanged-record, and path-redaction contract tests in `test/contract/project/project-relink-ipc.test.ts`.
+- [ ] T030 [P] [US2] Write moved, missing, invalid, inaccessible, relink success, relink mismatch, and retry state tests in `test/integration/project/project-relink.test.ts`.
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Implement projectId-based recent upsert for open-from-dialog and same-ID-only relinking, retaining the original record on mismatch in `src/main/project/project-repository.ts` and `src/main/main.ts`.
-- [ ] T024 [US2] Add missing/invalid/inaccessible recent diagnostics, relink action, mismatch explanation, and safe retry/reselection state to `src/renderer/launch/launchState.ts` and `src/renderer/launch/LaunchPage.tsx`.
-- [ ] T025 [US2] Extend compiled Electron coverage in `scripts/electron-smoke.mjs` for move/rename, same-ID relink, different-ID rejection, and invalid-folder read-only behavior.
+- [ ] T031 [US2] Implement direct-open projectId upsert and strict read-only relink validation in `src/main/project/project-repository.ts` and `src/main/project/recent-index.ts`.
+- [ ] T032 [US2] Register validated `openRecentProject` and `relinkRecentProject` handlers in `src/main/main.ts` and explicit preload wrappers in `src/preload/preload.cts`.
+- [ ] T033 [US2] Add missing/invalid/inaccessible diagnostics, relink actions, mismatch preservation, and retry transitions in `src/renderer/launch/launchState.ts` and `src/renderer/launch/LaunchPage.tsx`.
+- [ ] T034 [US2] Add compiled move/direct-open/relink scenarios with before/after tree hashes and manifest bytes in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
 
-**Checkpoint**: US1 remains functional and US2 independently demonstrates FR-005, FR-007,
-and FR-011 plus the move/invalid edge cases.
+**Checkpoint**: User Story 2 independently recognizes a moved project and proves open/relink never writes its tree.
 
 ---
 
-## Phase 5: User Story 3 - 管理最近项目和移除最近记录 (Priority: P2)
+## Phase 5: User Story 3 — 管理最近项目和移除最近记录 (Priority: P2)
 
-**Goal**: The launch page shows at most five recent projects, preserves invalid records, lets
-the author remove only a record, and persists the v1 empty-workspace recent location.
+**Goal**: Show at most five recent projects, retain invalid entries, and remove only app-owned pointers.
 
-**Independent Test**: Open six valid projects, restart, verify five newest cards and ordering,
-externally invalidate one, remove its recent record, and verify its project folder remains.
+**Independent Test**: Open six projects, restart, verify ordering and eviction, invalidate one
+record externally, then remove or relink the record while proving no project directory is deleted.
 
 ### Tests for User Story 3
 
-- [ ] T026 [P] [US3] Add integration tests for five-record ordering, invalid-record retention, open-from-recent failure, remove-only-record behavior, and empty-workspace location restore in `test/integration/project/recent-management.test.ts`.
-- [ ] T027 [P] [US3] Add contract tests for `listRecentProjects`, `removeRecentProject`, `saveProjectWorkspace`, redacted summaries, and no delete-project capability in `test/contract/project/recent-ipc.test.ts`.
+- [ ] T035 [P] [US3] Write list/open/remove recent contract tests for bounded DTOs, stable errors, redaction, and no project deletion in `test/contract/project/project-recent-ipc.test.ts`.
+- [ ] T036 [P] [US3] Write recent-card ordering, five-record limit, availability states, remove, relink, and no-delete UI state tests in `test/integration/project/recent-projects.test.ts`.
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Implement `listRecentProjects`, `removeRecentProject`, and recent-index warning/error behavior in `src/main/main.ts`, using the bounded `src/main/project/recent-index.ts` API.
-- [ ] T029 [US3] Render available/missing/invalid recent cards, newest-first ordering, remove/relink/open actions, and the explicit no-project-delete boundary in `src/renderer/launch/LaunchPage.tsx`.
-- [ ] T030 [US3] Implement `saveProjectWorkspace` and restore the v1 `{ kind: "workspace" }` marker through `src/main/project/project-repository.ts`, `src/main/main.ts`, and `src/renderer/launch/LaunchPage.tsx`.
-- [ ] T031 [US3] Extend compiled Electron smoke coverage in `scripts/electron-smoke.mjs` for six-project bounding, restart ordering, invalid-record retention, remove-without-delete, and workspace-state persistence.
+- [ ] T037 [US3] Complete recent availability refresh and pointer-only removal behavior in `src/main/project/recent-index.ts` and `src/main/project/project-repository.ts`.
+- [ ] T038 [US3] Register validated `listRecentProjects` and `removeRecentProject` handlers in `src/main/main.ts` and explicit wrappers in `src/preload/preload.cts`.
+- [ ] T039 [US3] Render at most five recent cards with available/missing/invalid/inaccessible states and open/relink/remove actions in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/launch/launchState.ts`.
+- [ ] T040 [P] [US3] Add recent-card focus, action grouping, diagnostic, and empty-state styles in `src/renderer/styles.css`.
+- [ ] T041 [US3] Add compiled six-project ordering, restart, invalidation, relink, and pointer-only removal scenarios in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
 
-**Checkpoint**: all three stories are independently testable; US3 demonstrates FR-006–FR-008.
+**Checkpoint**: User Story 3 independently manages recent pointers without modifying or deleting project files.
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 6: Polish & Cross-Cutting Verification
 
-**Purpose**: Verify the completed implementation at each failure boundary and keep the design
-artifacts traceable.
+**Purpose**: Exercise failure boundaries across all stories and complete the accepted quickstart.
 
-- [ ] T032 [P] Add compiled preload exposure assertions for exactly the named project methods, sender/input validation, redaction, and absence of `deleteProject` in `test/smoke/ipc-contract.test.ts`.
-- [ ] T033 [P] Add filesystem failure-injection coverage for rename, recent-index write, permission, and interrupted-create cases in `test/runtime/project/project-failure.smoke.ts`.
-- [ ] T034 [P] Re-run the documented scenarios and update only stale validation steps or expected outcomes in `specs/001-project-foundation/quickstart.md` and `specs/001-project-foundation/checklists/requirements.md`.
-- [ ] T035 Run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke`; resolve regressions in `package.json`, `scripts/electron-smoke.mjs`, and the affected `src/` or `test/` files.
-- [ ] T036 Perform final Constitution and traceability review against `AGENTS.md`, `.specify/memory/constitution.md`, `specs/001-project-foundation/contract*`, `specs/001-project-foundation/data-model.md`, and `specs/001-project-foundation/plan.md`; record any approved deviation in `specs/001-project-foundation/checklists/plan-decisions.md`.
+- [ ] T042 [P] Add crash-stage, corrupt-index, cleanup-receipt, atomic-write, and safe-warning regression coverage in `test/unit/project/project-failure-boundaries.test.ts`.
+- [ ] T043 [P] Assert the final bridge exposes exactly six methods and no runtime-info, default-location configuration, workspace save, `deleteProject`, generic IPC, paths, raw exceptions, or file contents in `test/smoke/ipc-contract.test.ts`.
+- [ ] T044 Execute every scenario in `specs/001-project-foundation/quickstart.md`, including 20 move/reopen iterations for SC-003, against the compiled Electron build from `scripts/electron-smoke.mjs`.
+- [ ] T045 Run final `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` verification against `package.json`, `bun.lock`, `src/`, `test/`, and `scripts/electron-smoke.mjs`.
 
 ---
 
@@ -138,75 +146,82 @@ artifacts traceable.
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: T001 is the acceptance gate; T002–T003 follow it and prepare fixtures.
-- **Foundational (Phase 2)**: T004–T013 depend on the accepted design and block all story work.
-- **User Story 1 (Phase 3)**: T014–T020 depend on T004–T013 and deliver the MVP.
-- **User Story 2 (Phase 4)**: T021–T025 depend on US1’s launch flow and the foundational repository.
-- **User Story 3 (Phase 5)**: T026–T031 depend on US1’s launch flow and the recent/relink behavior from US2.
-- **Polish (Phase 6)**: T032–T036 depend on all desired story checkpoints.
+- **Phase 1 (T001–T003)**: Starts immediately and blocks every product-feature task.
+- **Phase 2 (T004–T015)**: Depends on Phase 1 and blocks every user story.
+- **US1 (T016–T027)**: Depends on Phase 2 and is the MVP.
+- **US2 (T028–T034)**: Depends on Phase 2; its renderer integration uses the launch shell completed by US1, while domain/read-only tests can start independently.
+- **US3 (T035–T041)**: Depends on Phase 2; its renderer integration uses the launch shell completed by US1, while contract and recent-index work can start independently.
+- **Phase 6 (T042–T045)**: Depends on all selected user stories.
 
-### Dependency Graph
+### User Story Completion Order
 
 ```text
-T001
- ├── T002 ─┐
- └── T003 ─┴── T004–T013 (Foundational)
-                  │
-                  └── T014–T020 (US1 / MVP)
-                            ├── T021–T025 (US2)
-                            └── T026–T031 (US3; after US2 for relink UI)
-                                      │
-                                      └── T032–T036 (Polish)
+Toolchain → Foundation → US1 (MVP)
+                       ├─→ US2
+                       └─→ US3
+US1 + US2 + US3 → Cross-cutting verification
 ```
+
+### Within Each User Story
+
+- Write the listed tests first and confirm they fail for the intended missing behavior.
+- Complete domain/main behavior before preload and renderer integration.
+- Complete contract/integration checks before the compiled runtime checkpoint.
+- Do not silently change accepted schema, IPC, ADR, or security decisions inside a task.
 
 ### Parallel Opportunities
 
-- After T001, T002 and T003 can run in parallel because they touch separate setup/fixture paths.
-- After T004–T005, T006, T007, and T008 can be written in parallel; T009 and T010 can then be implemented in parallel.
-- In US1, T014 and T015 are parallel test tasks; T019 can proceed in parallel with renderer integration once the UI states are named.
-- In US2, T021 and T022 are parallel test tasks; T024 is renderer-only after the main behavior in T023 is defined.
-- In US3, T026 and T027 are parallel test tasks; T029 is renderer-only after the list/remove contract in T028 is stable.
-- In Polish, T032, T033, and T034 can run in parallel after the story checkpoints.
+- T004 and T005 can proceed in parallel after the toolchain gate.
+- T007, T008, and T009 target separate test files and can proceed in parallel.
+- US1 test tasks T016–T019 can proceed in parallel after Phase 2.
+- US2 test tasks T028–T030 can proceed in parallel; US3 test tasks T035–T036 can proceed in parallel.
+- After US1 establishes the launch shell, US2 and US3 domain/contract work can proceed concurrently.
+- Polish regressions T042 and T043 can proceed in parallel.
 
-### Parallel Example: User Story 1
+## Parallel Examples
+
+### User Story 1
 
 ```text
-Task T014: Contract tests in test/contract/project/create-open-ipc.test.ts
-Task T015: Launch integration tests in test/integration/project/launch-create-open.test.ts
-Task T019: Accessible launch styles in src/renderer/styles.css
+T016 repository create/open tests
+T017 IPC contract tests
+T018 launch state tests
+T019 compiled runtime scenarios
 ```
 
-### Parallel Example: User Story 2
+### User Story 2
 
 ```text
-Task T021: Move/validation integration tests in test/integration/project/move-validation.test.ts
-Task T022: Relink contract tests in test/contract/project/relink-ipc.test.ts
+T028 read-only move/relink tests
+T029 relink contract tests
+T030 relink renderer-state tests
 ```
 
-### Parallel Example: User Story 3
+### User Story 3
 
 ```text
-Task T026: Recent-management integration tests in test/integration/project/recent-management.test.ts
-Task T027: Recent IPC contract tests in test/contract/project/recent-ipc.test.ts
+T035 recent IPC contract tests
+T036 recent renderer-state tests
 ```
 
 ## Implementation Strategy
 
-### MVP First — User Story 1
+### MVP First
 
-1. Complete T001–T013 and stop if the acceptance gate is not satisfied.
-2. Complete T014–T020 for create/open, empty workspace, and restart/reopen.
-3. Run the US1 independent test and compiled Electron smoke before beginning US2/US3.
+1. Complete the frozen toolchain gate T001–T003.
+2. Complete the shared foundation T004–T015.
+3. Complete US1 T016–T027.
+4. Stop and validate create → restart → open plus the real dual-process single-instance path.
 
 ### Incremental Delivery
 
-1. Add US2 for move/relink and read-only invalid diagnostics; run its independent test.
-2. Add US3 for recent cards, five-entry bounding, removal, and workspace marker persistence.
-3. Complete T032–T036 and run the full quickstart before implementation handoff.
+1. Add US2 and prove moved-project identity plus byte-for-byte read-only behavior.
+2. Add US3 and prove bounded recent management plus pointer-only removal.
+3. Complete T042–T045 and the full quickstart.
 
-### Notes
+## Notes
 
-- Every task includes an exact repository path and follows `- [ ] T### [P?] [US?] description`.
-- `[P]` is used only where the task can work on a different file set without an incomplete dependency.
-- No task adds Git, SQLite, remote sync, provider credentials, generic IPC, project-file deletion,
-  or automatic project repair.
+- `[P]` marks tasks that use separate files and do not depend on incomplete work in the same phase.
+- `[US1]`, `[US2]`, and `[US3]` map directly to the accepted specification stories.
+- No task authorizes Git initialization, SQLite, a default project location, workspace-state persistence, project deletion, generic IPC, or an additional runtime library.
+- Stop and return to design review if implementation requires changing an accepted durable or cross-process boundary.

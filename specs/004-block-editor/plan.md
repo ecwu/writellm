@@ -1,77 +1,157 @@
 # Implementation Plan: Block 章节编辑器
 
-Branch: codex/v2-greenfield  
-Date: 2026-07-12  
-Spec: [spec.md](./spec.md)  
-Status: Draft / 第一版
+Branch: `codex/v2-greenfield`
+Date: 2026-07-12
+Spec: [spec.md](./spec.md)
+Status: Draft — technical direction selected; implementation remains gated on acceptance
 
 ## Summary
 
-以稳定 Block identity 和 Markdown canonical content 实现章节编辑、移动/拆分/合并/删除、引用标记与冲突保护。
+以 BlockNote 作为 block editor，通过窄 editor adapter 实现章节创建、Block 操作、引用
+关系、保存/恢复和冲突保护。章节的 canonical durable document 是带 WriteLLM wrapper
+的 BlockNote JSON；常见 Markdown 语法只作为输入、粘贴和显式导出能力，不作为内容真相。
+
+PRD 不固定 BlockNote 或任何其他技术栈；BlockNote 是本计划和研究阶段选定的实现方案。
 
 ## Current baseline
 
-当前仓库只有 Electron main/preload/shared/React renderer 的 startup foundation；已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
+当前仓库只有 Electron main/preload/shared/React renderer startup foundation；`001`–`003`
+提供的 project/session/workspace/orientation contract 仍需在实现前被接受。当前没有章节
+存储、BlockNote 依赖或 editor adapter。
 
 ## Technical Context
 
-TypeScript 5.8、React 19、Electron 40、Vite 6、Bun 1.3.4；目标为 sandboxed desktop app。候选：Tiptap/ProseMirror、Lexical、BlockNote；unified/remark、ProseMirror Markdown 或手写 codec；jsdiff/diff-match-patch。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
+**Language/Version**: TypeScript 5.8、React 19、Electron 40、Vite 6、Bun 1.3.4。
+**Primary Dependencies**: 选定 BlockNote editor family（`@blocknote/core`、`@blocknote/react` 及接受后的 UI adapter）；精确版本、UI package、许可证和 Electron/Bun 兼容性需在实现前锁定。
+**Storage**: main-owned `ChapterDocumentStore`；canonical payload 为 `writellm.chapter.blocknote` JSON。底层可以是项目内 JSON 文件或之后接受的项目内数据库，但不能改变 shared document contract。
+**Testing**: Bun unit/contract/integration tests，加上 compiled Electron smoke；必须覆盖 BlockNote adapter、schema validation、Markdown lossy warning、citation identity、stale save 和恢复失败。
+**Target Platform**: Electron desktop app，macOS、Windows、Linux；单作者、单机、首版不做实时协作。
+**Project Type**: 沙箱化 Electron desktop app。
+**Performance Goals**: 满足 spec 的 SC-001–SC-005；100 次 Block 操作和保存/重开测试不得丢失未选中内容、块顺序或引用关联。本 feature 不新增未经接受的毫秒级 SLA。
+**Constraints**: renderer 不接触文件路径、数据库连接、Git、凭据或 generic IPC；main 验证所有 document/command/revision 输入；未知 block type、schema 和 Markdown 不可表达内容不得静默丢失或重绑定。
 
-## Constitution Check
+## Constitution Check — pre-research gate
 
-- spec 与 storage ADR 仍为 Draft/Proposed，实现前需接受。
-- renderer 只能调用 named typed preload IPC，main 验证所有输入并拥有文件/网络/凭据权限。
-- durable schema、错误码、第三方包、native runtime 和性能阈值均保留 NEEDS DECISION。
-- 验证必须包含 domain unit、contract test 和编译后的 Electron smoke。
+| Principle | Status | Evidence / gate |
+|---|---|---|
+| I. Secure Desktop Boundary | PASS WITH ACCEPTANCE CONDITION | BlockNote 只运行在 renderer/editor adapter；文件、数据库、路径、revision 和恢复由 main/storage owner 管理。 |
+| II. Typed, Minimal IPC | PASS WITH ACCEPTANCE CONDITION | `contracts/contract.md` 只列出 load/validate/apply/save/export named methods；preload 不暴露 editor instance、path 或 generic IPC。 |
+| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTED | 004 spec、storage ADR、依赖 feature contract 和本 plan 尚未 Accepted；本计划不授权实现。 |
+| IV. Verification at the Failure Boundary | PASS WITH PLAN | unit/contract/integration/compiled Electron smoke 分别覆盖 editor、IPC、storage 和 runtime failure boundary。 |
 
-Gate: BLOCKED until spec/ADR/contracts are Accepted。
+**Gate conclusion**: 技术方向已经从候选编辑器收敛为 BlockNote，但 package/version、
+document schema、Markdown interop、revision/conflict 和 storage ADR 仍需接受后才能进入
+tasks/implementation。
+
+## Design decisions
+
+1. **Canonical**: `ChapterDocument.editorFormat = "blocknote-json"`，BlockNote JSON
+   是章节正文、Block identity、嵌套结构和高级 props 的唯一 durable truth。
+2. **Markdown interop**: 常见 Markdown 可输入、粘贴和导出；转换允许 lossy，必须对
+   不可表达内容给出明确结果。Markdown 不负责恢复 block id 或 citation relation。
+3. **Identity**: 使用 BlockNote block id；不使用 Markdown HTML comments 作为 identity
+   codec，也不维护第二套独立的 durable `Block` schema。
+4. **Repository**: editor adapter 只转换 BlockNote editor state 与 bounded DTO；main
+   repository 负责 schema、revision、atomic save、transaction、migration/recovery。
+5. **Physical storage**: 当前计划不因 BlockNote 非 Markdown 而强制 SQLite。JSON 文件与
+   数据库都是 repository implementation choice，必须保持 portable project 和同一逻辑 contract。
+
+## Project Structure
+
+```text
+src/
+├── shared/
+│   └── document.ts                         # ChapterDocument/BlockNote DTO/error types
+├── main/project/
+│   ├── content-repository.ts               # main-owned load/save/revision/transaction
+│   ├── document-validation.ts              # wrapper/block/schema/citation validation
+│   └── markdown-interchange.ts             # explicit import/export boundary
+├── preload/preload.cts                     # named chapter IPC wrappers only
+└── renderer/features/editor/
+    ├── adapter/blocknote-adapter.ts        # BlockNote ↔ bounded editor contract
+    ├── commands.ts                         # user-intent/block command mapping
+    └── components/ChapterEditor.tsx        # BlockNote UI composition
+
+test/
+├── unit/editor/                            # pure commands, validation, adapter mapping
+├── contract/editor/                        # DTO/error/redaction/preload methods
+├── integration/editor/                     # chapter and Markdown user journeys
+└── runtime/editor/                         # compiled Electron and storage failure smoke
+```
 
 ## Implementation phases
 
-1. 冻结 ChapterDocument、Block、CitationMark、identity comment 与 migration。
-2. 实现独立于 UI 的 codec 和纯函数 block commands。
-3. 建立 editor adapter，接入 selection、dirty/revision、保存和恢复。
-4. 加入外部修改、重复/缺失 identity、冲突和 Electron smoke。
+### Phase 0 — Product/architecture acceptance
 
-## Source structure
+1. 接受 004 PRD 的用户行为要求，不把 BlockNote 名称写入 PRD 的实现性要求或 success criteria。
+2. 接受本 plan、[data-model.md](./data-model.md)、[contracts/contract.md](./contracts/contract.md)
+   和 editor storage ADR。
+3. 锁定 BlockNote package/version/UI adapter、custom block schema、Markdown subset/lossy
+   policy、unknown block migration 和 citation anchor 规则。
 
-src/shared/document.ts; src/main/project/content-repository.ts; src/renderer/features/editor/{adapter,commands,components}/; test/{unit,fixtures,smoke}/editor/
+### Phase 1 — Document schema and storage boundary
+
+1. 实现 `ChapterDocument` wrapper、schemaVersion/editorSchemaVersion、block validation、
+   stable id、revision 和 unknown-version/read-only policy。
+2. 实现 main-owned content repository；保存顺序为 validate → serialize canonical
+   BlockNote JSON → atomic write/transaction → return revision。
+3. 把 Markdown import/paste/export 放在独立 adapter；export 失败不得伪装成 canonical
+   save 失败，除非用户明确请求的是 export operation。
+
+### Phase 2 — BlockNote editor adapter and commands
+
+1. 创建 BlockNote editor 并加载 canonical `blocks`，将编辑器变更映射到 bounded domain
+   commands；renderer 不直接持有 persistence authority。
+2. 实现新增、编辑、移动、拆分、合并、删除和空章节状态，保持 BlockNote IDs 与 children。
+3. 处理 dirty baseline、selection、保存中继续编辑、保存失败后的可恢复草稿和 stale revision。
+
+### Phase 3 — Citations and Markdown interop
+
+1. 以 `blockId/sourceId/chunkId/range/validity` 保存引用关系；Block 操作后执行关系校验。
+2. 支持常见 Markdown 输入/粘贴和显式 Markdown 导出；不可表达的 custom block/props 必须
+   产生 warning 或可识别降级结果。
+3. 禁止用 Markdown marker 自动恢复缺失、重复或冲突的 Block identity；异常进入 needs-review。
+
+### Phase 4 — IPC, recovery and failure-boundary verification
+
+1. 实现 `loadChapter`、`validateChapter`、`applyBlockCommand`、`saveChapter` 和
+   `exportChapterMarkdown` named IPC；main 校验 sender、project session、revision、大小和 schema。
+2. 通过 compiled Electron smoke 验证 renderer/preload/main 的真实路径、无 path/editor
+   instance/secret 泄漏以及失败不假成功。
+3. 覆盖 malformed BlockNote JSON、unknown block type、duplicate/missing id、citation
+   invalid、stale save、外部修改、权限/写入中断、重启恢复和 Markdown lossy warning。
 
 ## Boundary and validation
 
-main owns files, Git, secrets, parsing jobs or restore transactions as applicable; preload exposes only named typed methods; renderer receives bounded DTOs. Domain logic must run without Electron/network. Unit tests cover Spec §FR-001–FR-009; contract tests cover DTO/error/redaction; runtime smoke covers 章节创建；基础 block 操作；重开后 identity/order/citation 保持；重复/缺失标识需人工检查；stale save 不覆盖当前内容。
-
-## Constitution Check（Phase 1 design 后复核）
-
-本节是对上方研究前检查的复核，不把设计产物视为实现授权。复核重点是 stable Block identity、Markdown codec、editor adapter、save conflict 和 citation integrity。
-
-| Constitution 原则 | Phase 1 状态 | 设计证据与剩余 implementation gate |
+| Boundary | Owner | Must not cross |
 |---|---|---|
-| I. Secure Desktop Boundary | **PASS WITH ACCEPTANCE CONDITION** | `data-model.md` 要求由 main/domain 产生或核验 stable identity、revision、validity；`contracts/contract.md` 规定 editor adapter 不接触文件路径；本计划明确 main 拥有文件、Git、凭据和恢复/处理事务，renderer 只接收 bounded DTO。实现前必须用编译后的 Electron smoke 证明 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true` 下 renderer 只能通过 preload 工作，并证明路径、任意命令、凭据和 raw 外部错误不会跨边界。004 本身不需要 provider 或凭据；若复用处理/restore 能力，仍必须保持 main-owned，不能以 editor adapter 绕过边界。` |
-| II. Typed, Minimal IPC | **NEEDS DECISION** | `contracts/contract.md` 已收窄为 `loadChapter`、`validateChapter`、`applyBlockCommand`、`saveChapter`，并禁止 generic IPC、任意路径、secret echo 和未约束外部 response；`src/shared` 类型和 main runtime validation 也已列入设计。但 contract version、完整 DTO、错误码、sender/session 校验细节、取消/重试/恢复语义仍明确为 `NEEDS DECISION`。实现 gate 要求冻结这些 named methods 的 request/response/error union，并以 contract test + compiled Electron smoke 验证 preload 逐项映射且 main 拒绝越权、过期 revision、重复/缺失 identity 和超限输入。` |
-| III. Specification-Driven, Minimal Evolution | **BLOCKED** | 设计材料选择了最小边界：ChapterDocument/Block/CitationMark、独立 codec 和纯函数 block commands、窄 editor adapter、main 串行保存/transaction/Git；没有引入协作、数据库、provider 或历史 UI。但 `spec.md` 仍是 Draft，ADR-001 仍是 Proposed，且 stable identity comment grammar、Markdown canonical codec、durable schema/migration、citation validity、save conflict 语义和 editor/IPC contract 尚未被接受。实现前必须接受本 spec 与 ADR-001，或明确记录“不需要新增 ADR”，并冻结上述跨 durable/process boundary 的 decisions；未完成不得生成实现任务或写产品代码。` |
-| IV. Verification at the Failure Boundary | **PASS WITH ACCEPTANCE CONDITION** | 计划已按失败边界安排 domain unit、DTO/error/redaction contract test 和真实 Electron smoke；`quickstart.md` 覆盖创建、Block 操作、重开 identity/order/citation、重复/缺失标识和 stale save。Phase 1 的验证仍必须落到实际边界：renderer/editor adapter 的 selection、dirty 和拆分/合并行为；preload→main 的 sender/DTO 校验；main codec/schema/revision/citation 判定；storage 的原子写入、pending recovery、权限/写入失败；处理/外部修改的 malformed、duplicate/missing marker；Git commit/working-tree/commit-failure；以及“无凭据进入 renderer、日志、错误或 Git trailer”。在这些 fixture 和 compiled Electron runtime 场景完成前，不得把静态类型或 renderer unit test 当作通过。` |
+| BlockNote renderer | Editor adapter/UI | 文件路径、数据库连接、Git、凭据、raw IPC |
+| Preload | Named typed wrappers | editor instance、generic channel、raw Error、任意 document write |
+| Main/repository | Schema/revision/storage/interop | 未验证的 blocks、任意路径、renderer 伪造的 identity/revision |
+| Markdown adapter | Explicit import/export | canonical identity、citation truth、silent lossy conversion |
 
-### 设计为何仍是满足需求的最小方案
+## Constitution Check — Phase 1 design re-check
 
-- Markdown 是 canonical content，稳定 Block identity 只通过受控的 identity comment/codec 与正文一起保存；Block 操作由不依赖 Electron/network 的纯函数完成。这样覆盖 FR-002–FR-008，同时不把第三方编辑器的内部 JSON 变成第二套 durable schema。
-- editor adapter 只负责把选区、dirty/revision 和用户意图映射到 domain commands；文件路径、codec、revision、transaction、Git 和 citation validity 仍由 main/storage owner 负责。采用窄 adapter 可以替换 Tiptap/ProseMirror、Lexical、BlockNote 或手写 UI，而不扩散依赖或改变 Block identity 真相。
-- 一个受限的 load/validate/apply/save 边界配合 main 串行写入、pending recovery 和 stale revision 检查，足以覆盖创建、编辑、移动、拆分、合并、删除、保存/恢复和冲突保护；不增加独立数据库、实时协作、远程服务、PDF/资料处理或版本时间线。
-- citation mark 只保留 source/chunk/placement 等可验证关系；移动、拆分、合并、外部删除或重复 marker 时进入 needs-review/冲突路径，不在 renderer 中复制资料真相，也不静默重绑定。这是满足 citation integrity 的最小所有权划分。
+| Principle | Status | Design evidence / remaining gate |
+|---|---|---|
+| I. Secure Desktop Boundary | PASS WITH ACCEPTANCE CONDITION | BlockNote 只在 renderer；main owns document storage and validation；compiled smoke 必须证明没有 privileged object 泄漏。 |
+| II. Typed, Minimal IPC | PASS WITH ACCEPTANCE CONDITION | 五个 named document methods及 bounded DTO 已定义；完整 error/cancel/recovery contract 仍需冻结。 |
+| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTED | 004 spec、plan、storage ADR、依赖 feature contracts 和 BlockNote schema decisions 仍需 review/acceptance。 |
+| IV. Verification at the Failure Boundary | PASS WITH ACCEPTANCE CONDITION | 设计包含 editor adapter、IPC、storage、Markdown interop 和 compiled Electron failure tests。 |
 
-### Implementation gate 的可执行接受项
+**Post-design gate**: BlockNote 已被选为实现方向，但这不是实现授权。所有跨 durable/process
+boundary 的 schema、revision、interop、recovery 和 IPC decisions 必须先接受。
 
-以下项目在实现前必须逐项接受、拒绝并记录替代方案，或明确标为不适用；不能由实现者隐式决定：
+## Implementation gate decisions still required
 
-1. 冻结 `Block` identity comment 的语法、解析/序列化 round-trip、复制/缺失/重复 marker 的判定，及 split/merge 后 citation placement 的保留或 `needs_review` 规则。
-2. 冻结 ChapterDocument 的 `kind`、`schemaVersion`、`revision`、migration/unknown-version policy，以及 Markdown codec 的错误和不可表示内容处理；第三方库、版本、许可证、native runtime、fallback 需有明确选择。
-3. 冻结 editor adapter 的输入/输出和 lifecycle：selection 映射、dirty 基线、命令结果、保存中继续编辑、失败后可恢复草稿，以及 stale save 的拒绝/重载/重试语义。
-4. 接受 `contracts/contract.md` 的完整 IPC DTO、error code、cancel/retry/recovery 语义和 sender/project/session validation；确认 preload 不暴露路径、Git、凭据、generic IPC 或 raw exception。
-5. 准备并运行真实失败 fixture：codec malformed/外部编辑、重复或缺失 identity、citation source/chunk invalid、并发或过期 revision、只读/写入中断、pending 未决、Git working-tree/commit 失败、重启恢复，以及 renderer 继续编辑时保存失败；每种情况都不得返回假成功或静默覆盖。
-6. 接受 `spec.md`、ADR-001、依赖 project/workspace/orientation contract 和上述本 feature contract 后，才能生成 `tasks.md` 并开始实现；若任一跨边界决策仍未定，状态保持 `NEEDS DECISION` 或 `BLOCKED`。
+1. 精确 BlockNote package/version、UI adapter、许可证和 React 19/Electron 40/Bun 兼容性。
+2. `ChapterDocument` schema、custom block namespace、unknown block migration 和 document revision。
+3. 常见 Markdown 支持子集、导入/粘贴/导出 API、lossy warning 和不可表达 block 的 fallback。
+4. Citation range/anchor 与 BlockNote block split/merge 的保留或 needs-review 规则。
+5. stale save、外部修改、storage failure、recovery 和 `exportChapterMarkdown` error semantics。
 
-## Open decisions
+## Complexity Tracking
 
-候选：Tiptap/ProseMirror、Lexical、BlockNote；unified/remark、ProseMirror Markdown 或手写 codec；jsdiff/diff-match-patch。
-
-**Decision: NEEDS DECISION。** 本版不把候选写成批准依赖。
+无 Constitution exception。BlockNote adapter、canonical wrapper 和 Markdown interop adapter
+是为了隔离第三方 editor schema 与产品 durable schema；不新增第二套 block truth，也不因
+Markdown export 自动引入数据库或实时协作。

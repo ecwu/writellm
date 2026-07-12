@@ -31,6 +31,6 @@
 - 只有当前 feature 的 `spec.md`、`plan.md` 和所需 ADR 都为 `Accepted` 后，
   才能生成该 feature 的 `tasks.md` 并开始实现。
 
-本轮已为 001–010 生成第一版 `plan.md`、`research.md`、`data-model.md`、`quickstart.md`、契约文档和 `checklists/plan-decisions.md`；未生成 `tasks.md`，也未批准任何新增库或包。每个 `plan-decisions.md` 都保留了待用户确认的选型、ADR、schema、IPC、性能、可访问性和恢复边界。
+本轮已为 001–010 生成第一版 `plan.md`、`research.md`、`data-model.md`、`quickstart.md`、契约文档和 `checklists/plan-decisions.md`；001 已通过 ADR-002、spec、plan 和 IPC contract 的接受门禁，其他 feature 仍需各自确认。未批准任何新增库或包。每个尚未接受的 `plan-decisions.md` 仍保留待用户确认的选型、ADR、schema、IPC、性能、可访问性和恢复边界。
 
 原综合设计已移到 [`_archive/001-ai-writing-workspace-umbrella`](./_archive/001-ai-writing-workspace-umbrella/)，仅用于追溯拆分来源；当前实现依据以本目录下的新 specs 为准。
