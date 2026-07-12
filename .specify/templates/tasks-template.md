@@ -9,7 +9,9 @@ description: "Task list template for feature implementation"
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
+**Tests**: Test tasks are required for changes that affect Electron startup,
+preload, shared IPC, security behavior, or a documented user journey. Include
+unit, contract, integration, or smoke coverage appropriate to the boundary.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -154,9 +156,11 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Documentation updates in docs/
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
+- [ ] TXXX [P] Additional unit or contract tests in test/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
+- [ ] TXXX Run `bun run typecheck`, `bun run test`, and `bun run test:smoke` when
+  the change affects the compiled Electron foundation
 
 ---
 

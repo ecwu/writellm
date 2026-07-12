@@ -1,13 +1,25 @@
-# WriteLLM v2 foundation
+# WriteLLM v2 repository guidance
 
 This branch is a greenfield rebuild. The `legacy/v1-freeze` Git tag preserves
 the prior product; do not copy its product code, persistence model, IPC
 contract, UI components, tests, or dependencies into v2.
 
-## Current scope
+## Document scope
 
-Only the secure Electron + React startup foundation exists. Do not add product
-features until the v2 PRD and storage ADR have been accepted under `docs/v2/`.
+This file defines repository-wide guardrails and commands. It does not define
+product requirements or feature-specific implementation details.
+
+For product work, use the active feature's documents under `specs/<feature>/`:
+`spec.md` defines user value, scope, and acceptance; `plan.md` defines the
+implementation design; and accepted ADRs define decisions that cross durable,
+system, or process boundaries.
+
+## Implementation gate
+
+Do not implement a product feature until its active `spec.md` and `plan.md` are
+accepted, and every required cross-boundary ADR is accepted or explicitly
+recorded as not required. Unresolved decisions must remain in design/review;
+they must not be silently converted into implementation choices.
 
 ## Commands
 

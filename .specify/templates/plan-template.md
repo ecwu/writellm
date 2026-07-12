@@ -40,7 +40,18 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+The plan MUST verify:
+
+- The feature has an accepted specification and this plan before implementation.
+- Renderer capabilities follow least privilege and cross the preload boundary only
+  through named, typed IPC.
+- Unresolved decisions that cross system, process, or durable boundaries have an
+  ADR before implementation.
+- The design is the smallest solution that satisfies accepted requirements.
+- Verification targets the relevant failure boundary, including runtime-level
+  coverage when static checks cannot detect a cross-process failure.
+
+Any unmet gate MUST be recorded in Complexity Tracking with a concrete rationale.
 
 ## Project Structure
 
