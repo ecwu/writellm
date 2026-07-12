@@ -1,6 +1,101 @@
-import { describe, expect, test } from 'bun:test'; import { parseDiskDocument, parseSaveInput, OrientationValidationError } from '../../../src/main/writing-orientation/parser'; import { emptyDocument, mutationId, outlineItemId, projectId, savedDocument } from '../../fixtures/writing-orientation/orientation-fixtures';
-const code = (fn: () => unknown) => { try { fn(); } catch (error) { return (error as OrientationValidationError).detail.code; } };
+import { describe, expect, test } from 'bun:test';
+import {
+  type OrientationValidationError,
+  parseDiskDocument,
+  parseSaveInput,
+} from '../../../src/main/writing-orientation/parser';
+import {
+  emptyDocument,
+  mutationId,
+  outlineItemId,
+  projectId,
+  savedDocument,
+} from '../../fixtures/writing-orientation/orientation-fixtures';
+
+const code = (fn: () => unknown) => {
+  try {
+    fn();
+  } catch (error) {
+    return (error as OrientationValidationError).detail.code;
+  }
+};
 describe('writing orientation parser', () => {
- test('accepts canonical disk and rejects malformed/schema/identity/chapter duplication', () => { expect(parseDiskDocument(savedDocument(), projectId).revision).toBe(1); expect(code(() => parseDiskDocument(null, projectId))).toBe('STORAGE_READ_FAILED'); expect(code(() => parseDiskDocument({ ...emptyDocument(), schemaVersion: 2 }, projectId))).toBe('UNSUPPORTED_SCHEMA'); expect(code(() => parseDiskDocument({ ...emptyDocument(), projectId: crypto.randomUUID() }, projectId))).toBe('STORAGE_READ_FAILED'); const item=savedDocument().outlineItems[0],chapterRef=crypto.randomUUID(); expect(code(() => parseDiskDocument({ ...savedDocument(), outlineItems:[{...item,chapterRef},{...item,outlineItemId:crypto.randomUUID(),chapterRef}] },projectId))).toBe('STORAGE_READ_FAILED'); });
- test('enforces identity xor, durable set, title and chapter ownership', () => { const current=savedDocument(),base={baseRevision:1,mutationId,motivation:current.motivation}; expect(code(()=>parseSaveInput({...base,outlineItems:[]},current))).toBe('INVALID_INPUT'); expect(code(()=>parseSaveInput({...base,outlineItems:[{outlineItemId,clientDraftId:crypto.randomUUID(),title:'x',summary:'',status:'not-started'}]},current))).toBe('INVALID_INPUT'); expect(code(()=>parseSaveInput({...base,outlineItems:[{outlineItemId,title:' ',summary:'',status:'not-started'}]},current))).toBe('INVALID_INPUT'); expect(code(()=>parseSaveInput({...base,outlineItems:[{outlineItemId,title:'x',summary:'',status:'not-started',chapterRef:null}]},current))).toBe('INVALID_INPUT'); });
+  test('accepts canonical disk and rejects malformed/schema/identity/chapter duplication', () => {
+    expect(parseDiskDocument(savedDocument(), projectId).revision).toBe(1);
+    expect(code(() => parseDiskDocument(null, projectId))).toBe('STORAGE_READ_FAILED');
+    expect(code(() => parseDiskDocument({ ...emptyDocument(), schemaVersion: 2 }, projectId))).toBe(
+      'UNSUPPORTED_SCHEMA',
+    );
+    expect(
+      code(() =>
+        parseDiskDocument({ ...emptyDocument(), projectId: crypto.randomUUID() }, projectId),
+      ),
+    ).toBe('STORAGE_READ_FAILED');
+    const item = savedDocument().outlineItems[0],
+      chapterRef = crypto.randomUUID();
+    expect(
+      code(() =>
+        parseDiskDocument(
+          {
+            ...savedDocument(),
+            outlineItems: [
+              { ...item, chapterRef },
+              { ...item, outlineItemId: crypto.randomUUID(), chapterRef },
+            ],
+          },
+          projectId,
+        ),
+      ),
+    ).toBe('STORAGE_READ_FAILED');
+  });
+  test('enforces identity xor, durable set, title and chapter ownership', () => {
+    const current = savedDocument(),
+      base = { baseRevision: 1, mutationId, motivation: current.motivation };
+    expect(code(() => parseSaveInput({ ...base, outlineItems: [] }, current))).toBe(
+      'INVALID_INPUT',
+    );
+    expect(
+      code(() =>
+        parseSaveInput(
+          {
+            ...base,
+            outlineItems: [
+              {
+                outlineItemId,
+                clientDraftId: crypto.randomUUID(),
+                title: 'x',
+                summary: '',
+                status: 'not-started',
+              },
+            ],
+          },
+          current,
+        ),
+      ),
+    ).toBe('INVALID_INPUT');
+    expect(
+      code(() =>
+        parseSaveInput(
+          {
+            ...base,
+            outlineItems: [{ outlineItemId, title: ' ', summary: '', status: 'not-started' }],
+          },
+          current,
+        ),
+      ),
+    ).toBe('INVALID_INPUT');
+    expect(
+      code(() =>
+        parseSaveInput(
+          {
+            ...base,
+            outlineItems: [
+              { outlineItemId, title: 'x', summary: '', status: 'not-started', chapterRef: null },
+            ],
+          },
+          current,
+        ),
+      ),
+    ).toBe('INVALID_INPUT');
+  });
 });

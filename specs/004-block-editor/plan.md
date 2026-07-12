@@ -6,7 +6,17 @@
 
 **Spec**: [spec.md](./spec.md)
 
-**Status**: Draft — design complete; acceptance and implementation gated
+**Status**: Accepted
+
+## Acceptance record
+
+Accepted on 2026-07-12. Review confirmed the BlockNote 0.51.4 + Ariakit direction
+subject to the documented license/peer/build/runtime verification gate; the
+versioned document, stable block identity, citation anchor and safe unknown-schema
+strategy; and the typed IPC, revision, idempotency, redaction, conflict and
+recovery contracts. The remaining offline/privacy, objective ceiling,
+accessibility/cross-platform, Markdown and ADR boundaries were accepted as a
+complete design package.
 
 ## Summary
 
@@ -25,13 +35,13 @@ potentially lossy interchange rather than durable truth.
 | 001 project foundation | Accepted/Complete | Accepted/Complete | Pass |
 | 011 UI foundation / ADR-003 | Accepted/Complete | Accepted/Complete | Pass |
 | 002 workspace shell | Accepted/Complete | Accepted/Complete | Pass |
-| 003 writing orientation | Accepted producer contract | Draft / acceptance pending | Blocked |
+| 003 writing orientation | Accepted producer contract | Accepted/Complete | Pass |
 | ADR-001 content storage | Accepted | Accepted | Pass |
-| 004 spec and plan | Accepted | Draft | Blocked |
+| ADR-003 UI foundation | Accepted | Accepted | Pass |
+| 004 spec and plan | Accepted | Accepted | Pass |
 
-Planning and review may continue. Tasks and implementation must not begin until
-every blocked row is resolved and the registry/source documents are updated in
-the same change.
+All specification, dependency and ADR acceptance gates pass. Task generation may
+proceed. Implementation remains subject to the package verification gate below.
 
 ## Technical Context
 
@@ -75,11 +85,12 @@ dependency/ADR status are explicit gates, not hidden implementation choices.
 |---|---|---|
 | I. Secure Desktop Boundary | Pass by design | BlockNote/editor stays in renderer; main owns project, path, validation, storage, dialog and Git. |
 | II. Typed, Minimal IPC | Pass by design | One separate named namespace; create/open, load, save and bounded preview/export only; no generic channel or editor object. |
-| III. Specification-Driven, Minimal Evolution | Blocked pending acceptance | 003, 004 and ADR-001 gates remain open. JSON files/full snapshots are the smallest design satisfying requirements. |
+| III. Specification-Driven, Minimal Evolution | Pass | 003 and 004 spec/plan plus ADR-001 and ADR-003 are accepted. JSON files/full snapshots are the smallest design satisfying requirements. |
 | IV. Verification at Failure Boundary | Pass by design | DOM tests cover adapter UX; repository tests cover writes; compiled Electron covers preload/runtime/dialog/security. |
 
-**Gate conclusion**: No constitutional exception is proposed. Research/design may
-proceed, but implementation is prohibited while Principle III is blocked.
+**Gate conclusion**: No constitutional exception is proposed. All design and
+acceptance gates pass; implementation must still satisfy the explicit package
+verification prerequisite.
 
 ## Phase 0: Research result
 
@@ -118,9 +129,9 @@ but chapter persistence does not create a second editable title.
 - stable error/redaction, revision/conflict and storage/recovery semantics;
 - a renderer adapter that owns BlockNote commands but no persistence authority.
 
-Creation/linking and linked deletion are a shared durable boundary with 003. The
-003 and 004 contracts plus ADR-001 must be accepted together; neither feature may
-invent a one-sided transaction.
+Creation/linking is a shared durable boundary with 003 and is frozen by the
+accepted 003 and 004 contracts plus ADR-001. Linked deletion remains out of scope:
+003 continues to reject it safely, and 004 does not add a deletion transaction.
 
 ### Validation guide
 
@@ -156,7 +167,7 @@ test/
 New UI primitives are not assumed. If editor chrome exposes a genuine 011 gap,
 004 must submit the accepted `FoundationExtensionRequest` before adding shared UI.
 
-## Implementation sequence after acceptance
+## Implementation sequence
 
 ### 1. Freeze dependencies and shared contract
 
@@ -194,13 +205,14 @@ New UI primitives are not assumed. If editor chrome exposes a genuine 011 gap,
 |---|---|---|
 | I. Secure Desktop Boundary | Pass | All privileged work is main-owned; renderer adapter is capability-free. Runtime tests verify actual sandbox behavior. |
 | II. Typed, Minimal IPC | Pass | Full snapshots avoid chatty command IPC; exact namespace/DTO/error surface is documented and testable. |
-| III. Specification-Driven, Minimal Evolution | Blocked pending acceptance | Design makes no exception, but 003/004/ADR-001 must be accepted before tasks or code. |
+| III. Specification-Driven, Minimal Evolution | Pass | Accepted 003/004 spec and plans plus ADR-001 and ADR-003 cover the durable and UI boundaries. |
 | IV. Verification at Failure Boundary | Pass | Each behavior is assigned to pure, repository, DOM or compiled Electron verification at its failure boundary. |
 
-**Post-design gate**: Phase 1 design is complete with zero `NEEDS CLARIFICATION`.
+**Post-design gate**: Phase 1 design is accepted with zero `NEEDS CLARIFICATION`.
 FR-011 is verified with two primary-instance-owned compiled Electron test windows
 sharing the same main repository; 004 adds no user-facing multi-window manager.
-Implementation remains blocked solely by explicit acceptance/dependency gates.
+Task generation may proceed; package verification remains the first implementation
+prerequisite.
 
 ## Complexity Tracking
 

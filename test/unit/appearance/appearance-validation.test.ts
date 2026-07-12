@@ -1,2 +1,31 @@
-import { describe,expect,test } from 'bun:test'; import { defaultAppearancePreferences,parseAppearancePreferences } from '../../../src/shared/appearance';
-describe('appearance validation',()=>{test('accepts defaults and rejects enums, fonts, non-finite and bounds',()=>{expect(parseAppearancePreferences(defaultAppearancePreferences)).toEqual(defaultAppearancePreferences);for(const patch of [{themeMode:'blue'},{bodyFont:'Comic Sans'},{fontScale:Infinity},{fontScale:.5},{lineHeight:3},{contentWidth:20}])expect(parseAppearancePreferences({...defaultAppearancePreferences,...patch})).toBeNull();});});
+import { describe, expect, test } from 'bun:test';
+import {
+  defaultAppearancePreferences,
+  parseAppearanceInput,
+  parseAppearancePreferences,
+} from '../../../src/shared/appearance';
+
+describe('appearance validation', () => {
+  test('accepts the canonical accepted DTO and complete update input', () => {
+    expect(parseAppearancePreferences(defaultAppearancePreferences)).toEqual(
+      defaultAppearancePreferences,
+    );
+    const { schemaVersion: _, ...input } = defaultAppearancePreferences;
+    expect(parseAppearanceInput(input)).toEqual(defaultAppearancePreferences);
+  });
+  test('rejects legacy, partial, arbitrary and out-of-bounds values', () => {
+    for (const value of [
+      { version: 1 },
+      { themeMode: 'dark' },
+      { ...defaultAppearancePreferences, arbitraryCss: 'url(https://example.invalid)' },
+      { ...defaultAppearancePreferences, themeMode: 'blue' },
+      { ...defaultAppearancePreferences, bodyFontId: 'Comic Sans' },
+      { ...defaultAppearancePreferences, monoFontId: 'system-sans' },
+      { ...defaultAppearancePreferences, baseSize: Infinity },
+      { ...defaultAppearancePreferences, baseSize: 11 },
+      { ...defaultAppearancePreferences, leading: 3 },
+      { ...defaultAppearancePreferences, flow: 0.5 },
+    ])
+      expect(parseAppearancePreferences(value)).toBeNull();
+  });
+});

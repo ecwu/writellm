@@ -1,13 +1,23 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { validateProjectDirectory, validateProjectName } from './project-validation.js';
+import type {
+  CreateProjectResult,
+  ListRecentResult,
+  OpenProjectResult,
+  ProjectError,
+  ProjectSnapshot,
+  RecentProjectSummary,
+  RemoveRecentResult,
+} from '../../shared/project.js';
 import { CleanupReceipts } from './cleanup-receipts.js';
+import { validateProjectDirectory, validateProjectName } from './project-validation.js';
 import { RecentProjectIndex } from './recent-index.js';
-import type { CreateProjectResult, ListRecentResult, OpenProjectResult, ProjectError, ProjectSnapshot, RecentProjectSummary, RemoveRecentResult } from '../../shared/project.js';
 
 export type DirectoryDialogResult = { canceled: boolean; filePaths: string[] };
-export type DirectoryDialog = { showOpenDialog(options: Record<string, unknown>): Promise<DirectoryDialogResult> };
+export type DirectoryDialog = {
+  showOpenDialog(options: Record<string, unknown>): Promise<DirectoryDialogResult>;
+};
 
 export type ProjectRepositoryOptions = {
   userDataPath: string;
@@ -24,7 +34,9 @@ export class ProjectRepository {
   private active: { projectId: string; projectRoot: string; sessionId: string } | null = null;
 
   constructor(options: ProjectRepositoryOptions) {
-    this.dialog = options.dialog ?? { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
+    this.dialog = options.dialog ?? {
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    };
     this.now = options.now ?? (() => new Date().toISOString());
     this.recent = new RecentProjectIndex(path.join(options.userDataPath, 'recent-projects.json'));
     this.cleanup = new CleanupReceipts(options.userDataPath);
@@ -50,20 +62,32 @@ export class ProjectRepository {
   async createProject(displayName: unknown): Promise<CreateProjectResult> {
     const name = validateProjectName(displayName);
     if (!name.ok) return failure(name.code, name.message);
-    const parent = await this.chooseDirectory('Choose a parent folder for the new project.');
-    if (!parent) return { status: 'canceled' };
+    const selection = await this.chooseDirectory('Choose a parent folder for the new project.');
+    if (selection.status !== 'selected')
+      return selection.status === 'canceled'
+        ? selection
+        : failure(selection.error.code, selection.error.message);
+    const parent = selection.path;
     const finalRoot = path.join(parent, `${displayName}.writellm`);
-    if (path.dirname(finalRoot) !== path.resolve(parent)) return failure('INVALID_PROJECT_NAME', 'Project name must remain inside the selected folder.');
+    if (path.dirname(finalRoot) !== path.resolve(parent))
+      return failure(
+        'INVALID_PROJECT_NAME',
+        'Project name must remain inside the selected folder.',
+      );
 
     return this.serialized(async () => {
-      const token = randomUUID();
-      const tempManifest = path.join(finalRoot, `project.json.${token}.tmp`);
       const manifestPath = path.join(finalRoot, 'project.json');
       const workspacePath = path.join(finalRoot, 'workspace');
       const createdAt = this.now();
-      const snapshot: ProjectSnapshot = { projectId: randomUUID(), displayName: displayName as string };
+      const snapshot: ProjectSnapshot = {
+        projectId: randomUUID(),
+        displayName: displayName as string,
+      };
       const receipt = await this.cleanup.add(finalRoot).catch(() => undefined);
-      if (!receipt) return failure('STORAGE_WRITE_FAILED', 'The project could not be prepared safely.');
+      if (!receipt)
+        return failure('STORAGE_WRITE_FAILED', 'The project could not be prepared safely.');
+      const token = receipt.token;
+      const tempManifest = path.join(finalRoot, `project.json.${token}.tmp`);
 
       try {
         await mkdir(finalRoot, { recursive: false });
@@ -74,55 +98,82 @@ export class ProjectRepository {
           displayName: snapshot.displayName,
           requiredDirectories: ['workspace'],
           createdAt,
-          updatedAt: createdAt
+          updatedAt: createdAt,
         };
-        await writeFile(tempManifest, `${JSON.stringify(manifest)}\n`, { encoding: 'utf8', flag: 'wx' });
+        await writeFile(tempManifest, `${JSON.stringify(manifest)}\n`, {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
         await mkdir(workspacePath, { recursive: false });
         await rename(tempManifest, manifestPath);
         const verified = await validateProjectDirectory(finalRoot);
-        if (!verified.ok) return failure('STORAGE_WRITE_FAILED', 'The new project could not be verified.');
+        if (!verified.ok)
+          return failure('STORAGE_WRITE_FAILED', 'The new project could not be verified.');
         await this.cleanup.remove(receipt);
         try {
           await this.recent.upsert(finalRoot, verified.project, undefined, createdAt);
         } catch {
-          return failure('STORAGE_WRITE_FAILED', 'The project was created, but recent projects could not be updated.');
+          return failure(
+            'STORAGE_WRITE_FAILED',
+            'The project was created, but recent projects could not be updated.',
+          );
         }
-        this.active = { projectId: verified.project.projectId, projectRoot: finalRoot, sessionId: randomUUID() };
+        this.active = {
+          projectId: verified.project.projectId,
+          projectRoot: finalRoot,
+          sessionId: randomUUID(),
+        };
         return { status: 'created', project: verified.project };
       } catch (error) {
         await this.rollbackCreation(finalRoot, token).catch(() => undefined);
         await this.cleanup.remove(receipt).catch(() => undefined);
-        if (isNodeError(error) && error.code === 'EEXIST') return failure('PROJECT_EXISTS', 'A project with that name already exists.');
-        if (isNodeError(error) && (error.code === 'EINVAL' || error.code === 'ENAMETOOLONG')) return failure('INVALID_PROJECT_NAME', 'The filesystem rejected this project name.');
+        if (isNodeError(error) && error.code === 'EEXIST')
+          return failure('PROJECT_EXISTS', 'A project with that name already exists.');
+        if (isNodeError(error) && (error.code === 'EINVAL' || error.code === 'ENAMETOOLONG'))
+          return failure('INVALID_PROJECT_NAME', 'The filesystem rejected this project name.');
         return failure('STORAGE_WRITE_FAILED', 'The project could not be created safely.');
       }
     });
   }
 
   async openProjectFromDialog(): Promise<OpenProjectResult> {
-    const selected = await this.chooseDirectory('Choose a WriteLLM project folder.');
-    if (!selected) return { status: 'canceled' };
-    return this.openPath(selected, 'opened');
+    const selection = await this.chooseDirectory('Choose a WriteLLM project folder.');
+    if (selection.status !== 'selected')
+      return selection.status === 'canceled'
+        ? selection
+        : failure(selection.error.code, selection.error.message);
+    return this.openPath(selection.path, 'opened');
   }
 
   async openRecentProject(recentId: string): Promise<OpenProjectResult> {
     const record = this.recent.get(recentId);
-    if (!record) return failure('RECENT_NOT_FOUND', 'That recent project record is no longer available.');
-    return this.openPath(record.mainOnlyPath, 'opened', record.recentId);
+    if (!record)
+      return failure('RECENT_NOT_FOUND', 'That recent project record is no longer available.');
+    return this.openPath(record.mainOnlyPath, 'opened', record.recentId, record.projectId);
   }
 
   async relinkRecentProject(recentId: string): Promise<OpenProjectResult> {
     const record = this.recent.get(recentId);
-    if (!record) return failure('RECENT_NOT_FOUND', 'That recent project record is no longer available.');
-    const selected = await this.chooseDirectory('Choose the moved project folder.');
-    if (!selected) return { status: 'canceled' };
+    if (!record)
+      return failure('RECENT_NOT_FOUND', 'That recent project record is no longer available.');
+    const selection = await this.chooseDirectory('Choose the moved project folder.');
+    if (selection.status !== 'selected')
+      return selection.status === 'canceled'
+        ? selection
+        : failure(selection.error.code, selection.error.message);
+    const selected = selection.path;
     const validation = await validateProjectDirectory(selected);
     if (!validation.ok) return failure(validation.error.code, validation.error.message);
-    if (validation.manifest.projectId !== record.projectId) return failure('PROJECT_ID_MISMATCH', 'The selected project is not the same project.');
+    if (validation.manifest.projectId !== record.projectId)
+      return failure('PROJECT_ID_MISMATCH', 'The selected project is not the same project.');
     return this.serialized(async () => {
       try {
         await this.recent.upsert(selected, validation.project, record.recentId, this.now());
-        this.active = { projectId: validation.project.projectId, projectRoot: selected, sessionId: randomUUID() };
+        this.active = {
+          projectId: validation.project.projectId,
+          projectRoot: selected,
+          sessionId: randomUUID(),
+        };
         return { status: 'opened', project: validation.project };
       } catch {
         return failure('STORAGE_WRITE_FAILED', 'The recent project record could not be updated.');
@@ -142,29 +193,61 @@ export class ProjectRepository {
     });
   }
 
-  private async openPath(projectRoot: string, status: 'opened', recentId?: string): Promise<OpenProjectResult> {
+  private async openPath(
+    projectRoot: string,
+    status: 'opened',
+    recentId?: string,
+    expectedProjectId?: string,
+  ): Promise<OpenProjectResult> {
     const validation = await validateProjectDirectory(projectRoot);
     if (!validation.ok) return failure(validation.error.code, validation.error.message);
+    if (expectedProjectId && validation.project.projectId !== expectedProjectId) {
+      return failure(
+        'PROJECT_ID_MISMATCH',
+        'The project at this recent location has a different identity.',
+      );
+    }
     return this.serialized(async () => {
       try {
         await this.recent.upsert(projectRoot, validation.project, recentId, this.now());
-        this.active = { projectId: validation.project.projectId, projectRoot, sessionId: randomUUID() };
+        this.active = {
+          projectId: validation.project.projectId,
+          projectRoot,
+          sessionId: randomUUID(),
+        };
         return { status, project: validation.project };
       } catch {
-        return failure('STORAGE_WRITE_FAILED', 'The project opened, but recent projects could not be updated.');
+        return failure(
+          'STORAGE_WRITE_FAILED',
+          'The project opened, but recent projects could not be updated.',
+        );
       }
     });
   }
 
-  private async chooseDirectory(message: string): Promise<string | undefined> {
+  private async chooseDirectory(
+    message: string,
+  ): Promise<
+    | { status: 'selected'; path: string }
+    | { status: 'canceled' }
+    | { status: 'error'; error: ProjectError }
+  > {
     try {
-      const result = await this.dialog.showOpenDialog({ properties: ['openDirectory'], title: message });
-      if (result.canceled || result.filePaths.length !== 1 || !path.isAbsolute(result.filePaths[0])) return undefined;
+      const result = await this.dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: message,
+      });
+      if (result.canceled) return { status: 'canceled' };
+      if (result.filePaths.length !== 1 || !path.isAbsolute(result.filePaths[0])) {
+        return failure('STORAGE_READ_FAILED', 'The project folder could not be selected.');
+      }
       const selected = path.resolve(result.filePaths[0]);
       const selectedStat = await stat(selected);
-      return selectedStat.isDirectory() ? selected : undefined;
+      if (!selectedStat.isDirectory())
+        return failure('STORAGE_READ_FAILED', 'The selected location is not a folder.');
+      return { status: 'selected', path: selected };
     } catch {
-      return undefined;
+      return failure('STORAGE_READ_FAILED', 'The project folder could not be selected.');
     }
   }
 
@@ -172,7 +255,10 @@ export class ProjectRepository {
     try {
       const names = await readdir(finalRoot);
       const expectedTemp = `project.json.${token}.tmp`;
-      if (names.every((name) => name === 'workspace' || name === expectedTemp) && !names.includes('project.json')) {
+      if (
+        names.every((name) => name === 'workspace' || name === expectedTemp) &&
+        !names.includes('project.json')
+      ) {
         await rm(finalRoot, { recursive: true, force: true });
       }
     } catch {
@@ -186,12 +272,18 @@ export class ProjectRepository {
 
   private serialized<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.writeQueue.then(operation, operation);
-    this.writeQueue = next.then(() => undefined, () => undefined);
+    this.writeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 }
 
-function failure(code: ProjectError['code'], message: string): { status: 'error'; error: ProjectError } {
+function failure(
+  code: ProjectError['code'],
+  message: string,
+): { status: 'error'; error: ProjectError } {
   return { status: 'error', error: { code, message } };
 }
 

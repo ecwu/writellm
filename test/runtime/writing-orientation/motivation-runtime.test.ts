@@ -1,1 +1,13 @@
-import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises'; test('runtime chain includes orientation save and status journey',async()=>{const preload=await readFile('src/preload/preload.cts','utf8'),renderer=await readFile('src/renderer/features/writing-orientation/WritingOrientationPanel.tsx','utf8');expect(preload).toContain('writellmWritingOrientation');expect(renderer).toContain('Saving…');expect(renderer).toContain('Saved');});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('runtime chain includes orientation save and status journey', async () => {
+  const preload = await readFile('src/preload/preload.cts', 'utf8'),
+    renderer = await readFile(
+      'src/renderer/features/writing-orientation/WritingOrientationPanel.tsx',
+      'utf8',
+    );
+  expect(preload).toContain('writellmWritingOrientation');
+  expect(renderer).toContain('Saving…');
+  expect(renderer).toContain('Saved');
+});

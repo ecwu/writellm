@@ -1,6 +1,6 @@
 # Contract: Block editor IPC and adapter boundaries
 
-Status: Draft design; frozen only when the 004 plan and ADR-001 are accepted.
+Status: Accepted with the 004 plan and ADR-001.
 
 ## Preload namespace
 

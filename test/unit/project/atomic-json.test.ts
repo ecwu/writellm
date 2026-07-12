@@ -15,7 +15,8 @@ test('atomic JSON replaces a file and leaves valid JSON', async () => {
 test('atomic JSON failure cleans its temporary file', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'writellm-atomic-fail-'));
   const target = path.join(root, 'index.json');
-  await expect(writeAtomicJson(target, { version: 1 }, { failureStage: 'rename' })).rejects.toThrow();
+  await expect(
+    writeAtomicJson(target, { version: 1 }, { failureStage: 'rename' }),
+  ).rejects.toThrow();
   expect(await readdir(root)).toEqual([]);
 });
-

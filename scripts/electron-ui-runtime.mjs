@@ -1,2 +1,86 @@
-import { readFile } from 'node:fs/promises'; import { spawn } from 'node:child_process'; import { mkdtemp,rm } from 'node:fs/promises'; import os from 'node:os'; import path from 'node:path';
-const root=path.resolve(import.meta.dirname,'..');const preload=await readFile(path.join(root,'dist-electron/preload/preload.cjs'),'utf8');for(const name of ['getAppearancePreferences','updateAppearancePreferences'])if(!preload.includes(name))throw new Error(`Missing compiled appearance method ${name}`);if((preload.match(/contextBridge\.exposeInMainWorld/g)??[]).length!==2)throw new Error('Compiled preload must expose exactly two namespaces.');const temp=await mkdtemp(path.join(os.tmpdir(),'writellm-ui-runtime-'));const electron=path.join(root,'node_modules/.bin/electron');const child=spawn(electron,[path.join(root,'dist-electron/main/main.js'),`--user-data-dir=${path.join(temp,'data')}`,'--disable-gpu'],{cwd:root,env:{...process.env,WRITELLM_SMOKE:'1'},stdio:'ignore'});const code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill();reject(new Error('UI runtime startup timed out.'))},10000);child.on('exit',c=>{clearTimeout(timer);resolve(c)})});await rm(temp,{recursive:true,force:true});if(code!==0)throw new Error(`UI runtime exited ${code}`);console.log('Compiled UI runtime passed: secure bridge inventory, theme-aware startup, and renderer load.');
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
+const preload = await readFile(path.join(root, 'dist-electron/preload/preload.cjs'), 'utf8');
+for (const name of [
+  'getAppearancePreferences',
+  'updateAppearancePreferences',
+  'openForOutlineItem',
+  'previewMarkdownExport',
+  'exportMarkdown',
+  'getProviderSummary',
+  'saveProviderSettings',
+  'replaceProviderSecret',
+  'removeProviderSecret',
+  'validateProvider',
+]) {
+  if (!preload.includes(name)) throw new Error(`Missing compiled method ${name}`);
+}
+for (const namespace of [
+  'writellm',
+  'writellmAppearance',
+  'writellmWritingOrientation',
+  'writellmChapters',
+  'writellmProviderSettings',
+]) {
+  if (
+    !preload.includes(`exposeInMainWorld("${namespace}"`) &&
+    !preload.includes(`exposeInMainWorld('${namespace}'`)
+  )
+    throw new Error(`Missing compiled preload namespace ${namespace}.`);
+}
+const bundle = await readFile(path.join(root, 'dist/index.html'), 'utf8');
+if (!bundle.includes('assets/')) throw new Error('Compiled renderer bundle is missing.');
+
+const temp = await mkdtemp(path.join(os.tmpdir(), 'writellm-ui-runtime-'));
+const marker = path.join(temp, 'lifecycle.log');
+await writeFile(marker, '');
+const child = spawn(
+  path.join(root, 'node_modules/.bin/electron'),
+  [
+    path.join(root, 'dist-electron/main/main.js'),
+    `--user-data-dir=${path.join(temp, 'data')}`,
+    '--disable-gpu',
+    '--writellm-editor-runtime',
+  ],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      WRITELLM_SMOKE: '1',
+      WRITELLM_EDITOR_RUNTIME: '1',
+      WRITELLM_SMOKE_MARKER: marker,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  },
+);
+let diagnostics = '';
+child.stdout?.on('data', (chunk) => {
+  diagnostics += String(chunk);
+});
+child.stderr?.on('data', (chunk) => {
+  diagnostics += String(chunk);
+});
+const code = await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => {
+    child.kill();
+    reject(new Error('UI runtime startup timed out.'));
+  }, 15_000);
+  child.on('exit', (value) => {
+    clearTimeout(timer);
+    resolve(value);
+  });
+});
+const lifecycle = await readFile(marker, 'utf8');
+await rm(temp, { recursive: true, force: true });
+if (code !== 0) throw new Error(`UI runtime exited ${code}`);
+if (!lifecycle.includes('editor-mounted'))
+  throw new Error(
+    `Compiled BlockNote mount was not observed. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
+  );
+console.log(
+  'Compiled UI runtime passed: secure chapter bridge inventory, actual BlockNote mount, and sandboxed startup.',
+);

@@ -2,7 +2,10 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ProjectRepository, type DirectoryDialog } from '../../../src/main/project/project-repository';
+import {
+  type DirectoryDialog,
+  ProjectRepository,
+} from '../../../src/main/project/project-repository';
 import { createValidProject, treeHash } from '../../fixtures/project/project-fixtures';
 
 function fakeDialog(paths: Array<string | null>): DirectoryDialog {
@@ -10,21 +13,32 @@ function fakeDialog(paths: Array<string | null>): DirectoryDialog {
     async showOpenDialog() {
       const next = paths.shift() ?? null;
       return next ? { canceled: false, filePaths: [next] } : { canceled: true, filePaths: [] };
-    }
+    },
   };
 }
 
 test('create is collision safe, publishes manifest last, and supports cancellation', async () => {
   const userData = await mkdtemp(path.join(os.tmpdir(), 'writellm-repo-data-'));
   const parent = await mkdtemp(path.join(os.tmpdir(), 'writellm-repo-parent-'));
-  const repository = new ProjectRepository({ userDataPath: userData, dialog: fakeDialog([null, parent, parent]), now: () => '2026-07-12T00:00:00.000Z' });
+  const repository = new ProjectRepository({
+    userDataPath: userData,
+    dialog: fakeDialog([null, parent, parent]),
+    now: () => '2026-07-12T00:00:00.000Z',
+  });
   await repository.initialize();
   expect(await repository.createProject('Canceled')).toEqual({ status: 'canceled' });
   const created = await repository.createProject('Draft');
   expect(created.status).toBe('created');
-  expect(await repository.createProject('Draft')).toMatchObject({ status: 'error', error: { code: 'PROJECT_EXISTS' } });
-  expect(await readFile(path.join(parent, 'Draft.writellm', 'project.json'), 'utf8')).toContain('writellm.project');
-  expect(await repository.listRecentProjects()).toMatchObject({ recentProjects: [{ displayName: 'Draft', availability: 'available' }] });
+  expect(await repository.createProject('Draft')).toMatchObject({
+    status: 'error',
+    error: { code: 'PROJECT_EXISTS' },
+  });
+  expect(await readFile(path.join(parent, 'Draft.writellm', 'project.json'), 'utf8')).toContain(
+    'writellm.project',
+  );
+  expect(await repository.listRecentProjects()).toMatchObject({
+    recentProjects: [{ displayName: 'Draft', availability: 'available' }],
+  });
 });
 
 test('open is read-only and returns safe invalid-project diagnostics', async () => {
@@ -33,15 +47,84 @@ test('open is read-only and returns safe invalid-project diagnostics', async () 
   const fixture = await createValidProject(parent, 'Moved');
   await writeFile(path.join(fixture.root, 'workspace', 'unknown.txt'), 'keep me');
   const before = await treeHash(fixture.root);
-  const repository = new ProjectRepository({ userDataPath: userData, dialog: fakeDialog([fixture.root]) });
+  const repository = new ProjectRepository({
+    userDataPath: userData,
+    dialog: fakeDialog([fixture.root]),
+  });
   await repository.initialize();
-  expect(await repository.openProjectFromDialog()).toMatchObject({ status: 'opened', project: { projectId: fixture.manifest.projectId } });
+  expect(await repository.openProjectFromDialog()).toMatchObject({
+    status: 'opened',
+    project: { projectId: fixture.manifest.projectId },
+  });
   expect(await treeHash(fixture.root)).toBe(before);
 
   const invalid = path.join(parent, 'Invalid.writellm');
   await import('node:fs/promises').then(({ mkdir }) => mkdir(invalid));
-  const invalidRepository = new ProjectRepository({ userDataPath: await mkdtemp(path.join(os.tmpdir(), 'writellm-invalid-data-')), dialog: fakeDialog([invalid]) });
+  const invalidRepository = new ProjectRepository({
+    userDataPath: await mkdtemp(path.join(os.tmpdir(), 'writellm-invalid-data-')),
+    dialog: fakeDialog([invalid]),
+  });
   await invalidRepository.initialize();
-  expect(await invalidRepository.openProjectFromDialog()).toMatchObject({ status: 'error', error: { code: 'PROJECT_INVALID' } });
+  expect(await invalidRepository.openProjectFromDialog()).toMatchObject({
+    status: 'error',
+    error: { code: 'PROJECT_INVALID' },
+  });
 });
 
+test('dialog failures and malformed selections are errors, not cancellations', async () => {
+  const userData = await mkdtemp(path.join(os.tmpdir(), 'writellm-dialog-data-'));
+  const throwing: DirectoryDialog = {
+    showOpenDialog: async () => {
+      throw new Error('native dialog failed: /private/path');
+    },
+  };
+  const repository = new ProjectRepository({ userDataPath: userData, dialog: throwing });
+  await repository.initialize();
+  expect(await repository.openProjectFromDialog()).toEqual({
+    status: 'error',
+    error: { code: 'STORAGE_READ_FAILED', message: 'The project folder could not be selected.' },
+  });
+
+  const malformed = new ProjectRepository({
+    userDataPath: await mkdtemp(path.join(os.tmpdir(), 'writellm-dialog-malformed-')),
+    dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [] }) },
+  });
+  await malformed.initialize();
+  expect(await malformed.openProjectFromDialog()).toMatchObject({
+    status: 'error',
+    error: { code: 'STORAGE_READ_FAILED' },
+  });
+});
+
+test('opening a recent path replaced by another project preserves stable identity', async () => {
+  const userData = await mkdtemp(path.join(os.tmpdir(), 'writellm-stable-data-'));
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'writellm-stable-parent-'));
+  const original = await createValidProject(parent, 'Original');
+  const replacement = await createValidProject(parent, 'Replacement');
+  const repository = new ProjectRepository({
+    userDataPath: userData,
+    dialog: fakeDialog([original.root]),
+  });
+  await repository.initialize();
+  await repository.openProjectFromDialog();
+  const recent = (await repository.listRecentProjects()).recentProjects[0];
+
+  await writeFile(
+    path.join(original.root, 'project.json'),
+    await readFile(path.join(replacement.root, 'project.json')),
+  );
+  expect(await repository.openRecentProject(recent.recentId)).toMatchObject({
+    status: 'error',
+    error: { code: 'PROJECT_ID_MISMATCH' },
+  });
+  expect(await repository.listRecentProjects()).toMatchObject({
+    recentProjects: [
+      {
+        recentId: recent.recentId,
+        projectId: original.manifest.projectId,
+        availability: 'invalid',
+        diagnosticCode: 'PROJECT_INVALID',
+      },
+    ],
+  });
+});

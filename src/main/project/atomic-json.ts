@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 
 export type AtomicJsonFailureStage = 'mkdir' | 'write' | 'rename' | null;
 
@@ -9,7 +9,11 @@ export type AtomicJsonOptions = {
   failureStage?: AtomicJsonFailureStage;
 };
 
-export async function writeAtomicJson<T>(filePath: string, value: T, options: AtomicJsonOptions = {}): Promise<void> {
+export async function writeAtomicJson<T>(
+  filePath: string,
+  value: T,
+  options: AtomicJsonOptions = {},
+): Promise<void> {
   const directory = path.dirname(filePath);
   await mkdir(directory, { recursive: true });
   if (options.failureStage === 'mkdir') throw new Error('injected atomic mkdir failure');
@@ -30,4 +34,3 @@ export async function writeAtomicJson<T>(filePath: string, value: T, options: At
 export function isAtomicTemporaryName(name: string, token: string): boolean {
   return name.endsWith(`.${token}.tmp`);
 }
-

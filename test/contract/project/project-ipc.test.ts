@@ -13,7 +13,14 @@ test('preload contains one explicit wrapper for each project method and no gener
 });
 
 test('renderer-facing project DTOs do not contain a filesystem path', () => {
-  const value = { recentId: 'id', projectId: 'id', displayName: 'Example', lastOpenedAt: new Date().toISOString(), availability: 'available', diagnosticCode: null };
+  const value = {
+    recentId: 'id',
+    projectId: 'id',
+    displayName: 'Example',
+    lastOpenedAt: new Date().toISOString(),
+    availability: 'available',
+    diagnosticCode: null,
+  };
   expect(JSON.stringify(value)).not.toContain('Path');
   expect(JSON.stringify(value)).not.toContain('absolute');
 });

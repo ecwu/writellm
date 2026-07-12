@@ -11,6 +11,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <AppearanceProvider><App /></AppearanceProvider>
-  </StrictMode>
+    <AppearanceProvider>
+      <App />
+    </AppearanceProvider>
+  </StrictMode>,
 );

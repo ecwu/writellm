@@ -1,2 +1,20 @@
-import { expect, test } from 'bun:test'; import { renderToStaticMarkup } from 'react-dom/server'; import { WorkspaceStatusRegion } from '../../../src/renderer/workspace/components/WorkspaceStatusRegion'; import { status } from '../../fixtures/workspace/workspace-fixtures';
-test('status region gives errors urgent semantics and renders only supplied action',()=>{const html=renderToStaticMarkup(<WorkspaceStatusRegion status={status({state:'error',severity:'error',message:'The operation failed safely',action:{label:'Try again',invoke(){}}})}/>);expect(html).toContain('role="alert"');expect(html).toContain('Try again');expect(html).not.toContain('/Users/');});
+import { expect, test } from 'bun:test';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { WorkspaceStatusRegion } from '../../../src/renderer/workspace/components/WorkspaceStatusRegion';
+import { status } from '../../fixtures/workspace/workspace-fixtures';
+
+test('status region gives errors urgent semantics and renders only supplied action', () => {
+  const html = renderToStaticMarkup(
+    <WorkspaceStatusRegion
+      status={status({
+        state: 'error',
+        severity: 'error',
+        message: 'The operation failed safely',
+        action: { label: 'Try again', invoke() {} },
+      })}
+    />,
+  );
+  expect(html).toContain('role="alert"');
+  expect(html).toContain('Try again');
+  expect(html).not.toContain('/Users/');
+});

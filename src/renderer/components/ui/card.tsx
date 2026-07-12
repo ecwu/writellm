@@ -1,1 +1,11 @@
-import type { HTMLAttributes } from 'react'; import { cn } from '@/lib/cn'; export function Card({className,...p}:HTMLAttributes<HTMLDivElement>){return <div data-ui-surface className={cn('ui-card',className)} {...p}/>;} export const CardHeader=({className,...p}:HTMLAttributes<HTMLDivElement>)=><div className={cn('ui-card-header',className)} {...p}/>; export const CardContent=({className,...p}:HTMLAttributes<HTMLDivElement>)=><div className={cn('ui-card-content',className)} {...p}/>;
+import type { HTMLAttributes } from 'react';
+import { cn } from '@/lib/cn';
+export function Card({ className, ...p }: HTMLAttributes<HTMLDivElement>) {
+  return <div data-ui-surface className={cn('ui-card', className)} {...p} />;
+}
+export const CardHeader = ({ className, ...p }: HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('ui-card-header', className)} {...p} />
+);
+export const CardContent = ({ className, ...p }: HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('ui-card-content', className)} {...p} />
+);

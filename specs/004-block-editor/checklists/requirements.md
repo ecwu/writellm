@@ -37,4 +37,4 @@
 - 2026-07-12 validation: all items pass after replacing internal identity, persistence, and concurrency mechanisms with user-observable safety outcomes.
 - Markdown is specified only as an author-facing interchange behavior; no canonical storage format is prescribed.
 - Version differences are limited to safe handling of the current editing conflict; version-history browsing and restoration remain out of scope.
-- The specification is ready for requirements review; planning remains subject to repository acceptance gates.
+- 2026-07-12 acceptance review: all 16 items remain passing; the specification is Accepted and ready for task generation.

@@ -1,1 +1,11 @@
-import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises'; test('runtime assets cover media, offline fonts and append-stable typeset',async()=>{const tokens=await readFile('src/renderer/theme/tokens.css','utf8');const typeset=await readFile('src/renderer/theme/typeset.css','utf8');expect(tokens).toContain('prefers-reduced-motion');expect(tokens).toContain('forced-colors: active');expect(tokens).not.toMatch(/url\(/);expect(typeset).toContain('.typeset > * + *');});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('runtime assets cover media, offline fonts and append-stable typeset', async () => {
+  const tokens = await readFile('src/renderer/theme/tokens.css', 'utf8');
+  const typeset = await readFile('src/renderer/theme/typeset.css', 'utf8');
+  expect(tokens).toContain('prefers-reduced-motion');
+  expect(tokens).toContain('forced-colors: active');
+  expect(tokens).not.toMatch(/url\(/);
+  expect(typeset).toContain('.typeset > * + *');
+});

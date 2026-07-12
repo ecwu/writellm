@@ -1,85 +1,193 @@
-# Implementation Plan: PDF 资料导入与处理
+# Implementation Plan: PDF 知识库摄取与索引
 
-Branch: codex/v2-greenfield  
+Branch: `006-source-library-processing`
 Date: 2026-07-12  
 Spec: [spec.md](./spec.md)  
-Status: Draft / 第一版
+Status: Draft — refreshed after clarification; maintainer acceptance pending
 
 ## Summary
 
-导入本地 PDF，保存原始资料和可追溯解析产物，生成 Markdown、图片/表格关系、文本块和 embedding 状态。
+为当前可移动项目提供批量 PDF 摄取：main 通过原生文件对话框接收本地 PDF，原子保存原件并以内容指纹去重；main-owned 持久调度器调用用户配置的 MinerU Precision API 完成 OCR/结构解析，验证并发布 Markdown、媒体和稳定内容块；再调用用户配置的硅基流动 Embeddings API，以固定 `BAAI/bge-m3` 为合格内容块生成持久 1024 维向量。资料在解析、索引、部分失败、重试和重启中保持可理解、可恢复，只有当前资料版本中结构有效且向量有效的块可供 007 消费。
+
+本 feature 不实现搜索、排序、引用插入、AI 写作或替换资料。MinerU 与硅基流动 key 是 006 自有的 application-global secret/data-egress boundary；它们复用 ADR-004 的 fail-closed 安全模式但不扩写或依赖 005 的 provider contract。用户自行取得、配置并选择使用第三方 API；第三方保留、驻留和训练政策不作为产品验收门禁。实现前必须接受 ADR-005。
 
 ## Current baseline
 
-当前仓库已实现 001 project foundation，并有已接受的 ADR-003/011 UI foundation 设计；source processing 尚未实现。已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
+- 001、002、003、004、011 已实现；ADR-001/002/003 已接受。006 的硬依赖为 001、002、011；005 不再是硬依赖。
+- Project main 已有 active `{ projectId, projectRoot, sessionId }`、串行写队列、原子 JSON、pending recovery 与 isomorphic-git adapter；006 必须复用/抽取这些边界，而不是建立第二套项目 authority。
+- Preload 按 namespace 显式暴露 named methods；renderer 保持 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。
+- 当前没有持久后台 job engine、006-owned MinerU/硅基流动 credential 或 source-library implementation。
+- 旧 006 design artifacts 只覆盖 FR-001–FR-010 且仍研究本地 PDF parser，已由本轮 Phase 0/1 artifacts 替换。
 
 ## Technical Context
 
-TypeScript 7.0.2、React 19.2.7、Electron 43、Vite 8.1.4、Bun 1.3.14；目标为 sandboxed desktop app。候选：pdf-parse、pdfjs-dist/unpdf、MuPDF.js、Apache Tika；embedding 可来自 provider、Transformers.js 或 ONNX helper；job 可在 main/worker/utility process。ADR-001 的 main-owned project files/Git baseline 已 Accepted。
+**Language/Version**: TypeScript 7.0.2, React 19.2.7, Electron 43.1.0, Bun 1.3.14.
 
-## Constitution Check
+**Primary Dependencies**: existing Vite/Electron/React stack and `isomorphic-git`; no local model runtime or native vector dependency. Main uses narrow HTTP adapters for MinerU Precision API v4 and SiliconFlow `POST /v1/embeddings` with fixed model `BAAI/bge-m3`.
 
-- spec 与 storage ADR 仍为 Draft/Proposed，实现前需接受。
-- renderer 只能调用 named typed preload IPC，main 验证所有输入并拥有文件/网络/凭据权限。
-- durable schema、错误码、第三方包、native runtime 和性能阈值均保留 NEEDS DECISION。
-- 验证必须包含 domain unit、contract test 和编译后的 Electron smoke。
+**External Integration**: MinerU Precision Extract API v4 signed local upload, async polling, result ZIP. `vlm`, OCR, tables and formulas enabled. Official public pages disagree on some limits, so v1 enforces conservative 200 MB/200 pages and one local source per durable app job. Full PDFs and derived results leave the device.
 
-Gate: BLOCKED until spec/ADR/contracts are Accepted。
+**Storage**: ADR-001 portable project: canonical PDF/Markdown/validated block/media/vector artifacts under `sources/`; churn-heavy queue leases/downloads/temp extraction under ignored `runtime/`; multi-file publication through `runtime/pending` and structured Git `processing` commits. Dedicated encrypted MinerU credential under application `userData`, never project/Git.
 
-## Implementation phases
+**Processing**: main owns import, session fencing, job repository/scheduler, both third-party network adapters and publication. Default parse concurrency is 1/project; embedding requests use bounded batches with at most 2 active requests/project, persisted provider-aware throttling, exponential backoff with jitter and six automatic attempts.
 
-1. 冻结 Source、ParsedArtifact、TextChunk、ProcessingRun 和状态机。
-2. 实现安全导入、去重、原件复制和可重建 artifact layout。
-3. 实现 parser/chunker/embedding adapters 与进度、取消、重试。
-4. 加入损坏/密码/无文字/重复/部分失败/大文件 fixtures。
+**Testing**: Bun domain/contract/integration tests; deterministic MinerU/SiliconFlow fakes; malicious ZIP and PDF fixtures; compiled Electron runtime covering IPC, filesystem/Git recovery, network failure and restart; optional user-credentialed third-party smoke outside default CI.
 
-## Source structure
+**Target Platform**: single-author Electron desktop, macOS/Windows/Linux, one active project/window; background means non-blocking while app runs and resume after reopen, not an OS daemon after application exit.
 
-src/shared/source-processing.ts; src/main/sources/{import,parser,chunker,embedding,jobs}; src/renderer/features/sources/; test/{fixtures,contract,smoke}/sources/
+**Performance Goals**: acknowledge 100 selections within 10 seconds before full hash/copy/upload; do not block editor interaction; index at least 95% of 500 eligible benchmark blocks while isolating permanent failures. No invented MinerU completion SLA.
 
-## Boundary and validation
+**Constraints**: named typed IPC only; main validates all renderer and external data; no generic file/job API; no secrets/paths/raw external errors; exact version/profile checks prevent late results; referenced or unknown-reference sources cannot be deleted; app shutdown resumes later rather than promising continued processing.
 
-main owns files, Git, secrets, parsing jobs or restore transactions as applicable; preload exposes only named typed methods; renderer receives bounded DTOs. Domain logic must run without Electron/network. Unit tests cover Spec §FR-001–FR-010; contract tests cover DTO/error/redaction; runtime smoke covers 有效/无效 PDF；阶段状态可恢复；仅有 text+embedding+location 才可检索；失败保留 partial artifacts 并可重试。
+## Constitution Check — pre-research gate
 
-## Constitution Check（Phase 1 design 后复核）
-
-本复核只评估 Phase 1 已形成的设计材料，不重复研究前检查。依据是 [data-model.md](./data-model.md)、[contracts/contract.md](./contracts/contract.md)、[quickstart.md](./quickstart.md)、本计划的 `Source structure` 与 `Boundary and validation`，以及已接受的 [ADR-001](../../docs/adr/001-project-storage.md)。
-
-| 原则 | 设计后状态 | Phase 1 证据 | 剩余 implementation gate |
-|---|---|---|---|
-| I. Secure Desktop Boundary | **PASS WITH ACCEPTANCE CONDITION** | `contract.md` 明确 `importSourceFromDialog` 等能力跨边界而不是传递原始二进制或绝对路径，并禁止 secret echo、任意路径和未约束外部 response；`data-model.md` 要求 stable identity、revision、validity 由 main/domain 产生或核验；本计划把文件、Git、secrets、parser/chunker/embedding jobs 和 restore transaction 放在 main。 | 接受 ADR-001，并冻结 source dialog/import 的 main owner、项目 session 校验、解析/切分/embedding adapter 的执行位置及凭据 owner。实现与 runtime smoke 必须证明 renderer 不获得 Node/Electron、路径、原始 PDF、provider secret 或任意文件能力；外部 parser/provider 的返回必须先由 main 验证，失败不得被包装成成功。 |
-| II. Typed, Minimal IPC | **PASS WITH ACCEPTANCE CONDITION** | `contract.md` 只列出 `importSourceFromDialog`、`startProcessing`、`getProcessingStatus`、`retryProcessing`、`cancelProcessing` 五个 named methods；request/response/error 要有 shared TypeScript 类型和 main runtime validation，状态更新可重放，preload 不暴露 generic IPC。 | 在实现前接受并冻结 channel/version、DTO 字段与大小边界、稳定错误码、redaction、sender/project 校验、状态更新重放顺序，以及 cancel/retry/recovery 的返回语义。必须逐一验证 compiled preload 的暴露面；不得以 `invoke/send/on` 通用包装或新增未审查的 source IPC 代替这些窄方法。 |
-| III. Specification-Driven, Minimal Evolution | **BLOCKED UNTIL ACCEPTANCE** | `spec.md` 仍为 Draft；ADR-001 已 Accepted，但 `research.md` 仍为 `Decision: NEEDS DECISION`；数据模型没有冻结 schemaVersion、revision/migration、幂等与错误码，contract 也明确把 contract version、DTO、取消/重试/恢复语义留为 NEEDS DECISION。 | 实现前必须接受本 feature spec，并逐项关闭 [checklists/plan-decisions.md](./checklists/plan-decisions.md)：至少包括 parser/embedding/job placement、依赖/许可证/打包策略、durable schema 与 revision/idempotency、source IPC、凭据/离线策略、partial artifact 与 Git/recovery 语义。未关闭的新增跨进程或 durable decision 必须进入 ADR 或明确记录为不需要；不能在 tasks 或代码中自行补拍板。 |
-| IV. Verification at the Failure Boundary | **NEEDS DECISION** | 本计划已要求 domain unit、DTO/error/redaction contract test 和 compiled Electron smoke；`quickstart.md` 已列有效/无效 PDF、可恢复阶段、可检索资格、partial artifact 与 retry 场景；`data-model.md` 规定保存/应用/恢复失败必须返回结构化错误且不能报告成功。 | Phase 1 尚未定义真实 Electron fixture/harness、故障注入 seam 或各边界的通过断言；必须在实现前补齐并接受下表所列 renderer/preload/main、storage、processing、credentials、Git 场景。仅有 `typecheck`、静态 contract 或 renderer unit 不足以关闭本原则。 |
-
-### 最小方案与复杂度结论
-
-设计仍是满足需求的最小方案：以 `Source`、`ParsedArtifact`、`TextChunk`、`ProcessingRun` 四类已有实体承载资料、可追溯产物、检索资格和一次处理历史；由 main 维护一条可取消/可重试的处理编排链，parser、chunker、embedding 只通过窄 adapter 隔离选型；以五个 named IPC 方法传递 bounded DTO，而不是暴露通用文件或任务通道；失败时保留已完成的 partial artifacts 并新建/重试 run，不引入搜索界面、引用写入、AI 写作、独立数据库或自研 PDF 引擎。项目文件、原子写入、pending recovery 和 Git 继续复用 ADR-001 的 main-owned 方向，不为本 feature 增加第二套持久化模型。
-
-这不是 Constitution exception。需要的额外复杂度（处理状态、partial artifact、取消/重试和恢复记录）直接来自 FR-007–FR-009 与边界安全要求；parser/embedding 包、worker/native runtime、凭据方案和 Git 事件细节在接受前仍是未决项，不能以“最小方案”名义隐式选定。
-
-### 失败边界接受项
-
-| 真实失败边界 | Phase 1 必须验证的行为 | 当前状态与实现前接受项 |
+| Principle | Status | Evidence / gate |
 |---|---|---|
-| renderer | 只渲染 bounded source/status/error DTO；可区分 importing/parsing/chunking/embedding/available/partial/failed；取消、重试和部分产物提示不会把资料误列为可引用。 | **PASS WITH ACCEPTANCE CONDITION**：必须在 compiled Electron 中验证 renderer 收不到 path、原始 PDF、secret，并能在失败/取消后显示可恢复状态；不能只测 React 状态。 |
-| preload | 五个 named methods 与 shared contract 一一映射；无 generic IPC、raw `ipcRenderer`、任意 listener 或未约束 response。 | **PASS WITH ACCEPTANCE CONDITION**：补充 compiled preload 暴露面断言、未知/超大/非法 DTO 拒绝断言，并验证状态更新可重放而不是只依赖一次性 UI 事件。 |
-| main / source IPC | main 校验 sender、当前 project session、导入选择、类型/格式、重复处理选择、run/source identity 和请求范围；parser/chunker/embedding 的取消信号、超时、错误和 retryability 由 main 归一化。 | **NEEDS DECISION**：必须冻结错误码、幂等键、duplicate choice、cancel 的终态、retry 是否创建新 `ProcessingRun`、重启后状态恢复和外部 response 校验规则，然后用 runtime-level IPC 场景验证。 |
-| storage / partial artifacts | 原始 PDF、Markdown、图片/表格关系、chunks 和 embedding 状态以可追溯 revision 保存；任一阶段失败保留可用 partial artifacts；原子写入、pending 和恢复不能覆盖有效原件或误报成功。 | **NEEDS DECISION**：ADR-001 尚未接受，且未定义 source artifact layout、文件级/处理 run 级提交边界、partial artifact 的有效性标记、crash-after-replace 和 unknown recovery 的处理；需在 storage contract/ADR 中冻结并用临时 project fixture 注入写入、rename、恢复失败。 |
-| processing adapters | 损坏、加密、无文字 PDF，图片/表格提取失败，chunk 边界不足，embedding timeout/429/malformed result 都产生可解释状态；只有 text+embedding+location 的 chunk 可进入可检索。 | **NEEDS DECISION**：`research.md` 尚未选 parser、embedding 或 job placement，也没有 deterministic fake adapter 与故障注入协议；实现前需选择或明确自研窄 adapter、版本/许可证/离线策略，并用 fixture 验证不把未经验证结果标为 available。 |
-| credentials / external processing | 凭据只能由 main-owned capability 取得并用于外部处理；renderer、preload、日志和错误 DTO 不得看到 secret；超时、认证失败、不可验证响应和离线时不报告成功。 | **NEEDS DECISION**：Phase 1 没有冻结 provider/credentials owner、数据出境范围、脱敏规则、fake/offline adapter 或重试退避；需在相关 ADR/contract 中接受，并用无网络、认证失败和日志 redaction fixture 验证。 |
-| Git / history | source import、processing completion、partial failure、cancel 和 retry 的 history event 与 source/run revision 可追溯；commit 失败或提交状态未知时返回恢复状态，不把文件替换误报为成功。 | **NEEDS DECISION**：ADR-001 的 main-owned Git baseline 已 Accepted；本计划仍需决定每个阶段是否提交、partial artifact 是否进入 commit、retry 如何关联历史和 crash recovery 如何重试，并注入 commit failure/replace-before-commit 场景。 |
+| I. Secure Desktop Boundary | PASS WITH DESIGN | Main owns dialogs, files, both credentials, network, scheduler and publication. Renderer receives safe DTOs/media protocol identities. MinerU PDF egress and SiliconFlow block-text egress are isolated in ADR-005. |
+| II. Typed, Minimal IPC | PASS WITH DESIGN | [contract.md](./contracts/contract.md) defines six user-facing methods and one fixed receive-only event surface; automatic jobs are not exposed as generic controls. |
+| III. Specification-Driven, Minimal Evolution | PENDING ACCEPTANCE | Spec/plan and ADR-005 require maintainer acceptance before tasks. No Constitution exception is required. |
+| IV. Verification at the Failure Boundary | PASS WITH DESIGN | [quickstart.md](./quickstart.md) covers real Electron, filesystem/Git, both external services, archive validation, restart, leak and accessibility boundaries. |
 
-**Post-design implementation gate：BLOCKED。** 设计可以进入 review，但不能生成 tasks 或开始实现，直到 spec 与 ADR-001 被接受，source IPC/数据模型/处理 adapter/凭据/存储与 Git 语义完成上述冻结，并且 quickstart 的真实 Electron runtime 验证能够覆盖 renderer→preload→main→storage/processing→Git 的成功、取消、重试、部分失败和恢复路径。无条件 PASS 尚未成立；任何未决项必须保留为 `NEEDS DECISION` 或写入可接受的 ADR/contract，而不能沉淀为实现者的默认选择。
+**Gate conclusion**: Phase 0/1 design work is allowed. Implementation is blocked. There is no Constitution exception.
 
-## Open decisions
+## Phase 0 research decisions
 
-候选：pdf-parse、pdfjs-dist/unpdf、MuPDF.js、Apache Tika；embedding 可来自 provider、Transformers.js 或 ONNX helper；job 可在 main/worker/utility process。
+[research.md](./research.md) records the complete rationale and alternatives. The frozen proposed direction is:
 
-**Decision: NEEDS DECISION。** 本版不把候选写成批准依赖。
+1. MinerU Precision API v4, signed upload, `vlm` + OCR/table/formula, async poll and validated result archive; lightweight/local parser alternatives rejected.
+2. Dedicated safeStorage-protected MinerU and SiliconFlow credentials; feature 005’s generation credential is not reused.
+3. Untrusted archive normalization into app-owned version/chunk/media identities; remote ids/schema never become canonical authority.
+4. SiliconFlow `BAAI/bge-m3` dense embeddings with a fixed 1024-dimensional profile and bounded main-owned adapter.
+5. Main-owned JSONL job ledger, leases, idempotency, bounded concurrency/backoff and session/version fencing; no SQLite or renderer queue.
+6. Canonical artifacts/vectors tracked in portable project, intermediates ignored; processing commits occur only at user-value publication boundaries.
+7. Six source-library IPC methods, replayable/gap-recoverable events, a narrow 006→007 reader, and fail-closed citation reference guard.
 
-## ADR-003 / 011 renderer integration
+**Third-party policy decision**: MinerU and SiliconFlow credentials are supplied by the user. Configuring and using them is the user's choice to use those services; the product protects credentials and limits payloads but does not verify or promise either provider's retention, deletion, residency, subprocessors or training policy. Those unknowns do not block acceptance.
 
-- source list、processing status、empty/error states 和导入确认优先组合 `Card`、`Badge`、`StatusNotice`、`EmptyState`、`Button`、`ScrollArea` 和 `Dialog`；processing/domain truth 仍归 006。
-- 解析内容 preview 使用 source-owned Typeset preset；图片/表格关系和 artifact identity 不因 appearance 改变，appearance 不进入 project files 或 exports。
-- feature 不直接导入 Base UI 或复制 primitive；覆盖 semantic tokens、light/dark、forced-colors、reduced-motion、键盘与焦点，缺口走 `FoundationExtensionRequest`。
+## Project Structure
+
+### Documentation
+
+```text
+specs/006-source-library-processing/
+├── spec.md
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/contract.md
+└── checklists/
+    ├── requirements.md
+    └── plan-decisions.md
+```
+
+### Planned source delta
+
+```text
+src/
+├── main/
+│   ├── sources/
+│   │   ├── source-repository.ts
+│   │   ├── import-service.ts
+│   │   ├── artifact-normalizer.ts
+│   │   ├── job-repository.ts
+│   │   ├── scheduler.ts
+│   │   ├── mineru-adapter.ts
+│   │   ├── index-repository.ts
+│   │   ├── reference-reader.ts
+│   │   └── handlers.ts
+│   ├── credentials/mineru-credentials.ts
+│   ├── credentials/siliconflow-credentials.ts
+│   └── project/project-transaction.ts
+├── preload/preload.cts
+├── shared/sources.ts
+└── renderer/features/sources/
+    ├── SourceLibrary.tsx
+    ├── SourceDetail.tsx
+    ├── source-state.ts
+    └── source-library.css
+test/
+├── fixtures/sources/
+├── unit/sources/
+├── contract/sources/
+├── integration/sources/
+└── runtime/sources/
+```
+
+**Structure decision**: retain the existing Electron layers. Project paths, credentials, network, queue and vectors remain main-owned; shared holds exact DTO/domain contracts; renderer composes 011 primitives. Do not copy legacy v1 code, IPC, persistence, UI, tests or dependencies.
+
+## Phase 1 design
+
+### Data and lifecycle
+
+[data-model.md](./data-model.md) freezes schema-v1 `SourceCatalog`, `Source`, immutable `SourceVersion`, `ContentBlock`, `MediaAsset`, `IndexProfile`, `EmbeddingRecord`, and `ProcessingJob`, plus storage layout, identities, eligibility and transitions.
+
+- Import acknowledgement precedes heavy work. A same-name/size item stays a provisional candidate until SHA-256; exact duplicate pending data is removed and never becomes a Source/job.
+- Retry operates on the immutable source version and preserves valid artifacts. A new parsing/index profile atomically publishes only after full validation.
+- Source availability is derived: `available` when all eligible blocks have current valid vectors; `partial` when some are valid and others failed/ineligible; failure cannot erase valid prior output.
+- Closing the app aborts active network work safely. Expired durable leases resume when the same project is reopened; jobs never continue in a separate OS daemon.
+- Delete checks the shared reference reader. `unknown` fails closed; revision-bound confirmation supersedes jobs and late results cannot resurrect data.
+
+### Interfaces
+
+[contracts/contract.md](./contracts/contract.md) freezes:
+
+- Renderer/preload six-method source contract plus a separate seven-method fixed service-credential namespace, bounded DTOs, stable errors and replay recovery.
+- Main-only MinerU adapter and strict archive normalization boundary.
+- Main-only SiliconFlow embedding adapter, bounded request/response validation and stable errors.
+- Main-domain `SourceIndexReader` consumed by 007.
+- `SourceReferenceReader` extended by 007 citation schemas; failure/unknown prevents deletion.
+
+### Transactions and Git
+
+1. Extract reusable ADR-001 `ProjectTransaction` from current feature-specific repositories: serialized per-project queue, pending manifest, atomic replace, Git commit, recovery outcome.
+2. Extend Git adapter with typed structured metadata so 006 can create `Actor: system`, `Event: processing`, `Content-Change: false` commits instead of the current chapter-oriented hard-coded trailers.
+3. Publish boundaries: accepted import/original; validated parse manifest; bounded index terminal/partial checkpoint; retry outcome; removal. Heartbeats/leases/attempt scheduling do not commit.
+4. Canonical vectors remain project-tracked because FR-010/007 require portable persistent readiness; temporary downloads, leases, model cache and staging remain ignored.
+
+### Scheduling and failure semantics
+
+- One parse job per source version; one embedding job per eligible chunk/profile. Idempotency keys and CAS prevent duplicates.
+- Remote `pending/running/done/failed` is observation only. App job state is authoritative and checks project session/source version/profile before every write.
+- Retryable: network/timeout/429/selected 5xx/service processing errors; use `Retry-After` or persisted full-jitter backoff. Auth/input/size/page/corrupt/malformed archive are terminal or user-action failures.
+- Local removal is a tombstone. Public MinerU docs do not support promising remote cancellation/deletion.
+- SiliconFlow timeout, throttling, malformed vectors or wrong response indices fail only affected jobs; main validates count, identity, 1024 dimensions and finite values before persistence.
+
+## Verification Matrix
+
+| Failure boundary | Required evidence |
+|---|---|
+| Dialog/import/storage | 100-item bounded acknowledgement; unreadable/mixed batch; provisional duplicate cleanup; atomic copy/hash; no wrong-project write. |
+| Renderer/preload/main | Exact namespace/methods/event channel; strict inputs/sender/session; no path/PDF/vector/secret/remote id; gap resync. |
+| MinerU transport | Signed upload/poll/download fakes; conservative limits; 429/backoff/auth/quota/malformed; egress disclosure and sentinel redaction. |
+| Archive normalization | Traversal/symlink/zip-bomb/schema/id/order/media attacks rejected; valid portions and app identities deterministic. |
+| SiliconFlow embedding | Fixed `BAAI/bge-m3` profile, bounded batches, finite 1024-d output; auth/429/timeout/NaN/wrong index/dimension isolated and redacted. |
+| Durable queue/restart | Lease expiry, attempt cap, idempotency, completed-result reuse, same project/version fencing, shutdown/reopen recovery. |
+| Project transaction/Git | Pending/rename/commit/recovery failures do not report success; processing trailers; bounded commits; portable canonical data. |
+| Retry/removal/reference | Valid results preserved; reference and unknown block deletion; confirmation CAS; late results cannot resurrect. |
+| UI/accessibility | Stage/partial/searchability understandable without color; keyboard/focus/live-region; themes, reduced motion, 960×640, 200%. |
+
+## Constitution Check — Phase 1 design re-check
+
+| Principle | Status | Design evidence / remaining gate |
+|---|---|---|
+| I. Secure Desktop Boundary | PASS IN DESIGN, ACCEPTANCE PENDING | Files/network/credentials/scheduler are main-owned; safe media protocol and strict normalization prevent path/active-content exposure. ADR-005 records PDF and block-text egress. |
+| II. Typed, Minimal IPC | PASS IN DESIGN | Six user operations plus one fixed event receiver; no start-job, generic IPC, arbitrary path/media or internal adapter exposure. |
+| III. Specification-Driven, Minimal Evolution | PENDING ACCEPTANCE | Clarifications are resolved; spec, plan, contracts and ADR-005 require one maintainer acceptance decision. |
+| IV. Verification at the Failure Boundary | PASS IN DESIGN | Quickstart maps FR-001–FR-019 and SC-001–SC-009 to fake adapters, malicious fixtures, storage/Git faults and compiled Electron runtime. |
+
+**Post-design implementation gate: PENDING ACCEPTANCE.** Do not generate `tasks.md` or product code until the 006 spec, plan, contracts and ADR-005 are reviewed and marked Accepted, with registry statuses updated in the same change. All prior service-policy, 005 dependency and local-model probe blockers are resolved by the recorded clarifications.
+
+## Complexity Tracking
+
+No Constitution exception is requested. The persistent scheduler, two narrow external adapters, immutable version/profile fencing, archive validator and reference guard are directly required by FR-003–FR-021 and the security baseline. SQLite, OS background daemon, local embedding runtime, ANN database, generic job API, remote sync, replacement/version UI, and a bundled local MinerU/Python runtime are explicitly excluded from v1.
+
+## Implementation phases after gate acceptance
+
+1. **Foundation and ADR**: accept ADR-005; add protected 006 credential storage; extract project transaction metadata support.
+2. **Domain/storage/import**: schemas, catalog/version repository, native batch dialog, pending copy/hash/duplicate lifecycle, Git publication.
+3. **MinerU parsing**: credential availability, adapter, scheduler/leases/backoff, malicious archive validation, atomic normalized publication.
+4. **Remote indexing**: SiliconFlow adapter, fixed `BAAI/bge-m3` profile, block jobs/vector persistence, eligibility and partial state.
+5. **IPC/UI**: six-method namespace, safe media protocol, replayable events, source list/detail/preview/retry/remove using 011 primitives.
+6. **Consumer/reference contracts**: 007 reader and fail-closed chapter citation guard.
+7. **Failure-boundary validation**: deterministic, malicious, restart, Git/storage, compiled Electron, performance and accessibility scenarios in quickstart.

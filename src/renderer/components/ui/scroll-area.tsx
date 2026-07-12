@@ -1,1 +1,5 @@
-import type { HTMLAttributes } from 'react'; import { cn } from '@/lib/cn'; export function ScrollArea({className,...p}:HTMLAttributes<HTMLDivElement>){return <div className={cn('ui-scroll-area',className)} {...p}/>;}
+import type { HTMLAttributes } from 'react';
+import { cn } from '@/lib/cn';
+export function ScrollArea({ className, ...p }: HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('ui-scroll-area', className)} {...p} />;
+}

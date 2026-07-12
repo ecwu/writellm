@@ -1,17 +1,20 @@
-# Planning Decision Checklist: PDF 资料导入与处理
+# Planning Decision Checklist: PDF 知识库摄取与索引
 
-Purpose: 检查需求/计划是否清晰，不是实现测试。  
+Purpose: record design completeness and acceptance gates; checked items are designed, not implementation-complete.
 Feature: [spec.md](../spec.md)  
 Plan: [plan.md](../plan.md)
 
-- [ ] CHK001 是否已确认 Spec §FR-001–FR-010 的最小垂直切片、验收边界和 Out of Scope？ [Completeness, Traceability]
-- [ ] CHK002 spec、ADR-001 和依赖 feature 是否都已 Accepted？ [Decision, Gap]
-- [ ] CHK003 是否已选定候选库/工具、版本、许可证、维护策略和替代方案？ [Decision, Gap]
-- [ ] CHK004 是否已冻结 durable schema、revision、migration、错误码和幂等语义？ [Decision, Gap]
-- [ ] CHK005 是否已冻结 IPC/adapter contract、sender validation、redaction 和权限边界？ [Decision, Traceability]
-- [ ] CHK006 是否已明确外部服务、凭据、离线/fake fixture 和隐私范围？ [Decision, Gap]
-- [ ] CHK007 是否已定义取消、失败、部分成功、冲突、恢复和重试，且不会误报成功？ [Clarity, Gap]
-- [ ] CHK008 是否已定义性能、可访问性、跨平台和大文件等客观阈值？ [Clarity, Gap]
-- [ ] CHK009 是否已确认需要接受/新增的 ADR，并把决策放在 tasks.md 前置条件？ [Decision, Traceability]
+- [x] CHK001 FR-001–FR-019 and SC-001–SC-009 map to the Phase 1 model, contracts, quickstart and explicit out-of-scope boundaries.
+- [x] CHK002 MinerU integration is frozen to Precision API v4 signed upload, async poll, `vlm` + OCR/table/formula and validated Markdown/JSON/media output.
+- [x] CHK003 Durable schema v1, immutable source version, app-owned chunk identity, profile-bound vectors, queue leases/idempotency and stale-result fencing are defined.
+- [x] CHK004 Named IPC, bounded DTO/pagination/events, strict sender/current-session validation, stable errors and redaction are defined.
+- [x] CHK005 Duplicate candidate lifecycle, retry preservation, partial availability, app-close resume, fail-closed reference guard and local deletion tombstone are defined.
+- [x] CHK006 Storage/Git publication boundaries and canonical-versus-runtime artifact layout are defined against accepted ADR-001.
+- [x] CHK007 SiliconFlow `BAAI/bge-m3` adapter, 1024-dimensional profile, bounded payloads, throttling and response validation are defined.
+- [x] CHK008 Objective batch, benchmark, accessibility, limit/backoff and failure-boundary validation scenarios are defined.
+- [x] CHK009 User-supplied third-party credentials constitute the user's choice to use those services; provider policy unknowns are explicitly not a product acceptance gate.
+- [ ] CHK010 ADR-005 covering MinerU and SiliconFlow credentials, transport and data egress is accepted. **BLOCKER**
+- [x] CHK011 Dependency 005 and local-model probes are removed; 006 owns narrow MinerU/SiliconFlow configuration and remote embedding.
+- [ ] CHK012 Feature spec, plan and contracts are maintainer Accepted and `specs/README.md` is updated in the same change. **BLOCKER**
 
-以上项目故意未勾选，待用户审阅后逐项决策。
+Until CHK010 and CHK012 are checked, tasks and implementation remain prohibited.

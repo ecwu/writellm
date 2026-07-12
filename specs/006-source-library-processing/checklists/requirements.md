@@ -1,4 +1,4 @@
-# Specification Quality Checklist: PDF 资料导入与处理
+# Specification Quality Checklist: PDF 知识库摄取与索引
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-07-12
@@ -31,4 +31,5 @@
 
 ## Notes
 
-- Validated after replacing parser, Markdown, chunking, indexing, and provider-specific language with user-observable content quality, source traceability, readiness, and recovery behavior.
+- Validation passed on the first review after expanding the existing 006 boundary rather than creating a duplicate feature.
+- Vendor names and API contracts are intentionally deferred to planning research; the specification captures the observable external-processing, throttling, persistence, identity, and recovery requirements.

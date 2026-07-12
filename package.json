@@ -6,6 +6,7 @@
   "type": "module",
   "main": "dist-electron/main/main.js",
   "scripts": {
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test",
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "tsc -p tsconfig.electron.json && vite build",
@@ -15,10 +16,19 @@
     "test:smoke": "bun run build && node scripts/electron-smoke.mjs",
     "test:ui-runtime": "bun run build && node scripts/electron-ui-runtime.mjs",
     "test:all": "bun run test && bun run test:smoke",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.test.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.test.json",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint . --diagnostic-level=error",
+    "lint:fix": "biome check --write ."
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
+    "@blocknote/ariakit": "0.51.4",
+    "@blocknote/core": "0.51.4",
+    "@blocknote/react": "0.51.4",
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "electron": "43.1.0",
@@ -26,9 +36,11 @@
     "lucide-react": "1.24.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "tailwind-merge": "3.6.0"
+    "tailwind-merge": "3.6.0",
+    "typebox": "1.1.38"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.3",
     "@tailwindcss/vite": "4.3.2",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",

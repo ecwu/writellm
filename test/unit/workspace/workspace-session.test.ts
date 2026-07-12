@@ -1,8 +1,42 @@
 import { describe, expect, test } from 'bun:test';
-import { createWorkspaceSession, selectPrimaryStatus, workspaceSessionReducer } from '../../../src/renderer/workspace/workspaceSession';
+import {
+  createWorkspaceSession,
+  selectPrimaryStatus,
+  workspaceSessionReducer,
+} from '../../../src/renderer/workspace/workspaceSession';
 import { project, status } from '../../fixtures/workspace/workspace-fixtures';
+
 describe('workspace session', () => {
-  test('keeps one preview or pinned panel and toggles a pinned panel', () => { let state = createWorkspaceSession(project); state = workspaceSessionReducer(state, { type: 'panel.preview', id: 'a', focusReturnKey: 'a' }); expect(state.panelMode).toBe('preview'); state = workspaceSessionReducer(state, { type: 'panel.pin', id: 'b', focusReturnKey: 'b' }); expect(state.activePanelId).toBe('b'); state = workspaceSessionReducer(state, { type: 'panel.pin', id: 'b', focusReturnKey: 'b' }); expect(state.activePanelId).toBeNull(); });
-  test('accepts only monotonic valid owner status and removes it', () => { let state = createWorkspaceSession(project); state = workspaceSessionReducer(state, { type: 'status.receive', summary: status({ sequence: 2 }) }); const accepted = state; state = workspaceSessionReducer(state, { type: 'status.receive', summary: status({ sequence: 1, message: 'stale' }) }); expect(state).toBe(accepted); state = workspaceSessionReducer(state, { type: 'status.remove', sourceId: 'editor' }); expect(state.statusBySource.size).toBe(0); });
-  test('selects fixed priority, latest sequence, then stable source id', () => { const primary = selectPrimaryStatus([status({ sourceId: 'z', sequence: 20, state: 'complete', severity: 'success' }), status({ sourceId: 'b', sequence: 2, state: 'error', severity: 'error' }), status({ sourceId: 'a', sequence: 2, state: 'error', severity: 'error' })]); expect(primary?.sourceId).toBe('a'); });
+  test('keeps one preview or pinned panel and toggles a pinned panel', () => {
+    let state = createWorkspaceSession(project);
+    state = workspaceSessionReducer(state, { type: 'panel.preview', id: 'a', focusReturnKey: 'a' });
+    expect(state.panelMode).toBe('preview');
+    state = workspaceSessionReducer(state, { type: 'panel.pin', id: 'b', focusReturnKey: 'b' });
+    expect(state.activePanelId).toBe('b');
+    state = workspaceSessionReducer(state, { type: 'panel.pin', id: 'b', focusReturnKey: 'b' });
+    expect(state.activePanelId).toBeNull();
+  });
+  test('accepts only monotonic valid owner status and removes it', () => {
+    let state = createWorkspaceSession(project);
+    state = workspaceSessionReducer(state, {
+      type: 'status.receive',
+      summary: status({ sequence: 2 }),
+    });
+    const accepted = state;
+    state = workspaceSessionReducer(state, {
+      type: 'status.receive',
+      summary: status({ sequence: 1, message: 'stale' }),
+    });
+    expect(state).toBe(accepted);
+    state = workspaceSessionReducer(state, { type: 'status.remove', sourceId: 'editor' });
+    expect(state.statusBySource.size).toBe(0);
+  });
+  test('selects fixed priority, latest sequence, then stable source id', () => {
+    const primary = selectPrimaryStatus([
+      status({ sourceId: 'z', sequence: 20, state: 'complete', severity: 'success' }),
+      status({ sourceId: 'b', sequence: 2, state: 'error', severity: 'error' }),
+      status({ sourceId: 'a', sequence: 2, state: 'error', severity: 'error' }),
+    ]);
+    expect(primary?.sourceId).toBe('a');
+  });
 });

@@ -1,7 +1,7 @@
 # Research: Block editor
 
-All technical unknowns used by this plan are resolved below. Acceptance remains
-separate: dependency contracts and ADR-001 are still gated as listed at the end.
+All technical unknowns used by this accepted plan are resolved below. The exact
+package lock remains subject to the verification gate listed at the end.
 
 ## Decision: BlockNote JSON is the canonical editor payload
 
@@ -122,11 +122,11 @@ future accepted 006/007 contracts.
 - [ADR-001](../../docs/adr/001-project-storage.md)
 - [ADR-003](../../docs/adr/003-ui-foundation.md)
 
-## Remaining acceptance gates
+## Remaining implementation gate
 
-No research item remains `NEEDS CLARIFICATION`. Implementation is nevertheless
-blocked until 003 spec/plan, 004 spec/plan and ADR-001 are Accepted; the shared
-create/link and linked-delete transaction is frozen by both producer/consumer
-plans; the exact package lock passes license/peer/build/Electron checks; and the
-FR-011 is exercised by two primary-instance-owned compiled Electron test windows
-sharing the same main repository; no user-facing multi-window manager is added.
+No research item remains `NEEDS CLARIFICATION`. The accepted 003 and 004 plans
+freeze the shared create/link transaction; linked deletion remains safely refused
+by 003 and outside 004 scope. Before implementation proceeds beyond dependency
+setup, the exact package lock must pass license/peer/build/Electron checks. FR-011
+is exercised by two primary-instance-owned compiled Electron test windows sharing
+the same main repository; no user-facing multi-window manager is added.

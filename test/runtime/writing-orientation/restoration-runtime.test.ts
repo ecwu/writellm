@@ -1,1 +1,13 @@
-import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises'; test('runtime restoration has stable entry and guarded leave choices',async()=>{const state=await readFile('src/renderer/features/writing-orientation/orientation-state.ts','utf8'),shell=await readFile('src/renderer/workspace/WorkspaceShell.tsx','utf8');expect(state).toContain('document.outlineItems[0]?.outlineItemId ?? null');for(const choice of ['Save and leave','Discard and leave','Stay'])expect(shell).toContain(choice);});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('runtime restoration has stable entry and guarded leave choices', async () => {
+  const state = await readFile(
+      'src/renderer/features/writing-orientation/orientation-state.ts',
+      'utf8',
+    ),
+    shell = await readFile('src/renderer/workspace/WorkspaceShell.tsx', 'utf8');
+  expect(state).toContain('document.outlineItems[0]?.outlineItemId ?? null');
+  for (const choice of ['Save and leave', 'Discard and leave', 'Stay'])
+    expect(shell).toContain(choice);
+});

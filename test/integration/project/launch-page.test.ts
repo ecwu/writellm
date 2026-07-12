@@ -8,7 +8,14 @@ test('launch state renders a safe empty state after first launch', async () => {
 });
 
 test('launch state turns bridge failure into a retryable safe error', async () => {
-  const api = { listRecentProjects: async () => { throw new Error('/private/path should not escape'); } } as WriteLLMIpc;
-  expect(await loadLaunchState(api)).toEqual({ status: 'error', recentProjects: [], message: 'Recent projects are unavailable. You can try again.' });
+  const api = {
+    listRecentProjects: async () => {
+      throw new Error('/private/path should not escape');
+    },
+  } as WriteLLMIpc;
+  expect(await loadLaunchState(api)).toEqual({
+    status: 'error',
+    recentProjects: [],
+    message: 'Recent projects are unavailable. You can try again.',
+  });
 });
-

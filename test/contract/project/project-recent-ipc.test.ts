@@ -6,4 +6,3 @@ test('recent IPC includes pointer management but no project deletion or path met
   expect(Object.keys(ipcChannels)).not.toContain('deleteProject');
   expect(Object.values(ipcChannels).some((channel) => channel.includes('path'))).toBe(false);
 });
-

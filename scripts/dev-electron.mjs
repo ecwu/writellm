@@ -42,7 +42,7 @@ try {
   run('bun', ['x', 'vite', '--host', '127.0.0.1', '--port', '5173', '--strictPort']);
   await waitForVite(url);
   const electron = run('bun', ['x', 'electron', '.'], {
-    env: { ...process.env, VITE_DEV_SERVER_URL: url }
+    env: { ...process.env, VITE_DEV_SERVER_URL: url },
   });
   electron.on('exit', (code) => stop(code ?? 0));
 } catch (error) {

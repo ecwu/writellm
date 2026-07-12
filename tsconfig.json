@@ -14,8 +14,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
-    ,"paths": { "@/*": ["./src/renderer/*"] }
+    "jsx": "react-jsx",
+    "paths": { "@/*": ["./src/renderer/*"] }
   },
   "include": ["src/renderer", "src/shared", "src/vite-env.d.ts"]
 }

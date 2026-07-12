@@ -1,0 +1,3 @@
+import { expect,test } from 'bun:test';
+import { isAvailable,type ProviderSummary } from '../../../src/shared/provider-settings';
+test('availability requires current success and configured secret',()=>{const value:ProviderSummary={revision:'r',config:{providerKind:'openai-compatible',baseUrl:'https://x.test/',modelId:'m',contextWindow:1024,maxOutputTokens:1,reasoning:false},harnessProfile:null,secretState:'configured',validation:{status:'succeeded'},available:false};expect(isAvailable(value)).toBe(true);expect(isAvailable({...value,validation:{status:'stale'}})).toBe(false);expect(JSON.stringify(value)).not.toContain('api-key');});

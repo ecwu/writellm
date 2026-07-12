@@ -76,7 +76,10 @@ export type ProjectError = {
 
 export type ProjectFailure = { status: 'error'; error: ProjectError };
 export type Canceled = { status: 'canceled' };
-export type ProjectSuccess<T extends object> = { status: 'created' | 'opened'; project: ProjectSnapshot } & T;
+export type ProjectSuccess<T extends object> = {
+  status: 'created' | 'opened';
+  project: ProjectSnapshot;
+} & T;
 export type RemoveRecentSuccess = { status: 'removed'; recentId: string };
 
 export type CreateProjectResult = ProjectSuccess<{}> | Canceled | ProjectFailure;
@@ -93,4 +96,3 @@ export type CleanupWarning = string;
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-

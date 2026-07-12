@@ -1,40 +1,93 @@
 export const appearanceChannels = {
   get: 'writellm:appearance:get',
-  update: 'writellm:appearance:update'
+  update: 'writellm:appearance:update',
 } as const;
 
 export const themeModes = ['system', 'light', 'dark'] as const;
-export const fontIds = ['system-sans', 'system-serif', 'system-mono'] as const;
+export const typographyPresetIds = ['editor', 'reading', 'compact'] as const;
+export const bodyFontIds = ['system-serif', 'system-sans'] as const;
+export const monoFontIds = ['system-mono'] as const;
 export type ThemeMode = (typeof themeModes)[number];
+export type TypographyPresetId = (typeof typographyPresetIds)[number];
+export type BodyFontId = (typeof bodyFontIds)[number];
+export type MonoFontId = (typeof monoFontIds)[number];
+
 export type AppearancePreferences = {
-  version: 1;
+  schemaVersion: 1;
   themeMode: ThemeMode;
-  bodyFont: (typeof fontIds)[number];
-  headingFont: (typeof fontIds)[number];
-  monoFont: (typeof fontIds)[number];
-  fontScale: number;
-  lineHeight: number;
-  contentWidth: number;
+  editorTypographyPreset: TypographyPresetId;
+  bodyFontId: BodyFontId;
+  headingFontId: BodyFontId;
+  monoFontId: MonoFontId;
+  baseSize: number;
+  leading: number;
+  flow: number;
 };
-export type AppearanceWarningCode = 'CORRUPT_PREFERENCES' | 'UNSUPPORTED_VERSION' | 'STORAGE_READ_FAILED';
-export type AppearanceErrorCode = 'INVALID_PREFERENCES' | 'STORAGE_WRITE_FAILED';
-export type GetAppearanceResult = { status: 'ok'; preferences: AppearancePreferences; warning?: { code: AppearanceWarningCode; message: string } };
-export type UpdateAppearanceResult = { status: 'updated'; preferences: AppearancePreferences } | { status: 'error'; error: { code: AppearanceErrorCode; message: string } };
+export type AppearancePreferenceInput = Omit<AppearancePreferences, 'schemaVersion'>;
+export type AppearanceWarningCode =
+  | 'APPEARANCE_PREFERENCES_CORRUPT'
+  | 'APPEARANCE_PREFERENCES_UNSUPPORTED';
+export type AppearanceErrorCode = 'APPEARANCE_INVALID_INPUT' | 'APPEARANCE_STORAGE_UNAVAILABLE';
+export type GetAppearanceResult = {
+  status: 'ok';
+  preferences: AppearancePreferences;
+  warning?: { code: AppearanceWarningCode; message: string };
+};
+export type UpdateAppearanceResult =
+  | { status: 'updated'; preferences: AppearancePreferences }
+  | { status: 'error'; error: { code: AppearanceErrorCode; message: string } };
 export type AppearanceIpc = {
   getAppearancePreferences(): Promise<GetAppearanceResult>;
-  updateAppearancePreferences(value: unknown): Promise<UpdateAppearanceResult>;
+  updateAppearancePreferences(value: AppearancePreferenceInput): Promise<UpdateAppearanceResult>;
 };
 
 export const defaultAppearancePreferences: AppearancePreferences = {
-  version: 1, themeMode: 'system', bodyFont: 'system-serif', headingFont: 'system-serif', monoFont: 'system-mono', fontScale: 1, lineHeight: 1.75, contentWidth: 72
+  schemaVersion: 1,
+  themeMode: 'system',
+  editorTypographyPreset: 'editor',
+  bodyFontId: 'system-serif',
+  headingFontId: 'system-serif',
+  monoFontId: 'system-mono',
+  baseSize: 16,
+  leading: 1.75,
+  flow: 1.25,
 };
 
 export function parseAppearancePreferences(value: unknown): AppearancePreferences | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
-  if (v.version !== 1 || !themeModes.includes(v.themeMode as ThemeMode)) return null;
-  if (![v.bodyFont, v.headingFont, v.monoFont].every((font) => fontIds.includes(font as never))) return null;
-  const finite = (n: unknown, min: number, max: number) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
-  if (!finite(v.fontScale, .75, 2) || !finite(v.lineHeight, 1.2, 2.4) || !finite(v.contentWidth, 40, 100)) return null;
-  return { version: 1, themeMode: v.themeMode as ThemeMode, bodyFont: v.bodyFont as AppearancePreferences['bodyFont'], headingFont: v.headingFont as AppearancePreferences['headingFont'], monoFont: v.monoFont as AppearancePreferences['monoFont'], fontScale: v.fontScale as number, lineHeight: v.lineHeight as number, contentWidth: v.contentWidth as number };
+  const keys = [
+    'schemaVersion',
+    'themeMode',
+    'editorTypographyPreset',
+    'bodyFontId',
+    'headingFontId',
+    'monoFontId',
+    'baseSize',
+    'leading',
+    'flow',
+  ];
+  if (Object.keys(v).length !== keys.length || !keys.every((key) => key in v)) return null;
+  const finite = (n: unknown, min: number, max: number) =>
+    typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+  if (
+    v.schemaVersion !== 1 ||
+    !themeModes.includes(v.themeMode as ThemeMode) ||
+    !typographyPresetIds.includes(v.editorTypographyPreset as TypographyPresetId)
+  )
+    return null;
+  if (
+    !bodyFontIds.includes(v.bodyFontId as BodyFontId) ||
+    !bodyFontIds.includes(v.headingFontId as BodyFontId) ||
+    !monoFontIds.includes(v.monoFontId as MonoFontId)
+  )
+    return null;
+  if (!finite(v.baseSize, 12, 32) || !finite(v.leading, 1.2, 2.4) || !finite(v.flow, 0.75, 3))
+    return null;
+  return v as AppearancePreferences;
+}
+
+export function parseAppearanceInput(value: unknown): AppearancePreferences | null {
+  if (!value || typeof value !== 'object' || 'schemaVersion' in value) return null;
+  return parseAppearancePreferences({ schemaVersion: 1, ...(value as object) });
 }

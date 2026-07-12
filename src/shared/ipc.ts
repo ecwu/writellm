@@ -2,7 +2,7 @@ import type {
   CreateProjectResult,
   ListRecentResult,
   OpenProjectResult,
-  RemoveRecentResult
+  RemoveRecentResult,
 } from './project.js';
 
 export const ipcChannels = {
@@ -11,7 +11,7 @@ export const ipcChannels = {
   openProjectFromDialog: 'writellm:project:open-dialog',
   openRecentProject: 'writellm:project:open-recent',
   relinkRecentProject: 'writellm:project:relink',
-  removeRecentProject: 'writellm:project:remove-recent'
+  removeRecentProject: 'writellm:project:remove-recent',
 } as const;
 
 export type CreateProjectRequest = { displayName: string };

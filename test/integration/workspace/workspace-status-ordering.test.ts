@@ -1,2 +1,25 @@
-import { expect,test } from 'bun:test'; import { createWorkspaceSession,selectPrimaryStatus,workspaceSessionReducer } from '../../../src/renderer/workspace/workspaceSession'; import { project,status } from '../../fixtures/workspace/workspace-fixtures';
-test('multiple owners reject stale updates and select deterministic primary status',()=>{let state=createWorkspaceSession(project);for(const summary of [status({sourceId:'writer',sequence:5}),status({sourceId:'source',sequence:1,state:'needs-action',severity:'warning',message:'Reconnect source'}),status({sourceId:'writer',sequence:4,state:'complete',severity:'success'})])state=workspaceSessionReducer(state,{type:'status.receive',summary});expect(state.statusBySource.get('writer')?.sequence).toBe(5);expect(selectPrimaryStatus(state.statusBySource.values())?.sourceId).toBe('source');});
+import { expect, test } from 'bun:test';
+import {
+  createWorkspaceSession,
+  selectPrimaryStatus,
+  workspaceSessionReducer,
+} from '../../../src/renderer/workspace/workspaceSession';
+import { project, status } from '../../fixtures/workspace/workspace-fixtures';
+
+test('multiple owners reject stale updates and select deterministic primary status', () => {
+  let state = createWorkspaceSession(project);
+  for (const summary of [
+    status({ sourceId: 'writer', sequence: 5 }),
+    status({
+      sourceId: 'source',
+      sequence: 1,
+      state: 'needs-action',
+      severity: 'warning',
+      message: 'Reconnect source',
+    }),
+    status({ sourceId: 'writer', sequence: 4, state: 'complete', severity: 'success' }),
+  ])
+    state = workspaceSessionReducer(state, { type: 'status.receive', summary });
+  expect(state.statusBySource.get('writer')?.sequence).toBe(5);
+  expect(selectPrimaryStatus(state.statusBySource.values())?.sourceId).toBe('source');
+});

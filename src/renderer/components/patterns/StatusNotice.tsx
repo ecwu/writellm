@@ -1,1 +1,24 @@
-import type { ReactNode } from 'react'; import { Alert } from '@/components/ui/alert'; export function StatusNotice({tone='info',urgent=false,children}:{tone?:'info'|'success'|'warning'|'error';urgent?:boolean;children:ReactNode}){return <Alert className={`status-notice status-${tone}`} role={urgent||tone==='error'?'alert':'status'} aria-live={urgent?'assertive':'polite'}><span aria-hidden="true">{tone==='success'?'✓':tone==='warning'?'⚠':tone==='error'?'!':'i'}</span><span>{children}</span></Alert>}
+import type { ReactNode } from 'react';
+import { Alert } from '@/components/ui/alert';
+export function StatusNotice({
+  tone = 'info',
+  urgent = false,
+  children,
+}: {
+  tone?: 'info' | 'success' | 'warning' | 'error';
+  urgent?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Alert
+      className={`status-notice status-${tone}`}
+      role={urgent || tone === 'error' ? 'alert' : 'status'}
+      aria-live={urgent ? 'assertive' : 'polite'}
+    >
+      <span aria-hidden="true">
+        {tone === 'success' ? '✓' : tone === 'warning' ? '⚠' : tone === 'error' ? '!' : 'i'}
+      </span>
+      <span>{children}</span>
+    </Alert>
+  );
+}

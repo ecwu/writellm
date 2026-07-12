@@ -10,4 +10,3 @@ test('compiled runtime harness covers startup and dual-process lifecycle', async
   expect(harness).toContain('second-instance');
   expect(harness).toContain('user-data');
 });
-
