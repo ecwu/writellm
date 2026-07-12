@@ -1,4 +1,11 @@
 node_modules/
 dist/
 dist-electron/
+coverage/
+*.log
+.env*
+.vscode/
+.idea/
+*.tmp
 .DS_Store
+Thumbs.db

@@ -20,9 +20,9 @@ verify, and every story has an independent runtime or end-to-end checkpoint.
 
 **Purpose**: Upgrade and verify the accepted stable dependency baseline before product work.
 
-- [ ] T001 Upgrade and exactly pin Bun 1.3.14, TypeScript 7.0.2, Electron 43.1.0, React/React DOM 19.2.7, Vite 8.1.4, `@vitejs/plugin-react` 6.0.3, `@types/node` 26.1.1, `@types/react` 19.2.17, and `@types/react-dom` 19.2.3 in `package.json` and `bun.lock` without adding runtime libraries.
-- [ ] T002 Resolve TypeScript 7 and Vite 8 compatibility in `tsconfig.json`, `tsconfig.electron.json`, `vite.config.ts`, `scripts/dev-electron.mjs`, and `scripts/electron-smoke.mjs` while preserving the Electron security baseline.
-- [ ] T003 Run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` against `package.json` and `bun.lock`; stop before T004 if any upgraded-baseline regression remains.
+- [X] T001 Upgrade and exactly pin Bun 1.3.14, TypeScript 7.0.2, Electron 43.1.0, React/React DOM 19.2.7, Vite 8.1.4, `@vitejs/plugin-react` 6.0.3, `@types/node` 26.1.1, `@types/react` 19.2.17, and `@types/react-dom` 19.2.3 in `package.json` and `bun.lock` without adding runtime libraries.
+- [X] T002 Resolve TypeScript 7 and Vite 8 compatibility in `tsconfig.json`, `tsconfig.electron.json`, `vite.config.ts`, `scripts/dev-electron.mjs`, and `scripts/electron-smoke.mjs` while preserving the Electron security baseline.
+- [X] T003 Run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` against `package.json` and `bun.lock`; stop before T004 if any upgraded-baseline regression remains.
 
 **Checkpoint**: The frozen toolchain passes all four repository commands with no product changes.
 
@@ -34,18 +34,18 @@ verify, and every story has an independent runtime or end-to-end checkpoint.
 
 **⚠️ CRITICAL**: No user-story phase may begin until this phase is complete.
 
-- [ ] T004 [P] Create deterministic valid, invalid, moved, collision, and cleanup-receipt fixtures with tree-hash helpers in `test/fixtures/project/project-fixtures.ts`.
-- [ ] T005 [P] Define `ProjectManifest`, `RecentIndex`, `RecentRecord`, cleanup receipt types, renderer-safe DTOs, result unions, and stable error codes in `src/shared/project.ts`.
-- [ ] T006 Define exactly six project IPC channel constants and `WriteLLMIpc` signatures in `src/shared/ipc.ts`, removing the legacy runtime-info contract and excluding paths, generic IPC, workspace save, default-location configuration, and project deletion.
-- [ ] T007 [P] Write atomic JSON and cleanup authorization failure tests in `test/unit/project/atomic-json.test.ts` and `test/unit/project/cleanup-receipts.test.ts`.
-- [ ] T008 [P] Write manifest, current-platform leaf-name, UUID, timestamp, schema-version, and required-directory validation tests in `test/unit/project/project-validation.test.ts`.
-- [ ] T009 [P] Write recent-index tests for corrupt/missing input, atomic replacement, projectId upsert, stable recentId, newest-first ordering, and the five-record limit in `test/unit/project/recent-index.test.ts`.
-- [ ] T010 Implement same-directory tokenized JSON writes and rename publication with failure injection in `src/main/project/atomic-json.ts`.
-- [ ] T011 Implement main-only non-resumable cleanup receipt persistence and conservative startup cleanup in `src/main/project/cleanup-receipts.ts`.
-- [ ] T012 Implement explicit v1 manifest, name, UUID, timestamp, and required-directory validators without repair or migration in `src/main/project/project-validation.ts`.
-- [ ] T013 Implement atomic recent-index loading, safe warning projection, availability refresh, projectId upsert, sorting, eviction, and removal in `src/main/project/recent-index.ts`.
-- [ ] T014 Implement shared project repository seams for native dialog results, filesystem failure injection, serialized writes, and redacted errors in `src/main/project/project-repository.ts`.
-- [ ] T015 Add shared renderer declarations for the six-method bridge and safe DTOs in `src/vite-env.d.ts`.
+- [X] T004 [P] Create deterministic valid, invalid, moved, collision, and cleanup-receipt fixtures with tree-hash helpers in `test/fixtures/project/project-fixtures.ts`.
+- [X] T005 [P] Define `ProjectManifest`, `RecentIndex`, `RecentRecord`, cleanup receipt types, renderer-safe DTOs, result unions, and stable error codes in `src/shared/project.ts`.
+- [X] T006 Define exactly six project IPC channel constants and `WriteLLMIpc` signatures in `src/shared/ipc.ts`, removing the legacy runtime-info contract and excluding paths, generic IPC, workspace save, default-location configuration, and project deletion.
+- [X] T007 [P] Write atomic JSON and cleanup authorization failure tests in `test/unit/project/atomic-json.test.ts` and `test/unit/project/cleanup-receipts.test.ts`.
+- [X] T008 [P] Write manifest, current-platform leaf-name, UUID, timestamp, schema-version, and required-directory validation tests in `test/unit/project/project-validation.test.ts`.
+- [X] T009 [P] Write recent-index tests for corrupt/missing input, atomic replacement, projectId upsert, stable recentId, newest-first ordering, and the five-record limit in `test/unit/project/recent-index.test.ts`.
+- [X] T010 Implement same-directory tokenized JSON writes and rename publication with failure injection in `src/main/project/atomic-json.ts`.
+- [X] T011 Implement main-only non-resumable cleanup receipt persistence and conservative startup cleanup in `src/main/project/cleanup-receipts.ts`.
+- [X] T012 Implement explicit v1 manifest, name, UUID, timestamp, and required-directory validators without repair or migration in `src/main/project/project-validation.ts`.
+- [X] T013 Implement atomic recent-index loading, safe warning projection, availability refresh, projectId upsert, sorting, eviction, and removal in `src/main/project/recent-index.ts`.
+- [X] T014 Implement shared project repository seams for native dialog results, filesystem failure injection, serialized writes, and redacted errors in `src/main/project/project-repository.ts`.
+- [X] T015 Add shared renderer declarations for the six-method bridge and safe DTOs in `src/vite-env.d.ts`.
 
 **Checkpoint**: Shared types and main-only storage primitives enforce the frozen schema without exposing filesystem authority.
 
@@ -62,21 +62,21 @@ verify a secondary Electron process exits while the primary restores its single 
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Write collision-safe create, manifest-last publication, cancellation, invalid-name, unsupported-schema, and no-half-project repository tests in `test/unit/project/project-repository.test.ts`.
-- [ ] T017 [P] [US1] Write six-method preload exposure, sender/input validation, cancellation, stable-error, and redaction contract tests in `test/contract/project/project-ipc.test.ts`.
-- [ ] T018 [P] [US1] Write first-launch, loading, empty, create, open, cancellation, invalid-project, and safe-error state tests in `test/integration/project/launch-page.test.ts`.
-- [ ] T019 [P] [US1] Write compiled Electron create/open/restart and real dual-process single-instance scenarios in `test/runtime/project/project-runtime.test.ts`.
+- [X] T016 [P] [US1] Write collision-safe create, manifest-last publication, cancellation, invalid-name, unsupported-schema, and no-half-project repository tests in `test/unit/project/project-repository.test.ts`.
+- [X] T017 [P] [US1] Write six-method preload exposure, sender/input validation, cancellation, stable-error, and redaction contract tests in `test/contract/project/project-ipc.test.ts`.
+- [X] T018 [P] [US1] Write first-launch, loading, empty, create, open, cancellation, invalid-project, and safe-error state tests in `test/integration/project/launch-page.test.ts`.
+- [X] T019 [P] [US1] Write compiled Electron create/open/restart and real dual-process single-instance scenarios in `test/runtime/project/project-runtime.test.ts`.
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement collision-safe create and read-only open with main-owned native directory dialogs in `src/main/project/project-repository.ts`.
-- [ ] T021 [US1] Acquire the single-instance lock before bootstrap, implement idempotent restore/show/focus, and register validated create/open handlers once in `src/main/main.ts`.
-- [ ] T022 [US1] Expose explicit `listRecentProjects`, `createProject`, and `openProjectFromDialog` wrappers without paths or generic IPC in `src/preload/preload.cts`.
-- [ ] T023 [P] [US1] Implement launch loading, empty, create/open, canceled, failure, and opened-workspace transitions in `src/renderer/launch/launchState.ts`.
-- [ ] T024 [US1] Implement semantic create/open controls, visible status/error output, and the empty workspace view in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/App.tsx`.
-- [ ] T025 [P] [US1] Add responsive launch layout, visible keyboard focus, and accessible status styling in `src/renderer/styles.css`.
-- [ ] T026 [US1] Extend the compiled runtime harness for isolated `userData`, dialog fixtures, lifecycle markers, and dual-process assertions in `scripts/electron-smoke.mjs`.
-- [ ] T027 [US1] Run the US1 unit, contract, integration, and compiled runtime checks from `test/unit/project/project-repository.test.ts`, `test/contract/project/project-ipc.test.ts`, `test/integration/project/launch-page.test.ts`, and `test/runtime/project/project-runtime.test.ts`.
+- [X] T020 [US1] Implement collision-safe create and read-only open with main-owned native directory dialogs in `src/main/project/project-repository.ts`.
+- [X] T021 [US1] Acquire the single-instance lock before bootstrap, implement idempotent restore/show/focus, and register validated create/open handlers once in `src/main/main.ts`.
+- [X] T022 [US1] Expose explicit `listRecentProjects`, `createProject`, and `openProjectFromDialog` wrappers without paths or generic IPC in `src/preload/preload.cts`.
+- [X] T023 [P] [US1] Implement launch loading, empty, create/open, canceled, failure, and opened-workspace transitions in `src/renderer/launch/launchState.ts`.
+- [X] T024 [US1] Implement semantic create/open controls, visible status/error output, and the empty workspace view in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/App.tsx`.
+- [X] T025 [P] [US1] Add responsive launch layout, visible keyboard focus, and accessible status styling in `src/renderer/styles.css`.
+- [X] T026 [US1] Extend the compiled runtime harness for isolated `userData`, dialog fixtures, lifecycle markers, and dual-process assertions in `scripts/electron-smoke.mjs`.
+- [X] T027 [US1] Run the US1 unit, contract, integration, and compiled runtime checks from `test/unit/project/project-repository.test.ts`, `test/contract/project/project-ipc.test.ts`, `test/integration/project/launch-page.test.ts`, and `test/runtime/project/project-runtime.test.ts`.
 
 **Checkpoint**: User Story 1 independently creates, restarts, opens, and enters an empty workspace with one active app instance.
 
@@ -92,16 +92,16 @@ project-tree preservation.
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Write moved-project identity, direct-open upsert, strict read-only tree hash, immutable timestamp, unknown-file preservation, and relink mismatch tests in `test/unit/project/project-move.test.ts`.
-- [ ] T029 [P] [US2] Write relink request, sender validation, `PROJECT_ID_MISMATCH`, unchanged-record, and path-redaction contract tests in `test/contract/project/project-relink-ipc.test.ts`.
-- [ ] T030 [P] [US2] Write moved, missing, invalid, inaccessible, relink success, relink mismatch, and retry state tests in `test/integration/project/project-relink.test.ts`.
+- [X] T028 [P] [US2] Write moved-project identity, direct-open upsert, strict read-only tree hash, immutable timestamp, unknown-file preservation, and relink mismatch tests in `test/unit/project/project-move.test.ts`.
+- [X] T029 [P] [US2] Write relink request, sender validation, `PROJECT_ID_MISMATCH`, unchanged-record, and path-redaction contract tests in `test/contract/project/project-relink-ipc.test.ts`.
+- [X] T030 [P] [US2] Write moved, missing, invalid, inaccessible, relink success, relink mismatch, and retry state tests in `test/integration/project/project-relink.test.ts`.
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement direct-open projectId upsert and strict read-only relink validation in `src/main/project/project-repository.ts` and `src/main/project/recent-index.ts`.
-- [ ] T032 [US2] Register validated `openRecentProject` and `relinkRecentProject` handlers in `src/main/main.ts` and explicit preload wrappers in `src/preload/preload.cts`.
-- [ ] T033 [US2] Add missing/invalid/inaccessible diagnostics, relink actions, mismatch preservation, and retry transitions in `src/renderer/launch/launchState.ts` and `src/renderer/launch/LaunchPage.tsx`.
-- [ ] T034 [US2] Add compiled move/direct-open/relink scenarios with before/after tree hashes and manifest bytes in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
+- [X] T031 [US2] Implement direct-open projectId upsert and strict read-only relink validation in `src/main/project/project-repository.ts` and `src/main/project/recent-index.ts`.
+- [X] T032 [US2] Register validated `openRecentProject` and `relinkRecentProject` handlers in `src/main/main.ts` and explicit preload wrappers in `src/preload/preload.cts`.
+- [X] T033 [US2] Add missing/invalid/inaccessible diagnostics, relink actions, mismatch preservation, and retry transitions in `src/renderer/launch/launchState.ts` and `src/renderer/launch/LaunchPage.tsx`.
+- [X] T034 [US2] Add compiled move/direct-open/relink scenarios with before/after tree hashes and manifest bytes in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
 
 **Checkpoint**: User Story 2 independently recognizes a moved project and proves open/relink never writes its tree.
 
@@ -116,16 +116,16 @@ record externally, then remove or relink the record while proving no project dir
 
 ### Tests for User Story 3
 
-- [ ] T035 [P] [US3] Write list/open/remove recent contract tests for bounded DTOs, stable errors, redaction, and no project deletion in `test/contract/project/project-recent-ipc.test.ts`.
-- [ ] T036 [P] [US3] Write recent-card ordering, five-record limit, availability states, remove, relink, and no-delete UI state tests in `test/integration/project/recent-projects.test.ts`.
+- [X] T035 [P] [US3] Write list/open/remove recent contract tests for bounded DTOs, stable errors, redaction, and no project deletion in `test/contract/project/project-recent-ipc.test.ts`.
+- [X] T036 [P] [US3] Write recent-card ordering, five-record limit, availability states, remove, relink, and no-delete UI state tests in `test/integration/project/recent-projects.test.ts`.
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Complete recent availability refresh and pointer-only removal behavior in `src/main/project/recent-index.ts` and `src/main/project/project-repository.ts`.
-- [ ] T038 [US3] Register validated `listRecentProjects` and `removeRecentProject` handlers in `src/main/main.ts` and explicit wrappers in `src/preload/preload.cts`.
-- [ ] T039 [US3] Render at most five recent cards with available/missing/invalid/inaccessible states and open/relink/remove actions in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/launch/launchState.ts`.
-- [ ] T040 [P] [US3] Add recent-card focus, action grouping, diagnostic, and empty-state styles in `src/renderer/styles.css`.
-- [ ] T041 [US3] Add compiled six-project ordering, restart, invalidation, relink, and pointer-only removal scenarios in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
+- [X] T037 [US3] Complete recent availability refresh and pointer-only removal behavior in `src/main/project/recent-index.ts` and `src/main/project/project-repository.ts`.
+- [X] T038 [US3] Register validated `listRecentProjects` and `removeRecentProject` handlers in `src/main/main.ts` and explicit wrappers in `src/preload/preload.cts`.
+- [X] T039 [US3] Render at most five recent cards with available/missing/invalid/inaccessible states and open/relink/remove actions in `src/renderer/launch/LaunchPage.tsx` and `src/renderer/launch/launchState.ts`.
+- [X] T040 [P] [US3] Add recent-card focus, action grouping, diagnostic, and empty-state styles in `src/renderer/styles.css`.
+- [X] T041 [US3] Add compiled six-project ordering, restart, invalidation, relink, and pointer-only removal scenarios in `test/runtime/project/project-runtime.test.ts` and `scripts/electron-smoke.mjs`.
 
 **Checkpoint**: User Story 3 independently manages recent pointers without modifying or deleting project files.
 
@@ -135,10 +135,10 @@ record externally, then remove or relink the record while proving no project dir
 
 **Purpose**: Exercise failure boundaries across all stories and complete the accepted quickstart.
 
-- [ ] T042 [P] Add crash-stage, corrupt-index, cleanup-receipt, atomic-write, and safe-warning regression coverage in `test/unit/project/project-failure-boundaries.test.ts`.
-- [ ] T043 [P] Assert the final bridge exposes exactly six methods and no runtime-info, default-location configuration, workspace save, `deleteProject`, generic IPC, paths, raw exceptions, or file contents in `test/smoke/ipc-contract.test.ts`.
-- [ ] T044 Execute every scenario in `specs/001-project-foundation/quickstart.md`, including 20 move/reopen iterations for SC-003, against the compiled Electron build from `scripts/electron-smoke.mjs`.
-- [ ] T045 Run final `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` verification against `package.json`, `bun.lock`, `src/`, `test/`, and `scripts/electron-smoke.mjs`.
+- [X] T042 [P] Add crash-stage, corrupt-index, cleanup-receipt, atomic-write, and safe-warning regression coverage in `test/unit/project/project-failure-boundaries.test.ts`.
+- [X] T043 [P] Assert the final bridge exposes exactly six methods and no runtime-info, default-location configuration, workspace save, `deleteProject`, generic IPC, paths, raw exceptions, or file contents in `test/smoke/ipc-contract.test.ts`.
+- [X] T044 Execute every scenario in `specs/001-project-foundation/quickstart.md`, including 20 move/reopen iterations for SC-003, against the compiled Electron build from `scripts/electron-smoke.mjs`.
+- [X] T045 Run final `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:smoke` verification against `package.json`, `bun.lock`, `src/`, `test/`, and `scripts/electron-smoke.mjs`.
 
 ---
 

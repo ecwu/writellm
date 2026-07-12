@@ -1,14 +1,27 @@
+import type {
+  CreateProjectResult,
+  ListRecentResult,
+  OpenProjectResult,
+  RemoveRecentResult
+} from './project.js';
+
 export const ipcChannels = {
-  getRuntimeInfo: 'writellm:runtime-info'
+  listRecentProjects: 'writellm:project:list-recent',
+  createProject: 'writellm:project:create',
+  openProjectFromDialog: 'writellm:project:open-dialog',
+  openRecentProject: 'writellm:project:open-recent',
+  relinkRecentProject: 'writellm:project:relink',
+  removeRecentProject: 'writellm:project:remove-recent'
 } as const;
 
-export type RuntimeInfo = {
-  appName: string;
-  appVersion: string;
-  platform: string;
-  isPackaged: boolean;
-};
+export type CreateProjectRequest = { displayName: string };
+export type RecentProjectRequest = { recentId: string };
 
 export type WriteLLMIpc = {
-  getRuntimeInfo(): Promise<RuntimeInfo>;
+  listRecentProjects(): Promise<ListRecentResult>;
+  createProject(request: CreateProjectRequest): Promise<CreateProjectResult>;
+  openProjectFromDialog(): Promise<OpenProjectResult>;
+  openRecentProject(request: RecentProjectRequest): Promise<OpenProjectResult>;
+  relinkRecentProject(request: RecentProjectRequest): Promise<OpenProjectResult>;
+  removeRecentProject(request: RecentProjectRequest): Promise<RemoveRecentResult>;
 };
