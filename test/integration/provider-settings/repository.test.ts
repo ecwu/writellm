@@ -1,5 +1,40 @@
-import { expect,test } from 'bun:test';
-import { mkdtemp,readFile } from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import { expect, test } from 'bun:test';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { ProviderSettingsRepository } from '../../../src/main/provider-settings/repository';
-const config={providerKind:'openai-compatible' as const,baseUrl:'https://example.test/v1/',modelId:'m',contextWindow:4096,maxOutputTokens:512,reasoning:false};
-test('persists paired revision, CAS and no plaintext',async()=>{const dir=await mkdtemp(path.join(os.tmpdir(),'provider-'));const protector={available:async()=>true,protect:async(s:string)=>Buffer.from(s).toString('base64'),unprotect:async(s:string)=>Buffer.from(s,'base64').toString()};const repo=new ProviderSettingsRepository(dir,protector,()=> '2026-07-12T00:00:00.000Z',()=> 'r1');await repo.initialize();const saved=await repo.save(null,config,'secret-sentinel');expect(saved.ok).toBe(true);expect(repo.summary()).toMatchObject({revision:'r1',secretState:'configured',validation:{status:'not-run'}});expect(await readFile(path.join(dir,'provider-settings.json'),'utf8')).not.toContain('secret-sentinel');expect((await repo.save(null,config,'other')).ok).toBe(false);});
+
+const config = {
+  providerKind: 'openai-compatible' as const,
+  baseUrl: 'https://example.test/v1/',
+  modelId: 'm',
+  contextWindow: 4096,
+  maxOutputTokens: 512,
+  reasoning: false,
+};
+test('persists paired revision, CAS and no plaintext', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'provider-'));
+  const protector = {
+    available: async () => true,
+    protect: async (s: string) => Buffer.from(s).toString('base64'),
+    unprotect: async (s: string) => Buffer.from(s, 'base64').toString(),
+  };
+  const repo = new ProviderSettingsRepository(
+    dir,
+    protector,
+    () => '2026-07-12T00:00:00.000Z',
+    () => 'r1',
+  );
+  await repo.initialize();
+  const saved = await repo.save(null, config, 'secret-sentinel');
+  expect(saved.ok).toBe(true);
+  expect(repo.summary()).toMatchObject({
+    revision: 'r1',
+    secretState: 'configured',
+    validation: { status: 'not-run' },
+  });
+  expect(await readFile(path.join(dir, 'provider-settings.json'), 'utf8')).not.toContain(
+    'secret-sentinel',
+  );
+  expect((await repo.save(null, config, 'other')).ok).toBe(false);
+});

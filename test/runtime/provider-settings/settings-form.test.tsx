@@ -1,2 +1,13 @@
-import { expect,test } from 'bun:test';import { readFile } from 'node:fs/promises';
-test('settings form keeps labels, field errors, constrained layout and theme tokens',async()=>{const [ui,css]=await Promise.all([readFile('src/renderer/features/provider-settings/ProviderSettingsPanel.tsx','utf8'),readFile('src/renderer/features/provider-settings/provider-settings.css','utf8')]);expect(ui).toContain('<FormField');expect(ui).toContain('error=');expect(css).toContain('@media');expect(css).toContain('var(--');});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('settings form keeps labels, field errors, constrained layout and theme tokens', async () => {
+  const [ui, css] = await Promise.all([
+    readFile('src/renderer/features/provider-settings/ProviderSettingsPanel.tsx', 'utf8'),
+    readFile('src/renderer/features/provider-settings/provider-settings.css', 'utf8'),
+  ]);
+  expect(ui).toContain('<FormField');
+  expect(ui).toContain('error=');
+  expect(css).toContain('@media');
+  expect(css).toContain('var(--');
+});

@@ -1,3 +1,20 @@
-import { expect,test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { ElectronSecretProtector } from '../../../src/main/provider-settings/secret-protector';
-test('protector stores only ciphertext and fails closed',async()=>{const protector=new ElectronSecretProtector({isEncryptionAvailable:()=>true,encryptString:async value=>Buffer.from(`cipher:${value}`),decryptString:async value=>value.toString().slice(7)});const encrypted=await protector.protect('sentinel');expect(encrypted).not.toContain('sentinel');expect(await protector.unprotect(encrypted)).toBe('sentinel');await expect(new ElectronSecretProtector({isEncryptionAvailable:()=>false,encryptString:()=>Buffer.alloc(0),decryptString:()=>''}).protect('x')).rejects.toThrow();});
+
+test('protector stores only ciphertext and fails closed', async () => {
+  const protector = new ElectronSecretProtector({
+    isEncryptionAvailable: () => true,
+    encryptString: async (value) => Buffer.from(`cipher:${value}`),
+    decryptString: async (value) => value.toString().slice(7),
+  });
+  const encrypted = await protector.protect('sentinel');
+  expect(encrypted).not.toContain('sentinel');
+  expect(await protector.unprotect(encrypted)).toBe('sentinel');
+  await expect(
+    new ElectronSecretProtector({
+      isEncryptionAvailable: () => false,
+      encryptString: () => Buffer.alloc(0),
+      decryptString: () => '',
+    }).protect('x'),
+  ).rejects.toThrow();
+});

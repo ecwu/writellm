@@ -15,11 +15,11 @@ import { registerChapterHandlers } from './project/chapter-handlers.js';
 import { ChapterRepository } from './project/chapter-repository.js';
 import { MarkdownExportService } from './project/markdown-export.js';
 import { ProjectRepository } from './project/project-repository.js';
-import { registerWritingOrientationHandlers } from './writing-orientation/handlers.js';
-import { WritingOrientationRepository } from './writing-orientation/repository.js';
 import { registerProviderSettingsHandlers } from './provider-settings/handlers.js';
 import { ProviderSettingsRepository } from './provider-settings/repository.js';
 import { ElectronSecretProtector } from './provider-settings/secret-protector.js';
+import { registerWritingOrientationHandlers } from './writing-orientation/handlers.js';
+import { WritingOrientationRepository } from './writing-orientation/repository.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,19 +1,128 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
-import { parseReplaceInput, parseRevisionInput, parseSaveInput, providerSettingsChannels, type ProviderError, type ProviderMutationResult, type ValidateProviderResult } from '../../shared/provider-settings.js';
+import {
+  type ProviderError,
+  type ProviderMutationResult,
+  parseReplaceInput,
+  parseRevisionInput,
+  parseSaveInput,
+  providerSettingsChannels,
+  type ValidateProviderResult,
+} from '../../shared/provider-settings.js';
 import { createProviderRuntime } from './pi-provider.js';
 import type { ProviderSettingsRepository } from './repository.js';
 import { validateHarness } from './validator.js';
 
-const unauthorized=():ProviderError=>({code:'PROVIDER_UNAUTHORIZED_SENDER',message:'This request was not authorized.'});
-export function registerProviderSettingsHandlers(input:{ipcMain:Pick<IpcMain,'handle'>;repository:ProviderSettingsRepository;isExpectedSender(event:IpcMainInvokeEvent):boolean}){
- const {ipcMain,repository,isExpectedSender}=input;const allowed=(e:IpcMainInvokeEvent)=>isExpectedSender(e);
- ipcMain.handle(providerSettingsChannels.get,async(e)=>allowed(e)?{status:'ok',summary:repository.summary()}:{status:'error',error:unauthorized()});
- ipcMain.handle(providerSettingsChannels.save,async(e,value)=>{if(!allowed(e))return {status:'error',error:unauthorized()};const parsed=parseSaveInput(value);if('code'in parsed)return {status:'error',error:parsed};const result=await repository.save(parsed.expectedRevision,parsed.config,'secret'in parsed?parsed.secret:undefined);return result.ok?{status:'saved',summary:result.summary}:{status:'error',error:result.error,currentSummary:repository.summary()};});
- ipcMain.handle(providerSettingsChannels.replaceSecret,async(e,value)=>mutation(e,value,'replace'));
- ipcMain.handle(providerSettingsChannels.removeSecret,async(e,value)=>mutation(e,value,'remove'));
- const inFlight=new Set<string>();
- ipcMain.handle(providerSettingsChannels.validate,async(e,value):Promise<ValidateProviderResult>=>{if(!allowed(e))return {status:'error',error:unauthorized()};const parsed=parseRevisionInput(value);if('code'in parsed)return {status:'error',error:parsed};const summary=repository.summary();if(summary.revision!==parsed.expectedRevision)return {status:'error',error:{code:'PROVIDER_CONFLICT',message:'Settings changed. Reload and retry.'},currentSummary:summary};if(!summary.config||summary.secretState!=='configured')return {status:'error',error:{code:'PROVIDER_NOT_READY',message:'Complete settings and a protected API key first.'},currentSummary:summary};if(inFlight.has(parsed.expectedRevision))return {status:'error',error:{code:'PROVIDER_VALIDATION_IN_PROGRESS',message:'Validation is already running.'},currentSummary:summary};inFlight.add(parsed.expectedRevision);try{const secret=await repository.readSecret();const {models,model}=createProviderRuntime(summary.config,secret);const checked=await validateHarness(models,model);const completedAt=new Date().toISOString();const stored={...checked,configRevision:parsed.expectedRevision,completedAt};const current=await repository.persistValidation(parsed.expectedRevision,stored);return current?{status:'completed',summary:repository.summary()}:{status:'stale',summary:repository.summary()};}catch{return {status:'error',error:{code:'PROVIDER_INTERNAL',message:'Validation could not be completed safely.'},currentSummary:repository.summary()};}finally{inFlight.delete(parsed.expectedRevision);}});
- async function mutation(e:IpcMainInvokeEvent,value:unknown,kind:'replace'|'remove'):Promise<ProviderMutationResult>{if(!allowed(e))return {status:'error',error:unauthorized()};
-  if(kind==='replace'){const parsed=parseReplaceInput(value);if('code'in parsed)return {status:'error',error:parsed};const result=await repository.replace(parsed.expectedRevision,parsed.secret);return result.ok?{status:'saved',summary:result.summary}:{status:'error',error:result.error,currentSummary:repository.summary()};}
-  const parsed=parseRevisionInput(value);if('code'in parsed)return {status:'error',error:parsed};const result=await repository.remove(parsed.expectedRevision);return result.ok?{status:'removed',summary:result.summary}:{status:'error',error:result.error,currentSummary:repository.summary()};}
+const unauthorized = (): ProviderError => ({
+  code: 'PROVIDER_UNAUTHORIZED_SENDER',
+  message: 'This request was not authorized.',
+});
+export function registerProviderSettingsHandlers(input: {
+  ipcMain: Pick<IpcMain, 'handle'>;
+  repository: ProviderSettingsRepository;
+  isExpectedSender(event: IpcMainInvokeEvent): boolean;
+}) {
+  const { ipcMain, repository, isExpectedSender } = input;
+  const allowed = (e: IpcMainInvokeEvent) => isExpectedSender(e);
+  ipcMain.handle(providerSettingsChannels.get, async (e) =>
+    allowed(e)
+      ? { status: 'ok', summary: repository.summary() }
+      : { status: 'error', error: unauthorized() },
+  );
+  ipcMain.handle(providerSettingsChannels.save, async (e, value) => {
+    if (!allowed(e)) return { status: 'error', error: unauthorized() };
+    const parsed = parseSaveInput(value);
+    if ('code' in parsed) return { status: 'error', error: parsed };
+    const result = await repository.save(
+      parsed.expectedRevision,
+      parsed.config,
+      'secret' in parsed ? parsed.secret : undefined,
+    );
+    return result.ok
+      ? { status: 'saved', summary: result.summary }
+      : { status: 'error', error: result.error, currentSummary: repository.summary() };
+  });
+  ipcMain.handle(providerSettingsChannels.replaceSecret, async (e, value) =>
+    mutation(e, value, 'replace'),
+  );
+  ipcMain.handle(providerSettingsChannels.removeSecret, async (e, value) =>
+    mutation(e, value, 'remove'),
+  );
+  const inFlight = new Set<string>();
+  ipcMain.handle(
+    providerSettingsChannels.validate,
+    async (e, value): Promise<ValidateProviderResult> => {
+      if (!allowed(e)) return { status: 'error', error: unauthorized() };
+      const parsed = parseRevisionInput(value);
+      if ('code' in parsed) return { status: 'error', error: parsed };
+      const summary = repository.summary();
+      if (summary.revision !== parsed.expectedRevision)
+        return {
+          status: 'error',
+          error: { code: 'PROVIDER_CONFLICT', message: 'Settings changed. Reload and retry.' },
+          currentSummary: summary,
+        };
+      if (!summary.config || summary.secretState !== 'configured')
+        return {
+          status: 'error',
+          error: {
+            code: 'PROVIDER_NOT_READY',
+            message: 'Complete settings and a protected API key first.',
+          },
+          currentSummary: summary,
+        };
+      if (inFlight.has(parsed.expectedRevision))
+        return {
+          status: 'error',
+          error: {
+            code: 'PROVIDER_VALIDATION_IN_PROGRESS',
+            message: 'Validation is already running.',
+          },
+          currentSummary: summary,
+        };
+      inFlight.add(parsed.expectedRevision);
+      try {
+        const secret = await repository.readSecret();
+        const { models, model } = createProviderRuntime(summary.config, secret);
+        const checked = await validateHarness(models, model);
+        const completedAt = new Date().toISOString();
+        const stored = { ...checked, configRevision: parsed.expectedRevision, completedAt };
+        const current = await repository.persistValidation(parsed.expectedRevision, stored);
+        return current
+          ? { status: 'completed', summary: repository.summary() }
+          : { status: 'stale', summary: repository.summary() };
+      } catch {
+        return {
+          status: 'error',
+          error: {
+            code: 'PROVIDER_INTERNAL',
+            message: 'Validation could not be completed safely.',
+          },
+          currentSummary: repository.summary(),
+        };
+      } finally {
+        inFlight.delete(parsed.expectedRevision);
+      }
+    },
+  );
+  async function mutation(
+    e: IpcMainInvokeEvent,
+    value: unknown,
+    kind: 'replace' | 'remove',
+  ): Promise<ProviderMutationResult> {
+    if (!allowed(e)) return { status: 'error', error: unauthorized() };
+    if (kind === 'replace') {
+      const parsed = parseReplaceInput(value);
+      if ('code' in parsed) return { status: 'error', error: parsed };
+      const result = await repository.replace(parsed.expectedRevision, parsed.secret);
+      return result.ok
+        ? { status: 'saved', summary: result.summary }
+        : { status: 'error', error: result.error, currentSummary: repository.summary() };
+    }
+    const parsed = parseRevisionInput(value);
+    if ('code' in parsed) return { status: 'error', error: parsed };
+    const result = await repository.remove(parsed.expectedRevision);
+    return result.ok
+      ? { status: 'removed', summary: result.summary }
+      : { status: 'error', error: result.error, currentSummary: repository.summary() };
+  }
 }

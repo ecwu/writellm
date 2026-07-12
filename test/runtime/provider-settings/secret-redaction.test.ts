@@ -1,2 +1,15 @@
-import { expect,test } from 'bun:test';import { readFile } from 'node:fs/promises';
-test('renderer and shared DTOs expose status but no readable secret or ciphertext field',async()=>{const [ui,dto,preload]=await Promise.all(['src/renderer/features/provider-settings/ProviderSettingsPanel.tsx','src/shared/provider-settings.ts','src/preload/preload.cts'].map(x=>readFile(x,'utf8')));expect(ui).toContain('type="password"');expect(dto).not.toMatch(/ciphertext\??:/);expect(preload).not.toContain('readProviderSecret');});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('renderer and shared DTOs expose status but no readable secret or ciphertext field', async () => {
+  const [ui, dto, preload] = await Promise.all(
+    [
+      'src/renderer/features/provider-settings/ProviderSettingsPanel.tsx',
+      'src/shared/provider-settings.ts',
+      'src/preload/preload.cts',
+    ].map((x) => readFile(x, 'utf8')),
+  );
+  expect(ui).toContain('type="password"');
+  expect(dto).not.toMatch(/ciphertext\??:/);
+  expect(preload).not.toContain('readProviderSecret');
+});

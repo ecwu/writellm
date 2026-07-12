@@ -1,4 +1,43 @@
-import { expect, test } from 'bun:test'; import { mkdtemp, readFile } from 'node:fs/promises'; import os from 'node:os'; import path from 'node:path';
+import { expect, test } from 'bun:test';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { ProviderSettingsRepository } from '../../../src/main/provider-settings/repository';
-const config={providerKind:'openai-compatible' as const,baseUrl:'https://example.test/v1/',modelId:'m',contextWindow:4096,maxOutputTokens:512,reasoning:false};
-test('replace/remove obey CAS and a protection failure preserves current state',async()=>{const dir=await mkdtemp(path.join(os.tmpdir(),'secret-life-'));let fail=false,n=0;const p={available:async()=>true,protect:async(s:string)=>{if(fail)throw Error();return Buffer.from(s).toString('base64')},unprotect:async(s:string)=>Buffer.from(s,'base64').toString()};const r=new ProviderSettingsRepository(dir,p,()=>new Date(0).toISOString(),()=>`r${++n}`);await r.initialize();expect((await r.save(null,config,'one')).ok).toBe(true);fail=true;expect((await r.replace('r1','two')).ok).toBe(false);expect(await r.readSecret()).toBe('one');fail=false;expect((await r.replace('r1','two')).ok).toBe(true);expect((await r.remove('r2')).ok).toBe(true);expect(r.summary().secretState).toBe('not-configured');expect(await readFile(path.join(dir,'provider-settings.json'),'utf8')).not.toContain('two');});
+
+const config = {
+  providerKind: 'openai-compatible' as const,
+  baseUrl: 'https://example.test/v1/',
+  modelId: 'm',
+  contextWindow: 4096,
+  maxOutputTokens: 512,
+  reasoning: false,
+};
+test('replace/remove obey CAS and a protection failure preserves current state', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'secret-life-'));
+  let fail = false,
+    n = 0;
+  const p = {
+    available: async () => true,
+    protect: async (s: string) => {
+      if (fail) throw Error();
+      return Buffer.from(s).toString('base64');
+    },
+    unprotect: async (s: string) => Buffer.from(s, 'base64').toString(),
+  };
+  const r = new ProviderSettingsRepository(
+    dir,
+    p,
+    () => new Date(0).toISOString(),
+    () => `r${++n}`,
+  );
+  await r.initialize();
+  expect((await r.save(null, config, 'one')).ok).toBe(true);
+  fail = true;
+  expect((await r.replace('r1', 'two')).ok).toBe(false);
+  expect(await r.readSecret()).toBe('one');
+  fail = false;
+  expect((await r.replace('r1', 'two')).ok).toBe(true);
+  expect((await r.remove('r2')).ok).toBe(true);
+  expect(r.summary().secretState).toBe('not-configured');
+  expect(await readFile(path.join(dir, 'provider-settings.json'), 'utf8')).not.toContain('two');
+});

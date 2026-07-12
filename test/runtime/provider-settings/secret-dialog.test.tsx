@@ -1,2 +1,12 @@
-import { expect,test } from 'bun:test';import { readFile } from 'node:fs/promises';
-test('secret removal uses the shared focus-restoring dialog and controlled password draft',async()=>{const s=await readFile('src/renderer/features/provider-settings/ProviderSettingsPanel.tsx','utf8');expect(s).toContain('<Dialog open={removeOpen}');expect(s).toContain('setRemoveOpen(false)');expect(s).toContain("setDraft(d=>({...d,secret:''}))");});
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+test('secret removal uses the shared focus-restoring dialog and controlled password draft', async () => {
+  const s = await readFile(
+    'src/renderer/features/provider-settings/ProviderSettingsPanel.tsx',
+    'utf8',
+  );
+  expect(s).toContain('<Dialog open={removeOpen}');
+  expect(s).toContain('setRemoveOpen(false)');
+  expect(s).toContain("setDraft(d=>({...d,secret:''}))");
+});

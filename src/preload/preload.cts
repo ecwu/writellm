@@ -1,8 +1,8 @@
 import type { AppearanceIpc } from '../shared/appearance.js';
 import type { ChapterApi } from '../shared/chapters.js';
 import type { WriteLLMIpc } from '../shared/ipc.js';
-import type { WritingOrientationApi } from '../shared/writing-orientation.js';
 import type { ProviderSettingsIpc } from '../shared/provider-settings.js';
+import type { WritingOrientationApi } from '../shared/writing-orientation.js';
 
 const orientationChannels = {
   load: 'writellm:writing-orientation:load',
@@ -52,8 +52,10 @@ contextBridge.exposeInMainWorld('writellmChapters', chapterApi);
 const providerSettingsApi: ProviderSettingsIpc = {
   getProviderSummary: () => ipcRenderer.invoke('writellm:provider-settings:get'),
   saveProviderSettings: (input) => ipcRenderer.invoke('writellm:provider-settings:save', input),
-  replaceProviderSecret: (input) => ipcRenderer.invoke('writellm:provider-settings:replace-secret', input),
-  removeProviderSecret: (input) => ipcRenderer.invoke('writellm:provider-settings:remove-secret', input),
+  replaceProviderSecret: (input) =>
+    ipcRenderer.invoke('writellm:provider-settings:replace-secret', input),
+  removeProviderSecret: (input) =>
+    ipcRenderer.invoke('writellm:provider-settings:remove-secret', input),
   validateProvider: (input) => ipcRenderer.invoke('writellm:provider-settings:validate', input),
 };
 contextBridge.exposeInMainWorld('writellmProviderSettings', providerSettingsApi);
