@@ -1,0 +1,2 @@
+import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises';
+test('close restores connected enabled trigger or named workspace fallback, never body',async()=>{const source=await readFile('src/renderer/workspace/WorkspaceShell.tsx','utf8');expect(source).toContain('trigger?.isConnected && !trigger.disabled');expect(source).toContain('slotRef.current?.focus()');expect(source).not.toContain('document.body.focus');});

@@ -14,7 +14,7 @@
 - [ ] CHK004 向量索引候选是否已在 sqlite-vec、LanceDB 和可重建进程内方案之间选定，并明确 native/服务/内存风险的接受人？ [Decision, Gap, research §4]
 - [ ] CHK005 natural-language query 的 embedding 来源是否已选定，并明确 005 provider、Transformers.js、ONNX Runtime 或其他候选的模型/维度兼容策略？ [Decision, Gap, Spec §FR-001, research §5]
 - [ ] CHK006 main、worker/utility process、child process 或 local service 的执行位置是否已选定，并说明为何符合最小复杂度原则？ [Decision, Gap, Plan §Architecture]
-- [ ] CHK007 依赖的 exact/semver 策略、Electron 40 ABI/native artifact 支持矩阵和 `bun.lock` 更新 cadence 是否已明确？ [Decision, Gap, research §7]
+- [ ] CHK007 依赖的 exact/semver 策略、Electron 43 ABI/native artifact 支持矩阵和 `bun.lock` 更新 cadence 是否已明确？ [Decision, Gap, research §7]
 
 ## IPC、数据契约与持久化清晰度
 

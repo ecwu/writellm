@@ -15,7 +15,7 @@
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.8.2；ESM 主工程；当前 `package.json` 为 `bun@1.3.4`、Electron 40.10.5、React 19、Vite 6.2.2。  
+**Language/Version**: TypeScript 7.0.2；ESM 主工程；当前 `package.json` 为 `bun@1.3.14`、Electron 43.1.0、React 19.2.7、Vite 8.1.4。
 **Primary Dependencies**: 当前只有 Electron、React、React DOM、Vite、TypeScript 和 Node types。检索/向量/嵌入候选尚未加入依赖，候选与版本策略均为 **NEEDS DECISION**。  
 **Storage**: 遵循 [ADR-001](../../docs/adr/001-project-storage.md) 的可移动 `.writellm` 项目、`sources/` 资料域、`content/` 正文域、`runtime/` 可重建缓存和 main-owned 写入队列。索引具体介质、文件位置、schemaVersion 和迁移方式为 **NEEDS DECISION**，实现前需接受或更新 ADR。  
 **Testing**: 使用现有 `bun run typecheck`、`bun run test`、`bun run build`、`bun run test:smoke`。纯函数/契约可由 Bun test 覆盖；renderer↔preload↔main、项目恢复和安全边界必须进入编译 Electron runtime smoke。  
@@ -29,16 +29,16 @@
 
 ### 当前基础与计划新增
 
-当前源码只有安全启动基础，没有资料、搜索、引用或项目持久化实现：
+当前源码已有 001 project foundation；资料、搜索、引用和 ADR-001 内容存储尚未实现：
 
 ```text
 src/
-├── main/main.ts                 # 已有：BrowserWindow、安全设置、runtime-info IPC
+├── main/main.ts                 # 已有：安全 BrowserWindow、001 project handlers 与 011 appearance foundation
 ├── preload/preload.cts          # 已有：contextBridge + 单个 typed API
 ├── renderer/App.tsx             # 已有：启动 foundation UI
 ├── renderer/main.tsx            # 已有：React root
 ├── renderer/styles.css          # 已有：foundation 样式
-├── shared/ipc.ts                # 已有：runtime-info DTO 和 channel
+├── shared/ipc.ts                # 已有：001 project DTO/六方法 contract；后续 domain contract 独立冻结
 └── vite-env.d.ts                # 已有：Vite 类型
 tests/                           # 当前不存在
 ```
@@ -182,3 +182,9 @@ tests/                           # 计划新增，当前不存在
 ## Complexity Tracking
 
 见上面的“复杂度追踪”。当前没有为宪章例外申请批准；所有复杂度均是待评估的跨边界设计风险，若决策后仍需例外，必须补充 rationale、impact 和 approval。
+
+## ADR-003 / 011 renderer integration
+
+- 搜索输入、筛选、结果状态和上下文查看优先复用 `FormField`/`Input`、`Select`、`Button`、`StatusNotice`、`ScrollArea`、`Dialog` 与 semantic tokens；ranking、citation policy 和 source context 仍归 007。
+- source context 使用 `.typeset-reading` 或 `.typeset-compact`，不得让 appearance 改写 source artifact、citation anchor 或插入内容。
+- feature 不直接导入 Base UI、不复制 primitive；覆盖 light/dark、forced-colors、reduced-motion、键盘与 focus return，缺口走 `FoundationExtensionRequest`。

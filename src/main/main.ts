@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { appendFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { ipcChannels, type CreateProjectRequest, type RecentProjectRequest } from '../shared/ipc.js';
 import { isRecord } from '../shared/project.js';
 import { ProjectRepository } from './project/project-repository.js';
+import { appearanceChannels } from '../shared/appearance.js';
+import { AppearancePreferencesRepository } from './appearance/appearance-preferences.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +18,7 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 let mainWindow: BrowserWindow | null = null;
 let repository: ProjectRepository | null = null;
+let appearanceRepository: AppearancePreferencesRepository | null = null;
 let handlersRegistered = false;
 
 function markLifecycle(value: string): void {
@@ -70,6 +73,13 @@ function registerIpcHandlers(): void {
     if (!isRecentRequest(request)) return { status: 'error', error: { code: 'RECENT_NOT_FOUND', message: 'That recent project record is not available.' } };
     try { return await repository!.removeRecentProject(request.recentId); } catch { return safeError('The recent project record could not be removed.'); }
   });
+  ipcMain.handle(appearanceChannels.get, (event) => isExpectedSender(event) && appearanceRepository ? appearanceRepository.get() : { status: 'error', error: { code: 'STORAGE_READ_FAILED', message: 'Appearance preferences are unavailable.' } });
+  ipcMain.handle(appearanceChannels.update, async (event, value: unknown) => {
+    if (!isExpectedSender(event) || !appearanceRepository) return { status: 'error', error: { code: 'STORAGE_WRITE_FAILED', message: 'Appearance preferences are unavailable.' } };
+    const result = await appearanceRepository.update(value);
+    if (result.status === 'updated') nativeTheme.themeSource = result.preferences.themeMode;
+    return result;
+  });
 }
 
 async function ensureWindow(): Promise<void> {
@@ -114,6 +124,9 @@ if (!hasSingleInstanceLock) {
   app.on('second-instance', () => { markLifecycle('second-instance'); void ensureWindow(); });
   app.whenReady().then(async () => {
     repository = new ProjectRepository({ userDataPath: app.getPath('userData'), dialog });
+    appearanceRepository = new AppearancePreferencesRepository(app.getPath('userData'));
+    const appearance = await appearanceRepository.initialize();
+    nativeTheme.themeSource = appearance.preferences.themeMode;
     await repository.initialize();
     registerIpcHandlers();
     await ensureWindow();

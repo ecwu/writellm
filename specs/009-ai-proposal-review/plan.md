@@ -10,15 +10,15 @@
 
 本 feature 为 `008-ai-writing-tasks` 产出的独立修改提案提供作者可控的审阅闭环：读取并展示目标 Block 的原文、建议文本、意图和资料依据；持久化单项审阅状态；在应用前以项目 revision、Block 稳定标识和内容 fingerprint 做过期/冲突/不可定位检测；仅将明确接受的变更装配到内存中的当前正文，并由 main 进程通过单项目串行写入队列、pending transaction、原子文件替换和历史交接完成保存。
 
-已有 Electron + React startup foundation 只提供安全窗口、基础 typed IPC 和 runtime smoke。它不包含项目存储、Block 编辑器、资料引用、AI task、proposal 或 history 实现。本计划把这些依赖视为必须先冻结的外部边界，不把它们偷偷实现到本 feature 中。
+已有 Electron + React foundation 包含安全窗口、001 project lifecycle/六方法 typed bridge，并有已接受的 011 UI/appearance 设计。它不包含 ADR-001 内容存储、Block 编辑器、资料引用、AI task、proposal 或 history 实现。本计划把这些依赖视为必须先冻结的外部边界。
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.8.x、ES2022；现有 `package.json` 使用 Bun 1.3.4 作为 package manager/runtime 入口。
+**Language/Version**: TypeScript 7.0.x、ES2022；现有 `package.json` 使用 Bun 1.3.14 作为 package manager/runtime 入口。
 
-**Primary Dependencies**: 当前只有 Electron 40.10.5、React 19、React DOM 19、Vite 6.2.x。proposal diff、runtime schema validation、diff viewer、atomic write helper、Git runtime/adapter 均为候选项，**Decision: NEEDS DECISION**；候选及适配比较见 [research.md](./research.md)。
+**Primary Dependencies**: 当前只有 Electron 43.1.0、React 19.2.7、React DOM 19.2.7、Vite 8.1.4。proposal diff、runtime schema validation、diff viewer、atomic write helper、Git runtime/adapter 均为候选项，**Decision: NEEDS DECISION**；候选及适配比较见 [research.md](./research.md)。
 
-**Storage**: 逻辑上依赖 `docs/adr/001-project-storage.md` 提出的 portable `.writellm`、Markdown canonical content、`ai/` proposal 文件、`runtime/pending/` recovery journal 和 main-owned Git history。该 ADR 当前为 `Proposed`，接受状态与 proposal 文件名/schema 仍为 **NEEDS DECISION**；本计划只定义 feature 所需的逻辑边界。
+**Storage**: ADR-002/001 提供 portable `.writellm` root 和 project identity；内容存储依赖 ADR-001 Proposed 中的 editor-native canonical content、`ai/` proposal、pending recovery 和 main-owned Git history。004 canonical chapter 是 BlockNote JSON wrapper，Markdown 只作为 import/paste/export projection。ADR-001 接受状态与 proposal schema 仍为 **NEEDS DECISION**。
 
 **Testing**: 现有脚本为 `bun run typecheck`、`bun run test`、`bun run build`、`bun run test:smoke`。计划新增的 domain/contract 测试使用现有 `bun test` 入口；涉及 preload/main/storage/recovery 的行为必须有真实 Electron runtime smoke 或等价 runtime-level fixture。测试 fixture、故障注入 seam 和最终阈值仍需冻结。
 
@@ -61,9 +61,9 @@
 
 ### 当前已存在（只读基线）
 
-- `src/main/main.ts`：创建安全 `BrowserWindow`、注册 `getRuntimeInfo`、限制导航和外部窗口。
-- `src/preload/preload.cts`：通过 `contextBridge` 暴露单个 typed `getRuntimeInfo` 方法。
-- `src/shared/ipc.ts`：`ipcChannels`、`RuntimeInfo`、`WriteLLMIpc` 的最小共享类型。
+- `src/main/main.ts`：创建安全 `BrowserWindow`、注册已接受的 001 project handlers，并限制导航和外部窗口；011 appearance boundary 独立存在。
+- `src/preload/preload.cts`：通过 `contextBridge` 暴露冻结的 001 六方法 project bridge；proposal review 必须使用额外的独立具名能力。
+- `src/shared/ipc.ts`：已包含 001 project contract；proposal DTO/channel 必须单独冻结且不得泛化 project namespace。
 - `src/renderer/App.tsx`、`src/renderer/main.tsx`、`src/renderer/styles.css`：基础 React shell 和 runtime 状态展示。
 - `scripts/dev-electron.mjs`、`scripts/electron-smoke.mjs`：开发启动和现有 compiled foundation smoke。
 - `package.json`：已有 Electron/React/Vite/TypeScript/Bun scripts；没有 proposal/storage/diff 依赖。
@@ -268,3 +268,9 @@ test/                               # [计划扩展现有测试约定]
 | 依赖 008/007/010 的 versioned handoff | 本 feature 只负责审阅/应用，不复制 task/source/history 真相 | 在 009 内复制实体会造成多个 owner 和 schema 漂移 |
 
 上述复杂度是需求直接要求的安全边界，不构成新增 framework 或平台依赖的批准。任何新增库、Git/SQLite/worker 能力或跨 feature storage 变更仍需在 `plan-decisions.md` 和 ADR 中留下决定记录。
+
+## ADR-003 / 011 renderer integration
+
+- proposal list、diff status、decision actions、冲突提示和 apply confirmation 优先复用 `Button`、`Badge`、`StatusNotice`、`ScrollArea`、`Dialog` 和 semantic tokens；block-aware diff viewer 可为 feature-local composition。
+- preview 可使用 Typeset，但 diff identity、accepted change 和 apply payload 始终基于 004 canonical BlockNote blocks，而不是 HTML/Markdown projection。
+- feature 不直接导入 Base UI、不复制 primitive 或建立第二套 theme；覆盖 light/dark、forced-colors、reduced-motion、完整键盘审阅流程与 focus return，缺口走 `FoundationExtensionRequest`。

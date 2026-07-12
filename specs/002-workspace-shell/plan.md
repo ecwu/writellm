@@ -2,268 +2,173 @@
 
 **Branch**: `002-workspace-shell` | **Date**: 2026-07-12 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/002-workspace-shell/spec.md`
+**Status**: Accepted — maintainer accepted 2026-07-12; 011 implementation confirmed complete
 
 ## Summary
 
-本 feature 为已打开项目建立一个持续存在的 Electron + React 工作台外壳：顶部项目导航、左侧工具入口、中心编辑内容槽位、底部状态区域，以及统一的工具面板、模态、焦点、Escape、外部点击、背景滚动和窄窗口规则。它只负责共享交互边界，不实现章节、资料、AI、引用、历史或 provider 业务。
+在已实现的 001 项目入口与已接受的 011 UI foundation 之上，建立 renderer-only 的单窗口工作台外壳。001 的四条成功路径把既有 `ProjectSnapshot { projectId, displayName }` 交给工作台；工作台提供项目导航、工具入口、持续挂载的主要工作区槽位、最多一个活动工具面板和 owner-provided 状态区域。返回启动页只切换 renderer surface 并复用 001 能力。
 
-当前仓库只有 startup foundation：Electron 主窗口已经有安全配置和 1200×800 / 最小 960×640 的窗口约束，preload 只暴露 `getRuntimeInfo`，renderer 只有基础状态页。计划新增的 shell 必须在这个基础上演进，不能从 `legacy/v1-freeze` 复制产品代码、持久化模型、IPC 或组件。
-
-本版是高可行性方案，不拍板库、包或平台能力。研究文档列出候选；所有跨边界技术选型、版本策略和持久化策略均保持 `Decision: NEEDS DECISION`，实现前须由维护者在 checklist 中确认。
+002 不新增 IPC、持久化 schema、项目验证、保存/恢复协议或 UI primitive。活动面板与焦点返回键只存在于当前 renderer 会话；Dialog、Tooltip、ScrollArea、StatusNotice、主题、Typeset 与测试 harness 全部消费 011 的已接受契约。
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.8.2；React/React DOM 19；Electron 40.10.5；Bun 1.3.4（包管理器和测试运行器）；Vite 6.2.2。以上是当前 `package.json` 的已有栈。
+**Language/Version**: TypeScript 7.0.2；React/React DOM 19.2.7；Electron 43.1.0；Bun 1.3.14。
 
-**Primary Dependencies**: 当前仅使用 React、React DOM、Electron、Vite 和 TypeScript。浮层/焦点 primitives、状态库、测试工具和样式方案仅在 [research.md](./research.md) 中作为候选，未批准为依赖。最低可行方案可由 React 内置状态、现有 CSS 和现有 Bun scripts 组成。
+**Primary Dependencies**: 当前 `package.json` 的精确冻结依赖；002 使用 React built-ins 和 011 已接受的 source-owned shadcn/Rhea + Base UI、Tailwind CSS v4、semantic tokens 与 Typeset。002 不新增状态库、overlay 库、路由库或 browser automation 依赖。
 
-**Storage**: 工作台交互状态默认是 renderer 内的短生命周期状态；不直接写文件、Git 或 `localStorage` 作为项目真相。项目 manifest、`ui-state.json`、保存队列、Git 和恢复协议仍由 `001-project-foundation` 与 [ADR-001](../../docs/adr/001-project-storage.md) 的 main-owned 边界管理。是否把面板/布局偏好加入 `ui-state.json` 是 `NEEDS DECISION`，且不能把焦点 DOM 引用、模态打开状态或秘密写入持久化。
+**Storage**: 无。`surface`、`activePanelId`、`panelFocusReturnKey` 是 renderer 内存状态；布局由 CSS 推导。不得写入 project、recent index、appearance preferences、localStorage 或新文件。
 
-**Testing**: 当前已有 `bun test`、`bun run typecheck`、`bun run build` 和 `bun run test:smoke`。计划在不改变现有脚本语义的前提下增加 shell 状态/语义测试和真实 Electron runtime smoke；React Testing Library、Playwright Electron 或其他工具的加入是候选而非批准依赖。跨进程行为必须在 Electron runtime 或等价 runtime-level 环境验证。
+**Testing**: Bun + Happy DOM + React Testing Library + user-event；011 的 dedicated compiled Electron UI fixture 使用原生键盘输入与 DOM inspection。保留 `bun run typecheck`、`bun run test`、`bun run build`、`bun run test:smoke` 及 001/011 回归。
 
-**Target Platform**: Electron 40.10.5 单窗口桌面应用，面向 macOS、Windows 和 Linux；当前窗口默认 1200×800，最小 960×640。Linux Wayland 对程序化窗口大小/位置可能有限制，不能把 renderer CSS 的响应式能力误认为原生窗口 API 能力。
+**Target Platform**: Electron 单窗口桌面应用，macOS、Windows、Linux；默认 1200×800，最小 960×640，并验证 200% 文本缩放。
 
-**Project Type**: 安全桌面应用（Electron main + preload + React renderer）。
+**Project Type**: sandboxed Electron main/preload + React renderer。
 
-**Performance Goals**: 面板打开、切换和关闭不得重建主要编辑区域；必须保持内容、选区和滚动位置。现有 spec 要求 100 次切换 100% 不丢失编辑上下文（Spec §SC-002），并在 960×640 仍可访问主要编辑区和保存错误入口（Spec §SC-005）。具体首屏、面板切换和状态更新时间阈值尚未给出，为 `NEEDS DECISION`，不能自行追加未经接受的硬性 SLA。
+**Performance Goals**: 100 次面板打开/切换/关闭中主要工作区 DOM 节点、内容、选区与滚动 100% 保持；不新增未经 spec 接受的毫秒级 SLA。
 
-**Constraints**:
+**Constraints**: 保持 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`；001 的六方法 `window.writellm` 与 011 的两方法 appearance namespace 不变；同时最多一个工具面板；未知/失败状态不得显示为成功；960×640 与 200% 下关键区域可达。
 
-- Renderer 继续视为不可信边界，保持 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true` 和 `webSecurity: true`。
-- preload 只允许逐项映射命名、typed IPC；不暴露 generic IPC、文件系统、任意路径、Node 对象或任意函数。
-- main 负责窗口、文件、项目和输入验证；shell 只消费安全 DTO、派发有限 UI 事件并呈现安全错误摘要。
-- 同时最多一个活动工具面板；模态打开时背景不可误操作，关闭后焦点有明确恢复规则。
-- 面板接入必须是可替换的 feature slot，不把下游业务逻辑倒灌到 shell。
-- 首版不依赖外部 provider、远程 worker、账号、凭据、网络同步或多窗口。
+**Scale/Scope**: 单项目会话、一个持续工作区槽位、一个可选工具面板、一个状态摘要。后续 feature 提供槽位内容、面板内容、状态与动作。
 
-**Scale/Scope**: 单作者、单机、本地项目、单 Electron 窗口；四个稳定布局区域；一个活动面板和一个活动模态的最小状态模型。面板数量、具体 feature registration 方式和可持久化布局偏好仍需决策。
+## Constitution Check — pre-research gate
 
-### 已有基础与计划新增
-
-| 范围 | 当前 checkout 中已存在 | 本 feature 计划新增或重构 |
+| Principle | Status | Evidence |
 |---|---|---|
-| Electron 窗口 | `src/main/main.ts` 创建 `BrowserWindow`，安全 webPreferences、1200×800、最小 960×640、导航/外链限制 | 将窗口边界作为 shell 的运行时前提；若要动态改变原生约束，另行冻结 main contract，不让 renderer 直接调用 Electron |
-| preload/IPC | `src/preload/preload.cts` 暴露 `getRuntimeInfo`；`src/shared/ipc.ts` 只有 `RuntimeInfo` 与一个 channel | 只在接受依赖 contract 后扩展 typed DTO；shell 不新增 generic bridge |
-| renderer | `App.tsx`、`main.tsx`、`styles.css` 的 foundation 状态页 | `WorkspaceShell`、布局区域、面板/模态协调、焦点恢复、状态展示和响应式 CSS；`App.tsx` 改为挂载稳定 shell |
-| 持久化/项目 | 当前无项目存储实现；ADR-001 和 001 spec 定义目标边界但均未接受 | shell 只消费 001 的 project/session DTO；是否持久化 shell 偏好留给 ADR/Decision |
-| 验证 | `test/smoke/ipc-contract.test.ts` 和 `scripts/electron-smoke.mjs` 只验证 foundation IPC 编译产物 | 添加 renderer 语义/状态验证和真实 Electron 的面板、模态、窗口边界 smoke；不得以静态类型检查替代 runtime 验证 |
+| I. Secure Desktop Boundary | PASS | 002 是 renderer composition，不增加 Electron、Node、路径或文件能力。 |
+| II. Typed, Minimal IPC | PASS | 直接消费 001 已接受的 `ProjectSnapshot`；项目六方法和 appearance 两方法保持不变，无 shell IPC。 |
+| III. Specification-Driven, Minimal Evolution | PASS | spec 与 plan 已接受；设计采用满足范围的最小 reducer、CSS layout 与 011 公共能力。 |
+| IV. Verification at the Failure Boundary | PASS WITH PLAN | reducer/DOM 行为在 DOM harness 验证；真实焦点、inert、键盘、主题与窗口行为在 compiled Electron UI fixture 验证。 |
 
-## Constitution Check
+**Gate conclusion**: 无 Constitution exception 或技术未知项。spec/plan 已接受且 011 已实现；开始 002 实施前确认 001 migration regression 通过。
 
-### Pre-research gate
+## Research Decisions
 
-| Principle | Status | 证据与需要处理的边界 |
-|---|---|---|
-| I. Secure Desktop Boundary | PASS（设计约束） | renderer 不获得 Node/Electron；窗口和文件能力继续留在 main/preload。当前 foundation 已设置安全 webPreferences。 |
-| II. Typed, Minimal IPC | PASS（现有基础，扩展待决） | 当前只有命名的 `getRuntimeInfo`。任何项目摘要、保存状态或重试能力必须进入 shared types 并逐项映射；具体 contract 尚未冻结。 |
-| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTED | `spec.md` 仍为 Draft，ADR-001 仍为 Proposed；本计划不实现代码，且不生成 tasks.md。实现前必须接受 spec、ADR 和跨边界 decisions。 |
-| IV. Verification at the Failure Boundary | PASS WITH PLAN | 计划同时包含状态纯逻辑、DOM/a11y、IPC contract 和真实 Electron runtime smoke；需要 fixture 和 runtime harness 决策。 |
-
-**Pre-research conclusion**: 安全和验证方向符合 constitution；产品实现 gate 尚未通过，因为 spec/ADR/跨边界选择尚未被接受。这是当前项目状态，不是 Constitution exception。
+[research.md](./research.md) 已解决全部技术输入：使用现有 ProjectSnapshot 交接、React 内存 reducer、持续挂载的 workspace slot、确定性的 panel/focus 规则、CSS reflow、owner-provided 状态投影、011 UI/harness，以及零新增 IPC/持久化。
 
 ## Project Structure
 
-### Documentation (this feature)
+### Documentation
 
 ```text
 specs/002-workspace-shell/
-├── plan.md                         # 本规划
-├── research.md                     # 候选研究；所有最终选择仍 NEEDS DECISION
-├── data-model.md                   # shell 状态、实体、校验和边界
-├── quickstart.md                   # 端到端验证场景和运行命令
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
 ├── contracts/
-│   ├── workspace-shell.md          # renderer 内部 UI contract
-│   └── workspace-ipc.md            # renderer↔preload↔main 边界 contract
-├── checklists/
-│   ├── requirements.md             # 已有 requirements checklist，不覆盖
-│   └── plan-decisions.md           # 本次追加的规划决策 checklist
-└── tasks.md                        # 本次不生成；由 speckit-tasks 后续生成
+│   ├── workspace-shell.md
+│   └── workspace-ipc.md
+└── checklists/
+    ├── requirements.md
+    └── plan-decisions.md
 ```
 
-### Current source tree (真实现状)
+### Planned source delta
 
 ```text
-src/
-├── main/main.ts
-├── preload/preload.cts
-├── renderer/
-│   ├── App.tsx
-│   ├── main.tsx
-│   └── styles.css
-├── shared/ipc.ts
-└── vite-env.d.ts
-
-scripts/
-├── dev-electron.mjs
-└── electron-smoke.mjs
-
-test/smoke/ipc-contract.test.ts
-```
-
-### Planned source delta (计划新增，不代表当前文件已存在)
-
-```text
-src/
-├── main/main.ts                    # 已有；只在接受 contract 后调整窗口集成
-├── preload/preload.cts             # 已有；只逐项扩展 typed bridge
-├── shared/
-│   └── ipc.ts                      # 已有；新增类型必须保持最小、命名、可审查
-└── renderer/
-    ├── App.tsx                     # 已有；改为装配 project-ready 与 workspace shell
-    ├── main.tsx                    # 已有；保持单 root
-    ├── styles.css                  # 已有；扩展 layout tokens/响应式规则
-    └── workspace/                  # 计划新增
-        ├── WorkspaceShell.tsx
-        ├── workspaceState.ts       # 纯状态转换；具体状态库未决
-        ├── components/
-        │   ├── ProjectNav.tsx
-        │   ├── ToolRail.tsx
-        │   ├── WorkspaceCanvas.tsx
-        │   ├── WorkspaceStatusBar.tsx
-        │   ├── ToolPanelHost.tsx
-        │   └── ModalHost.tsx
-        └── focus/
-            └── focusRegistry.ts    # 触发入口与关闭后恢复目标
+src/renderer/
+├── App.tsx                         # launch/workspace surface owner
+├── launch/                         # 001 behavior preserved
+└── workspace/
+    ├── WorkspaceShell.tsx
+    ├── workspaceSession.ts         # pure reducer and public renderer types
+    └── components/
+        ├── ProjectNavigation.tsx
+        ├── ToolRail.tsx
+        ├── WorkspaceSlot.tsx
+        ├── ToolPanelHost.tsx
+        └── WorkspaceStatusRegion.tsx
 
 test/
-├── smoke/ipc-contract.test.ts      # 已有；保留并扩展最小 contract 断言
-├── unit/workspace/                 # 计划新增：状态转换和数据校验
-├── integration/workspace/          # 计划新增：DOM 语义、键盘、焦点、状态展示
-└── runtime/workspace/              # 计划新增或由选定 runtime harness 承载
+├── unit/workspace/
+├── integration/workspace/
+└── runtime/ui/                     # extend 011 compiled UI fixture
 ```
 
-**Structure Decision**: 保持现有单仓库 Electron + React 分层，不新建 package、renderer app 或服务。shell 代码归 `src/renderer/workspace`；跨进程类型继续归 `src/shared`；main/preload 只承载必要的集成。上面 `workspace/` 和测试目录是实施计划，不是当前源码事实。具体文件名可在 tasks 阶段调整，但不能改变安全分层。
+**Structure Decision**: shell 只属于 renderer feature composition。共享 primitive/pattern 继续由 011 拥有；001 main/preload/shared project implementation 不因 002 改动。
 
-## 分阶段实施顺序
+## Implementation Design
 
-### Phase 0 — 研究与决策输入（本次规划）
+### Phase 1 — Surface handoff and stable shell
 
-1. 记录浮层/焦点、状态编排、样式、测试和 Electron 窗口能力的候选。
-2. 以 WAI-ARIA APG、Electron、React、候选库官方文档为研究依据。
-3. 明确当前 foundation 与计划新增的差异；不安装依赖、不改 package.json。
-4. 产出本目录的 research、data model、contracts、quickstart 和 plan-decisions checklist。
+1. 将 renderer 顶层 surface 表达为 `launch | workspace(ProjectSnapshot)`；001 create/open/recent/relink 只有成功 union 才进入 workspace，cancel/error 保留启动页。
+2. 返回启动页时清除 shell session 并重新使用现有 `LaunchPage({ api: window.writellm })`；不重新验证、打开或修改项目。
+3. 建立 project navigation、tool rail、workspace slot、panel host 与 status region。workspace slot 在同一 project session 内持续挂载，panel 是其 sibling。
+4. 只渲染已注册且当前可用的 panel trigger；未注册未来工具完全隐藏，不提供禁用或可交互占位入口。
+5. 使用 Button、Tooltip、ScrollArea、StatusNotice、EmptyState 等 011 公共能力与 semantic tokens；feature 只拥有布局、copy 与业务组合。
 
-### Phase 1 — 冻结跨边界前提（实现前）
+### Phase 2 — Panel and focus orchestration
 
-1. 接受 `002-workspace-shell/spec.md`，并确认 `001-project-foundation` 的 project/open/save DTO、错误码和生命周期已可被依赖。
-2. 接受或修订 [ADR-001](../../docs/adr/001-project-storage.md)；若 shell 布局偏好、窗口状态或恢复协议跨越 durable boundary，则新增/更新 ADR。
-3. 决定浮层/焦点 primitives、状态编排、样式/布局和测试 harness；锁定版本策略、许可审查和 React 19/TypeScript/Bun 兼容性验证方式。
-4. 冻结面板标识、模态标识、状态枚举、错误码、DTO 和未知/不支持版本行为。
+1. reducer 只处理进入/离开 workspace、activate/toggle/close panel；`activePanelId` 保证最多一个活动面板。
+2. 当前 trigger 再次激活时关闭；另一 trigger 原子替换；快速输入以最后一次已提交 id 为准；显式关闭与 Escape 使用幂等 close event。
+3. v1 panel 不因外部点击关闭，避免与 trigger/Escape 产生双重关闭。Dialog 打开时由 011 Dialog 优先消费 Escape 与背景交互。
+4. 关闭 panel 后优先聚焦仍连接且可用的 trigger；否则聚焦有名称、`tabIndex=-1` 的 workspace fallback，绝不落到 `body`。
+5. 普通非模态 panel 打开时焦点保留在 trigger；下一次 Tab 按正常顺序进入 panel。Dialog 仍由 011 将焦点移入模态。
+6. panel 状态区分 hover preview 与 pinned open：hover 进入已注册 trigger 时显示临时 preview，指针离开 trigger 与 preview region 后经 200ms grace period 收回；点击/键盘激活转为 pinned，pinned 不响应 blur/pointer-leave timer。
 
-### Phase 2 — 稳定 shell skeleton（计划新增）
+### Phase 3 — Responsive and appearance composition
 
-1. 将 `App.tsx` 从 foundation 状态页调整为 project-ready 后挂载 `WorkspaceShell` 的装配层。
-2. 建立固定的 top navigation、tool rail、main canvas、status region；main canvas 通过稳定 key/节点身份承载未来编辑器 slot。
-3. 用 CSS Grid/Flex 和明确的宽窄模式保证 1200×800 默认窗口及 960×640 最小窗口均有主内容和状态入口。
-4. 只放置 placeholder/slot，不实现 003/004/005 的业务。
+1. 宽布局使用 rail + flexible workspace + bounded panel column；所有网格子项 `min-width: 0`，长内容独立滚动。
+2. 受限布局把 rail reflow 为水平 toolbar，并把 panel 变成有界的 stacked region；不引入 Sidebar、Sheet、Tabs 或 JS breakpoint。
+3. header/status 可换行，panel close path 与重要状态始终可达；在 960×640、200% 缩放验证无阻断裁切。
+4. 主题与排版消费 011 AppearanceProvider、semantic tokens 与 Typeset；运行时 theme/reduced-motion 变化不得 remount project、panel 或 workspace slot。
 
-### Phase 3 — 面板、模态和焦点协调（计划新增）
+### Phase 4 — Owner-provided status
 
-1. 以受控、可序列化的 `PanelId | null` 保证同一时刻一个活动面板；切换不会卸载主要编辑上下文。
-2. 定义 modal open/close、Escape、外部点击、显式关闭、初始焦点和关闭后的返回焦点；modal 背景必须 inert/不可误操作并处理背景滚动。
-3. 为每个图标入口提供可访问名称、可见文字或等价提示；键盘路径必须不依赖鼠标。
-4. 面板内容由 feature-owned slot 提供，shell 不拥有资料、AI、章节、provider 或历史的业务状态。
+1. shell 接收安全的 `OwnerStatusSummary`，只呈现 `in-progress | complete | error | needs-action | unknown | owner-unavailable` 与 severity/message。
+2. 动作仅在 owner 提供 renderer callback 时显示并原样交回 owner；shell 不推断保存、重试、恢复或 IPC method。
+3. 通过 StatusNotice/Alert 提供可见文字与适当 polite/urgent 语义；unknown/owner-unavailable 不映射为 success。
+4. 面板或 Dialog 打开时重要错误仍保持可发现；copy 不得包含路径、secret、raw exception 或项目内容。
+5. 多 owner 只展示一个主状态，使用 `error > needs-action > owner-unavailable > unknown > in-progress > complete`，同级按最新 accepted sequence 与 sourceId 稳定决胜。
 
-### Phase 4 — 状态展示和错误边界（计划新增）
+### Phase 5 — Failure-boundary verification
 
-1. 将 project/editor/provider 等 owner 提供的状态映射为 shell 的保存中、已保存、错误、需要处理等可读状态。
-2. 状态同时使用文字/语义图标等非颜色信息，重要变化使用合适的 live-region 策略，避免干扰编辑流。
-3. 错误展示只使用安全摘要和稳定错误码；重试/恢复事件回到产生该状态的 owner，shell 不绕过 IPC 或直接修改文件。
-4. 对 unknown status、external change、recovery required、owner unavailable 等边界保持明确的退化显示。
+1. 覆盖四种成功交接、cancel/error 不进入、返回后 001 能力及副作用不变。
+2. 覆盖 open/switch/toggle/Escape/explicit/rapid panel events，100 次循环验证节点、内容、selection、scroll 与 focus return。
+3. 覆盖所有状态、动作有无、重复/乱序输入、安全退化，以及 region/control names、键盘路径和 visible focus。
+4. 在 compiled Electron UI fixture 覆盖 Dialog/Tooltip、inert、原生 Tab/Escape、1200×800、960×640、200%、System/Light/Dark 与 reduced motion。
+5. 运行完整 001/011 回归并断言项目六方法、appearance 两方法、项目树只读与存储 schema 均无变化。
 
-### Phase 5 — 窗口和运行时集成（计划新增）
-
-1. 保留当前 `BrowserWindow` 安全基线和最小窗口设置；若要运行时调整原生窗口约束，只通过 main-owned named method，并另行冻结 contract。
-2. renderer 只根据 viewport 展示布局模式，不持有 Electron `BrowserWindow`、路径或原生对象。
-3. 在实际 Electron 中验证 project-ready → shell、IPC 失败、窗口最小尺寸、导航/外链限制和 preload 暴露面。
-
-### Phase 6 — 失败边界验证和交付门槛（计划新增）
-
-1. 运行纯状态转换测试、DOM 语义/键盘/焦点测试和 Electron runtime smoke。
-2. 在真实或等价 runtime 中验证 100 次切换不丢内容、选区和滚动；不能只依赖 renderer snapshot。
-3. 在 960×640 和默认窗口检查主要入口、错误入口、对话框滚动和可读性。
-4. 只有 spec、storage ADR、IPC contract、schema/error code、a11y/performance/recovery decisions 全部可追溯后，才进入 tasks/implementation。
-
-## 跨进程与持久化边界
-
-### 边界规则
-
-| Owner | 允许拥有的能力 | 明确禁止 |
-|---|---|---|
-| Renderer / workspace shell | ephemeral shell state、DOM 布局、面板/模态交互、可访问状态呈现；通过 `window.writellm` 使用已批准能力 | Node/Electron、文件路径、任意文件读写、Git、secret、generic IPC、直接决定项目保存结果 |
-| Preload | 将 shared 中已冻结的命名方法一对一映射给 renderer | 通用 `send/invoke/on` wrapper、任意 channel、把 main 对象或 path 原样泄露给 renderer |
-| Main | BrowserWindow、安全策略、项目/文件/Git、输入验证、持久化、结构化安全错误和恢复队列 | 接受未验证 renderer 输入、把 UI library 状态放入 main、把 raw exception/secret 返回 renderer |
-| 001 project foundation | 项目身份、open/create/delete/recent、project snapshot、项目级保存/恢复 contract | 被 shell 重新实现；shell 不自行扫描、创建或删除 `.writellm` |
-| 003/004/005 等 feature | 自己的动机、大纲、章节、provider 状态和业务错误；以 slot/typed view model 接入 shell | 直接改变 shell 的主编辑上下文、绕过 owner 保存边界 |
-
-### 数据流
-
-```mermaid
-flowchart LR
-  M[Main: project/window authority] --> P[Preload: named typed bridge]
-  P --> R[Renderer: WorkspaceShell]
-  R --> O[Feature owner: editor/project/provider status]
-  O --> R
-  R --> P
-  P --> M
-  M --> S[(Project storage / ui-state / recovery)]
-```
-
-当前唯一已实现跨进程方法是 `getRuntimeInfo()`，用于 foundation runtime 状态；shell 不得把它扩大为任意 runtime access。project-ready、保存状态、重试/恢复和窗口能力的精确方法/DTO/错误码必须先在 [contracts/workspace-ipc.md](./contracts/workspace-ipc.md) 与 001 的 contract 中冻结。
-
-### 持久化边界
-
-- 面板是否打开、当前 modal、焦点返回目标、背景滚动锁和布局模式是 session/DOM 状态，默认不持久化。
-- 项目身份、项目文件、Git commit、pending transaction 和恢复结果归 main/001/ADR-001；shell 只能接收摘要和安全状态。
-- 未来若要保存 rail 折叠、最后活动面板或窗口偏好，必须明确 schema owner、schemaVersion、迁移、损坏恢复、跨项目归属和隐私影响；在此之前留空并标 `NEEDS DECISION`。
-- `ui-state.json` 的 canonical 字段由 storage ADR/001 决定；shell 不把 renderer 的 React store 或 DOM ref 序列化进去。
-- 不引入外部 provider/worker；本 feature 的离线策略是本地 shell 可展示，状态 owner 不可用时显示安全的需要处理状态。
-
-## Verification Strategy
-
-| Failure boundary | 计划验证 | 关键判定 |
-|---|---|---|
-| 纯 UI 状态转换 | `PanelId`、modal、focus-return、status/error reducer 的 table/property-style cases | 一个面板、modal 与 panel 冲突规则、关闭后 fallback、未知状态都可预测 |
-| Renderer DOM/a11y | 以角色/名称/键盘语义为中心的 integration cases；必要时使用已选的 RTL/user-event 或等价工具 | modal 内 Tab 循环、Escape、外部点击、背景不可操作、焦点回收、图标名称、非颜色状态 |
-| 编辑上下文 | 以 fixture editor slot 记录内容、selection、scrollTop，重复切换 100 次 | 100% 保持内容/选区/滚动；主要编辑节点不因面板切换重建 |
-| 窗口/响应式 | 实际 Electron 1200×800、960×640；至少覆盖主支持平台；记录 Wayland 限制 | 主编辑区、导航和错误入口仍可达；长背景/modal 内容可读可滚动 |
-| IPC/preload | 共享类型、暴露面、错误 DTO 和 compiled preload smoke | 只有命名 typed methods；无 generic channel、path、secret；main 校验输入 |
-| Electron runtime | `bun run build` 后 `bun run test:smoke`；若 harness 决定使用 Playwright，再增加真实 Electron launch/interaction | 静态检查不能替代窗口创建、preload、renderer↔main 实际行为 |
-| 存储/恢复 | 使用 001 接受后的 temporary project fixture；模拟失败、pending/recovery、外部变更摘要 | shell 不覆盖、不伪装已保存；恢复入口/错误码清晰且不含敏感信息 |
-
-### 现有命令与未决准备
-
-以下命令是仓库已有 scripts，可在实现后使用；本次规划未运行联网安装命令，也未修改 package.json：
+## Cross-boundary Contract
 
 ```text
-bun run typecheck
-bun run test
-bun run build
-bun run test:smoke
-bun run dev:electron
+001 successful ProjectSnapshot
+          |
+          v
+App surface owner -> WorkspaceShell(renderer session)
+                       |       |        |
+                 workspace   panel   status/action
+                    slot     owner      owner
 ```
 
-需要在 implementation 前准备的 fixture/runtime 能力：已接受的 001 project fixture、可重复的 editor context stub、save-status/error event stub、窗口 runtime harness、至少一个可运行的 Electron display 环境，以及最终选定的 DOM/a11y 工具。shell 本身无需外部服务或凭据；provider 真实连通性不属于本 feature。
+- 001 拥有项目身份、native dialogs、recent records、文件系统与六方法 bridge。
+- 011 拥有 appearance bridge、semantic tokens、primitives、patterns、overlay semantics、Typeset 与 UI harness。
+- 002 只拥有 workspace regions、session reducer、panel orchestration、focus fallback、responsive composition 与状态呈现。
+- 后续 feature 拥有 slot/panel 内容、业务状态、动作与持久化。
 
-## Constitution Check（Phase 1 design 后复核）
+## Verification Matrix
 
-| Principle | 状态 | 设计复核结论 |
+| Failure boundary | Required evidence |
+|---|---|
+| 001 → workspace handoff | 四种 success 交付原样 `ProjectSnapshot`；cancel/error/invalid 不进入；返回不产生项目/recent 副作用。 |
+| Shell reducer | 最多一个 panel；toggle/switch/close 幂等；离开 workspace 清理 session。 |
+| Stable workspace | 100 次循环保持同一 DOM node、内容、selection、scroll、focus context。 |
+| Focus/overlay | trigger return 或 workspace fallback；Dialog 优先 Escape、focus trap、inert 与 return 符合 011。 |
+| Status | 六种状态都有文字/语义；动作仅 owner 提供；unknown/failure 不成功化；安全 copy。 |
+| Responsive/appearance | 1200×800、960×640、200%、三主题、reduced motion 下关键区域可达且状态不丢失。 |
+| Security/regression | 无新 IPC/storage/localStorage；001 六方法与 011 appearance namespace 不变；typecheck/test/build/smoke 全通过。 |
+
+## Constitution Check — post-design
+
+| Principle | Status | Design evidence |
 |---|---|---|
-| I. Secure Desktop Boundary | PASS WITH ACCEPTANCE CONDITION | shell 保持 renderer-only；所有窗口/存储能力仍在 main。任何新增窗口 IPC 必须在 contract 冻结后实现。 |
-| II. Typed, Minimal IPC | PASS WITH ACCEPTANCE CONDITION | 只允许 `getRuntimeInfo` 和未来明确列出的 named methods；DTO/error 不能含 absolute path、secret 或 raw exception。 |
-| III. Specification-Driven, Minimal Evolution | NOT YET SATISFIED | 设计材料已生成，但 `spec.md`、ADR-001、001 dependency contract 及本 checklist 的 decisions 尚未接受；因此不能进入实现。 |
-| IV. Verification at the Failure Boundary | PASS WITH ACCEPTANCE CONDITION | 方案包含 renderer、IPC、Electron runtime 和存储恢复四层验证；fixture/harness/性能阈值仍需决定。 |
+| I. Secure Desktop Boundary | PASS | 数据流停留在 renderer；只消费安全 ProjectSnapshot 与 owner callbacks。 |
+| II. Typed, Minimal IPC | PASS | [contracts/workspace-ipc.md](./contracts/workspace-ipc.md) 冻结为零新增方法；现有 namespaces 不变。 |
+| III. Specification-Driven, Minimal Evolution | PASS | spec/plan 已接受；所有选择可追溯至 spec、001、011/ADR-003，无 hypothetical storage、router、state library 或 primitive。 |
+| IV. Verification at the Failure Boundary | PASS | reducer、DOM composition 与 compiled Electron runtime 分层覆盖各自可检测的失败。 |
 
-**Post-design gate**: 设计可以进入 review，但不能视为 implementation-ready。`Decision: NEEDS DECISION` 的条目必须在实现任务生成前被明确接受、拒绝或拆分，并在相应 ADR/contract/spec section 记录。
+**Post-design gate**: spec/plan 已接受，011 已实现，001 migration regression 已确认通过；没有 Constitution exception、待补跨边界 ADR 或剩余 implementation gate。
 
 ## Complexity Tracking
 
-没有申请 Constitution exception。候选库、额外测试 harness、持久化 shell 偏好和动态窗口 IPC 都是未决事项，不应在未批准前增加复杂度；如后续选择导致违反最小演进原则，必须在此表登记理由和被拒绝的更简单替代方案。
-
-| Candidate complexity | 当前处理 | 需要的决策 |
-|---|---|---|
-| Accessible overlay/focus library | 只研究，不添加依赖 | `plan-decisions.md` 的候选与版本策略项 |
-| Global state library/state machine | 先保持可由 React built-ins 实现 | 复杂度是否由持久状态/异步保存真实需要证明 |
-| UI preference persistence | 默认不持久化 | ADR、schema、迁移和恢复边界 |
-| Electron runtime harness | 保留现有 smoke；候选工具另行评估 | 真实窗口/a11y/CI 平台覆盖 |
+无 Constitution exception。单一 reducer、持续挂载 slot、CSS reflow 与 owner callback 是满足需求的最小复杂度；路由、shell IPC、durable layout、状态库、native panel window、nested modal 与新 foundation primitive 均不引入。

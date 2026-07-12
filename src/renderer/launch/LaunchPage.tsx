@@ -2,17 +2,28 @@ import { useEffect, useState } from 'react';
 import type { WriteLLMIpc } from '../../shared/ipc';
 import type { ProjectSnapshot, RecentProjectSummary } from '../../shared/project';
 import { initialLaunchState, loadLaunchState, type LaunchState } from './launchState';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { FormField } from '@/components/patterns/FormField';
+import { StatusNotice } from '@/components/patterns/StatusNotice';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { AppearanceControls } from '@/components/patterns/AppearanceControls';
+import { useAppearance } from '@/appearance/AppearanceProvider';
 
-type LaunchPageProps = { api: WriteLLMIpc };
+type LaunchPageProps = { api: WriteLLMIpc; onProjectOpened(project: ProjectSnapshot): void };
 
-export function LaunchPage({ api }: LaunchPageProps) {
+export function LaunchPage({ api, onProjectOpened }: LaunchPageProps) {
   const [state, setState] = useState<LaunchState>(initialLaunchState);
   const [displayName, setDisplayName] = useState('');
+  const appearance = useAppearance();
 
   const refresh = async () => setState(await loadLaunchState(api));
   useEffect(() => { void refresh(); }, []);
 
-  const showWorkspace = (project: ProjectSnapshot) => setState((current) => ({ status: 'workspace', recentProjects: current.recentProjects, project }));
+  const showWorkspace = (project: ProjectSnapshot) => onProjectOpened(project);
 
   const create = async () => {
     setState((current) => ({ status: 'working', recentProjects: current.recentProjects, message: 'Choose a parent folder…' }));
@@ -51,35 +62,34 @@ export function LaunchPage({ api }: LaunchPageProps) {
     setState((current) => ({ status: 'error', recentProjects: current.recentProjects, message: result.error.message }));
   };
 
-  if (state.status === 'workspace') {
-    return <main className="launch-shell"><section className="workspace-panel" aria-labelledby="workspace-title"><p className="eyebrow">Empty workspace</p><h1 id="workspace-title">{state.project.displayName}</h1><p>This project is ready for the next writing feature.</p></section></main>;
-  }
-
   const busy = state.status === 'loading' || state.status === 'working';
   return (
     <main className="launch-shell">
-      <section className="launch-card" aria-labelledby="app-title">
+      <Card className="launch-card" aria-labelledby="app-title">
         <p className="eyebrow">WriteLLM v2</p>
         <h1 id="app-title">Start a project</h1>
         <p className="summary">Create a portable project or open one you already own.</p>
         <div className="launch-actions">
           <form onSubmit={(event) => { event.preventDefault(); void create(); }}>
-            <label htmlFor="project-name">New project name</label>
+            <FormField label="New project name">
+              <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={busy} autoComplete="off" />
+            </FormField>
             <div className="create-row">
-              <input id="project-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={busy} autoComplete="off" />
-              <button type="submit" disabled={busy || displayName.length === 0}>New project</button>
+              <Button type="submit" disabled={busy || displayName.length === 0}>New project</Button>
             </div>
           </form>
-          <button type="button" className="secondary-button" onClick={() => void open()} disabled={busy}>Open project</button>
+          <Button type="button" variant="secondary" onClick={() => void open()} disabled={busy}>Open project</Button>
         </div>
         <div className="status-region" aria-live="polite">
-          {state.status === 'loading' ? <p>Loading recent projects…</p> : null}
-          {state.status === 'working' ? <p>{state.message}</p> : null}
-          {state.status === 'error' ? <p role="alert">{state.message}</p> : null}
-          {state.status === 'ready' && state.warning ? <p role="status">{state.warning}</p> : null}
+          {state.status === 'loading' ? <StatusNotice>Loading recent projects…</StatusNotice> : null}
+          {state.status === 'working' ? <StatusNotice>{state.message}</StatusNotice> : null}
+          {state.status === 'error' ? <StatusNotice tone="error">{state.message}</StatusNotice> : null}
+          {state.status === 'ready' && state.warning ? <StatusNotice tone="warning">{state.warning}</StatusNotice> : null}
         </div>
         <RecentProjects records={state.recentProjects} disabled={busy} onOpen={openRecent} onRelink={relink} onRemove={remove} />
-      </section>
+        <Separator />
+        <AppearanceControls preferences={appearance.preferences} pending={appearance.pending} message={appearance.message} onChange={(value)=>void appearance.update(value)} />
+      </Card>
     </main>
   );
 }
@@ -87,11 +97,11 @@ export function LaunchPage({ api }: LaunchPageProps) {
 function RecentProjects({ records, disabled, onOpen, onRelink, onRemove }: { records: RecentProjectSummary[]; disabled: boolean; onOpen: (record: RecentProjectSummary) => void; onRelink: (record: RecentProjectSummary) => void; onRemove: (record: RecentProjectSummary) => void }) {
   return <section className="recent-section" aria-labelledby="recent-title">
     <div className="section-heading"><h2 id="recent-title">Recent projects</h2><span>{records.length}/5</span></div>
-    {records.length === 0 ? <p className="empty-state">No recent projects yet.</p> : <ul className="recent-list">{records.map((record) => <li key={record.recentId} className={`recent-card recent-${record.availability}`}>
-      <div><h3>{record.displayName}</h3><p>{availabilityLabel(record)}</p></div>
+    {records.length === 0 ? <EmptyState title="No recent projects yet" description="Projects you open or create will appear here." /> : <ul className="recent-list">{records.map((record) => <li key={record.recentId} className={`recent-card recent-${record.availability}`} data-ui-surface>
+      <div><h3>{record.displayName}</h3><p><Badge>{availabilityLabel(record)}</Badge></p></div>
       <div className="card-actions">
-        {record.availability === 'available' ? <button type="button" onClick={() => onOpen(record)} disabled={disabled}>Open</button> : <button type="button" onClick={() => onRelink(record)} disabled={disabled}>Relink</button>}
-        <button type="button" className="text-button" onClick={() => onRemove(record)} disabled={disabled}>Remove recent</button>
+        {record.availability === 'available' ? <Button type="button" size="sm" onClick={() => onOpen(record)} disabled={disabled}>Open</Button> : <Button type="button" size="sm" onClick={() => onRelink(record)} disabled={disabled}>Relink</Button>}
+        <Button type="button" variant="ghost" size="sm" onClick={() => onRemove(record)} disabled={disabled}>Remove recent</Button>
       </div>
     </li>)}</ul>}
   </section>;

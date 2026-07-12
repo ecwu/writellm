@@ -1,78 +1,132 @@
-# Research: Block 章节编辑器
+# Research: Block editor
 
-本轮将编辑器技术与产品需求分开：PRD 描述可编辑内容块、常见 Markdown 语法输入/粘贴
-和 Markdown 导出；实现层选择 BlockNote 作为 block editor，并把它的原生 JSON 作为
-章节 canonical document。Markdown 不作为 durable source of truth。
+All technical unknowns used by this plan are resolved below. Acceptance remains
+separate: dependency contracts and ADR-001 are still gated as listed at the end.
 
-## Decision: BlockNote editor adapter
+## Decision: BlockNote JSON is the canonical editor payload
 
-**Decision**: 采用 BlockNote 作为 004 的编辑器实现，使用其 block document、稳定 block
-id、扩展 block schema 和 React adapter。精确 package 版本、UI package、bundle/license
-审查和 Electron 40/Bun 兼容性在实现前锁定，但不再把 Tiptap、Lexical 或其他编辑器
-当作本 feature 的并行实现候选。
+**Decision**: Use BlockNote and persist `editor.document` inside a versioned
+WriteLLM `ChapterDocument` wrapper. Preserve native `id`, `type`, `props`,
+`content` and `children`; do not create a parallel durable block model.
 
-**Rationale**:
+**Rationale**: BlockNote documents directly model the feature's block operations,
+and its official guidance identifies JSON as the durable lossless format. Stable
+block IDs also provide the correct first anchor for citation transforms.
 
-- BlockNote 的模型直接以 block、children、props 和 stable id 表达本 feature 的核心
-  用户行为。
-- 官方建议将 `editor.document` 的 BlockNote JSON 用作 durable、lossless storage。
-- BlockNote 的 Markdown 能力适合作为常见 Markdown 语法的输入/粘贴和导出互操作，不
-  适合作为所有 block、props、引用关系的完整持久化格式。
+**Alternatives considered**: Markdown canonical storage with HTML-comment IDs was
+rejected because it is lossy and fragile. A second domain block schema was
+rejected because two writable truths require permanent codecs and migration.
 
-**Alternatives considered**:
+## Decision: Pin BlockNote 0.51.4 with the Ariakit UI adapter
 
-- Tiptap/ProseMirror、Lexical：仍可完成 block editing，但不符合当前明确的 BlockNote
-  产品技术方向；不再作为 004 的实现候选。
-- 自定义 JSON domain model + editor codec：会制造第二套与 BlockNote 平行的 block
-  schema，增加同步和迁移风险；只保留 WriteLLM wrapper，不复制一套独立 block truth。
+**Decision**: At implementation acceptance, pin `@blocknote/core`,
+`@blocknote/react` and `@blocknote/ariakit` to exactly `0.51.4`, subject to a clean
+Bun peer-dependency, typecheck, build and compiled Electron compatibility gate.
+Use no `@blocknote/xl-*` package.
 
-## Decision: Canonical storage and Markdown interop
+**Rationale**: Ariakit is the official accessible/headless adapter and can use the
+project's semantic CSS without introducing Mantine as a second design system or
+assuming Radix/shadcn DOM beneath ADR-003's Base UI foundation. Standard BlockNote
+packages use MPL-2.0; the XL family has different GPL/commercial terms and is not
+needed by 004.
 
-**Decision**: `ChapterDocument` 保存 WriteLLM wrapper + BlockNote JSON。Markdown 通过
-显式 adapter 进行 `import/paste/export`；导出必须允许 lossy warning，不能用 Markdown
-恢复 block identity、引用位置或高级 block props。
+**Alternatives considered**: Mantine is BlockNote's default standalone UI but adds
+a second UI foundation. The BlockNote shadcn adapter assumes a different source
+and theme integration than this repository's accepted Base UI/Rhea foundation.
+Custom headless composition would own more editor chrome than the first release
+requires.
 
-BlockNote 官方格式表将 BlockNote JSON 标为 lossless storage，并将 Markdown import/export
-标为 lossy。常见 CommonMark/GFM 子集可支持；超出范围的扩展语法需要明确降级或提示。
+## Decision: Fixed CommonMark/GFM-derived Markdown boundary
 
-**Alternatives considered**:
+**Decision**: Freeze the built-in BlockNote baseline required by FR-013: headings,
+paragraphs, bullet/number/task lists, tables, code, blockquotes, links, images,
+emphasis, strike-through and hard breaks. Use the selected version's
+`tryParseMarkdownToBlocks`/explicit Markdown paste path and
+`blocksToMarkdownLossy`; normalize possibly sync/async library behavior behind an
+awaitable adapter.
 
-- Markdown canonical + HTML comments：拒绝；BlockNote 特有结构和稳定 block id 不能可靠
-  通过 Markdown comments 维持 round-trip。
-- 同时把 BlockNote JSON 和 Markdown 作为可编辑真相：拒绝；会产生双向同步、revision
-  冲突和外部修改归属不清的问题。
+Every conversion is treated as lossy. Product-owned preflight analysis returns
+structured warnings because unsupported syntax can otherwise become ordinary
+text without a library error. Markdown paste is an explicit preview-and-confirm
+flow; ordinary rich clipboard HTML behavior is not a promise to support another
+Markdown dialect.
 
-## Decision: Storage adapter boundary
+**Alternatives considered**: Adding remark, marked, markdown-it or a Markdown→HTML
+fallback was rejected because it expands the accepted dialect and creates two
+parsers. Silent best-effort conversion was rejected by FR-014–FR-016.
 
-**Decision**: 004 只依赖 main-owned `ChapterDocumentStore`/repository contract。第一版
-可以使用项目内 JSON 文件，也可以在后续接受 storage ADR 后使用项目内 SQLite；无论
-物理介质如何，canonical payload、schemaVersion、revision、迁移和 atomic save 语义
-保持一致。renderer/editor adapter 不接触文件路径、数据库连接或 raw persistence API。
+## Decision: JSON files behind a main-owned chapter repository
 
-**Rationale**: BlockNote 不是 Markdown 存储，并不自动意味着必须使用数据库。先冻结
-逻辑文档 contract，可让文件存储与数据库存储成为可替换实现。
+**Decision**: Store each chapter at logical path
+`workspace/chapters/<chapterId>.json`. Main alone resolves the validated project
+root, serializes content writes and applies ADR-001 transaction/Git recovery.
 
-## Decision: Identity, citations and migration
+**Rationale**: Access is by opaque chapter ID, JSON remains inspectable/diffable,
+and the selected canonical editor format already is JSON. SQLite provides no
+needed query or transaction advantage beyond the shared content transaction and
+would add a durable dependency/migration boundary.
 
-- 稳定 block identity 使用 BlockNote block id；不再设计 Markdown identity comment grammar。
-- CitationMark 以结构化关系保存 `blockId/sourceId/chunkId/range/validity`；Markdown
-  导出只生成面向用户的标记，不承担引用恢复。
-- `schemaVersion`/`editorSchemaVersion` 是 WriteLLM 的迁移边界；BlockNote package
-  version 只作为运行时兼容信息，不直接等同于 durable schema version。
-- 未知 block type、损坏 payload、缺失 id 和重复 id 进入只读/needs-review/recovery
-  路径，不静默删除或重绑定。
+**Alternatives considered**: Project SQLite remains a future ADR-level option but
+is unnecessary for this feature. Renderer filesystem access violates the
+constitution and security baseline.
+
+## Decision: Atomic 003↔004 chapter creation/link
+
+**Decision**: `openForOutlineItem` reloads the 003 orientation aggregate. If the
+item has no link, main creates a revision-0 valid empty chapter and sets its
+`chapterRef` in one pending transaction and Git commit. If linked, it opens that
+exact chapter. The request includes `baseOrientationRevision` and an idempotent
+`mutationId`; renderer never writes `chapterRef`.
+
+Chapter title is a read-time projection of the orientation item's title, not a
+second writable field in the chapter file.
+
+**Alternatives considered**: Independent writes can leave orphan chapters or
+dangling links. A chapter-owned editable title duplicates 003's authoritative
+outline title.
+
+## Decision: Snapshot saves, local editor commands and optimistic revision
+
+**Decision**: Block edits remain renderer-local. Save sends one bounded full
+snapshot plus exact `baseRevision` and `mutationId`; main validates and commits it.
+Chapter revision starts at zero and increments once only after file replacement
+and the required Git commit succeed. Cross-view stale saves return
+`REVISION_CONFLICT` without overwriting either version.
+
+**Alternatives considered**: Main-process `applyBlockCommand` is chatty and creates
+a second editor authority. Last-writer-wins violates FR-011. Patch persistence adds
+ordering/idempotency complexity without a requirement.
+
+## Decision: Citation relation and conservative transforms
+
+**Decision**: Persist citations separately from editor JSON with citation/source/
+chunk IDs, block ID, UTF-16 text range, quoted text and validity. A visible custom
+inline token may use a namespaced `writellmCitation` schema type, but the relation
+collection is authoritative. Move/split/merge remaps only provable complete
+ranges; all ambiguous, cut, missing or deleted ranges become `needs-review`.
+
+**Alternatives considered**: Nearest-text matching can silently attach evidence to
+unrelated prose. Markdown citation syntax cannot preserve the durable relation.
+004 validates relation shape, while source/chunk existence remains owned by
+future accepted 006/007 contracts.
 
 ## Sources
 
-- [BlockNote format interoperability](https://www.blocknotejs.org/docs/foundations/supported-formats)
+- [BlockNote supported formats](https://www.blocknotejs.org/docs/foundations/supported-formats)
 - [BlockNote document structure](https://www.blocknotejs.org/docs/foundations/document-structure)
-- [BlockNote HTML/export guidance](https://www.blocknotejs.org/docs/features/export/html)
-- [BlockNote server-side processing](https://www.blocknotejs.org/docs/features/server-processing)
-- [Project storage ADR](../../docs/adr/001-project-storage.md)
-- [AGENTS.md](../../AGENTS.md)
+- [BlockNote Markdown import](https://www.blocknotejs.org/docs/features/import/markdown)
+- [BlockNote custom schemas](https://www.blocknotejs.org/docs/features/custom-schemas)
+- [BlockNote Ariakit integration](https://www.blocknotejs.org/docs/getting-started/ariakit)
+- [BlockNote package](https://www.npmjs.com/package/@blocknote/core)
+- [BlockNote repository and license](https://github.com/TypeCellOS/BlockNote)
+- [ADR-001](../../docs/adr/001-project-storage.md)
+- [ADR-003](../../docs/adr/003-ui-foundation.md)
 
 ## Remaining acceptance gates
 
-技术方向已经选为 BlockNote + BlockNote JSON canonical storage。实现前仍需接受：
-BlockNote package/version/UI adapter、ChapterDocument schema、Markdown lossy policy、
-引用 anchor、revision/conflict/recovery contract，以及实际 Electron runtime smoke。
+No research item remains `NEEDS CLARIFICATION`. Implementation is nevertheless
+blocked until 003 spec/plan, 004 spec/plan and ADR-001 are Accepted; the shared
+create/link and linked-delete transaction is frozen by both producer/consumer
+plans; the exact package lock passes license/peer/build/Electron checks; and the
+FR-011 is exercised by two primary-instance-owned compiled Electron test windows
+sharing the same main repository; no user-facing multi-window manager is added.

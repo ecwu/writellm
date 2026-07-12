@@ -23,7 +23,7 @@
 - [ ] CHK008 - runtime schema validation 是否已在 Zod、TypeBox+Ajv、Valibot 或无第三方实现之间选定，并写明 unknown fields、错误映射和持久化 schema 的关系？ [Decision, research §Candidate group B]
 - [ ] CHK009 - 原子写入/持久化是否已在 Node 原生 pending protocol、atomic write helper、SQLite 或组合方案之间选定，并与 ADR-001 的可读项目文件方向一致？ [Decision, research §Candidate group C]
 - [ ] CHK010 - diff viewer 是否已在 React 原生 Block view、CodeMirror merge、Monaco diff editor 之间选定，并比较 accessibility、bundle、长文本和未来 004 editor 的适配？ [Decision, research §Candidate group D]
-- [ ] CHK011 - 每个获选候选是否有明确的精确版本、Bun lockfile 更新策略、Electron 40 packaging/CSP/worker/native rebuild 影响和许可证审查记录？ [Decision, Gap, research §未决研究项清单]
+- [ ] CHK011 - 每个获选候选是否有明确的精确版本、Bun lockfile 更新策略、Electron 43 packaging/CSP/worker/native rebuild 影响和许可证审查记录？ [Decision, Gap, research §未决研究项清单]
 - [ ] CHK012 - 如果最终不引入第三方包，plan 是否仍写清楚自研实现的规模上限、超时、错误行为和维护责任，而不是留下“以后实现”的空白？ [Clarity, Gap, plan §Technical Context]
 - [ ] CHK013 - 候选技术的维护活跃性、最新兼容性和安全公告是否在实施前重新核对，而不是把本次研究日期的状态当作永久结论？ [Decision, Traceability, research §研究摘要]
 

@@ -14,13 +14,13 @@
 - apply batch 通过 project-owned pending transaction 和恢复协议实现 all-or-nothing；
 - library API 只作为实现细节，不能进入 renderer-visible 的长期数据模型。
 
-以下官方资料用于确认候选的能力边界和维护信号；实现阶段仍需重新核对版本、许可证、Electron 40/Bun/TypeScript compatibility 和安全公告。
+以下官方资料用于确认候选的能力边界和维护信号；实现阶段仍需重新核对版本、许可证、Electron 43/Bun/TypeScript compatibility 和安全公告。
 
 ## Candidate group A — Diff、定位与冲突分析
 
 ### 候选 A：平台能力 + 自研 Block/domain diff
 
-**适用范围**：以 `004-block-editor` 的 stable Block ID 和 canonical Markdown/Block model 为主；对每个 Block 保存原文/base fingerprint，使用项目自有逻辑判断 stale、overlap、duplicate 和 target missing。
+**适用范围**：以 `004-block-editor` 的 stable Block ID 和 canonical BlockNote JSON model 为主；对每个 Block 保存 canonical base fingerprint，使用项目自有逻辑判断 stale、overlap、duplicate 和 target missing。Markdown 仅是 interop projection。
 
 **优点**：
 
@@ -34,7 +34,7 @@
 - UI 的字符/词级高亮仍需另一个算法或有限的可读表示；自研算法若没有规模上限可能阻塞 main。
 - 若误把“相同文本”当作“相同 Block”，会造成重复 Block 或跨章节误绑定。
 
-**与现状适配**：TypeScript/ES2022 直接适配；Electron 40 main 可使用 Node `crypto.createHash` 生成 fingerprint；React 19 只消费已经计算好的 DTO。当前源码没有 Block model，因此必须等待 `004` contract，不能现在以 `App.tsx` 的临时结构代替。
+**与现状适配**：TypeScript/ES2022 直接适配；Electron 43 main 可使用 Node `crypto.createHash` 生成 fingerprint；React 19.2.7 只消费已经计算好的 DTO。当前源码没有 Block model，因此必须等待 `004` contract，不能现在以 `App.tsx` 的临时结构代替。
 
 **官方资料**：[Node.js `crypto.createHash`](https://nodejs.org/api/crypto.html#cryptocreatehashalgorithm-options)、[Node.js filesystem API](https://nodejs.org/api/fs.html)。
 
@@ -56,7 +56,7 @@
 - line/word tokenization 对 Markdown identity comments、中文分词、换行规范和 block boundary 可能产生不理想的视觉结果。
 - 需要审查包版本、bundle 体积、timeout 行为和异常输入；不能把 package 的成功返回当成 conflict-free。
 
-**与现状适配**：ESM/TypeScript 形态与 Vite、Bun、Electron 40 可作为候选适配；现有 `package.json` 未声明它，不能在本轮安装或写入 package.json。
+**与现状适配**：ESM/TypeScript 形态与 Vite、Bun、Electron 43 可作为候选适配；现有 `package.json` 未声明它，不能在本轮安装或写入 package.json。
 
 **官方资料**：[jsdiff 官方 GitHub README/API](https://github.com/kpdecker/jsdiff)、[`diff` npm 元数据](https://www.npmjs.com/package/diff)。
 
@@ -100,7 +100,7 @@ IPC 和项目 JSON 是不可信输入边界；TypeScript compile-time 类型本�
 
 **风险**：schema 与类型双向推导的组织方式需统一；错误格式可能需要映射为稳定的产品 error code；如果 schema 进入 renderer bundle，需评估体积和敏感字段处理；不能让“parse 成功”替代业务 revision/权限校验。
 
-**与现状适配**：React 19/Vite/Bun/TS 5.8 均可作为候选环境；目前没有依赖，也未决定是否让同一 schema 在 main 和 renderer 共用。
+**与现状适配**：React 19.2.7/Vite/Bun/TS 5.8 均可作为候选环境；目前没有依赖，也未决定是否让同一 schema 在 main 和 renderer 共用。
 
 **官方资料**：[Zod 官方 GitHub](https://github.com/colinhacks/zod)。
 
@@ -114,7 +114,7 @@ IPC 和项目 JSON 是不可信输入边界；TypeScript compile-time 类型本�
 
 **风险**：需要同时管理 TypeBox schema、Ajv validator、JSON Schema draft 和错误映射；draft 选择会变成持久化兼容承诺；复杂 refine/business rule 仍需手写；两个包的版本组合和 bundle/compile 行为需要锁定。
 
-**与现状适配**：main 可做 compiled validator；JSON envelope 与 ADR 的 `schemaVersion` 相容性较好；现有 TypeScript 5.8 要避开只针对未来 compiler 的候选主版本，具体版本策略未决定。
+**与现状适配**：main 可做 compiled validator；JSON envelope 与 ADR 的 `schemaVersion` 相容性较好；现有 TypeScript 7.0.2 要避开只针对未来 compiler 的候选主版本，具体版本策略未决定。
 
 **官方资料**：[TypeBox 官方文档](https://sinclairzx81.github.io/typebox/)、[TypeBox 官方 GitHub](https://github.com/sinclairzx81/typebox)、[Ajv TypeScript 指南](https://ajv.js.org/guide/typescript.html)、[Ajv JSON Schema 指南](https://ajv.js.org/json-schema.html)。
 
@@ -146,7 +146,7 @@ IPC 和项目 JSON 是不可信输入边界；TypeScript compile-time 类型本�
 
 **适用范围**：采用 ADR 提出的 domain files，main 自己实现单文件 atomic replace、跨文件 pending transaction、hash/recovery。
 
-**优点**：无新增包；`rename`、`writeFile`、`mkdtemp`、`crypto` 都是 Electron 40 所带 Node 能力；能把 proposal/review/content/history 语义集中在项目 storage owner。
+**优点**：无新增包；`rename`、`writeFile`、`mkdtemp`、`crypto` 都是 Electron 43 所带 Node 能力；能把 proposal/review/content/history 语义集中在项目 storage owner。
 
 **风险**：Node 文档也说明异步 filesystem 操作的排序/并发需要谨慎；跨文件 rename 不是数据库事务，必须自行记录阶段、before/after hash、fsync/commit 状态和 recovery policy；跨平台权限、文件锁、外部编辑和 Git working tree 需要 fixture。
 
@@ -176,7 +176,7 @@ IPC 和项目 JSON 是不可信输入边界；TypeScript compile-time 类型本�
 
 **优点**：SQLite 官方保证 serializable、atomic、consistent、isolated、durable transactions；适合查询大量 proposal/review 状态和事务边界。
 
-**风险**：与当前 ADR 的可读 domain files、Markdown canonical content 和 Git history 方向冲突；Electron native binding/packaging、Bun test、迁移、备份和 binary/source 文件一致性会增加范围；数据库事务不能自动覆盖外部 Markdown 修改或 Git commit handoff。
+**风险**：会增加与 ADR-001 editor-native domain files、Git history、Electron native binding/packaging、Bun test、迁移、备份和 binary/source 文件一致性的协调范围；数据库事务不能自动覆盖外部 canonical document 修改或 Git commit handoff。
 
 **与现状适配**：理论上可在 main 使用，但当前 package.json 没有 SQLite binding，也没有 native rebuild 流程；不能在本轮把它写成默认存储。
 
@@ -200,7 +200,7 @@ proposal review 不需要新的数据库才能落地；第一版可保持 storag
 
 **风险**：需要自建文本 diff renderer 和大文本折叠；未来 `004` 编辑器若选用不同模型，需定义 adapter；React render 大 proposal 时必须设上限/virtualization policy。
 
-**与现状适配**：React 19 直接适配；当前只有基础 `App.tsx`，没有可复用 editor component，故它是架构候选而不是现成能力。
+**与现状适配**：React 19.2.7 直接适配；当前只有基础 `App.tsx`，没有可复用 editor component，故它是架构候选而不是现成能力。
 
 **Decision: NEEDS DECISION**
 
@@ -212,7 +212,7 @@ proposal review 不需要新的数据库才能落地；第一版可保持 storag
 
 **风险**：引入多个 CodeMirror packages 和 editor lifecycle；其 merge chunks 不是 Block-level apply contract；需要自建 ARIA labels、accepted/rejected action wiring 和 large-document policy；如果未来 Block editor 非 CodeMirror，可能出现两套编辑器体验。
 
-**与现状适配**：React 19 可通过 component lifecycle 接入，Bun/Vite 可作为候选；package 及版本未进入当前依赖。
+**与现状适配**：React 19.2.7 可通过 component lifecycle 接入，Bun/Vite 可作为候选；package 及版本未进入当前依赖。
 
 **官方资料**：[CodeMirror merge package 文档/发布页](https://www.npmjs.com/package/%40codemirror/merge)、[CodeMirror changelog](https://codemirror.com/docs/changelog/)。
 
@@ -246,6 +246,6 @@ proposal review 不需要新的数据库才能落地；第一版可保持 storag
 2. **Decision: NEEDS DECISION** — Zod、TypeBox+Ajv、Valibot 或无第三方 validator；需要同步冻结 unknown fields、schema draft、error mapping。
 3. **Decision: NEEDS DECISION** — Node 原生 pending protocol、single-file atomic helper 或 SQLite；需与 ADR-001 一起决定。
 4. **Decision: NEEDS DECISION** — React 原生 Block view、CodeMirror merge 或 Monaco diff；需以 a11y、bundle、长文本和未来 004 编辑器为比较维度。
-5. **Decision: NEEDS DECISION** — 每个候选的精确版本、Bun lockfile 策略、Electron 40 packaging/native rebuild/CSP/worker 策略和许可证审查。
+5. **Decision: NEEDS DECISION** — 每个候选的精确版本、Bun lockfile 策略、Electron 43 packaging/native rebuild/CSP/worker 策略和许可证审查。
 6. **Decision: NEEDS DECISION** — 允许的 proposal/Block/批量规模、timeout、p95、内存和取消语义。
 7. **Decision: NEEDS DECISION** — ADR-001 是否直接接受、追加 proposal-specific ADR，或在 storage owner 中增加迁移/recovery ADR。

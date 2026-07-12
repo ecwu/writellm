@@ -6,11 +6,11 @@
 
 ## 1. 现状与约束
 
-- 当前 `package.json` 只有 Electron 40.10.5、React 19、React DOM、Vite、TypeScript；没有数据库、全文索引、向量索引或 embedding runtime。
+- 当前 `package.json` 只有 Electron 43.1.0、React 19.2.7、React DOM、Vite、TypeScript；没有数据库、全文索引、向量索引或 embedding runtime。
 - Bun 负责现有脚本和测试，但 Electron main 的运行时是 Electron 自带 Node。Bun 官方兼容性页目前把 `node:sqlite` 标为未实现，因此不能在未经验证的情况下把 Bun 的 Node API 当作生产 SQLite 方案。[Bun Node.js compatibility](https://bun.sh/docs/runtime/nodejs-compat)
 - ADR-001 已规定 portable `.writellm`、`sources/`、`runtime/`、main-owned 文件系统、可重建缓存和 Git-backed history；其状态仍为 Proposed。索引不可成为资料或正文引用的唯一真相。
 - Electron 官方建议通过 context isolation、sandbox、contextBridge 和每方法的 IPC 暴露来缩小 renderer 能力；这与本 feature 的 main-owned search facade 一致。[Electron Context Isolation](https://www.electronjs.org/docs/latest/tutorial/context-isolation)、[Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)、[Electron Process Sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox)
-- React 19 已是现有 renderer 基础，但检索 UI 不需要引入新的状态框架；是否需要额外 UI 包不在本 feature 的必要范围。[React 19](https://react.dev/blog/2024/12/05/react-19)
+- React 19.2.7 已是现有 renderer 基础，但检索 UI 不需要引入新的状态框架；是否需要额外 UI 包不在本 feature 的必要范围。[React 19.2.7](https://react.dev/blog/2024/12/05/react-19)
 
 ## 2. 评估维度
 
@@ -20,7 +20,7 @@
 2. 是否能同时按 sourceId/sourceRevisionId、资料名称、标签和处理状态过滤？
 3. 是否能返回稳定 chunk identity、匹配片段/高亮、原始页码和 Markdown locator，而不是只有一段字符串？
 4. 索引能否从 canonical source/chunk 重建，能否检测版本漂移、损坏和部分更新？
-5. 在 Electron 40 的主进程、macOS/Windows/Linux 打包和 Bun lockfile 下，原生模块、ABI、安装和升级风险如何？
+5. 在 Electron 43 的主进程、macOS/Windows/Linux 打包和 Bun lockfile 下，原生模块、ABI、安装和升级风险如何？
 6. 500 份资料和实际 chunk 数下的冷启动、增量更新、内存/磁盘占用、查询 p95 是否可测？
 7. 包、二进制、模型和服务的许可证、telemetry、网络、凭据和供应链更新策略是否可接受？
 
@@ -166,7 +166,7 @@
 
 **优点**：官方 Node 教程支持 server-side inference、ESM 和本地模型 cache；可减少资料离开设备的需求，缓存后可为离线查询提供路径。
 
-**风险**：第一次运行可能下载模型文件；模型大小、内存、CPU/GPU、模型许可证和 cache 迁移需定义；文档以 Node 为主，Bun/Electron 40 的 native/WASM/worker 组合必须验证。模型文件不是 npm 版本本身，不能只靠 package lock 做可复现性。
+**风险**：第一次运行可能下载模型文件；模型大小、内存、CPU/GPU、模型许可证和 cache 迁移需定义；文档以 Node 为主，Bun/Electron 43 的 native/WASM/worker 组合必须验证。模型文件不是 npm 版本本身，不能只靠 package lock 做可复现性。
 
 **与当前工程适配**：应放 main-owned worker 或 main，而不是 renderer/preload；需要本地模型 fixture、下载/预置策略、取消和失败状态。
 

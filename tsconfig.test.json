@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["bun", "@testing-library/jest-dom"] },
+  "include": ["src", "test/setup/**/*.ts", "test/unit/ui/**/*.ts", "test/unit/ui/**/*.tsx", "test/unit/appearance/**/*.ts", "test/unit/appearance/**/*.tsx", "test/unit/workspace/**/*.ts", "test/unit/workspace/**/*.tsx", "test/contract/appearance/**/*.ts", "test/contract/workspace/**/*.ts", "test/contract/workspace/**/*.tsx", "test/integration/ui/**/*.ts", "test/integration/ui/**/*.tsx", "test/integration/workspace/**/*.ts", "test/integration/workspace/**/*.tsx", "test/runtime/ui-foundation/**/*.ts", "test/runtime/ui-foundation/**/*.tsx", "test/fixtures/workspace/**/*.ts", "test/fixtures/workspace/**/*.tsx"]
+}

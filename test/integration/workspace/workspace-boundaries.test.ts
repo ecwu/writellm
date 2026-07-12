@@ -1,0 +1,2 @@
+import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises';
+test('workspace stays renderer-only and uses public UI paths',async()=>{const files=['src/renderer/workspace/WorkspaceShell.tsx','src/renderer/workspace/workspaceSession.ts'];const source=(await Promise.all(files.map(file=>readFile(file,'utf8')))).join('\n');for(const forbidden of ['localStorage','ipcRenderer','@base-ui/react','window.writellm','#[0-9a-fA-F]{3,8}'])expect(source).not.toContain(forbidden);});

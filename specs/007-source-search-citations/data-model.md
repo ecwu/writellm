@@ -1,7 +1,7 @@
 # 数据模型：资料检索与可追溯引用
 
 **状态**：设计草案；字段语义可评审，持久化格式/schemaVersion/hash 算法仍为 `NEEDS DECISION`。  
-**边界**：本模型描述 007 需要消费、派生或关联的实体，不替代 001/ADR-001、004 或 006 的 canonical storage contract。
+**边界**：本模型描述 007 需要消费、派生或关联的实体，不替代 ADR-002/001 的 project identity、ADR-001 Proposed 的内容存储边界、004 canonical chapter 或 006 source contract。
 
 ## 1. 模型原则
 
@@ -219,4 +219,3 @@ stale/missing/ambiguous
 | AI task context | 008 | 可消费作者选择的 CitationTarget/上下文；不定义搜索排名。 |
 | Proposal review | 009 | 可显示引用失效警告/依据；不负责 source rebind。 |
 | 版本事件/恢复界面 | 010 | 通过 stable event metadata 记录引用/索引变化；不成为搜索真相。 |
-

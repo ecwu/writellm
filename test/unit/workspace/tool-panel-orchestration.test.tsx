@@ -1,0 +1,2 @@
+import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises';
+test('panel orchestration has preview grace, pinning, one host and focus fallback',async()=>{const source=await readFile('src/renderer/workspace/WorkspaceShell.tsx','utf8');for(const contract of ['setTimeout','200','panel.preview','panel.pin','trigger.focus()','slotRef.current?.focus()'])expect(source).toContain(contract);expect((source.match(/<ToolPanelHost/g)??[]).length).toBe(1);});

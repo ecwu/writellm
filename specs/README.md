@@ -1,36 +1,67 @@
-# WriteLLM v2 specifications
+# WriteLLM v2 specification registry
 
-原来的 `001-ai-writing-workspace` 将完整产品旅程、工作台、资料库、AI 提案和版本历史放在同一个 feature 中，现已拆成以下独立 specification：
+这是所有 active feature 的规划入口。开始澄清、设计、拆任务或实现前，先读本页；
+具体需求和决定仍以链接到的 `spec.md`、`plan.md` 和 ADR 为准。本页只提供状态摘要，
+不替代这些 source of truth。
 
-| 顺序 | Feature | 用户价值 | 主要依赖 | 第一版计划 |
-|---|---|---|---|---|
-| 001 | [project-foundation](./001-project-foundation/spec.md) | 创建、打开、移动和管理可移动项目 | 现有 Electron foundation | [plan](./001-project-foundation/plan.md) |
-| 002 | [workspace-shell](./002-workspace-shell/spec.md) | 提供稳定、可访问的写作工作台外壳 | 001 | [plan](./002-workspace-shell/plan.md) |
-| 003 | [writing-orientation](./003-writing-orientation/spec.md) | 记录写作动机和文章大纲 | 001、002 | [plan](./003-writing-orientation/plan.md) |
-| 004 | [block-editor](./004-block-editor/spec.md) | 从大纲创建章节并编辑 Block | 001、002、003 | [plan](./004-block-editor/plan.md) |
-| 005 | [provider-settings](./005-provider-settings/spec.md) | 配置 AI provider 和受保护的密钥状态 | 001、002 | [plan](./005-provider-settings/plan.md) |
-| 006 | [source-library-processing](./006-source-library-processing/spec.md) | 导入 PDF 并完成资料处理 | 001、002 | [plan](./006-source-library-processing/plan.md) |
-| 007 | [source-search-citations](./007-source-search-citations/spec.md) | 检索资料并插入可追溯引用 | 004、006 | [plan](./007-source-search-citations/plan.md) |
-| 008 | [ai-writing-tasks](./008-ai-writing-tasks/spec.md) | 提交限定范围的 AI 任务并获得提案 | 004、005、007 | [plan](./008-ai-writing-tasks/plan.md) |
-| 009 | [ai-proposal-review](./009-ai-proposal-review/spec.md) | 审阅并安全应用 AI 提案 | 004、007、008 | [plan](./009-ai-proposal-review/plan.md) |
-| 010 | [version-history](./010-version-history/spec.md) | 查看、比较和恢复已保存版本 | 001、003、004、007、009 | [plan](./010-version-history/plan.md) |
+## Feature registry
 
-## Sequencing
+| ID | Feature / 用户价值 | 硬依赖 | Spec | Plan | ADR gate | Tasks | 实现 |
+|---|---|---|---|---|---|---|---|
+| 001 | [Project foundation](./001-project-foundation/spec.md)：创建、打开和管理可移动项目 | — | Accepted | [Accepted](./001-project-foundation/plan.md) | [ADR-002](../docs/adr/002-project-foundation.md) Accepted | [45/45](./001-project-foundation/tasks.md) | Complete |
+| 011 | [UI foundation](./011-ui-foundation/spec.md)：共享主题、排版和 UI primitives | 001 | Accepted | [Accepted](./011-ui-foundation/plan.md) | [ADR-003](../docs/adr/003-ui-foundation.md) Accepted | [52/52](./011-ui-foundation/tasks.md) | Complete |
+| 002 | [Workspace shell](./002-workspace-shell/spec.md)：稳定、可访问的写作工作台外壳 | 001, 011 | Accepted | [Accepted](./002-workspace-shell/plan.md) | ADR-001 not required；ADR-003 Accepted | [34/34](./002-workspace-shell/tasks.md) | Complete |
+| 003 | [Writing orientation](./003-writing-orientation/spec.md)：写作动机和文章大纲 | 001, 002, 011 | Draft | [Acceptance pending](./003-writing-orientation/plan.md) | ADR-001 Proposed | [Gated](./003-writing-orientation/tasks.md) | Not started |
+| 004 | [Block editor](./004-block-editor/spec.md)：从大纲创建章节并编辑 Block | 001, 002, 003, 011 | Draft | [Draft](./004-block-editor/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 005 | [Provider settings](./005-provider-settings/spec.md)：配置 AI provider 和受保护的密钥状态 | 001, 002, 011 | Draft | [Draft](./005-provider-settings/plan.md) | 待 plan 确认；ADR-003 Accepted | Missing | Not started |
+| 006 | [Source processing](./006-source-library-processing/spec.md)：导入 PDF 并完成资料处理 | 001, 002, 011 | Draft | [Draft](./006-source-library-processing/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 007 | [Search and citations](./007-source-search-citations/spec.md)：检索资料并插入可追溯引用 | 004, 006, 011 | Draft | [Draft](./007-source-search-citations/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 008 | [AI writing tasks](./008-ai-writing-tasks/spec.md)：提交限定范围的 AI 任务并获得提案 | 004, 005, 007, 011 | Draft | [Draft](./008-ai-writing-tasks/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 009 | [Proposal review](./009-ai-proposal-review/spec.md)：审阅并安全应用 AI 提案 | 004, 007, 008, 011 | Draft | [Draft](./009-ai-proposal-review/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 010 | [Version history](./010-version-history/spec.md)：查看、比较和恢复已保存版本 | 001, 003, 004, 007, 009, 011 | Draft | [Draft](./010-version-history/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
 
-先完成 001–004，形成“创建项目 → 规划 → 写出章节”的最小写作闭环；005 独立建立 AI 配置安全边界；006–007 形成资料和引用闭环；008–009 形成 AI 提案闭环；010 作为跨内容类型的历史能力逐步接入。
+`Gated` 表示 tasks 已存在，但实现门禁尚未满足；它不等于可以开始实现。
 
-每个 feature 应分别运行 `/speckit-clarify`、`/speckit-plan`、`/speckit-tasks`，不要再为整个产品生成一个共享的 `tasks.md`。
+## 规划前检查
 
-## 状态流转与实现门禁
+1. 找到目标 feature，确认所有“硬依赖”已经达到该 feature 所需阶段。
+2. 阅读目标 `spec.md`；若不是 `Accepted`，只能继续澄清或评审。
+3. 阅读目标 `plan.md` 和 `checklists/plan-decisions.md`，处理所有未决项。
+4. 检查 ADR gate；跨持久化、IPC、系统或流程边界的决定必须已有 Accepted ADR，
+   或在 plan 中明确记录为不需要 ADR。
+5. 只有 spec、plan 和所需 ADR 全部 Accepted 后，才可生成 `tasks.md` 并实现。
+6. 规划或状态变化时，同一变更中更新本表；不得只更新摘要而不更新 source of truth。
 
-- Feature 的 `spec.md` 和 `plan.md` 状态流转为：`Draft → Accepted`。
-- ADR 状态流转为：`Proposed → Accepted`。
-- `research.md`、`data-model.md`、`contracts/`、`quickstart.md` 和
-  `checklists/` 是支持性设计材料，不单独授权实现；其中的候选或
-  `NEEDS DECISION` 不能视为已批准方案。
-- 只有当前 feature 的 `spec.md`、`plan.md` 和所需 ADR 都为 `Accepted` 后，
-  才能生成该 feature 的 `tasks.md` 并开始实现。
+建议按单个 feature 运行 `/speckit-clarify` → `/speckit-plan` →
+`/speckit-tasks`。不要为整个产品生成共享 `tasks.md`。
 
-本轮已为 001–010 生成第一版 `plan.md`、`research.md`、`data-model.md`、`quickstart.md`、契约文档和 `checklists/plan-decisions.md`；001 已通过 ADR-002、spec、plan 和 IPC contract 的接受门禁，其他 feature 仍需各自确认。未批准任何新增库或包。每个尚未接受的 `plan-decisions.md` 仍保留待用户确认的选型、ADR、schema、IPC、性能、可访问性和恢复边界。
+## 状态词汇
 
-原综合设计已移到 [`_archive/001-ai-writing-workspace-umbrella`](./_archive/001-ai-writing-workspace-umbrella/)，仅用于追溯拆分来源；当前实现依据以本目录下的新 specs 为准。
+| 项目 | 允许值 |
+|---|---|
+| Spec / Plan | `Draft` → `Accepted`；不再适用时使用 `Superseded` 或 `Archived` |
+| ADR | `Proposed` → `Accepted`；确认不需要时写 `Not required` 并给出依据 |
+| Tasks | `Missing`、`Gated`、`Ready`，或完成数 `x/y` |
+| 实现 | `Not started`、`In progress`、`Complete` |
+
+没有显式写明 `Accepted` 的文档按 `Draft` 处理。`tasks.md` 的存在或任务全部勾选，
+都不能反向证明 spec、plan 或 ADR 已接受。
+
+## ADR registry
+
+| ADR | 决定 | 状态 | 主要影响 |
+|---|---|---|---|
+| [ADR-001](../docs/adr/001-project-storage.md) | `.writellm` 内容格式与 Git-backed history | Proposed | 003–010 的内容持久化、事务和历史边界 |
+| [ADR-002](../docs/adr/002-project-foundation.md) | 可移动项目、recent pointer 和 main-owned dialog | Accepted | 001；为后续项目内能力提供基础边界 |
+| [ADR-003](../docs/adr/003-ui-foundation.md) | Source-owned renderer UI 与外观基础 | Accepted | 011，以及 002–010 的 renderer UI |
+
+ADR 文件位于 [`docs/adr/`](../docs/adr/)。新增 ADR 时使用下一个稳定编号，并在
+ADR、受影响 feature 的 plan 和本表之间建立双向链接。
+
+## 关系与归档
+
+- `硬依赖`：未满足时不能实现目标 feature；普通关联不应放入该列。
+- 跨 feature 的 producer/consumer、共享 contract 或受影响关系，应写入双方 plan 或 contract。
+- 被替代的综合设计保存在
+  [`_archive/001-ai-writing-workspace-umbrella`](./_archive/001-ai-writing-workspace-umbrella/)，
+  仅用于追溯，不是当前实现依据。

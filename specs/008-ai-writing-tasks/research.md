@@ -2,7 +2,7 @@
 
 **研究日期**：2026-07-12  
 **研究范围**：provider 调用抽象、流式/取消、任务执行载体、网络、重试/并发、runtime schema 校验和 secret 边界。  
-**仓库基线**：Electron `40.10.5`、React `^19.0.0`、Bun `1.3.4`、TypeScript `5.8.2`；当前没有 AI/queue/schema/provider 依赖。
+**仓库基线**：Electron `43.1.0`、React `19.2.7`、Bun `1.3.14`、TypeScript `7.0.2`；当前没有 AI/queue/schema/provider 依赖。
 
 ## 结论摘要
 
@@ -15,7 +15,7 @@
 - 优先查阅维护者/官方文档和仓库，而不是二手教程；链接集中在本文末尾的参考资料表。
 - 以 Electron main/utility 的运行时为安全边界；React renderer 只能通过已有的 typed preload 形状调用任务 API。
 - Bun 目前是仓库的包管理器和脚本执行工具；`bun run build` 最终编译 Electron main/preload，生产行为仍要以打包后的 Electron Node runtime smoke 为准。
-- 任何候选都需要在 Electron 40、strict TypeScript、ESM/CJS 混合的当前构建链上做兼容性 probe；“能在 Node/Bun 工作”不自动等于“能在 packaged Electron 工作”。
+- 任何候选都需要在 Electron 43、strict TypeScript、ESM/CJS 混合的当前构建链上做兼容性 probe；“能在 Node/Bun 工作”不自动等于“能在 packaged Electron 工作”。
 
 ## 候选一：provider 调用和统一结果
 
@@ -104,14 +104,14 @@ TypeScript 静态类型不能验证 renderer、文件或外部 provider 的运�
 
 **Decision: NEEDS DECISION**。产品必须明确“离线时能做什么”：能否创建 queued task、是否立即拒绝、是否允许取消/删除本地失败记录、是否有恢复时自动重试；同时明确数据是否发送到外部 provider、保留期限、区域/合规和用户提示。
 
-## 与当前 Electron 40 / React 19 / Bun / TypeScript 的适配总结
+## 与当前 Electron 43 / React 19.2.7 / Bun / TypeScript 的适配总结
 
 | 现状 | 已知适配结论 | 仍需 probe/决策 |
 |---|---|---|
-| Electron 40 + sandbox renderer | provider、FS、safeStorage、任务状态在 main；preload 只映射 named typed methods | provider SDK 是否误用 browser build；utility/worker 打包；IPC update listener 的生命周期和窗口销毁 |
-| React 19 | renderer 只消费 TaskSummary/TaskDetail/Proposal DTO；UI 可用普通 React state/外部 store，但不引入具体状态库 | 长任务订阅、窗口重新挂载后的快照补发、可访问状态文案和取消/重试 UI |
-| Bun 1.3.4 | 适合作为 package manager、现有 scripts 和本地 fixture runner；部分候选官方声明支持 Bun | lockfile/安装策略、Electron 运行时解析、native module ABI、ESM/CJS；不运行网络安装来验证 |
-| TypeScript 5.8 strict | shared discriminated unions、DTO 和 error code 可直接对齐 main/preload/renderer | 运行时 schema library 选型、JSON 文件/外部响应的 unknown field 和 migration |
+| Electron 43 + sandbox renderer | provider、FS、safeStorage、任务状态在 main；preload 只映射 named typed methods | provider SDK 是否误用 browser build；utility/worker 打包；IPC update listener 的生命周期和窗口销毁 |
+| React 19.2.7 | renderer 只消费 TaskSummary/TaskDetail/Proposal DTO；UI 可用普通 React state/外部 store，但不引入具体状态库 | 长任务订阅、窗口重新挂载后的快照补发、可访问状态文案和取消/重试 UI |
+| Bun 1.3.14 | 适合作为 package manager、现有 scripts 和本地 fixture runner；部分候选官方声明支持 Bun | lockfile/安装策略、Electron 运行时解析、native module ABI、ESM/CJS；不运行网络安装来验证 |
+| TypeScript 7.0.2 strict | shared discriminated unions、DTO 和 error code 可直接对齐 main/preload/renderer | 运行时 schema library 选型、JSON 文件/外部响应的 unknown field 和 migration |
 | 现有 Vite/Electron build | 适合按 main/preload/renderer 分层扩展；当前 smoke 是 compiled foundation smoke | streaming/MessagePort/utility entry 的构建产物、source map 和 packaged app 测试 |
 
 ## 研究后的暂行架构（不是最终选型）

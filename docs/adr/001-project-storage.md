@@ -37,13 +37,20 @@ root 内。project identity、recent pointer、启动页 dialog、项目名称�
 
 ### 2. Use editor-native canonical content and explicit interchange projections
 
-项目根目录初始化 .git、.gitattributes 和 .gitignore。project.json 是 manifest，ui-state.json 保存最近编辑位置，content/ 保存作者内容，sources/ 保存资料，ai/ 保存任务和提案，runtime/ 保存可重建缓存和 pending 状态。章节正文使用对应编辑器的 canonical document format；采用 BlockNote 的章节保存 BlockNote JSON wrapper，Markdown 只作为明确的输入、粘贴和导出 projection。
+项目在第一次成功内容保存事务中初始化 `.git`、`.gitattributes` 和标准 `.gitignore`；项目创建或只读打开不提前初始化 Git。`project.json` 是 manifest，`content/` 与 feature-owned workspace documents 保存作者内容，`sources/` 保存资料，`ai/` 保存任务和提案，`runtime/` 保存可重建缓存和 pending 状态。章节正文使用对应编辑器的 canonical document format；采用 BlockNote 的章节保存 BlockNote JSON wrapper，Markdown 只作为明确的输入、粘贴和导出 projection。
 
 所有 JSON 文档都带 schemaVersion 和 kind。main 进程读取后先验证 kind、projectId、revision 和必需字段，再交给 renderer。未知字段可以保留，未知 schemaVersion 必须返回可理解的迁移/不支持错误。BlockNote block id、props、content 和 children 由 canonical JSON 保存；Markdown 转换不得承担恢复 block identity 或引用关系的职责。Git attributes 将 Markdown/BlockNote JSON/JSONL 视为 text，将 PDF、图片和 embedding 视为 binary 或 ignored cache。
 
-Git repository 是项目的一部分，随 .writellm 文件夹移动。项目打开时必须验证 .git 的 work tree 指向当前项目根，不自动接受外部 repository。
+Git repository 是项目的一部分，随 `.writellm` 文件夹移动。项目打开时必须验证 `.git` 位于当前项目根，不自动接受外部 repository。初始化时首个 commit 包含项目根内当时存在的全部可追踪文件；`.git` 自身、同目录临时文件、`runtime/pending/`、可重建 cache、日志、崩溃转储和任何 secret material 不得进入 index。标准 `.gitignore` 即使当前不配置 remote 也必须存在，因为它定义本地历史边界并避免把恢复中间态或可重建大文件写入永久历史。
 
 ### 3. Use structured Git commits for product history
+
+首版 Git engine 使用 main-only `isomorphic-git` adapter，并传入 Electron main 的 Node
+`fs`。它覆盖本产品需要的 init、add/remove、commit、status/log/diff/restore primitives，
+不调用用户系统 Git，也不打包独立 Git executable。精确 package 版本在实现任务开始时
+锁定到 `package.json`/`bun.lock`，并通过三平台 packaged Electron 验证。若未来需要
+isomorphic-git 不支持或性能不足的 Git 能力，必须通过新的 ADR amendment 更换 adapter；
+domain repository 与 renderer contract 不得依赖 engine-specific API。
 
 每次成功保存由 main-owned GitRepository adapter 执行 add/commit。Git commit id、parent、timestamp、changed files 和 diff 是版本记录；Git log 作为时间线，Git diff 作为比较，Git restore 作为非破坏恢复基础。
 
@@ -63,10 +70,11 @@ WriteLLM-Proposal-ID: optional
 ### 4. Make content writes recoverable and main-owned
 
 - 每个项目由 main 进程维护串行写入队列。
+- 若项目尚无 `.git`，第一次内容保存先在 pending transaction 中准备 canonical 文件和标准 Git metadata，再初始化 repository、stage 项目内全部可追踪文件并创建 initial structured content commit。初始化、stage 或 commit 任一步失败都返回稳定的 `GIT_INITIALIZATION_FAILED` 或 `GIT_COMMIT_FAILED`，保留 renderer 草稿并显示可重试提醒，不得报告保存成功。
 - 单文件写入使用同目录临时文件、完整写入后 rename。
 - 跨文件保存先写 runtime/pending/<transactionId>.json，记录目标 revision、待替换文件和 hashes；替换文件后由 Git adapter 创建 commit，commit 成功后清理 pending。
 - 启动或 open 时检测 pending transaction 和 Git working tree：若文件写入完成但 commit 未完成，则重试或标记 externalChanges；无法判断时返回 STORAGE_RECOVERY_REQUIRED，不覆盖文件。
-- Git runtime 由应用管理，main 使用固定 executable/adapter 和参数，不把任意 Git command 暴露给 renderer，也不依赖用户的全局 Git config。
+- Git runtime 由应用管理，main 使用锁版 isomorphic-git adapter、应用固定的 author/committer identity 和参数，不把任意 Git command 暴露给 renderer，也不读取或依赖用户的全局 Git config。
 
 ### 5. Keep IPC explicit
 
@@ -101,15 +109,20 @@ WriteLLM-Proposal-ID: optional
 
 SQLite 能提供事务和查询，但仍需要保存可版本化的 editor-native document，并处理数据库迁移、备份和可移动项目边界。是否使用数据库由具体内容 feature 决定，不由 Markdown 互操作要求决定；事务必须继续由 main-owned storage boundary 提供。
 
-### Initialize a Git repository in every project
+### Use the user's system Git
 
-这是本 ADR 的选择。Git 不是 renderer API，而是由 main 管理的项目内 history backend；commit trailers 表达 processing event、AI proposal、actor 和 source/chunk 关联。发布版不能依赖用户系统 Git，应由应用携带已知 runtime。
+拒绝作为生产默认值。macOS、Windows 和 Linux 对 Git 的预装、版本、PATH、首次启动提示和全局配置没有统一保证；它只可作为开发诊断工具，不能决定用户能否保存。
+
+### Bundle a standalone Git executable
+
+首版拒绝。完整 executable 能提供原生 Git 的最大兼容性，但需要为 macOS、Windows、Linux 分别打包、签名、更新和验证二进制，明显超过当前 init/add/commit/log 范围。若后续出现 isomorphic-git 无法满足的 repository maintenance 或性能需求，再通过 ADR amendment 采用。
 
 ## Acceptance checklist before implementation
 
 - [ ] feature spec 从 Draft 变为项目认可的 Accepted 状态。
 - [ ] 维护者接受 ADR-002，确认任意父目录、.writellm 自包含项目和 userData recent index。
 - [ ] 维护者接受 editor-native canonical schema、BlockNote JSON 与 Markdown interop/lossiness、Git commit trailers 和 binary/cache tracking policy。
+- [ ] 维护者接受 isomorphic-git main-only adapter、首次内容保存初始化、应用固定 author identity、标准 `.gitignore` 和 existing-project migration/failure semantics。
 - [ ] 内容/任务/提案/历史 feature 的 IPC contract method names、DTO、dialog result 和错误码冻结。
 - [ ] ADR-002 的 project foundation contract 已冻结，并由后续 feature 作为 storage prerequisite 复用。
 - [ ] 任务计划包含真实 Electron runtime smoke，而不只有 renderer 单元测试。

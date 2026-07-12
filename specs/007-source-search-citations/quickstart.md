@@ -36,7 +36,7 @@ bun run test:smoke
 - `build` 验证选定依赖能被 Electron/preload/renderer 的现有编译链接受。
 - `test:smoke` 通过 compiled Electron 启动真实 renderer↔preload↔main，验证 sender validation、IPC envelope、项目 fixture、保存/恢复和安全错误；不得用 mock IPC 代替这个边界。
 
-当前 foundation 只实现 runtime-info，因此在 007 实现前不能把上述命令的绿色结果解释为 feature 已完成。
+当前 foundation 已实现 001 project bridge，并有已接受的 011 UI/appearance 设计；在 007 实现前，上述命令绿色仍只能证明既有 foundation，不能解释为 search/citation feature 已完成。
 
 ## 3. 端到端场景 A：关键词与自然语言检索
 
@@ -94,4 +94,3 @@ bun run test:smoke
 - [ ] IPC method/DTO/error codes、schemaVersion、hash/model identity、rebind semantics 已 freeze。
 - [ ] 离线、credentials、telemetry、网络、license、native artifact 和恢复/升级策略已 freeze。
 - [ ] fixture、runtime smoke、性能测量、a11y protocol 可在无联网安装的环境中复现。
-

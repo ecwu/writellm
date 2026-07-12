@@ -13,7 +13,7 @@ bun run test
 bun run test:smoke
 ```
 
-当前预期：这些命令只证明 Electron + React startup foundation；现有 smoke 只检查 `getRuntimeInfo` 和显式 preload bridge，不证明 AI task 功能。`bun run dev` 与 `bun run dev:electron` 可用于观察当前启动页，但当前 renderer 尚无任务 UI。
+当前预期：这些命令只证明既有 Electron、001 project foundation 和显式 preload bridge；不证明 AI task 功能。`bun run dev` 与 `bun run dev:electron` 可用于观察当前 foundation，但当前 renderer 尚无任务 UI。
 
 ## 1. 实现前需要准备的本地 fixture
 

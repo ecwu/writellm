@@ -1,0 +1,2 @@
+import { expect,test } from 'bun:test'; import { readFile } from 'node:fs/promises';
+test('workspace slot remains an unconditional sibling of the single panel host',async()=>{const source=await readFile('src/renderer/workspace/WorkspaceShell.tsx','utf8');const slot=source.indexOf('<WorkspaceSlot');const panel=source.indexOf('<ToolPanelHost');expect(slot).toBeGreaterThan(0);expect(panel).toBeGreaterThan(slot);expect(source.slice(slot,panel)).not.toContain('activePanel ?');});

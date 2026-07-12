@@ -14,7 +14,7 @@
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.8，严格模式；Electron `40.10.5`；React `^19.0.0`；Bun `1.3.4` 作为 package manager/脚本运行器；Vite `6.2.2`。Electron main 的运行时以 Electron 自带 Node 为准，不把 Bun 当作生产 main runtime。
+**Language/Version**: TypeScript 7.0.2，严格模式；Electron `43.1.0`；React `19.2.7`；Bun `1.3.14` 作为 package manager/脚本运行器；Vite `8.1.4`。Electron main 的运行时以 Electron 自带 Node 为准，不把 Bun 当作生产 main runtime。
 
 **Primary Dependencies**: 当前已存在 React、React DOM、Electron、Vite 和 TypeScript。provider SDK/协议抽象、网络请求实现、schema 校验、重试/并发和可选 worker/utility process 均为候选项，最终决策 `NEEDS DECISION`；详见 [research.md](./research.md)。
 
@@ -38,8 +38,8 @@
 
 已存在：
 
-- `src/main/main.ts` 创建受安全配置约束的 BrowserWindow，并只注册 `getRuntimeInfo`。
-- `src/preload/preload.cts` 只暴露命名的 `getRuntimeInfo`。
+- `src/main/main.ts` 创建受安全配置约束的 BrowserWindow，并拥有已接受的 001 project handlers；011 另有独立 appearance boundary。
+- `src/preload/preload.cts` 暴露已冻结的 001 六方法 project bridge；新增 AI task capability 必须保持独立、具名和最小。
 - `src/shared/ipc.ts` 只有 runtime DTO 和 channel。
 - `src/renderer/App.tsx` 只展示启动状态；没有项目、章节、资料或 AI 领域 UI。
 - `package.json` 只有现有 Electron/React/Vite/TypeScript 依赖和 foundation scripts。
@@ -73,7 +73,7 @@
 - renderer 是否只拿到脱敏、版本化 DTO，且 sender/project/session 校验发生在 main。
 - 任务取消是否贯穿 queue、provider call、重试等待和持久化，而不是只改变 UI 状态。
 - 任何未定位、目标版本过期、证据不足或 provider 返回不符合 schema 的结果是否停留在独立提案/人工判断状态。
-- runtime smoke 是否覆盖“renderer 继续编辑 + task 运行 + task 失败/取消 + 原文未变”的边界，而不仅是 `getRuntimeInfo`。
+- runtime smoke 是否覆盖“renderer 继续编辑 + task 运行 + task 失败/取消 + 原文未变”的边界，并验证既有 project/appearance bridge 不被扩大。
 
 若其中任一项不能回答，状态为 `NEEDS DECISION`，不得通过实现前 gate。
 
@@ -244,3 +244,9 @@ Main task service
 | 可选执行隔离层 | provider SDK 或解析/规范化可能阻塞或携带不可信响应，需要在决策后选择 main、worker 或 utility process | 现在 foundation 只有 main；在没有性能/隔离证据前强行引入 worker 会增加 IPC 和打包复杂度 |
 
 这些不是当前的技术选型结论；是否引入额外依赖、是否使用额外进程以及最终 schema/协议，均以 `NEEDS DECISION` 为准。
+
+## ADR-003 / 011 renderer integration
+
+- task composer、运行状态、取消/重试和输出 preview 优先复用 011 form/action/feedback/overlay primitives 与 patterns；task lifecycle、provider choice、stream state 和 safe actions 仍归 008。
+- 流式内容使用合适的 Typeset preset 并保持 append-stable；Typeset/appearance 不改写 task payload、proposal 或 canonical chapter content。
+- feature 不直接导入 Base UI、不建立第二套 theme；覆盖 semantic tokens、light/dark、forced-colors、reduced-motion、键盘、焦点和非颜色状态文本，缺口走 `FoundationExtensionRequest`。

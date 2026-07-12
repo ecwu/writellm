@@ -1,28 +1,35 @@
 # Specification Quality Checklist: AI 写作任务与提案生成
 
-**Purpose**: 验证 AI 任务范围、状态和提案生成边界。
-**Created**: 2026-07-11
+**Purpose**: Validate specification completeness and quality before proceeding to planning
+**Created**: 2026-07-12
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 
-- [x] 任务提交、状态、结果和证据不足均有独立场景。
-- [x] 提案审阅和正文应用已明确交给 009。
-- [x] 未绑定具体模型或服务供应商。
+- [x] No implementation details (languages, frameworks, APIs)
+- [x] Focused on user value and business needs
+- [x] Written for non-technical stakeholders
+- [x] All mandatory sections completed
 
 ## Requirement Completeness
 
-- [x] 目标块、指令、资料范围和状态已覆盖。
-- [x] 失败、取消、中断、过期目标和无依据结果已覆盖。
-- [x] 用户确认前正文不变的要求可验证。
-- [x] 修改、插入和删除均先生成独立提案，且不会绕过作者确认。
-- [x] 授权范围内操作与范围扩展操作已区分，范围扩展会进入单独确认。
-- [x] 新增 Block 的 AI 选定位置、上下文和不可定位行为已覆盖。
-- [x] 独立操作与原子变更组的生成和成员关系已覆盖。
-- [x] 删除父 Block 时的完整子树、引用影响和阻止条件已覆盖。
+- [x] No [NEEDS CLARIFICATION] markers remain
+- [x] Requirements are testable and unambiguous
+- [x] Success criteria are measurable
+- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] All acceptance scenarios are defined
+- [x] Edge cases are identified
+- [x] Scope is clearly bounded
+- [x] Dependencies and assumptions identified
 
-## Readiness
+## Feature Readiness
 
-- [x] 依赖 004、005 和 007 已记录。
-- [x] 任务与提案实体边界清晰。
-- [x] 可进入 `/speckit-clarify` 或 `/speckit-plan`。
+- [x] All functional requirements have clear acceptance criteria
+- [x] User scenarios cover primary flows
+- [x] Feature meets measurable outcomes defined in Success Criteria
+- [x] No implementation details leak into specification
+
+## Notes
+
+- 已统一使用用户可理解的“内容块”“建议位置”和“不可拆分变更组”，不规定正文或提案的存储与应用方式。
+- 提案审阅和正文应用明确属于 009；本 feature 以“结果不直接改变正文”为验收边界。

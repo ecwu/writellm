@@ -11,11 +11,11 @@ Status: Draft / 第一版
 
 ## Current baseline
 
-当前仓库只有 Electron main/preload/shared/React renderer 的 startup foundation；已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
+当前仓库已实现 001 project foundation，并有已接受的 ADR-003/011 UI foundation 设计；content history 尚未实现。已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
 
 ## Technical Context
 
-TypeScript 5.8、React 19、Electron 40、Vite 6、Bun 1.3.4；目标为 sandboxed desktop app。候选：系统 Git + simple-git、isomorphic-git、libgit2 binding；Git diff/patch、jsdiff、结构化 document diff。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
+TypeScript 7.0.2、React 19.2.7、Electron 43、Vite 8.1.4、Bun 1.3.14；目标为 sandboxed desktop app。候选：系统 Git + simple-git、isomorphic-git、libgit2 binding；Git diff/patch、jsdiff、结构化 document diff。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
 
 ## Constitution Check
 
@@ -72,3 +72,9 @@ main owns files, Git, secrets, parsing jobs or restore transactions as applicabl
 候选：系统 Git + simple-git、isomorphic-git、libgit2 binding；Git diff/patch、jsdiff、结构化 document diff。
 
 **Decision: NEEDS DECISION。** 本版不把候选写成批准依赖。
+
+## ADR-003 / 011 renderer integration
+
+- history timeline、版本状态、compare/restore actions 和 destructive confirmation 优先复用 `Card`、`Badge`、`Button`、`StatusNotice`、`ScrollArea` 和 `Dialog`；history parsing、restore plan 和 safety policy 仍归 010/main。
+- content preview 使用 Typeset，但 compare/restore 以 editor-native canonical document 和 Git metadata 为真相，不能从 HTML/Markdown projection 反推 canonical content。
+- 覆盖 semantic tokens、light/dark、forced-colors、reduced-motion、键盘比较/恢复流程和 focus return；共享缺口走 `FoundationExtensionRequest`。

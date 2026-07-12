@@ -1,0 +1,5 @@
+.typeset { --typeset-size: 1rem; --typeset-leading: 1.75; --typeset-flow: 1.25em; color: var(--foreground); font-family: var(--font-system-serif); font-size: calc(var(--typeset-size) * var(--appearance-font-scale, 1)); line-height: var(--appearance-line-height, var(--typeset-leading)); max-width: calc(var(--appearance-content-width, 72) * 1ch); }
+.typeset-editor { --typeset-size: 16px; --typeset-leading: 1.75; --typeset-flow: 1.25em; }
+.typeset-reading { --typeset-size: 18px; --typeset-leading: 1.9; --typeset-flow: 2em; }
+.typeset-compact { --typeset-size: 14px; --typeset-leading: 1.6; --typeset-flow: 1em; }
+.typeset > * { margin-block: 0; } .typeset > * + * { margin-block-start: var(--typeset-flow); } .typeset :is(h1,h2,h3) { font-family: var(--font-system-serif); line-height: 1.2; } .typeset code { font-family: var(--font-system-mono); } .typeset :where(.not-typeset, .not-typeset *) { all: revert-layer; }

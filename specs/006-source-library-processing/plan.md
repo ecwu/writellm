@@ -11,11 +11,11 @@ Status: Draft / 第一版
 
 ## Current baseline
 
-当前仓库只有 Electron main/preload/shared/React renderer 的 startup foundation；已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
+当前仓库已实现 001 project foundation，并有已接受的 ADR-003/011 UI foundation 设计；source processing 尚未实现。已有命令为 bun run typecheck、bun run test、bun run test:smoke。以下计划只描述待实现能力。
 
 ## Technical Context
 
-TypeScript 5.8、React 19、Electron 40、Vite 6、Bun 1.3.4；目标为 sandboxed desktop app。候选：pdf-parse、pdfjs-dist/unpdf、MuPDF.js、Apache Tika；embedding 可来自 provider、Transformers.js 或 ONNX helper；job 可在 main/worker/utility process。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
+TypeScript 7.0.2、React 19.2.7、Electron 43、Vite 8.1.4、Bun 1.3.14；目标为 sandboxed desktop app。候选：pdf-parse、pdfjs-dist/unpdf、MuPDF.js、Apache Tika；embedding 可来自 provider、Transformers.js 或 ONNX helper；job 可在 main/worker/utility process。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
 
 ## Constitution Check
 
@@ -77,3 +77,9 @@ main owns files, Git, secrets, parsing jobs or restore transactions as applicabl
 候选：pdf-parse、pdfjs-dist/unpdf、MuPDF.js、Apache Tika；embedding 可来自 provider、Transformers.js 或 ONNX helper；job 可在 main/worker/utility process。
 
 **Decision: NEEDS DECISION。** 本版不把候选写成批准依赖。
+
+## ADR-003 / 011 renderer integration
+
+- source list、processing status、empty/error states 和导入确认优先组合 `Card`、`Badge`、`StatusNotice`、`EmptyState`、`Button`、`ScrollArea` 和 `Dialog`；processing/domain truth 仍归 006。
+- 解析内容 preview 使用 source-owned Typeset preset；图片/表格关系和 artifact identity 不因 appearance 改变，appearance 不进入 project files 或 exports。
+- feature 不直接导入 Base UI 或复制 primitive；覆盖 semantic tokens、light/dark、forced-colors、reduced-motion、键盘与焦点，缺口走 `FoundationExtensionRequest`。

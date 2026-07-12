@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Bun 1.3.4、现有 Electron foundation、local fixture/fake adapter。真实 provider、PDF parser、Git runtime 或 embedding 不作为默认前置。
+Bun 1.3.14、现有 Electron foundation、local fixture/fake adapter。真实 provider、PDF parser、Git runtime 或 embedding 不作为默认前置。
 
 ## Scenarios
 

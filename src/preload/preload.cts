@@ -1,4 +1,5 @@
 import type { WriteLLMIpc } from '../shared/ipc.js';
+import type { AppearanceIpc } from '../shared/appearance.js';
 
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
 
@@ -12,3 +13,8 @@ const api: WriteLLMIpc = {
 };
 
 contextBridge.exposeInMainWorld('writellm', api);
+const appearanceApi: AppearanceIpc = {
+  getAppearancePreferences: () => ipcRenderer.invoke('writellm:appearance:get'),
+  updateAppearancePreferences: (value) => ipcRenderer.invoke('writellm:appearance:update', value)
+};
+contextBridge.exposeInMainWorld('writellmAppearance', appearanceApi);

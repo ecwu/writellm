@@ -1,28 +1,35 @@
 # Specification Quality Checklist: AI 修改提案审阅
 
-**Purpose**: 验证提案差异、逐项审阅和安全应用边界。
-**Created**: 2026-07-11
+**Purpose**: Validate specification completeness and quality before proceeding to planning
+**Created**: 2026-07-12
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 
-- [x] 查看、逐项处理和过期保护均有独立验收场景。
-- [x] AI 任务生成已明确交给 008。
-- [x] 自动无确认写入正文已明确排除。
+- [x] No implementation details (languages, frameworks, APIs)
+- [x] Focused on user value and business needs
+- [x] Written for non-technical stakeholders
+- [x] All mandatory sections completed
 
 ## Requirement Completeness
 
-- [x] 接受、拒绝、暂缓、批量和部分接受已覆盖。
-- [x] 过期、重叠、冲突、失效引用和保存失败已覆盖。
-- [x] 只有接受的变更进入正文的规则可验证。
-- [x] 修改、插入和删除操作均有明确提案类型和作者确认边界。
-- [x] 范围扩展操作不会被普通批量接受隐式应用。
-- [x] 新增 Block 的位置预览、接受/拒绝和锚点失效边界已覆盖。
-- [x] 原子变更组只能整体接受或拒绝，且不会部分写入。
-- [x] 删除子树及其引用影响只能完整预览并原子应用。
+- [x] No [NEEDS CLARIFICATION] markers remain
+- [x] Requirements are testable and unambiguous
+- [x] Success criteria are measurable
+- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] All acceptance scenarios are defined
+- [x] Edge cases are identified
+- [x] Scope is clearly bounded
+- [x] Dependencies and assumptions identified
 
-## Readiness
+## Feature Readiness
 
-- [x] 依赖 004、007 和 008 已记录。
-- [x] 任务来源和审阅状态不会重复定义提案实体。
-- [x] 可进入 `/speckit-clarify` 或 `/speckit-plan`。
+- [x] All functional requirements have clear acceptance criteria
+- [x] User scenarios cover primary flows
+- [x] Feature meets measurable outcomes defined in Success Criteria
+- [x] No implementation details leak into specification
+
+## Notes
+
+- 已把差异、过期和安全应用表达为作者可观察结果，不规定内容格式、比较算法、保存协议或进程边界。
+- 008 负责生成提案，009 负责审阅与应用，010 负责应用成功后的历史浏览和恢复。

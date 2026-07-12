@@ -1,6 +1,6 @@
 # Research: 项目版本历史与恢复
 
-本轮只记录主流候选与一手资料，不作最终选型。需在 PoC 中验证 Electron 40/Bun ESM-CJS、跨平台打包、许可证、native/module 大小、维护状态和离线替代。
+本轮只记录主流候选与一手资料，不作最终选型。需在 PoC 中验证 Electron 43/Bun ESM-CJS、跨平台打包、许可证、native/module 大小、维护状态和离线替代。
 
 ## 候选
 

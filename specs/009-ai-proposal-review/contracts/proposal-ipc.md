@@ -9,7 +9,7 @@
 - renderer request 只携带项目/提案/change identity、用户 decision、revision 和有限 token；不携带绝对路径、任意 patch、filesystem handle、secret 或 stack trace。
 - main 每次重新验证 sender/frame、当前打开 project、projectId/proposalId/changeId、schemaVersion、状态转换、revision、target/source ownership 和输入大小。
 - renderer 看到的是脱敏/结构化 DTO。绝对路径只留在 main/userData，proposal 内容按不可信文本处理，不把原始 HTML 当作可执行 markup。
-- IPC response 必须是可序列化 plain data；不能依赖跨 bridge 的自定义 Error class。具体 channel prefix 参考现有 writellm:runtime-info，最终命名 NEEDS DECISION。
+- IPC response 必须是可序列化 plain data；不能依赖跨 bridge 的自定义 Error class。命名必须形成独立、具名、最小的 proposal capability，不得扩展 001 六方法 project bridge、011 appearance bridge 或暴露 generic channel；最终名称仍 NEEDS DECISION。
 
 ## Methods
 

@@ -1,11 +1,10 @@
 import type { WriteLLMIpc } from '../../shared/ipc';
-import type { ProjectSnapshot, RecentProjectSummary } from '../../shared/project';
+import type { RecentProjectSummary } from '../../shared/project';
 
 export type LaunchState =
   | { status: 'loading'; recentProjects: RecentProjectSummary[] }
   | { status: 'ready'; recentProjects: RecentProjectSummary[]; warning?: string }
   | { status: 'working'; recentProjects: RecentProjectSummary[]; message: string }
-  | { status: 'workspace'; recentProjects: RecentProjectSummary[]; project: ProjectSnapshot }
   | { status: 'error'; recentProjects: RecentProjectSummary[]; message: string };
 
 export const initialLaunchState: LaunchState = { status: 'loading', recentProjects: [] };
@@ -24,4 +23,3 @@ export function operationMessage(result: { status: string; error?: { message: st
   if (result.status === 'error') return result.error?.message ?? 'The operation could not be completed.';
   return undefined;
 }
-

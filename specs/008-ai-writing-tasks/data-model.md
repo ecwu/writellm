@@ -278,7 +278,7 @@ EvidenceAssessment {
 ```text
 <project>.writellm/
 ├── project.json
-├── content/                       # 004 canonical Markdown/block content
+├── content/                       # 004 canonical BlockNote JSON wrapper；Markdown 仅为 interop projection
 ├── sources/                       # 006/007 source artifacts and refs
 ├── ai/
 │   ├── tasks/<taskId>.json        # WritingTask + attempts + context refs
