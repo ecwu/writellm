@@ -180,6 +180,6 @@
 - `011-ui-foundation` 的 spec、plan、ADR-003 和 UI contract 已接受且实现完成；002 在开始实施前仍须确认 001 migration regression 通过。
 - 011 计划中的初始 primitives/patterns 足以覆盖 002 当前已知的通用 UI 需求；若实际 shell 证明需要 Sidebar、Sheet、Tabs 或其他新能力，将按 foundation 扩展流程处理。
 - 后续编辑、资料、AI、provider 和历史 feature 各自拥有业务状态、持久化与错误动作，并以 slot 或受限 view model 接入工作台。
-- 002 没有独立的持久化需求，也不依赖仍为 Proposed 的 ADR-001 内容/Git 存储决策；未来若产品要求恢复 shell 布局或编辑位置，应通过单独 spec 与必要 ADR 处理。
+- 002 没有独立的持久化需求，也不依赖 ADR-001 内容/Git 存储决策；未来若产品要求恢复 shell 布局或编辑位置，应通过单独 spec 与必要 ADR 处理。
 - 001 当前支持的 1200×800 默认窗口和 960×640 最小窗口继续作为 002 的桌面布局边界。
 - 011 完成后的 001 migration regression 已由 maintainer 确认全部通过，002 implementation gate 已满足。

@@ -20,12 +20,12 @@
 
 **Purpose**: 满足仓库 implementation gate，并建立 003 的目录和测试 fixture；本阶段未完成前不得开始产品实现。
 
-- [ ] T001 记录 maintainer 对 003 `spec.md`、`plan.md`、`data-model.md` 和三个 contracts 的接受结果并勾选 `specs/003-writing-orientation/checklists/plan-decisions.md`
-- [ ] T002 接受 `docs/adr/001-project-storage.md`，冻结 `workspace/writing-orientation.json`、schema v1、revision、atomic replacement、pending recovery、app-managed Git runtime/adapter 与 structured content commit，并在 `specs/003-writing-orientation/checklists/plan-decisions.md` 记录结果
-- [ ] T003 接受 `specs/003-writing-orientation/contracts/workspace-leave-guard.md` 对已完成 002 shell 的 dirty Save/Discard/Stay extension，并记录 003 linked-item safe-refusal boundary；004 transaction 不再阻塞 003
-- [ ] T004 [P] 创建 003 shared/main/renderer/test 目录骨架与空 fixture exports，路径为 `src/main/writing-orientation/`, `src/renderer/features/writing-orientation/`, `test/fixtures/writing-orientation/`, `test/unit/writing-orientation/`, `test/contract/writing-orientation/`, `test/integration/writing-orientation/`, `test/runtime/writing-orientation/`
+- [X] T001 记录 maintainer 对 003 `spec.md`、`plan.md`、`data-model.md` 和三个 contracts 的接受结果并勾选 `specs/003-writing-orientation/checklists/plan-decisions.md`
+- [X] T002 接受 `docs/adr/001-project-storage.md`，冻结 `workspace/writing-orientation.json`、schema v1、revision、atomic replacement、pending recovery、app-managed Git runtime/adapter 与 structured content commit，并在 `specs/003-writing-orientation/checklists/plan-decisions.md` 记录结果
+- [X] T003 接受 `specs/003-writing-orientation/contracts/workspace-leave-guard.md` 对已完成 002 shell 的 dirty Save/Discard/Stay extension，并记录 003 linked-item safe-refusal boundary；004 transaction 不再阻塞 003
+- [X] T004 锁定并安装一个精确 `isomorphic-git` 版本到 `package.json`/`bun.lock`，完成 license、Bun、Electron build 与 packaged runtime compatibility probe；随后创建 003 shared/main/renderer/test 目录骨架与空 fixture exports，路径为 `src/main/writing-orientation/`, `src/renderer/features/writing-orientation/`, `test/fixtures/writing-orientation/`, `test/unit/writing-orientation/`, `test/contract/writing-orientation/`, `test/integration/writing-orientation/`, `test/runtime/writing-orientation/`
 
-**Checkpoint**: 只有 T001–T003 全部完成且没有未接受边界时，才允许进入 Phase 2。
+**Checkpoint**: T001–T003 已完成，003 已获实施授权；完成 T004 的 dependency/runtime probe 后进入 Phase 2。
 
 ---
 
@@ -35,15 +35,15 @@
 
 **⚠️ CRITICAL**: 本阶段阻塞全部用户故事。
 
-- [ ] T005 [P] 定义 schema v1 document、motivation、existing/new outline save-input 可判别联合、clientDraftId→outlineItemId mapping、delete confirmation、result 与 stable error DTO，并为 `Window` 声明三个具名方法；save input 不暴露 main-owned chapterRef，路径为 `src/shared/writing-orientation.ts` 和 `src/vite-env.d.ts`
-- [ ] T006 [P] 建立 canonical empty/saved document、有效/无效 request 与 disk fixture builders，路径为 `test/fixtures/writing-orientation/orientation-fixtures.ts`
-- [ ] T007 为 renderer input 与 disk document 实现 main-owned parser，校验 kind/version/project identity、UUID、唯一性、status、NUL、trimmed title、safe integer revision 和 2 MiB ceiling，路径为 `src/main/writing-orientation/parser.ts`
-- [ ] T008 为 parser 编写 missing/invalid/unknown schema、identity mismatch、existing/new identity XOR、unknown/omitted/duplicate durable IDs、duplicate clientDraftId、forged chapterRef、chapter uniqueness 与 size ceiling 单元测试，路径为 `test/unit/writing-orientation/parser.test.ts`
-- [ ] T009 实现 per-project serial queue、missing-file revision 0 load、baseRevision conflict、method+payload-bound session mutationId 去重、clientDraftId→main UUID mapping、main-owned chapterRef merge、updatedAt、sibling-temp flush/close/rename，并调用 accepted ADR-001 main-owned Git adapter 完成 pending/structured commit/cleanup，路径为 `src/main/writing-orientation/repository.ts` 和 ADR-001 接受的 shared project storage adapter
-- [ ] T010 为 atomic replacement + Git commit、100 次 save/reopen、重复 mutation、stale revision、write/commit failure、pending/dirty-worktree recovery、malformed document 与 recovery-required 编写隔离项目 integration tests，路径为 `test/integration/writing-orientation/repository.test.ts`
-- [ ] T011 注册并实现 `load`、`save`、`deleteOutlineItem` handlers，验证 sender 和 main-owned active project session 并将异常映射为 redacted DTO，路径为 `src/main/writing-orientation/handlers.ts` 和 `src/main/main.ts`
-- [ ] T012 将 `load`、`save`、`deleteOutlineItem` 三个具名 wrappers 暴露到独立 `window.writellmWritingOrientation` namespace，且不暴露 generic invoke、path、filesystem、Git、Electron object 或 raw Error，路径为 `src/preload/preload.cts`
-- [ ] T013 为 namespace exactness、existing/new save-input XOR、identity mapping、linked-delete safe refusal、method+payload-bound idempotency、Git initialization/commit stable errors、sender/session validation 与 capability redaction 编写 contract tests，路径为 `test/contract/writing-orientation/writing-orientation-ipc.test.ts`
+- [X] T005 [P] 定义 schema v1 document、motivation、existing/new outline save-input 可判别联合、clientDraftId→outlineItemId mapping、delete confirmation、result 与 stable error DTO，并为 `Window` 声明三个具名方法；save input 不暴露 main-owned chapterRef，路径为 `src/shared/writing-orientation.ts` 和 `src/vite-env.d.ts`
+- [X] T006 [P] 建立 canonical empty/saved document、有效/无效 request 与 disk fixture builders，路径为 `test/fixtures/writing-orientation/orientation-fixtures.ts`
+- [X] T007 为 renderer input 与 disk document 实现 main-owned parser，校验 kind/version/project identity、UUID、唯一性、status、NUL、trimmed title、safe integer revision 和 2 MiB ceiling，路径为 `src/main/writing-orientation/parser.ts`
+- [X] T008 为 parser 编写 missing/invalid/unknown schema、identity mismatch、existing/new identity XOR、unknown/omitted/duplicate durable IDs、duplicate clientDraftId、forged chapterRef、chapter uniqueness 与 size ceiling 单元测试，路径为 `test/unit/writing-orientation/parser.test.ts`
+- [X] T009 实现 per-project serial queue、missing-file revision 0 load、baseRevision conflict、method+payload-bound session mutationId 去重、clientDraftId→main UUID mapping、main-owned chapterRef merge、updatedAt、sibling-temp flush/close/rename，并调用 accepted ADR-001 main-owned Git adapter 完成 pending/structured commit/cleanup，路径为 `src/main/writing-orientation/repository.ts` 和 ADR-001 接受的 shared project storage adapter
+- [X] T010 为 atomic replacement + Git commit、100 次 save/reopen、重复 mutation、stale revision、write/commit failure、pending/dirty-worktree recovery、malformed document 与 recovery-required 编写隔离项目 integration tests，路径为 `test/integration/writing-orientation/repository.test.ts`
+- [X] T011 注册并实现 `load`、`save`、`deleteOutlineItem` handlers，验证 sender 和 main-owned active project session 并将异常映射为 redacted DTO，路径为 `src/main/writing-orientation/handlers.ts` 和 `src/main/main.ts`
+- [X] T012 将 `load`、`save`、`deleteOutlineItem` 三个具名 wrappers 暴露到独立 `window.writellmWritingOrientation` namespace，且不暴露 generic invoke、path、filesystem、Git、Electron object 或 raw Error，路径为 `src/preload/preload.cts`
+- [X] T013 为 namespace exactness、existing/new save-input XOR、identity mapping、linked-delete safe refusal、method+payload-bound idempotency、Git initialization/commit stable errors、sender/session validation 与 capability redaction 编写 contract tests，路径为 `test/contract/writing-orientation/writing-orientation-ipc.test.ts`
 
 **Checkpoint**: canonical snapshot 可通过最小具名 IPC 安全 load/save，且 repository/contract tests 通过；用户故事可在此基础上推进。
 
@@ -57,16 +57,16 @@
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] 为 baseline/draft dirty detection、saving 时继续编辑、成功/失败/retry 和 discard transitions 编写先失败的单元测试，路径为 `test/unit/writing-orientation/orientation-state.test.ts`
-- [ ] T015 [P] [US1] 为填写、显式保存、保存失败保留输入、清空保存和重开恢复编写先失败的 renderer integration tests，路径为 `test/integration/writing-orientation/motivation-flow.test.tsx`
+- [X] T014 [P] [US1] 为 baseline/draft dirty detection、saving 时继续编辑、成功/失败/retry 和 discard transitions 编写先失败的单元测试，路径为 `test/unit/writing-orientation/orientation-state.test.ts`
+- [X] T015 [P] [US1] 为填写、显式保存、保存失败保留输入、清空保存和重开恢复编写先失败的 renderer integration tests，路径为 `test/integration/writing-orientation/motivation-flow.test.tsx`
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] 实现 baseline/draft、content dirty comparison、submitted-snapshot baseline 更新与 save state reducer，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
-- [ ] T017 [US1] 实现 motivation 三字段、引导性空状态、保存按钮、保存中/成功/失败状态和可执行重试 UI，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T018 [US1] 接入 load/save API 并确保仅按钮或保存快捷键提交、重复触发复用 mutationId、失败保留当前 draft，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T019 [US1] 将 writing-orientation panel 注册到 002 feature panel slot，并保持 renderer 不接触项目路径或 Node/Electron capability，路径为 `src/renderer/workspace/components/ToolPanelHost.tsx`
-- [ ] T020 [US1] 为 compiled preload chain、保存快捷键、dirty/saving/saved/failed announcement 与关闭重开恢复编写 runtime journey，路径为 `test/runtime/writing-orientation/motivation-runtime.test.ts`
+- [X] T016 [US1] 实现 baseline/draft、content dirty comparison、submitted-snapshot baseline 更新与 save state reducer，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
+- [X] T017 [US1] 实现 motivation 三字段、引导性空状态、保存按钮、保存中/成功/失败状态和可执行重试 UI，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T018 [US1] 接入 load/save API 并确保仅按钮或保存快捷键提交、重复触发复用 mutationId、失败保留当前 draft，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T019 [US1] 将 writing-orientation panel 注册到 002 feature panel slot，并保持 renderer 不接触项目路径或 Node/Electron capability，路径为 `src/renderer/workspace/components/ToolPanelHost.tsx`
+- [X] T020 [US1] 为 compiled preload chain、保存快捷键、dirty/saving/saved/failed announcement 与关闭重开恢复编写 runtime journey，路径为 `test/runtime/writing-orientation/motivation-runtime.test.ts`
 
 **Checkpoint**: US1 可独立演示和验证；这是建议 MVP。
 
@@ -80,19 +80,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] 为 pure move command 的上下界、no-op、drag/keyboard 等价性和重复 reorder 编写先失败的单元测试，路径为 `test/unit/writing-orientation/reorder.test.ts`
-- [ ] T022 [P] [US2] 为 create/select/edit/status/title validation、固定详情区、空大纲、unlinked delete 和显式保存编写先失败的 integration tests，路径为 `test/integration/writing-orientation/outline-flow.test.tsx`
-- [ ] T023 [P] [US2] 为 linked delete 的 `LINKED_DELETE_NOT_AVAILABLE`、零修改和执行时重新读取关联状态编写先失败的 integration tests，路径为 `test/integration/writing-orientation/linked-delete.test.ts`
+- [X] T021 [P] [US2] 为 pure move command 的上下界、no-op、drag/keyboard 等价性和重复 reorder 编写先失败的单元测试，路径为 `test/unit/writing-orientation/reorder.test.ts`
+- [X] T022 [P] [US2] 为 create/select/edit/status/title validation、固定详情区、空大纲、unlinked delete 和显式保存编写先失败的 integration tests，路径为 `test/integration/writing-orientation/outline-flow.test.tsx`
+- [X] T023 [P] [US2] 为 linked delete 的 `LINKED_DELETE_NOT_AVAILABLE`、零修改和执行时重新读取关联状态编写先失败的 integration tests，路径为 `test/integration/writing-orientation/linked-delete.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] 实现数组顺序唯一 truth 的 `moveItem(from,to)` pure command，路径为 `src/renderer/features/writing-orientation/reorder.ts`
-- [ ] T025 [US2] 扩展 draft commands 以创建 clientDraftId 条目、默认 `not-started`、选择/编辑标题摘要状态与 reorder 并统一标记 dirty；成功 save 后用 mapping 原子替换条目及 selection identity，成功 delete 后以返回的 canonical document 更新 baseline/draft，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
-- [ ] T026 [US2] 实现始终可见的大纲列表和固定详情区、三态 badge、chapter presence、空状态、trimmed title field error 与 selection fallback，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T027 [US2] 为每个条目实现共享 T024 command 的 HTML drag 与明确上移/下移 controls，并提供 keyboard、focus 和 live status feedback，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T028 [US2] 实现 unlinked delete；linked item 显示明确暂不可用反馈且保持 draft/canonical 内容不变，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T029 [US2] 在 main 重新读取 authoritative 关联状态，未关联时删除，`chapterRef` 非空时返回 `LINKED_DELETE_NOT_AVAILABLE` 且零写入，路径为 `src/main/writing-orientation/handlers.ts` 和 `src/main/writing-orientation/repository.ts`
-- [ ] T030 [US2] 为键盘排序、拖拽等价结果、状态可辨识、unlinked delete、linked safe refusal 和重开顺序编写 compiled Electron runtime journey，路径为 `test/runtime/writing-orientation/outline-runtime.test.ts`
+- [X] T024 [P] [US2] 实现数组顺序唯一 truth 的 `moveItem(from,to)` pure command，路径为 `src/renderer/features/writing-orientation/reorder.ts`
+- [X] T025 [US2] 扩展 draft commands 以创建 clientDraftId 条目、默认 `not-started`、选择/编辑标题摘要状态与 reorder 并统一标记 dirty；成功 save 后用 mapping 原子替换条目及 selection identity，成功 delete 后以返回的 canonical document 更新 baseline/draft，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
+- [X] T026 [US2] 实现始终可见的大纲列表和固定详情区、三态 badge、chapter presence、空状态、trimmed title field error 与 selection fallback，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T027 [US2] 为每个条目实现共享 T024 command 的 HTML drag 与明确上移/下移 controls，并提供 keyboard、focus 和 live status feedback，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T028 [US2] 实现 unlinked delete；linked item 显示明确暂不可用反馈且保持 draft/canonical 内容不变，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T029 [US2] 在 main 重新读取 authoritative 关联状态，未关联时删除，`chapterRef` 非空时返回 `LINKED_DELETE_NOT_AVAILABLE` 且零写入，路径为 `src/main/writing-orientation/handlers.ts` 和 `src/main/writing-orientation/repository.ts`
+- [X] T030 [US2] 为键盘排序、拖拽等价结果、状态可辨识、unlinked delete、linked safe refusal 和重开顺序编写 compiled Electron runtime journey，路径为 `test/runtime/writing-orientation/outline-runtime.test.ts`
 
 **Checkpoint**: US2 可独立完成 003 范围内的大纲生命周期；未关联条目可删除，linked item 安全拒绝，004 不阻塞本 checkpoint。
 
@@ -106,15 +106,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] 为 reopen 后首项/empty default entry、session-only selection 和 selection 不改变 content revision 编写先失败的单元测试，路径为 `test/unit/writing-orientation/selection-state.test.ts`
-- [ ] T032 [P] [US3] 为 Save/Discard/Stay、save failure 阻止离开和 in-flight edit 仍 dirty 编写先失败的 workspace integration tests，路径为 `test/integration/writing-orientation/leave-guard.test.tsx`
+- [X] T031 [P] [US3] 为 reopen 后首项/empty default entry、session-only selection 和 selection 不改变 content revision 编写先失败的单元测试，路径为 `test/unit/writing-orientation/selection-state.test.ts`
+- [X] T032 [P] [US3] 为 Save/Discard/Stay、save failure 阻止离开和 in-flight edit 仍 dirty 编写先失败的 workspace integration tests，路径为 `test/integration/writing-orientation/leave-guard.test.tsx`
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] load/reopen 后不读取 durable selection，有条目时选择第一项、无条目时为 null；selection 仅保留在当前 renderer session，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
-- [ ] T034 [US3] 按已接受的 002 contract 将 dirty summary 与 Save/Discard/Stay callbacks 接入 project leave orchestration，save 失败时保持当前项目和 draft，路径为 `src/renderer/workspace/WorkspaceShell.tsx`
-- [ ] T035 [US3] 实现离开确认 dialog 的安全文案、默认 focus、取消/关闭等同 Stay、成功 save 后继续导航和 discard 后恢复 baseline，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
-- [ ] T036 [US3] 为重开后的首项/empty default entry、Save/Discard/Stay 与 save failure 编写 compiled Electron runtime journey，路径为 `test/runtime/writing-orientation/restoration-runtime.test.ts`
+- [X] T033 [US3] load/reopen 后不读取 durable selection，有条目时选择第一项、无条目时为 null；selection 仅保留在当前 renderer session，路径为 `src/renderer/features/writing-orientation/orientation-state.ts`
+- [X] T034 [US3] 按已接受的 002 contract 将 dirty summary 与 Save/Discard/Stay callbacks 接入 project leave orchestration，save 失败时保持当前项目和 draft，路径为 `src/renderer/workspace/WorkspaceShell.tsx`
+- [X] T035 [US3] 实现离开确认 dialog 的安全文案、默认 focus、取消/关闭等同 Stay、成功 save 后继续导航和 discard 后恢复 baseline，路径为 `src/renderer/features/writing-orientation/WritingOrientationPanel.tsx`
+- [X] T036 [US3] 为重开后的首项/empty default entry、Save/Discard/Stay 与 save failure 编写 compiled Electron runtime journey，路径为 `test/runtime/writing-orientation/restoration-runtime.test.ts`
 
 **Checkpoint**: 所有故事均可验证；selection 不跨关闭持久化，leave guard 通过 T003 接受的 002 extension 验证。
 
@@ -124,11 +124,11 @@
 
 **Purpose**: 对全部故事执行安全、回归、规模与人工验收。
 
-- [ ] T037 [P] 扩展 compiled preload regression，断言 project/appearance namespaces 不变且 orientation namespace 恰好三个方法，路径为 `test/smoke/ipc-contract.test.ts`
-- [ ] T038 [P] 增加 100 次 create/edit/delete/reorder/save 重复操作的零重复、零错序 SC-004 验证，路径为 `test/integration/writing-orientation/repetition.test.ts`
-- [ ] T039 [P] 增加 2 MiB、NUL、raw stack/path redaction、Git executable/command/repository handle 不跨 renderer、contextIsolation/nodeIntegration/sandbox 回归验证，路径为 `test/contract/writing-orientation/writing-orientation-security.test.ts`
-- [ ] T040 按 `specs/003-writing-orientation/quickstart.md` 执行六个场景并把平台、结果、门禁阻塞和人工可用性结果记录到 `specs/003-writing-orientation/validation.md`
-- [ ] T041 运行 `bun run typecheck`、`bun run test`、`bun run build` 和 `bun run test:smoke`，并将最终通过结果记录到 `specs/003-writing-orientation/validation.md`
+- [X] T037 [P] 扩展 compiled preload regression，断言 project/appearance namespaces 不变且 orientation namespace 恰好三个方法，路径为 `test/smoke/ipc-contract.test.ts`
+- [X] T038 [P] 增加 100 次 create/edit/delete/reorder/save 重复操作的零重复、零错序 SC-004 验证，路径为 `test/integration/writing-orientation/repetition.test.ts`
+- [X] T039 [P] 增加 2 MiB、NUL、raw stack/path redaction、Git executable/command/repository handle 不跨 renderer、contextIsolation/nodeIntegration/sandbox 回归验证，路径为 `test/contract/writing-orientation/writing-orientation-security.test.ts`
+- [X] T040 按 `specs/003-writing-orientation/quickstart.md` 执行六个场景并把平台、结果、门禁阻塞和人工可用性结果记录到 `specs/003-writing-orientation/validation.md`
+- [X] T041 运行 `bun run typecheck`、`bun run test`、`bun run build` 和 `bun run test:smoke`，并将最终通过结果记录到 `specs/003-writing-orientation/validation.md`
 
 ---
 

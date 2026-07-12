@@ -6,7 +6,7 @@
 
 **Updated**: 2026-07-12
 
-**Status**: Draft
+**Status**: Accepted
 
 **Input**: 让作者在项目中明确写作目的、组织文章大纲，并在再次打开项目时快速恢复写作方向。
 

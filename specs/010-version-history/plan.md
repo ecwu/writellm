@@ -15,7 +15,7 @@ Status: Draft / 第一版
 
 ## Technical Context
 
-TypeScript 7.0.2、React 19.2.7、Electron 43、Vite 8.1.4、Bun 1.3.14；目标为 sandboxed desktop app。候选：系统 Git + simple-git、isomorphic-git、libgit2 binding；Git diff/patch、jsdiff、结构化 document diff。 Storage 暂沿用 ADR-001 的 main-owned project files 方向，但 ADR 状态仍为 Proposed。
+TypeScript 7.0.2、React 19.2.7、Electron 43、Vite 8.1.4、Bun 1.3.14；目标为 sandboxed desktop app。ADR-001 已接受 isomorphic-git main-only adapter；本 feature 仍需决定 Git diff/patch、jsdiff 或结构化 document diff 的消费策略。
 
 ## Constitution Check
 
@@ -49,7 +49,7 @@ main owns files, Git, secrets, parsing jobs or restore transactions as applicabl
 |---|---|---|---|
 | I. Secure Desktop Boundary | **PASS WITH ACCEPTANCE CONDITION** | `Boundary and validation` 已规定 main 拥有文件、Git、凭据、解析/处理和 restore transaction；`contracts/contract.md` 明确 renderer 不执行 Git，restore 经 WriteQueue 和 pending/recovery；ADR-001 §6–§8 规定 main-owned Git、路径/输入校验和不向 renderer 暴露任意命令。 | 接受 ADR-001 的 history/transaction 条款，并在编译后的 Electron runtime 验证 renderer 不能取得 Node/Electron、绝对路径、文件系统、Git 命令或凭据；任何 citation validity、history parsing 和 restore decision 都必须继续由 main 核验。 |
 | II. Typed, Minimal IPC | **PASS WITH ACCEPTANCE CONDITION** | contract 只提出 `listHistory`、`compareHistory`、`planRestore`、`applyRestore` 四个命名能力；`data-model.md` 要求 `kind/schemaVersion`、stable identity、revision 和 validity 由 domain/main 产生或核验；计划要求 normalized、bounded history DTO，并覆盖 DTO/error/redaction。 | `contract.md` 当前仍把 contract version、DTO、错误码、取消/重试/恢复语义标为 NEEDS DECISION。实现前必须冻结 shared TypeScript request/response/error 类型、sender/project/revision 校验、DTO 字段与大小边界；changed files 只能是安全的 scope/相对标识，不得泄露绝对路径、raw Git response、secret 或 raw exception，也不得增加 generic IPC。 |
-| III. Specification-Driven, Minimal Evolution | **BLOCKED** | `spec.md` 仍为 Draft，ADR-001 仍为 Proposed；`research.md` 的 Git/diff 选择仍为 `Decision: NEEDS DECISION`；`plan-decisions.md` 的 spec/ADR、schema、IPC、失败语义和候选依赖项均未勾选。 | 实现前必须接受本 feature spec、ADR-001 的 Git-backed history 与 pending recovery 条款，并冻结依赖 feature 的 project/content/citation/task-proposal handoff；同时决定 Git/diff adapter、版本/许可证/native runtime、durable schema/revision/migration、错误与幂等/取消语义。所有跨 durable/process boundary 的决定须进入已接受 ADR 或明确记录为不需要；在此之前不得生成实现任务或开始代码。 |
+| III. Specification-Driven, Minimal Evolution | **BLOCKED** | `spec.md` 仍为 Draft；ADR-001 已 Accepted，但 `research.md` 的 diff 消费策略仍为 `Decision: NEEDS DECISION`；`plan-decisions.md` 的 spec、schema、IPC、失败语义和候选依赖项均未勾选。 | 实现前必须接受本 feature spec，并冻结依赖 feature 的 project/content/citation/task-proposal handoff；同时决定 diff adapter、版本/许可证/runtime、durable schema/revision/migration、错误与幂等/取消语义。所有新增跨 durable/process boundary 的决定须进入已接受 ADR 或明确记录为不需要；在此之前不得生成实现任务或开始代码。 |
 | IV. Verification at the Failure Boundary | **PASS WITH ACCEPTANCE CONDITION** | 计划已经把验证分到 domain unit、contract/redaction、main storage、preload bridge 和 compiled Electron smoke；`quickstart.md` 覆盖人工/模型成功、失败/取消、任意版本比较、恢复后新增人工记录和旧历史保留。设计也明确 Git diff/restore 不是 renderer 行为，失败不得报告成功。 | 必须按真实失败边界补齐可运行 fixture/fault injection，并把以下断言纳入实现验收：renderer→preload→main 的实际调用和 sender/DTO 校验；原子替换、Git commit、pending cleanup/recovery、history 损坏/不可读和错误 worktree；处理/AI 接受成功与拒绝、失败、取消不产生正文记录；010 不读取或回显凭据，模型记录只关联 task/proposal；旧版本失效 citation 在 `RestorePlan.invalidCitations` 中标记，apply 前阻止静默重绑，失败时当前正文不被覆盖。`bun run typecheck`/`test` 不能替代 `bun run build` + `bun run test:smoke` 的 Electron runtime 验证。Git runtime、故障注入 seam、稳定错误终态仍是 NEEDS DECISION。 |
 
 ### 最小方案复核

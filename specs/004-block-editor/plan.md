@@ -26,7 +26,7 @@ potentially lossy interchange rather than durable truth.
 | 011 UI foundation / ADR-003 | Accepted/Complete | Accepted/Complete | Pass |
 | 002 workspace shell | Accepted/Complete | Accepted/Complete | Pass |
 | 003 writing orientation | Accepted producer contract | Draft / acceptance pending | Blocked |
-| ADR-001 content storage | Accepted | Proposed | Blocked |
+| ADR-001 content storage | Accepted | Accepted | Pass |
 | 004 spec and plan | Accepted | Draft | Blocked |
 
 Planning and review may continue. Tasks and implementation must not begin until

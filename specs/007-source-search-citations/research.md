@@ -8,7 +8,7 @@
 
 - 当前 `package.json` 只有 Electron 43.1.0、React 19.2.7、React DOM、Vite、TypeScript；没有数据库、全文索引、向量索引或 embedding runtime。
 - Bun 负责现有脚本和测试，但 Electron main 的运行时是 Electron 自带 Node。Bun 官方兼容性页目前把 `node:sqlite` 标为未实现，因此不能在未经验证的情况下把 Bun 的 Node API 当作生产 SQLite 方案。[Bun Node.js compatibility](https://bun.sh/docs/runtime/nodejs-compat)
-- ADR-001 已规定 portable `.writellm`、`sources/`、`runtime/`、main-owned 文件系统、可重建缓存和 Git-backed history；其状态仍为 Proposed。索引不可成为资料或正文引用的唯一真相。
+- ADR-001 已接受 portable `.writellm`、`sources/`、`runtime/`、main-owned 文件系统、可重建缓存和 Git-backed history。索引不可成为资料或正文引用的唯一真相。
 - Electron 官方建议通过 context isolation、sandbox、contextBridge 和每方法的 IPC 暴露来缩小 renderer 能力；这与本 feature 的 main-owned search facade 一致。[Electron Context Isolation](https://www.electronjs.org/docs/latest/tutorial/context-isolation)、[Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)、[Electron Process Sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox)
 - React 19.2.7 已是现有 renderer 基础，但检索 UI 不需要引入新的状态框架；是否需要额外 UI 包不在本 feature 的必要范围。[React 19.2.7](https://react.dev/blog/2024/12/05/react-19)
 
@@ -254,4 +254,3 @@ main 保留 authority，worker 只承担 CPU/native/provider 工作，通过版�
 4. macOS/Windows/Linux 的 `bun run build` 和 `bun run test:smoke`，包括 native artifact、model cache、无网络启动和损坏索引恢复。
 
 在这些数据、ADR 和 checklist 决策完成之前，`research.md` 中的候选都不应出现在生产 `package.json`、lockfile 或实现代码中。
-

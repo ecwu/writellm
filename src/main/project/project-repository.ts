@@ -21,6 +21,7 @@ export class ProjectRepository {
   private readonly recent: RecentProjectIndex;
   private readonly cleanup: CleanupReceipts;
   private writeQueue: Promise<unknown> = Promise.resolve();
+  private active: { projectId: string; projectRoot: string; sessionId: string } | null = null;
 
   constructor(options: ProjectRepositoryOptions) {
     this.dialog = options.dialog ?? { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
@@ -40,6 +41,10 @@ export class ProjectRepository {
     const result = await this.recent.list();
     const warnings = [result.warning, this.cleanup.warning].filter(Boolean);
     return warnings.length ? { ...result, warning: warnings.join(' ') } : result;
+  }
+
+  getActiveProjectSession(): { projectId: string; projectRoot: string; sessionId: string } | null {
+    return this.active;
   }
 
   async createProject(displayName: unknown): Promise<CreateProjectResult> {
@@ -82,6 +87,7 @@ export class ProjectRepository {
         } catch {
           return failure('STORAGE_WRITE_FAILED', 'The project was created, but recent projects could not be updated.');
         }
+        this.active = { projectId: verified.project.projectId, projectRoot: finalRoot, sessionId: randomUUID() };
         return { status: 'created', project: verified.project };
       } catch (error) {
         await this.rollbackCreation(finalRoot, token).catch(() => undefined);
@@ -116,6 +122,7 @@ export class ProjectRepository {
     return this.serialized(async () => {
       try {
         await this.recent.upsert(selected, validation.project, record.recentId, this.now());
+        this.active = { projectId: validation.project.projectId, projectRoot: selected, sessionId: randomUUID() };
         return { status: 'opened', project: validation.project };
       } catch {
         return failure('STORAGE_WRITE_FAILED', 'The recent project record could not be updated.');
@@ -141,6 +148,7 @@ export class ProjectRepository {
     return this.serialized(async () => {
       try {
         await this.recent.upsert(projectRoot, validation.project, recentId, this.now());
+        this.active = { projectId: validation.project.projectId, projectRoot, sessionId: randomUUID() };
         return { status, project: validation.project };
       } catch {
         return failure('STORAGE_WRITE_FAILED', 'The project opened, but recent projects could not be updated.');

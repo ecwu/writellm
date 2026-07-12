@@ -8,6 +8,8 @@ import { isRecord } from '../shared/project.js';
 import { ProjectRepository } from './project/project-repository.js';
 import { appearanceChannels } from '../shared/appearance.js';
 import { AppearancePreferencesRepository } from './appearance/appearance-preferences.js';
+import { WritingOrientationRepository } from './writing-orientation/repository.js';
+import { registerWritingOrientationHandlers } from './writing-orientation/handlers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +22,7 @@ let mainWindow: BrowserWindow | null = null;
 let repository: ProjectRepository | null = null;
 let appearanceRepository: AppearancePreferencesRepository | null = null;
 let handlersRegistered = false;
+const writingOrientationRepository = new WritingOrientationRepository();
 
 function markLifecycle(value: string): void {
   const marker = process.env.WRITELLM_SMOKE_MARKER;
@@ -80,6 +83,7 @@ function registerIpcHandlers(): void {
     if (result.status === 'updated') nativeTheme.themeSource = result.preferences.themeMode;
     return result;
   });
+  registerWritingOrientationHandlers({ ipcMain, projects: repository, repository: writingOrientationRepository, isExpectedSender });
 }
 
 async function ensureWindow(): Promise<void> {

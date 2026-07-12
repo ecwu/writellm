@@ -1,7 +1,7 @@
 # 数据模型：资料检索与可追溯引用
 
 **状态**：设计草案；字段语义可评审，持久化格式/schemaVersion/hash 算法仍为 `NEEDS DECISION`。  
-**边界**：本模型描述 007 需要消费、派生或关联的实体，不替代 ADR-002/001 的 project identity、ADR-001 Proposed 的内容存储边界、004 canonical chapter 或 006 source contract。
+**边界**：本模型描述 007 需要消费、派生或关联的实体，不替代 ADR-002/001 的 project identity、已接受 ADR-001 的内容存储边界、004 canonical chapter 或 006 source contract。
 
 ## 1. 模型原则
 

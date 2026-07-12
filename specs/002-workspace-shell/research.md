@@ -63,7 +63,7 @@
 
 **Decision**: 001 的六方法 project namespace 与 011 的两方法 appearance namespace 原样保持。002 不新增 preload、channel、project file、recent field、appearance field、localStorage 或 ADR。
 
-**Rationale**: 所有 shell 行为均能在 renderer 完成；spec 明确 session-only，且不依赖 Proposed ADR-001。
+**Rationale**: 所有 shell 行为均能在 renderer 完成；spec 明确 session-only，且不依赖 ADR-001。
 
 **Alternatives considered**: 拒绝 workspace IPC、window bounds IPC、ui-state.json、layout preference、save queue 与 recovery schema。
 

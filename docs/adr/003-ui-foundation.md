@@ -151,7 +151,7 @@ Rejected because shadcn/typeset now provides a source-owned, container-aware and
 ## Relationship to other ADRs and features
 
 - ADR-002 and `001-project-foundation` remain authoritative for project/recent storage, native dialogs and project IPC. This ADR does not amend them.
-- ADR-001 remains Proposed for later content/Git storage and is unrelated to UI theme/component ownership.
+- ADR-001 governs later content/Git storage and is unrelated to UI theme/component ownership; its subsequent acceptance does not change this ADR.
 - `002-workspace-shell` must consume this ADR after acceptance and remove its own unresolved parallel design-system choice before implementation.
 
 ## Acceptance checklist before implementation

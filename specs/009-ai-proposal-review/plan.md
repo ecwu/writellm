@@ -18,7 +18,7 @@
 
 **Primary Dependencies**: 当前只有 Electron 43.1.0、React 19.2.7、React DOM 19.2.7、Vite 8.1.4。proposal diff、runtime schema validation、diff viewer、atomic write helper、Git runtime/adapter 均为候选项，**Decision: NEEDS DECISION**；候选及适配比较见 [research.md](./research.md)。
 
-**Storage**: ADR-002/001 提供 portable `.writellm` root 和 project identity；内容存储依赖 ADR-001 Proposed 中的 editor-native canonical content、`ai/` proposal、pending recovery 和 main-owned Git history。004 canonical chapter 是 BlockNote JSON wrapper，Markdown 只作为 import/paste/export projection。ADR-001 接受状态与 proposal schema 仍为 **NEEDS DECISION**。
+**Storage**: ADR-002/001 提供 portable `.writellm` root、project identity、editor-native canonical content、`ai/` proposal、pending recovery 和 main-owned Git history。004 canonical chapter 是 BlockNote JSON wrapper，Markdown 只作为 import/paste/export projection。ADR-001 已 Accepted；proposal schema 仍为 **NEEDS DECISION**。
 
 **Testing**: 现有脚本为 `bun run typecheck`、`bun run test`、`bun run build`、`bun run test:smoke`。计划新增的 domain/contract 测试使用现有 `bun test` 入口；涉及 preload/main/storage/recovery 的行为必须有真实 Electron runtime smoke 或等价 runtime-level fixture。测试 fixture、故障注入 seam 和最终阈值仍需冻结。
 

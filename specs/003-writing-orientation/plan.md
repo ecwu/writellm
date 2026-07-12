@@ -1,7 +1,7 @@
 # Implementation Plan: 写作动机与文章大纲
 
 **Branch**: `003-writing-orientation` | **Date**: 2026-07-12 | **Spec**: [spec.md](./spec.md)
-**Status**: Design complete; implementation gated on acceptance
+**Status**: Accepted
 
 ## Summary
 
@@ -25,10 +25,10 @@
 |---|---|---|
 | I. Secure Desktop Boundary | PASS | renderer 只收 DTO；main 拥有 session、validation、storage 和 chapter transaction。 |
 | II. Typed, Minimal IPC | PASS | 独立 namespace 仅三个具名方法；contract 禁止 path、generic channel 和 raw Error。 |
-| III. Specification-Driven, Minimal Evolution | PASS FOR PLANNING / IMPLEMENTATION GATED | 技术未知项已解决；003 spec/plan、ADR-001 storage/Git 和 leave-guard extension 必须接受后才实施；004 transaction 不再阻塞 003。 |
+| III. Specification-Driven, Minimal Evolution | PASS | 003 spec/plan、ADR-001 storage/Git、leave-guard extension 和 linked-item safe-refusal boundary 已接受；004 transaction 不阻塞 003。 |
 | IV. Verification at Failure Boundary | PASS | parser/unit、IPC contract、temp-directory storage 和 compiled Electron runtime 分层验证。 |
 
-无 Constitution exception。未接受的 durable/process decisions 明确保持为 implementation gate。
+无 Constitution exception。003 所需 durable/process decisions 已接受。
 
 ## Research Decisions
 
@@ -122,7 +122,7 @@ test/
 |---|---|---|
 | I. Secure Desktop Boundary | PASS | privileged state and persistence remain main-owned; runtime smoke covers the real bridge. |
 | II. Typed, Minimal IPC | PASS | three domain methods, explicit DTOs, no generic capability. |
-| III. Specification-Driven, Minimal Evolution | PASS FOR DESIGN / IMPLEMENTATION GATED | no unresolved technical clarification; every durable dependency has an explicit acceptance gate and no speculative Git/database/router. |
+| III. Specification-Driven, Minimal Evolution | PASS | accepted spec/plan/contracts and ADR-001 cover every 003 durable dependency without speculative database/router or 004 implementation. |
 | IV. Verification at Failure Boundary | PASS | revision/storage faults are integration-tested and process behavior is tested in compiled Electron. |
 
 ## Complexity Tracking

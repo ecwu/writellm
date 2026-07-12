@@ -1,5 +1,6 @@
 import type { WriteLLMIpc } from '../shared/ipc.js';
 import type { AppearanceIpc } from '../shared/appearance.js';
+import { orientationChannels, type WritingOrientationApi } from '../shared/writing-orientation.js';
 
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
 
@@ -18,3 +19,9 @@ const appearanceApi: AppearanceIpc = {
   updateAppearancePreferences: (value) => ipcRenderer.invoke('writellm:appearance:update', value)
 };
 contextBridge.exposeInMainWorld('writellmAppearance', appearanceApi);
+const writingOrientationApi: WritingOrientationApi = {
+  load: () => ipcRenderer.invoke(orientationChannels.load),
+  save: input => ipcRenderer.invoke(orientationChannels.save, input),
+  deleteOutlineItem: input => ipcRenderer.invoke(orientationChannels.deleteOutlineItem, input)
+};
+contextBridge.exposeInMainWorld('writellmWritingOrientation', writingOrientationApi);

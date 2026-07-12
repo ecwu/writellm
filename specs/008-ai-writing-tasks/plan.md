@@ -60,7 +60,7 @@
 |---|---|---|
 | I. Secure Desktop Boundary | 通过设计约束 | provider、密钥、项目路径和持久化只在 main/经批准的 utility 边界；renderer 只收到非敏感 DTO。 |
 | II. Typed, Minimal IPC | 通过设计约束 | 只定义 `create/get/list/cancel/retry` 和受控更新事件；不暴露 `ipcRenderer`、任意 channel、任意文件读取或 provider 原始客户端。 |
-| III. Specification-Driven, Minimal Evolution | **实现前阻塞** | `spec.md` 当前为 Draft，ADR-001 当前为 Proposed；必须在实现前接受，并冻结本 feature 的 IPC、storage schema 和外部协议 ADR。 |
+| III. Specification-Driven, Minimal Evolution | **实现前阻塞** | `spec.md` 当前为 Draft；ADR-001 已 Accepted，但仍必须冻结本 feature 的 IPC、storage schema 和外部协议 ADR。 |
 | IV. Verification at the Failure Boundary | 通过验证策略 | 共享契约用静态/单元校验，跨进程行为用编译后的 Electron smoke，provider/存储失败用本地 fixture 和故障注入。 |
 
 **Gate 结论**：允许继续做设计和研究；不允许据此开始产品实现。`spec.md`、ADR-001、provider/worker/storage 决策和下方契约在实现前仍需接受。

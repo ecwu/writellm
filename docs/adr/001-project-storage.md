@@ -1,6 +1,6 @@
 # ADR-001: Portable .writellm content and Git-backed history
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-11
 - Owners: WriteLLM v2 maintainers
 - Scope: ADR-002 foundation 之上的章节、资料、AI、内容格式和版本历史存储边界
@@ -51,6 +51,34 @@ Git repository 是项目的一部分，随 `.writellm` 文件夹移动。项目�
 锁定到 `package.json`/`bun.lock`，并通过三平台 packaged Electron 验证。若未来需要
 isomorphic-git 不支持或性能不足的 Git 能力，必须通过新的 ADR amendment 更换 adapter；
 domain repository 与 renderer contract 不得依赖 engine-specific API。
+
+Git author 和 committer identity 由应用固定为
+`WriteLLM <history@writellm.local>`；不得读取用户的全局或 repository-local
+`user.name`/`user.email`。首个消费 feature 必须在任何产品存储代码之前解析、安装并将
+一个精确 `isomorphic-git` 版本写入 `package.json` 和 `bun.lock`，完成 license、Bun、
+Electron build 与 packaged runtime compatibility probe。后续 feature 复用同一 adapter，
+不得自行安装第二个 Git engine。
+
+标准 `.gitignore` 内容固定为：
+
+~~~gitignore
+# WriteLLM transaction and recovery intermediates
+runtime/pending/
+runtime/cache/
+runtime/logs/
+runtime/crash/
+runtime/embeddings/
+**/.writellm-tmp-*
+
+# Secrets must never be project content or history
+secrets/
+*.secret
+~~~
+
+这些条目只排除中间态、可重建数据、诊断输出和禁止进入项目的 secret。`project.json`、
+feature-owned workspace/content documents、sources、用户导入的附件和其他 canonical
+project payload 默认全部跟踪。更改这份 ignore baseline 属于 storage-boundary review，
+不能由单个 feature 静默扩大。
 
 每次成功保存由 main-owned GitRepository adapter 执行 add/commit。Git commit id、parent、timestamp、changed files 和 diff 是版本记录；Git log 作为时间线，Git diff 作为比较，Git restore 作为非破坏恢复基础。
 
@@ -119,10 +147,9 @@ SQLite 能提供事务和查询，但仍需要保存可版本化的 editor-nativ
 
 ## Acceptance checklist before implementation
 
-- [ ] feature spec 从 Draft 变为项目认可的 Accepted 状态。
-- [ ] 维护者接受 ADR-002，确认任意父目录、.writellm 自包含项目和 userData recent index。
-- [ ] 维护者接受 editor-native canonical schema、BlockNote JSON 与 Markdown interop/lossiness、Git commit trailers 和 binary/cache tracking policy。
-- [ ] 维护者接受 isomorphic-git main-only adapter、首次内容保存初始化、应用固定 author identity、标准 `.gitignore` 和 existing-project migration/failure semantics。
-- [ ] 内容/任务/提案/历史 feature 的 IPC contract method names、DTO、dialog result 和错误码冻结。
-- [ ] ADR-002 的 project foundation contract 已冻结，并由后续 feature 作为 storage prerequisite 复用。
-- [ ] 任务计划包含真实 Electron runtime smoke，而不只有 renderer 单元测试。
+- [x] ADR-002 已接受并实现，确认任意父目录、`.writellm` 自包含项目和 userData recent index。
+- [x] 维护者接受 portable canonical files、structured Git trailers、binary/cache tracking 和 main-owned recovery 的公共基线；具体 editor schema 与 interchange lossiness 由消费 feature 在各自 spec/plan 中接受。
+- [x] 维护者接受 isomorphic-git main-only adapter、首次内容保存初始化、固定 `WriteLLM <history@writellm.local>` identity、标准 `.gitignore` 和 existing-project failure/retry semantics。
+- [x] ADR 采用分阶段消费：本 ADR 的接受不要求所有未来内容、任务、提案和历史 IPC 同时冻结；每个消费 feature 必须在自身实施前冻结自己的 method、DTO、dialog/error contract，并引用本 ADR。
+- [x] ADR-002 project foundation contract 由后续 feature 作为 storage prerequisite 复用。
+- [x] 每个消费 feature 的任务计划必须包含其真实 Electron runtime failure-boundary smoke；003 已包含该门禁。

@@ -83,7 +83,7 @@ tests/                           # 计划新增，当前不存在
 |---|---|---|
 | I. Secure Desktop Boundary | PASS（设计约束） | 搜索、资料上下文、索引和引用保存均由 main 处理；renderer 只能取得脱敏、可展示 DTO。 |
 | II. Typed, Minimal IPC | PASS（待 contract freeze） | 使用显式的 `searchSources`、`getSourceContext`、`insertCitation` 等 named methods；不暴露 generic IPC。方法、DTO、错误码仍需冻结。 |
-| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTANCE | 当前 `spec.md` 为 Draft，ADR-001 为 Proposed；实现前必须接受 spec、storage ADR 以及本 feature 的跨边界决策。 |
+| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTANCE | 当前 `spec.md` 为 Draft；ADR-001 已 Accepted，实现前仍必须接受本 feature spec 和跨边界决策。 |
 | IV. Verification at the Failure Boundary | PASS（验证计划） | 单元检查 identity/invariants，contract 检查 DTO，Electron smoke 检查真实 preload/main/存储/恢复边界。 |
 
 ### 复杂度追踪
@@ -174,7 +174,7 @@ tests/                           # 计划新增，当前不存在
 |---|---|---|
 | I. Secure Desktop Boundary | PASS（待 runtime smoke） | 所有文件、索引、provider 和引用写入均 main-owned；测试必须验证 renderer 无 Node/filesystem 能力。 |
 | II. Typed, Minimal IPC | PASS（待冻结） | contracts 只列必要 named methods；方法名、DTO、错误码、sender validation 需与 001/004/006 一起接受。 |
-| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTANCE | `spec.md` Draft、ADR-001 Proposed，以及本 feature 的 index/provider/storage decisions 尚未接受。 |
+| III. Specification-Driven, Minimal Evolution | BLOCKED UNTIL ACCEPTANCE | `spec.md` Draft，且本 feature 的 index/provider/storage decisions 尚未接受；ADR-001 已 Accepted。 |
 | IV. Verification at the Failure Boundary | PASS（需要 fixture） | 计划包含 unit/contract/integration/runtime smoke；当前仓库没有 feature fixture 或新增 smoke 实现。 |
 
 **实施状态**: 规划可以供评审，不能作为实现授权。未决项见 [plan-decisions.md](./checklists/plan-decisions.md)。

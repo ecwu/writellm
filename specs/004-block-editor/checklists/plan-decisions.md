@@ -4,9 +4,9 @@ Purpose: 检查需求/计划是否清晰，不是实现测试。
 Feature: [spec.md](../spec.md)
 Plan: [plan.md](../plan.md)
 
-- [ ] CHK001 是否已确认 Spec §FR-001–FR-011 的最小垂直切片、验收边界和 Out of Scope？ [Completeness, Traceability]
+- [x] CHK001 是否已确认 Spec §FR-001–FR-016 的最小垂直切片、验收边界和 Out of Scope？ [Completeness, Traceability]
 - [ ] CHK002 spec、ADR-001 和依赖 feature 是否都已 Accepted？ [Decision, Gap]
-- [ ] CHK003 是否已接受 BlockNote editor 方向，并冻结 package/version、UI adapter、许可证、维护策略和替代方案？ [Decision, Gap]
+- [x] CHK003 是否已接受 BlockNote editor 方向，并冻结 package/version、UI adapter、许可证、维护策略和替代方案？ [Decision, Gap]
 - [ ] CHK004 是否已冻结 durable schema、revision、migration、错误码和幂等语义？ [Decision, Gap]
 - [ ] CHK005 是否已冻结 IPC/adapter contract、sender validation、redaction 和权限边界？ [Decision, Traceability]
 - [ ] CHK006 是否已明确外部服务、凭据、离线/fake fixture 和隐私范围？ [Decision, Gap]

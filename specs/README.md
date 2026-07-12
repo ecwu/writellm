@@ -11,14 +11,14 @@
 | 001 | [Project foundation](./001-project-foundation/spec.md)：创建、打开和管理可移动项目 | — | Accepted | [Accepted](./001-project-foundation/plan.md) | [ADR-002](../docs/adr/002-project-foundation.md) Accepted | [45/45](./001-project-foundation/tasks.md) | Complete |
 | 011 | [UI foundation](./011-ui-foundation/spec.md)：共享主题、排版和 UI primitives | 001 | Accepted | [Accepted](./011-ui-foundation/plan.md) | [ADR-003](../docs/adr/003-ui-foundation.md) Accepted | [52/52](./011-ui-foundation/tasks.md) | Complete |
 | 002 | [Workspace shell](./002-workspace-shell/spec.md)：稳定、可访问的写作工作台外壳 | 001, 011 | Accepted | [Accepted](./002-workspace-shell/plan.md) | ADR-001 not required；ADR-003 Accepted | [34/34](./002-workspace-shell/tasks.md) | Complete |
-| 003 | [Writing orientation](./003-writing-orientation/spec.md)：写作动机和文章大纲 | 001, 002, 011 | Draft | [Acceptance pending](./003-writing-orientation/plan.md) | ADR-001 Proposed | [Gated](./003-writing-orientation/tasks.md) | Not started |
-| 004 | [Block editor](./004-block-editor/spec.md)：从大纲创建章节并编辑 Block | 001, 002, 003, 011 | Draft | [Draft](./004-block-editor/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 003 | [Writing orientation](./003-writing-orientation/spec.md)：写作动机和文章大纲 | 001, 002, 011 | Accepted | [Accepted](./003-writing-orientation/plan.md) | [ADR-001](../docs/adr/001-project-storage.md) Accepted | [41/41](./003-writing-orientation/tasks.md) | Complete |
+| 004 | [Block editor](./004-block-editor/spec.md)：从大纲创建章节并编辑 Block | 001, 002, 003, 011 | Draft | [Draft](./004-block-editor/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 | 005 | [Provider settings](./005-provider-settings/spec.md)：配置 AI provider 和受保护的密钥状态 | 001, 002, 011 | Draft | [Draft](./005-provider-settings/plan.md) | 待 plan 确认；ADR-003 Accepted | Missing | Not started |
-| 006 | [Source processing](./006-source-library-processing/spec.md)：导入 PDF 并完成资料处理 | 001, 002, 011 | Draft | [Draft](./006-source-library-processing/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
-| 007 | [Search and citations](./007-source-search-citations/spec.md)：检索资料并插入可追溯引用 | 004, 006, 011 | Draft | [Draft](./007-source-search-citations/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
-| 008 | [AI writing tasks](./008-ai-writing-tasks/spec.md)：提交限定范围的 AI 任务并获得提案 | 004, 005, 007, 011 | Draft | [Draft](./008-ai-writing-tasks/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
-| 009 | [Proposal review](./009-ai-proposal-review/spec.md)：审阅并安全应用 AI 提案 | 004, 007, 008, 011 | Draft | [Draft](./009-ai-proposal-review/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
-| 010 | [Version history](./010-version-history/spec.md)：查看、比较和恢复已保存版本 | 001, 003, 004, 007, 009, 011 | Draft | [Draft](./010-version-history/plan.md) | ADR-001 Proposed；ADR-003 Accepted | Missing | Not started |
+| 006 | [Source processing](./006-source-library-processing/spec.md)：导入 PDF 并完成资料处理 | 001, 002, 011 | Draft | [Draft](./006-source-library-processing/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 007 | [Search and citations](./007-source-search-citations/spec.md)：检索资料并插入可追溯引用 | 004, 006, 011 | Draft | [Draft](./007-source-search-citations/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 008 | [AI writing tasks](./008-ai-writing-tasks/spec.md)：提交限定范围的 AI 任务并获得提案 | 004, 005, 007, 011 | Draft | [Draft](./008-ai-writing-tasks/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 009 | [Proposal review](./009-ai-proposal-review/spec.md)：审阅并安全应用 AI 提案 | 004, 007, 008, 011 | Draft | [Draft](./009-ai-proposal-review/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 010 | [Version history](./010-version-history/spec.md)：查看、比较和恢复已保存版本 | 001, 003, 004, 007, 009, 011 | Draft | [Draft](./010-version-history/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 
 `Gated` 表示 tasks 已存在，但实现门禁尚未满足；它不等于可以开始实现。
 
@@ -51,7 +51,7 @@
 
 | ADR | 决定 | 状态 | 主要影响 |
 |---|---|---|---|
-| [ADR-001](../docs/adr/001-project-storage.md) | `.writellm` 内容格式与 Git-backed history | Proposed | 003–010 的内容持久化、事务和历史边界 |
+| [ADR-001](../docs/adr/001-project-storage.md) | `.writellm` 内容格式与 Git-backed history | Accepted | 003–010 的内容持久化、事务和历史边界；消费 feature 分阶段冻结自身 contract |
 | [ADR-002](../docs/adr/002-project-foundation.md) | 可移动项目、recent pointer 和 main-owned dialog | Accepted | 001；为后续项目内能力提供基础边界 |
 | [ADR-003](../docs/adr/003-ui-foundation.md) | Source-owned renderer UI 与外观基础 | Accepted | 011，以及 002–010 的 renderer UI |
 
