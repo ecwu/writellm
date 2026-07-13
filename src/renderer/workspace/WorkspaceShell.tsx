@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Save } from 'lucide-react';
 import { EmptyState } from '@/components/patterns/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -187,10 +188,12 @@ export function WorkspaceShell({
           </DialogTitle>
           <DialogDescription>Save your changes before leaving this project?</DialogDescription>
           {leaveError && <p role="alert">{leaveError}</p>}
-          <Button autoFocus disabled={leaveBusy} onClick={() => void saveAndLeave()}>
+          <Button autoFocus busy={leaveBusy} onClick={() => void saveAndLeave()}>
+            <Save aria-hidden="true" focusable="false" />
             Save and leave
           </Button>
           <Button
+            variant="destructive"
             disabled={leaveBusy}
             onClick={() => {
               leaveGuard?.discard();

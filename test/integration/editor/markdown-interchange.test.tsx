@@ -10,6 +10,8 @@ describe('Markdown UI isolation', () => {
     );
     expect(editor).toContain('MarkdownPasteDialog');
     expect(editor).toContain('MarkdownExportDialog');
+    expect(editor).toContain('ClipboardPaste');
+    expect(editor).toContain('Download');
     const paste = await readFile(
       path.resolve('src/renderer/features/editor/components/MarkdownPasteDialog.tsx'),
       'utf8',

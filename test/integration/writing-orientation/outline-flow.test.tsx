@@ -14,7 +14,14 @@ test('outline flow keeps list and details with create, edit, status, reorder and
     'completed',
     'draggable',
     'Move ${item.title} up',
+    'ArrowUp',
+    'ArrowDown',
+    'Save',
+    'Plus',
+    'Trash2',
+    'aria-pressed',
     'Delete item',
   ])
     expect(source).toContain(term);
+  expect(source).not.toMatch(/[↑↓]/);
 });

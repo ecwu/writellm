@@ -7,7 +7,7 @@ test('runtime harness verifies first-paint owner and bridge inventories', async 
     main.indexOf('await ensureWindow()'),
   );
   const preload = await readFile('src/preload/preload.cts', 'utf8');
-  expect(preload.match(/exposeInMainWorld/g) ?? []).toHaveLength(5);
+  expect(preload.match(/exposeInMainWorld/g) ?? []).toHaveLength(7);
   expect(preload).toContain("exposeInMainWorld('writellmAppearance'");
   expect(preload).toContain("exposeInMainWorld('writellmChapters'");
 });

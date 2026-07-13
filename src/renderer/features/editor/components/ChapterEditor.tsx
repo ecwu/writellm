@@ -2,6 +2,7 @@ import { BlockNoteView } from '@blocknote/ariakit';
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { ClipboardPaste, Download, Save } from 'lucide-react';
 import '@blocknote/ariakit/style.css';
 import { Button } from '@/components/ui/button';
 import type {
@@ -162,12 +163,20 @@ export function ChapterEditor({
           <h2 id="chapter-title">{title}</h2>
         </div>
         <div className="chapter-actions">
-          <Button onClick={() => void pasteMarkdown()}>Paste Markdown</Button>
-          <Button onClick={() => void previewExport()}>Export Markdown</Button>
+          <Button variant="secondary" onClick={() => void pasteMarkdown()}>
+            <ClipboardPaste aria-hidden="true" focusable="false" />
+            Paste Markdown
+          </Button>
+          <Button variant="secondary" onClick={() => void previewExport()}>
+            <Download aria-hidden="true" focusable="false" />
+            Export Markdown
+          </Button>
           <Button
             onClick={() => void save()}
-            disabled={!chapterIsDirty(draft) || draft.saveStatus === 'saving'}
+            busy={draft.saveStatus === 'saving'}
+            disabled={!chapterIsDirty(draft)}
           >
+            <Save aria-hidden="true" focusable="false" />
             Save now
           </Button>
         </div>

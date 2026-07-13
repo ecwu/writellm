@@ -1,6 +1,6 @@
 # Contract: PDF 知识库摄取与索引
 
-Status: Draft v1. Acceptance is gated by the feature plan and ADR-005.
+Status: Accepted v1 — maintainer accepted 2026-07-13 after contract review.
 
 ## Boundary rules
 
@@ -18,14 +18,83 @@ Status: Draft v1. Acceptance is gated by the feature plan and ADR-005.
 | `importSourcesFromDialog` | `writellm:sources:import-dialog` | `{ expectedCatalogRevision: number }` | canceled or up to 100 per-file outcomes |
 | `getSource` | `writellm:sources:get` | `{ sourceId; cursor?: string; limit: 1..100 }` | detail + bounded block preview page |
 | `retrySource` | `writellm:sources:retry` | `{ sourceId; expectedSourceRevision }` | accepted/current summary or conflict/error |
-| `removeSource` | `writellm:sources:remove` | `{ sourceId; expectedSourceRevision; confirmationToken }` | removed, referenced, conflict, or error |
+| `removeSource` | `writellm:sources:remove` | `CancelImportRequest | RemoveSourceRequest` | candidate canceled; confirmation required; removed, referenced, conflict, or error |
 | `subscribeSourceEvents` | preload-wrapped receive-only channel | `{ afterSequence: number }` | unsubscribe function; emits bounded event envelopes |
 
 There is no public `startProcessing` because parse/index work starts automatically. There is no remote-cancel promise; removal locally supersedes jobs and rejects late results.
 
+`removeSource` is the single bounded cancellation/removal capability. It accepts an exact discriminated union so canceling a provisional import does not add a generic job method:
+
+```ts
+type CancelImportRequest = {
+  target: 'candidate'
+  candidateId: string
+  expectedCatalogRevision: number
+}
+
+type RemoveSourceRequest = {
+  target: 'source'
+  sourceId: string
+  expectedSourceRevision: number
+  confirmationToken?: string
+}
+
+type RemoveSourceResult =
+  | { status: 'candidate-canceled'; candidateId: string; catalogRevision: number }
+  | { status: 'confirmation-required'; source: SourceSummary; confirmationToken: string; impact: { activeJobCount: number; searchableBlockCount: number } }
+  | { status: 'removed'; sourceId: string; catalogRevision: number }
+  | { status: 'referenced'; source: SourceSummary }
+  | { status: 'conflict'; currentSource?: SourceSummary; catalogRevision: number }
+  | { status: 'error'; error: SourceError }
+```
+
+For a source, omitting `confirmationToken` performs the fail-closed reference check and, only when the count is zero, returns a short-lived main-signed token. Supplying that token performs deletion only if its project, source and catalog revisions still match. For a candidate, cancellation removes only pending bytes/state; it cannot target a published source or an internal job id.
+
 ## Renderer-facing service credential methods
 
 `window.writellmSourceServices` is a separate fixed preload namespace. It exposes seven named methods: `getServiceStatus`, `saveMinerUCredential`, `removeMinerUCredential`, `validateMinerUCredential`, `saveSiliconFlowCredential`, `removeSiliconFlowCredential`, and `validateSiliconFlowCredential`. Save requests contain one write-only credential plus the expected service revision; remove/validate requests contain only the expected revision. Results expose configured/available/validated timestamps, safe provider-specific status codes and the next opaque revision, never credential material or remote response content.
+
+| Method | Channel | Request |
+|---|---|---|
+| `getServiceStatus` | `writellm:source-services:get` | none |
+| `saveMinerUCredential` | `writellm:source-services:mineru-save` | `SaveServiceCredentialInput` |
+| `removeMinerUCredential` | `writellm:source-services:mineru-remove` | `ServiceRevisionInput` |
+| `validateMinerUCredential` | `writellm:source-services:mineru-validate` | `ServiceRevisionInput` |
+| `saveSiliconFlowCredential` | `writellm:source-services:siliconflow-save` | `SaveServiceCredentialInput` |
+| `removeSiliconFlowCredential` | `writellm:source-services:siliconflow-remove` | `ServiceRevisionInput` |
+| `validateSiliconFlowCredential` | `writellm:source-services:siliconflow-validate` | `ServiceRevisionInput` |
+
+```ts
+type SaveServiceCredentialInput = { expectedRevision: string | null; credential: string }
+type ServiceRevisionInput = { expectedRevision: string }
+
+type SourceServiceSummary = {
+  provider: 'mineru' | 'siliconflow'
+  revision: string | null
+  configured: boolean
+  available: boolean
+  validation: {
+    status: 'never' | 'running' | 'succeeded' | 'failed'
+    completedAt?: string
+    code?: SourceErrorCode
+  }
+}
+
+type GetServiceStatusResult =
+  | { status: 'ok'; mineru: SourceServiceSummary; siliconflow: SourceServiceSummary }
+  | { status: 'error'; error: SourceError }
+
+type ServiceMutationResult =
+  | { status: 'saved' | 'removed'; summary: SourceServiceSummary }
+  | { status: 'conflict'; currentSummary: SourceServiceSummary }
+  | { status: 'error'; error: SourceError; currentSummary?: SourceServiceSummary }
+
+type ValidateServiceResult =
+  | { status: 'completed' | 'stale'; summary: SourceServiceSummary }
+  | { status: 'error'; error: SourceError; currentSummary?: SourceServiceSummary }
+```
+
+Credentials are 1–4096 characters after rejecting all-whitespace, NUL and control characters; a valid credential is not trimmed or normalized. Exact-key parsing rejects unknown fields, provider/model/endpoint overrides and forged summaries before any storage or network side effect. Validation performs only the provider-specific bounded authentication/capability probe defined by ADR-005, with a 30-second timeout and one in-flight validation per provider revision.
 
 Credential mutations are application-global and main-serialized. Each provider has an independent revision and validation state. Saving/removing MinerU cannot alter SiliconFlow and vice versa. A missing, locked, undecryptable or revision-mismatched secret fails closed. This namespace does not accept a URL or model name: endpoints and the SiliconFlow `BAAI/bge-m3` model are fixed by ADR-005.
 
@@ -45,6 +114,7 @@ type SourceSummary = {
   state: SourceState
   progress: { completed: number; total: number; stage: 'queued'|'parsing'|'indexing' }
   eligibility: { indexed: number; eligible: number; failed: number }
+  retrying: boolean
   retryable: boolean
 }
 
@@ -71,12 +141,12 @@ The 10-second SC-001 acknowledgement measures dialog return plus a lightweight f
 
 ```ts
 type ImportOutcome =
-  | { status: 'accepted'; source: SourceSummary }
+  | { status: 'queued'; candidateId: string; displayName: string }
   | { status: 'possible-duplicate'; candidateId: string; displayName: string }
   | { status: 'rejected'; displayName: string; error: SourceError }
 ```
 
-Main creates an accepted source only after copying to a pending transaction and computing SHA-256. A filename/size match is a provisional candidate; hashing continues in main. If the hash matches, pending bytes are removed, no Source/job/index is published, and the candidate emits `duplicate-confirmed`. “Cancel this item” cancels the provisional candidate. If hashes differ, the candidate atomically publishes a Source and emits `accepted`. This resolves duplicate warnings without creating a durable duplicate Source.
+Every readable selection receives a provisional candidate before the 10-second acknowledgement boundary; `queued` means the item passed the lightweight screen and `possible-duplicate` means its filename/size matched an existing source. Neither outcome claims that full copy/hash has completed or exposes a path. Main then copies to a pending transaction and computes SHA-256. If the hash matches, pending bytes are removed, no Source/job/index is published, and a `candidate-updated` event carries `candidateStatus: 'duplicate-confirmed'`. A candidate-targeted `removeSource` call cancels the provisional item and cleans pending bytes. If hashes differ, the candidate atomically publishes a Source and emits `source-upserted` plus candidate acceptance. This resolves duplicate warnings without creating a durable duplicate Source and keeps acknowledgement independent of full-file hashing.
 
 ## Events and replay
 
@@ -87,6 +157,7 @@ type SourceEvent = {
   type: 'source-upserted'|'source-removed'|'candidate-updated'|'resync-required'
   source?: SourceSummary
   candidateId?: string
+  candidateStatus?: 'queued'|'possible-duplicate'|'duplicate-confirmed'|'accepted'|'canceled'|'failed'
 }
 ```
 

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
+const sourceRuntime = process.env.WRITELLM_SOURCE_RUNTIME === '1';
 const preload = await readFile(path.join(root, 'dist-electron/preload/preload.cjs'), 'utf8');
 for (const name of [
   'getAppearancePreferences',
@@ -25,12 +26,32 @@ for (const namespace of [
   'writellmWritingOrientation',
   'writellmChapters',
   'writellmProviderSettings',
+  ...(sourceRuntime ? ['writellmSources', 'writellmSourceServices'] : []),
 ]) {
   if (
     !preload.includes(`exposeInMainWorld("${namespace}"`) &&
     !preload.includes(`exposeInMainWorld('${namespace}'`)
   )
     throw new Error(`Missing compiled preload namespace ${namespace}.`);
+}
+if (sourceRuntime) {
+  for (const method of [
+    'listSources',
+    'importSourcesFromDialog',
+    'getSource',
+    'retrySource',
+    'removeSource',
+    'subscribeSourceEvents',
+    'getServiceStatus',
+    'saveMinerUCredential',
+    'removeMinerUCredential',
+    'validateMinerUCredential',
+    'saveSiliconFlowCredential',
+    'removeSiliconFlowCredential',
+    'validateSiliconFlowCredential',
+  ]) {
+    if (!preload.includes(method)) throw new Error(`Missing compiled source method ${method}`);
+  }
 }
 const bundle = await readFile(path.join(root, 'dist/index.html'), 'utf8');
 if (!bundle.includes('assets/')) throw new Error('Compiled renderer bundle is missing.');
@@ -53,6 +74,8 @@ const child = spawn(
       WRITELLM_SMOKE: '1',
       WRITELLM_EDITOR_RUNTIME: '1',
       WRITELLM_SMOKE_MARKER: marker,
+      WRITELLM_SOURCE_RUNTIME: sourceRuntime ? '1' : '0',
+      WRITELLM_SOURCE_RUNTIME_ROOT: sourceRuntime ? path.join(temp, 'source-project') : '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -76,7 +99,10 @@ const code = await new Promise((resolve, reject) => {
 });
 const lifecycle = await readFile(marker, 'utf8');
 await rm(temp, { recursive: true, force: true });
-if (code !== 0) throw new Error(`UI runtime exited ${code}`);
+if (code !== 0)
+  throw new Error(
+    `UI runtime exited ${code}. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
+  );
 if (!lifecycle.includes('editor-mounted'))
   throw new Error(
     `Compiled BlockNote mount was not observed. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,

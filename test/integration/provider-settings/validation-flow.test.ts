@@ -9,8 +9,10 @@ test('validation has consent, duplicate suppression, revision-bound persistence 
       'src/main/provider-settings/repository.ts',
     ].map((x) => readFile(x, 'utf8')),
   );
+  const handlers = h.replace(/\s/g, '');
+  const repository = r.replace(/\s/g, '');
   expect(ui).toContain('may use a small number of tokens');
   expect(h).toContain('inFlight.has');
-  expect(h).toContain("status:'stale'");
-  expect(r).toContain('this.settings.revision!==revision');
+  expect(handlers).toContain("status:'stale'");
+  expect(repository).toContain('this.settings.revision!==revision');
 });

@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { ArrowLeft } from 'lucide-react';
 import type { ProjectSnapshot } from '../../../shared/project';
 export function ProjectNavigation({
   project,
@@ -14,6 +15,7 @@ export function ProjectNavigation({
         <h1>{project.displayName}</h1>
       </div>
       <Button type="button" variant="secondary" data-dialog-focus-fallback onClick={onLeave}>
+        <ArrowLeft aria-hidden="true" focusable="false" />
         Back to projects
       </Button>
     </nav>

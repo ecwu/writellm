@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Download } from 'lucide-react';
 import type { MarkdownPreview } from '../../../../shared/chapters';
 export function MarkdownExportDialog({
   preview,
@@ -30,10 +31,11 @@ export function MarkdownExportDialog({
           </p>
         ))}
         <pre className="markdown-preview">{preview?.markdown}</pre>
-        <Button autoFocus disabled={busy} onClick={onExport}>
+        <Button autoFocus busy={busy} onClick={onExport}>
+          <Download aria-hidden="true" focusable="false" />
           Choose export location
         </Button>
-        <Button disabled={busy} onClick={onCancel}>
+        <Button variant="secondary" disabled={busy} onClick={onCancel}>
           Cancel
         </Button>
       </DialogContent>

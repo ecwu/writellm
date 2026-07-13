@@ -1,3 +1,4 @@
+import { BookOpen, Map as MapIcon, Settings } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ChapterApi, ChapterDocument } from '../shared/chapters';
 import { CHAPTER_KIND, CHAPTER_SCHEMA_VERSION } from '../shared/chapters';
@@ -5,6 +6,7 @@ import type { ProjectSnapshot } from '../shared/project';
 import { openChapterSession } from './features/editor/chapter-session';
 import { ChapterEditor } from './features/editor/components/ChapterEditor';
 import { ProviderSettingsPanel } from './features/provider-settings/ProviderSettingsPanel';
+import { SourceLibrary } from './features/sources/SourceLibrary';
 import { WritingOrientationPanel } from './features/writing-orientation/WritingOrientationPanel';
 import { LaunchPage } from './launch/LaunchPage';
 import type { WorkspaceLeaveGuard } from './workspace/WorkspaceShell';
@@ -57,18 +59,26 @@ export function App() {
   const [chapter, setChapter] = useState<{ document: ChapterDocument; title: string } | null>(null);
   const [chapterError, setChapterError] = useState('');
   const api = window.writellmWritingOrientation;
+  const sourcesApi = window.writellmSources;
   const panels = useMemo(
     () => [
       {
+        id: 'source-library',
+        label: 'Source library',
+        icon: BookOpen,
+        disabled: !sourcesApi,
+        render: () => <SourceLibrary api={sourcesApi} />,
+      },
+      {
         id: 'provider-settings',
         label: 'AI provider settings',
-        iconLabel: 'AI',
+        icon: Settings,
         render: () => <ProviderSettingsPanel />,
       },
       {
         id: 'writing-orientation',
         label: 'Writing orientation',
-        iconLabel: 'Plan',
+        icon: MapIcon,
         render: () => (
           <WritingOrientationPanel
             api={api}

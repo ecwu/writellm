@@ -6,7 +6,7 @@
 
 **Updated**: 2026-07-12
 
-**Status**: Draft — expanded to define durable background ingestion and indexing; requires clarification, plan refresh, and acceptance
+**Status**: Accepted — maintainer accepted 2026-07-13
 
 **Input**: 作者批量导入 PDF 后，系统在后台按外部服务限额逐份解析并持久保存结构化 Markdown、图片和稳定内容块，再为内容块生成持久向量索引，使后续检索能用资料身份和内容块身份准确定位原文。
 

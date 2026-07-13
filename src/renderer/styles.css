@@ -91,6 +91,12 @@ label {
   background: var(--background);
 }
 .ui-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   border: 0;
   border-radius: var(--radius);
   padding: 0.7rem 1rem;
@@ -117,7 +123,7 @@ label {
   background: var(--muted);
 }
 .ui-button-ghost {
-  color: var(--destructive);
+  color: var(--foreground);
   background: transparent;
 }
 .ui-button-destructive {
@@ -125,13 +131,29 @@ label {
   background: var(--destructive);
 }
 .ui-button-sm {
+  min-height: 2.75rem;
   padding: 0.4rem 0.65rem;
   font-size: 0.85rem;
 }
 .ui-button-icon {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0.5rem;
+}
+.ui-button svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  pointer-events: none;
+  stroke-width: 2;
+}
+.ui-button:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+.ui-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
 }
 .create-row {
   display: flex;
@@ -149,6 +171,16 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--muted-foreground);
+}
+.status-notice-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+}
+.runtime-action-matrix {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 .status-error {
   color: var(--destructive);
@@ -364,7 +396,7 @@ label {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-shell * {
+  * {
     scroll-behavior: auto;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
@@ -492,6 +524,16 @@ label {
   background: var(--muted);
 }
 @media (forced-colors: active) {
+  .ui-button,
+  .ui-input,
+  .ui-select,
+  .ui-tooltip,
+  .status-notice {
+    border: 1px solid ButtonText;
+  }
+  .ui-button:focus-visible {
+    outline-color: Highlight;
+  }
   .chapter-editor .bn-container {
     border: 1px solid CanvasText;
   }

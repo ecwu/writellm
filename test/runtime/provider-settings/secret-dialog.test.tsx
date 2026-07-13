@@ -6,7 +6,8 @@ test('secret removal uses the shared focus-restoring dialog and controlled passw
     'src/renderer/features/provider-settings/ProviderSettingsPanel.tsx',
     'utf8',
   );
-  expect(s).toContain('<Dialog open={removeOpen}');
-  expect(s).toContain('setRemoveOpen(false)');
-  expect(s).toContain("setDraft(d=>({...d,secret:''}))");
+  const compact = s.replace(/\s/g, '');
+  expect(compact).toContain('<Dialogopen={removeOpen}');
+  expect(compact).toContain('setRemoveOpen(false)');
+  expect(compact).toContain("setDraft((d)=>({...d,secret:''}))");
 });

@@ -1,6 +1,6 @@
 # ADR-005: User-configured source ingestion services and data-egress boundary
 
-- Status: Proposed — maintainer acceptance pending
+- Status: Accepted — maintainer accepted 2026-07-13
 - Date: 2026-07-13
 - Owners: WriteLLM v2 maintainers
 - Scope: `006-source-library-processing` MinerU parsing, SiliconFlow embedding, protected credentials, transport and data egress
@@ -43,8 +43,8 @@ The exact schemas, typed methods, error codes, job semantics and validation scen
 
 ## Acceptance checklist before implementation
 
-- [ ] `specs/006-source-library-processing/spec.md`, `plan.md` and `contracts/contract.md` are Accepted.
-- [ ] Maintainer accepts two independent user-supplied credentials protected by async `safeStorage` with no plaintext fallback.
-- [ ] Maintainer accepts MinerU PDF egress and SiliconFlow eligible-block-text egress through main-only fixed adapters.
-- [ ] Maintainer accepts fixed SiliconFlow `BAAI/bge-m3`, 1024-dimensional profile validation and provider-specific durable retry.
-- [ ] Maintainer accepts that third-party policy unknowns are not a WriteLLM implementation gate or remote-processing guarantee.
+- [x] `specs/006-source-library-processing/spec.md`, `plan.md` and `contracts/contract.md` are Accepted.
+- [x] Maintainer accepts two independent user-supplied credentials protected by async `safeStorage` with no plaintext fallback.
+- [x] Maintainer accepts MinerU PDF egress and SiliconFlow eligible-block-text egress through main-only fixed adapters.
+- [x] Maintainer accepts fixed SiliconFlow `BAAI/bge-m3`, 1024-dimensional profile validation and provider-specific durable retry.
+- [x] Maintainer accepts that third-party policy unknowns are not a WriteLLM implementation gate or remote-processing guarantee.

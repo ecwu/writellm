@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   CHAPTER_KIND,
@@ -17,6 +17,7 @@ import {
   parseSaveInput,
 } from './chapter-validation.js';
 import { ProjectGitError, ProjectGitRepository } from './git-repository.js';
+import { writeSyncedFile } from './project-transaction.js';
 
 export type ChapterSession = { projectId: string; projectRoot: string; sessionId: string };
 type Cached = { fingerprint: string; result: ChapterResult<unknown> };
@@ -218,13 +219,7 @@ export class ChapterRepository {
   private async atomic(target: string, value: unknown) {
     await mkdir(path.dirname(target), { recursive: true });
     const temp = `${target}.writellm-tmp-${randomUUID()}`;
-    const handle = await open(temp, 'wx');
-    try {
-      await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await writeSyncedFile(temp, `${JSON.stringify(value)}\n`);
     await rename(temp, target);
   }
   private async writeChapter(

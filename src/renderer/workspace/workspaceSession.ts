@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import type { ProjectSnapshot } from '../../shared/project';
 
 export type ToolPanelId = string;
@@ -15,6 +16,7 @@ export type StatusSeverity = 'info' | 'success' | 'warning' | 'error';
 export type ToolPanelDescriptor = {
   id: ToolPanelId;
   label: string;
+  icon: LucideIcon;
   disabled?: boolean;
   render(): ReactNode;
 };

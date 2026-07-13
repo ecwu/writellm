@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { RotateCcw } from 'lucide-react';
 export function ChapterConflictDialog({
   open,
   onKeep,
@@ -26,8 +27,13 @@ export function ChapterConflictDialog({
         <Button autoFocus onClick={onKeep}>
           Keep current draft
         </Button>
-        <Button onClick={onReload}>Reload saved</Button>
-        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="secondary" onClick={onReload}>
+          <RotateCcw aria-hidden="true" focusable="false" />
+          Reload saved
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
       </DialogContent>
     </Dialog>
   );

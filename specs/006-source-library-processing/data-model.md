@@ -29,13 +29,14 @@ runtime/
 
 Fields: `kind: "writellm.source-catalog"`, `schemaVersion: 1`, `projectId`, `revision`, `sources: SourceSummary[]`.
 
-`SourceSummary`: `sourceId`, `displayName`, `sizeBytes`, `sha256`, `importedAt`, `currentVersionId`, `state`, `eligibleBlockCount`, `indexedBlockCount`, `failedBlockCount`, `updatedAt`.
+`SourceSummary`: `sourceId`, `displayName`, `sizeBytes`, `sha256`, `importedAt`, `currentVersionId`, `state`, `eligibleBlockCount`, `indexedBlockCount`, `failedBlockCount`, `retrying`, `updatedAt`.
 
 Invariants:
 
 - One row per `sourceId`; `sha256` is unique among non-deleted sources.
 - `revision` increases once per published catalog transaction.
 - No absolute path, remote task id, token, signed URL, or raw error appears here.
+- `retrying` is derived from a current retry attempt and lets the renderer distinguish retry progress without adding a second durable source lifecycle.
 
 ## Source
 

@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { ClipboardPaste } from 'lucide-react';
 import type { MarkdownPastePreview } from '../../../../shared/chapters';
 export function MarkdownPasteDialog({
   preview,
@@ -28,9 +29,12 @@ export function MarkdownPasteDialog({
           </p>
         ))}
         <Button autoFocus onClick={onConfirm}>
+          <ClipboardPaste aria-hidden="true" focusable="false" />
           Insert converted blocks
         </Button>
-        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
       </DialogContent>
     </Dialog>
   );

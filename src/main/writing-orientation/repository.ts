@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   DeleteOutlineItemInput,
@@ -10,6 +10,7 @@ import type {
   WritingOrientationDocument,
 } from '../../shared/writing-orientation.js';
 import { ProjectGitError, ProjectGitRepository } from '../project/git-repository.js';
+import { writeSyncedFile } from '../project/project-transaction.js';
 import {
   emptyOrientation,
   OrientationValidationError,
@@ -201,13 +202,7 @@ export class WritingOrientationRepository {
       }),
       'utf8',
     );
-    const handle = await open(temp, 'wx');
-    try {
-      await handle.writeFile(`${JSON.stringify(document)}\n`, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await writeSyncedFile(temp, `${JSON.stringify(document)}\n`);
     await rename(temp, target);
     try {
       await this.git.commitContent(

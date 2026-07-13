@@ -21,21 +21,25 @@ export function ToolRail({
     <nav className="workspace-tool-rail" aria-label="Workspace tools">
       {panels
         .filter((panel) => !panel.disabled)
-        .map((panel) => (
-          <TooltipTrigger key={panel.id} content={panel.label}>
-            <Button
-              ref={(node) => registerTrigger(panel.id, node)}
-              type="button"
-              variant="secondary"
-              aria-pressed={activePanelId === panel.id}
-              onPointerEnter={() => onPreview(panel.id)}
-              onPointerLeave={onLeave}
-              onClick={() => onPin(panel.id)}
-            >
-              {panel.label}
-            </Button>
-          </TooltipTrigger>
-        ))}
+        .map((panel) => {
+          const Icon = panel.icon;
+          return (
+            <TooltipTrigger key={panel.id} content={`Open ${panel.label}`}>
+              <Button
+                ref={(node) => registerTrigger(panel.id, node)}
+                type="button"
+                variant="secondary"
+                aria-pressed={activePanelId === panel.id}
+                onPointerEnter={() => onPreview(panel.id)}
+                onPointerLeave={onLeave}
+                onClick={() => onPin(panel.id)}
+              >
+                <Icon aria-hidden="true" focusable="false" />
+                {panel.label}
+              </Button>
+            </TooltipTrigger>
+          );
+        })}
     </nav>
   );
 }

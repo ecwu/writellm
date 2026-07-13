@@ -1,7 +1,7 @@
 # Research: PDF 知识库摄取与索引
 
 Date: 2026-07-12
-Status: Phase 0 complete; decisions are proposed until the feature plan and required ADR are accepted.
+Status: Phase 0 complete; decisions accepted through the feature plan and ADR-005 on 2026-07-13.
 
 ## 1. PDF parsing service
 
@@ -101,9 +101,9 @@ Status: Phase 0 complete; decisions are proposed until the feature plan and requ
 - Poll-only UI: possible but needlessly delays progress; retained as the recovery mechanism rather than primary delivery.
 - Generic job API: rejected because it exposes internal orchestration and broadens preload authority.
 
-## Resolved unknowns and remaining acceptance gates
+## Resolved unknowns and acceptance outcome
 
-There are no `NEEDS CLARIFICATION` items in the technical design. The following are acceptance gates, not hidden implementation choices:
+There are no `NEEDS CLARIFICATION` items in the technical design. The former acceptance gates were satisfied on 2026-07-13:
 
-1. Maintainer acceptance of the feature spec, contracts and this plan.
-2. Acceptance of ADR-005 covering both user-supplied credentials and data-egress boundaries.
+1. The maintainer accepted the feature spec, contract and plan.
+2. ADR-005 was accepted for both user-supplied credentials and data-egress boundaries.

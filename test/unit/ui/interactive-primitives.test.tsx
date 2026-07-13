@@ -68,3 +68,18 @@ test('tooltip composes handlers, supports keyboard Escape and remains across poi
   await new Promise((resolve) => setTimeout(resolve, 60));
   expect(view.getByRole('tooltip').isConnected).toBe(true);
 });
+
+test('button exposes reusable icon sizing, target, disabled and busy semantics', () => {
+  const view = render(
+    <>
+      <Button size="icon" aria-label="Close">
+        x
+      </Button>
+      <Button busy>Saving</Button>
+    </>,
+  );
+  expect(view.getByRole('button', { name: 'Close' }).className).toContain('ui-button-icon');
+  const saving = view.getByRole('button', { name: 'Saving' });
+  expect(saving.getAttribute('aria-busy')).toBe('true');
+  expect(saving.hasAttribute('disabled')).toBe(true);
+});

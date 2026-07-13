@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-12
 
-**Status**: Draft
+**Status**: Accepted — maintainer accepted on 2026-07-13.
 
 **Input**: 在项目中引入 ShareCM 推荐的图标库，并让整个界面更易用。
 

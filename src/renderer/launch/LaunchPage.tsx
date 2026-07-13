@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FolderOpen, FolderPlus, Trash2 } from 'lucide-react';
 import { useAppearance } from '@/appearance/AppearanceProvider';
 import { AppearanceControls } from '@/components/patterns/AppearanceControls';
 import { EmptyState } from '@/components/patterns/EmptyState';
@@ -151,12 +152,14 @@ export function LaunchPage({ api, onProjectOpened }: LaunchPageProps) {
               />
             </FormField>
             <div className="create-row">
-              <Button type="submit" disabled={busy || displayName.length === 0}>
-                New project
+              <Button type="submit" busy={busy} disabled={displayName.length === 0}>
+                <FolderPlus aria-hidden="true" focusable="false" />
+                Create project
               </Button>
             </div>
           </form>
           <Button type="button" variant="secondary" onClick={() => void open()} disabled={busy}>
+            <FolderOpen aria-hidden="true" focusable="false" />
             Open project
           </Button>
         </div>
@@ -237,6 +240,7 @@ function RecentProjects({
                     onClick={() => onOpen(record)}
                     disabled={disabled}
                   >
+                    <FolderOpen aria-hidden="true" focusable="false" />
                     Open
                   </Button>
                 ) : (
@@ -246,6 +250,7 @@ function RecentProjects({
                     onClick={() => onRelink(record)}
                     disabled={disabled}
                   >
+                    <FolderOpen aria-hidden="true" focusable="false" />
                     Relink
                   </Button>
                 )}
@@ -256,6 +261,7 @@ function RecentProjects({
                   onClick={() => onRemove(record)}
                   disabled={disabled}
                 >
+                  <Trash2 aria-hidden="true" focusable="false" />
                   Remove recent
                 </Button>
               </div>

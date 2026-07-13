@@ -27,4 +27,7 @@ test('workspace renderer contract exposes named regions without IPC', () => {
   ])
     expect(html).toContain(value);
   expect(html).not.toContain('Unavailable future tool');
+  expect(html).toContain('aria-hidden="true"');
+  expect(html).toContain('Back to projects');
+  expect(html).toContain('Sources');
 });

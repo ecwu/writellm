@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 
 test('validator freezes a nonce schema, bounded loop, transcript disposal and incompatibility outcomes', async () => {
   const s = await readFile('src/main/provider-settings/validator.ts', 'utf8');
+  const compact = s.replace(/\s/g, '');
   expect(s).toContain('Type.Literal(nonce)');
-  expect(s).toContain('turns>=2');
-  expect(s).toContain('maxRetries:0');
+  expect(compact).toContain('turns>=2');
+  expect(compact).toContain('maxRetries:0');
   expect(s).toContain('VALIDATION_TOOLS_UNSUPPORTED');
   expect(s).not.toContain('persist transcript');
 });

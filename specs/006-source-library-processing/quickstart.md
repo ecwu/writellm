@@ -20,9 +20,9 @@ bun run test:smoke
 ## Scenario 1 — batch acknowledgement and duplicate handling
 
 1. Open a temporary `.writellm` project and select 100 valid PDF fixtures.
-2. Assert every item receives accepted/rejected/possible-duplicate acknowledgement within 10 seconds without blocking editor interaction.
+2. Assert every item receives queued/rejected/possible-duplicate acknowledgement within 10 seconds without blocking editor interaction or waiting for full copy/hash.
 3. Select a same-name/same-size different file and an exact-content duplicate.
-4. Assert SHA-256 decides identity, the exact duplicate leaves no Source or index job, the different file is accepted, and canceling a provisional candidate cleans pending bytes.
+4. Assert SHA-256 decides identity, the exact duplicate leaves no Source or index job, the different file is accepted, and candidate-targeted `removeSource` cancellation cleans pending bytes.
 
 Evidence: FR-001–FR-003, FR-016; SC-001, SC-007.
 
@@ -86,3 +86,19 @@ Evidence: FR-013, FR-019; SC-008 (post-launch), SC-009.
 ## Pass condition
 
 All applicable commands and scenarios pass with deterministic fakes. Real MinerU/SiliconFlow smoke uses user-supplied disposable fixtures and credentials only, never in default CI. Provider policy unknowns are accepted by the recorded product decision; contract drift, model removal or vector-profile mismatch returns the feature to design review.
+
+## Deterministic validation record
+
+Validated on 2026-07-13 with the repository-owned fake adapters and fixtures. The complete source matrix (`test/contract/sources`, `test/unit/sources`, `test/integration/sources`, and `test/runtime/sources`) passed with 51 tests and 268 assertions.
+
+| Scenario | Executable evidence | Result |
+| --- | --- | --- |
+| 1 — batch and duplicates | `import-service`, `source-library`, and `import-runtime` tests | Pass |
+| 2 — MinerU normalization | `mineru-adapter`, `artifact-normalizer`, `parse-pipeline`, `parse-publication`, and `media-protocol` tests | Pass |
+| 3 — indexing and partial availability | `embedding-adapter`, `index-repository`, `indexing-pipeline`, and `index-progress` tests | Pass |
+| 4 — rate limits, credentials, egress | `scheduler`, `service-credentials`, `source-redaction`, and service IPC tests | Pass |
+| 5 — retry and deletion | `retry-source`, `remove-source`, `source-controls`, and `recovery-runtime` tests | Pass |
+| 6 — compiled boundary and portability | `bundle-boundary`, `security-baseline`, `source-portability`, `import-runtime`, and `recovery-runtime` tests against a production build | Pass |
+| 7 — UI and accessibility | `source-library`, `source-detail`, `source-controls`, and `accessibility-runtime` tests | Pass |
+
+Fixture constraints: PDFs use minimal deterministic byte fixtures rather than copyrighted documents; archive fixtures use stored ZIP entries so malformed paths, symlinks, declared expansion, JSON, and media integrity can be controlled exactly; the benchmark uses 500 generated eligible blocks with deterministic 1024-dimensional vectors; accessibility media/viewport coverage is contract-level in CI, while the compiled Electron harness supplies the real renderer/preload/main boundary. Live provider calls remain intentionally excluded because they require user credentials and would make default validation non-deterministic.

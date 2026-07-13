@@ -1,0 +1,5 @@
+- main [ref=e3]:
+  - alert [ref=e4]:
+    - paragraph [ref=e5]: WriteLLM v2
+    - heading "Application update incomplete" [level=1] [ref=e6]
+    - paragraph [ref=e7]: The desktop bridge did not load. Quit and restart WriteLLM to finish applying the update.

@@ -2,11 +2,18 @@ import type {
   OwnerStatusSummary,
   ToolPanelDescriptor,
 } from '../../../src/renderer/workspace/workspaceSession';
+import { Map as MapIcon, Settings, Sparkles } from 'lucide-react';
 export const project = { projectId: 'project-002', displayName: 'A Long Writing Project' } as const;
 export const panels: readonly ToolPanelDescriptor[] = [
-  { id: 'sources', label: 'Sources', render: () => <p>Source panel content</p> },
-  { id: 'outline', label: 'Outline', render: () => <p>Outline panel content</p> },
-  { id: 'future', label: 'Unavailable future tool', disabled: true, render: () => null },
+  { id: 'sources', label: 'Sources', icon: MapIcon, render: () => <p>Source panel content</p> },
+  { id: 'outline', label: 'Outline', icon: Settings, render: () => <p>Outline panel content</p> },
+  {
+    id: 'future',
+    label: 'Unavailable future tool',
+    icon: Sparkles,
+    disabled: true,
+    render: () => null,
+  },
 ];
 export const status = (overrides: Partial<OwnerStatusSummary> = {}): OwnerStatusSummary => ({
   sourceId: 'editor',

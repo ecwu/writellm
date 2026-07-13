@@ -13,9 +13,9 @@
 | 002 | [Workspace shell](./002-workspace-shell/spec.md)：稳定、可访问的写作工作台外壳 | 001, 011 | Accepted | [Accepted](./002-workspace-shell/plan.md) | ADR-001 not required；ADR-003 Accepted | [34/34](./002-workspace-shell/tasks.md) | Complete |
 | 003 | [Writing orientation](./003-writing-orientation/spec.md)：写作动机和文章大纲 | 001, 002, 011 | Accepted | [Accepted](./003-writing-orientation/plan.md) | [ADR-001](../docs/adr/001-project-storage.md) Accepted | [41/41](./003-writing-orientation/tasks.md) | Complete |
 | 004 | [Block editor](./004-block-editor/spec.md)：从大纲创建章节并编辑 Block | 001, 002, 003, 011 | Accepted | [Accepted](./004-block-editor/plan.md) | ADR-001 Accepted；ADR-003 Accepted | [50/50](./004-block-editor/tasks.md) | Complete |
-| 012 | [Icon and usability refresh](./012-icon-usability-refresh/spec.md)：统一推荐图标体系并提升所有已实现界面的易用性 | 001, 002, 003, 004, 011 | Draft | [Draft](./012-icon-usability-refresh/plan.md) | ADR-003 Accepted；new ADR not required | Missing | Not started |
+| 012 | [Icon and usability refresh](./012-icon-usability-refresh/spec.md)：统一推荐图标体系并提升所有已实现界面的易用性 | 001, 002, 003, 004, 011 | Accepted | [Accepted](./012-icon-usability-refresh/plan.md) | ADR-003 Accepted；new ADR not required | [50/50](./012-icon-usability-refresh/tasks.md) | Complete |
 | 005 | [Provider settings](./005-provider-settings/spec.md)：配置 Pi Agent harness provider、模型能力和受保护的密钥状态 | 001, 002, 011 | Accepted | [Accepted](./005-provider-settings/plan.md) | [ADR-004](../docs/adr/004-provider-settings-security.md) Accepted；ADR-003 Accepted | [46/46](./005-provider-settings/tasks.md) | Complete |
-| 006 | [Knowledge ingestion](./006-source-library-processing/spec.md)：批量导入 PDF，在后台解析、持久化内容块并建立索引 | 001, 002, 005, 011 | Draft | [Draft](./006-source-library-processing/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 006 | [Knowledge ingestion](./006-source-library-processing/spec.md)：批量导入 PDF，在后台解析、持久化内容块并建立索引 | 001, 002, 011 | Accepted | [Accepted](./006-source-library-processing/plan.md) | ADR-001 Accepted；ADR-003 Accepted；[ADR-005](../docs/adr/005-source-ingestion-services-security.md) Accepted | [78/78](./006-source-library-processing/tasks.md) | Complete |
 | 007 | [Search and citations](./007-source-search-citations/spec.md)：检索资料并插入可追溯引用 | 004, 006, 011 | Draft | [Draft](./007-source-search-citations/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 | 008 | [AI writing tasks](./008-ai-writing-tasks/spec.md)：提交限定范围的 AI 任务并获得提案 | 004, 005, 007, 011 | Draft | [Draft](./008-ai-writing-tasks/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 | 009 | [Proposal review](./009-ai-proposal-review/spec.md)：审阅并安全应用 AI 提案 | 004, 007, 008, 011 | Draft | [Draft](./009-ai-proposal-review/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
@@ -56,6 +56,7 @@
 | [ADR-002](../docs/adr/002-project-foundation.md) | 可移动项目、recent pointer 和 main-owned dialog | Accepted | 001；为后续项目内能力提供基础边界 |
 | [ADR-003](../docs/adr/003-ui-foundation.md) | Source-owned renderer UI 与外观基础 | Accepted | 011，以及 002–010 的 renderer UI |
 | [ADR-004](../docs/adr/004-provider-settings-security.md) | application-global provider 配置、受保护 secret 与验证边界 | Accepted | 005；后续 AI feature 只消费其 redacted availability contract |
+| [ADR-005](../docs/adr/005-source-ingestion-services-security.md) | 用户配置的资料摄取服务、受保护凭据与数据出境边界 | Accepted | 006 的 MinerU 解析、SiliconFlow embedding、网络传输和后台重试边界 |
 
 ADR 文件位于 [`docs/adr/`](../docs/adr/)。新增 ADR 时使用下一个稳定编号，并在
 ADR、受影响 feature 的 plan 和本表之间建立双向链接。

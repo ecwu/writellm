@@ -16,10 +16,18 @@ const variants = cva('ui-button', {
 });
 export interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof variants> {}
+    VariantProps<typeof variants> {
+  busy?: boolean;
+}
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => (
-    <button ref={ref} className={cn(variants({ variant, size }), className)} {...props} />
+  ({ busy = false, className, disabled, variant, size, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={cn(variants({ variant, size }), className)}
+      aria-busy={busy || undefined}
+      disabled={disabled || busy}
+      {...props}
+    />
   ),
 );
 Button.displayName = 'Button';

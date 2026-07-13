@@ -3,7 +3,7 @@
 Branch: `006-source-library-processing`
 Date: 2026-07-12  
 Spec: [spec.md](./spec.md)  
-Status: Draft — refreshed after clarification; maintainer acceptance pending
+Status: Accepted — maintainer accepted 2026-07-13
 
 ## Summary
 
@@ -45,10 +45,10 @@ Status: Draft — refreshed after clarification; maintainer acceptance pending
 |---|---|---|
 | I. Secure Desktop Boundary | PASS WITH DESIGN | Main owns dialogs, files, both credentials, network, scheduler and publication. Renderer receives safe DTOs/media protocol identities. MinerU PDF egress and SiliconFlow block-text egress are isolated in ADR-005. |
 | II. Typed, Minimal IPC | PASS WITH DESIGN | [contract.md](./contracts/contract.md) defines six user-facing methods and one fixed receive-only event surface; automatic jobs are not exposed as generic controls. |
-| III. Specification-Driven, Minimal Evolution | PENDING ACCEPTANCE | Spec/plan and ADR-005 require maintainer acceptance before tasks. No Constitution exception is required. |
+| III. Specification-Driven, Minimal Evolution | PASS | Spec, plan, contract and ADR-005 are accepted. No Constitution exception is required. |
 | IV. Verification at the Failure Boundary | PASS WITH DESIGN | [quickstart.md](./quickstart.md) covers real Electron, filesystem/Git, both external services, archive validation, restart, leak and accessibility boundaries. |
 
-**Gate conclusion**: Phase 0/1 design work is allowed. Implementation is blocked. There is no Constitution exception.
+**Gate conclusion**: The design gate is satisfied. Task generation and implementation may proceed in dependency order. There is no Constitution exception.
 
 ## Phase 0 research decisions
 
@@ -171,12 +171,12 @@ test/
 
 | Principle | Status | Design evidence / remaining gate |
 |---|---|---|
-| I. Secure Desktop Boundary | PASS IN DESIGN, ACCEPTANCE PENDING | Files/network/credentials/scheduler are main-owned; safe media protocol and strict normalization prevent path/active-content exposure. ADR-005 records PDF and block-text egress. |
+| I. Secure Desktop Boundary | PASS | Files/network/credentials/scheduler are main-owned; safe media protocol and strict normalization prevent path/active-content exposure. Accepted ADR-005 records PDF and block-text egress. |
 | II. Typed, Minimal IPC | PASS IN DESIGN | Six user operations plus one fixed event receiver; no start-job, generic IPC, arbitrary path/media or internal adapter exposure. |
-| III. Specification-Driven, Minimal Evolution | PENDING ACCEPTANCE | Clarifications are resolved; spec, plan, contracts and ADR-005 require one maintainer acceptance decision. |
-| IV. Verification at the Failure Boundary | PASS IN DESIGN | Quickstart maps FR-001–FR-019 and SC-001–SC-009 to fake adapters, malicious fixtures, storage/Git faults and compiled Electron runtime. |
+| III. Specification-Driven, Minimal Evolution | PASS | Clarifications are resolved; spec, plan, contract and ADR-005 are accepted. |
+| IV. Verification at the Failure Boundary | PASS IN DESIGN | Quickstart maps FR-001–FR-021 and SC-001–SC-009 to fake adapters, malicious fixtures, storage/Git faults and compiled Electron runtime. |
 
-**Post-design implementation gate: PENDING ACCEPTANCE.** Do not generate `tasks.md` or product code until the 006 spec, plan, contracts and ADR-005 are reviewed and marked Accepted, with registry statuses updated in the same change. All prior service-policy, 005 dependency and local-model probe blockers are resolved by the recorded clarifications.
+**Post-design implementation gate: SATISFIED.** The 006 spec, plan, contract and ADR-005 were accepted on 2026-07-13. All prior service-policy, 005 dependency, local-model probe and contract blockers are resolved. Generate and follow `tasks.md`; keep the registry synchronized when task or implementation status changes.
 
 ## Complexity Tracking
 
@@ -184,7 +184,7 @@ No Constitution exception is requested. The persistent scheduler, two narrow ext
 
 ## Implementation phases after gate acceptance
 
-1. **Foundation and ADR**: accept ADR-005; add protected 006 credential storage; extract project transaction metadata support.
+1. **Foundation and ADR**: consume accepted ADR-005; add protected 006 credential storage; extract project transaction metadata support.
 2. **Domain/storage/import**: schemas, catalog/version repository, native batch dialog, pending copy/hash/duplicate lifecycle, Git publication.
 3. **MinerU parsing**: credential availability, adapter, scheduler/leases/backoff, malicious archive validation, atomic normalized publication.
 4. **Remote indexing**: SiliconFlow adapter, fixed `BAAI/bge-m3` profile, block jobs/vector persistence, eligibility and partial state.

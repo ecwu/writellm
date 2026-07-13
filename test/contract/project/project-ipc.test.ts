@@ -7,7 +7,8 @@ test('preload contains one explicit wrapper for each project method and no gener
   const source = await readFile(path.join(process.cwd(), 'src/preload/preload.cts'), 'utf8');
   expect(source).not.toContain('getRuntimeInfo');
   expect(source).not.toContain('ipcRenderer.send');
-  expect(source).not.toContain('ipcRenderer.on');
+  expect(source.match(/ipcRenderer\.on\(/g) ?? []).toHaveLength(1);
+  expect(source).toContain("ipcRenderer.on('writellm:sources:events'");
   for (const channel of Object.values(ipcChannels)) expect(source).toContain(channel);
   expect(Object.keys(ipcChannels)).toHaveLength(6);
 });

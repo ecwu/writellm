@@ -24,6 +24,16 @@
 
 `workspace-tool` 是受控 extension point，不是允许任意 icon 的逃生口。每个实际 tool ID 必须增加稳定的 icon/name/location/owner mapping，不得只记录 generic row。
 
+### Registered workspace-tool extensions
+
+| Tool ID | Lucide icon | Stable visible/accessibility name | Location | Owner |
+|---|---|---|---|---|
+| `provider-settings` | `Settings` | AI provider settings | workspace tool rail | provider settings feature |
+| `writing-orientation` | `Map` | Writing orientation | workspace tool rail | writing orientation feature |
+
+Both registered tools keep visible labels. The controlled extension point permits
+icon-only presentation only after a placement-specific admission record is added.
+
 ## Control contract
 
 1. Icon 必须是 `lucide-react` named import。生产运行时不得请求 remote icon、font 或 registry。

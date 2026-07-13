@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, PenLine, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { TooltipTrigger } from '@/components/ui/tooltip';
 import type {
   OutlineStatus,
   SaveOrientationInput,
@@ -132,7 +134,11 @@ export function WritingOrientationPanel({
   if (loadError)
     return (
       <div role="alert">
-        {loadError} <Button onClick={() => location.reload()}>Retry</Button>
+        {loadError}{' '}
+        <Button variant="secondary" onClick={() => location.reload()}>
+          <RotateCcw aria-hidden="true" focusable="false" />
+          Retry loading
+        </Button>
       </div>
     );
   if (!state) return <p role="status">Loading writing orientation…</p>;
@@ -199,8 +205,10 @@ export function WritingOrientationPanel({
         <h2 id="orientation-title">Writing orientation</h2>
         <Button
           onClick={() => void save()}
-          disabled={!isDirty(state) || state.saveState === 'saving'}
+          busy={state.saveState === 'saving'}
+          disabled={!isDirty(state)}
         >
+          <Save aria-hidden="true" focusable="false" />
           {state.saveState === 'saving' ? 'Saving…' : 'Save'}
         </Button>
         <span role="status" aria-live="polite">
@@ -237,7 +245,13 @@ export function WritingOrientationPanel({
       <div className="outline-workspace">
         <div>
           <h3>Outline</h3>
-          <Button onClick={() => setState(createDraftItem(state))}>Add outline item</Button>
+          <Button
+            variant={state.draft.outlineItems.length === 0 ? 'default' : 'secondary'}
+            onClick={() => setState(createDraftItem(state))}
+          >
+            <Plus aria-hidden="true" focusable="false" />
+            Add outline item
+          </Button>
           {state.draft.outlineItems.length === 0 ? (
             <p>No outline yet. Create your first section.</p>
           ) : (
@@ -254,25 +268,34 @@ export function WritingOrientationPanel({
                 >
                   <Button
                     variant={state.selectedOutlineItemId === itemId(item) ? 'default' : 'ghost'}
+                    aria-pressed={state.selectedOutlineItemId === itemId(item)}
                     onClick={() => setState({ ...state, selectedOutlineItemId: itemId(item) })}
                   >
                     {item.title || 'Untitled'} — {item.status}
                     {item.chapterRef ? ' — has chapter' : ''}
                   </Button>
-                  <Button
-                    aria-label={`Move ${item.title} up`}
-                    disabled={index === 0}
-                    onClick={() => reorder(index, index - 1)}
-                  >
-                    ↑
-                  </Button>
-                  <Button
-                    aria-label={`Move ${item.title} down`}
-                    disabled={index === state.draft.outlineItems.length - 1}
-                    onClick={() => reorder(index, index + 1)}
-                  >
-                    ↓
-                  </Button>
+                  <TooltipTrigger content={`Move ${item.title || 'Untitled'} up`}>
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      aria-label={`Move ${item.title} up`}
+                      disabled={index === 0}
+                      onClick={() => reorder(index, index - 1)}
+                    >
+                      <ArrowUp aria-hidden="true" focusable="false" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipTrigger content={`Move ${item.title || 'Untitled'} down`}>
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      aria-label={`Move ${item.title} down`}
+                      disabled={index === state.draft.outlineItems.length - 1}
+                      onClick={() => reorder(index, index + 1)}
+                    >
+                      <ArrowDown aria-hidden="true" focusable="false" />
+                    </Button>
+                  </TooltipTrigger>
                 </li>
               ))}
             </ol>
@@ -314,11 +337,13 @@ export function WritingOrientationPanel({
                   disabled={isDirty(state) || !selected.title.trim()}
                   onClick={() => void startWriting()}
                 >
+                  <PenLine aria-hidden="true" focusable="false" />
                   {selected.chapterRef ? 'Continue writing' : 'Start writing'}
                 </Button>
               )}
               {isDirty(state) && <p>Save outline changes before opening a chapter.</p>}
               <Button variant="destructive" onClick={() => void remove()}>
+                <Trash2 aria-hidden="true" focusable="false" />
                 {selected.chapterRef ? 'Chapter-linked item cannot be deleted' : 'Delete item'}
               </Button>
             </>

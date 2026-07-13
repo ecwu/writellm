@@ -13,5 +13,7 @@ describe('chapter saving integration', () => {
     expect(compact).toContain('Savenow');
     expect(compact).toContain("ownerId:'chapter'");
     expect(compact).toContain("saveStatus==='saving'");
+    expect(source).toContain('Save aria-hidden="true"');
+    expect(source).toContain("busy={draft.saveStatus === 'saving'}");
   });
 });

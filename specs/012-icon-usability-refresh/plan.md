@@ -2,11 +2,11 @@
 
 **Branch**: `012-icon-usability-refresh` | **Date**: 2026-07-13 | **Spec**: [spec.md](./spec.md)
 
-**Status**: Draft — implementation remains gated until the feature specification and this plan are accepted.
+**Status**: Accepted — maintainer accepted on 2026-07-13.
 
 **Input**: Feature specification from `/specs/012-icon-usability-refresh/spec.md`
 
-**Note**: 本计划只生成设计材料；未编写产品代码、未安装依赖、未修改 lockfile、未生成 `tasks.md`。
+**Note**: 本计划与 feature specification 已接受，实施任务见 [tasks.md](./tasks.md)；尚未编写产品代码、安装依赖或修改 lockfile。
 
 ## Summary
 
@@ -40,10 +40,10 @@
 |---|---|---|
 | I. Secure Desktop Boundary | PASS | 仅 renderer source、CSS、测试与文档变化；不接触 preload/main capability，图标随 bundle 离线提供。 |
 | II. Typed, Minimal IPC | PASS | 不新增或修改 IPC；现有 bridge contract 作为回归门禁。 |
-| III. Specification-Driven, Minimal Evolution | GATED | 设计材料可继续；spec 与 plan 当前均为 Draft，接受前不得生成 implementation tasks 或实现。消费 ADR-003，因不跨 durable/system/process boundary 而不需要新 ADR。 |
+| III. Specification-Driven, Minimal Evolution | PASS | spec 与 plan 已接受；消费 ADR-003，因不跨 durable/system/process boundary 而不需要新 ADR。可生成 implementation tasks 并按任务执行。 |
 | IV. Verification at the Failure Boundary | PASS | 映射以静态/DOM 检查验证，焦点、主题、forced colors、缩放与真实布局在 compiled Electron runtime 验证，业务结果由既有回归验证。 |
 
-当前 gate 没有需要 Complexity Tracking 豁免的设计违规。唯一未满足项是正常的接受门禁；它明确阻止实现，但不阻止本轮规划。
+当前 gate 没有需要 Complexity Tracking 豁免的设计违规；spec、plan 与 ADR gate 均已满足，可以按 [tasks.md](./tasks.md) 进入实现。
 
 ## Project Structure
 
@@ -142,10 +142,10 @@ test/
 |---|---|---|
 | I. Secure Desktop Boundary | PASS | 设计限定在 renderer composition/source-owned assets；无 Node/Electron 暴露、远程资源或新权限。 |
 | II. Typed, Minimal IPC | PASS | contract 明确禁止 IPC 变化，既有 shared/preload/main surface 纳入回归。 |
-| III. Specification-Driven, Minimal Evolution | GATED | 采用现有依赖与目录，不创建 runtime registry 或新 architecture。新 ADR 明确 Not required。spec/plan 接受前实现 gate 仍关闭。 |
+| III. Specification-Driven, Minimal Evolution | PASS | 采用现有依赖与目录，不创建 runtime registry 或新 architecture。新 ADR 明确 Not required，spec 与 plan 已接受。 |
 | IV. Verification at the Failure Boundary | PASS | DOM、compiled Electron、人工审计、用户流程与既有业务回归分别覆盖其能观察到的失败。 |
 
-设计后无 Constitution violation 或未解决的 clarification。接受 spec 与 plan 后，才能将 registry 状态改为 Accepted 并进入 tasks/implementation。
+设计后无 Constitution violation 或未解决的 clarification。spec 与 plan 已接受，可将 registry 状态改为 Accepted 并进入 tasks/implementation。
 
 ## ADR and dependency gate
 
