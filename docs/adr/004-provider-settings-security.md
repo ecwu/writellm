@@ -41,8 +41,8 @@ modifies `.writellm` content/history. ADR-003 remains authoritative for renderer
 8. External status/body/header/platform/Pi exceptions are mapped to app-owned stable diagnostic/error codes.
    Raw request/response/generated content and secret-derived hints do not cross IPC or enter durable state.
 
-The exact schemas, DTOs, transitions and tests are frozen by the linked 005 data model, IPC contract and
-quickstart when this ADR and the plan are accepted.
+The exact schemas, DTOs, transitions and tests are defined by the implementation and its tests within this
+ADR's security boundary.
 
 ## Consequences
 
@@ -68,7 +68,6 @@ quickstart when this ADR and the plan are accepted.
 
 ## Acceptance checklist before implementation
 
-- [x] `specs/005-provider-settings/spec.md` and `plan.md` are Accepted.
 - [x] Maintainer accepts async safeStorage with fail-closed unavailable behavior and no plaintext fallback.
 - [x] Maintainer accepts the two-document schema/revision reconciliation and application-global owner.
 - [x] Maintainer accepts the bounded Pi agent tool-loop validation protocol, timeout and redaction policy.

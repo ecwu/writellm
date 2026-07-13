@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { EmbeddingAdapter } from '../../../src/main/sources/embedding-adapter';
@@ -81,6 +81,24 @@ test('reuses durable remote identity and publishes a normalized parse result', a
   await pipeline.process(job, new AbortController().signal, jobs);
   expect(jobs.get(job.jobId)?.remoteBatchId).toBe('remote');
   expect((await repository.get(session, job.sourceId))?.state).toBe('indexing');
+  const versionRoot = path.join(root, 'sources', job.sourceId, 'versions', job.sourceVersionId);
+  expect(await readFile(path.join(versionRoot, 'full.md'), 'utf8')).toBe(
+    '# Title\n\nBody\n\n![Chart](images/chart.png)',
+  );
+  expect(
+    (await readFile(path.join(versionRoot, 'blocks.jsonl'), 'utf8')).trim().split('\n'),
+  ).toHaveLength(3);
+  expect(JSON.parse(await readFile(path.join(versionRoot, 'manifest.json'), 'utf8'))).toMatchObject(
+    {
+      parseState: 'complete',
+      blockCount: 3,
+      mediaCount: 1,
+    },
+  );
+  expect(await readdir(path.join(versionRoot, 'media'))).toHaveLength(1);
+  await expect(
+    access(path.join(root, 'runtime', 'source-downloads', `${job.jobId}.zip`)),
+  ).rejects.toThrow();
   const embed = jobs.list().find((value) => value.type === 'embed');
   if (!embed) throw new Error('embedding job missing');
   await pipeline.process(embed, new AbortController().signal, jobs);

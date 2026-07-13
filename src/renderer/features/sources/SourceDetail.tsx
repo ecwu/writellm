@@ -27,7 +27,11 @@ export function SourceDetail({
   const [detail, setDetail] = useState<SourceDetailModel | null>(null);
   const [blocks, setBlocks] = useState<BlockPreview[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
-  const [error, setError] = useState<{ message: string; sourceError?: SourceError } | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    sourceError?: SourceError;
+    action?: 'Loading' | 'Retry' | 'Removal';
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [mode, setMode] = useState<'structured-markdown' | 'original-pdf'>('structured-markdown');
@@ -35,6 +39,11 @@ export function SourceDetail({
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const sourceRevision = source.revision;
+  const sourceState = source.state;
+  const sourceProgressCompleted = source.progress.completed;
+  const sourceProgressTotal = source.progress.total;
+  const sourceProgressStage = source.progress.stage;
+  const sourceRetrying = source.retrying;
   const [confirmation, setConfirmation] = useState<{
     token: string;
     activeJobCount: number;
@@ -96,7 +105,16 @@ export function SourceDetail({
       current = false;
       generation.current += 1;
     };
-  }, [api, source.sourceId, sourceRevision]);
+  }, [
+    api,
+    source.sourceId,
+    sourceProgressCompleted,
+    sourceProgressStage,
+    sourceProgressTotal,
+    sourceRetrying,
+    sourceRevision,
+    sourceState,
+  ]);
   const loadMore = async () => {
     if (!nextCursor || !detail || loadingMore) return;
     const currentGeneration = generation.current;
@@ -149,18 +167,21 @@ export function SourceDetail({
       });
       if (result.status === 'accepted') {
         setDetail((value) => {
-          const next = value ? { ...value, ...result.source } : value;
+          const next = value ? { ...value, ...result.source, failure: undefined } : value;
           detailRef.current = next;
           return next;
         });
       } else if (result.status === 'conflict')
-        setError({ message: 'Source status changed. Reopen it before retrying.' });
+        setError({ message: 'Source status changed. Reopen it before retrying.', action: 'Retry' });
       else {
         const copy = sourceErrorCopy(result.error);
-        setError({ message: copy.message, sourceError: result.error });
+        setError({ message: copy.message, sourceError: result.error, action: 'Retry' });
       }
     } catch {
-      setError({ message: 'Retry could not be started. Check the connection and try again.' });
+      setError({
+        message: 'Retry could not be started. Check the connection and try again.',
+        action: 'Retry',
+      });
     } finally {
       setBusy(false);
     }
@@ -183,17 +204,24 @@ export function SourceDetail({
         setConfirmation(null);
         onBack();
       } else if (result.status === 'referenced')
-        setError({ message: 'This source is still cited by a chapter and cannot be removed.' });
+        setError({
+          message: 'This source is still cited by a chapter and cannot be removed.',
+          action: 'Removal',
+        });
       else if (result.status === 'error') {
         const copy = sourceErrorCopy(result.error);
-        setError({ message: copy.message, sourceError: result.error });
+        setError({ message: copy.message, sourceError: result.error, action: 'Removal' });
       } else
         setError({
           message:
             'Source status changed or references could not be verified. Nothing was removed.',
+          action: 'Removal',
         });
     } catch {
-      setError({ message: 'The source could not be removed. Check the connection and try again.' });
+      setError({
+        message: 'The source could not be removed. Check the connection and try again.',
+        action: 'Removal',
+      });
     } finally {
       setBusy(false);
     }
@@ -215,12 +243,29 @@ export function SourceDetail({
       </header>
       {error && (
         <StatusNotice tone="error">
+          {error.action && <strong>{error.action} failed: </strong>}
           <span>{error.message}</span>
           {error.sourceError && <span> Reference code: {error.sourceError.code}.</span>}
         </StatusNotice>
       )}
+      {detail && ['queued', 'parsing', 'indexing'].includes(detail.state) && (
+        <div className="grid gap-2" role="status" aria-live="polite">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="m-0 text-sm font-medium">Processing status</h3>
+            <span className="text-sm text-muted-foreground">{processingStageLabel(detail)}</span>
+          </div>
+          <progress
+            className="w-full"
+            value={detail.progress.completed}
+            max={Math.max(1, detail.progress.total)}
+            aria-label={`${detail.displayName} ${detail.progress.stage} progress`}
+          />
+          <p className="m-0 text-sm text-muted-foreground">{processingProgressLabel(detail)}</p>
+        </div>
+      )}
       {detail?.failure && (
         <div className="grid gap-2">
+          <h3 className="m-0 text-sm font-medium">Processing failure</h3>
           <StatusNotice tone={detail.state === 'failed' ? 'error' : 'warning'}>
             <FileWarning aria-hidden="true" /> {sourceErrorCopy(detail.failure).message}
           </StatusNotice>
@@ -247,7 +292,7 @@ export function SourceDetail({
                 {detail.retrying
                   ? 'In progress.'
                   : detail.retryable
-                    ? 'Not currently running; manual retry is available.'
+                    ? 'Automatic attempts ended; manual retry is available.'
                     : 'Not available for this failure.'}
               </dd>
             </div>
@@ -368,7 +413,10 @@ export function SourceDetail({
         <Button
           variant="secondary"
           busy={busy}
-          disabled={!detail?.retryable && detail?.state !== 'partial' && detail?.state !== 'failed'}
+          disabled={
+            detail?.retrying ||
+            (!detail?.retryable && detail?.state !== 'partial' && detail?.state !== 'failed')
+          }
           onClick={() => void retry()}
         >
           <RotateCcw aria-hidden="true" /> Retry failed work
@@ -387,7 +435,8 @@ export function SourceDetail({
           <DialogTitle>Remove {source.displayName}?</DialogTitle>
           <DialogDescription>
             This removes {confirmation?.searchableBlockCount ?? 0} searchable blocks and supersedes{' '}
-            {confirmation?.activeJobCount ?? 0} active jobs. Chapter text will not be changed.
+            {confirmation?.activeJobCount ?? 0} active jobs. Chapter text will not be changed. Local
+            removal does not contact MinerU and is not blocked by a processing failure.
           </DialogDescription>
           <Button
             variant="destructive"
@@ -403,4 +452,18 @@ export function SourceDetail({
       </Dialog>
     </section>
   );
+}
+
+function processingStageLabel(source: SourceDetailModel): string {
+  if (source.state === 'queued') return source.retrying ? 'Retry queued' : 'Queued';
+  if (source.state === 'parsing') return source.retrying ? 'Retrying parsing' : 'Parsing PDF';
+  return source.retrying ? 'Retrying indexing' : 'Indexing content';
+}
+
+function processingProgressLabel(source: SourceDetailModel): string {
+  if (source.state === 'queued') return 'Waiting for a processing worker.';
+  if (source.progress.stage === 'parsing')
+    return `${source.progress.completed}% parsed${source.retrying ? '; automatic retry is active' : ''}.`;
+  const remaining = Math.max(0, source.progress.total - source.progress.completed);
+  return `${source.progress.completed} of ${source.progress.total} blocks processed; ${remaining} remaining.`;
 }

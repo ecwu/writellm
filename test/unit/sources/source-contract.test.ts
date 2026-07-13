@@ -27,7 +27,7 @@ describe('source contracts', () => {
     });
     expect(
       parseSaveServiceCredentialInput({ expectedRevision: null, credential: ' key ' }),
-    ).toEqual({ expectedRevision: null, credential: ' key ' });
+    ).toEqual({ expectedRevision: null, credential: 'key' });
     expect(
       parseSaveServiceCredentialInput({ expectedRevision: null, credential: '   ' }),
     ).toMatchObject({ code: 'SOURCE_INVALID_INPUT' });
@@ -48,6 +48,28 @@ describe('source contracts', () => {
         expectedSourceRevision: 1,
       }),
     ).toEqual({ target: 'source', sourceId: 'source-1', expectedSourceRevision: 1 });
+    const confirmationToken = `${'a'.repeat(180)}.${'b'.repeat(43)}`;
+    expect(
+      parseRemoveSourceRequest({
+        target: 'source',
+        sourceId: 'source-1',
+        expectedSourceRevision: 1,
+        confirmationToken,
+      }),
+    ).toEqual({
+      target: 'source',
+      sourceId: 'source-1',
+      expectedSourceRevision: 1,
+      confirmationToken,
+    });
+    expect(
+      parseRemoveSourceRequest({
+        target: 'source',
+        sourceId: 'source-1',
+        expectedSourceRevision: 1,
+        confirmationToken: 'a'.repeat(1025),
+      }),
+    ).toMatchObject({ code: 'SOURCE_INVALID_INPUT' });
     expect(
       parseRemoveSourceRequest({
         target: 'candidate',

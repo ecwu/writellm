@@ -12,7 +12,7 @@ describe('source service validator', () => {
     let requestUrl = '';
     await validateSourceService(
       'siliconflow',
-      'secret-sentinel',
+      ' token = "Bearer secret- sentinel"; ',
       new AbortController().signal,
       (url, init) => {
         requestUrl = url;
@@ -22,6 +22,37 @@ describe('source service validator', () => {
     );
     expect(requestUrl).toBe('https://api.siliconflow.cn/v1/models');
     expect(authorization).toBe('Bearer secret-sentinel');
+  });
+
+  test('validates MinerU with its documented sample PDF task', async () => {
+    let body: unknown;
+    let requestUrl = '';
+    let authorization = '';
+    await validateSourceService(
+      'mineru',
+      'secret-sentinel',
+      new AbortController().signal,
+      (url, init) => {
+        requestUrl = url;
+        authorization = new Headers(init?.headers).get('authorization') ?? '';
+        body = JSON.parse(String(init?.body));
+        return Promise.resolve(Response.json({ code: 0, data: { task_id: 'sample-task' } }));
+      },
+    );
+    expect(requestUrl).toBe('https://mineru.net/api/v4/extract/task');
+    expect(authorization).toBe('Bearer secret-sentinel');
+    expect(body).toEqual({
+      url: 'https://cdn-mineru.openxlab.org.cn/demo/example.pdf',
+      model_version: 'vlm',
+    });
+  });
+
+  test.each(['A0202', 'A0211'])('maps MinerU application error %s to auth failure', async (code) => {
+    expect(
+      validateSourceService('mineru', 'secret-sentinel', new AbortController().signal, () =>
+        Promise.resolve(Response.json({ code, msg: 'sensitive provider detail' })),
+      ),
+    ).rejects.toEqual(new SourceServiceValidationError('SOURCE_MINERU_AUTH', false));
   });
 
   test.each([

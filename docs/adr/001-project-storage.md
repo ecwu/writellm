@@ -148,8 +148,8 @@ SQLite 能提供事务和查询，但仍需要保存可版本化的 editor-nativ
 ## Acceptance checklist before implementation
 
 - [x] ADR-002 已接受并实现，确认任意父目录、`.writellm` 自包含项目和 userData recent index。
-- [x] 维护者接受 portable canonical files、structured Git trailers、binary/cache tracking 和 main-owned recovery 的公共基线；具体 editor schema 与 interchange lossiness 由消费 feature 在各自 spec/plan 中接受。
+- [x] 维护者接受 portable canonical files、structured Git trailers、binary/cache tracking 和 main-owned recovery 的公共基线；具体 editor schema 与 interchange lossiness 由消费功能自行确定。
 - [x] 维护者接受 isomorphic-git main-only adapter、首次内容保存初始化、固定 `WriteLLM <history@writellm.local>` identity、标准 `.gitignore` 和 existing-project failure/retry semantics。
 - [x] ADR 采用分阶段消费：本 ADR 的接受不要求所有未来内容、任务、提案和历史 IPC 同时冻结；每个消费 feature 必须在自身实施前冻结自己的 method、DTO、dialog/error contract，并引用本 ADR。
 - [x] ADR-002 project foundation contract 由后续 feature 作为 storage prerequisite 复用。
-- [x] 每个消费 feature 的任务计划必须包含其真实 Electron runtime failure-boundary smoke；003 已包含该门禁。
+- [x] 每个消费 feature 必须包含其真实 Electron runtime failure-boundary smoke。

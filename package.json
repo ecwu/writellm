@@ -14,6 +14,7 @@
     "test": "bun test --parallel=1",
     "test:dom": "bun test test/unit/ui test/unit/appearance test/integration/ui",
     "test:smoke": "bun run build && node scripts/electron-smoke.mjs",
+    "test:mineru-live": "bun run build && node scripts/mineru-live-launcher.mjs",
     "test:ui-runtime": "bun run build && node scripts/electron-ui-runtime.mjs",
     "test:all": "bun run test && bun run test:smoke",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.test.json",

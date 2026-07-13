@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { MinerUAdapter } from '../../../src/main/sources/mineru-adapter';
 import { SourceJobRepository } from '../../../src/main/sources/job-repository';
+import { type MinerUAdapter, MinerUTransportError } from '../../../src/main/sources/mineru-adapter';
 import { SourceServiceCredentials } from '../../../src/main/sources/service-credentials';
 import { SourceEvents } from '../../../src/main/sources/source-events';
 import { SourcePipeline } from '../../../src/main/sources/source-pipeline';
@@ -93,4 +93,88 @@ test('persists and publishes MinerU progress so authoritative reads survive even
   expect(jobs.get(job.jobId)?.progress).toEqual({ completed: 37, total: 100, stage: 'parsing' });
   const projected = await repository.list(session, { limit: 100 });
   expect(projected.sources[0]?.state).toBe('indexing');
+});
+
+test('persists an allocated batch before upload and clears it when signed upload fails', async () => {
+  const { session, repository, credentials, jobs, job } = await setup();
+  let persistedBeforeUploadFailure = false;
+  const fake = {
+    submitLocalPdf: async (input: { onBatchAllocated?(remoteBatchId: string): Promise<void> }) => {
+      await input.onBatchAllocated?.('allocated-before-upload');
+      persistedBeforeUploadFailure =
+        jobs.get(job.jobId)?.remoteBatchId === 'allocated-before-upload';
+      throw new MinerUTransportError('SOURCE_MINERU_TEMPORARY', true, 'upload');
+    },
+  };
+  const pipeline = new SourcePipeline({
+    credentials,
+    repository,
+    events: new SourceEvents(),
+    getActiveSession: () => session,
+    mineru: () => fake as unknown as MinerUAdapter,
+  });
+  await expect(pipeline.process(job, new AbortController().signal, jobs)).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_TEMPORARY',
+    retryable: true,
+  });
+  expect(persistedBeforeUploadFailure).toBe(true);
+  expect(jobs.get(job.jobId)?.remoteBatchId).toBeUndefined();
+});
+
+test('preserves known parse progress when publishing an automatic retry', async () => {
+  const { session, repository, credentials, jobs, job } = await setup();
+  await jobs.patch(job.jobId, { progress: { completed: 42, total: 100, stage: 'parsing' } });
+  const events = new SourceEvents();
+  events.activate(session.sessionId);
+  const published: number[] = [];
+  events.subscribe(
+    0,
+    (event) => {
+      if (event.type === 'source-upserted' && event.source?.retrying)
+        published.push(event.source.progress.completed);
+    },
+    session.sessionId,
+  );
+  const fake = {
+    submitLocalPdf: async () => {
+      throw new MinerUTransportError('SOURCE_MINERU_TEMPORARY', true, 'submit');
+    },
+  };
+  const pipeline = new SourcePipeline({
+    credentials,
+    repository,
+    events,
+    getActiveSession: () => session,
+    mineru: () => fake as unknown as MinerUAdapter,
+  });
+  await expect(pipeline.process(job, new AbortController().signal, jobs)).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_TEMPORARY',
+  });
+  expect(published).toContain(42);
+});
+
+test('abandons a durable batch that remains waiting for a missing upload', async () => {
+  const { session, repository, credentials, jobs, job } = await setup();
+  await jobs.patch(job.jobId, { remoteBatchId: 'orphaned-batch' });
+  const fake = {
+    poll: async () => ({
+      state: 'pending' as const,
+      providerState: 'waiting-file' as const,
+      progress: 0,
+    }),
+  };
+  const pipeline = new SourcePipeline({
+    credentials,
+    repository,
+    events: new SourceEvents(),
+    getActiveSession: () => session,
+    mineru: () => fake as unknown as MinerUAdapter,
+    pollIntervalMs: 0,
+    waitingFileRetryPolls: 2,
+  });
+  await expect(pipeline.process(job, new AbortController().signal, jobs)).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_TEMPORARY',
+    retryable: true,
+  });
+  expect(jobs.get(job.jobId)?.remoteBatchId).toBeUndefined();
 });

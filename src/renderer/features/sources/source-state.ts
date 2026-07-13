@@ -274,16 +274,14 @@ export function sourceErrorCopy(error: Pick<SourceError, 'code'>): SourceErrorCo
     case 'SOURCE_MINERU_RATE_LIMITED':
     case 'SOURCE_SILICONFLOW_RATE_LIMITED':
       return {
-        message:
-          'A processing service is rate limiting requests. Automatic retry will continue when possible.',
+        message: 'A processing service is rate limiting requests. Retry this work when possible.',
         action: 'retry',
       };
     case 'SOURCE_MINERU_TEMPORARY':
     case 'SOURCE_SILICONFLOW_TEMPORARY':
     case 'SOURCE_INDEX_MODEL_UNAVAILABLE':
       return {
-        message:
-          'A processing service is temporarily unavailable. Automatic retry will continue when possible.',
+        message: 'A processing service is temporarily unavailable. Retry this work when possible.',
         action: 'retry',
       };
     case 'SOURCE_IMPORT_UNREADABLE':

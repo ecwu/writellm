@@ -40,7 +40,10 @@ test('maps stable source error codes to safe actionable copy', () => {
     action: 'settings',
   });
   expect(sourceErrorCopy({ code: 'SOURCE_UNSUPPORTED_PDF' }).action).toBe('remove');
-  expect(sourceErrorCopy({ code: 'SOURCE_SILICONFLOW_TEMPORARY' }).action).toBe('retry');
+  expect(sourceErrorCopy({ code: 'SOURCE_SILICONFLOW_TEMPORARY' })).toEqual({
+    message: 'A processing service is temporarily unavailable. Retry this work when possible.',
+    action: 'retry',
+  });
 });
 
 test('applies contiguous source and duplicate candidate events', () => {

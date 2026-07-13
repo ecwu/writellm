@@ -1,9 +1,11 @@
 import type { ServiceProvider, SourceError, SourceErrorCode } from '../../shared/sources.js';
+import { normalizeBearerToken } from './credential-token.js';
 
 const ENDPOINTS: Record<ServiceProvider, string> = {
-  mineru: 'https://mineru.net/api/v4/file-urls/batch',
+  mineru: 'https://mineru.net/api/v4/extract/task',
   siliconflow: 'https://api.siliconflow.cn/v1/models',
 };
+const MINERU_SAMPLE_URL = 'https://cdn-mineru.openxlab.org.cn/demo/example.pdf';
 
 export type SourceHttpRequest = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -37,16 +39,37 @@ export async function validateSourceService(
     response = await request(ENDPOINTS[provider], {
       method: provider === 'mineru' ? 'POST' : 'GET',
       headers: {
-        Authorization: `Bearer ${credential}`,
+        Authorization: `Bearer ${normalizeBearerToken(credential)}`,
         ...(provider === 'mineru' ? { 'Content-Type': 'application/json' } : {}),
       },
-      ...(provider === 'mineru' ? { body: JSON.stringify({ files: [] }) } : {}),
+      ...(provider === 'mineru'
+        ? { body: JSON.stringify({ url: MINERU_SAMPLE_URL, model_version: 'vlm' }) }
+        : {}),
       signal,
     });
   } catch {
     throw temporary(provider);
   }
   if (!response.ok) throw classify(provider, response.status);
+  if (provider === 'mineru') await validateMinerUResponse(response);
+}
+
+async function validateMinerUResponse(response: Response): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new SourceServiceValidationError('SOURCE_MINERU_REJECTED', false);
+  }
+  if (!isRecord(payload)) throw new SourceServiceValidationError('SOURCE_MINERU_REJECTED', false);
+  if (payload.code === 'A0202' || payload.code === 'A0211')
+    throw new SourceServiceValidationError('SOURCE_MINERU_AUTH', false);
+  if (payload.code !== 0 || !isRecord(payload.data) || typeof payload.data.task_id !== 'string')
+    throw new SourceServiceValidationError('SOURCE_MINERU_REJECTED', false);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function classify(provider: ServiceProvider, status: number): SourceServiceValidationError {

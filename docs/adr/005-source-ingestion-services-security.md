@@ -26,14 +26,14 @@ This boundary is distinct from ADR-004. Feature 005 owns one Pi generation-provi
 11. The preview route permits `HEAD` and bounded full or single-range `GET` only, streams bytes without preload IPC or whole-file copies, normalizes invalid/stale/unauthorized/tampered identities to safe 404/416 responses, and returns `application/pdf`, `no-store`, `nosniff`, and restrictive sandbox CSP headers. Paths and raw errors never leave main.
 12. Renderer preview uses an exact locally bundled PDF.js display layer and worker. It grants no generic file access, path IPC, remote resource, Electron PDF plugin, document script, attachment, form-submission, printing/export, service-worker, storage, or CSP-bypass capability. Original-preview availability never implies structured or searchable readiness.
 
-The exact schemas, typed methods, error codes, job semantics and validation scenarios are frozen by the accepted 006 plan, data model, contract and quickstart.
+The exact schemas, typed methods, error codes, job semantics and validation scenarios are defined by the implementation and its tests within this ADR's security boundary.
 
 ## Consequences
 
 - 006 no longer requires a local model runtime, ONNX artifacts or an Electron utility process.
 - Indexing requires network access, a valid SiliconFlow key and continued availability of `BAAI/bge-m3`; offline projects retain existing vectors but cannot create new embeddings.
 - Canonical vectors remain portable project artifacts, while credentials and remote orchestration details remain application-local/runtime-only.
-- A provider contract change, model removal or vector-dimension change requires a new index profile and reviewed plan/ADR amendment; results from different profiles cannot mix.
+- A provider contract change, model removal or vector-dimension change requires a new index profile and reviewed ADR amendment; results from different profiles cannot mix.
 - Third-party costs, quotas and policies are borne under the user's own accounts. UI status must distinguish missing credentials, authentication, throttling, temporary service failure and malformed output without leaking remote details.
 - Local original-PDF preview adds a narrowly fenced read of bytes already canonical to the active project; it does not add a new durable schema, producer, credential, data-egress destination, preload method, or generic file capability.
 - Project/session/source/version changes invalidate old preview URLs. Tampered or replaced canonical bytes fail closed until the owner publishes a valid current version.
@@ -49,7 +49,6 @@ The exact schemas, typed methods, error codes, job semantics and validation scen
 
 ## Acceptance checklist before implementation
 
-- [x] `specs/006-source-library-processing/spec.md`, `plan.md` and `contracts/contract.md` are Accepted.
 - [x] Maintainer accepts two independent user-supplied credentials protected by async `safeStorage` with no plaintext fallback.
 - [x] Maintainer accepts MinerU PDF egress and SiliconFlow eligible-block-text egress through main-only fixed adapters.
 - [x] Maintainer accepts fixed SiliconFlow `BAAI/bge-m3`, 1024-dimensional profile validation and provider-specific durable retry.

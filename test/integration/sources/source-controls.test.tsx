@@ -53,6 +53,7 @@ test('retries, confirms destructive impact, reports references and returns after
   );
   fireEvent.click(view.getByRole('button', { name: /^Remove source$/ }));
   await waitFor(() => expect(view.getByText(/supersedes 1 active jobs/)).toBeInTheDocument());
+  expect(view.getByText(/Local removal does not contact MinerU/)).toBeInTheDocument();
   const removeButtons = view.getAllByRole('button', { name: /^Remove source$/ });
   const confirm = removeButtons.at(-1);
   if (!confirm) throw new Error('confirmation action missing');

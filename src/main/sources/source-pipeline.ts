@@ -8,7 +8,7 @@ import { normalizeMinerUArtifact } from './artifact-normalizer.js';
 import { EmbeddingAdapter } from './embedding-adapter.js';
 import { IndexRepository } from './index-repository.js';
 import type { SourceJob, SourceJobRepository } from './job-repository.js';
-import { MinerUAdapter } from './mineru-adapter.js';
+import { MinerUAdapter, MinerUTransportError } from './mineru-adapter.js';
 import { SourceJobExecutionError } from './scheduler.js';
 import type { SourceServiceCredentials } from './service-credentials.js';
 import type { SourceHttpRequest } from './service-validator.js';
@@ -29,6 +29,7 @@ export class SourcePipeline {
       wake?: () => void;
       attemptDeadlineMs?: number;
       pollIntervalMs?: number;
+      waitingFileRetryPolls?: number;
     },
   ) {
     this.index = new IndexRepository(
@@ -71,23 +72,39 @@ export class SourcePipeline {
               tables: true,
               formulas: true,
               signal: attemptSignal,
+              onBatchAllocated: async (allocatedBatchId) => {
+                remoteBatchId = allocatedBatchId;
+                await jobs.patch(job.jobId, { remoteBatchId: allocatedBatchId });
+              },
             }),
         );
         remoteBatchId = submitted.remoteBatchId;
-        await jobs.patch(job.jobId, { remoteBatchId });
+        if (jobs.get(job.jobId)?.remoteBatchId !== remoteBatchId)
+          await jobs.patch(job.jobId, { remoteBatchId });
       }
+      if (!remoteBatchId)
+        throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+      const durableBatchId = remoteBatchId;
       let resultUrl: string | undefined;
+      let waitingFilePolls = 0;
       while (!resultUrl) {
         const observation = await withAttemptDeadline(
           signal,
           this.options.attemptDeadlineMs ?? 120_000,
           'SOURCE_MINERU_TEMPORARY',
-          (attemptSignal) => adapter.poll({ remoteBatchId: remoteBatchId!, signal: attemptSignal }),
+          (attemptSignal) => adapter.poll({ remoteBatchId: durableBatchId, signal: attemptSignal }),
         );
         if (observation.state === 'done') resultUrl = observation.resultUrl;
         else if (observation.state === 'failed')
           throw new SourceJobExecutionError(observation.code, observation.retryable);
         else {
+          if (observation.state === 'pending' && observation.providerState === 'waiting-file') {
+            waitingFilePolls += 1;
+            if (waitingFilePolls >= (this.options.waitingFileRetryPolls ?? 12)) {
+              await jobs.patch(job.jobId, { remoteBatchId: undefined });
+              throw new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true);
+            }
+          } else waitingFilePolls = 0;
           const completed = Math.max(0, Math.min(100, Math.round(observation.progress)));
           await jobs.patch(job.jobId, {
             progress: { completed, total: 100, stage: 'parsing' },
@@ -142,9 +159,16 @@ export class SourcePipeline {
         await rm(archive, { force: true });
       }
     } catch (cause) {
+      if (cause instanceof MinerUTransportError && cause.phase === 'upload')
+        await jobs.patch(job.jobId, { remoteBatchId: undefined });
       const error = normalizePipelineError(cause);
       if (error.retryable && job.attempt < 6)
-        await this.publishTransientParseState(session, job, true);
+        await this.publishTransientParseState(
+          session,
+          job,
+          true,
+          jobs.get(job.jobId)?.progress?.completed ?? 0,
+        );
       else {
         const updated = await this.options.repository.markParseFailed(
           session,

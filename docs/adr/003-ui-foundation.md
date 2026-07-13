@@ -156,7 +156,6 @@ Rejected because shadcn/typeset now provides a source-owned, container-aware and
 
 ## Acceptance checklist before implementation
 
-- [x] `specs/011-ui-foundation/spec.md`, plan and UI contract are Accepted.
 - [x] Tailwind v4, semantic CSS variables, Base UI and Rhea/neutral are accepted.
 - [x] Generation-time registry access followed by pinned `shadcn eject`, with no production `shadcn` dependency, is accepted.
 - [x] System/Light/Dark, main-owned versioned persistence and the separate two-method appearance bridge are accepted.

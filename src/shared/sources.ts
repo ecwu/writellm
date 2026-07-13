@@ -230,6 +230,11 @@ const boundedId = (value: unknown) =>
   value.length > 0 &&
   value.length <= 128 &&
   !hasControlCharacter(value);
+const boundedConfirmationToken = (value: unknown) =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  value.length <= 1024 &&
+  !hasControlCharacter(value);
 const hasControlCharacter = (value: string) =>
   [...value].some((character) => {
     const code = character.charCodeAt(0);
@@ -316,7 +321,7 @@ export function parseSaveServiceCredentialInput(
     return invalid();
   return {
     expectedRevision: value.expectedRevision as string | null,
-    credential: value.credential,
+    credential: value.credential.trim(),
   };
 }
 export function parseServiceRevisionInput(value: unknown): ServiceRevisionInput | SourceError {
@@ -350,7 +355,7 @@ export function parseRemoveSourceRequest(value: unknown): RemoveSourceRequest | 
     !revision(value.expectedSourceRevision)
   )
     return invalid();
-  if (value.confirmationToken !== undefined && !boundedId(value.confirmationToken))
+  if (value.confirmationToken !== undefined && !boundedConfirmationToken(value.confirmationToken))
     return invalid();
   return {
     target: 'source',

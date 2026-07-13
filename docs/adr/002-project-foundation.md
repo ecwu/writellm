@@ -113,7 +113,6 @@ API、Node/Electron 对象、绝对路径、raw filesystem exception、项目文
 
 ## Acceptance checklist before implementation
 
-- [x] 更新后的 `001-project-foundation/plan.md` 已重新接受。
 - [x] 维护者接受本 ADR 的 manifest-only project state、只读 open/relink、native-name、
   projectId 去重和单实例规则。
 - [x] `project.json`、空 `workspace/`、`recent-projects.json` 和 main-only cleanup

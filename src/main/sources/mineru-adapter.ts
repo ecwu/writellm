@@ -1,4 +1,5 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
+import { normalizeBearerToken } from './credential-token.js';
 import { SourceJobExecutionError } from './scheduler.js';
 import type { SourceHttpRequest } from './service-validator.js';
 
@@ -7,9 +8,28 @@ const MAX_PDF_BYTES = 200 * 1024 * 1024;
 const MAX_PAGES = 200;
 
 export type MinerUObservation =
-  | { state: 'pending' | 'running'; progress: number }
+  | {
+      state: 'pending';
+      progress: number;
+      providerState: 'waiting-file' | 'pending' | 'converting';
+    }
+  | { state: 'running'; progress: number }
   | { state: 'done'; resultUrl: string }
   | { state: 'failed'; code: string; retryable: boolean };
+
+export type MinerUTransportPhase = 'submit' | 'upload' | 'poll' | 'download';
+
+export class MinerUTransportError extends SourceJobExecutionError {
+  constructor(
+    code: string,
+    retryable: boolean,
+    readonly phase: MinerUTransportPhase,
+    retryAfter?: string,
+    readonly httpStatus?: number,
+  ) {
+    super(code, retryable, retryAfter);
+  }
+}
 
 export class MinerUAdapter {
   constructor(
@@ -26,6 +46,7 @@ export class MinerUAdapter {
     tables: true;
     formulas: true;
     signal: AbortSignal;
+    onBatchAllocated?(remoteBatchId: string): Promise<void>;
   }): Promise<{ remoteBatchId: string }> {
     const info = await stat(input.absolutePath);
     if (!info.isFile() || info.size > MAX_PDF_BYTES)
@@ -33,22 +54,28 @@ export class MinerUAdapter {
     const bytes = await readFile(input.absolutePath);
     if (countPdfPages(bytes) > MAX_PAGES)
       throw new SourceJobExecutionError('SOURCE_MINERU_REJECTED', false);
-    const response = await this.call(`${API}/file-urls/batch`, {
-      method: 'POST',
-      headers: await this.headers(true),
-      body: JSON.stringify({
-        files: [{ name: 'source.pdf', data_id: input.dataId }],
-        model_version: 'vlm',
-        is_ocr: true,
-        enable_table: true,
-        enable_formula: true,
-      }),
-      signal: input.signal,
-    });
-    const payload = await safeJson(response);
+    const endpoint = new URL(`${API}/file-urls/batch`);
+    endpoint.searchParams.set('enable_table', String(input.tables));
+    endpoint.searchParams.set('enable_formula', String(input.formulas));
+    const response = await this.call(
+      endpoint.toString(),
+      {
+        method: 'POST',
+        headers: await this.headers(true),
+        body: JSON.stringify({
+          files: [{ name: 'source.pdf', data_id: providerDataId(input.dataId) }],
+          model_version: input.modelVersion,
+        }),
+        signal: input.signal,
+      },
+      'submit',
+    );
+    const payload = await successfulPayload(response, 'submit');
     const batchId = nestedString(payload, ['data', 'batch_id']);
     const uploadUrl = nestedString(payload, ['data', 'file_urls', '0']);
-    if (!batchId || !uploadUrl) throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+    if (!batchId || !uploadUrl)
+      throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'submit');
+    await input.onBatchAllocated?.(batchId);
     const uploaded = await this.call(
       uploadUrl,
       {
@@ -56,10 +83,45 @@ export class MinerUAdapter {
         body: bytes,
         signal: input.signal,
       },
+      'upload',
       false,
     );
-    if (!uploaded.ok) throw classify(uploaded);
+    if (!uploaded.ok) throw classify(uploaded, 'upload');
     return { remoteBatchId: batchId };
+  }
+
+  async submitRemoteFile(input: {
+    url: string;
+    dataId?: string;
+    modelVersion: 'vlm';
+    ocr: boolean;
+    tables: boolean;
+    formulas: boolean;
+    signal: AbortSignal;
+  }): Promise<{ remoteTaskId: string }> {
+    if (!input.url.startsWith('https://'))
+      throw new MinerUTransportError('SOURCE_MINERU_REJECTED', false, 'submit');
+    const response = await this.call(
+      `${API}/extract/task`,
+      {
+        method: 'POST',
+        headers: await this.headers(true),
+        body: JSON.stringify({
+          url: input.url,
+          model_version: input.modelVersion,
+          is_ocr: input.ocr,
+          enable_table: input.tables,
+          enable_formula: input.formulas,
+          ...(input.dataId ? { data_id: providerDataId(input.dataId) } : {}),
+        }),
+        signal: input.signal,
+      },
+      'submit',
+    );
+    const payload = await successfulPayload(response, 'submit');
+    const taskId = nestedString(payload, ['data', 'task_id']);
+    if (!taskId) throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'submit');
+    return { remoteTaskId: taskId };
   }
 
   async poll(input: { remoteBatchId: string; signal: AbortSignal }): Promise<MinerUObservation> {
@@ -70,32 +132,25 @@ export class MinerUAdapter {
         headers: await this.headers(false),
         signal: input.signal,
       },
+      'poll',
     );
-    const payload = await safeJson(response);
+    const payload = await successfulPayload(response, 'poll');
     const result = nestedRecord(payload, ['data', 'extract_result', '0']);
-    const state = nestedString(payload, ['data', 'state']) ?? stringValue(result?.state);
-    if (state === 'waiting' || state === 'pending') return { state: 'pending', progress: 0 };
-    if (state === 'running' || state === 'processing')
-      return {
-        state: 'running',
-        progress: boundedProgress(
-          progressPercent(
-            nestedNumber(result, ['extract_progress', 'extracted_pages']),
-            nestedNumber(result, ['extract_progress', 'total_pages']),
-          ) ?? nestedNumber(payload, ['data', 'progress']),
-        ),
-      };
-    if (state === 'done' || state === 'success') {
-      const resultUrl =
-        stringValue(result?.full_zip_url) ??
-        nestedString(payload, ['data', 'full_zip_url']) ??
-        nestedString(payload, ['data', 'result_url']);
-      if (!resultUrl) throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
-      return { state: 'done', resultUrl };
-    }
-    if (state === 'failed')
-      return { state: 'failed', code: 'SOURCE_MINERU_REJECTED', retryable: false };
-    throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+    return observationFromPayload(payload, result);
+  }
+
+  async pollTask(input: { remoteTaskId: string; signal: AbortSignal }): Promise<MinerUObservation> {
+    const response = await this.call(
+      `${API}/extract/task/${encodeURIComponent(input.remoteTaskId)}`,
+      {
+        method: 'GET',
+        headers: await this.headers(false),
+        signal: input.signal,
+      },
+      'poll',
+    );
+    const payload = await successfulPayload(response, 'poll');
+    return observationFromPayload(payload, nestedRecord(payload, ['data']));
   }
 
   async download(input: {
@@ -104,16 +159,17 @@ export class MinerUAdapter {
     signal: AbortSignal;
   }): Promise<void> {
     if (!input.resultUrl.startsWith('https://'))
-      throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+      throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
     const response = await this.call(
       input.resultUrl,
       { method: 'GET', signal: input.signal },
+      'download',
       false,
     );
-    if (!response.ok) throw classify(response);
+    if (!response.ok) throw classify(response, 'download');
     const contentLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(contentLength) && contentLength > 1024 * 1024 * 1024)
-      throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+      throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
     await writeFile(input.destination, new Uint8Array(await response.arrayBuffer()), {
       flag: 'wx',
     });
@@ -121,40 +177,116 @@ export class MinerUAdapter {
 
   private async headers(json: boolean): Promise<Record<string, string>> {
     return {
-      Authorization: `Bearer ${await this.credential()}`,
+      Authorization: `Bearer ${normalizeBearerToken(await this.credential())}`,
       ...(json ? { 'Content-Type': 'application/json' } : {}),
     };
   }
-  private async call(url: string, init: RequestInit, requireOk = true): Promise<Response> {
+  private async call(
+    url: string,
+    init: RequestInit,
+    phase: MinerUTransportPhase,
+    requireOk = true,
+  ): Promise<Response> {
     let response: Response;
     try {
       response = await this.request(url, init);
     } catch {
-      if (init.signal?.aborted) throw new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true);
-      throw new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true, undefined);
+      throw new MinerUTransportError('SOURCE_MINERU_TEMPORARY', true, phase);
     }
-    if (requireOk && !response.ok) throw classify(response);
+    if (requireOk && !response.ok) throw classify(response, phase);
     return response;
   }
 }
 
-function classify(response: Response): SourceJobExecutionError {
-  if (response.status === 401 || response.status === 403)
-    return new SourceJobExecutionError('SOURCE_MINERU_AUTH', false);
+function observationFromPayload(
+  payload: unknown,
+  result?: Record<string, unknown>,
+): MinerUObservation {
+  const state = stringValue(result?.state) ?? nestedString(payload, ['data', 'state']);
+  if (state === 'waiting-file' || state === 'waiting')
+    return { state: 'pending', providerState: 'waiting-file', progress: 0 };
+  if (state === 'pending') return { state: 'pending', providerState: 'pending', progress: 0 };
+  if (state === 'converting') return { state: 'pending', providerState: 'converting', progress: 0 };
+  if (state === 'running' || state === 'processing')
+    return {
+      state: 'running',
+      progress: boundedProgress(
+        progressPercent(
+          nestedNumber(result, ['extract_progress', 'extracted_pages']),
+          nestedNumber(result, ['extract_progress', 'total_pages']),
+        ) ?? nestedNumber(payload, ['data', 'progress']),
+      ),
+    };
+  if (state === 'done' || state === 'success') {
+    const resultUrl =
+      stringValue(result?.full_zip_url) ??
+      nestedString(payload, ['data', 'full_zip_url']) ??
+      nestedString(payload, ['data', 'result_url']);
+    if (!resultUrl) throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'poll');
+    return { state: 'done', resultUrl };
+  }
+  if (state === 'failed')
+    return { state: 'failed', code: 'SOURCE_MINERU_REJECTED', retryable: false };
+  throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'poll');
+}
+
+function classify(response: Response, phase: MinerUTransportPhase): MinerUTransportError {
+  if (response.status === 401 || response.status === 403) {
+    if (phase === 'submit' || phase === 'poll')
+      return new MinerUTransportError(
+        'SOURCE_MINERU_AUTH',
+        false,
+        phase,
+        undefined,
+        response.status,
+      );
+    return new MinerUTransportError(
+      'SOURCE_MINERU_TEMPORARY',
+      true,
+      phase,
+      undefined,
+      response.status,
+    );
+  }
   if (response.status === 429)
-    return new SourceJobExecutionError(
+    return new MinerUTransportError(
       'SOURCE_MINERU_RATE_LIMITED',
       true,
+      phase,
       response.headers.get('retry-after') ?? undefined,
+      response.status,
     );
-  if (response.status >= 500) return new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true);
-  return new SourceJobExecutionError('SOURCE_MINERU_REJECTED', false);
+  if (response.status >= 500 || response.status === 408)
+    return new MinerUTransportError(
+      'SOURCE_MINERU_TEMPORARY',
+      true,
+      phase,
+      undefined,
+      response.status,
+    );
+  return new MinerUTransportError(
+    'SOURCE_MINERU_REJECTED',
+    false,
+    phase,
+    undefined,
+    response.status,
+  );
 }
-async function safeJson(response: Response): Promise<unknown> {
+async function successfulPayload(
+  response: Response,
+  phase: Extract<MinerUTransportPhase, 'submit' | 'poll'>,
+): Promise<unknown> {
+  const payload = await safeJson(response, phase);
+  const code = nestedNumber(payload, ['code']);
+  if (code === undefined) throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, phase);
+  if (code !== 0) throw new MinerUTransportError('SOURCE_MINERU_REJECTED', false, phase);
+  return payload;
+}
+async function safeJson(response: Response, phase: MinerUTransportPhase): Promise<unknown> {
   try {
     return await response.json();
   } catch {
-    throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+    throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, phase);
   }
 }
 function nestedString(value: unknown, parts: string[]): string | undefined {
@@ -201,6 +333,9 @@ function boundedProgress(value?: number): number {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.min(100, value))
     : 0;
+}
+function providerDataId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 128);
 }
 function countPdfPages(bytes: Uint8Array): number {
   return (
