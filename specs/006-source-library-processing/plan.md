@@ -3,7 +3,7 @@
 Branch: `006-source-library-processing`
 Date: 2026-07-12  
 Spec: [spec.md](./spec.md)  
-Status: Accepted — maintainer accepted 2026-07-13
+Status: Accepted v1.2 — original plan, 013 PDF-preview amendment, and fixed SiliconFlow China endpoint accepted by maintainer 2026-07-13
 
 ## Summary
 
@@ -23,7 +23,7 @@ Status: Accepted — maintainer accepted 2026-07-13
 
 **Language/Version**: TypeScript 7.0.2, React 19.2.7, Electron 43.1.0, Bun 1.3.14.
 
-**Primary Dependencies**: existing Vite/Electron/React stack and `isomorphic-git`; no local model runtime or native vector dependency. Main uses narrow HTTP adapters for MinerU Precision API v4 and SiliconFlow `POST /v1/embeddings` with fixed model `BAAI/bge-m3`.
+**Primary Dependencies**: existing Vite/Electron/React stack and `isomorphic-git`; no local model runtime or native vector dependency. Main uses narrow HTTP adapters for MinerU Precision API v4 and SiliconFlow `POST /v1/embeddings` with fixed model `BAAI/bge-m3`. The 013 consumer adds exactly pinned `pdfjs-dist` 6.1.200 for its renderer display layer; 006 owns only the fenced byte route and read-model facts.
 
 **External Integration**: MinerU Precision Extract API v4 signed local upload, async polling, result ZIP. `vlm`, OCR, tables and formulas enabled. Official public pages disagree on some limits, so v1 enforces conservative 200 MB/200 pages and one local source per durable app job. Full PDFs and derived results leave the device.
 
@@ -138,6 +138,31 @@ test/
 - Main-domain `SourceIndexReader` consumed by 007.
 - `SourceReferenceReader` extended by 007 citation schemas; failure/unknown prevents deletion.
 
+### Accepted v1.1 original-PDF preview amendment for 013
+
+The maintainer accepted the narrow producer delta proposed by
+[`../013-workspace-navigation-redesign/contracts/source-preview-amendment.md`](../013-workspace-navigation-redesign/contracts/source-preview-amendment.md).
+It is now incorporated into the accepted 006 contract and ADR-005:
+
+- `SourceDetail` identifies the app-owned current `sourceVersionId`, reports reconciled
+  block/index/failure counts, and states `originalPreviewAvailable`; none of these fields
+  exposes a path, remote id, hash, or credential.
+- The existing `writellm-source` scheme reserves only
+  `writellm-source://<sourceId>/__original__/<sourceVersionId>.pdf` for the current
+  active project/session/source/version.
+- Main resolves the canonical 006 `original.pdf`, verifies exact route/identity,
+  regular-file identity, `%PDF-` signature, accepted size, and stored size/hash, and
+  streams `HEAD` or bounded full/single-range `GET` responses.
+- Invalid, stale, unauthorized, unavailable, or tampered identities fail as safe
+  404/416 responses; no path, raw exception, remote resource, generic file IPC,
+  Electron PDF plugin, or whole-file preload transfer is introduced.
+- The 013 renderer uses the locally bundled PDF.js display API and worker, cancels
+  stale work, and never treats original-preview availability as Markdown or search
+  readiness.
+
+This amendment changes no durable schema or preload namespace. Verification belongs
+at the protocol/security/runtime boundary described in the amended contract and ADR.
+
 ### Transactions and Git
 
 1. Extract reusable ADR-001 `ProjectTransaction` from current feature-specific repositories: serialized per-project queue, pending manifest, atomic replace, Git commit, recovery outcome.
@@ -171,12 +196,19 @@ test/
 
 | Principle | Status | Design evidence / remaining gate |
 |---|---|---|
-| I. Secure Desktop Boundary | PASS | Files/network/credentials/scheduler are main-owned; safe media protocol and strict normalization prevent path/active-content exposure. Accepted ADR-005 records PDF and block-text egress. |
-| II. Typed, Minimal IPC | PASS IN DESIGN | Six user operations plus one fixed event receiver; no start-job, generic IPC, arbitrary path/media or internal adapter exposure. |
+| I. Secure Desktop Boundary | PASS | Files/network/credentials/scheduler are main-owned; safe media/original-PDF protocol routes and strict normalization prevent path/active-content exposure. Accepted ADR-005 records PDF egress, local preview, and block-text egress. |
+| II. Typed, Minimal IPC | PASS IN DESIGN | Six user operations plus one fixed event receiver; the original PDF uses an exact existing-scheme route, not a preload method; no start-job, generic IPC, arbitrary path/media or internal adapter exposure. |
 | III. Specification-Driven, Minimal Evolution | PASS | Clarifications are resolved; spec, plan, contract and ADR-005 are accepted. |
 | IV. Verification at the Failure Boundary | PASS IN DESIGN | Quickstart maps FR-001–FR-021 and SC-001–SC-009 to fake adapters, malicious fixtures, storage/Git faults and compiled Electron runtime. |
 
-**Post-design implementation gate: SATISFIED.** The 006 spec, plan, contract and ADR-005 were accepted on 2026-07-13. All prior service-policy, 005 dependency, local-model probe and contract blockers are resolved. Generate and follow `tasks.md`; keep the registry synchronized when task or implementation status changes.
+**Post-design implementation gate: SATISFIED, INCLUDING v1.2.** The 006 spec, amended plan, amended contract and amended ADR-005 were accepted on 2026-07-13. All prior service-policy, 005 dependency, local-model probe, PDF-preview boundary, China-region endpoint and contract blockers are resolved. Generate and follow consumer tasks; keep the registry synchronized when task or implementation status changes.
+
+### Accepted v1.2 SiliconFlow China endpoint amendment
+
+The maintainer accepted `api.siliconflow.cn` as the product's only SiliconFlow region on
+2026-07-13. Credential validation is fixed to `GET https://api.siliconflow.cn/v1/models` and
+embedding is fixed to `POST https://api.siliconflow.cn/v1/embeddings`. No endpoint selector,
+international fallback, or credential probing against `api.siliconflow.com` is allowed.
 
 ## Complexity Tracking
 

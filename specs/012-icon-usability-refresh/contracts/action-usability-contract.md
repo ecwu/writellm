@@ -30,9 +30,28 @@
 |---|---|---|---|---|
 | `provider-settings` | `Settings` | AI provider settings | workspace tool rail | provider settings feature |
 | `writing-orientation` | `Map` | Writing orientation | workspace tool rail | writing orientation feature |
+| `sections-category` | `ListTree` | Sections | 013 workspace category rail / compact command strip | workspace navigation feature |
+| `knowledge-base-category` | `LibraryBig` | Knowledge Base | 013 workspace category rail / compact command strip | workspace navigation feature |
+| `settings-area` | `Settings` | Settings | 013 workspace rail footer / compact command strip | workspace navigation feature |
+| `workspace-sidebar-toggle` | `PanelLeft` | Show or hide section list | 013 sticky workspace location header | workspace navigation feature |
 
-Both registered tools keep visible labels. The controlled extension point permits
-icon-only presentation only after a placement-specific admission record is added.
+The original tools keep visible labels. The 013 category/settings placements may be
+icon-only only in the 64 px wide rail under the admission record below; their compact
+command-strip forms retain visible labels. The sidebar toggle is admitted only beside
+the persistent semantic location header and never registers a global shortcut.
+
+### 013 icon-only admission record
+
+| Placement | Auxiliary | Space constrained | Convention/ambiguity review | Accessible name and tooltip | Decision |
+|---|---|---|---|---|---|
+| 64 px category rail: Sections | navigation, not destructive | yes, fixed 64 px rail | `ListTree` is distinct from `LibraryBig` and `Settings`; adjacent category heading states current context | `Sections`; keyboard/hover tooltip | admitted wide-only |
+| 64 px category rail: Knowledge Base | navigation, not destructive | yes, fixed 64 px rail | `LibraryBig` is distinct from outline hierarchy and settings | `Knowledge Base`; keyboard/hover tooltip | admitted wide-only |
+| 64 px rail footer: Settings | auxiliary application entry | yes, fixed 64 px rail | conventional `Settings`, visually separated from project categories | `Settings`; keyboard/hover tooltip | admitted wide-only |
+| Sticky header sidebar toggle | auxiliary layout control | yes, compact sticky header | conventional `PanelLeft`; persistent breadcrumb and state text prevent ambiguity | dynamic `Show section list` / `Hide section list`; keyboard/hover tooltip | admitted |
+
+All four targets remain at least 44×44 CSS px, use decorative SVGs, expose native
+button state/textual current context, and receive DOM plus compiled Electron geometry,
+focus, forced-colors, 200% zoom, and icon-failure verification under 013.
 
 ## Control contract
 

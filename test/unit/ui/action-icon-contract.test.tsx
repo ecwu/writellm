@@ -23,6 +23,9 @@ test('canonical action sources use Lucide named imports and retain required labe
       'src/renderer/workspace/components/ProjectNavigation.tsx',
       'src/renderer/features/writing-orientation/WritingOrientationPanel.tsx',
       'src/renderer/features/editor/components/ChapterEditor.tsx',
+      'src/renderer/workspace/components/WorkspaceCategoryRail.tsx',
+      'src/renderer/workspace/components/WorkspaceNavigationFrame.tsx',
+      'src/renderer/components/ui/sidebar.tsx',
     ].map((file) => readFile(file, 'utf8')),
   );
   const source = files.join('\n');
@@ -37,11 +40,15 @@ test('canonical action sources use Lucide named imports and retain required labe
     'Trash2',
     'ClipboardPaste',
     'Download',
+    'ListTree',
+    'LibraryBig',
+    'Settings',
+    'PanelLeft',
   ])
     expect(source).toContain(icon);
   for (const label of [
     'Create project',
-    'Open project',
+    'Open existing project',
     'Back to projects',
     'Add outline item',
     'Delete item',

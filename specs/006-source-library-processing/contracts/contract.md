@@ -1,6 +1,6 @@
 # Contract: PDF 知识库摄取与索引
 
-Status: Accepted v1 — maintainer accepted 2026-07-13 after contract review.
+Status: Accepted v1.2 — original contract, 013 original-PDF preview amendment, and fixed SiliconFlow China endpoint accepted by maintainer 2026-07-13.
 
 ## Boundary rules
 
@@ -119,7 +119,16 @@ type SourceSummary = {
 }
 
 type SourceDetail = SourceSummary & {
-  parseSummary: { markdownAvailable: boolean; mediaCount: number; blockCount: number }
+  sourceVersionId: string
+  parseSummary: {
+    markdownAvailable: boolean
+    originalPreviewAvailable: boolean
+    mediaCount: number
+    blockCount: number
+    indexedBlockCount: number
+    failedBlockCount: number
+    incompleteBlockCount: number
+  }
   failure?: { code: SourceErrorCode; messageKey: string; stage: 'import'|'parse'|'index'|'remove' }
 }
 
@@ -134,6 +143,59 @@ type BlockPreview = {
 ```
 
 Preview Markdown is bounded to 64 KiB per block and treated as untrusted input. A page is at most 100 blocks/1 MiB. Media is loaded only through a separate app-owned safe protocol keyed by `sourceId/mediaId`, with active-session and MIME validation; no filesystem path is returned.
+
+`sourceVersionId` is a bounded app-owned identity for the same current version as the
+returned detail and block page; it is never a filesystem path, content hash, signed
+URL, credential, or remote provider id. All parse counts and availability flags are
+reconciled by 006 for that version. A version change during a read returns a
+conflict/resync result instead of a mixed detail/page pair.
+
+## Fixed original-PDF preview route (accepted v1.1)
+
+The existing `writellm-source` scheme reserves exactly:
+
+```text
+writellm-source://<sourceId>/__original__/<sourceVersionId>.pdf
+```
+
+The renderer may construct this URL only from a successful current `SourceDetail`.
+Main resolves the active project session itself, validates bounded source/version IDs
+and the exact route, requires the current source/version, and resolves only the
+owner-defined canonical `original.pdf`. Query strings, fragments, extra segments,
+alternate extensions, encoded traversal, arbitrary paths, and non-current versions
+are rejected.
+
+Before serving bytes, main verifies a regular file, `%PDF-` signature, accepted size
+ceiling, and stored size/hash. Verification may be cached only for the active project
+session + source + version + file identity and is invalidated on project/session,
+source/version, or file-identity change. No resolved path or raw verification error
+leaves main.
+
+- Methods are `HEAD` and `GET` only.
+- `GET` accepts no Range or one valid bytes range. Malformed, multi-range,
+  overflowing suffix, and unsatisfiable requests return 416.
+- Full responses use 200; ranged responses use 206 with exact `Content-Range`,
+  `Content-Length`, and `Accept-Ranges: bytes`.
+- Successful responses include `Content-Type: application/pdf`, `Cache-Control:
+  no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP.
+- Invalid, stale, unauthorized, unavailable, or tampered identities share a safe 404
+  response. Internal diagnostics contain only accepted safe codes.
+- Bytes are streamed and bounded; the implementation must not `readFile` or transfer
+  a 200 MB PDF through preload IPC.
+
+The renderer consumes this route through a locally bundled, exact reviewed
+`pdfjs-dist` display build and worker. It disables editing, attachments, document
+JavaScript, form submission, remote resources, printing/exporting, and Electron PDF
+plugins; renders canvas plus accessible text where supported; cancels work on
+source/version/mode changes; and ignores late results. Preview success never changes
+Markdown availability, indexing completion, or search eligibility.
+
+Contract verification covers exact route/traversal/encoding, sender and active-session
+fencing, current-version and file replacement/hash/signature checks, `HEAD`, full and
+first/middle/final range reads, 404/416 normalization, cancellation, maximum-size
+streaming, project move/switch/removal invalidation, CSP, offline bundled worker load,
+and absence of paths, raw exceptions, remote requests, expanded scheme privileges,
+or PDF bytes in preload IPC.
 
 ## Import outcomes and duplicate lifecycle
 
@@ -195,7 +257,7 @@ interface EmbeddingAdapter {
 }
 ```
 
-Main calls only `https://api.siliconflow.com/v1/embeddings` with bearer authentication, `model: "BAAI/bge-m3"`, `encoding_format: "float"`, and bounded eligible plain text. It batches at most 16 blocks/256 KiB and never exceeds 8192 input tokens per item. Main validates response count/order, ids mapped from request indices, exact 1024 dimensions, finite values and profile consistency, then owns persistence. The SiliconFlow key, response bodies, usage metadata and remote errors never cross preload or enter project files/Git/logs. Tests replace both external adapters with deterministic fakes.
+Main validates credentials only through `GET https://api.siliconflow.cn/v1/models` and calls only `https://api.siliconflow.cn/v1/embeddings` for embedding, with bearer authentication, `model: "BAAI/bge-m3"`, `encoding_format: "float"`, and bounded eligible plain text. The product exposes no region or endpoint selector and never sends the credential or content to `api.siliconflow.com`. It batches at most 16 blocks/256 KiB and never exceeds 8192 input tokens per item. Main validates response count/order, ids mapped from request indices, exact 1024 dimensions, finite values and profile consistency, then owns persistence. The SiliconFlow key, response bodies, usage metadata and remote errors never cross preload or enter project files/Git/logs. Tests replace both external adapters with deterministic fakes.
 
 ## 006 → 007 searchable-block contract
 

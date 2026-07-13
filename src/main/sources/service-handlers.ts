@@ -8,6 +8,7 @@ import {
   type ValidateServiceResult,
 } from '../../shared/sources.js';
 import type { SourceServiceCredentials } from './service-credentials.js';
+import { SourceServiceValidationError } from './service-validator.js';
 
 export function registerSourceServiceHandlers(options: {
   ipcMain: Pick<IpcMain, 'handle'>;
@@ -87,16 +88,24 @@ export function registerSourceServiceHandlers(options: {
             completedAt: new Date().toISOString(),
           });
           return { status: stored ? 'completed' : 'stale', summary: repository.summary(provider) };
-        } catch {
-          const code = provider === 'mineru' ? 'SOURCE_MINERU_AUTH' : 'SOURCE_SILICONFLOW_AUTH';
+        } catch (cause) {
+          const error =
+            cause instanceof SourceServiceValidationError
+              ? cause.toSourceError()
+              : new SourceServiceValidationError(
+                  provider === 'mineru'
+                    ? 'SOURCE_MINERU_TEMPORARY'
+                    : 'SOURCE_SILICONFLOW_TEMPORARY',
+                  true,
+                ).toSourceError();
           await repository.setValidation(provider, parsed.expectedRevision, {
             status: 'failed',
             completedAt: new Date().toISOString(),
-            code,
+            code: error.code,
           });
           return {
             status: 'error',
-            error: { code, messageKey: `sources.error.${provider}Validation`, retryable: false },
+            error,
             currentSummary: repository.summary(provider),
           };
         } finally {

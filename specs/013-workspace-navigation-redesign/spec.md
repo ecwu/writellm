@@ -140,6 +140,7 @@
 - **FR-019**: 用户 MUST 能仅使用键盘在一级类别栏、列表栏、主内容区和 Settings 之间按可预测顺序移动、选择与返回。
 - **FR-020**: 在 System、Light、Dark、高对比、减少动态效果、960×640 和 200% 文本缩放条件下，当前类别、列表入口、主内容、关键状态和 Settings 返回路径 MUST 保持可达。
 - **FR-021**: 本 feature MUST 复用 011 与 012 已接受的主题、排版、共享交互、图标映射、操作目标和受控扩展规则，不得建立平行 UI 体系。
+- **FR-023**: 工作区与启动项目页 MUST 统一使用 shadcn Base UI 的 Lyra / Neutral / Inter / Lucide / radius-none 视觉与可用 primitive；已有可对应 shadcn component 的自制控件 MUST 替换为 source-owned shadcn 实现。产品接线可保留 44px pointer target、Electron owner state 与受控 focus return，但不得另建视觉实现。
 - **FR-022**: 本 feature MUST 保持 002 的项目身份、返回项目入口、状态呈现和安全工作区边界，以及 003–006 的数据与业务契约不变；确需改变 durable、IPC、系统或流程边界的设计 MUST 在实施前通过相应 source document 和 ADR gate。
 
 ### Key Entities

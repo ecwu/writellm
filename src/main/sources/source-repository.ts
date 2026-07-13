@@ -1,13 +1,21 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { ListSourcesRequest, SourceDetail, SourceSummary } from '../../shared/sources.js';
+import type {
+  ListSourcesRequest,
+  SourceDetail,
+  SourceErrorCode,
+  SourceSummary,
+} from '../../shared/sources.js';
 import { ProjectGitRepository } from '../project/git-repository.js';
 import { type ProjectSession, ProjectTransaction } from '../project/project-transaction.js';
 import type { NormalizedArtifact, NormalizedBlock } from './artifact-normalizer.js';
 import { IndexRepository } from './index-repository.js';
+import type { SourceJobRepository } from './job-repository.js';
+import { projectSourceStatus } from './source-status-projector.js';
 
 type CatalogEntry = SourceSummary & {
+  failure?: SourceDetail['failure'];
   sha256: string;
   currentVersionId: string;
   updatedAt: string;
@@ -36,6 +44,7 @@ export class SourceRepository {
   private transaction: ProjectTransaction;
   private git = new ProjectGitRepository();
   private queues = new Map<string, Promise<unknown>>();
+  private jobs: SourceJobRepository | null = null;
   constructor(
     private options: {
       now?: () => string;
@@ -51,10 +60,17 @@ export class SourceRepository {
     });
   }
 
+  setJobRepository(jobs: SourceJobRepository | null): void {
+    this.jobs = jobs;
+  }
+
   async list(session: ProjectSession, request: ListSourcesRequest) {
     const catalog = await this.readCatalog(session);
     const offset = request.cursor ? Number.parseInt(request.cursor, 10) : 0;
-    const sources = catalog.sources.slice(offset, offset + request.limit).map(publicSummary);
+    const projected = await Promise.all(
+      catalog.sources.map((source) => this.projectEntry(session, source)),
+    );
+    const sources = projected.slice(offset, offset + request.limit).map(publicSummary);
     const next = offset + sources.length;
     return {
       sources,
@@ -65,16 +81,33 @@ export class SourceRepository {
 
   async get(session: ProjectSession, sourceId: string): Promise<SourceDetail | null> {
     const catalog = await this.readCatalog(session);
-    const entry = catalog.sources.find((source) => source.sourceId === sourceId);
-    if (!entry) return null;
+    const storedEntry = catalog.sources.find((source) => source.sourceId === sourceId);
+    if (!storedEntry) return null;
+    const entry = await this.projectEntry(session, storedEntry);
     const document = await this.readSourceDocument(session, sourceId);
     const manifest = await this.readVersionManifest(session, sourceId, document.currentVersionId);
+    const blockCount = Number.isSafeInteger(manifest.blockCount)
+      ? (manifest.blockCount as number)
+      : 0;
+    const indexedBlockCount = Math.min(blockCount, Math.max(0, entry.eligibility.indexed));
+    const failedBlockCount = Math.min(blockCount, Math.max(0, entry.eligibility.failed));
+    const originalPreviewAvailable = await stat(
+      path.join(session.projectRoot, 'sources', sourceId, 'original.pdf'),
+    )
+      .then((value) => value.isFile() && value.size === document.sizeBytes)
+      .catch(() => false);
     return {
       ...publicSummary(entry),
+      sourceVersionId: document.currentVersionId,
+      ...(entry.failure ? { failure: entry.failure } : {}),
       parseSummary: {
         markdownAvailable: manifest.parseState === 'complete',
+        originalPreviewAvailable,
         mediaCount: Number.isSafeInteger(manifest.mediaCount) ? (manifest.mediaCount as number) : 0,
-        blockCount: Number.isSafeInteger(manifest.blockCount) ? (manifest.blockCount as number) : 0,
+        blockCount,
+        indexedBlockCount,
+        failedBlockCount,
+        incompleteBlockCount: Math.max(0, blockCount - indexedBlockCount - failedBlockCount),
       },
     };
   }
@@ -106,6 +139,7 @@ export class SourceRepository {
       eligibility: { indexed: 0, eligible, failed: 0 },
       retryable: artifact.rejectedBlockCount > 0,
       retrying: false,
+      failure: undefined,
       updatedAt: (this.options.now ?? (() => new Date().toISOString()))(),
     };
     const nextCatalog: Catalog = {
@@ -160,12 +194,70 @@ export class SourceRepository {
     return publicSummary(nextEntry);
   }
 
+  async markParseFailed(
+    session: ProjectSession,
+    sourceId: string,
+    sourceVersionId: string,
+    code: SourceErrorCode,
+  ): Promise<SourceSummary> {
+    return this.serial(`${session.projectId}:${sourceId}`, async () => {
+      const catalog = await this.readCatalog(session);
+      const index = catalog.sources.findIndex((source) => source.sourceId === sourceId);
+      if (index < 0) throw new Error('SOURCE_NOT_FOUND');
+      const document = await this.readSourceDocument(session, sourceId);
+      if (document.currentVersionId !== sourceVersionId) throw new Error('SOURCE_CONFLICT');
+      const current = catalog.sources[index];
+      if (
+        current.state === 'failed' &&
+        current.failure?.stage === 'parse' &&
+        current.failure.code === code &&
+        !current.retrying
+      )
+        return publicSummary(current);
+      const nextEntry: CatalogEntry = {
+        ...current,
+        revision: current.revision + 1,
+        state: 'failed',
+        progress: { completed: 0, total: 1, stage: 'parsing' },
+        retrying: false,
+        retryable: true,
+        failure: {
+          code,
+          messageKey: `sources.error.${code.toLowerCase()}`,
+          stage: 'parse',
+        },
+        updatedAt: (this.options.now ?? (() => new Date().toISOString()))(),
+      };
+      const nextCatalog: Catalog = {
+        ...catalog,
+        revision: catalog.revision + 1,
+        sources: catalog.sources.map((source, position) =>
+          position === index ? nextEntry : source,
+        ),
+      };
+      await this.transaction.publish({
+        session,
+        revision: nextCatalog.revision,
+        files: [
+          { relativePath: 'sources/catalog.json', content: `${JSON.stringify(nextCatalog)}\n` },
+          {
+            relativePath: `sources/${sourceId}/source.json`,
+            content: `${JSON.stringify({ ...document, revision: document.revision + 1 })}\n`,
+          },
+        ],
+        metadata: { actor: 'system', event: 'processing', contentChange: false },
+        isCurrentSession: () => this.options.isCurrentSession?.(session) ?? true,
+      });
+      return publicSummary(nextEntry);
+    });
+  }
+
   async getBlocks(
     session: ProjectSession,
     sourceId: string,
     cursor: string | undefined,
     limit: number,
-  ): Promise<{ blocks: NormalizedBlock[]; nextCursor?: string }> {
+  ): Promise<{ sourceVersionId: string; blocks: NormalizedBlock[]; nextCursor?: string }> {
     const document = await this.readSourceDocument(session, sourceId);
     const file = path.join(
       session.projectRoot,
@@ -179,7 +271,8 @@ export class SourceRepository {
     try {
       lines = (await readFile(file, 'utf8')).split('\n').filter(Boolean);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { blocks: [] };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { sourceVersionId: document.currentVersionId, blocks: [] };
       throw new Error('SOURCE_RECOVERY_REQUIRED');
     }
     const offset = cursor ? Number.parseInt(cursor, 10) : 0;
@@ -216,7 +309,25 @@ export class SourceRepository {
       };
     });
     const next = offset + blocks.length;
-    return { blocks, ...(next < lines.length ? { nextCursor: String(next) } : {}) };
+    return {
+      sourceVersionId: document.currentVersionId,
+      blocks,
+      ...(next < lines.length ? { nextCursor: String(next) } : {}),
+    };
+  }
+
+  async resolveOriginalPdf(session: ProjectSession, sourceId: string, sourceVersionId: string) {
+    const catalog = await this.readCatalog(session);
+    const entry = catalog.sources.find((source) => source.sourceId === sourceId);
+    if (!entry) return null;
+    const document = await this.readSourceDocument(session, sourceId);
+    if (document.currentVersionId !== sourceVersionId) return null;
+    return {
+      absolutePath: path.join(session.projectRoot, 'sources', sourceId, 'original.pdf'),
+      sha256: document.sha256,
+      sizeBytes: document.sizeBytes,
+      sourceRevision: entry.revision,
+    };
   }
 
   async resolveMedia(session: ProjectSession, sourceId: string, mediaId: string) {
@@ -271,7 +382,8 @@ export class SourceRepository {
     sourceId: string,
     sourceVersionId: string,
     indexed: number,
-    failedIncrement = 0,
+    failed = 0,
+    failureCode?: SourceErrorCode,
   ): Promise<SourceSummary> {
     return this.serial(`${session.projectId}:${sourceId}`, async () => {
       const catalog = await this.readCatalog(session);
@@ -280,29 +392,45 @@ export class SourceRepository {
       const document = await this.readSourceDocument(session, sourceId);
       if (document.currentVersionId !== sourceVersionId) throw new Error('SOURCE_CONFLICT');
       const current = catalog.sources[index];
-      const boundedIndexed = Math.max(
-        current.eligibility.indexed,
-        Math.min(indexed, current.eligibility.eligible),
-      );
-      const failed = Math.min(
-        current.eligibility.eligible + current.eligibility.failed,
-        current.eligibility.failed + failedIncrement,
+      const boundedIndexed = Math.max(0, Math.min(indexed, current.eligibility.eligible));
+      const boundedFailed = Math.max(
+        0,
+        Math.min(failed, current.eligibility.eligible - boundedIndexed),
       );
       const complete = boundedIndexed === current.eligibility.eligible;
-      const terminalPartial = boundedIndexed + failed >= current.eligibility.eligible;
+      const terminalPartial = boundedIndexed + boundedFailed >= current.eligibility.eligible;
+      const nextState = complete ? 'available' : terminalPartial ? 'partial' : 'indexing';
+      const nextFailureCode =
+        !complete && boundedFailed > 0 ? (failureCode ?? 'SOURCE_INDEX_FAILED') : undefined;
+      if (
+        current.eligibility.indexed === boundedIndexed &&
+        current.eligibility.failed === boundedFailed &&
+        current.state === nextState &&
+        current.retrying === (complete || terminalPartial ? false : current.retrying) &&
+        current.failure?.code === nextFailureCode
+      )
+        return publicSummary(current);
       const nextEntry: CatalogEntry = {
         ...current,
         revision: current.revision + 1,
-        state: complete ? 'available' : terminalPartial ? 'partial' : 'indexing',
+        state: nextState,
         progress: {
-          completed: boundedIndexed + failed,
+          completed: boundedIndexed + boundedFailed,
           total: current.eligibility.eligible,
           stage: 'indexing',
         },
-        eligibility: { ...current.eligibility, indexed: boundedIndexed, failed },
-        retryable: !complete && failed > 0,
+        eligibility: { ...current.eligibility, indexed: boundedIndexed, failed: boundedFailed },
+        retryable: !complete && boundedFailed > 0,
         retrying: complete || terminalPartial ? false : current.retrying,
-        updatedAt: new Date().toISOString(),
+        failure:
+          !complete && boundedFailed > 0
+            ? {
+                code: failureCode ?? 'SOURCE_INDEX_FAILED',
+                messageKey: `sources.error.${(failureCode ?? 'SOURCE_INDEX_FAILED').toLowerCase()}`,
+                stage: 'index',
+              }
+            : undefined,
+        updatedAt: (this.options.now ?? (() => new Date().toISOString()))(),
       };
       const nextCatalog = {
         ...catalog,
@@ -353,8 +481,9 @@ export class SourceRepository {
         revision: current.revision + 1,
         retrying: true,
         retryable: false,
+        failure: undefined,
         state: current.eligibility.eligible > 0 ? 'indexing' : 'queued',
-        updatedAt: new Date().toISOString(),
+        updatedAt: (this.options.now ?? (() => new Date().toISOString()))(),
       };
       const nextCatalog = {
         ...catalog,
@@ -522,6 +651,30 @@ export class SourceRepository {
     };
   }
 
+  private async projectEntry(session: ProjectSession, entry: CatalogEntry): Promise<CatalogEntry> {
+    if (!this.jobs) return entry;
+    const [manifest, blocks] = await Promise.all([
+      new IndexRepository()
+        .readManifest(session, entry.sourceId, entry.currentVersionId)
+        .catch(() => null),
+      this.getAllBlocks(session, entry.sourceId).catch(() => []),
+    ]);
+    const eligible = new Set(
+      blocks
+        .filter((block) => block.eligible)
+        .map((block) => `${block.chunkId}:${block.contentHash}`),
+    );
+    return projectSourceStatus(
+      entry,
+      this.jobs.list(),
+      new Set(
+        (manifest?.records ?? [])
+          .filter((record) => eligible.has(`${record.chunkId}:${record.contentHash}`))
+          .map((record) => record.chunkId),
+      ),
+    );
+  }
+
   private async readCatalog(session: ProjectSession): Promise<Catalog> {
     try {
       const value = JSON.parse(
@@ -632,6 +785,12 @@ export class SourceRepository {
 }
 
 function publicSummary(entry: CatalogEntry): SourceSummary {
-  const { sha256: _sha256, currentVersionId: _version, updatedAt: _updated, ...summary } = entry;
+  const {
+    sha256: _sha256,
+    currentVersionId: _version,
+    updatedAt: _updated,
+    failure: _failure,
+    ...summary
+  } = entry;
   return summary;
 }

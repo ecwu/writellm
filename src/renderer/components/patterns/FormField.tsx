@@ -15,7 +15,7 @@ export function FormField({
     descriptionId = `${id}-description`,
     errorId = `${id}-error`;
   return (
-    <div className="form-field">
+    <div className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
       {cloneElement(children as ReactElement<Record<string, unknown>>, {
         id,
@@ -24,12 +24,12 @@ export function FormField({
         'aria-invalid': error ? true : undefined,
       })}
       {description ? (
-        <p id={descriptionId} className="field-description">
+        <p id={descriptionId} className="m-0 text-xs text-muted-foreground">
           {description}
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} className="field-error">
+        <p id={errorId} className="m-0 text-xs text-destructive">
           {error}
         </p>
       ) : null}

@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test';
 import '../../setup/renderer-dom';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspaceShell } from '../../../src/renderer/workspace/WorkspaceShell';
 import { ObservableSlot, panels, project } from '../../fixtures/workspace/workspace-fixtures';
@@ -80,10 +80,10 @@ test('guarded leave uses the shared modal focus, inert, Escape, and restore cont
   const dialog = view.getByRole('dialog', { name: 'Unsaved writing orientation' });
   expect(dialog).toBeTruthy();
   expect(document.activeElement).toBe(view.getByRole('button', { name: 'Save and leave' }));
-  expect(view.container.inert).toBeTrue();
+  expect(view.container.hasAttribute('data-base-ui-inert')).toBeTrue();
   await user.keyboard('{Escape}');
   await Promise.resolve();
   expect(view.queryByRole('dialog')).toBeNull();
-  expect(document.activeElement).toBe(back);
-  expect(view.container.inert).toBeFalse();
+  await waitFor(() => expect(document.activeElement).toBe(back));
+  expect(view.container.hasAttribute('data-base-ui-inert')).toBeFalse();
 });

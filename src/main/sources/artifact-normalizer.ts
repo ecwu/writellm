@@ -32,7 +32,9 @@ export function normalizeMinerUArtifact(
 ): NormalizedArtifact {
   const byName = new Map(entries.map((entry) => [entry.name.replaceAll('\\', '/'), entry]));
   if (byName.size !== entries.length) throw malformed();
-  const content = byName.get('content_list.json');
+  const content = uniqueEntry(entries, (name) =>
+    /(^|\/)(content_list|[^/]+_content_list(?:_v2)?)\.json$/.test(name),
+  );
   if (!content || content.data.byteLength > 16 * 1024 * 1024) throw malformed();
   let raw: unknown;
   try {
@@ -79,7 +81,10 @@ export function normalizeMinerUArtifact(
       .trim();
     const imagePath =
       typeof value.image_path === 'string' ? value.image_path.replaceAll('\\', '/') : undefined;
-    const relatedMedia = imagePath ? mediaByPath.get(imagePath) : undefined;
+    const relatedMedia = imagePath
+      ? (mediaByPath.get(imagePath) ??
+        mediaByPath.get(path.posix.join(path.posix.dirname(content.name), imagePath)))
+      : undefined;
     if (relatedMedia && typeof value.text === 'string') relatedMedia.alt = value.text.slice(0, 512);
     const structurallyValid = !imagePath || Boolean(relatedMedia);
     const segments = splitMarkdown(markdown);
@@ -111,12 +116,22 @@ export function normalizeMinerUArtifact(
       if (!eligible) rejectedBlockCount++;
     }
   }
-  const markdownEntry = byName.get('full.md');
+  const markdownEntry = uniqueEntry(entries, (name) => /(^|\/)(full|[^/]+)\.md$/.test(name), false);
   const fullMarkdown =
     markdownEntry && markdownEntry.data.byteLength <= 64 * 1024 * 1024
       ? new TextDecoder('utf-8', { fatal: true }).decode(markdownEntry.data)
       : blocks.map((block) => block.markdown).join('\n\n');
   return { fullMarkdown, blocks, media, rejectedBlockCount };
+}
+
+function uniqueEntry(
+  entries: ArchiveEntry[],
+  predicate: (normalizedName: string) => boolean,
+  required = true,
+): ArchiveEntry | undefined {
+  const matches = entries.filter((entry) => predicate(entry.name.replaceAll('\\', '/')));
+  if (matches.length > 1 || (required && matches.length !== 1)) throw malformed();
+  return matches[0];
 }
 
 function splitMarkdown(value: string): string[] {

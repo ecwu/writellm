@@ -50,7 +50,11 @@ export function registerSourceHandlers(options: {
     if (!options.isExpectedSender(event)) return unauthorized();
     const parsed = parseImportSourcesRequest(value);
     if ('code' in parsed) return { status: 'error', error: parsed };
-    return options.imports.importFromDialog(parsed.expectedCatalogRevision);
+    try {
+      return await options.imports.importFromDialog(parsed.expectedCatalogRevision);
+    } catch {
+      return failure('SOURCE_STORAGE_UNAVAILABLE', true);
+    }
   });
   options.ipcMain.handle(sourceChannels.get, async (event, value: unknown) => {
     if (!options.isExpectedSender(event)) return unauthorized();
@@ -58,27 +62,41 @@ export function registerSourceHandlers(options: {
     if ('code' in parsed) return { status: 'error', error: parsed };
     const active = session();
     if (!active) return failure('NO_ACTIVE_PROJECT');
-    const source = await options.repository.get(active, parsed.sourceId);
-    if (!source) return failure('SOURCE_NOT_FOUND');
-    const page = await options.repository.getBlocks(
-      active,
-      parsed.sourceId,
-      parsed.cursor,
-      parsed.limit,
-    );
-    return {
-      status: 'ok',
-      source,
-      blocks: page.blocks.map(({ chunkId, ordinal, blockType, markdown, media, searchable }) => ({
-        chunkId,
-        ordinal,
-        blockType,
-        markdown,
-        media,
-        searchable,
-      })),
-      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-    };
+    try {
+      const source = await options.repository.get(active, parsed.sourceId);
+      if (!source) return failure('SOURCE_NOT_FOUND');
+      const page = await options.repository.getBlocks(
+        active,
+        parsed.sourceId,
+        parsed.cursor,
+        parsed.limit,
+      );
+      if (page.sourceVersionId !== source.sourceVersionId)
+        return {
+          status: 'conflict',
+          error: {
+            code: 'SOURCE_CONFLICT',
+            messageKey: 'sources.error.source_conflict',
+            retryable: true,
+          },
+        };
+      return {
+        status: 'ok',
+        source,
+        sourceVersionId: source.sourceVersionId,
+        blocks: page.blocks.map(({ chunkId, ordinal, blockType, markdown, media, searchable }) => ({
+          chunkId,
+          ordinal,
+          blockType,
+          markdown,
+          media,
+          searchable,
+        })),
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      };
+    } catch {
+      return failure('SOURCE_RECOVERY_REQUIRED', true);
+    }
   });
   options.ipcMain.handle(sourceChannels.retry, async (event, value: unknown) => {
     if (!options.isExpectedSender(event)) return unauthorized();
@@ -86,7 +104,11 @@ export function registerSourceHandlers(options: {
     if ('code' in parsed) return { status: 'error', error: parsed };
     const active = session();
     if (!active) return failure('NO_ACTIVE_PROJECT');
-    return options.retrySource(active, parsed);
+    try {
+      return await options.retrySource(active, parsed);
+    } catch {
+      return failure('SOURCE_RECOVERY_REQUIRED', true);
+    }
   });
   options.ipcMain.handle(sourceChannels.remove, async (event, value: unknown) => {
     if (!options.isExpectedSender(event)) return unauthorized();
@@ -94,33 +116,52 @@ export function registerSourceHandlers(options: {
     if ('code' in parsed) return { status: 'error', error: parsed };
     const active = session();
     if (!active) return failure('NO_ACTIVE_PROJECT');
-    if (parsed.target === 'candidate') {
-      const canceled = await options.imports.cancelCandidate(active, parsed.candidateId);
-      if (!canceled) return failure('SOURCE_NOT_FOUND');
-      const catalogRevision = (await options.repository.list(active, { limit: 1 })).catalogRevision;
-      return { status: 'candidate-canceled', candidateId: parsed.candidateId, catalogRevision };
+    try {
+      if (parsed.target === 'candidate') {
+        const canceled = await options.imports.cancelCandidate(active, parsed.candidateId);
+        if (!canceled) return failure('SOURCE_NOT_FOUND');
+        const catalogRevision = (await options.repository.list(active, { limit: 1 }))
+          .catalogRevision;
+        return { status: 'candidate-canceled', candidateId: parsed.candidateId, catalogRevision };
+      }
+      return await options.removeSource(active, parsed);
+    } catch {
+      return failure('SOURCE_RECOVERY_REQUIRED', true);
     }
-    return options.removeSource(active, parsed);
   });
   const subscriptions = new WeakMap<WebContents, () => void>();
   options.ipcMain.handle(sourceChannels.events, async (event, value: unknown) => {
     if (!options.isExpectedSender(event)) return unauthorized();
     const parsed = parseSourceSubscriptionRequest(value);
     if ('code' in parsed) return { status: 'error', error: parsed };
+    const active = session();
+    if (!active) return failure('NO_ACTIVE_PROJECT');
     subscriptions.get(event.sender)?.();
-    subscriptions.set(
-      event.sender,
-      options.events.subscribe(parsed.afterSequence, (sourceEvent) => {
-        if (!event.sender.isDestroyed()) event.sender.send(sourceChannels.events, sourceEvent);
-      }),
+    const dispose = options.events.subscribe(
+      parsed.afterSequence,
+      (sourceEvent) => {
+        const current = session();
+        if (
+          !event.sender.isDestroyed() &&
+          current?.projectId === active.projectId &&
+          current.sessionId === active.sessionId
+        )
+          event.sender.send(sourceChannels.events, sourceEvent);
+      },
+      active.sessionId,
     );
+    subscriptions.set(event.sender, dispose);
+    event.sender.once('destroyed', () => {
+      dispose();
+      if (subscriptions.get(event.sender) === dispose) subscriptions.delete(event.sender);
+    });
     return { status: 'subscribed' };
   });
 }
 
-function failure(code: SourceError['code']) {
+function failure(code: SourceError['code'], retryable = false) {
   return {
     status: 'error' as const,
-    error: { code, messageKey: `sources.error.${code.toLowerCase()}`, retryable: false },
+    error: { code, messageKey: `sources.error.${code.toLowerCase()}`, retryable },
   };
 }

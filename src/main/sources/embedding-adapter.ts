@@ -4,15 +4,16 @@ import {
   SILICONFLOW_VECTOR_DIMENSIONS,
 } from '../../shared/sources.js';
 import { SourceJobExecutionError } from './scheduler.js';
+import type { SourceHttpRequest } from './service-validator.js';
 
-const ENDPOINT = 'https://api.siliconflow.com/v1/embeddings';
+const ENDPOINT = 'https://api.siliconflow.cn/v1/embeddings';
 export type EmbeddingInput = { chunkId: string; contentHash: string; text: string };
 export type EmbeddingOutput = Omit<EmbeddingInput, 'text'> & { vector: Float32Array };
 
 export class EmbeddingAdapter {
   constructor(
     private credential: () => Promise<string>,
-    private request: typeof fetch = fetch,
+    private request: SourceHttpRequest = fetch,
   ) {}
   async describeProfile() {
     return {

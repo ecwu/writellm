@@ -76,6 +76,7 @@ test('reuses durable remote identity and publishes a normalized parse result', a
             vector: Float32Array.from({ length: 1024 }, () => 0.5),
           })),
       }) as unknown as EmbeddingAdapter,
+    pollIntervalMs: 0,
   });
   await pipeline.process(job, new AbortController().signal, jobs);
   expect(jobs.get(job.jobId)?.remoteBatchId).toBe('remote');
@@ -84,4 +85,55 @@ test('reuses durable remote identity and publishes a normalized parse result', a
   if (!embed) throw new Error('embedding job missing');
   await pipeline.process(embed, new AbortController().signal, jobs);
   expect((await repository.get(session, job.sourceId))?.eligibility.indexed).toBe(1);
+});
+
+test('publishes parse failures and reconciles durable failures left by an older runtime', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'parse-failure-'));
+  await writeFile(path.join(root, 'project.json'), '{}');
+  const session = { projectId: 'project', projectRoot: root, sessionId: 'session' };
+  let id = 0;
+  const repository = new SourceRepository({ id: () => `id-${++id}` });
+  const created = await repository.createSource(session, {
+    expectedCatalogRevision: 0,
+    displayName: 'failed.pdf',
+    sizeBytes: validPdfFixture().byteLength,
+    sha256: 'b'.repeat(64),
+    originalBytes: validPdfFixture(),
+  });
+  if (created.status !== 'created') throw new Error('not created');
+  const credentials = new SourceServiceCredentials(path.join(root, 'user-data'), {
+    available: async () => true,
+    protect: async (value) => value,
+    unprotect: async (value) => value,
+  });
+  await credentials.initialize();
+  const jobs = new SourceJobRepository(root);
+  await jobs.initialize();
+  const job = await jobs.enqueue({
+    kind: 'writellm.source-job',
+    schemaVersion: 1,
+    jobId: 'failed-job',
+    projectId: session.projectId,
+    sourceId: created.source.sourceId,
+    sourceVersionId: created.sourceVersionId,
+    type: 'parse',
+    state: 'queued',
+    attempt: 0,
+    idempotencyKey: 'failed-parse',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await jobs.fail(job.jobId, { retryable: false, errorCode: 'SOURCE_MINERU_AUTH' });
+  const pipeline = new SourcePipeline({
+    credentials,
+    repository,
+    events: new SourceEvents(),
+    getActiveSession: () => session,
+  });
+  await pipeline.reconcile(session, jobs);
+  expect(await repository.get(session, job.sourceId)).toMatchObject({
+    state: 'failed',
+    retryable: true,
+    failure: { code: 'SOURCE_MINERU_AUTH', stage: 'parse' },
+  });
 });

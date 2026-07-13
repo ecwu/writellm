@@ -12,4 +12,14 @@ test('source detail contract is bounded text-only and excludes paths and remote 
   expect(handlers).not.toContain('absolutePath');
   expect(handlers).not.toContain('resultUrl');
   expect(handlers).not.toContain('plainText, contentHash');
+  for (const field of [
+    'sourceVersionId',
+    'originalPreviewAvailable',
+    'indexedBlockCount',
+    'failedBlockCount',
+    'incompleteBlockCount',
+  ])
+    expect(shared).toContain(field);
+  expect(handlers).toContain('page.sourceVersionId !== source.sourceVersionId');
+  expect(handlers).toContain("status: 'conflict'");
 });

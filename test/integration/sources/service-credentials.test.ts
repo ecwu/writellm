@@ -40,3 +40,21 @@ test('fails closed when operating-system protection is unavailable', async () =>
   expect(result.status).toBe('error');
   expect(repository.summary('mineru')).toMatchObject({ configured: false, available: false });
 });
+
+test('renderer source-service forms are write-only and preserve fixed owner methods', async () => {
+  const source = await readFile(
+    'src/renderer/features/sources/SourceServiceSettingsPanel.tsx',
+    'utf8',
+  );
+  expect(source).toContain('type="password"');
+  for (const method of [
+    'saveMinerUCredential',
+    'removeMinerUCredential',
+    'validateMinerUCredential',
+    'saveSiliconFlowCredential',
+    'removeSiliconFlowCredential',
+    'validateSiliconFlowCredential',
+  ])
+    expect(source).toContain(method);
+  expect(source).not.toContain('credentialState');
+});

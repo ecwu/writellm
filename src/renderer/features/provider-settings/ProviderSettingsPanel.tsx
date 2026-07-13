@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { FormField } from '@/components/patterns/FormField';
 import { StatusNotice } from '@/components/patterns/StatusNotice';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type {
   ProviderError,
   ProviderSettingsIpc,
   ProviderSummary,
 } from '../../../shared/provider-settings';
 import { draftFromSummary, emptyDraft, fieldErrors } from './provider-settings-state';
-import './provider-settings.css';
 export function ProviderSettingsPanel({
   api = window.writellmProviderSettings,
 }: {
@@ -101,7 +102,7 @@ export function ProviderSettingsPanel({
   const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
   return (
-    <section className="provider-settings" aria-labelledby="provider-settings-title">
+    <section className="grid w-full max-w-2xl gap-4" aria-labelledby="provider-settings-title">
       <header>
         <h2 id="provider-settings-title">AI provider</h2>
         <p>Configure the application-wide Pi Agent provider. Keys never enter project files.</p>
@@ -124,6 +125,7 @@ export function ProviderSettingsPanel({
         </StatusNotice>
       )}
       <form
+        className="grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
@@ -139,7 +141,7 @@ export function ProviderSettingsPanel({
         <FormField label="Model" error={errors.model}>
           <Input value={draft.modelId} onChange={(e) => set('modelId', e.target.value)} />
         </FormField>
-        <div className="provider-capacity">
+        <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Context window">
             <Input
               type="number"
@@ -157,14 +159,13 @@ export function ProviderSettingsPanel({
             />
           </FormField>
         </div>
-        <label className="provider-checkbox">
-          <input
-            type="checkbox"
+        <Label className="flex items-center gap-2">
+          <Checkbox
             checked={draft.reasoning}
-            onChange={(e) => set('reasoning', e.target.checked)}
-          />{' '}
+            onCheckedChange={(checked) => set('reasoning', checked)}
+          />
           Model supports reasoning
-        </label>
+        </Label>
         <FormField
           label={
             summary?.secretState === 'configured' ? 'Replacement API key (optional)' : 'API key'
@@ -179,7 +180,7 @@ export function ProviderSettingsPanel({
             onChange={(e) => set('secret', e.target.value)}
           />
         </FormField>
-        <div className="provider-actions">
+        <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={busy}>
             {summary?.config ? 'Save changes' : 'Save provider'}
           </Button>
@@ -201,7 +202,7 @@ export function ProviderSettingsPanel({
         </div>
       </form>
       {summary?.harnessProfile && (
-        <dl className="provider-summary">
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2 break-words [&_dt]:font-medium [&_dd]:m-0">
           <dt>API</dt>
           <dd>{summary.harnessProfile.api}</dd>
           <dt>Model</dt>

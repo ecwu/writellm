@@ -71,11 +71,14 @@ export class SourceRemovalService {
       source.revision,
     );
     if (result.status === 'removed')
-      this.options.events.publish({
-        catalogRevision: result.catalogRevision,
-        type: 'source-removed',
-        source,
-      });
+      this.options.events.publish(
+        {
+          catalogRevision: result.catalogRevision,
+          type: 'source-removed',
+          source,
+        },
+        session.sessionId,
+      );
     return result;
   }
 

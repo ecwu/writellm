@@ -56,57 +56,74 @@ if (sourceRuntime) {
 const bundle = await readFile(path.join(root, 'dist/index.html'), 'utf8');
 if (!bundle.includes('assets/')) throw new Error('Compiled renderer bundle is missing.');
 
-const temp = await mkdtemp(path.join(os.tmpdir(), 'writellm-ui-runtime-'));
-const marker = path.join(temp, 'lifecycle.log');
-await writeFile(marker, '');
-const child = spawn(
-  path.join(root, 'node_modules/.bin/electron'),
-  [
-    path.join(root, 'dist-electron/main/main.js'),
-    `--user-data-dir=${path.join(temp, 'data')}`,
-    '--disable-gpu',
-    '--writellm-editor-runtime',
-  ],
-  {
-    cwd: root,
-    env: {
-      ...process.env,
-      WRITELLM_SMOKE: '1',
-      WRITELLM_EDITOR_RUNTIME: '1',
-      WRITELLM_SMOKE_MARKER: marker,
-      WRITELLM_SOURCE_RUNTIME: sourceRuntime ? '1' : '0',
-      WRITELLM_SOURCE_RUNTIME_ROOT: sourceRuntime ? path.join(temp, 'source-project') : '',
+async function runRuntime({ argument, environment, expectedMarker, label }) {
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'writellm-ui-runtime-'));
+  const marker = path.join(temp, 'lifecycle.log');
+  await writeFile(marker, '');
+  const child = spawn(
+    path.join(root, 'node_modules/.bin/electron'),
+    [
+      path.join(root, 'dist-electron/main/main.js'),
+      `--user-data-dir=${path.join(temp, 'data')}`,
+      '--disable-gpu',
+      argument,
+    ],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        WRITELLM_SMOKE: '1',
+        WRITELLM_EDITOR_RUNTIME: '0',
+        WRITELLM_WORKSPACE_NAVIGATION_RUNTIME: '0',
+        WRITELLM_SMOKE_MARKER: marker,
+        WRITELLM_SOURCE_RUNTIME: sourceRuntime ? '1' : '0',
+        WRITELLM_SOURCE_RUNTIME_ROOT: sourceRuntime ? path.join(temp, 'source-project') : '',
+        ...environment,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  },
-);
-let diagnostics = '';
-child.stdout?.on('data', (chunk) => {
-  diagnostics += String(chunk);
-});
-child.stderr?.on('data', (chunk) => {
-  diagnostics += String(chunk);
-});
-const code = await new Promise((resolve, reject) => {
-  const timer = setTimeout(() => {
-    child.kill();
-    reject(new Error('UI runtime startup timed out.'));
-  }, 15_000);
-  child.on('exit', (value) => {
-    clearTimeout(timer);
-    resolve(value);
+  );
+  let diagnostics = '';
+  child.stdout?.on('data', (chunk) => {
+    diagnostics += String(chunk);
   });
+  child.stderr?.on('data', (chunk) => {
+    diagnostics += String(chunk);
+  });
+  const code = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`${label} UI runtime startup timed out.`));
+    }, 15_000);
+    child.on('exit', (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+  const lifecycle = await readFile(marker, 'utf8');
+  await rm(temp, { recursive: true, force: true });
+  if (code !== 0)
+    throw new Error(
+      `${label} UI runtime exited ${code}. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
+    );
+  if (!lifecycle.includes(expectedMarker))
+    throw new Error(
+      `${label} mount was not observed. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
+    );
+}
+
+await runRuntime({
+  argument: '--writellm-editor-runtime',
+  environment: { WRITELLM_EDITOR_RUNTIME: '1' },
+  expectedMarker: 'editor-mounted',
+  label: 'Compiled BlockNote',
 });
-const lifecycle = await readFile(marker, 'utf8');
-await rm(temp, { recursive: true, force: true });
-if (code !== 0)
-  throw new Error(
-    `UI runtime exited ${code}. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
-  );
-if (!lifecycle.includes('editor-mounted'))
-  throw new Error(
-    `Compiled BlockNote mount was not observed. Lifecycle: ${lifecycle || '(empty)'} Diagnostics: ${diagnostics || '(empty)'}`,
-  );
+await runRuntime({
+  argument: '--writellm-workspace-navigation-runtime',
+  environment: { WRITELLM_WORKSPACE_NAVIGATION_RUNTIME: '1' },
+  expectedMarker: 'workspace-navigation-mounted',
+  label: 'Compiled workspace navigation',
+});
 console.log(
-  'Compiled UI runtime passed: secure chapter bridge inventory, actual BlockNote mount, and sandboxed startup.',
+  'Compiled UI runtime passed: secure bridge inventory, actual BlockNote mount, workspace navigation switching, Settings, and sandboxed startup.',
 );

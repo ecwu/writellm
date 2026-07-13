@@ -18,7 +18,10 @@ export function ToolRail({
   onPin(id: string): void;
 }) {
   return (
-    <nav className="workspace-tool-rail" aria-label="Workspace tools">
+    <nav
+      className="flex min-w-40 flex-col gap-2 overflow-auto border-r p-4 max-[860px]:min-w-0 max-[860px]:flex-row max-[860px]:border-r-0 max-[860px]:border-b [&_button]:w-full max-[860px]:[&_button]:w-auto max-[860px]:[&_button]:whitespace-nowrap"
+      aria-label="Workspace tools"
+    >
       {panels
         .filter((panel) => !panel.disabled)
         .map((panel) => {

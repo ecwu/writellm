@@ -156,13 +156,18 @@ export function ChapterEditor({
     if (result.ok) dispatch({ type: 'acknowledge', revision: result.value.revision });
   };
   return (
-    <article className="chapter-editor" aria-labelledby="chapter-title">
-      <header>
+    <article
+      className="mx-auto grid max-w-6xl gap-4 [&_.bn-container]:min-h-96 [&_.bn-container]:border [&_.bn-container]:bg-card [&_.bn-container]:text-foreground [&_.bn-editor]:bg-transparent [&_.bn-editor]:text-inherit"
+      aria-labelledby="chapter-title"
+    >
+      <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="eyebrow">Chapter</p>
+          <p className="m-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Chapter
+          </p>
           <h2 id="chapter-title">{title}</h2>
         </div>
-        <div className="chapter-actions">
+        <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void pasteMarkdown()}>
             <ClipboardPaste aria-hidden="true" focusable="false" />
             Paste Markdown

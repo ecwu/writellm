@@ -2,19 +2,19 @@
 
 **Branch**: `013-workspace-navigation-redesign` | **Date**: 2026-07-13 | **Spec**: [spec.md](./spec.md)
 
-**Status**: Accepted — maintainer accepted 2026-07-13; implementation remains gated on the 006/ADR-005 PDF-preview amendment described below.
+**Status**: Accepted — maintainer accepted 2026-07-13; Lyra design-system revision accepted by direct maintainer instruction 2026-07-13.
 
 ## Summary
 
 把 002 的临时 tool-panel 编排重构为稳定的 renderer-owned master-detail 工作区：窄一级类别栏切换 Sections 与 Knowledge Base，相邻列表栏显示当前 owner 的导航投影，主内容区持续挂载并显示所选 Section/章节或资料详情；Settings 作为独立 application-level area 从 rail 底部进入，关闭后返回原项目上下文。
 
-设计以官方 [shadcn/ui `sidebar-09`](https://ui.shadcn.com/blocks/sidebar#sidebar-09) 的 open-code block 为明确视觉/组合来源：外层可折叠 wrapper 内横向嵌套固定 icon rail 与可滚动 context sidebar，main 使用 inset、sticky location header、trigger、separator 和 breadcrumb。013 只移植该拓扑与密度到现有 Rhea/Base UI foundation，不原样安装 New York/Radix primitive、cookie、全局快捷键、Sheet、账户菜单或邮件业务。宽布局采用约 `350px composite sidebar / flexible main`，其中 rail 为 64px；受限布局逐级呈现列表或详情。原始 PDF 预览是现有 006 契约唯一缺口：保留 FR-009 需要 006-owned、current-version-fenced 的安全 byte protocol 与 `SourceDetail` 版本投影，并使用本地打包的 PDF.js display layer；不得暴露路径、generic file IPC 或 Electron PDF plugin 权限。
+设计以官方 [shadcn/ui `sidebar-09`](https://ui.shadcn.com/blocks/sidebar#sidebar-09) 拓扑与 Base UI **Lyra** registry 为明确来源：Neutral tokens、Inter-first typography、Lucide、radius none。工作区与启动项目页统一采用官方 source-owned primitives；只为 Electron owner state、44px pointer target 与 focus return 做产品接线。cookie、全局快捷键、Sheet、账户菜单和邮件业务仍排除。
 
 ## Technical Context
 
 **Language/Version**: TypeScript 7.0.2；React/React DOM 19.2.7；Electron 43.1.0；Bun 1.3.14。
 
-**Primary Dependencies**: 现有精确冻结依赖；011 source-owned shadcn/Rhea + Base UI、Tailwind CSS 4、Typeset 与 012 `lucide-react` 契约。`sidebar-09` registry source 是设计输入，不成为运行时依赖；013 不引入其 Radix `Slot`、Sheet、Skeleton、DropdownMenu、Avatar、Switch、Collapsible 或 cookie persistence。原始 PDF 预览拟新增并精确冻结 `pdfjs-dist` 6.1.200，只使用 display API 和本地 bundle/worker；安装前须通过 license、Bun lock、Vite build 与 sandboxed Electron runtime 验证。
+**Primary Dependencies**: 现有精确冻结依赖；011 source-owned shadcn/Base UI，style 切换为 Lyra + Neutral + Inter + Lucide + radius none，Tailwind CSS 4、Typeset 与 012 `lucide-react` 契约。`sidebar-09` registry source 是设计输入，不成为运行时依赖；013 不引入其 Radix `Slot`、Sheet、Skeleton、DropdownMenu、Avatar、Switch、Collapsible 或 cookie persistence。原始 PDF 预览精确冻结 `pdfjs-dist` 6.1.200。
 
 **Storage**: 不新增 schema。导航类别、每类最近有效选择、desktop sidebar expanded/collapsed、列表/详情视图、滚动与 Settings 返回点仅存在 renderer 当前项目会话。禁止继承官方 Sidebar 的 `sidebar_state` cookie；Sections、chapters、sources、settings 和 appearance 继续由既有 owner 持久化。
 
@@ -30,18 +30,18 @@
 
 **Scale/Scope**: 一个活动项目；两个项目内容类别；每类至多一个当前 item；现有 10,000 outline/block 上限与 sources 每页 100 条/块；一个独立 Settings area；PDF 仅查看，不编辑、注释或导出。
 
-所有技术选择已在 [research.md](./research.md) 解决，无 `NEEDS CLARIFICATION`。013 spec/plan 已接受；尚未接受的 producer-contract/ADR amendment 仍是治理门禁，不是隐式实现选择。
+所有技术选择和治理门禁已在 [research.md](./research.md) 与 accepted producer sources 中解决，无 `NEEDS CLARIFICATION` 或未接受的跨边界决定。
 
 ## Constitution Check — pre-research gate
 
 | Principle | Status | Evidence / gate |
 |---|---|---|
 | I. Secure Desktop Boundary | PASS WITH DESIGN GATE | renderer 只消费 owner DTO/callback；PDF 必须通过 006-owned active-session/current-version resolver 与受限协议，禁止 path/file API。 |
-| II. Typed, Minimal IPC | PASS WITH PRODUCER AMENDMENT REQUIRED | Sections、settings、结构化 source detail 零新增 IPC；PDF 使用固定 protocol route，并为 `SourceDetail` 增加最小版本/可用性投影。006 contract 必须先接受修订。 |
-| III. Specification-Driven, Minimal Evolution | BLOCKED FOR IMPLEMENTATION | 013 spec/plan 已 Accepted；FR-009 跨 006 renderer boundary，仍需接受 006 plan/contract 与 ADR-005 amendment。新独立 ADR 不需要。 |
+| II. Typed, Minimal IPC | PASS | Sections、settings、结构化 source detail 零新增 IPC；accepted 006 v1.1 使用固定 protocol route，并为 `SourceDetail` 增加最小版本/可用性投影。 |
+| III. Specification-Driven, Minimal Evolution | PASS | 013 spec/plan、006 plan/contract v1.1 与 ADR-005 v1.1 已 Accepted；新独立 ADR 不需要。 |
 | IV. Verification at the Failure Boundary | PASS WITH PLAN | pure reducers、DOM composition、main protocol tests 和 compiled Electron 分别覆盖状态、语义、byte boundary 与真实 zoom/focus。 |
 
-**Gate conclusion**: 可完成规划设计，但不得生成 implementation tasks 或实施，直至 013 spec/plan Accepted，且 006 source contract/plan 与 ADR-005 的窄 PDF-preview amendment Accepted。
+**Gate conclusion**: SATISFIED。013 spec/plan、006 producer contract/plan、ADR-005、PDF.js candidate 与 012 icon placements 均已接受，可以生成 implementation tasks。
 
 ## Project Structure
 
@@ -142,7 +142,7 @@ test/
 
 ### Source preview contract amendment
 
-[contracts/source-preview-amendment.md](./contracts/source-preview-amendment.md) 提议修订 006：
+[contracts/source-preview-amendment.md](./contracts/source-preview-amendment.md) 已接受并纳入 006 v1.1 与 ADR-005 v1.1：
 
 - `SourceDetail` 增加 app-owned `sourceVersionId`、显式块计数和 `originalPreviewAvailable`；
 - 固定 `writellm-source` original-PDF route 仅解析 active project 的 current source/version；
@@ -167,7 +167,7 @@ test/
 1. 先评审/接受 013 spec/plan、006 producer amendment 与 ADR-005 amendment；验证并冻结 `pdfjs-dist` candidate。门禁失败则停止，不生成产品代码。
 2. 建立纯 `workspaceNavigationSession` reducer、selection validity、focus return 和 generation fence tests。
 3. 重构 orientation/source controller，让一个 owner instance 同时投影 list/detail；保持 existing save/retry/remove/event semantics 与回归。
-4. 按 reviewed `sidebar-09` registry snapshot 组合 nested navigation frame、category rail、context list、inset main、sticky location header、SettingsArea 与 responsive progressive disclosure；登记 012 icon placements。不得执行 `shadcn add sidebar-09` 覆盖项目组件。
+4. 按 reviewed `sidebar-09` 拓扑组合 nested navigation frame，并把所有可对应控件替换为官方 Base UI Lyra source-owned primitives；启动项目页同步使用同一套 Card/Input/Button/Select/Alert 语言。
 5. 实现 SourceServices settings UI，并组合 005/006 settings owners；不合并 revisions/secrets/errors。
 6. 实现 006 original-PDF resolver/protocol、PDF.js viewer 与 CSP 最小增量；先 contract/security/range tests，后接 UI。
 7. 完成 DOM、compiled Electron、100 次切换、960×640/200%、theme/forced-colors、长文本与人工可用性验证。
@@ -184,7 +184,7 @@ test/
 | Settings | application-level 文案；005/006 namespace 与 secret lifecycle 不变；关闭清空 write-only inputs并恢复 category/item/focus。 |
 | Accessible DOM | landmarks、names、selected/current states、完整长名、hidden/inert 非 tabbable、Back/fallback focus、44×44 targets。 |
 | Runtime layout | 1200×800、960×640、960×640@200%、light/dark/forced-colors/reduced-motion 无阻断重叠；列表/main/PDF 独立滚动。 |
-| shadcn source adaptation | nested composition、350px CSS variable、collapse/trigger/breadcrumb/list density 可追溯；无 cookie、全局 `⌘/Ctrl+B`、Radix/Sheet、32px target 或邮件/账户代码进入产品。 |
+| shadcn source adoption | Lyra primitive imports/classes、Neutral/radius-none tokens、nested composition、collapse/trigger/breadcrumb/list density 可追溯；无 cookie、全局 `⌘/Ctrl+B`、Radix/Sheet 或邮件/账户代码。 |
 | Security/regression | sandbox flags不变；无 generic IPC/file path/remote PDF resource；001–006、011、012 相关测试全通过。 |
 
 详细可运行场景见 [quickstart.md](./quickstart.md)。
@@ -194,18 +194,18 @@ test/
 | Principle | Status | Design evidence / remaining gate |
 |---|---|---|
 | I. Secure Desktop Boundary | PASS IN DESIGN | main-owned fixed resolver + PDF.js renderer display layer；active session/current version/hash/range/CSP 围栏；无 Node/path/plugin。 |
-| II. Typed, Minimal IPC | PASS IN DESIGN / ACCEPTANCE REQUIRED | 没有新 preload method；仅扩展 owner DTO 和既有 app protocol route。producer contract 必须先接受。 |
-| III. Specification-Driven, Minimal Evolution | BLOCKED FOR IMPLEMENTATION | 技术未知项与 013 spec/plan 接受已解决，但 006/ADR-005 amendment 尚未 Accepted。 |
+| II. Typed, Minimal IPC | PASS | 没有新 preload method；accepted producer contract 仅扩展 owner DTO 和既有 app protocol route。 |
+| III. Specification-Driven, Minimal Evolution | PASS | 技术未知项、013 spec/plan、006/ADR-005 v1.1、PDF.js candidate 与 icon placement 均已接受。 |
 | IV. Verification at the Failure Boundary | PASS IN DESIGN | reducer、DOM、contract、main protocol 和 compiled Electron 均有明确 failure-boundary evidence。 |
 
-**Post-design gate**: Phase 1 design complete；无 Constitution exception 或 `NEEDS CLARIFICATION`。implementation gate 仍关闭，直到 `checklists/plan-decisions.md` 的全部适用接受条件完成并同步 registry。
+**Post-design gate**: SATISFIED。Phase 1 design complete；无 Constitution exception、`NEEDS CLARIFICATION` 或未接受 checklist item；registry 已同步。
 
 ## ADR and dependency gate
 
 - 001、002、003、004、005、006、011、012 已 Complete，满足 feature 依赖。
 - ADR-003 已接受并覆盖 renderer composition、tokens、primitives、focus 与 runtime verification。
 - 纯导航、session-only state、Settings composition 不需要新 ADR。
-- 原始 PDF preview 扩展 006 已有 source security boundary；最小治理路径是 **amend ADR-005 + 006 plan/contract**，而不是创建 generic file-capability ADR。
+- 原始 PDF preview 已通过 **ADR-005 v1.1 + 006 plan/contract v1.1** 纳入现有 source security boundary；不创建 generic file-capability ADR。
 - 若评审要求 path/file IPC、Electron plugin、通用协议、持久 layout 或新 primitive base，则本计划必须停止并重新打开新 ADR 评估。
 
 ## Complexity Tracking

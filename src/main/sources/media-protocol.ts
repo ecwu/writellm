@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import type { Protocol } from 'electron';
 import type { ProjectSession } from '../project/project-transaction.js';
 import type { SourceRepository } from './source-repository.js';
+import { sourceOriginalPreviewResponse } from './source-preview-protocol.js';
 
 export function registerSourceMediaProtocol(options: {
   protocol: Pick<Protocol, 'handle'>;
@@ -11,6 +12,8 @@ export function registerSourceMediaProtocol(options: {
 }): void {
   options.protocol.handle('writellm-source', async (request) => {
     try {
+      const original = await sourceOriginalPreviewResponse(request, options);
+      if (original) return original;
       const url = new URL(request.url);
       const sourceId = decodeURIComponent(url.hostname);
       const mediaId = decodeURIComponent(url.pathname.replace(/^\//, ''));

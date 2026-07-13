@@ -103,3 +103,16 @@ Expected: SC-001–SC-009 thresholds are met; light/high-contrast variants remai
 - 005 provider and 006 ingestion/settings/event/retry/remove/redaction/recovery suites pass.
 - 011/012 theme, primitives, icon mapping, 44 px targets and compiled UI fixtures pass.
 - Preload exposes no generic method or PDF byte/path method; project/source durable schemas are unchanged.
+
+## Final automated command evidence — 2026-07-13
+
+| Command | Result |
+|---|---|
+| `bun run typecheck` | PASS — renderer/shared, Electron/preload, and test TypeScript projects |
+| `bun run test` | PASS — 247 tests, 0 failures, 1,305 assertions across 164 files; DOM suites run in isolated single-worker order for Base UI portal cleanup |
+| `bun run build` | PASS — production Electron and renderer bundles; the PDF.js worker is emitted locally |
+| `bun run test:smoke` | PASS — compiled bridge, startup, and single-instance lifecycle |
+| `bun run test:ui-runtime` | PASS — compiled BlockNote mount plus compiled workspace category switching, persistent owner identity, Settings opening, and sandboxed startup |
+| `bun run lint` | PASS — 309 files checked with no error diagnostics |
+
+The Electron commands require permission to launch the application outside the filesystem sandbox. Vite reports its informational large-chunk warning; this does not prevent a successful build and the PDF viewer remains dynamically imported with a local worker asset.

@@ -1,169 +1,94 @@
-import {
-  cloneElement,
-  createContext,
-  type HTMLAttributes,
-  type ReactElement,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
+import { XIcon } from 'lucide-react';
+import type { ReactElement } from 'react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
-const focusable =
-  'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-type DialogContext = {
-  open: boolean;
-  setOpen(v: boolean): void;
-  titleId: string;
-  trigger: HTMLElement | null;
-  setTrigger(v: HTMLElement | null): void;
-};
-const Context = createContext<DialogContext | null>(null);
-export function Dialog({
+export const Dialog = (props: DialogPrimitive.Root.Props) => (
+  <DialogPrimitive.Root data-slot="dialog" {...props} />
+);
+export function DialogTrigger({
   children,
-  open: controlled,
-  onOpenChange,
-}: {
-  children: ReactNode;
-  open?: boolean;
-  onOpenChange?: (v: boolean) => void;
-}) {
-  const [local, setLocal] = useState(false);
-  const [trigger, setTrigger] = useState<HTMLElement | null>(null);
-  const titleId = useId();
-  const open = controlled ?? local;
-  const setOpen = (v: boolean) => {
-    if (controlled === undefined) setLocal(v);
-    onOpenChange?.(v);
-  };
-  return (
-    <Context.Provider value={{ open, setOpen, titleId, trigger, setTrigger }}>
-      {children}
-    </Context.Provider>
-  );
+  ...props
+}: Omit<DialogPrimitive.Trigger.Props, 'render'> & { children: ReactElement }) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" render={children} {...props} />;
 }
-export function DialogTrigger({ children }: { children: ReactElement }) {
-  const c = useContext(Context)!;
-  return cloneElement(children as ReactElement<Record<string, unknown>>, {
-    ref: (node: HTMLElement | null) => c.setTrigger(node),
-    onClick: (event: React.MouseEvent) => {
-      (children.props as { onClick?: (e: React.MouseEvent) => void }).onClick?.(event);
-      if (!event.defaultPrevented) c.setOpen(true);
-    },
-  });
+export const DialogPortal = (props: DialogPrimitive.Portal.Props) => (
+  <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+);
+export function DialogClose({
+  children,
+  ...props
+}: Omit<DialogPrimitive.Close.Props, 'render'> & { children: ReactElement }) {
+  return <DialogPrimitive.Close data-slot="dialog-close" render={children} {...props} />;
+}
+export function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
+  return (
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-overlay"
+      className={cn(
+        'fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 export function DialogContent({
-  children,
   className,
-  onKeyDown,
+  children,
+  showCloseButton = true,
   ...props
-}: HTMLAttributes<HTMLDivElement>) {
-  const c = useContext(Context)!;
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!c.open) return;
-    const siblings = [...document.body.children].filter(
-      (node) => !node.hasAttribute('data-dialog-portal'),
-    );
-    const prior = siblings.map((node) => ({
-      node,
-      inert: (node as HTMLElement).inert,
-      aria: node.getAttribute('aria-hidden'),
-    }));
-    for (const { node } of prior) {
-      (node as HTMLElement).inert = true;
-      node.setAttribute('aria-hidden', 'true');
-    }
-    queueMicrotask(() =>
-      (
-        ref.current?.querySelector<HTMLElement>('[autofocus]') ??
-        ref.current?.querySelector<HTMLElement>(focusable) ??
-        ref.current
-      )?.focus(),
-    );
-    return () => {
-      for (const { node, inert, aria } of prior) {
-        (node as HTMLElement).inert = inert;
-        aria === null
-          ? node.removeAttribute('aria-hidden')
-          : node.setAttribute('aria-hidden', aria);
-      }
-      queueMicrotask(() => {
-        if (c.trigger?.isConnected) c.trigger.focus();
-        else
-          document.body
-            .querySelector<HTMLElement>(
-              '[data-dialog-focus-fallback],button,a[href],input,select,textarea,[tabindex]:not([tabindex="-1"])',
-            )
-            ?.focus();
-      });
-    };
-  }, [c.open, c.trigger]);
-  if (!c.open) return null;
-  return createPortal(
-    <div
-      data-dialog-portal
-      className="ui-dialog-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) c.setOpen(false);
-      }}
-    >
-      <div
+}: DialogPrimitive.Popup.Props & { showCloseButton?: boolean }) {
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Popup
+        data-slot="dialog-content"
+        className={cn(
+          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-none bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          className,
+        )}
         {...props}
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={c.titleId}
-        tabIndex={-1}
-        className={className ?? 'ui-dialog'}
-        onKeyDown={(e) => {
-          onKeyDown?.(e);
-          if (e.defaultPrevented) return;
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            c.setOpen(false);
-          }
-          if (e.key === 'Tab') {
-            const items = [...(ref.current?.querySelectorAll<HTMLElement>(focusable) ?? [])].filter(
-              (item) => !item.hidden,
-            );
-            if (!items.length) {
-              e.preventDefault();
-              ref.current?.focus();
-              return;
-            }
-            const first = items[0],
-              last = items.at(-1)!;
-            if (e.shiftKey && document.activeElement === first) {
-              e.preventDefault();
-              last.focus();
-            } else if (!e.shiftKey && document.activeElement === last) {
-              e.preventDefault();
-              first.focus();
-            }
-          }
-        }}
       >
         {children}
-      </div>
-    </div>,
-    document.body,
+        {showCloseButton ? (
+          <DialogPrimitive.Close
+            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        ) : null}
+      </DialogPrimitive.Popup>
+    </DialogPortal>
   );
 }
-export function DialogTitle(props: HTMLAttributes<HTMLHeadingElement>) {
-  const c = useContext(Context)!;
-  return <h2 id={c.titleId} {...props} />;
-}
-export const DialogDescription = (props: HTMLAttributes<HTMLParagraphElement>) => <p {...props} />;
-export function DialogClose({ children }: { children: ReactElement }) {
-  const c = useContext(Context)!;
-  return cloneElement(children as ReactElement<Record<string, unknown>>, {
-    onClick: (event: React.MouseEvent) => {
-      (children.props as { onClick?: (e: React.MouseEvent) => void }).onClick?.(event);
-      if (!event.defaultPrevented) c.setOpen(false);
-    },
-  });
-}
+export const DialogHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="dialog-header"
+    className={cn('flex flex-col gap-1 text-left', className)}
+    {...props}
+  />
+);
+export const DialogFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="dialog-footer"
+    className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+    {...props}
+  />
+);
+export const DialogTitle = ({ className, ...props }: DialogPrimitive.Title.Props) => (
+  <DialogPrimitive.Title
+    data-slot="dialog-title"
+    className={cn('cn-font-heading text-sm font-medium', className)}
+    {...props}
+  />
+);
+export const DialogDescription = ({ className, ...props }: DialogPrimitive.Description.Props) => (
+  <DialogPrimitive.Description
+    data-slot="dialog-description"
+    className={cn('text-xs/relaxed text-muted-foreground', className)}
+    {...props}
+  />
+);

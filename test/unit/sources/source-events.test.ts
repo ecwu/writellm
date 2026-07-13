@@ -30,3 +30,42 @@ test('sequences, replays, bounds and requests resync after overflow', () => {
   events.publish({ catalogRevision: 2, type: 'source-removed' });
   expect(current).toEqual([5]);
 });
+
+test('resets replay and drops stale publishers when the active project session changes', () => {
+  const events = new SourceEvents();
+  events.activate('session-a', 4);
+  events.publish(
+    {
+      catalogRevision: 5,
+      type: 'candidate-updated',
+      candidateId: 'candidate-a',
+      candidateStatus: 'queued',
+    },
+    'session-a',
+  );
+  events.activate('session-b', 10);
+  expect(
+    events.publish(
+      {
+        catalogRevision: 6,
+        type: 'candidate-updated',
+        candidateId: 'stale',
+        candidateStatus: 'failed',
+      },
+      'session-a',
+    ),
+  ).toBeNull();
+  const received: string[] = [];
+  events.subscribe(0, (event) => received.push(event.type), 'session-b');
+  expect(received).toEqual([]);
+  events.publish(
+    {
+      catalogRevision: 11,
+      type: 'candidate-updated',
+      candidateId: 'candidate-b',
+      candidateStatus: 'queued',
+    },
+    'session-b',
+  );
+  expect(received).toEqual(['candidate-updated']);
+});

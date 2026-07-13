@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, PenLine, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { TooltipTrigger } from '@/components/ui/tooltip';
 import type {
   OutlineStatus,
@@ -18,15 +27,19 @@ import {
   isDirty,
   itemId,
   markDraft,
+  projectSectionNavigationItems,
   type OrientationState,
   updateMotivation,
 } from './orientation-state';
 import { moveItem } from './reorder';
+import { SectionWorkspace } from './SectionWorkspace';
 
 export function WritingOrientationPanel({
   api,
   onLeaveGuardChange,
   onStartWriting,
+  onOpenLinkedChapter,
+  workspace,
 }: {
   api: WritingOrientationApi;
   onLeaveGuardChange?(guard: WorkspaceLeaveGuard): void;
@@ -35,6 +48,17 @@ export function WritingOrientationPanel({
     title: string;
     baseOrientationRevision: number;
   }): Promise<boolean>;
+  onOpenLinkedChapter?(input: {
+    chapterId: string;
+    outlineItemId: string;
+    title: string;
+  }): Promise<void>;
+  workspace?: {
+    projectName: string;
+    chapter?: { outlineItemId: string; node: ReactNode };
+    onBack?(): void;
+    onItemActivated?(): void;
+  };
 }) {
   const [state, setState] = useState<OrientationState | null>(null),
     [loadError, setLoadError] = useState('');
@@ -196,13 +220,22 @@ export function WritingOrientationPanel({
     });
     if (opened) {
       const loaded = await api.load();
-      if (loaded.ok) setState(initializeOrientation(loaded.value));
+      if (loaded.ok)
+        setState({
+          ...initializeOrientation(loaded.value),
+          selectedOutlineItemId: selected.outlineItemId,
+        });
     }
   };
-  return (
-    <section className="orientation-panel" aria-labelledby="orientation-title">
-      <header>
-        <h2 id="orientation-title">Writing orientation</h2>
+  const panel = (
+    <section
+      className="orientation-panel mx-auto grid w-full max-w-5xl min-w-0 gap-6 p-6 text-xs"
+      aria-labelledby="orientation-title"
+    >
+      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b pb-4">
+        <h2 id="orientation-title" className="cn-font-heading text-base font-medium">
+          Writing orientation
+        </h2>
         <Button
           onClick={() => void save()}
           busy={state.saveState === 'saving'}
@@ -211,7 +244,11 @@ export function WritingOrientationPanel({
           <Save aria-hidden="true" focusable="false" />
           {state.saveState === 'saving' ? 'Saving…' : 'Save'}
         </Button>
-        <span role="status" aria-live="polite">
+        <span
+          className="col-span-full text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
           {state.saveState === 'dirty'
             ? 'Unsaved changes'
             : state.saveState === 'failed'
@@ -221,8 +258,8 @@ export function WritingOrientationPanel({
                 : 'Saving'}
         </span>
       </header>
-      <fieldset>
-        <legend>Motivation</legend>
+      <fieldset className="grid min-w-0 gap-4 border-0 p-0">
+        <legend className="mb-1 font-medium">Motivation</legend>
         {(
           [
             ['problem', 'Problem to solve'],
@@ -230,21 +267,21 @@ export function WritingOrientationPanel({
             ['desiredOutcome', 'Desired outcome'],
           ] as const
         ).map(([key, label]) => (
-          <label key={key}>
+          <Label className="grid gap-2" key={key}>
             {label}
-            <textarea
+            <Textarea
               value={state.draft.motivation[key]}
               onChange={(event) => setState(updateMotivation(state, key, event.target.value))}
             />
-          </label>
+          </Label>
         ))}
         {Object.values(state.draft.motivation).every((value) => !value) && (
           <p>Not filled in yet. Add context for your writing decisions.</p>
         )}
       </fieldset>
-      <div className="outline-workspace">
-        <div>
-          <h3>Outline</h3>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid content-start gap-3">
+          <h3 className="font-medium">Outline</h3>
           <Button
             variant={state.draft.outlineItems.length === 0 ? 'default' : 'secondary'}
             onClick={() => setState(createDraftItem(state))}
@@ -255,9 +292,10 @@ export function WritingOrientationPanel({
           {state.draft.outlineItems.length === 0 ? (
             <p>No outline yet. Create your first section.</p>
           ) : (
-            <ol>
+            <ol className="m-0 grid list-none gap-1 p-0">
               {state.draft.outlineItems.map((item, index) => (
                 <li
+                  className="flex items-center gap-1"
                   key={itemId(item)}
                   draggable
                   onDragStart={(event) => event.dataTransfer.setData('text/plain', String(index))}
@@ -267,6 +305,7 @@ export function WritingOrientationPanel({
                   }
                 >
                   <Button
+                    className="flex-1 justify-start"
                     variant={state.selectedOutlineItemId === itemId(item) ? 'default' : 'ghost'}
                     aria-pressed={state.selectedOutlineItemId === itemId(item)}
                     onClick={() => setState({ ...state, selectedOutlineItemId: itemId(item) })}
@@ -301,37 +340,42 @@ export function WritingOrientationPanel({
             </ol>
           )}
         </div>
-        <section aria-label="Outline item details">
-          <h3>Item details</h3>
+        <section className="grid content-start gap-4 p-4" aria-label="Outline item details">
+          <h3 className="font-medium">Item details</h3>
           {selected ? (
             <>
-              <label>
+              <Label className="grid gap-2">
                 Title
                 <Input
                   aria-invalid={!selected.title.trim()}
                   value={selected.title}
                   onChange={(event) => patchItem({ title: event.target.value })}
                 />
-              </label>
+              </Label>
               {!selected.title.trim() && <p role="alert">A title is required.</p>}
-              <label>
+              <Label className="grid gap-2">
                 Summary
-                <textarea
+                <Textarea
                   value={selected.summary}
                   onChange={(event) => patchItem({ summary: event.target.value })}
                 />
-              </label>
-              <label>
+              </Label>
+              <Label className="grid gap-2">
                 Status
-                <select
+                <Select
                   value={selected.status}
-                  onChange={(event) => patchItem({ status: event.target.value as OutlineStatus })}
+                  onValueChange={(value) => patchItem({ status: value as OutlineStatus })}
                 >
-                  <option value="not-started">Not started</option>
-                  <option value="in-progress">In progress</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </label>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="not-started">Not started</SelectItem>
+                    <SelectItem value="in-progress">In progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Label>
               {'outlineItemId' in selected && (
                 <Button
                   disabled={isDirty(state) || !selected.title.trim()}
@@ -353,5 +397,35 @@ export function WritingOrientationPanel({
         </section>
       </div>
     </section>
+  );
+  if (!workspace) return panel;
+  const sections = projectSectionNavigationItems(state);
+  const chapterMatchesSelection =
+    selected &&
+    'outlineItemId' in selected &&
+    selected.outlineItemId === workspace.chapter?.outlineItemId;
+  return (
+    <SectionWorkspace
+      projectName={workspace.projectName}
+      items={sections}
+      selectedId={state.selectedOutlineItemId}
+      onSelect={(selectedOutlineItemId) => {
+        setState({ ...state, selectedOutlineItemId });
+        workspace.onItemActivated?.();
+        const item = state.draft.outlineItems.find(
+          (candidate) => itemId(candidate) === selectedOutlineItemId,
+        );
+        if (item && 'outlineItemId' in item && item.chapterRef && onOpenLinkedChapter)
+          void onOpenLinkedChapter({
+            chapterId: item.chapterRef,
+            outlineItemId: item.outlineItemId,
+            title: item.title,
+          });
+      }}
+      onAdd={() => setState(createDraftItem(state))}
+      onBack={workspace.onBack}
+    >
+      {chapterMatchesSelection ? workspace.chapter?.node : panel}
+    </SectionWorkspace>
   );
 }

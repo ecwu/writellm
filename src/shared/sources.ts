@@ -76,7 +76,16 @@ export type SourceSummary = {
   retryable: boolean;
 };
 export type SourceDetail = SourceSummary & {
-  parseSummary: { markdownAvailable: boolean; mediaCount: number; blockCount: number };
+  sourceVersionId: string;
+  parseSummary: {
+    markdownAvailable: boolean;
+    originalPreviewAvailable: boolean;
+    mediaCount: number;
+    blockCount: number;
+    indexedBlockCount: number;
+    failedBlockCount: number;
+    incompleteBlockCount: number;
+  };
   failure?: {
     code: SourceErrorCode;
     messageKey: string;
@@ -120,7 +129,14 @@ export type ImportSourcesResult =
   | { status: 'conflict'; catalogRevision: number }
   | { status: 'error'; error: SourceError };
 export type GetSourceResult =
-  | { status: 'ok'; source: SourceDetail; blocks: BlockPreview[]; nextCursor?: string }
+  | {
+      status: 'ok';
+      source: SourceDetail;
+      sourceVersionId: string;
+      blocks: BlockPreview[];
+      nextCursor?: string;
+    }
+  | { status: 'conflict'; error: SourceError }
   | { status: 'error'; error: SourceError };
 export type RetrySourceResult =
   | { status: 'accepted'; source: SourceSummary }
@@ -351,35 +367,100 @@ export function parseSourceRemovalRequest(value: unknown): SourceRemovalRequest 
     ? parseCancelImportRequest(value)
     : parseRemoveSourceRequest(value);
 }
+const sourceStates: readonly SourceState[] = [
+  'queued',
+  'parsing',
+  'indexing',
+  'available',
+  'partial',
+  'failed',
+];
+const sourceStages: readonly SourceSummary['progress']['stage'][] = [
+  'queued',
+  'parsing',
+  'indexing',
+];
+const candidateStatuses: readonly SourceCandidateStatus[] = [
+  'queued',
+  'possible-duplicate',
+  'duplicate-confirmed',
+  'accepted',
+  'canceled',
+  'failed',
+];
+
+function parseSourceSummary(value: unknown): SourceSummary | null {
+  if (
+    !isRecord(value) ||
+    !exact(value, [
+      'sourceId',
+      'revision',
+      'displayName',
+      'sizeBytes',
+      'importedAt',
+      'state',
+      'progress',
+      'eligibility',
+      'retrying',
+      'retryable',
+    ]) ||
+    !boundedId(value.sourceId) ||
+    !revision(value.revision) ||
+    typeof value.displayName !== 'string' ||
+    value.displayName.length < 1 ||
+    value.displayName.length > 255 ||
+    hasControlCharacter(value.displayName) ||
+    !Number.isSafeInteger(value.sizeBytes) ||
+    (value.sizeBytes as number) < 1 ||
+    typeof value.importedAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.importedAt)) ||
+    !sourceStates.includes(value.state as SourceState) ||
+    typeof value.retrying !== 'boolean' ||
+    typeof value.retryable !== 'boolean' ||
+    !isRecord(value.progress) ||
+    !exact(value.progress, ['completed', 'total', 'stage']) ||
+    !revision(value.progress.completed) ||
+    !revision(value.progress.total) ||
+    (value.progress.completed as number) > (value.progress.total as number) ||
+    !sourceStages.includes(value.progress.stage as SourceSummary['progress']['stage']) ||
+    !isRecord(value.eligibility) ||
+    !exact(value.eligibility, ['indexed', 'eligible', 'failed']) ||
+    !revision(value.eligibility.indexed) ||
+    !revision(value.eligibility.eligible) ||
+    !revision(value.eligibility.failed) ||
+    (value.eligibility.indexed as number) > (value.eligibility.eligible as number) ||
+    (value.eligibility.failed as number) >
+      (value.eligibility.eligible as number) - (value.eligibility.indexed as number)
+  )
+    return null;
+  return value as SourceSummary;
+}
+
 export function parseSourceEvent(value: unknown): SourceEvent | null {
   if (
     !isRecord(value) ||
     !revision(value.sequence) ||
     (value.sequence as number) < 1 ||
-    !revision(value.catalogRevision)
+    !revision(value.catalogRevision) ||
+    typeof value.type !== 'string'
   )
     return null;
-  if (
-    !['source-upserted', 'source-removed', 'candidate-updated', 'resync-required'].includes(
-      String(value.type),
+  const base = ['sequence', 'catalogRevision', 'type'];
+  if (value.type === 'source-upserted' || value.type === 'source-removed') {
+    if (!exact(value, [...base, 'source'])) return null;
+    const source = parseSourceSummary(value.source);
+    return source ? ({ ...value, source } as SourceEvent) : null;
+  }
+  if (value.type === 'candidate-updated') {
+    if (
+      !exact(value, [...base, 'candidateId', 'candidateStatus']) ||
+      !boundedId(value.candidateId) ||
+      !candidateStatuses.includes(value.candidateStatus as SourceCandidateStatus)
     )
-  )
-    return null;
-  if (
-    Object.keys(value).some(
-      (key) =>
-        ![
-          'sequence',
-          'catalogRevision',
-          'type',
-          'source',
-          'candidateId',
-          'candidateStatus',
-        ].includes(key),
-    )
-  )
-    return null;
-  return value as SourceEvent;
+      return null;
+    return value as SourceEvent;
+  }
+  return value.type === 'resync-required' && exact(value, base) ? (value as SourceEvent) : null;
 }
 export function redactSourceError(
   _error: unknown,

@@ -21,4 +21,5 @@ test('writes exact processing trailers and source binary attributes', async () =
   expect(commit.commit.message).toContain('WriteLLM-Event: processing');
   expect(commit.commit.message).toContain('WriteLLM-Content-Change: false');
   expect(await readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('*.f32 binary');
+  expect(await readFile(path.join(root, '.gitignore'), 'utf8')).toContain('runtime/source-jobs/');
 });

@@ -18,7 +18,7 @@ export function MarkdownPasteDialog({
         if (!open) onCancel();
       }}
     >
-      <DialogContent className="workspace-leave-dialog">
+      <DialogContent>
         <DialogTitle>Paste Markdown?</DialogTitle>
         <DialogDescription>
           Review conversion warnings before inserting this content.

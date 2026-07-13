@@ -22,6 +22,10 @@ stable component paths rather than generated bundle locations.
 | Workspace | Leave: save and leave | `save` / `Save` | icon + label | `src/renderer/workspace/WorkspaceShell.tsx` | closed | E-US1-DOM |
 | Workspace | Leave: discard and leave | destructive leave | label-required | `src/renderer/workspace/WorkspaceShell.tsx` | closed | E-US3-DOM |
 | Workspace | Leave: stay | cancel | label-required | `src/renderer/workspace/WorkspaceShell.tsx` | closed | E-US3-DOM |
+| Workspace 013 | Sections category | `workspace-tool` / `ListTree` | icon-only in 64 px rail; icon + label in compact strip | `src/renderer/workspace/components/WorkspaceCategoryRail.tsx` | accepted placement; implementation pending | 013 DOM/runtime tasks |
+| Workspace 013 | Knowledge Base category | `workspace-tool` / `LibraryBig` | icon-only in 64 px rail; icon + label in compact strip | `src/renderer/workspace/components/WorkspaceCategoryRail.tsx` | accepted placement; implementation pending | 013 DOM/runtime tasks |
+| Workspace 013 | Application Settings area | `settings` / `Settings` | icon-only in 64 px rail; icon + label in compact strip | `src/renderer/workspace/components/WorkspaceCategoryRail.tsx` | accepted placement; implementation pending | 013 DOM/runtime tasks |
+| Workspace 013 | Context-sidebar toggle | layout toggle / `PanelLeft` | icon-only beside persistent location header | `src/renderer/workspace/components/WorkspaceLocationHeader.tsx` | accepted placement; implementation pending | 013 DOM/runtime tasks |
 | Orientation | Save orientation | `save` / `Save` | icon + label | `WritingOrientationPanel.tsx` | closed | E-US1-DOM |
 | Orientation | Motivation empty, dirty, saving, saved, failed | non-action state | text + semantic state | `WritingOrientationPanel.tsx` | closed | E-US3-DOM |
 | Outline | Add outline item | `add-outline-item` / `Plus` | icon + label | `WritingOrientationPanel.tsx` | closed | E-US1-DOM |
@@ -45,4 +49,5 @@ stable component paths rather than generated bundle locations.
 |---|---|---|---|---|---|
 | Panel close | yes | yes, fixed panel heading | yes (`X`) | 012 accessibility review | admitted with `aria-label` + tooltip |
 | Outline move up/down | yes | yes, repeated outline rows | yes (direction arrows) | 012 accessibility review | admitted with item-specific `aria-label` + tooltip |
-
+| 013 Sections / Knowledge Base / Settings wide rail | yes | yes, fixed 64 px rail | yes after distinct-icon and neighboring-heading review | 013 accessibility review | admitted wide-only with explicit name + tooltip; compact strip keeps labels |
+| 013 context-sidebar toggle | yes | yes, compact sticky header | yes (`PanelLeft`) beside persistent breadcrumb | 013 accessibility review | admitted with dynamic name + tooltip; no global shortcut |

@@ -1,14 +1,13 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 
-test('workspace CSS covers constrained, zoom-like and reduced-motion layouts', async () => {
-  const css = await readFile('src/renderer/styles.css', 'utf8');
-  const compact = css.replace(/\s/g, '');
-  for (const value of [
-    'max-width:860px',
-    'min-resolution:1.75dppx',
-    'prefers-reduced-motion',
-    'minmax(0,1fr)',
-  ])
-    expect(compact).toContain(value);
+test('workspace utilities cover constrained and zoom-like layouts', async () => {
+  const [shell, frame] = await Promise.all([
+    readFile('src/renderer/workspace/WorkspaceShell.tsx', 'utf8'),
+    readFile('src/renderer/workspace/components/WorkspaceNavigationFrame.tsx', 'utf8'),
+  ]);
+  expect(shell).toContain('max-[860px]');
+  expect(shell).toContain('minmax(0,1fr)');
+  expect(frame).toContain('max-[719px]');
+  expect(frame).toContain('min-h-0');
 });

@@ -39,6 +39,21 @@ test('normalizes deterministic order, identity, metadata and media integrity', (
   expect(missing.blocks[0]).toMatchObject({ structurallyValid: false, eligible: false });
 });
 
+test('accepts MinerU archives nested under the uploaded file name', () => {
+  const entries = orderedMinerUEntries().map((entry) => ({
+    ...entry,
+    name:
+      entry.name === 'content_list.json'
+        ? 'source/source_content_list.json'
+        : entry.name === 'full.md'
+          ? 'source/source.md'
+          : `source/${entry.name}`,
+  }));
+  const artifact = normalizeMinerUArtifact('version', entries);
+  expect(artifact.blocks.map((block) => block.markdown)).toEqual(['# Title', 'Body', 'Chart']);
+  expect(artifact.blocks[2].media[0]?.available).toBe(true);
+});
+
 function zip(entries: Array<{ name: string; data: Uint8Array; mode?: number }>): Uint8Array {
   const local: Buffer[] = [],
     central: Buffer[] = [];

@@ -3,11 +3,12 @@ import { readFile } from 'node:fs/promises';
 
 test('compiled fixture and source contract cover icon action focus, tooltip and 44px geometry', async () => {
   const fixture = await readFile('test/runtime/ui-foundation/fixture.tsx', 'utf8');
-  const css = (await readFile('src/renderer/styles.css', 'utf8')).replace(/\s/g, '');
+  const button = await readFile('src/renderer/components/ui/button.tsx', 'utf8');
   expect(fixture).toContain('PanelTop');
-  expect(css).toContain('min-height:2.75rem');
-  expect(css).toContain('min-width:2.75rem');
-  expect(css).toContain('.ui-button:focus-visible');
+  expect(button).toContain('min-h-11');
+  expect(button).toContain('min-w-11');
+  expect(button).toContain('focus-visible:ring-1');
   const tooltip = await readFile('src/renderer/components/ui/tooltip.tsx', 'utf8');
-  expect(tooltip).toContain("e.key === 'Escape'");
+  expect(tooltip).toContain('@base-ui/react/tooltip');
+  expect(tooltip).toContain('pointer-events-none');
 });

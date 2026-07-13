@@ -2,7 +2,14 @@ import type { AppearanceIpc } from '../shared/appearance.js';
 import type { ChapterApi } from '../shared/chapters.js';
 import type { WriteLLMIpc } from '../shared/ipc.js';
 import type { ProviderSettingsIpc } from '../shared/provider-settings.js';
-import type { SourceEvent, SourceServicesApi, SourcesApi } from '../shared/sources.js';
+import type {
+  SourceCandidateStatus,
+  SourceEvent,
+  SourceServicesApi,
+  SourceState,
+  SourceSummary,
+  SourcesApi,
+} from '../shared/sources.js';
 import type { WritingOrientationApi } from '../shared/writing-orientation.js';
 
 const orientationChannels = {
@@ -18,31 +25,111 @@ const chapterChannels = {
   exportMarkdown: 'writellm:chapters:export-markdown',
 } as const;
 
-function parseSourceEvent(value: unknown): SourceEvent | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const event = value as Record<string, unknown>;
+const sourceStates: readonly SourceState[] = [
+  'queued',
+  'parsing',
+  'indexing',
+  'available',
+  'partial',
+  'failed',
+];
+const sourceStages: readonly SourceSummary['progress']['stage'][] = [
+  'queued',
+  'parsing',
+  'indexing',
+];
+const candidateStatuses: readonly SourceCandidateStatus[] = [
+  'queued',
+  'possible-duplicate',
+  'duplicate-confirmed',
+  'accepted',
+  'canceled',
+  'failed',
+];
+const record = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const exact = (value: Record<string, unknown>, keys: readonly string[]) =>
+  Object.keys(value).length === keys.length &&
+  Object.keys(value).every((key) => keys.includes(key));
+const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
+const boundedText = (value: unknown, max: number) =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  value.length <= max &&
+  [...value].every((character) => {
+    const code = character.charCodeAt(0);
+    return code > 31 && code !== 127;
+  });
+
+function parseSourceSummary(value: unknown): SourceSummary | null {
+  if (!record(value)) return null;
+  const keys = [
+    'sourceId',
+    'revision',
+    'displayName',
+    'sizeBytes',
+    'importedAt',
+    'state',
+    'progress',
+    'eligibility',
+    'retrying',
+    'retryable',
+  ];
   if (
-    !Number.isSafeInteger(event.sequence) ||
-    (event.sequence as number) < 1 ||
-    !Number.isSafeInteger(event.catalogRevision) ||
-    (event.catalogRevision as number) < 0 ||
-    !['source-upserted', 'source-removed', 'candidate-updated', 'resync-required'].includes(
-      String(event.type),
-    ) ||
-    Object.keys(event).some(
-      (key) =>
-        ![
-          'sequence',
-          'catalogRevision',
-          'type',
-          'source',
-          'candidateId',
-          'candidateStatus',
-        ].includes(key),
-    )
+    !exact(value, keys) ||
+    !boundedText(value.sourceId, 128) ||
+    !count(value.revision) ||
+    !boundedText(value.displayName, 255) ||
+    !Number.isSafeInteger(value.sizeBytes) ||
+    (value.sizeBytes as number) < 1 ||
+    typeof value.importedAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.importedAt)) ||
+    !sourceStates.includes(value.state as SourceState) ||
+    typeof value.retrying !== 'boolean' ||
+    typeof value.retryable !== 'boolean' ||
+    !record(value.progress) ||
+    !exact(value.progress, ['completed', 'total', 'stage']) ||
+    !count(value.progress.completed) ||
+    !count(value.progress.total) ||
+    (value.progress.completed as number) > (value.progress.total as number) ||
+    !sourceStages.includes(value.progress.stage as SourceSummary['progress']['stage']) ||
+    !record(value.eligibility) ||
+    !exact(value.eligibility, ['indexed', 'eligible', 'failed']) ||
+    !count(value.eligibility.indexed) ||
+    !count(value.eligibility.eligible) ||
+    !count(value.eligibility.failed) ||
+    (value.eligibility.indexed as number) > (value.eligibility.eligible as number) ||
+    (value.eligibility.failed as number) >
+      (value.eligibility.eligible as number) - (value.eligibility.indexed as number)
   )
     return null;
-  return event as SourceEvent;
+  return value as SourceSummary;
+}
+
+function parseSourceEvent(value: unknown): SourceEvent | null {
+  if (
+    !record(value) ||
+    !count(value.sequence) ||
+    (value.sequence as number) < 1 ||
+    !count(value.catalogRevision)
+  )
+    return null;
+  const base = ['sequence', 'catalogRevision', 'type'];
+  if (value.type === 'source-upserted' || value.type === 'source-removed') {
+    if (!exact(value, [...base, 'source'])) return null;
+    const source = parseSourceSummary(value.source);
+    return source ? ({ ...value, source } as SourceEvent) : null;
+  }
+  if (value.type === 'candidate-updated') {
+    if (
+      !exact(value, [...base, 'candidateId', 'candidateStatus']) ||
+      !boundedText(value.candidateId, 128) ||
+      !candidateStatuses.includes(value.candidateStatus as SourceCandidateStatus)
+    )
+      return null;
+    return value as SourceEvent;
+  }
+  return value.type === 'resync-required' && exact(value, base) ? (value as SourceEvent) : null;
 }
 
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');

@@ -14,6 +14,8 @@ if (typeof globalThis.document === 'undefined') {
     Node: window.Node,
     MutationObserver: window.MutationObserver,
     getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   });
 }
 

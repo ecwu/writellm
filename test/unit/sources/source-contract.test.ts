@@ -63,6 +63,24 @@ describe('source contracts', () => {
       type: 'source-upserted',
     });
     expect(parseSourceEvent({ ...sourceEventFixture(), sequence: -1 })).toBeNull();
+    expect(
+      parseSourceEvent({
+        ...sourceEventFixture(),
+        source: { ...sourceEventFixture().source, remoteBatchId: 'remote-secret' },
+      }),
+    ).toBeNull();
+    expect(
+      parseSourceEvent({
+        ...sourceEventFixture(),
+        source: {
+          ...sourceEventFixture().source,
+          progress: { completed: 2, total: 1, stage: 'parsing' },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      parseSourceEvent({ sequence: 1, catalogRevision: 1, type: 'resync-required', source: {} }),
+    ).toBeNull();
     const error = redactSourceError(
       new Error('token-sentinel /Users/private remote-42'),
       'SOURCE_INTERNAL',

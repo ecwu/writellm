@@ -18,5 +18,5 @@ test('patterns expose relationships, non-color status meaning, and headings', ()
   expect(html).toContain('<label');
   expect(html).toContain('aria-describedby');
   expect(html).toContain('role="alert"');
-  expect(html).toContain('<h3>Nothing here</h3>');
+  expect(html).toContain('>Nothing here</h3>');
 });

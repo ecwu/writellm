@@ -19,12 +19,12 @@ export function ToolPanelHost({
   const titleId = `tool-panel-${panel.id}-title`;
   return (
     <aside
-      className="workspace-tool-panel"
+      className="grid min-w-0 grid-rows-[auto_minmax(0,1fr)] border-l bg-card max-[860px]:max-h-[40vh] max-[860px]:border-t max-[860px]:border-l-0"
       aria-labelledby={titleId}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
     >
-      <div className="workspace-panel-heading">
+      <div className="flex items-center justify-between gap-4 border-b p-4">
         <h2 id={titleId}>{panel.label}</h2>
         <TooltipTrigger content={`Close ${panel.label}`}>
           <Button
@@ -38,7 +38,7 @@ export function ToolPanelHost({
           </Button>
         </TooltipTrigger>
       </div>
-      <ScrollArea className="workspace-panel-scroll">{panel.render()}</ScrollArea>
+      <ScrollArea className="min-h-0 p-4">{panel.render()}</ScrollArea>
     </aside>
   );
 }

@@ -19,7 +19,7 @@ export function ChapterConflictDialog({
         if (!value) onCancel();
       }}
     >
-      <DialogContent className="workspace-leave-dialog">
+      <DialogContent>
         <DialogTitle>Saved chapter changed</DialogTitle>
         <DialogDescription>
           Another view saved this chapter. Keep your current draft or reload the saved version.

@@ -1,62 +1,65 @@
-import { cloneElement, type ReactElement, type ReactNode, useId, useRef, useState } from 'react';
-export const TooltipProvider = ({ children }: { children: ReactNode }) => <>{children}</>;
-export function Tooltip({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
+import type { ReactElement } from 'react';
+import { cn } from '@/lib/cn';
+
+export const TooltipProvider = ({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) => (
+  <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
+);
+export const Tooltip = (props: TooltipPrimitive.Root.Props) => (
+  <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+);
+
+export function TooltipContent({
+  className,
+  side = 'top',
+  sideOffset = 4,
+  align = 'center',
+  alignOffset = 0,
+  children,
+  ...props
+}: TooltipPrimitive.Popup.Props &
+  Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+  return (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Positioner
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+        className="pointer-events-none isolate z-50"
+      >
+        <TooltipPrimitive.Popup
+          role="tooltip"
+          data-slot="tooltip-content"
+          className={cn(
+            'ui-tooltip pointer-events-none z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-1.5 rounded-none bg-foreground px-3 py-1.5 text-xs text-background data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          <TooltipPrimitive.Arrow className="pointer-events-none z-50 size-2.5 rotate-45 rounded-none bg-foreground fill-foreground" />
+        </TooltipPrimitive.Popup>
+      </TooltipPrimitive.Positioner>
+    </TooltipPrimitive.Portal>
+  );
 }
+
 export function TooltipTrigger({
   children,
   content,
-}: {
-  children: ReactElement;
-  content?: string;
-}) {
-  const id = useId();
-  const [focusOpen, setFocusOpen] = useState(false);
-  const [pointerOpen, setPointerOpen] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const open = focusOpen || pointerOpen;
-  const cancelClose = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setPointerOpen(true);
-  };
-  const scheduleClose = () => {
-    closeTimer.current = setTimeout(() => setPointerOpen(false), 50);
-  };
-  const props = children.props as Record<string, unknown>;
+  ...props
+}: Omit<TooltipPrimitive.Trigger.Props, 'render'> & { children: ReactElement; content?: string }) {
+  const trigger = (
+    <TooltipPrimitive.Trigger data-slot="tooltip-trigger" render={children} {...props} />
+  );
+  if (!content) return trigger;
   return (
-    <span className="ui-tooltip-anchor" onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
-      {cloneElement(children as ReactElement<Record<string, unknown>>, {
-        'aria-describedby': open ? id : undefined,
-        onFocus: (e: React.FocusEvent) => {
-          (props.onFocus as ((e: React.FocusEvent) => void) | undefined)?.(e);
-          setFocusOpen(true);
-        },
-        onBlur: (e: React.FocusEvent) => {
-          (props.onBlur as ((e: React.FocusEvent) => void) | undefined)?.(e);
-          setFocusOpen(false);
-        },
-        onKeyDown: (e: React.KeyboardEvent) => {
-          (props.onKeyDown as ((e: React.KeyboardEvent) => void) | undefined)?.(e);
-          if (e.key === 'Escape') {
-            setFocusOpen(false);
-            setPointerOpen(false);
-          }
-        },
-      })}
-      {open && content ? (
-        <span
-          role="tooltip"
-          id={id}
-          className="ui-tooltip"
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        >
-          {content}
-        </span>
-      ) : null}
-    </span>
+    <Tooltip>
+      <>
+        {trigger}
+        <TooltipContent>{content}</TooltipContent>
+      </>
+    </Tooltip>
   );
 }
-export const TooltipContent = ({ children }: { children: ReactNode }) => (
-  <span className="ui-tooltip">{children}</span>
-);

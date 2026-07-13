@@ -40,6 +40,27 @@
 
 **Alternatives considered**: `file://` or absolute path exposure violates the security baseline. Whole-PDF IPC/readFile duplicates up to 200 MB in memory. `<iframe>/<embed>` depends on plugin behavior and broader privileges. Treating Markdown/media as the original PDF does not satisfy the spec.
 
+### Accepted PDF.js candidate review (2026-07-13)
+
+- `pdfjs-dist` is exactly pinned at `6.1.200` in `package.json` and `bun.lock` with
+  integrity metadata; no CDN or runtime registry dependency is used.
+- The installed package declares Apache-2.0 and includes its license. Its Node engine
+  floor is `>=22.13.0 || >=24`; Electron 43 ships Node 24.17.0, so the target runtime
+  satisfies the package floor. The renderer uses the browser display build, not the
+  Node canvas path or optional native canvas dependency.
+- A disposable Vite 8 production probe successfully emitted a local display bundle
+  and separate local `pdf.worker` asset from `pdfjs-dist/build/pdf.mjs` and
+  `pdfjs-dist/build/pdf.worker.mjs?url`; the normal application production build also
+  passed after locking the dependency.
+- Sandbox/CSP/offline fetch, accessible canvas/text-layer behavior, cancellation,
+  fixed-route ranges, and the 200 MB boundary remain explicit implementation
+  failure-boundary tests; candidate acceptance does not claim those unimplemented
+  product paths already work.
+
+**Decision**: Accept exact `pdfjs-dist` 6.1.200 for the planned display-only renderer
+boundary. Any version change or use of its full viewer/editor/Node canvas surfaces
+requires a new dependency and capability review.
+
 ## Settings composition
 
 **Decision**: Open Settings as a category-external application-level area. Compose the existing 005 provider panel with a new renderer form for 006 MinerU/SiliconFlow service APIs, while keeping each owner’s revision, secret, validation, error, and save semantics separate. Record category/item/focus before opening and restore a still-valid target on close.
@@ -50,15 +71,15 @@
 
 ## Visual structure from the reference
 
-**Decision**: Treat the official [shadcn/ui `sidebar-09`](https://ui.shadcn.com/blocks/sidebar#sidebar-09) registry source as the named composition reference. Adapt its outer collapsible wrapper containing a fixed icon sidebar and a flex-filling context sidebar, its CSS width variables, category-click expansion, inset main, sticky trigger/separator/breadcrumb header, and dense two-line list rows. Use a default composite width around 350 px (`clamp(21.875rem, 30vw, 25rem)`), a 64 px rail, and a flexible main canvas. Use semantic background/card/muted/border/ring tokens, restrained 1 px boundaries, 88–112 px information-dense list rows, 18–20 px icons inside 44 px targets, and distinct current/hover/focus states.
+**Decision**: Treat the official [shadcn/ui `sidebar-09`](https://ui.shadcn.com/blocks/sidebar#sidebar-09) registry source as the named composition reference and the official Base UI **Lyra** registry as the component/style source. Use Neutral tokens, Inter-first typography, Lucide icons, radius none, 1 px boundaries, compact text, a 64 px rail, and a flexible main canvas. Retain 44 px pointer targets as the accepted desktop accessibility constraint.
 
-**Rationale**: The block confirms the screenshot is a deliberate nested-sidebar layout rather than an inferred three-column grid. Its 350 px provider width leaves about 610 px for main content at 960 px. Semantic Rhea tokens keep light, dark, and forced-color modes valid.
+**Rationale**: The maintainer supplied the Lyra preset as the exact visual target. The block confirms the nested-sidebar topology, while the registry provides reviewed source-owned primitives instead of local approximations.
 
 **Alternatives considered**: Pixel-copying the black palette breaks themes. Three equal columns weaken hierarchy. Installing the sample without product adaptation imports mail/account behavior and incompatible interaction defaults.
 
-## Official sidebar source adaptation
+## Official shadcn source adoption
 
-**Decision**: Reimplement the reviewed `sidebar-09` composition in feature-owned workspace components using existing Rhea/Base UI primitives. Do not run the registry block as an overwrite and do not add the fetched New York/Radix `Sidebar` primitive verbatim.
+**Decision**: Compose the reviewed `sidebar-09` topology from source-owned shadcn Base UI Lyra primitives. Matching controls use the official registry structure and classes, adapted only for Lucide icon substitution, application state callbacks, focus-return targets, and the accepted 44 px pointer target. The launch project picker uses the same primitives and tokens.
 
 **Reviewed source snapshot (2026-07-13)**:
 
@@ -66,9 +87,9 @@
 - [`sidebar` primitive registry JSON](https://ui.shadcn.com/r/styles/new-york-v4/sidebar.json): SHA-256 `a58ce44fe368b62399bf501ea1dfb2a3ba886a11decc01585875508ae633c49f`.
 - A changed upstream fingerprint requires a fresh diff review; it does not silently supersede this plan.
 
-**Rationale**: The reviewed official source writes a seven-day `sidebar_state` cookie, registers global `⌘/Ctrl+B`, switches its subtree to a Sheet using `useIsMobile`, uses default 28–32 px controls, and imports Radix `Slot` plus Sheet/Skeleton dependencies. Those conflict with 013 session-only layout, BlockNote bold, persistent owner identity/responsive design, 012’s 44 px target, and ADR-003’s selected Base UI boundary. The useful portions are composition and styles, which shadcn’s source-owned model permits the project to adapt and audit.
+**Rationale**: The demo block's cookie, global shortcut, Sheet and mail/account behavior remain unsuitable, but its components should not be re-created. Lyra already uses the accepted Base UI boundary and supplies the requested compact, square, neutral visual language.
 
-**Alternatives considered**: Verbatim `shadcn add sidebar-09` risks overwriting owned components and adds unused mail search, Unreads switch, account/avatar/dropdown, random sample state, Radix, Sheet, Skeleton, and extra tokens. Adding a parallel Sidebar design system violates ADR-003. Ignoring the source would discard a precise, user-supplied implementation reference.
+**Alternatives considered**: Verbatim demo installation adds unrelated mail/account behavior and persistence. Locally restyling HTML or maintaining parallel custom primitives caused visual drift and was rejected by the maintainer.
 
 ## Source-to-product mapping
 
@@ -88,7 +109,7 @@
 
 ## UI foundation and icon use
 
-**Decision**: Reuse Button, Tooltip, ScrollArea, Separator, Badge, Card, EmptyState, StatusNotice/Alert, Dialog only for owner confirmations, Typeset, semantic tokens, and Lucide named imports. Keep `WorkspaceNavigationFrame`, category rail, context list, feature-local breadcrumb, detail, and Settings as feature compositions. Add reviewed 012 action placements for Sections, Knowledge Base, Settings, and sidebar toggle; do not add the Radix Sidebar/Sheet/Tabs primitives.
+**Decision**: Use shadcn Base UI Lyra components for every matching control and keep only product-level compositions such as `WorkspaceNavigationFrame`, category rail, context list, detail, Settings and launch-project workflow. Add reviewed 012 action placements for Sections, Knowledge Base, Settings, and sidebar toggle; do not add Radix or a second primitive stack.
 
 **Rationale**: ADR-003 requires composition before extending shared primitives. The new navigation does not demonstrate a missing base control.
 

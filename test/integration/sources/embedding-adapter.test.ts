@@ -21,7 +21,7 @@ test('uses the fixed endpoint/profile and validates exact indexed 1024-finite ve
     texts: [{ chunkId: 'chunk', contentHash: 'hash', text: 'bounded text' }],
     signal: new AbortController().signal,
   });
-  expect(requestUrl).toBe('https://api.siliconflow.com/v1/embeddings');
+  expect(requestUrl).toBe('https://api.siliconflow.cn/v1/embeddings');
   expect(requestBody).toContain('"model":"BAAI/bge-m3"');
   expect(requestBody).toContain('"encoding_format":"float"');
   expect(output[0].vector).toBeInstanceOf(Float32Array);

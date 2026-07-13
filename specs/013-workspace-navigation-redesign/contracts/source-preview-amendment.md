@@ -1,8 +1,8 @@
 # Proposed amendment: 006 source detail and original PDF preview
 
-**Status**: Draft producer-contract amendment required before 013 implementation.
+**Status**: Accepted and incorporated — maintainer accepted 2026-07-13; incorporated into the accepted 006 plan/contract and ADR-005 v1.1.
 
-This document does not itself amend the accepted 006 contract or ADR-005. Its clauses must be incorporated into and accepted in those source documents before implementation.
+This document records the consumer proposal and traceability. Its clauses are incorporated into and governed by the accepted 006 plan/contract and ADR-005 v1.1.
 
 ## Read-model delta
 

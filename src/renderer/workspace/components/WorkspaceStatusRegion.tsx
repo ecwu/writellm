@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import type { OwnerStatusSummary } from '../workspaceSession';
 export function WorkspaceStatusRegion({ status }: { status: OwnerStatusSummary | null }) {
   return (
-    <section className="workspace-status" aria-label="Workspace status">
+    <section className="shrink-0 border-t border-border/40 px-4 py-2" aria-label="Workspace status">
       {status ? (
         <StatusNotice tone={status.severity} urgent={status.state === 'error'}>
           <span>{status.message}</span>

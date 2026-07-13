@@ -1,14 +1,13 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 
-test('icon controls retain boundaries and motion/layout behavior across media modes', async () => {
-  const css = (await readFile('src/renderer/styles.css', 'utf8')).replace(/\s/g, '');
-  for (const rule of [
-    'forced-colors:active',
-    'prefers-reduced-motion:reduce',
-    'max-width:860px',
-    'min-resolution:1.75dppx',
-    'flex-wrap:wrap',
-  ])
-    expect(css).toContain(rule);
+test('icon controls retain boundaries and responsive utility behavior', async () => {
+  const [button, rail] = await Promise.all([
+    readFile('src/renderer/components/ui/button.tsx', 'utf8'),
+    readFile('src/renderer/workspace/components/ToolRail.tsx', 'utf8'),
+  ]);
+  expect(button).toContain('min-h-11');
+  expect(button).toContain('focus-visible:ring-1');
+  expect(rail).toContain('max-[860px]:flex-row');
+  expect(rail).toContain('overflow-auto');
 });

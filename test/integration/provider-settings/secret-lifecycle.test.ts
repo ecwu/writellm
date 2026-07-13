@@ -41,3 +41,14 @@ test('replace/remove obey CAS and a protection failure preserves current state',
   expect(r.summary().secretState).toBe('not-configured');
   expect(await readFile(path.join(dir, 'provider-settings.json'), 'utf8')).not.toContain('two');
 });
+
+test('composed Settings keeps provider secret write-only and owner-scoped', async () => {
+  const [provider, settings] = await Promise.all([
+    readFile('src/renderer/features/provider-settings/ProviderSettingsPanel.tsx', 'utf8'),
+    readFile('src/renderer/workspace/components/SettingsArea.tsx', 'utf8'),
+  ]);
+  expect(provider).toContain('type="password"');
+  expect(provider).toContain("secret: ''");
+  expect(settings).toContain('<ProviderSettingsPanel />');
+  expect(settings).not.toContain('secret=');
+});

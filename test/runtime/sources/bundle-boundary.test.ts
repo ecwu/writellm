@@ -21,6 +21,7 @@ test('compiled renderer bundle contains no privileged source implementation', as
     'IndexRepository',
     'Float32Array(1024)',
     'mineru.net/api',
+    'api.siliconflow.cn',
     'api.siliconflow.com',
   ])
     expect(bundle).not.toContain(forbidden);

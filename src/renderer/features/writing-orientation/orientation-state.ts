@@ -26,12 +26,43 @@ export type OrientationState = {
   saveState: 'saved' | 'dirty' | 'saving' | 'failed';
   lastError: OrientationError | null;
 };
+export type SectionNavigationItem = {
+  id: string;
+  title: string;
+  summary: string;
+  status: OutlineStatus;
+  chapter: { kind: 'linked'; chapterId: string } | { kind: 'not-created' };
+  ownerRevision: number;
+  persisted: boolean;
+};
 export const itemId = (item: DraftItem) =>
   'outlineItemId' in item ? item.outlineItemId : item.clientDraftId;
 export const content = (document: OrientationDraft | WritingOrientationDocument) =>
   JSON.stringify({ motivation: document.motivation, outlineItems: document.outlineItems });
 export const isDirty = (state: OrientationState) =>
   content(state.draft) !== content(state.baseline);
+export function projectSectionNavigationItems(state: OrientationState): SectionNavigationItem[] {
+  return state.draft.outlineItems.map((item) => ({
+    id: itemId(item),
+    title: item.title,
+    summary: item.summary,
+    status: item.status,
+    chapter: item.chapterRef
+      ? { kind: 'linked' as const, chapterId: item.chapterRef }
+      : { kind: 'not-created' as const },
+    ownerRevision: state.draft.revision,
+    persisted: 'outlineItemId' in item,
+  }));
+}
+
+export function revalidateSectionSelection(state: OrientationState): OrientationState {
+  const ids = new Set(state.draft.outlineItems.map(itemId));
+  if (state.selectedOutlineItemId && ids.has(state.selectedOutlineItemId)) return state;
+  return {
+    ...state,
+    selectedOutlineItemId: state.draft.outlineItems[0] ? itemId(state.draft.outlineItems[0]) : null,
+  };
+}
 export function initializeOrientation(document: WritingOrientationDocument): OrientationState {
   return {
     baseline: document,

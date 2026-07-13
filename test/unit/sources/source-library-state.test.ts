@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   createSourceLibraryState,
+  sourceErrorCopy,
   sourceLibraryReducer,
 } from '../../../src/renderer/features/sources/source-state';
 import { sourceEventFixture, sourceFixture } from '../../fixtures/sources/source-fixtures';
@@ -30,6 +31,16 @@ test('pages sources, tracks candidates and requests authoritative reload on even
     event: sourceEventFixture({ sequence: 2 }),
   });
   expect(state.needsResync).toBe(true);
+});
+
+test('maps stable source error codes to safe actionable copy', () => {
+  expect(sourceErrorCopy({ code: 'SOURCE_MINERU_AUTH' })).toEqual({
+    message:
+      'A processing service rejected its credential. Review the saved credential in Settings.',
+    action: 'settings',
+  });
+  expect(sourceErrorCopy({ code: 'SOURCE_UNSUPPORTED_PDF' }).action).toBe('remove');
+  expect(sourceErrorCopy({ code: 'SOURCE_SILICONFLOW_TEMPORARY' }).action).toBe('retry');
 });
 
 test('applies contiguous source and duplicate candidate events', () => {

@@ -15,7 +15,7 @@ test('launch actions use the canonical Lucide mappings, stable labels and busy f
     'FolderOpen',
     'Trash2',
     'Create project',
-    'Open project',
+    'Open existing project',
     'Opening project…',
     'busy={busy}',
   ])

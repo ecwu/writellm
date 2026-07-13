@@ -7,7 +7,7 @@ export const WorkspaceSlot = forwardRef<
   <main
     ref={ref}
     tabIndex={-1}
-    className="workspace-slot"
+    className="min-h-0 min-w-0 overflow-auto p-[clamp(1rem,3vw,2rem)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     aria-label={`Workspace for ${project.displayName}`}
     data-project-id={project.projectId}
   >

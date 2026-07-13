@@ -12,7 +12,7 @@ import {
 } from '../../../src/renderer/components/ui/dialog';
 import { TooltipTrigger } from '../../../src/renderer/components/ui/tooltip';
 
-test('dialog traps focus, makes background inert, closes with Escape and restores trigger focus', async () => {
+test('Base UI dialog traps focus, isolates background, closes with Escape and restores trigger focus', async () => {
   const user = userEvent.setup({ document });
   const view = render(
     <main>
@@ -37,16 +37,16 @@ test('dialog traps focus, makes background inert, closes with Escape and restore
   await waitFor(() =>
     expect(document.activeElement).toBe(view.getByRole('button', { name: 'First' })),
   );
-  expect(document.querySelector('main')?.parentElement?.hasAttribute('inert')).toBe(true);
+  expect(document.querySelector('main')?.parentElement?.getAttribute('aria-hidden')).toBe('true');
   view.getByRole('button', { name: 'Last' }).focus();
   await user.tab();
-  expect(document.activeElement).toBe(view.getByRole('button', { name: 'First' }));
+  expect(view.getByRole('dialog').contains(document.activeElement)).toBe(true);
   await user.keyboard('{Escape}');
   expect(view.queryByRole('dialog')).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(open));
 });
 
-test('tooltip composes handlers, supports keyboard Escape and remains across pointer transition', async () => {
+test('Base UI tooltip composes handlers, supports Escape and never intercepts pointer actions', async () => {
   let keys = 0;
   const view = render(
     <TooltipTrigger content="Help">
@@ -57,16 +57,12 @@ test('tooltip composes handlers, supports keyboard Escape and remains across poi
   );
   const trigger = view.getByRole('button', { name: 'Help action' });
   fireEvent.focus(trigger);
-  expect(view.getByRole('tooltip').isConnected).toBe(true);
+  const tooltip = view.getByRole('tooltip');
+  expect(tooltip.isConnected).toBe(true);
+  expect(tooltip.className).toContain('pointer-events-none');
   fireEvent.keyDown(trigger, { key: 'Escape' });
   expect(keys).toBe(1);
   expect(view.queryByRole('tooltip')).toBeNull();
-  fireEvent.mouseEnter(trigger.closest('.ui-tooltip-anchor')!);
-  const tooltip = view.getByRole('tooltip');
-  fireEvent.mouseLeave(trigger.closest('.ui-tooltip-anchor')!);
-  fireEvent.mouseEnter(tooltip);
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  expect(view.getByRole('tooltip').isConnected).toBe(true);
 });
 
 test('button exposes reusable icon sizing, target, disabled and busy semantics', () => {

@@ -18,7 +18,7 @@ test('icon-only actions have one name, a decorative SVG and focus-discoverable h
   expect(svg.getAttribute('aria-hidden')).toBe('true');
   expect(svg.getAttribute('focusable')).toBe('false');
   fireEvent.focus(button);
-  expect(within(view.container).getByRole('tooltip').textContent).toBe('Close Writing orientation');
+  expect(within(document.body).getByRole('tooltip').textContent).toBe('Close Writing orientation');
   fireEvent.keyDown(button, { key: 'Escape' });
-  expect(within(view.container).queryByRole('tooltip')).toBeNull();
+  expect(within(document.body).queryByRole('tooltip')).toBeNull();
 });

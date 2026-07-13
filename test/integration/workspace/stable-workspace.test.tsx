@@ -4,6 +4,10 @@ import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspaceShell } from '../../../src/renderer/workspace/WorkspaceShell';
 import { ObservableSlot, panels, project } from '../../fixtures/workspace/workspace-fixtures';
+import {
+  navigationProject,
+  PersistentOwnerFixture,
+} from '../../fixtures/workspace/workspace-navigation-fixtures';
 
 beforeEach(() => document.body.replaceChildren());
 
@@ -69,4 +73,28 @@ test('status updates do not remount the workspace slot', () => {
   );
   expect(view.getByTestId('observable-slot')).toBe(slot);
   expect(view.getByRole('alert').textContent).toContain('Write failed safely');
+});
+
+test('navigation composition keeps both visited project owners mounted', async () => {
+  const user = userEvent.setup({ document });
+  const view = render(
+    <WorkspaceShell
+      project={navigationProject}
+      sections={<PersistentOwnerFixture label="Sections owner" />}
+      knowledgeBase={<PersistentOwnerFixture label="Knowledge owner" />}
+      settings={(close) => (
+        <button type="button" onClick={close}>
+          Close
+        </button>
+      )}
+      onLeaveWorkspace={() => {}}
+    />,
+  );
+  const sections = view.getByRole('textbox', { name: 'Sections owner' });
+  await user.click(view.getByRole('button', { name: 'Knowledge Base' }));
+  const knowledge = view.getByRole('textbox', { name: 'Knowledge owner' });
+  await user.click(view.getByRole('button', { name: 'Sections' }));
+  expect(view.getByRole('textbox', { name: 'Sections owner' })).toBe(sections);
+  await user.click(view.getByRole('button', { name: 'Knowledge Base' }));
+  expect(view.getByRole('textbox', { name: 'Knowledge owner' })).toBe(knowledge);
 });

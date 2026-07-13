@@ -9,9 +9,9 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="empty-state">
-      <h3>{title}</h3>
-      <p>{description}</p>
+    <div className="grid gap-2 p-6 text-muted-foreground">
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      <p className="m-0 text-xs">{description}</p>
       {action}
     </div>
   );

@@ -69,12 +69,15 @@ export class SourceImportService {
     if (candidate.pendingPath) await rm(candidate.pendingPath, { force: true });
     this.candidates.delete(candidateId);
     const revision = (await this.options.repository.list(session, { limit: 1 })).catalogRevision;
-    this.options.events.publish({
-      catalogRevision: revision,
-      type: 'candidate-updated',
-      candidateId,
-      candidateStatus: 'canceled',
-    });
+    this.options.events.publish(
+      {
+        catalogRevision: revision,
+        type: 'candidate-updated',
+        candidateId,
+        candidateStatus: 'canceled',
+      },
+      session.sessionId,
+    );
     return true;
   }
 
@@ -149,12 +152,15 @@ export class SourceImportService {
           originalBytes: bytes,
         });
         if (result.status === 'duplicate') {
-          this.options.events.publish({
-            catalogRevision: result.catalogRevision,
-            type: 'candidate-updated',
-            candidateId,
-            candidateStatus: 'duplicate-confirmed',
-          });
+          this.options.events.publish(
+            {
+              catalogRevision: result.catalogRevision,
+              type: 'candidate-updated',
+              candidateId,
+              candidateStatus: 'duplicate-confirmed',
+            },
+            session.sessionId,
+          );
           return;
         }
         if (result.status !== 'created') throw new Error('conflict');
@@ -175,29 +181,38 @@ export class SourceImportService {
         if (this.options.enqueueJob) await this.options.enqueueJob(job);
         else await (await this.jobs(session.projectRoot)).enqueue(job);
         this.options.onJobQueued?.();
-        this.options.events.publish({
-          catalogRevision: result.catalogRevision,
-          type: 'source-upserted',
-          source: result.source,
-        });
-        this.options.events.publish({
-          catalogRevision: result.catalogRevision,
-          type: 'candidate-updated',
-          candidateId,
-          candidateStatus: 'accepted',
-        });
+        this.options.events.publish(
+          {
+            catalogRevision: result.catalogRevision,
+            type: 'source-upserted',
+            source: result.source,
+          },
+          session.sessionId,
+        );
+        this.options.events.publish(
+          {
+            catalogRevision: result.catalogRevision,
+            type: 'candidate-updated',
+            candidateId,
+            candidateStatus: 'accepted',
+          },
+          session.sessionId,
+        );
       });
     } catch {
       const revision = await this.options.repository
         .list(session, { limit: 1 })
         .then((v) => v.catalogRevision)
         .catch(() => 0);
-      this.options.events.publish({
-        catalogRevision: revision,
-        type: 'candidate-updated',
-        candidateId,
-        candidateStatus: 'failed',
-      });
+      this.options.events.publish(
+        {
+          catalogRevision: revision,
+          type: 'candidate-updated',
+          candidateId,
+          candidateStatus: 'failed',
+        },
+        session.sessionId,
+      );
     } finally {
       await rm(pendingPath, { force: true });
       this.candidates.delete(candidateId);

@@ -20,7 +20,7 @@ export function MarkdownExportDialog({
         if (!open && !busy) onCancel();
       }}
     >
-      <DialogContent className="workspace-leave-dialog">
+      <DialogContent>
         <DialogTitle>Export Markdown</DialogTitle>
         <DialogDescription>
           The preview below is the exact UTF-8 text that will be exported.
@@ -30,7 +30,9 @@ export function MarkdownExportDialog({
             {warning.message}
           </p>
         ))}
-        <pre className="markdown-preview">{preview?.markdown}</pre>
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-muted p-3">
+          {preview?.markdown}
+        </pre>
         <Button autoFocus busy={busy} onClick={onExport}>
           <Download aria-hidden="true" focusable="false" />
           Choose export location

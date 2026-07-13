@@ -1,3 +1,4 @@
+import { Save } from 'lucide-react';
 import {
   type ReactNode,
   useCallback,
@@ -7,7 +8,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Save } from 'lucide-react';
 import { EmptyState } from '@/components/patterns/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -15,8 +15,14 @@ import type { ProjectSnapshot } from '../../shared/project';
 import { ProjectNavigation } from './components/ProjectNavigation';
 import { ToolPanelHost } from './components/ToolPanelHost';
 import { ToolRail } from './components/ToolRail';
+import { WorkspaceCategoryRail } from './components/WorkspaceCategoryRail';
+import { WorkspaceNavigationFrame } from './components/WorkspaceNavigationFrame';
 import { WorkspaceSlot } from './components/WorkspaceSlot';
 import { WorkspaceStatusRegion } from './components/WorkspaceStatusRegion';
+import {
+  createWorkspaceNavigationSession,
+  workspaceNavigationSessionReducer,
+} from './workspaceNavigationSession';
 import {
   createWorkspaceSession,
   type OwnerStatusSummary,
@@ -40,7 +46,185 @@ export type WorkspaceLeaveGuard = {
   discard(): void;
 };
 
-export function WorkspaceShell({
+export type WorkspaceNavigationShellProps = {
+  project: ProjectSnapshot;
+  sections: ReactNode | ((controls: WorkspaceOwnerNavigationControls) => ReactNode);
+  knowledgeBase: ReactNode | ((controls: WorkspaceOwnerNavigationControls) => ReactNode);
+  settings(close: () => void): ReactNode;
+  statuses?: readonly OwnerStatusSummary[];
+  onLeaveWorkspace(): void;
+  leaveGuard?: WorkspaceLeaveGuard;
+};
+export type WorkspaceOwnerNavigationControls = {
+  activateItem(): void;
+  showList(): void;
+  openSettings(): void;
+};
+
+export function WorkspaceShell(props: WorkspaceShellProps | WorkspaceNavigationShellProps) {
+  return 'sections' in props ? (
+    <NavigationWorkspaceShell {...props} />
+  ) : (
+    <LegacyWorkspaceShell {...props} />
+  );
+}
+
+function NavigationWorkspaceShell({
+  project,
+  sections,
+  knowledgeBase,
+  settings,
+  statuses = [],
+  onLeaveWorkspace,
+  leaveGuard,
+}: WorkspaceNavigationShellProps) {
+  const [session, dispatch] = useReducer(
+    workspaceNavigationSessionReducer,
+    project.projectId,
+    createWorkspaceNavigationSession,
+  );
+  const triggers = useRef(new Map<string, HTMLButtonElement>());
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
+  useEffect(
+    () => dispatch({ type: 'project.reset', projectId: project.projectId }),
+    [project.projectId],
+  );
+  const closeSettings = useCallback(() => {
+    const returnKey = session.settings?.focusKey ?? session.focusReturnKey;
+    dispatch({ type: 'settings.close' });
+    queueMicrotask(() => {
+      const target = returnKey ? triggers.current.get(returnKey) : null;
+      (target?.isConnected
+        ? target
+        : triggers.current.get(`category-${session.activeCategory}`)
+      )?.focus();
+    });
+  }, [session.activeCategory, session.focusReturnKey, session.settings]);
+  const requestLeave = () => {
+    if (!leaveGuard?.dirty) onLeaveWorkspace();
+    else {
+      setLeaveError('');
+      setLeaveOpen(true);
+    }
+  };
+  const saveAndLeave = async () => {
+    if (!leaveGuard || leaveBusy) return;
+    setLeaveBusy(true);
+    const result = await leaveGuard
+      .save()
+      .catch(() => ({ ok: false as const, message: 'Your work could not be saved.' }));
+    setLeaveBusy(false);
+    if (result.ok) onLeaveWorkspace();
+    else setLeaveError(result.message);
+  };
+  const primaryStatus = selectPrimaryStatus(statuses);
+  const openSettings = useCallback(() => {
+    dispatch({ type: 'settings.open', focusKey: 'settings' });
+    queueMicrotask(() =>
+      (document.querySelector('[data-settings-heading]') as HTMLElement | null)?.focus(),
+    );
+  }, []);
+  const ownerControls: WorkspaceOwnerNavigationControls = {
+    activateItem: () =>
+      dispatch({
+        type: 'item.activate',
+        category: session.activeCategory,
+        itemId: `owner-selection-${session.generation + 1}`,
+      }),
+    showList: () => dispatch({ type: 'list.show' }),
+    openSettings,
+  };
+  const ownerContent = (
+    <div className="workspace-owner-stack col-[2/4] grid min-h-0 min-w-0 max-[719px]:col-start-1 max-[719px]:row-start-2">
+      <div
+        className="col-start-1 row-start-1 min-h-0 min-w-0"
+        hidden={session.activeCategory !== 'sections'}
+        inert={session.activeCategory !== 'sections' ? true : undefined}
+      >
+        {typeof sections === 'function' ? sections(ownerControls) : sections}
+      </div>
+      {(session.visitedCategories.has('knowledge-base') ||
+        session.activeCategory === 'knowledge-base') && (
+        <div
+          className="col-start-1 row-start-1 min-h-0 min-w-0"
+          hidden={session.activeCategory !== 'knowledge-base'}
+          inert={session.activeCategory !== 'knowledge-base' ? true : undefined}
+        >
+          {typeof knowledgeBase === 'function' ? knowledgeBase(ownerControls) : knowledgeBase}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <>
+      <WorkspaceNavigationFrame
+        workspaceRef={workspaceRef}
+        settingsOpen={Boolean(session.settings)}
+        sidebarExpanded={session.sidebarExpanded}
+        compactPane={session.compactPane}
+        onToggleSidebar={() => dispatch({ type: 'sidebar.toggle' })}
+        rail={
+          <WorkspaceCategoryRail
+            project={project}
+            activeCategory={session.activeCategory}
+            settingsOpen={Boolean(session.settings)}
+            registerTrigger={(key) => (node) => {
+              if (node) triggers.current.set(key, node);
+              else triggers.current.delete(key);
+            }}
+            onCategory={(category) => dispatch({ type: 'category.activate', category })}
+            onSettings={() => {
+              if (session.settings) closeSettings();
+              else openSettings();
+            }}
+            onLeave={requestLeave}
+          />
+        }
+        content={ownerContent}
+        settings={settings(closeSettings)}
+        status={<WorkspaceStatusRegion status={primaryStatus} />}
+      />
+      <Dialog
+        open={leaveOpen}
+        onOpenChange={(open) => {
+          if (!leaveBusy) setLeaveOpen(open);
+        }}
+      >
+        <DialogContent
+          finalFocus={() => document.querySelector<HTMLElement>('[data-dialog-focus-fallback]')}
+        >
+          <DialogTitle>
+            Unsaved {leaveGuard?.ownerId === 'chapter' ? 'chapter' : 'writing orientation'}
+          </DialogTitle>
+          <DialogDescription>Save your changes before leaving this project?</DialogDescription>
+          {leaveError && <p role="alert">{leaveError}</p>}
+          <Button autoFocus busy={leaveBusy} onClick={() => void saveAndLeave()}>
+            <Save aria-hidden="true" focusable="false" />
+            Save and leave
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={leaveBusy}
+            onClick={() => {
+              leaveGuard?.discard();
+              onLeaveWorkspace();
+            }}
+          >
+            Discard and leave
+          </Button>
+          <Button disabled={leaveBusy} onClick={() => setLeaveOpen(false)}>
+            Stay
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function LegacyWorkspaceShell({
   project,
   workspaceSlot,
   panels,
@@ -143,9 +327,9 @@ export function WorkspaceShell({
   };
 
   return (
-    <div className="workspace-shell">
+    <div className="grid min-h-svh grid-rows-[auto_minmax(0,1fr)_auto] bg-background">
       <ProjectNavigation project={project} onLeave={requestLeave} />
-      <div className="workspace-layout">
+      <div className="grid min-h-0 grid-cols-[auto_minmax(0,1fr)_minmax(16rem,24rem)] max-[860px]:grid-cols-1 max-[860px]:grid-rows-[auto_minmax(12rem,1fr)_auto]">
         <ToolRail
           panels={availablePanels}
           activePanelId={session.activePanelId}
@@ -182,7 +366,9 @@ export function WorkspaceShell({
           if (!leaveBusy) setLeaveOpen(open);
         }}
       >
-        <DialogContent className="workspace-leave-dialog">
+        <DialogContent
+          finalFocus={() => document.querySelector<HTMLElement>('[data-dialog-focus-fallback]')}
+        >
           <DialogTitle>
             Unsaved {leaveGuard?.ownerId === 'chapter' ? 'chapter' : 'writing orientation'}
           </DialogTitle>

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export type SourceJobState =
@@ -26,6 +26,10 @@ export type SourceJob = {
   retryAt?: string;
   lease?: { workerId: string; expiresAt: string };
   errorCode?: string;
+  errorMessage?: string;
+  errorRetryable?: boolean;
+  failedAt?: string;
+  progress?: { completed: number; total: number; stage: 'queued' | 'parsing' | 'indexing' };
   remoteBatchId?: string;
   resultArchive?: string;
 };
@@ -115,29 +119,53 @@ export class SourceJobRepository {
       state: 'completed',
       lease: undefined,
       retryAt: undefined,
+      errorCode: undefined,
+      errorMessage: undefined,
+      errorRetryable: undefined,
+      failedAt: undefined,
+      progress:
+        job.progress && job.progress.total > 0
+          ? { ...job.progress, completed: job.progress.total }
+          : job.progress,
     }));
   }
   patch(
     jobId: string,
-    fields: Partial<Pick<SourceJob, 'remoteBatchId' | 'resultArchive'>>,
+    fields: Partial<Pick<SourceJob, 'remoteBatchId' | 'resultArchive' | 'progress'>>,
   ): Promise<void> {
-    return this.update(jobId, (job) => ({ ...job, ...fields }));
+    return this.update(jobId, (job) => ({
+      ...job,
+      ...fields,
+      ...(fields.progress ? { progress: normalizeProgress(fields.progress) } : {}),
+    }));
   }
   fail(
     jobId: string,
-    input: { retryable: boolean; retryAt?: string; errorCode?: string },
+    input: { retryable: boolean; retryAt?: string; errorCode?: string; errorMessage?: string },
   ): Promise<void> {
     return this.update(jobId, (job) => {
       const attempt = job.state === 'running' ? job.attempt : job.attempt + 1;
+      const retrying = input.retryable && attempt < 6;
       return {
         ...job,
-        state: input.retryable && attempt < 6 ? 'retrying' : 'failed',
-        retryAt: input.retryable && attempt < 6 ? input.retryAt : undefined,
+        state: retrying ? 'retrying' : 'failed',
+        retryAt: retrying ? input.retryAt : undefined,
         errorCode: input.errorCode,
+        errorMessage: safeErrorMessage(input.errorMessage),
+        errorRetryable: retrying,
+        failedAt: retrying ? undefined : this.now(),
         lease: undefined,
         attempt,
       };
     });
+  }
+  earliestRetryAt(predicate?: (job: SourceJob) => boolean): string | undefined {
+    let earliest: string | undefined;
+    for (const job of this.jobs.values()) {
+      if (job.state !== 'retrying' || !job.retryAt || (predicate && !predicate(job))) continue;
+      if (!earliest || Date.parse(job.retryAt) < Date.parse(earliest)) earliest = job.retryAt;
+    }
+    return earliest;
   }
   supersedeSource(sourceId: string): Promise<void> {
     return this.serial(async () => {
@@ -195,10 +223,13 @@ export class SourceJobRepository {
   }
   private async persist(job: SourceJob): Promise<void> {
     const record: LedgerRecord = { kind: 'writellm.source-job-ledger', schemaVersion: 1, job };
-    await (await import('node:fs/promises')).appendFile(
-      this.ledgerPath(),
-      `${JSON.stringify(record)}\n`,
-    );
+    const handle = await open(this.ledgerPath(), 'a');
+    try {
+      await handle.writeFile(`${JSON.stringify(record)}\n`);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
   }
   private restore(job: SourceJob): void {
     if (!validJob(job)) return;
@@ -241,4 +272,19 @@ function validJob(value: SourceJob): boolean {
     typeof value.jobId === 'string' &&
     typeof value.idempotencyKey === 'string'
   );
+}
+
+function normalizeProgress(
+  progress: NonNullable<SourceJob['progress']>,
+): NonNullable<SourceJob['progress']> {
+  const total = Number.isFinite(progress.total) ? Math.max(0, Math.floor(progress.total)) : 0;
+  const completed = Number.isFinite(progress.completed)
+    ? Math.max(0, Math.min(total, Math.floor(progress.completed)))
+    : 0;
+  return { ...progress, completed, total };
+}
+
+function safeErrorMessage(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/[\r\n\t]/g, ' ').slice(0, 512);
 }

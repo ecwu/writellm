@@ -1,5 +1,36 @@
 const encoder = new TextEncoder();
 
+export const smallRangedPdfFixture = () => validPdfFixture();
+export const tamperedPdfFixture = () => {
+  const bytes = validPdfFixture();
+  const tampered = new Uint8Array(bytes);
+  tampered[0] = 0;
+  return tampered;
+};
+export const pdfByteRanges = (bytes: Uint8Array) => ({
+  first: bytes.slice(0, Math.min(16, bytes.byteLength)),
+  middle: bytes.slice(
+    Math.max(0, Math.floor(bytes.byteLength / 2) - 8),
+    Math.floor(bytes.byteLength / 2) + 8,
+  ),
+  final: bytes.slice(Math.max(0, bytes.byteLength - 16)),
+});
+
+/** A deterministic sparse boundary fixture that does not allocate 200 MB in test memory. */
+export async function createBoundaryPdfFixture(path: string, size = 200 * 1024 * 1024) {
+  const { open } = await import('node:fs/promises');
+  const handle = await open(path, 'w');
+  try {
+    await handle.write(encoder.encode('%PDF-1.7\n'), 0, 9, 0);
+    await handle.truncate(size);
+    const end = encoder.encode('\n%%EOF');
+    await handle.write(end, 0, end.byteLength, size - end.byteLength);
+  } finally {
+    await handle.close();
+  }
+  return { path, size };
+}
+
 function pdf(body: string, pages = 1): Uint8Array {
   const pageObjects = Array.from({ length: pages }, (_, index) => `${index + 3} 0 R`).join(' ');
   return encoder.encode(

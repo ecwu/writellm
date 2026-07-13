@@ -21,7 +21,10 @@ test('performs signed submit, PUT, poll and immediate download without leaking c
     if (url.includes('upload.test')) return new Response('', { status: 200 });
     if (url.includes('extract-results'))
       return Response.json({
-        data: { state: 'done', full_zip_url: 'https://download.test/result.zip' },
+        data: {
+          batch_id: 'remote-id',
+          extract_result: [{ state: 'done', full_zip_url: 'https://download.test/result.zip' }],
+        },
       });
     return new Response('zip', { status: 200 });
   };
@@ -38,6 +41,7 @@ test('performs signed submit, PUT, poll and immediate download without leaking c
   });
   expect(submitted.remoteBatchId).toBe('remote-id');
   expect(calls[1].init?.method).toBe('PUT');
+  expect(calls[1].init?.headers).toBeUndefined();
   const observation = await adapter.poll({
     remoteBatchId: submitted.remoteBatchId,
     signal: new AbortController().signal,
@@ -52,6 +56,28 @@ test('performs signed submit, PUT, poll and immediate download without leaking c
     });
   expect(await readFile(destination, 'utf8')).toBe('zip');
   expect(JSON.stringify(calls.map((call) => call.url))).not.toContain('credential-sentinel');
+});
+
+test('reads progress from the documented batch result array', async () => {
+  const adapter = new MinerUAdapter(
+    async () => 'secret',
+    async () =>
+      Response.json({
+        code: 0,
+        data: {
+          batch_id: 'remote-id',
+          extract_result: [
+            {
+              state: 'running',
+              extract_progress: { extracted_pages: 3, total_pages: 12 },
+            },
+          ],
+        },
+      }),
+  );
+  await expect(
+    adapter.poll({ remoteBatchId: 'remote-id', signal: new AbortController().signal }),
+  ).resolves.toEqual({ state: 'running', progress: 25 });
 });
 
 test('enforces page limits and maps auth, throttling and malformed responses to stable errors', async () => {

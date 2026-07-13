@@ -23,6 +23,35 @@ test('recovers JSONL jobs, enforces idempotency and expires leases', async () =>
   expect(reopened.get(created.jobId)?.state).toBe('queued');
 });
 
+test('durably bounds progress and clears stale failure metadata on success', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'source-jobs-'));
+  const repository = new SourceJobRepository(root);
+  await repository.initialize();
+  const job = await repository.enqueue(jobFixture());
+  await repository.patch(job.jobId, {
+    progress: { completed: 150, total: 100, stage: 'parsing' },
+  });
+  await repository.fail(job.jobId, {
+    retryable: true,
+    retryAt: new Date(Date.now() + 1000).toISOString(),
+    errorCode: 'SOURCE_MINERU_TEMPORARY',
+    errorMessage: 'temporary\nprovider detail',
+  });
+  expect(repository.get(job.jobId)).toMatchObject({
+    progress: { completed: 100, total: 100, stage: 'parsing' },
+    errorCode: 'SOURCE_MINERU_TEMPORARY',
+    errorMessage: 'temporary provider detail',
+  });
+  await repository.complete(job.jobId);
+  expect(repository.get(job.jobId)).toMatchObject({ state: 'completed' });
+  expect(repository.get(job.jobId)?.errorCode).toBeUndefined();
+  expect(repository.get(job.jobId)?.errorMessage).toBeUndefined();
+  const reopened = new SourceJobRepository(root);
+  await reopened.initialize();
+  expect(reopened.get(job.jobId)?.progress.completed).toBe(100);
+  expect(reopened.get(job.jobId)?.errorCode).toBeUndefined();
+});
+
 test('persists bounded backoff, attempt caps and supersession', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'source-jobs-'));
   const repository = new SourceJobRepository(root);

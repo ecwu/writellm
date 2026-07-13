@@ -1,4 +1,11 @@
-import { Select } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { AppearancePreferences, ThemeMode } from '../../../shared/appearance';
 import { StatusNotice } from './StatusNotice';
 export function AppearanceControls({
@@ -13,17 +20,21 @@ export function AppearanceControls({
   onChange: (v: AppearancePreferences) => void;
 }) {
   return (
-    <div className="appearance-controls">
-      <label htmlFor="theme-mode">Theme</label>
+    <div className="grid max-w-60 gap-2">
+      <Label htmlFor="theme-mode">Theme</Label>
       <Select
-        id="theme-mode"
         value={preferences.themeMode}
         disabled={pending}
-        onChange={(e) => onChange({ ...preferences, themeMode: e.target.value as ThemeMode })}
+        onValueChange={(value) => onChange({ ...preferences, themeMode: value as ThemeMode })}
       >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
+        <SelectTrigger id="theme-mode" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="system">System</SelectItem>
+          <SelectItem value="light">Light</SelectItem>
+          <SelectItem value="dark">Dark</SelectItem>
+        </SelectContent>
       </Select>
       {pending ? <span role="status">Saving theme…</span> : null}
       {message ? <StatusNotice tone="warning">{message}</StatusNotice> : null}

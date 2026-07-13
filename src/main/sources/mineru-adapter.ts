@@ -1,5 +1,6 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { SourceJobExecutionError } from './scheduler.js';
+import type { SourceHttpRequest } from './service-validator.js';
 
 const API = 'https://mineru.net/api/v4';
 const MAX_PDF_BYTES = 200 * 1024 * 1024;
@@ -13,7 +14,7 @@ export type MinerUObservation =
 export class MinerUAdapter {
   constructor(
     private credential: () => Promise<string>,
-    private request: typeof fetch = fetch,
+    private request: SourceHttpRequest = fetch,
   ) {}
 
   async submitLocalPdf(input: {
@@ -53,7 +54,6 @@ export class MinerUAdapter {
       {
         method: 'PUT',
         body: bytes,
-        headers: { 'Content-Type': 'application/pdf' },
         signal: input.signal,
       },
       false,
@@ -72,17 +72,22 @@ export class MinerUAdapter {
       },
     );
     const payload = await safeJson(response);
-    const state =
-      nestedString(payload, ['data', 'state']) ??
-      nestedString(payload, ['data', 'extract_result', 'state']);
+    const result = nestedRecord(payload, ['data', 'extract_result', '0']);
+    const state = nestedString(payload, ['data', 'state']) ?? stringValue(result?.state);
     if (state === 'waiting' || state === 'pending') return { state: 'pending', progress: 0 };
     if (state === 'running' || state === 'processing')
       return {
         state: 'running',
-        progress: boundedProgress(nestedNumber(payload, ['data', 'progress'])),
+        progress: boundedProgress(
+          progressPercent(
+            nestedNumber(result, ['extract_progress', 'extracted_pages']),
+            nestedNumber(result, ['extract_progress', 'total_pages']),
+          ) ?? nestedNumber(payload, ['data', 'progress']),
+        ),
       };
     if (state === 'done' || state === 'success') {
       const resultUrl =
+        stringValue(result?.full_zip_url) ??
         nestedString(payload, ['data', 'full_zip_url']) ??
         nestedString(payload, ['data', 'result_url']);
       if (!resultUrl) throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
@@ -172,6 +177,25 @@ function nestedNumber(value: unknown, parts: string[]): number | undefined {
     else return undefined;
   }
   return typeof current === 'number' ? current : undefined;
+}
+function nestedRecord(value: unknown, parts: string[]): Record<string, unknown> | undefined {
+  let current: unknown = value;
+  for (const part of parts) {
+    if (Array.isArray(current)) current = current[Number(part)];
+    else if (typeof current === 'object' && current !== null)
+      current = (current as Record<string, unknown>)[part];
+    else return undefined;
+  }
+  return typeof current === 'object' && current !== null && !Array.isArray(current)
+    ? (current as Record<string, unknown>)
+    : undefined;
+}
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+function progressPercent(completed?: number, total?: number): number | undefined {
+  if (completed === undefined || total === undefined || total <= 0) return undefined;
+  return (completed / total) * 100;
 }
 function boundedProgress(value?: number): number {
   return typeof value === 'number' && Number.isFinite(value)

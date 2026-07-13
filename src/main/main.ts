@@ -8,6 +8,7 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  net,
   protocol,
   safeStorage,
   shell,
@@ -34,6 +35,7 @@ import { SourceReferenceReader } from './sources/reference-reader.js';
 import { SourceRemovalService } from './sources/removal-service.js';
 import { SourceServiceCredentials } from './sources/service-credentials.js';
 import { registerSourceServiceHandlers } from './sources/service-handlers.js';
+import { type SourceHttpRequest, validateSourceService } from './sources/service-validator.js';
 import { SourceEvents } from './sources/source-events.js';
 import { SourcePipeline } from './sources/source-pipeline.js';
 import { SourceRepository } from './sources/source-repository.js';
@@ -48,13 +50,25 @@ const isDevelopment = Boolean(devServerUrl);
 const rendererDirectory = path.join(__dirname, '../../dist');
 const isEditorRuntime =
   process.env.WRITELLM_EDITOR_RUNTIME === '1' || process.argv.includes('--writellm-editor-runtime');
-if (process.env.WRITELLM_SMOKE_MARKER)
+const isWorkspaceNavigationRuntime =
+  process.env.WRITELLM_WORKSPACE_NAVIGATION_RUNTIME === '1' ||
+  process.argv.includes('--writellm-workspace-navigation-runtime');
+const runtimeKind = isEditorRuntime
+  ? 'editor'
+  : isWorkspaceNavigationRuntime
+    ? 'workspace-navigation'
+    : 'app';
+const electronFetch: SourceHttpRequest = (input, init) => net.fetch(input, init);
+if (process.env.WRITELLM_SMOKE_MARKER) {
   await appendFile(process.env.WRITELLM_SMOKE_MARKER, `main-start:${isEditorRuntime}\n`);
-const hasSingleInstanceLock = isEditorRuntime || app.requestSingleInstanceLock();
+  await appendFile(process.env.WRITELLM_SMOKE_MARKER, `runtime-kind:${runtimeKind}\n`);
+}
+const hasSingleInstanceLock =
+  isEditorRuntime || isWorkspaceNavigationRuntime || app.requestSingleInstanceLock();
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'writellm-source',
-    privileges: { standard: true, secure: true, supportFetchAPI: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
   },
 ]);
 
@@ -99,6 +113,16 @@ function isRecentRequest(value: unknown): value is RecentProjectRequest {
   );
 }
 
+async function activateSourceRuntime(): Promise<void> {
+  const session = repository?.getActiveProjectSession();
+  if (session && sourceRepository) {
+    sourceRepository.setJobRepository(null);
+    const { catalogRevision } = await sourceRepository.list(session, { limit: 1 });
+    sourceEvents.activate(session.sessionId, catalogRevision);
+  }
+  await sourceRuntime?.activate();
+}
+
 function registerIpcHandlers(): void {
   if (handlersRegistered || !repository) return;
   const projectRepository = repository;
@@ -120,7 +144,7 @@ function registerIpcHandlers(): void {
       };
     try {
       const result = await projectRepository.createProject(request.displayName);
-      if (result.status === 'created') await sourceRuntime?.activate();
+      if (result.status === 'created') await activateSourceRuntime();
       return result;
     } catch {
       return safeError('The project could not be created safely.');
@@ -130,7 +154,7 @@ function registerIpcHandlers(): void {
     if (!isExpectedSender(event)) return safeError();
     try {
       const result = await projectRepository.openProjectFromDialog();
-      if (result.status === 'opened') await sourceRuntime?.activate();
+      if (result.status === 'opened') await activateSourceRuntime();
       return result;
     } catch {
       return safeError('The project could not be opened.');
@@ -148,7 +172,7 @@ function registerIpcHandlers(): void {
       };
     try {
       const result = await projectRepository.openRecentProject(request.recentId);
-      if (result.status === 'opened') await sourceRuntime?.activate();
+      if (result.status === 'opened') await activateSourceRuntime();
       return result;
     } catch {
       return safeError('The recent project could not be opened.');
@@ -166,7 +190,7 @@ function registerIpcHandlers(): void {
       };
     try {
       const result = await projectRepository.relinkRecentProject(request.recentId);
-      if (result.status === 'opened') await sourceRuntime?.activate();
+      if (result.status === 'opened') await activateSourceRuntime();
       return result;
     } catch {
       return safeError('The recent project could not be relinked.');
@@ -236,7 +260,8 @@ function registerIpcHandlers(): void {
       ipcMain,
       repository: sourceServiceCredentials,
       isExpectedSender,
-      validate: validateSourceService,
+      validate: (provider, credential, signal) =>
+        validateSourceService(provider, credential, signal, electronFetch),
     });
   if (sourceRepository && sourceImports && sourcePipeline && sourceRemoval) {
     const pipeline = sourcePipeline;
@@ -256,29 +281,6 @@ function registerIpcHandlers(): void {
       removeSource: (session, input) => removal.remove(session, input),
     });
   }
-}
-
-async function validateSourceService(
-  provider: 'mineru' | 'siliconflow',
-  credential: string,
-  signal: AbortSignal,
-): Promise<void> {
-  const response = await fetch(
-    provider === 'mineru'
-      ? 'https://mineru.net/api/v4/file-urls/batch'
-      : 'https://api.siliconflow.com/v1/models',
-    {
-      method: provider === 'mineru' ? 'POST' : 'GET',
-      headers: {
-        Authorization: `Bearer ${credential}`,
-        ...(provider === 'mineru' ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(provider === 'mineru' ? { body: JSON.stringify({ files: [] }) } : {}),
-      signal,
-    },
-  );
-  if (response.status === 401 || response.status === 403) throw new Error('authentication');
-  if (response.status >= 500) throw new Error('service');
 }
 
 async function ensureWindow(): Promise<void> {
@@ -306,7 +308,7 @@ async function ensureWindow(): Promise<void> {
       webviewTag: false,
     },
   });
-  if (isEditorRuntime)
+  if (isEditorRuntime || isWorkspaceNavigationRuntime)
     window.webContents.on('console-message', (_event, _level, message) =>
       console.error(`Editor runtime console: ${message}`),
     );
@@ -323,7 +325,11 @@ async function ensureWindow(): Promise<void> {
   else
     await window.loadFile(
       path.join(rendererDirectory, 'index.html'),
-      isEditorRuntime ? { query: { 'editor-runtime': '1' } } : undefined,
+      isEditorRuntime
+        ? { query: { 'editor-runtime': '1' } }
+        : isWorkspaceNavigationRuntime
+          ? { query: { 'workspace-navigation-runtime': '1' } }
+          : undefined,
     );
   if (isEditorRuntime) {
     const mounted = await window.webContents.executeJavaScript(
@@ -337,6 +343,17 @@ async function ensureWindow(): Promise<void> {
     }
     const marker = process.env.WRITELLM_SMOKE_MARKER;
     if (marker) await appendFile(marker, 'editor-mounted\n');
+  }
+  if (isWorkspaceNavigationRuntime) {
+    const verified = (await window.webContents.executeJavaScript(
+      `new Promise(resolve=>{const deadline=Date.now()+8000;let stage='shell';const fail=()=>resolve({ok:false,stage,buttons:[...document.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),pressed:button.getAttribute('aria-pressed'),text:button.textContent?.trim()})),body:document.body.textContent?.slice(0,500)});const waitFor=(condition,next)=>{if(condition())next();else if(Date.now()>deadline)fail();else setTimeout(()=>waitFor(condition,next),25)};waitFor(()=>Boolean(document.querySelector('.workspace-navigation-shell')),()=>{const section=document.querySelector('input');stage='knowledge-base';document.querySelector('button[aria-label="Knowledge Base"]')?.click();waitFor(()=>document.querySelector('button[aria-label="Knowledge Base"]')?.getAttribute('aria-pressed')==='true',()=>{stage='sections';document.querySelector('button[aria-label="Sections"]')?.click();waitFor(()=>document.querySelector('button[aria-label="Sections"]')?.getAttribute('aria-pressed')==='true',()=>{const persistent=document.querySelector('input')===section;const viewport=document.querySelector('main[aria-label="Runtime section detail"] [data-slot="scroll-area-viewport"]');const overflow=Boolean(viewport&&viewport.scrollHeight>viewport.clientHeight);if(viewport)viewport.scrollTop=64;const scrolled=Boolean(viewport&&viewport.scrollTop>0);stage='settings';document.querySelector('button[aria-label="Settings"]')?.click();waitFor(()=>Boolean(document.querySelector('main[aria-label="Application settings"]')),()=>resolve({ok:persistent&&overflow&&scrolled,stage:!persistent?'owner-identity':!overflow?'scroll-overflow':!scrolled?'scroll-position':'complete'}));});});});})`,
+    )) as { ok: boolean; stage: string };
+    if (!verified.ok)
+      throw new Error(
+        `Compiled workspace navigation runtime did not preserve owner identity or open Settings: ${JSON.stringify(verified)}`,
+      );
+    const marker = process.env.WRITELLM_SMOKE_MARKER;
+    if (marker) await appendFile(marker, 'workspace-navigation-mounted\n');
   }
 }
 
@@ -385,8 +402,11 @@ if (!hasSingleInstanceLock) {
         repository: sourceRepository,
         events: sourceEvents,
         getActiveSession: () => repository?.getActiveProjectSession() ?? null,
+        request: electronFetch,
+        wake: () => sourceRuntime?.wake(),
       });
       sourcePipeline = pipeline;
+      sourceRuntime.setRecoveryHandler((session, jobs) => pipeline.reconcile(session, jobs));
       sourceRemoval = new SourceRemovalService({
         repository: sourceRepository,
         references: new SourceReferenceReader(),

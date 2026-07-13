@@ -27,13 +27,21 @@ test('freezes the exact source/service/event IPC surface and hardened Electron w
   expect(new Set(Object.values(sourceChannels)).size).toBe(6);
   expect(new Set(Object.values(sourceServiceChannels)).size).toBe(7);
 
-  const [main, preload] = await Promise.all([
+  const [main, preload, serviceValidator, embeddingAdapter] = await Promise.all([
     readFile('src/main/main.ts', 'utf8'),
     readFile('src/preload/preload.cts', 'utf8'),
+    readFile('src/main/sources/service-validator.ts', 'utf8'),
+    readFile('src/main/sources/embedding-adapter.ts', 'utf8'),
   ]);
   expect(main).toContain('contextIsolation: true');
   expect(main).toContain('nodeIntegration: false');
   expect(main).toContain('sandbox: true');
+  expect(main).toContain('corsEnabled: true');
+  expect(main).not.toContain('bypassCSP: true');
+  expect(main).toContain('net.fetch(input, init)');
+  expect(main).toContain('request: electronFetch');
+  expect(`${serviceValidator}\n${embeddingAdapter}`).toContain('api.siliconflow.cn');
+  expect(`${serviceValidator}\n${embeddingAdapter}`).not.toContain('api.siliconflow.com');
   expect(main).toContain("app.on('before-quit', () => sourceRuntime?.shutdown())");
   expect(preload).toContain("ipcRenderer.on('writellm:sources:events'");
   expect(preload).not.toContain('ipcRenderer.send(');
@@ -89,4 +97,18 @@ test('scheduler shutdown aborts in-flight external work', async () => {
   await draining;
   expect(observedAbort).toBe(true);
   expect(jobs.get(job.jobId)?.state).toBe('retrying');
+});
+
+test('original preview remains fixed-route, streamed, plugin-free and absent from preload IPC', async () => {
+  const [main, protocol, preload] = await Promise.all([
+    readFile('src/main/main.ts', 'utf8'),
+    readFile('src/main/sources/source-preview-protocol.ts', 'utf8'),
+    readFile('src/preload/preload.cts', 'utf8'),
+  ]);
+  expect(main).toContain('webviewTag: false');
+  expect(main).not.toContain('plugins: true');
+  expect(protocol).toContain('__original__');
+  expect(protocol).toContain('createReadStream');
+  expect(preload).not.toContain('getPdfBytes');
+  expect(preload).not.toContain('originalPdfPath');
 });

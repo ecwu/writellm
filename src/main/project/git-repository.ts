@@ -5,7 +5,7 @@ import git from 'isomorphic-git';
 import type { GitCommitMetadata } from './project-transaction.js';
 
 const identity = { name: 'WriteLLM', email: 'history@writellm.local' };
-const ignore = `# WriteLLM transaction and recovery intermediates\nruntime/pending/\nruntime/cache/\nruntime/logs/\nruntime/crash/\nruntime/embeddings/\n**/.writellm-tmp-*\n\n# Secrets must never be project content or history\nsecrets/\n*.secret\n`;
+const ignore = `# WriteLLM transaction and recovery intermediates\nruntime/pending/\nruntime/cache/\nruntime/logs/\nruntime/crash/\nruntime/embeddings/\nruntime/source-jobs/\nruntime/source-downloads/\n**/.writellm-tmp-*\n\n# Secrets must never be project content or history\nsecrets/\n*.secret\n`;
 
 export class ProjectGitError extends Error {
   constructor(

@@ -14,12 +14,20 @@ export class SourceRuntime {
   private sessionId: string | null = null;
   private processor: SourceJobProcessor | null = null;
   private jobs: SourceJobRepository | null = null;
+  private recoveryHandler:
+    | ((session: ProjectSession, jobs: SourceJobRepository) => Promise<void>)
+    | null = null;
 
   constructor(private getActiveSession: () => ProjectSession | null) {}
 
   setProcessor(processor: SourceJobProcessor): void {
     this.processor = processor;
     if (this.scheduler) void this.scheduler.drain();
+  }
+  setRecoveryHandler(
+    handler: (session: ProjectSession, jobs: SourceJobRepository) => Promise<void>,
+  ): void {
+    this.recoveryHandler = handler;
   }
   wake(): void {
     if (this.scheduler && this.processor) void this.scheduler.drain();
@@ -65,8 +73,13 @@ export class SourceRuntime {
         if (!this.processor) throw new Error('SOURCE_PROCESSOR_NOT_READY');
         await this.processor(job, signal, jobs);
       },
+      onSettled: async () => {
+        if (this.getActiveSession()?.sessionId === session.sessionId)
+          await this.recoveryHandler?.(session, jobs);
+      },
     });
     await scheduler.recover();
+    await this.recoveryHandler?.(session, jobs);
     this.scheduler = scheduler;
     this.jobs = jobs;
     this.sessionId = session.sessionId;

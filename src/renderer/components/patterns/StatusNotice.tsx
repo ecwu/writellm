@@ -20,11 +20,15 @@ export function StatusNotice({
           : Info;
   return (
     <Alert
-      className={`status-notice status-${tone}`}
+      className={
+        tone === 'error'
+          ? 'border-0 bg-transparent px-0 py-1 text-destructive shadow-none'
+          : 'border-0 bg-transparent px-0 py-1 text-muted-foreground shadow-none'
+      }
       role={urgent || tone === 'error' ? 'alert' : 'status'}
       aria-live={urgent ? 'assertive' : 'polite'}
     >
-      <Icon aria-hidden="true" focusable="false" className="status-notice-icon" />
+      <Icon aria-hidden="true" focusable="false" className="size-4" />
       <span>{children}</span>
     </Alert>
   );
