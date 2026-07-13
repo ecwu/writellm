@@ -1,158 +1,83 @@
-# 研究记录：AI 写作任务的候选能力
+# Research: Pi agent 原语驱动的 AI 写作任务
 
-**研究日期**：2026-07-12  
-**研究范围**：provider 调用抽象、流式/取消、任务执行载体、网络、重试/并发、runtime schema 校验和 secret 边界。  
-**仓库基线**：Electron `43.1.0`、React `19.2.7`、Bun `1.3.14`、TypeScript `7.0.2`；当前没有 AI/queue/schema/provider 依赖。
+**Date**: 2026-07-13
 
-## 结论摘要
+**Basis**: 仓库已锁定的 `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai` 0.80.6 类型与实现，以及 Pi `packages/agent/docs` 当前主线文档。
 
-本 feature 可以先冻结稳定的内部 port，而把外部库和运行时能力留在 port 后面。所有候选都必须满足：provider 不进入 renderer；错误经过脱敏和规范化；取消必须贯穿等待、请求、重试和持久化；provider 输出必须先过 runtime validation；任务只生成独立 proposal，不写正文。
+## Decision 1: 每个 WritingTask 运行一个受限的 `AgentHarness`
 
-本记录的 `Decision` 均为 `NEEDS DECISION`。候选名称、版本和链接用于后续评审，不代表已经批准加入 `package.json`，也不代表允许在当前 foundation 中实现。
+使用 `AgentHarness.prompt()` 执行一个 agent run，而不是新增一次性 `ProviderAdapter.runWritingTask()`。每个任务创建独立 session、固定 system prompt、任务级 model/config snapshot 和白名单工具；同一项目的 runner 仍按提交顺序一次只运行一个任务。
 
-## 研究方法与适配前提
+**Rationale**: Pi 的核心能力是 provider turn → schema-valid tool call → tool result → 后续 turn。写作任务需要 agent 自主决定读哪些授权内容、迭代读取并提交提案，不能把所有正文/资料预先拼成 provider payload。
 
-- 优先查阅维护者/官方文档和仓库，而不是二手教程；链接集中在本文末尾的参考资料表。
-- 以 Electron main/utility 的运行时为安全边界；React renderer 只能通过已有的 typed preload 形状调用任务 API。
-- Bun 目前是仓库的包管理器和脚本执行工具；`bun run build` 最终编译 Electron main/preload，生产行为仍要以打包后的 Electron Node runtime smoke 为准。
-- 任何候选都需要在 Electron 43、strict TypeScript、ESM/CJS 混合的当前构建链上做兼容性 probe；“能在 Node/Bun 工作”不自动等于“能在 packaged Electron 工作”。
+**Alternatives considered**:
 
-## 候选一：provider 调用和统一结果
+- 直接调用 `Models.streamSimple()`：绕开 agent tool loop，无法满足“读取和改动都是工具调用”。
+- 继续使用 provider adapter 返回结构化 JSON：把 agent 降级为一次 completion，重复实现 Pi 已提供的工具执行、取消和事件语义。
+- 使用低层 `Agent`：005 probe 适合它，但 008 需要 session、turn snapshot、active tools 与持久化事件，因此选择更高层 harness。
 
-内部 port 不暴露 vendor 类型，建议仅抽象这些能力：`runWritingTask(input, { signal, onProgress })`、provider metadata/capabilities、normalized result 和 normalized error。输入包含 task/context snapshot，不含 renderer 传来的 secret；输出必须映射到目标 block、原文 hash、建议文本、意图、source refs 和 evidence status。
+## Decision 2: agent 不获得项目文件系统，只获得领域工具
 
-| 候选 | 适用范围 | 优点 | 风险/适配点 |
-|---|---|---|---|
-| 候选 A：原生 `fetch`/Electron `net.fetch` + 每个 provider 的薄 adapter | provider 数量少、需要完全控制请求/错误/stream schema | 依赖最少，内部 port 最清楚，便于把协议和数据模型掌握在项目内；Electron `net.fetch` 使用 Chromium 网络栈，可获得系统代理等能力 | 需要自己实现各 provider 的认证、SSE/stream、structured output、错误映射和测试；不能把 fetch response 原样写入项目；要决定 Node global fetch 与 `net.fetch` 的代理/网络语义 |
-| 候选 B：provider 官方 SDK（例如 OpenAI 官方 JS/TS SDK） | 首版只接一个或少数明确 provider，追求 provider API 对齐 | 官方 SDK 通常覆盖 request types、streaming、错误和版本更新；OpenAI 官方库明确支持 TypeScript/JavaScript、Node 20+、Bun 1+，并默认避免在 browser 中暴露密钥 | vendor lock-in；不同 provider 的 SDK 类型不一致，仍需自己的 adapter；SDK 不能进入 renderer，且需确认 Electron packaged Node、bundling、proxy、AbortSignal 和 license/更新策略 |
-| 候选 C：Vercel AI SDK (`ai` + provider package) | 需要跨 provider 的统一 text/structured output/streaming 语义 | provider-agnostic TypeScript API；官方文档提供 `streamText`、`abortSignal`、timeout、maxRetries、structured output 和 provider options，且可直接接 provider package | 当前文档默认面向 Node 22+ 等环境；AI SDK 高层能力可能引入隐含重试/多步/stream 生命周期，需确保与本地 task state machine、离线策略和错误码不冲突；引入 `zod`/provider package 等额外依赖 |
-| 候选 D：LangChain.js（必要时再考虑 LangGraph） | 需要复杂 chain、tool、retriever 或可演进的 agent workflow | TypeScript 生态成熟，官方仓库列出 Node、Browser、Deno、Bun 等运行环境和大量 model/tool/retriever 集成 | 对当前“限定块 + 资料范围 + 独立提案”的小闭环可能过重；层级多、provider/agent 行为更难审计，可能扩大 bundle、调试和版本升级面；不能替代本 feature 的 target/version/evidence 约束 |
+不给 harness 暴露通用 `readTextFile`、`writeFile`、shell 或项目路径。`ExecutionEnv` 使用 deny-by-default adapter，仅满足 harness 构造契约；写作能力全部由 main-owned `AgentTool` 实现：
 
-**Decision: NEEDS DECISION**。评审必须回答：首版是单 provider adapter 还是多 provider；是否需要跨 provider 统一流式/structured output；SDK 的重试和 timeout 是否由任务层接管；是否允许 provider-specific options 进入持久化 schema。
+- `read_task_brief`：读取目标、作者指令、授权范围和当前预算。
+- `read_blocks`：按 opaque block ID 读取授权正文及版本。
+- `read_sources`：按授权 source/chunk ID 读取资料与位置元数据。
+- `submit_proposal`：提交完整、可验证的提案草稿；这是唯一“改动”工具，但只写 proposal，不写正文。
+- `finish_task`：在至少一次成功 `submit_proposal` 后终止 run；无可用建议时提交显式 empty outcome。
 
-### 结果规范化的共同要求
+所有工具参数用 TypeBox exact schema；main 在每次执行时重新验证 taskId、授权集合、ID、大小和 `AbortSignal`。读取工具只返回白名单内容；提交工具只能引用本次工具读取获得的 revision/hash/source ref。
 
-无论选择哪一项，任务服务都不能把模型输出视为 proposal。必须经过：
+**Rationale**: Pi 本身不提供权限沙箱，工具拥有宿主进程权限。真正的安全边界必须是应用提供的窄工具，而不是 system prompt 中的“请勿越界”。
 
-1. 解析外部响应，限制大小和字段集合。
-2. 校验每个 change 的 target block、original text/hash、suggested text、intent 和 evidence refs。
-3. 将无法定位、目标版本过期、source ref 不可用或响应 malformed 的结果标为失败或人工判断。
-4. 对不带证据的生成保留 `evidenceStatus=insufficient`，不伪造 citation。
+**Alternatives considered**:
 
-## 候选二：任务执行载体
+- 提供受 cwd 限制的文件工具：仍暴露内部布局、路径与非授权文件，且把稳定领域 ID 降级为路径协议。
+- 把初始正文和资料放进 prompt：读取不再是工具调用，也无法审计 agent 实际访问了什么。
 
-| 候选 | 适用范围 | 优点 | 风险/适配点 |
-|---|---|---|---|
-| 候选 A：main 内异步 task runner | 主要是网络 I/O，任务数量低，先求最小实现 | 不新增跨进程协议；直接复用 main-owned project writer、secret capability 和 Electron `ipcMain.handle`；最容易做真实 runtime smoke | provider SDK 的 CPU/解析异常和长同步工作可能影响 main；需要严禁同步文件/大 JSON 操作堵塞事件循环；未来迁移到 utility/worker 要保持 adapter port 不变 |
-| 候选 B：Electron `utilityProcess` | 需要独立 child process、隔离 provider/不可信响应或希望 main 更稳 | Electron 提供 Node + MessagePort 的 utility process；可单独监控退出并将 provider 工作与 BrowserWindow main 隔离 | 打包入口、启动时机、MessagePort DTO、崩溃恢复和凭据传递复杂；secret 不应作为可复用进程状态长期驻留；utility process 仍由 main 管理，不能成为 renderer 的后门 |
-| 候选 C：Node `worker_threads` | CPU 型 response normalization、压缩、解析或未来本地模型任务 | 使用结构化 clone/message passing，`worker.terminate()` 能停止 worker；不需要额外 Electron process | 与 main 同一进程，不能当作真正安全隔离；大型 context clone 有成本；第三方 SDK 的 worker/bundler 支持要实测；网络取消和 worker termination 不是同一语义 |
-| 候选 D：独立外部 worker/service | 未来有本地模型、重 CPU 处理或远程队列 | 可隔离资源、独立扩缩和失败恢复 | 超出首版单机范围，增加部署、凭据、离线、升级和进程生命周期；违反“最小设计”除非有性能/稳定性证据 |
+## Decision 3: 提案由工具调用产生，最终 assistant 文本不构成产品结果
 
-**Decision: NEEDS DECISION**。当前架构只依赖 `ProviderAdapter` port，不先承诺 A/B/C/D。决策输入应包括：最长同步工作、预计并发、可接受取消延迟、崩溃后的 pending/recovery 规则和 packaged build 的启动/退出行为。
+`submit_proposal` 接收 proposal summary、changes、change groups、evidence refs、scope classification 与 impact disclosure。工具执行器验证并暂存规范化 proposal；只有 durable write 成功后才返回成功工具结果。最终 assistant message 仅作为 session transcript/诊断，不解析为 proposal，也不展示为可应用内容。
 
-## 候选三：网络实现
+范围扩展不能通过任意新 block ID 实现。agent 使用 `scope: "extension"`、锚点与自然语言说明提交建议；009 必须单独确认。删除建议的影响由工具执行器调用 004/007 领域读取能力计算或复核，不能信任模型自报“无影响”。
 
-| 候选 | 适用范围 | 优点 | 风险/适配点 |
-|---|---|---|---|
-| 候选 A：provider SDK 的 transport | SDK 已覆盖 provider 请求并允许传入 signal/fetch | 少写协议细节；通常能保留 SDK 的错误/stream 类型 | 代理、TLS、timeout、retry 和 response body 生命周期由 SDK 决定；不同 SDK 行为不一致；不能让 SDK 在 renderer 创建 |
-| 候选 B：Node/global `fetch` | main/utility 中的标准 HTTP API | 平台中立、类型简单，适合薄 adapter 和 fixture server | 需要自己处理系统代理/证书/stream、HTTP status、body size 和错误脱敏；Electron runtime 的 fetch 行为要单独 smoke |
-| 候选 C：Electron `net.fetch` / `net.request` | 桌面应用需要 Chromium proxy/PAC/认证网络能力 | 官方文档说明 `net` 使用 Chromium networking，并支持 proxy、认证和 online 状态；可与 Electron session 相关联 | 只能在 app ready 后使用；在 utility process 中的 custom protocol 有限制；Provider SDK 是否接受该 transport 需适配；online=true 不能证明某 provider 可达 |
+## Decision 4: 一任务一 session，但领域 task/proposal 是产品真相
 
-**Decision: NEEDS DECISION**。必须先决定系统代理/企业网络是否为首版要求；否则不能在 provider contract 中隐含“网络可用”或“离线可重试”。
+Pi session 保存 agent message/tool-call/tool-result 的顺序和 active-tool 状态；`WritingTask` 保存产品状态、授权范围、实际读取审计、provider snapshot、session reference 和 proposalId。session 不是 task queue/proposal 的替代品。
 
-## 候选四：取消、timeout、重试和并发
+使用项目内的 session storage adapter 接入 ADR-001 串行 writer。session 中的正文/资料工具结果属于敏感项目内容，不进入 renderer IPC、日志或 Git commit message；保留与删除周期由项目数据策略管理。
 
-| 候选 | 适用范围 | 优点 | 风险/适配点 |
-|---|---|---|---|
-| 候选 A：自有 policy + `AbortController`/`AbortSignal` | 任务状态机是产品核心，重试规则很少且需要完整审计 | 无额外包；可把 user cancel、window close、timeout、retry delay 统一成 task signal；错误码和 attempt 记录完全由项目控制 | 需要自己写指数退避、jitter、Retry-After、可重试错误分类、并发上限和 timer 测试；容易遗漏边界 |
-| 候选 B：`p-retry` | 只需要对 promise 操作做指数退避和 signal 取消 | 官方仓库提供 retries、backoff、`shouldRetry`、`AbortError`、max retry time 和 signal；适配 provider request 比较直接 | library 只解决重试，不解决 task durable state、并发、response idempotency 或项目恢复；默认参数不能直接采用；需要防止将用户取消重试成失败 |
-| 候选 C：`p-queue` + 自有 retry policy | 需要限制同时运行的 task 数量 | 能表达 queue concurrency、timeout 和排队；适合桌面端的小型内存队列 | 官方仓库当前说明项目已 feature complete、不会继续开发；不是 durable queue，重启后必须由 `ai/tasks` 恢复；ESM-only 与当前 Electron build 需实测 |
-| 候选 D：provider/AI SDK 内建 retries | provider SDK 已经提供稳定重试，项目只做 task 级包装 | 依赖少写一层；可能遵循 provider 特定 rate-limit semantics | 重试隐藏在 adapter 内会让 UI/审计看不到 attempt；与任务取消、storage checkpoint、429/费用控制可能冲突；必须显式关闭或代理其策略 |
+**Rationale**: Pi 文档将 session 定义为 append-only durable state tree，但 runtime tools/model/auth 仍由 host 重建。领域状态必须能在不重放 transcript 的情况下列出任务和审阅提案。
 
-**Decision: NEEDS DECISION**。需要冻结：默认最大 attempt、单次/总 timeout、429/5xx/网络错误分类、用户取消是否消耗 retry budget、重试是否新建 taskId、并发上限、应用退出时的 queued/running 行为。
+## Decision 5: 开始运行时建立授权集合，实际内容按工具调用读取
 
-## 候选五：DTO 与持久化数据的 runtime schema 校验
+提交时只记录选择的稳定 ID。任务从 `queued` 转为 `running` 时，main 校验这些 ID 仍存在并固定 `authorizationSnapshot`（允许读取哪些 block/source，以及开始 revision）。agent 随后通过工具读取内容；每次读取记录实际 revision/hash。未读取的授权内容不声称为依据。
 
-TypeScript 静态类型不能验证 renderer、文件或外部 provider 的运行时输入；至少应在 main 入口、从磁盘读取处和 provider response 处做 runtime validation。
+任务运行中作者继续编辑不会改变 agent 已成功读取的工具结果。再次读取同一 ID 时若 revision 已变化，工具返回 `changed_since_start`，任务最终 proposal 标记 stale/manual-review；绝不静默扩大范围或猜测新位置。
 
-| 候选 | 适用范围 | 优点 | 风险/适配点 |
-|---|---|---|---|
-| 候选 A：Zod | TypeScript-first、开发体验和复杂对象组合 | 官方文档提供静态推断、parse/safeParse、零依赖和现代 Node/browser 支持；与 AI SDK structured output 示例天然衔接 | runtime bundle 大小、schema 的 unknown field/version 语义和错误格式要明确；若 AI SDK 也依赖 Zod，需要锁定兼容版本；不能因为类型推断而省略 main 校验 |
-| 候选 B：Valibot | 需要模块化、较小 bundle、Node/Bun/TypeScript | 官方文档说明模块化、无依赖、可运行于 Node/Bun，并实现 Standard Schema；可选择性导入 | API/生态和现有 AI SDK/团队经验需确认；JSON Schema 需要转换包；转换/unknown field 语义必须和 ADR schemaVersion 一致 |
-| 候选 C：Ajv + JSON Schema/JTD | durable file、契约和未来跨语言工具需要标准 schema | JSON Schema/JTD 可独立于 TypeScript；Ajv 提供编译 validator、typed error 和 serializer；适合项目文件 schema 版本 | schema 文件与 TS 类型可能分离；格式插件和 untrusted format 要谨慎；错误到用户错误码需要 adapter；需考虑 renderer bundle 是否包含 Ajv |
-| 候选 D：手写 type guard | DTO 很少且追求零依赖 | 不增加包和 bundle | 容易遗漏 nested/unknown fields、版本迁移和错误路径；不适合 provider response 和持久化文件；维护风险高 |
+## Decision 6: 取消、重试与恢复遵循现有原语的保守边界
 
-**Decision: NEEDS DECISION**。可按边界分别选择（例如项目文件使用 JSON Schema、内部 DTO 使用 TypeScript-first library），但必须避免多个 schema 真相源，并在 checklist 中冻结 unknown field、schemaVersion、错误路径和迁移策略。
+- queued cancel 直接终止任务。
+- running cancel 先持久化 `canceled` barrier，再 `await harness.abort()`；barrier 后的工具调用、session event 和 proposal write 全部按 task generation token 丢弃。
+- provider timeout/retry 使用 harness `streamOptions`，首版 `maxRetries: 0`，避免隐藏产品 attempt；失败由产品 task 记录。
+- retry 总是创建带 `sourceTaskId` 的新任务和新 session。
+- main/app 崩溃后遗留 running task 变为 `interrupted`；不恢复 provider stream，不自动重放未完成工具调用。
 
-## 候选六：provider secret 的使用边界
+**Rationale**: Pi 当前明确说明 provider stream 不可恢复，未完成 tool call 除非工具声明幂等/可重试否则不安全；auto-retry 与 fully durable restore 仍未完成。
 
-这个 feature 不拥有 secret 保存；它只依赖 005 暴露的 main-only capability。Electron 官方 `safeStorage` 提供主进程的 OS-backed 加密，并有异步 API、临时不可用和 key rotation 语义；Linux 可能没有可用 secret store，必须显式处理 backend/明文 fallback 风险。候选为：
+## Decision 7: 不依赖计划中的 hooks、facade 或 model registry
 
-- 候选 A：由 005 以 Electron `safeStorage` 封装的 `getProviderSecret(providerId)`；secret 只在 main/选定执行载体的短生命周期内存在。
-- 候选 B：由 005 以独立 OS keychain adapter 封装；要接受 native module 的 Electron ABI、打包和平台依赖。历史上常见的 `keytar` 仓库已被 owner archive，不能把“过去常用”当成“当前维护活跃”的批准理由。
-- 候选 C：不保存本机 secret，改用每次任务输入/外部 broker；安全上可减少本地持久化，但 UX、离线和重试成本显著增加。
+首版只使用 0.80.6 已导出的 `AgentHarness`、`Session` storage、`AgentTool`、subscribe events、`prompt()`、`abort()`、`waitForIdle()`、turn snapshot 与 stream options。不会依赖文档中仍标记 planned/in-progress 的通用 hook system、session facade、auto-compaction、auto-retry、model registry builder 或 in-flight resume。
 
-**Decision: NEEDS DECISION**。至少要冻结：Linux secret store 不可用时是否拒绝任务、secret 是否可以传入 utility process、是否允许 provider 认证 token 进入 crash dump/log、以及 005 的接口版本。
+## Decision 8: 版本、安全与验证
 
-## 候选七：外部 provider、离线和服务责任
+复用 005 已锁定的 Pi Agent/AI/TypeBox 版本与经过 tool-loop 验证的 model profile；008 不引入 vendor SDK。真实 auth 每个 provider request 由 005 main-owned capability 解析，secret 不进入 harness config/session/tool details。
 
-候选能力不是实现承诺：
+测试使用 Pi faux provider 和内存/临时项目 session adapter，覆盖多轮读取、非法 ID、未读引用、越界提案、取消迟到结果、session write 失败和最终文本试图绕过 `submit_proposal`。
 
-- 候选 A：直接从桌面端调用用户配置的 endpoint；任务需显示网络/认证/配额错误，并支持本地保留失败记录。
-- 候选 B：调用可配置的企业 proxy/gateway；可以统一 auth、审计和 provider 路由，但新增服务、凭据和在线依赖。
-- 候选 C：本地/embedded provider 或本地模型；可降低网络依赖，但超出当前 spec，涉及模型分发、资源、许可证、性能和更新。
+## Sources
 
-**Decision: NEEDS DECISION**。产品必须明确“离线时能做什么”：能否创建 queued task、是否立即拒绝、是否允许取消/删除本地失败记录、是否有恢复时自动重试；同时明确数据是否发送到外部 provider、保留期限、区域/合规和用户提示。
-
-## 与当前 Electron 43 / React 19.2.7 / Bun / TypeScript 的适配总结
-
-| 现状 | 已知适配结论 | 仍需 probe/决策 |
-|---|---|---|
-| Electron 43 + sandbox renderer | provider、FS、safeStorage、任务状态在 main；preload 只映射 named typed methods | provider SDK 是否误用 browser build；utility/worker 打包；IPC update listener 的生命周期和窗口销毁 |
-| React 19.2.7 | renderer 只消费 TaskSummary/TaskDetail/Proposal DTO；UI 可用普通 React state/外部 store，但不引入具体状态库 | 长任务订阅、窗口重新挂载后的快照补发、可访问状态文案和取消/重试 UI |
-| Bun 1.3.14 | 适合作为 package manager、现有 scripts 和本地 fixture runner；部分候选官方声明支持 Bun | lockfile/安装策略、Electron 运行时解析、native module ABI、ESM/CJS；不运行网络安装来验证 |
-| TypeScript 7.0.2 strict | shared discriminated unions、DTO 和 error code 可直接对齐 main/preload/renderer | 运行时 schema library 选型、JSON 文件/外部响应的 unknown field 和 migration |
-| 现有 Vite/Electron build | 适合按 main/preload/renderer 分层扩展；当前 smoke 是 compiled foundation smoke | streaming/MessagePort/utility entry 的构建产物、source map 和 packaged app 测试 |
-
-## 研究后的暂行架构（不是最终选型）
-
-1. 先冻结 domain port 与文件/IPC contract，再把候选适配到 port。
-2. 在无真实网络的情况下，用 deterministic fixture provider 验证状态机、取消、重试、evidence 和 proposal 规范化。
-3. 将网络/SDK/worker 选择放在 main-owned adapter 后，避免后续换候选时修改 renderer、持久化 schema 或 009 输入。
-4. 在实现前通过决策清单补齐性能阈值、外部服务、凭据、离线、可访问性和恢复/迁移边界。
-
-## 参考资料（官方/一手资料）
-
-1. [Electron IPC tutorial](https://www.electronjs.org/docs/latest/tutorial/ipc) — context isolation、preload 显式暴露和避免把整个 `ipcRenderer` 暴露给 renderer。
-2. [Electron `ipcMain`](https://www.electronjs.org/docs/latest/api/ipc-main) — `ipcMain.handle`/`invoke` 的异步契约和错误序列化限制。
-3. [Electron `utilityProcess`](https://www.electronjs.org/docs/latest/api/utility-process) — main-owned utility child process、Node/MessagePort 和启动/退出能力。
-4. [Electron `net`](https://www.electronjs.org/docs/latest/api/net) — Chromium network stack、代理/认证与 `net.fetch` 限制。
-5. [Electron `safeStorage`](https://www.electronjs.org/docs/latest/api/safe-storage) — main-only OS-backed secret storage、异步 API、Linux fallback 和 key rotation。
-6. [OpenAI API JavaScript quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request) — 官方 TypeScript/JavaScript SDK 和 server-side/Bun 使用说明。
-7. [OpenAI Node SDK](https://github.com/openai/openai-node) — 官方 JS/TS SDK 的 runtime 支持和 browser secret 风险说明。
-8. [Vercel AI SDK Core `streamText`](https://ai-sdk.dev/docs/reference/ai-sdk-core/stream-text) — streaming、AbortSignal、timeout、maxRetries 和 provider options。
-9. [Vercel AI SDK stopping streams](https://ai-sdk.dev/docs/advanced/stopping-streams) — abort cleanup 与 `onAbort` 语义。
-10. [Vercel AI SDK repository](https://github.com/vercel/ai) — provider-agnostic TypeScript toolkit、provider packages 和 structured output。
-11. [LangChain.js repository](https://github.com/langchain-ai/langchainjs) — TypeScript、Node/Bun/Browser 支持和高层 agent/workflow 范围。
-12. [Node.js `worker_threads`](https://nodejs.org/api/worker_threads.html) — worker message passing 与 `terminate()`。
-13. [Node.js `child_process`](https://nodejs.org/api/child_process.html) — `AbortSignal` 与子进程取消参考。
-14. [Zod](https://zod.dev/) — TypeScript-first schema validation 和静态推断。
-15. [Valibot introduction](https://valibot.dev/guides/introduction/) 与 [Valibot installation](https://valibot.dev/guides/installation/) — 模块化、无依赖、Node/Bun 适配。
-16. [Ajv TypeScript guide](https://ajv.js.org/guide/typescript.html) — JSON Schema/JTD、typed validator 和错误类型。
-17. [p-retry repository](https://github.com/sindresorhus/p-retry) — backoff、retry predicate、AbortSignal 和 max retry time。
-18. [p-queue repository](https://github.com/sindresorhus/p-queue) — concurrency/timeout queue，并记录其 feature-complete 维护状态。
-19. [Standard Schema](https://github.com/standard-schema/standard-schema) — schema library 间的可互操作接口，可作为减少绑定的候选参考。
-20. [node-keytar repository](https://github.com/atom/node-keytar) — 历史 OS keychain 候选及其 archived/native module 风险。
-
-## 最终决策
-
-| 决策域 | 最终决策 |
-|---|---|
-| provider SDK/协议 | NEEDS DECISION |
-| 网络 transport | NEEDS DECISION |
-| main / utilityProcess / worker_threads | NEEDS DECISION |
-| retry/concurrency | NEEDS DECISION |
-| runtime schema library | NEEDS DECISION |
-| provider secret capability | NEEDS DECISION（由 005 共同决定） |
-| 离线、外部服务、凭据和数据保留 | NEEDS DECISION |
-| package version/lockfile/upgrade policy | NEEDS DECISION |
+- Pi `AgentHarness lifecycle`: https://github.com/earendil-works/pi/blob/main/packages/agent/docs/agent-harness.md
+- Pi durable harness/session design: https://github.com/earendil-works/pi/blob/main/packages/agent/docs/durable-harness.md
+- Pi package security note: https://github.com/earendil-works/pi
+- Installed 0.80.6 declarations under `node_modules/@earendil-works/pi-agent-core/dist/` are the implementation target; upstream `main` documents direction and is not treated as the installed API contract.
