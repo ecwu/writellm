@@ -20,6 +20,7 @@
 | 008 | [AI writing tasks](./008-ai-writing-tasks/spec.md)：提交限定范围的 AI 任务并获得提案 | 004, 005, 007, 011 | Draft | [Draft](./008-ai-writing-tasks/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 | 009 | [Proposal review](./009-ai-proposal-review/spec.md)：审阅并安全应用 AI 提案 | 004, 007, 008, 011 | Draft | [Draft](./009-ai-proposal-review/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
 | 010 | [Version history](./010-version-history/spec.md)：查看、比较和恢复已保存版本 | 001, 003, 004, 007, 009, 011 | Draft | [Draft](./010-version-history/plan.md) | ADR-001 Accepted；ADR-003 Accepted | Missing | Not started |
+| 013 | [Workspace navigation redesign](./013-workspace-navigation-redesign/spec.md)：以 Sections、Knowledge Base 和全局 Settings 重组分栏工作区 | 002, 003, 004, 005, 006, 011, 012 | Accepted | [Accepted](./013-workspace-navigation-redesign/plan.md) | ADR-003 Accepted；new ADR not required；006 contract + ADR-005 amendment required | Missing | Not started |
 
 `Gated` 表示 tasks 已存在，但实现门禁尚未满足；它不等于可以开始实现。
 
