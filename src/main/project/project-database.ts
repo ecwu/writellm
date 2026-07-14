@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import type { OpenedDatabase } from '../db/open-database'
@@ -43,15 +44,77 @@ export async function initializeProjectDatabase(options: {
 
   try {
     const now = new Date().toISOString()
-    await database.kysely
-      .insertInto('project_meta')
-      .values({
-        singleton_id: 1,
-        project_id: options.manifest.projectId,
-        created_at: options.manifest.createdAt,
-        updated_at: now
-      })
-      .execute()
+    const manuscriptId = randomUUID()
+    const manuscriptBriefId = randomUUID()
+    const sectionId = randomUUID()
+
+    await database.kysely.transaction().execute(async (transaction) => {
+      await transaction
+        .insertInto('project_meta')
+        .values({
+          singleton_id: 1,
+          project_id: options.manifest.projectId,
+          created_at: options.manifest.createdAt,
+          updated_at: now
+        })
+        .execute()
+      await transaction
+        .insertInto('manuscripts')
+        .values({
+          manuscript_id: manuscriptId,
+          project_id: options.manifest.projectId,
+          is_primary: 1,
+          created_at: now,
+          updated_at: now
+        })
+        .execute()
+      await transaction
+        .insertInto('manuscript_briefs')
+        .values({
+          manuscript_brief_id: manuscriptBriefId,
+          manuscript_id: manuscriptId,
+          version: 1,
+          title: 'Untitled Manuscript',
+          description: '',
+          topic: '',
+          target_audience: '',
+          language: '',
+          style_tone: '',
+          scope_exclusions: '',
+          target_length: '',
+          citation_requirements: '',
+          additional_instructions: '',
+          extensible_json: '{}',
+          created_at: now,
+          updated_at: now
+        })
+        .execute()
+      await transaction
+        .insertInto('sections')
+        .values({
+          section_id: sectionId,
+          manuscript_id: manuscriptId,
+          parent_section_id: null,
+          position: 0,
+          level: 1,
+          title: 'Untitled Section',
+          objective: null,
+          status: 'planned',
+          current_revision_id: null,
+          created_at: now,
+          updated_at: now
+        })
+        .execute()
+    })
+    options.log.info(
+      {
+        event: 'project.database_bootstrap.completed',
+        projectId: options.manifest.projectId,
+        manuscriptId,
+        sectionId
+      },
+      'Initialized project database records'
+    )
     return database
   } catch (err) {
     options.log.error(

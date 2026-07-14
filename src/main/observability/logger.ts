@@ -6,6 +6,7 @@ import type { Subsystem, ProcessRole, LogLevel } from '../../shared/observabilit
 import { currentLogContext } from './log-context'
 import { LogRingBuffer } from './log-ring-buffer'
 import { RingBufferDestination } from './ring-buffer-destination'
+import { redactLogValue } from './redact'
 
 export interface LoggerOptions {
   appVersion: string
@@ -69,6 +70,9 @@ export async function createLoggerSystem(options: LoggerOptions): Promise<Logger
       },
       timestamp: pino.stdTimeFunctions.isoTime,
       mixin: currentLogContext,
+      serializers: {
+        err: (err) => redactLogValue(pino.stdSerializers.err(err))
+      },
       redact: {
         paths: [
           'apiKey',

@@ -18,7 +18,7 @@ WriteLLM v2 is a local-first desktop AI writing application with three product d
 The initial product has these fixed invariants:
 
 - The application has zero or one active project at a time.
-- A project is a user-selected folder and is portable as a folder.
+- A project is a portable folder named `<project-name>.writellm`, created under a user-selected parent directory.
 - The initial product supports one primary manuscript per project. Internal identifiers should not prevent a later multi-manuscript extension, but no multi-manuscript UI or workflow is implemented now.
 - All project business data lives under the project root.
 - Application-global settings, encrypted provider credentials, recent-project pointers, diagnostic logs, and Chromium cache are not project business data and remain under Electron-managed application directories.
@@ -69,7 +69,7 @@ It must not contain manuscript content, knowledge items, project jobs, project a
 Each project folder contains all project business data:
 
 ```text
-<ProjectRoot>/
+<project-name>.writellm/
   writellm.project.json
 
   manuscript/
@@ -204,15 +204,14 @@ opening/closing failures
 
 Creating a project performs, in order:
 
-1. The user selects an empty folder or approves creation of a new child folder.
-2. Main validates that the target is writable and not inside a forbidden application directory.
-3. Main creates the directory layout in a temporary staging directory when practical.
-4. Main writes the project manifest.
+1. The user enters a validated project name and selects a parent directory.
+2. Main derives a new `<project-name>.writellm` child, validates that it does not exist, and verifies that it is not inside a forbidden application directory.
+3. Main reserves the final child path with an exclusive directory create; an existing directory or symlink is never replaced.
+4. Main creates the internal layout and acquires the project write lock while the container remains unpublished.
 5. Main initializes `project.sqlite` and `index.sqlite`.
 6. Main creates the singleton project and manuscript records plus the initial section.
-7. Main acquires the project write lock.
-8. Main atomically publishes the completed project container.
-9. Main opens it as the active project.
+7. Main atomically writes the project manifest as the final validity/publication marker.
+8. Main canonicalizes the published root and opens it as the active project using the already-held lock.
 
 A failed create must leave either no project or a clearly marked recoverable staging directory, never a folder that appears valid but lacks required state.
 

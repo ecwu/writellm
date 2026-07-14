@@ -18,9 +18,9 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoints 1 through 4 are completed and verified. Waiting for explicit approval before starting Checkpoint 5; no later storage, queue, editor, import, search, or agent work may begin first.
+Checkpoints 1 through 5 are completed and verified. Waiting for explicit approval before starting Checkpoint 6; no later storage, queue, editor, import, search, or agent work may begin first.
 
-Checkpoint 4 replaced the ambiguous global `core.sqlite` product role with an application-global `app.sqlite`, a parameterized per-project `project.sqlite`, a validated project manifest/identity boundary, and normalized project-relative path rules.
+Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary.
 
 ## Phase 0: Baseline And Guardrails
 
@@ -85,20 +85,28 @@ Acceptance criteria: completed and verified. A real Electron startup created and
 
 ### Checkpoint 5: Project Create, Open, Close, Switch, And Lock
 
-- [ ] Implement `ProjectManager` states: closed, creating, opening, open, closing, and recovery-required.
-- [ ] Implement native create-project and open-project folder selection through Main-owned dialogs.
-- [ ] Create the complete staged project directory layout and atomically publish a valid new project.
-- [ ] Create the initial project, manuscript, writing brief, and first section records.
-- [ ] Implement a cross-platform project write lock with owner token, process/host metadata, heartbeat, and stale-lock recovery policy.
-- [ ] Reject concurrent writable opens from a second application instance.
-- [ ] Generate a new opaque `projectSessionId` on every successful open.
-- [ ] Require the active `projectSessionId` on every project-scoped IPC subscription and mutation.
-- [ ] Reject delayed results and requests from a closed or previously active project.
-- [ ] Implement ordered close: block new mutations, request editor flush, stop claims, park/abort workers, close databases, release lock, revoke session.
-- [ ] Implement project switch strictly as close-then-open.
-- [ ] Store only recent project pointers and display metadata in `app.sqlite`.
-- [ ] Handle moved/renamed projects by stable manifest ID rather than absolute-path identity.
-- [ ] Add E2E coverage for create, reopen, switch, app restart, moved project, lock contention, stale lock, and stale IPC.
+- [x] Implement `ProjectManager` states: closed, creating, opening, open, closing, and recovery-required.
+- [x] Implement named project creation into a new `<name>.writellm` child of a Main-selected parent directory, plus existing-project folder selection through Main-owned dialogs.
+- [x] Replace empty-destination adoption with validated project names and creation of a new `<name>.writellm` child; keep clean pre-publication failures retryable in the same app session.
+- [x] Create the complete staged project directory layout and atomically publish a valid new project.
+- [x] Create the initial project, manuscript, writing brief, and first section records.
+- [x] Implement a cross-platform project write lock with owner token, process/host metadata, heartbeat, and stale-lock recovery policy.
+- [x] Reject concurrent writable opens from a second application instance.
+- [x] Generate a new opaque `projectSessionId` on every successful open.
+- [x] Require the active `projectSessionId` on every active-project IPC subscription and mutation.
+- [x] Reject delayed results and requests from a closed or previously active project at the core manager boundary.
+- [x] Implement ordered close: block new mutations, request editor flush, stop claims, park/abort workers, close databases, release lock, revoke session.
+- [x] Implement project switch strictly as close-then-open.
+- [x] Store only recent project pointers and display metadata in `app.sqlite`.
+- [x] Expose up to five recent project pointers on the startup screen and open them by opaque project ID.
+- [x] Handle moved/renamed projects by stable manifest ID rather than absolute-path identity.
+- [x] Maximize the window after a project opens and restore the windowed state after it closes.
+- [x] Add built-app E2E coverage for create, reopen, switch, app restart, moved project, lock contention, and stale IPC, plus deterministic integration coverage for stale-lock recovery.
+- [x] Replace the temporary renderer with the approved shadcn/ui `new-york` application shell: global Menubar, `sidebar-09` workspace, and an anywhere-accessible Command settings surface while preserving project lifecycle behavior.
+
+Checkpoint 5 verification now includes built-app Playwright Electron coverage for real renderer/preload/Main create, close/reopen, switch, recent-project startup listing and direct reopen, moved-root stable manifest identity, stale IPC session rejection, and live lock contention across two application processes with isolated `userData`. Deterministic integration tests retain explicit observed-owner stale-lock recovery, owner-change races, delayed-result/session rejection, immediate closing authority revocation, ordered close participants, recovery-required cleanup, and moved-project recent-pointer updates. Stale-lock recovery remains outside E2E because no user-facing explicit recovery workflow exists yet; E2E also does not claim automatic startup reopen or packaged-artifact coverage.
+
+The renderer shell refresh is verified with the official shadcn/ui `new-york` generated components, Tailwind CSS 4, a persistent Menubar in closed and active-project states, `sidebar-09`-style nested sidebars, and a global Command settings surface. Named creation validates a renderer-provided project name and its UTF-8 filesystem component length at the preload and Main boundaries, lets Main select an arbitrary parent directory, exclusively reserves a new `<name>.writellm` child without replacing a directory or symlink, acquires its lock before publishing the manifest, and canonicalizes it before open. Component-aware containment protects forbidden application directories, recent-project metadata updates are best effort, recent startup entries are capped at five and opened by opaque project ID, filesystem errors are path-redacted in every logger destination, and project dialogs are state/concurrency gated before display. Existing target names are rejected cleanly and retry remains available in the same app session. Verification: the installed Biome, TypeScript, Vitest, electron-vite, and Playwright binaries passed (`biome check` with one pre-existing generated shadcn sidebar cookie warning, typecheck, 112 Vitest tests, build, and 4 Electron E2E tests). The local pnpm shim could not switch to the lockfile-pinned pnpm 11.10.0 because registry signature verification was unavailable; no dependencies or lockfiles were changed during verification.
 
 Acceptance criteria: exactly one active project exists; two instances cannot write the same project; closing revokes every project capability; a project can be moved and reopened without database path repair.
 

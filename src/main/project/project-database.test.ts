@@ -63,6 +63,9 @@ describe('project database', () => {
     expect(
       await second.kysely.selectFrom('project_meta').select('project_id').executeTakeFirstOrThrow()
     ).toEqual({ project_id: secondManifest.projectId })
+    expect(await first.kysely.selectFrom('manuscripts').selectAll().execute()).toHaveLength(1)
+    expect(await first.kysely.selectFrom('manuscript_briefs').selectAll().execute()).toHaveLength(1)
+    expect(await first.kysely.selectFrom('sections').selectAll().execute()).toHaveLength(1)
 
     const app = await openAppDatabase({
       path: join(await temporaryRoot('user-data'), 'app.sqlite'),
@@ -81,6 +84,95 @@ describe('project database', () => {
     first.close()
     second.close()
     app.close()
+  })
+
+  it('creates the singleton manuscript, first brief, and initial section atomically', async () => {
+    const root = await temporaryRoot('初始文稿')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc008')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+
+    const manuscript = await database.kysely
+      .selectFrom('manuscripts')
+      .selectAll()
+      .executeTakeFirstOrThrow()
+    expect(manuscript.project_id).toBe(projectManifest.projectId)
+    expect(manuscript.is_primary).toBe(1)
+    expect(
+      await database.kysely
+        .selectFrom('manuscript_briefs')
+        .select(['manuscript_id', 'version', 'title', 'extensible_json'])
+        .executeTakeFirstOrThrow()
+    ).toEqual({
+      manuscript_id: manuscript.manuscript_id,
+      version: 1,
+      title: 'Untitled Manuscript',
+      extensible_json: '{}'
+    })
+    expect(
+      await database.kysely
+        .selectFrom('sections')
+        .select([
+          'manuscript_id',
+          'parent_section_id',
+          'position',
+          'level',
+          'title',
+          'status',
+          'current_revision_id'
+        ])
+        .executeTakeFirstOrThrow()
+    ).toEqual({
+      manuscript_id: manuscript.manuscript_id,
+      parent_section_id: null,
+      position: 0,
+      level: 1,
+      title: 'Untitled Section',
+      status: 'planned',
+      current_revision_id: null
+    })
+    database.close()
+  })
+
+  it('upgrades a version 1 project database without inventing project content', async () => {
+    const root = await temporaryRoot('迁移')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc009')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    database.close()
+
+    const native = new (await import('better-sqlite3')).default(
+      join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    )
+    native.exec(`
+      DROP TABLE sections;
+      DROP TABLE manuscript_briefs;
+      DROP INDEX manuscripts_one_primary_per_project;
+      DROP TABLE manuscripts;
+      DELETE FROM schema_migrations WHERE version = 2;
+      UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
+      PRAGMA user_version = 1;
+    `)
+    native.close()
+
+    const upgraded = await openProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    expect(await upgraded.kysely.selectFrom('manuscripts').selectAll().execute()).toEqual([])
+    expect(await upgraded.kysely.selectFrom('manuscript_briefs').selectAll().execute()).toEqual([])
+    expect(await upgraded.kysely.selectFrom('sections').selectAll().execute()).toEqual([])
+    upgraded.close()
   })
 
   it('rejects a manifest and database identity mismatch before returning access', async () => {

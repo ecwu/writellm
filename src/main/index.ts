@@ -2,7 +2,10 @@ import { app, BrowserWindow, MessageChannelMain, utilityProcess } from 'electron
 import { join } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
+import { createShutdownCoordinator } from './bootstrap/shutdown-coordinator'
 import { createWindow } from './bootstrap/windows'
+import { createProjectDialogTestSelection } from './ipc/project-dialog-test-seam'
+import { registerProjectIpc } from './ipc/project-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
 import { cleanupLogRetention } from './observability/log-retention'
@@ -12,6 +15,8 @@ import { LogCollector } from './observability/log-collector'
 import { attachUtilityLogPort, captureUtilityStderr } from './observability/utility-logs'
 import { openAppDatabase } from './app-db/connection'
 import { quarantineLegacyCoreDatabase } from './app-db/legacy-core'
+import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
+import { ProjectManager } from './project/project-manager'
 
 registerAppScheme()
 
@@ -59,9 +64,37 @@ void app
       log: appDatabaseLog
     })
 
+    const recentProjects = new RecentProjectsRepository(appDatabase)
+    const projectManager = new ProjectManager({
+      applicationVersion: app.getVersion(),
+      logger: loggerSystem.createModuleLogger('project', 'manager'),
+      recentProjects,
+      forbiddenApplicationDirectories: [
+        app.getPath('userData'),
+        app.getPath('logs'),
+        app.getPath('sessionData')
+      ],
+      closeParticipants: {
+        flushEditors: async () => undefined,
+        stopJobClaims: async () => undefined,
+        parkWorkers: async () => undefined,
+        stopWorkersAndIndex: async () => undefined,
+        revokeSubscriptions: async () => undefined
+      }
+    })
+
     registerAppProtocol(join(__dirname, '../renderer'))
-    registerIpcHandlers(developmentUrl)
+    const unregisterAppIpc = registerIpcHandlers(developmentUrl)
     let mainWindow = createWindow(developmentUrl)
+    const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
+    const unregisterProjectIpc = registerProjectIpc({
+      manager: projectManager,
+      recentProjects,
+      getWindow: () => mainWindow,
+      logger: projectIpcLog,
+      developmentUrl,
+      selectProjectFolderForTest: createProjectDialogTestSelection(projectIpcLog)
+    })
     const unregisterDiagnostics = registerDiagnosticsIpc(
       loggerSystem,
       () => mainWindow,
@@ -99,14 +132,19 @@ void app
       }
     })
 
-    app.once('before-quit', () => {
+    const shutdownCoordinator = createShutdownCoordinator({
+      projectManager,
+      unregisterProjectIpc,
+      unregisterAppIpc,
+      unregisterDiagnostics,
+      closeAppDatabase: () => appDatabase.close(),
+      flushLogs: () => loggerSystem.flush(),
+      quit: () => app.quit(),
+      logger: appLog
+    })
+    app.on('before-quit', (event) => {
       shuttingDown = true
-      appDatabase.close()
-      unregisterDiagnostics()
-      appLog.info({ event: 'app.stopping' }, 'Application stopping')
-      void loggerSystem.flush().catch((err) => {
-        appLog.error({ event: 'app.log_flush.failed', err }, 'Failed to flush application logs')
-      })
+      shutdownCoordinator.handleBeforeQuit(event)
     })
   })
   .catch((err) => {

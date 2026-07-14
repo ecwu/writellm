@@ -1,5 +1,5 @@
 const SENSITIVE_KEYS = /authorization|cookie|credential|password|secret|token|api[-_]?key/i
-const PRIVATE_PATH = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s"']+/g
+const PRIVATE_PATH = /(?:[A-Za-z]:\\|\/)[^\s"'():]+(?:[\\/][^\s"'():]+)*/g
 
 export function redactLogValue(value: unknown, depth = 0): unknown {
   if (depth > 5) return '[TRUNCATED]'
