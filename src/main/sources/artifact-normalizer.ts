@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { BlockPreview } from '../../shared/sources.js';
 import type { ArchiveEntry } from './archive-reader.js';
+import { EMBEDDING_MAX_INPUT_BYTES, isValidEmbeddingText } from './embedding-limits.js';
 
 export type NormalizedBlock = BlockPreview & {
   plainText: string;
@@ -75,10 +76,6 @@ export function normalizeMinerUArtifact(
     seenRemote.add(remoteId);
     const type = normalizeType(value.type);
     const markdown = typeof value.text === 'string' ? value.text : '';
-    const plainText = markdown
-      .replace(/!\[[^\]]*\]\([^)]*\)|[#*_`>|~-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
     const imagePath =
       typeof value.image_path === 'string' ? value.image_path.replaceAll('\\', '/') : undefined;
     const relatedMedia = imagePath
@@ -91,10 +88,11 @@ export function normalizeMinerUArtifact(
     if (segments.length === 0) segments.push('');
     for (let segment = 0; segment < segments.length; segment++) {
       const text = segments[segment];
+      const plainText = toPlainText(text);
       const contentHash = hash(new TextEncoder().encode(text));
       const chunkId = `chunk-${hash(new TextEncoder().encode(`${sourceVersionId}\0${remoteId}\0${segment}\0${contentHash}`)).slice(0, 24)}`;
       const metadata = boundedMetadata(value);
-      const eligible = structurallyValid && plainText.length > 0 && text.length <= 64 * 1024;
+      const eligible = structurallyValid && isValidEmbeddingText(plainText);
       blocks.push({
         chunkId,
         ordinal: blocks.length,
@@ -135,11 +133,37 @@ function uniqueEntry(
 }
 
 function splitMarkdown(value: string): string[] {
-  if (value.length <= 64 * 1024) return value ? [value] : [];
+  if (!value) return [];
   const result: string[] = [];
-  for (let start = 0; start < value.length; start += 64 * 1024)
-    result.push(value.slice(start, start + 64 * 1024));
+  let remaining = value;
+  while (Buffer.byteLength(remaining) > EMBEDDING_MAX_INPUT_BYTES) {
+    const end = splitIndex(remaining, EMBEDDING_MAX_INPUT_BYTES);
+    result.push(remaining.slice(0, end));
+    remaining = remaining.slice(end);
+  }
+  if (remaining) result.push(remaining);
   return result;
+}
+function splitIndex(value: string, maxBytes: number): number {
+  let bytes = 0;
+  let end = 0;
+  let paragraphBoundary = 0;
+  let whitespaceBoundary = 0;
+  for (const character of value) {
+    const nextBytes = bytes + Buffer.byteLength(character);
+    if (nextBytes > maxBytes) break;
+    bytes = nextBytes;
+    end += character.length;
+    if (/\s/u.test(character)) whitespaceBoundary = end;
+    if (character === '\n' && value[end] === '\n') paragraphBoundary = end + 1;
+  }
+  return paragraphBoundary || whitespaceBoundary || end || 1;
+}
+function toPlainText(markdown: string): string {
+  return markdown
+    .replace(/!\[[^\]]*\]\([^)]*\)|[#*_`>|~-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 function boundedMetadata(value: Record<string, unknown>): Record<string, unknown> {
   const metadata: Record<string, unknown> = {};

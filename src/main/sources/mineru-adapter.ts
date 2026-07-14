@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { open, readFile, rm, stat } from 'node:fs/promises';
 import { normalizeBearerToken } from './credential-token.js';
 import { SourceJobExecutionError } from './scheduler.js';
 import type { SourceHttpRequest } from './service-validator.js';
@@ -6,6 +6,7 @@ import type { SourceHttpRequest } from './service-validator.js';
 const API = 'https://mineru.net/api/v4';
 const MAX_PDF_BYTES = 200 * 1024 * 1024;
 const MAX_PAGES = 200;
+const MAX_RESULT_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
 export type MinerUObservation =
   | {
@@ -192,11 +193,39 @@ export class MinerUAdapter {
     );
     if (!response.ok) throw await classify(response, 'download');
     const contentLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(contentLength) && contentLength > 1024 * 1024 * 1024)
+    if (Number.isFinite(contentLength) && contentLength > MAX_RESULT_ARCHIVE_BYTES)
       throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
-    await writeFile(input.destination, new Uint8Array(await response.arrayBuffer()), {
-      flag: 'wx',
-    });
+    if (!response.body)
+      throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
+    const file = await open(input.destination, 'wx');
+    let received = 0;
+    try {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > MAX_RESULT_ARCHIVE_BYTES) {
+          await reader.cancel();
+          throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
+        }
+        await file.write(value);
+      }
+      await file.sync();
+    } catch (error) {
+      await file.close();
+      await rm(input.destination, { force: true });
+      if (error instanceof MinerUTransportError) throw error;
+      throw new MinerUTransportError(
+        'SOURCE_MINERU_TEMPORARY',
+        true,
+        'download',
+        undefined,
+        undefined,
+        'NETWORK_ERROR',
+      );
+    }
+    await file.close();
   }
 
   private async headers(json: boolean): Promise<Record<string, string>> {

@@ -28,8 +28,8 @@ import { ProjectRepository } from './project/project-repository.js';
 import { registerProviderSettingsHandlers } from './provider-settings/handlers.js';
 import { ProviderSettingsRepository } from './provider-settings/repository.js';
 import { ElectronSecretProtector } from './provider-settings/secret-protector.js';
-import { registerSourceHandlers } from './sources/handlers.js';
 import { uploadFileWithProgress } from './sources/electron-file-upload.js';
+import { registerSourceHandlers } from './sources/handlers.js';
 import { SourceImportService } from './sources/import-service.js';
 import { registerSourceMediaProtocol } from './sources/media-protocol.js';
 import { MinerUAdapter } from './sources/mineru-adapter.js';
@@ -80,6 +80,7 @@ let appearanceRepository: AppearancePreferencesRepository | null = null;
 let providerSettingsRepository: ProviderSettingsRepository | null = null;
 let sourceServiceCredentials: SourceServiceCredentials | null = null;
 let sourceRuntime: SourceRuntime | null = null;
+let quitAfterSourceShutdown = false;
 let sourceRepository: SourceRepository | null = null;
 let sourceImports: SourceImportService | null = null;
 let sourcePipeline: SourcePipeline | null = null;
@@ -405,7 +406,8 @@ if (!hasSingleInstanceLock) {
         events: sourceEvents,
         getActiveSession: () => repository?.getActiveProjectSession() ?? null,
         request: electronFetch,
-        mineru: (credential) => new MinerUAdapter(credential, electronFetch, uploadFileWithProgress),
+        mineru: (credential) =>
+          new MinerUAdapter(credential, electronFetch, uploadFileWithProgress),
         wake: () => sourceRuntime?.wake(),
       });
       sourcePipeline = pipeline;
@@ -421,6 +423,13 @@ if (!hasSingleInstanceLock) {
       sourceRuntime.setProcessor(async (job, signal, jobs) => {
         try {
           await pipeline.process(job, signal, jobs);
+        } finally {
+          setTimeout(() => sourceRuntime?.wake(), 0);
+        }
+      });
+      sourceRuntime.setBatchProcessor(async (jobsToProcess, signal, jobs) => {
+        try {
+          await pipeline.processBatch(jobsToProcess, signal, jobs);
         } finally {
           setTimeout(() => sourceRuntime?.wake(), 0);
         }
@@ -450,7 +459,12 @@ if (!hasSingleInstanceLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('before-quit', () => sourceRuntime?.shutdown());
+  app.on('before-quit', (event) => {
+    if (!sourceRuntime || quitAfterSourceShutdown) return;
+    event.preventDefault();
+    quitAfterSourceShutdown = true;
+    void sourceRuntime.shutdown().finally(() => app.exit(0));
+  });
 
   app.on('activate', () => {
     void ensureWindow();

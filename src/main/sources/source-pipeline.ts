@@ -38,13 +38,7 @@ export class SourcePipeline {
   }
 
   async process(job: SourceJob, signal: AbortSignal, jobs: SourceJobRepository): Promise<void> {
-    if (job.type === 'embed')
-      return withAttemptDeadline(
-        signal,
-        this.options.attemptDeadlineMs ?? 120_000,
-        'SOURCE_SILICONFLOW_TEMPORARY',
-        (attemptSignal) => this.processEmbedding(job, attemptSignal, jobs),
-      );
+    if (job.type === 'embed') return this.processBatch([job], signal, jobs);
     const session = this.requireSession(job);
     await this.publishTransientParseState(session, job, job.attempt > 1);
     try {
@@ -75,7 +69,11 @@ export class SourcePipeline {
               signal: attemptSignal,
               onBatchAllocated: async (allocatedBatchId) => {
                 remoteBatchId = allocatedBatchId;
-                await jobs.patch(job.jobId, { remoteBatchId: allocatedBatchId });
+                await jobs.patch(
+                  job.jobId,
+                  { remoteBatchId: allocatedBatchId },
+                  job.lease?.workerId,
+                );
               },
               onUploadProgress: async (completed, total) => {
                 const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -86,7 +84,7 @@ export class SourcePipeline {
                   total: 100,
                   stage: 'uploading' as const,
                 };
-                await jobs.patch(job.jobId, { progress });
+                await jobs.patch(job.jobId, { progress }, job.lease?.workerId);
                 await this.publishTransientParseState(
                   session,
                   job,
@@ -99,14 +97,15 @@ export class SourcePipeline {
         );
         remoteBatchId = submitted.remoteBatchId;
         if (jobs.get(job.jobId)?.remoteBatchId !== remoteBatchId)
-          await jobs.patch(job.jobId, { remoteBatchId });
-        await jobs.patch(job.jobId, {
-          progress: { completed: 0, total: 100, stage: 'parsing' },
-        });
+          await jobs.patch(job.jobId, { remoteBatchId }, job.lease?.workerId);
+        await jobs.patch(
+          job.jobId,
+          { progress: { completed: 0, total: 100, stage: 'parsing' } },
+          job.lease?.workerId,
+        );
         await this.publishTransientParseState(session, job, job.attempt > 1);
       }
-      if (!remoteBatchId)
-        throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
+      if (!remoteBatchId) throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
       const durableBatchId = remoteBatchId;
       let resultUrl: string | undefined;
       let waitingFilePolls = 0;
@@ -129,7 +128,7 @@ export class SourcePipeline {
           if (observation.state === 'pending' && observation.providerState === 'waiting-file') {
             waitingFilePolls += 1;
             if (waitingFilePolls >= (this.options.waitingFileRetryPolls ?? 12)) {
-              await jobs.patch(job.jobId, { remoteBatchId: undefined });
+              await jobs.patch(job.jobId, { remoteBatchId: undefined }, job.lease?.workerId);
               throw new SourceJobExecutionError(
                 'SOURCE_MINERU_TEMPORARY',
                 true,
@@ -139,9 +138,11 @@ export class SourcePipeline {
             }
           } else waitingFilePolls = 0;
           const completed = Math.max(0, Math.min(100, Math.round(observation.progress)));
-          await jobs.patch(job.jobId, {
-            progress: { completed, total: 100, stage: 'parsing' },
-          });
+          await jobs.patch(
+            job.jobId,
+            { progress: { completed, total: 100, stage: 'parsing' } },
+            job.lease?.workerId,
+          );
           await this.publishTransientParseState(session, job, job.attempt > 1, completed);
           await waitAbortable(this.options.pollIntervalMs ?? 5_000, signal);
         }
@@ -193,7 +194,7 @@ export class SourcePipeline {
       }
     } catch (cause) {
       if (cause instanceof MinerUTransportError && cause.phase === 'upload')
-        await jobs.patch(job.jobId, { remoteBatchId: undefined });
+        await jobs.patch(job.jobId, { remoteBatchId: undefined }, job.lease?.workerId);
       const error = normalizePipelineError(cause);
       if (error.retryable && job.attempt < 6)
         await this.publishTransientParseState(
@@ -214,6 +215,30 @@ export class SourcePipeline {
       }
       throw error;
     }
+  }
+
+  async processBatch(
+    batch: SourceJob[],
+    signal: AbortSignal,
+    jobs: SourceJobRepository,
+  ): Promise<void> {
+    if (
+      batch.length === 0 ||
+      batch.some(
+        (job) =>
+          job.type !== 'embed' ||
+          job.sourceId !== batch[0].sourceId ||
+          job.sourceVersionId !== batch[0].sourceVersionId ||
+          job.indexProfileId !== batch[0].indexProfileId,
+      )
+    )
+      throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
+    return withAttemptDeadline(
+      signal,
+      this.options.attemptDeadlineMs ?? 120_000,
+      'SOURCE_SILICONFLOW_TEMPORARY',
+      (attemptSignal) => this.processEmbeddingBatch(batch, attemptSignal, jobs),
+    );
   }
 
   async reconcile(session: ProjectSession, jobs: SourceJobRepository): Promise<void> {
@@ -380,13 +405,15 @@ export class SourcePipeline {
     return { status: 'accepted', source: marked.source };
   }
 
-  private async processEmbedding(
-    job: SourceJob,
+  private async processEmbeddingBatch(
+    batch: SourceJob[],
     signal: AbortSignal,
     jobs: SourceJobRepository,
   ): Promise<void> {
+    const job = batch[0];
     const session = this.requireSession(job);
-    if (!job.chunkId) throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
+    if (batch.some((candidate) => !candidate.chunkId))
+      throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
     const service = this.options.credentials.summary('siliconflow');
     if (!service.revision || !service.available)
       throw new SourceJobExecutionError('SOURCE_SILICONFLOW_NOT_CONFIGURED', false);
@@ -395,15 +422,25 @@ export class SourcePipeline {
     const adapter =
       this.options.embedding?.(credential) ??
       new EmbeddingAdapter(credential, this.options.request);
-    const block = (await this.options.repository.getAllBlocks(session, job.sourceId)).find(
-      (value) => value.chunkId === job.chunkId && value.eligible,
+    const byChunkId = new Map(
+      (await this.options.repository.getAllBlocks(session, job.sourceId))
+        .filter((value) => value.eligible)
+        .map((value) => [value.chunkId, value]),
     );
-    if (!block) throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
+    const blocks = batch.map((candidate) => {
+      const block = candidate.chunkId ? byChunkId.get(candidate.chunkId) : undefined;
+      if (!block) throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
+      return block;
+    });
     try {
-      const [embedded] = await adapter.embed({
+      const embedded = await adapter.embed({
         jobId: job.jobId,
         model: 'BAAI/bge-m3',
-        texts: [{ chunkId: block.chunkId, contentHash: block.contentHash, text: block.plainText }],
+        texts: blocks.map((block) => ({
+          chunkId: block.chunkId,
+          contentHash: block.contentHash,
+          text: block.plainText,
+        })),
         signal,
       });
       this.requireSession(job);
@@ -413,7 +450,7 @@ export class SourcePipeline {
         sourceId: job.sourceId,
         sourceVersionId: job.sourceVersionId,
         revision: source.revision + 1,
-        values: [embedded],
+        values: embedded,
       });
       const failed = countFailedEmbeddingChunks(job, jobs.list());
       const updated = await this.options.repository.updateIndexProgress(
@@ -426,7 +463,8 @@ export class SourcePipeline {
       await this.publishSource(session, updated);
     } catch (cause) {
       const error = normalizeEmbeddingError(cause);
-      if (!error.retryable || job.attempt >= 6) {
+      const terminal = batch.filter((candidate) => !error.retryable || candidate.attempt >= 6);
+      if (terminal.length > 0) {
         const manifest = await this.index
           .readManifest(session, job.sourceId, job.sourceVersionId)
           .catch(() => null);
@@ -443,7 +481,8 @@ export class SourcePipeline {
             )
             .map((candidate) => candidate.chunkId!),
         );
-        if (job.chunkId) failedChunks.add(job.chunkId);
+        for (const candidate of terminal)
+          if (candidate.chunkId) failedChunks.add(candidate.chunkId);
         for (const record of manifest?.records ?? []) failedChunks.delete(record.chunkId);
         const updated = await this.options.repository.updateIndexProgress(
           session,
@@ -553,12 +592,7 @@ async function withAttemptDeadline<T>(
           'abort',
           () =>
             reject(
-              new SourceJobExecutionError(
-                code,
-                true,
-                undefined,
-                timedOut ? 'TIMEOUT' : 'ABORTED',
-              ),
+              new SourceJobExecutionError(code, true, undefined, timedOut ? 'TIMEOUT' : 'ABORTED'),
             ),
           { once: true },
         ),
@@ -580,14 +614,7 @@ function waitAbortable(milliseconds: number, signal: AbortSignal): Promise<void>
       'abort',
       () => {
         clearTimeout(timer);
-        reject(
-          new SourceJobExecutionError(
-            'SOURCE_MINERU_TEMPORARY',
-            true,
-            undefined,
-            'ABORTED',
-          ),
-        );
+        reject(new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true, undefined, 'ABORTED'));
       },
       { once: true },
     );

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { SourceJobRepository, type SourceJob } from '../../../src/main/sources/job-repository';
+import { type SourceJob, SourceJobRepository } from '../../../src/main/sources/job-repository';
 import { SourceScheduler } from '../../../src/main/sources/scheduler';
 import { sourceChannels, sourceServiceChannels } from '../../../src/shared/sources';
 
@@ -42,7 +42,8 @@ test('freezes the exact source/service/event IPC surface and hardened Electron w
   expect(main).toContain('request: electronFetch');
   expect(`${serviceValidator}\n${embeddingAdapter}`).toContain('api.siliconflow.cn');
   expect(`${serviceValidator}\n${embeddingAdapter}`).not.toContain('api.siliconflow.com');
-  expect(main).toContain("app.on('before-quit', () => sourceRuntime?.shutdown())");
+  expect(main).toContain("app.on('before-quit', (event) =>");
+  expect(main).toContain('sourceRuntime.shutdown().finally(() => app.exit(0))');
   expect(preload).toContain("ipcRenderer.on('writellm:sources:events'");
   expect(preload).not.toContain('ipcRenderer.send(');
   expect(preload).not.toMatch(/exposeInMainWorld\([^,]+,\s*ipcRenderer/);
@@ -93,10 +94,10 @@ test('scheduler shutdown aborts in-flight external work', async () => {
   });
   const draining = scheduler.drain();
   await started;
-  scheduler.shutdown();
+  await scheduler.shutdown();
   await draining;
   expect(observedAbort).toBe(true);
-  expect(jobs.get(job.jobId)?.state).toBe('retrying');
+  expect(jobs.get(job.jobId)?.state).toBe('queued');
 });
 
 test('original preview remains fixed-route, streamed, plugin-free and absent from preload IPC', async () => {

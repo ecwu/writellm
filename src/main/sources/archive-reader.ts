@@ -1,26 +1,68 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { inflateRawSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { inflateRaw, inflateRawSync } from 'node:zlib';
 
 export type ArchiveEntry = { name: string; data: Uint8Array };
 const MAX_ENTRIES = 10_000;
 const MAX_ENTRY_BYTES = 100 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 1024 * 1024 * 1024;
 const ACTIVE_EXTENSIONS = new Set(['.html', '.htm', '.svg', '.js', '.mjs', '.css', '.xml']);
+const inflateRawAsync = promisify(inflateRaw);
 
 export async function readZipArchive(archivePath: string): Promise<ArchiveEntry[]> {
-  return parseZipArchive(await readFile(archivePath));
+  const bytes = Buffer.from(await readFile(archivePath));
+  const descriptors = describeArchive(bytes);
+  const entries: ArchiveEntry[] = [];
+  for (const descriptor of descriptors) {
+    let data: Buffer;
+    if (descriptor.method === 0) data = Buffer.from(descriptor.compressed);
+    else {
+      try {
+        data = await inflateRawAsync(descriptor.compressed, { maxOutputLength: MAX_ENTRY_BYTES });
+      } catch {
+        throw invalid();
+      }
+    }
+    validateExpandedEntry(descriptor, data);
+    if (!descriptor.name.endsWith('/')) entries.push({ name: descriptor.name, data });
+  }
+  return entries;
 }
 
 export function parseZipArchive(input: Uint8Array): ArchiveEntry[] {
   const bytes = Buffer.from(input);
+  return describeArchive(bytes).flatMap((descriptor) => {
+    let data: Buffer;
+    if (descriptor.method === 0) data = Buffer.from(descriptor.compressed);
+    else {
+      try {
+        data = inflateRawSync(descriptor.compressed, { maxOutputLength: MAX_ENTRY_BYTES });
+      } catch {
+        throw invalid();
+      }
+    }
+    validateExpandedEntry(descriptor, data);
+    return descriptor.name.endsWith('/') ? [] : [{ name: descriptor.name, data }];
+  });
+}
+
+type ArchiveDescriptor = {
+  name: string;
+  method: 0 | 8;
+  crc: number;
+  uncompressedSize: number;
+  compressed: Buffer;
+};
+
+function describeArchive(bytes: Buffer): ArchiveDescriptor[] {
   const eocd = findSignature(bytes, 0x06054b50, Math.max(0, bytes.length - 65_557));
   if (eocd < 0 || eocd + 22 > bytes.length) throw invalid();
   const count = bytes.readUInt16LE(eocd + 10);
   const centralSize = bytes.readUInt32LE(eocd + 12);
   const centralOffset = bytes.readUInt32LE(eocd + 16);
   if (count > MAX_ENTRIES || centralOffset + centralSize > eocd) throw invalid();
-  const entries: ArchiveEntry[] = [];
+  const entries: ArchiveDescriptor[] = [];
   const names = new Set<string>();
   let offset = centralOffset;
   let expanded = 0;
@@ -52,21 +94,17 @@ export function parseZipArchive(input: Uint8Array): ArchiveEntry[] {
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
     const compressed = bytes.subarray(dataStart, dataStart + compressedSize);
     if (compressed.length !== compressedSize) throw invalid();
-    let data: Buffer;
-    if (method === 0) data = Buffer.from(compressed);
-    else if (method === 8) {
-      try {
-        data = inflateRawSync(compressed, { maxOutputLength: MAX_ENTRY_BYTES });
-      } catch {
-        throw invalid();
-      }
-    } else throw invalid();
-    if (data.length !== uncompressedSize || crc32(data) !== crc) throw invalid();
-    if (!name.endsWith('/')) entries.push({ name, data });
+    if (method !== 0 && method !== 8) throw invalid();
+    entries.push({ name, method, crc, uncompressedSize, compressed });
     offset += 46 + nameLength + extraLength + commentLength;
   }
   if (offset !== centralOffset + centralSize) throw invalid();
   return entries;
+}
+
+function validateExpandedEntry(descriptor: ArchiveDescriptor, data: Buffer): void {
+  if (data.length !== descriptor.uncompressedSize || crc32(data) !== descriptor.crc)
+    throw invalid();
 }
 
 function validateName(name: string): void {

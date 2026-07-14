@@ -3,6 +3,11 @@ import {
   SILICONFLOW_MODEL,
   SILICONFLOW_VECTOR_DIMENSIONS,
 } from '../../shared/sources.js';
+import {
+  EMBEDDING_MAX_BATCH_BYTES,
+  EMBEDDING_MAX_BATCH_SIZE,
+  estimateEmbeddingTokens,
+} from './embedding-limits.js';
 import { SourceJobExecutionError } from './scheduler.js';
 import type { SourceHttpRequest } from './service-validator.js';
 
@@ -30,12 +35,16 @@ export class EmbeddingAdapter {
     texts: EmbeddingInput[];
     signal: AbortSignal;
   }): Promise<EmbeddingOutput[]> {
-    if (input.model !== SILICONFLOW_MODEL || input.texts.length < 1 || input.texts.length > 16)
+    if (
+      input.model !== SILICONFLOW_MODEL ||
+      input.texts.length < 1 ||
+      input.texts.length > EMBEDDING_MAX_BATCH_SIZE
+    )
       throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
     const bytes = input.texts.reduce((total, value) => total + Buffer.byteLength(value.text), 0);
     if (
-      bytes > 256 * 1024 ||
-      input.texts.some((value) => !value.text.trim() || estimateTokens(value.text) > 8192)
+      bytes > EMBEDDING_MAX_BATCH_BYTES ||
+      input.texts.some((value) => !value.text.trim() || estimateEmbeddingTokens(value.text) > 8192)
     )
       throw new SourceJobExecutionError('SOURCE_INDEX_FAILED', false);
     let response: Response;
@@ -118,9 +127,6 @@ function classify(response: Response): SourceJobExecutionError {
 }
 function malformed() {
   return new SourceJobExecutionError('SOURCE_INDEX_MALFORMED', false);
-}
-function estimateTokens(value: string): number {
-  return Math.ceil(new TextEncoder().encode(value).byteLength / 2);
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

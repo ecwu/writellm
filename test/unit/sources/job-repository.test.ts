@@ -71,3 +71,39 @@ test('persists bounded backoff, attempt caps and supersession', async () => {
   await repository.supersedeSource(second.sourceId);
   expect(repository.get(second.jobId)?.state).toBe('superseded');
 });
+
+test('renews and releases owned leases while fencing stale workers', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'source-jobs-'));
+  const now = { value: Date.parse('2026-07-13T10:00:00.000Z') };
+  const repository = new SourceJobRepository(root, () => new Date(now.value).toISOString());
+  await repository.initialize();
+  const created = await repository.enqueue(jobFixture());
+  await repository.leaseNext('worker-a', 1_000);
+
+  now.value += 500;
+  expect(await repository.renewLeases([created.jobId], 'worker-a', 2_000)).toBe(true);
+  expect(await repository.complete(created.jobId, 'worker-b')).toBe(false);
+  expect(repository.get(created.jobId)?.state).toBe('running');
+
+  await repository.releaseLeases(['worker-a']);
+  expect(repository.get(created.jobId)?.state).toBe('queued');
+  expect(await repository.complete(created.jobId, 'worker-a')).toBe(false);
+});
+
+test('compacts the ledger atomically without losing durable jobs', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'source-jobs-'));
+  const repository = new SourceJobRepository(root);
+  await repository.initialize();
+  for (let index = 0; index < 3; index++)
+    await repository.enqueue(jobFixture({ jobId: `job-${index}`, idempotencyKey: `job-${index}` }));
+  await repository.compact();
+
+  const reopened = new SourceJobRepository(root);
+  await reopened.initialize();
+  expect(
+    reopened
+      .list()
+      .map((job) => job.jobId)
+      .sort(),
+  ).toEqual(['job-0', 'job-1', 'job-2']);
+});

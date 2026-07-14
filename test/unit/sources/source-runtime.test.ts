@@ -26,7 +26,7 @@ test('manual enqueue wakes the active single-flight scheduler', async () => {
   )
     await new Promise((resolve) => setTimeout(resolve, 1));
   expect(runtime.getJobRepository()?.get(queued.jobId)?.state).toBe('completed');
-  runtime.shutdown();
+  await runtime.shutdown();
 });
 
 test('activates per project session and shuts down without processing before adapters register', async () => {
@@ -37,5 +37,5 @@ test('activates per project session and shuts down without processing before ada
   await runtime.activate();
   session = { ...session, sessionId: 'session-2' };
   await runtime.activate();
-  expect(() => runtime.shutdown()).not.toThrow();
+  await expect(runtime.shutdown()).resolves.toBeUndefined();
 });

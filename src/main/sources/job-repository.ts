@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 
 export type SourceJobState =
@@ -45,6 +45,7 @@ export class SourceJobRepository {
   private jobs = new Map<string, SourceJob>();
   private idempotency = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
+  private writesSinceCompact = 0;
   constructor(
     private projectRoot: string,
     private now = () => new Date().toISOString(),
@@ -118,8 +119,43 @@ export class SourceJobRepository {
     });
   }
 
-  complete(jobId: string): Promise<void> {
-    return this.update(jobId, (job) => ({
+  leaseBatch(
+    workerId: string,
+    durationMs: number,
+    limit: number,
+    predicate: (job: SourceJob) => boolean,
+    sameBatch: (first: SourceJob, candidate: SourceJob) => boolean,
+  ): Promise<SourceJob[]> {
+    return this.serial(async () => {
+      const nowMs = Date.parse(this.now());
+      const available = [...this.jobs.values()].filter(
+        (candidate) =>
+          (candidate.state === 'queued' ||
+            (candidate.state === 'retrying' && Date.parse(candidate.retryAt ?? '0') <= nowMs)) &&
+          predicate(candidate),
+      );
+      const first = available[0];
+      if (!first) return [];
+      const selected = available.filter((candidate) => sameBatch(first, candidate)).slice(0, limit);
+      const leased: SourceJob[] = [];
+      for (const job of selected) {
+        const next: SourceJob = {
+          ...job,
+          state: 'running',
+          attempt: job.attempt + 1,
+          updatedAt: this.now(),
+          lease: { workerId, expiresAt: new Date(nowMs + durationMs).toISOString() },
+        };
+        await this.persist(next);
+        this.restore(next);
+        leased.push(structuredClone(next));
+      }
+      return leased;
+    });
+  }
+
+  complete(jobId: string, workerId?: string): Promise<boolean> {
+    return this.update(jobId, workerId, (job) => ({
       ...job,
       state: 'completed',
       lease: undefined,
@@ -138,8 +174,9 @@ export class SourceJobRepository {
   patch(
     jobId: string,
     fields: Partial<Pick<SourceJob, 'remoteBatchId' | 'resultArchive' | 'progress'>>,
-  ): Promise<void> {
-    return this.update(jobId, (job) => ({
+    workerId?: string,
+  ): Promise<boolean> {
+    return this.update(jobId, workerId, (job) => ({
       ...job,
       ...fields,
       ...(fields.progress ? { progress: normalizeProgress(fields.progress) } : {}),
@@ -154,8 +191,9 @@ export class SourceJobRepository {
       referenceCode?: string;
       errorMessage?: string;
     },
-  ): Promise<void> {
-    return this.update(jobId, (job) => {
+    workerId?: string,
+  ): Promise<boolean> {
+    return this.update(jobId, workerId, (job) => {
       const attempt = job.state === 'running' ? job.attempt : job.attempt + 1;
       const retrying = input.retryable && attempt < 6;
       return {
@@ -211,27 +249,54 @@ export class SourceJobRepository {
       }
     });
   }
+  renewLeases(jobIds: string[], workerId: string, durationMs: number): Promise<boolean> {
+    return this.serial(async () => {
+      const current = jobIds.map((jobId) => this.jobs.get(jobId));
+      if (current.some((job) => job?.state !== 'running' || job.lease?.workerId !== workerId))
+        return false;
+      const expiresAt = new Date(Date.parse(this.now()) + durationMs).toISOString();
+      for (const job of current as SourceJob[]) {
+        const next = { ...job, updatedAt: this.now(), lease: { workerId, expiresAt } };
+        await this.persist(next);
+        this.restore(next);
+      }
+      return true;
+    });
+  }
+  releaseLeases(workerIds: string[]): Promise<void> {
+    const owners = new Set(workerIds);
+    return this.serial(async () => {
+      for (const job of [...this.jobs.values()]) {
+        if (job.state !== 'running' || !job.lease || !owners.has(job.lease.workerId)) continue;
+        const next: SourceJob = {
+          ...job,
+          state: 'queued',
+          lease: undefined,
+          updatedAt: this.now(),
+        };
+        await this.persist(next);
+        this.restore(next);
+      }
+    });
+  }
   async compact(): Promise<void> {
     await this.serial(async () => {
-      const snapshot: Snapshot = {
-        kind: 'writellm.source-job-snapshot',
-        schemaVersion: 1,
-        jobs: [...this.jobs.values()],
-      };
-      const temp = `${this.snapshotPath()}.tmp`;
-      await writeFile(temp, `${JSON.stringify(snapshot)}\n`);
-      await rename(temp, this.snapshotPath());
-      await writeFile(this.ledgerPath(), '');
+      await this.compactLedger();
     });
   }
 
-  private update(jobId: string, change: (job: SourceJob) => SourceJob): Promise<void> {
+  private update(
+    jobId: string,
+    workerId: string | undefined,
+    change: (job: SourceJob) => SourceJob,
+  ): Promise<boolean> {
     return this.serial(async () => {
       const current = this.jobs.get(jobId);
-      if (!current) return;
+      if (!current || (workerId && current.lease?.workerId !== workerId)) return false;
       const next = { ...change(current), updatedAt: this.now() };
       await this.persist(next);
       this.restore(next);
+      return true;
     });
   }
   private async persist(job: SourceJob): Promise<void> {
@@ -243,6 +308,38 @@ export class SourceJobRepository {
     } finally {
       await handle.close();
     }
+    this.writesSinceCompact++;
+    if (this.writesSinceCompact >= 1_000) {
+      const previous = this.jobs.get(job.jobId);
+      this.jobs.set(job.jobId, job);
+      try {
+        await this.compactLedger();
+      } finally {
+        if (previous) this.jobs.set(job.jobId, previous);
+        else this.jobs.delete(job.jobId);
+      }
+    }
+  }
+  private async compactLedger(): Promise<void> {
+    const temp = `${this.ledgerPath()}.tmp`;
+    const records = [...this.jobs.values()]
+      .map((job) =>
+        JSON.stringify({
+          kind: 'writellm.source-job-ledger',
+          schemaVersion: 1,
+          job,
+        } satisfies LedgerRecord),
+      )
+      .join('\n');
+    const handle = await open(temp, 'w');
+    try {
+      await handle.writeFile(records ? `${records}\n` : '');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temp, this.ledgerPath());
+    this.writesSinceCompact = 0;
   }
   private restore(job: SourceJob): void {
     if (!validJob(job)) return;
@@ -304,5 +401,13 @@ function safeErrorMessage(value: string | undefined): string | undefined {
 
 function safeReferenceCode(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  return value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 128) || undefined;
+  return (
+    [...value]
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code > 0x1f && code !== 0x7f;
+      })
+      .join('')
+      .slice(0, 128) || undefined
+  );
 }

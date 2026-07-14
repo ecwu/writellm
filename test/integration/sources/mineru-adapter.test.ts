@@ -99,6 +99,28 @@ test('reads progress from the documented batch result array', async () => {
   ).resolves.toEqual({ state: 'running', progress: 25 });
 });
 
+test('rejects oversized streamed downloads and removes the partial archive', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mineru-download-'));
+  const destination = path.join(root, 'result.zip');
+  const adapter = new MinerUAdapter(
+    async () => 'secret',
+    async () =>
+      new Response('too large', {
+        status: 200,
+        headers: { 'content-length': String(256 * 1024 * 1024 + 1) },
+      }),
+  );
+
+  await expect(
+    adapter.download({
+      resultUrl: 'https://download.test/result.zip',
+      destination,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toMatchObject({ code: 'SOURCE_MINERU_MALFORMED', phase: 'download' });
+  await expect(readFile(destination)).rejects.toBeDefined();
+});
+
 test('submits and polls the documented URL task API', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const adapter = new MinerUAdapter(
@@ -225,10 +247,9 @@ test('checks MinerU business success and separates signed transport failures fro
     async () => 'secret',
     async (url) =>
       String(url).includes('upload.test')
-        ? new Response(
-            '<?xml version="1.0"?><Error><Code>SignatureDoesNotMatch</Code></Error>',
-            { status: 403 },
-          )
+        ? new Response('<?xml version="1.0"?><Error><Code>SignatureDoesNotMatch</Code></Error>', {
+            status: 403,
+          })
         : Response.json({
             code: 0,
             data: { batch_id: 'remote-id', file_urls: ['https://upload.test/signed'] },

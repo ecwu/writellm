@@ -75,6 +75,37 @@ test('coalesces concurrent drains into one exact worker pool', async () => {
   expect(maximum).toBe(2);
 });
 
+test('leases embedding jobs for the same source version as one bounded batch', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'scheduler-batch-'));
+  const jobs = new SourceJobRepository(root);
+  await jobs.initialize();
+  for (let index = 0; index < 20; index++)
+    await jobs.enqueue(
+      jobFixture({
+        jobId: `embed-${index}`,
+        idempotencyKey: `embed-${index}`,
+        type: 'embed',
+        chunkId: `chunk-${index}`,
+      }),
+    );
+  const sizes: number[] = [];
+  const scheduler = new SourceScheduler({
+    jobs,
+    isActiveSession: () => true,
+    execute: async () => undefined,
+    executeBatch: async (batch) => {
+      sizes.push(batch.length);
+    },
+  });
+
+  await scheduler.drain();
+
+  expect(sizes.reduce((total, size) => total + size, 0)).toBe(20);
+  expect(Math.max(...sizes)).toBeLessThanOrEqual(16);
+  expect(sizes.some((size) => size > 1)).toBe(true);
+  expect(jobs.list().every((job) => job.state === 'completed')).toBe(true);
+});
+
 test('arms a timer for the earliest durable retry', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'scheduler-retry-'));
   let now = Date.parse('2026-07-13T10:00:00.000Z');
@@ -103,9 +134,9 @@ test('arms a timer for the earliest durable retry', async () => {
   expect(timerDelay).toBe(250);
   now += 250;
   timerCallback?.();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await scheduler.drain();
   expect(jobs.get(job.jobId)?.state).toBe('completed');
-  scheduler.shutdown();
+  await scheduler.shutdown();
 });
 
 test('honors Retry-After and bounded full-jitter backoff', () => {

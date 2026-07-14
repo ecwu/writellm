@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EMBEDDING_MAX_BATCH_SIZE } from './embedding-limits.js';
 import type { SourceJob, SourceJobRepository } from './job-repository.js';
 
 export class SourceJobExecutionError extends Error {
@@ -18,11 +19,13 @@ export class SourceScheduler {
   private draining: Promise<void> | null = null;
   private rerunRequested = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private workerIds = new Set<string>();
   constructor(
     private options: {
       jobs: SourceJobRepository;
       isActiveSession(job: SourceJob): boolean;
       execute(job: SourceJob, signal: AbortSignal): Promise<void>;
+      executeBatch?(jobs: SourceJob[], signal: AbortSignal): Promise<void>;
       onSettled?(job: SourceJob): Promise<void>;
       random?: () => number;
       now?: () => number;
@@ -56,52 +59,98 @@ export class SourceScheduler {
     return current;
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.stopped = true;
     this.rerunRequested = false;
     this.clearRetryTimer();
     for (const controller of this.controllers.values()) controller.abort();
     this.controllers.clear();
+    const workerIds = [...this.workerIds];
+    this.workerIds.clear();
+    await this.options.jobs.releaseLeases(workerIds);
   }
 
   private async worker(type: SourceJob['type']): Promise<void> {
     const workerId = `${type}-${randomUUID()}`;
+    this.workerIds.add(workerId);
     while (!this.stopped) {
-      const job = await this.options.jobs.leaseNext(
-        workerId,
-        60_000,
-        (candidate) => candidate.type === type && this.options.isActiveSession(candidate),
-      );
-      if (!job) return;
+      const leased =
+        type === 'embed' && this.options.executeBatch
+          ? await this.options.jobs.leaseBatch(
+              workerId,
+              60_000,
+              EMBEDDING_MAX_BATCH_SIZE,
+              (candidate) => candidate.type === type && this.options.isActiveSession(candidate),
+              (first, candidate) =>
+                candidate.sourceId === first.sourceId &&
+                candidate.sourceVersionId === first.sourceVersionId &&
+                candidate.indexProfileId === first.indexProfileId,
+            )
+          : [
+              await this.options.jobs.leaseNext(
+                workerId,
+                60_000,
+                (candidate) => candidate.type === type && this.options.isActiveSession(candidate),
+              ),
+            ].filter((job): job is SourceJob => Boolean(job));
+      if (leased.length === 0) break;
+      const job = leased[0];
       const controller = new AbortController();
-      this.controllers.set(job.jobId, controller);
+      for (const current of leased) this.controllers.set(current.jobId, controller);
+      const heartbeat = setInterval(() => {
+        void this.options.jobs
+          .renewLeases(
+            leased.map((current) => current.jobId),
+            workerId,
+            60_000,
+          )
+          .then((renewed) => {
+            if (!renewed) controller.abort();
+          });
+      }, 20_000);
       try {
-        if (!this.options.isActiveSession(job))
+        if (leased.some((current) => !this.options.isActiveSession(current)))
           throw new SourceJobExecutionError('PROJECT_SESSION_STALE', true);
-        await this.options.execute(job, controller.signal);
-        if (controller.signal.aborted || !this.options.isActiveSession(job))
+        if (leased.length > 1 && this.options.executeBatch)
+          await this.options.executeBatch(leased, controller.signal);
+        else await this.options.execute(job, controller.signal);
+        if (
+          controller.signal.aborted ||
+          leased.some((current) => !this.options.isActiveSession(current))
+        )
           throw new SourceJobExecutionError('PROJECT_SESSION_STALE', true);
-        await this.options.jobs.complete(job.jobId);
+        for (const current of leased) {
+          const completed = await this.options.jobs.complete(current.jobId, workerId);
+          if (!completed) throw new SourceJobExecutionError('PROJECT_SESSION_STALE', true);
+        }
       } catch (error) {
         const known = error instanceof SourceJobExecutionError ? error : null;
-        const delay = retryDelay(
-          job.attempt,
-          known?.retryAfter,
-          this.options.random ?? Math.random,
-          this.options.now ?? Date.now,
-        );
-        await this.options.jobs.fail(job.jobId, {
-          retryable: known?.retryable ?? true,
-          retryAt: new Date((this.options.now ?? Date.now)() + delay).toISOString(),
-          errorCode: known?.code ?? 'SOURCE_INTERNAL',
-          referenceCode: known?.referenceCode,
-        });
+        for (const current of leased) {
+          const delay = retryDelay(
+            current.attempt,
+            known?.retryAfter,
+            this.options.random ?? Math.random,
+            this.options.now ?? Date.now,
+          );
+          await this.options.jobs.fail(
+            current.jobId,
+            {
+              retryable: known?.retryable ?? true,
+              retryAt: new Date((this.options.now ?? Date.now)() + delay).toISOString(),
+              errorCode: known?.code ?? 'SOURCE_INTERNAL',
+              referenceCode: known?.referenceCode,
+            },
+            workerId,
+          );
+        }
       } finally {
-        this.controllers.delete(job.jobId);
+        clearInterval(heartbeat);
+        for (const current of leased) this.controllers.delete(current.jobId);
       }
       const settled = this.options.jobs.get(job.jobId);
       if (settled) await this.options.onSettled?.(settled);
     }
+    this.workerIds.delete(workerId);
   }
 
   private scheduleEarliestRetry(): void {

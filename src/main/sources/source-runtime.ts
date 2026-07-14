@@ -7,12 +7,18 @@ export type SourceJobProcessor = (
   signal: AbortSignal,
   jobs: SourceJobRepository,
 ) => Promise<void>;
+export type SourceJobBatchProcessor = (
+  jobsToProcess: SourceJob[],
+  signal: AbortSignal,
+  jobs: SourceJobRepository,
+) => Promise<void>;
 
 /** Owns one scheduler for the currently active portable project. */
 export class SourceRuntime {
   private scheduler: SourceScheduler | null = null;
   private sessionId: string | null = null;
   private processor: SourceJobProcessor | null = null;
+  private batchProcessor: SourceJobBatchProcessor | null = null;
   private jobs: SourceJobRepository | null = null;
   private recoveryHandler:
     | ((session: ProjectSession, jobs: SourceJobRepository) => Promise<void>)
@@ -22,6 +28,10 @@ export class SourceRuntime {
 
   setProcessor(processor: SourceJobProcessor): void {
     this.processor = processor;
+    if (this.scheduler) void this.scheduler.drain();
+  }
+  setBatchProcessor(processor: SourceJobBatchProcessor): void {
+    this.batchProcessor = processor;
     if (this.scheduler) void this.scheduler.drain();
   }
   setRecoveryHandler(
@@ -58,7 +68,7 @@ export class SourceRuntime {
   async activate(): Promise<void> {
     const session = this.getActiveSession();
     if (!session || session.sessionId === this.sessionId) return;
-    this.scheduler?.shutdown();
+    await this.scheduler?.shutdown();
     const jobs = new SourceJobRepository(session.projectRoot);
     await jobs.initialize();
     const scheduler = new SourceScheduler({
@@ -73,6 +83,12 @@ export class SourceRuntime {
         if (!this.processor) throw new Error('SOURCE_PROCESSOR_NOT_READY');
         await this.processor(job, signal, jobs);
       },
+      executeBatch: this.batchProcessor
+        ? async (batch, signal) => {
+            if (!this.batchProcessor) throw new Error('SOURCE_PROCESSOR_NOT_READY');
+            await this.batchProcessor(batch, signal, jobs);
+          }
+        : undefined,
       onSettled: async () => {
         if (this.getActiveSession()?.sessionId === session.sessionId)
           await this.recoveryHandler?.(session, jobs);
@@ -86,10 +102,11 @@ export class SourceRuntime {
     if (this.processor) void scheduler.drain();
   }
 
-  shutdown(): void {
-    this.scheduler?.shutdown();
+  async shutdown(): Promise<void> {
+    const scheduler = this.scheduler;
     this.scheduler = null;
     this.jobs = null;
     this.sessionId = null;
+    await scheduler?.shutdown();
   }
 }

@@ -54,6 +54,51 @@ test('accepts MinerU archives nested under the uploaded file name', () => {
   expect(artifact.blocks[2].media[0]?.available).toBe(true);
 });
 
+test('splits long blocks on text boundaries and derives plain text per segment', () => {
+  const firstParagraph = `# First\n\n${'alpha '.repeat(2_800)}`;
+  const secondParagraph = `# Second\n\n${'beta '.repeat(2_800)}`;
+  const entries = [
+    {
+      name: 'content_list.json',
+      data: new TextEncoder().encode(
+        JSON.stringify([{ id: 'long', type: 'paragraph', text: firstParagraph + secondParagraph }]),
+      ),
+    },
+  ];
+
+  const artifact = normalizeMinerUArtifact('version', entries);
+
+  expect(artifact.blocks.length).toBeGreaterThan(1);
+  expect(artifact.blocks.every((block) => block.eligible)).toBe(true);
+  expect(artifact.blocks.map((block) => block.markdown).join('')).toBe(
+    firstParagraph + secondParagraph,
+  );
+  expect(artifact.blocks[0].plainText).toContain('First');
+  expect(artifact.blocks[0].plainText).not.toContain('Second');
+  expect(artifact.blocks.at(-1)?.plainText).toContain('Second');
+  expect(new Set(artifact.blocks.map((block) => block.plainText)).size).toBe(
+    artifact.blocks.length,
+  );
+});
+
+test('keeps multibyte chunks within the embedding byte limit', () => {
+  const entries = [
+    {
+      name: 'content_list.json',
+      data: new TextEncoder().encode(
+        JSON.stringify([{ id: 'multibyte', type: 'paragraph', text: '文'.repeat(12_000) }]),
+      ),
+    },
+  ];
+
+  const artifact = normalizeMinerUArtifact('version', entries);
+
+  expect(artifact.blocks.length).toBeGreaterThan(1);
+  expect(artifact.blocks.every((block) => Buffer.byteLength(block.plainText) <= 16_384)).toBe(true);
+  expect(artifact.blocks.every((block) => block.eligible)).toBe(true);
+  expect(artifact.blocks.map((block) => block.markdown).join('')).toBe('文'.repeat(12_000));
+});
+
 function zip(entries: Array<{ name: string; data: Uint8Array; mode?: number }>): Uint8Array {
   const local: Buffer[] = [],
     central: Buffer[] = [];
