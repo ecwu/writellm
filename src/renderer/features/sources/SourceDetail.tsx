@@ -276,8 +276,14 @@ export function SourceDetail({
             </div>
             <div>
               <dt className="inline font-medium">Reference code: </dt>
-              <dd className="inline">{detail.failure.code}</dd>
+              <dd className="inline">{detail.failure.referenceCode ?? detail.failure.code}</dd>
             </div>
+            {detail.failure.referenceCode && (
+              <div>
+                <dt className="inline font-medium">Application code: </dt>
+                <dd className="inline">{detail.failure.code}</dd>
+              </div>
+            )}
             <div>
               <dt className="inline font-medium">Affected scope: </dt>
               <dd className="inline">
@@ -456,12 +462,16 @@ export function SourceDetail({
 
 function processingStageLabel(source: SourceDetailModel): string {
   if (source.state === 'queued') return source.retrying ? 'Retry queued' : 'Queued';
+  if (source.progress.stage === 'uploading')
+    return source.retrying ? 'Retrying upload' : 'Uploading PDF';
   if (source.state === 'parsing') return source.retrying ? 'Retrying parsing' : 'Parsing PDF';
   return source.retrying ? 'Retrying indexing' : 'Indexing content';
 }
 
 function processingProgressLabel(source: SourceDetailModel): string {
   if (source.state === 'queued') return 'Waiting for a processing worker.';
+  if (source.progress.stage === 'uploading')
+    return `${source.progress.completed}% uploaded${source.retrying ? '; automatic retry is active' : ''}.`;
   if (source.progress.stage === 'parsing')
     return `${source.progress.completed}% parsed${source.retrying ? '; automatic retry is active' : ''}.`;
   const remaining = Math.max(0, source.progress.total - source.progress.completed);

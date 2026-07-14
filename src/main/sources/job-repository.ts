@@ -26,10 +26,15 @@ export type SourceJob = {
   retryAt?: string;
   lease?: { workerId: string; expiresAt: string };
   errorCode?: string;
+  referenceCode?: string;
   errorMessage?: string;
   errorRetryable?: boolean;
   failedAt?: string;
-  progress?: { completed: number; total: number; stage: 'queued' | 'parsing' | 'indexing' };
+  progress?: {
+    completed: number;
+    total: number;
+    stage: 'queued' | 'uploading' | 'parsing' | 'indexing';
+  };
   remoteBatchId?: string;
   resultArchive?: string;
 };
@@ -120,6 +125,7 @@ export class SourceJobRepository {
       lease: undefined,
       retryAt: undefined,
       errorCode: undefined,
+      referenceCode: undefined,
       errorMessage: undefined,
       errorRetryable: undefined,
       failedAt: undefined,
@@ -141,7 +147,13 @@ export class SourceJobRepository {
   }
   fail(
     jobId: string,
-    input: { retryable: boolean; retryAt?: string; errorCode?: string; errorMessage?: string },
+    input: {
+      retryable: boolean;
+      retryAt?: string;
+      errorCode?: string;
+      referenceCode?: string;
+      errorMessage?: string;
+    },
   ): Promise<void> {
     return this.update(jobId, (job) => {
       const attempt = job.state === 'running' ? job.attempt : job.attempt + 1;
@@ -151,6 +163,7 @@ export class SourceJobRepository {
         state: retrying ? 'retrying' : 'failed',
         retryAt: retrying ? input.retryAt : undefined,
         errorCode: input.errorCode,
+        referenceCode: safeReferenceCode(input.referenceCode),
         errorMessage: safeErrorMessage(input.errorMessage),
         errorRetryable: retrying,
         failedAt: retrying ? undefined : this.now(),
@@ -287,4 +300,9 @@ function normalizeProgress(
 function safeErrorMessage(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return value.replace(/[\r\n\t]/g, ' ').slice(0, 512);
+}
+
+function safeReferenceCode(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 128) || undefined;
 }

@@ -54,6 +54,7 @@ test('refreshes same-revision processing progress and clears a stale failure aft
     sourceVersionId: 'version',
     failure: {
       code: 'SOURCE_MINERU_TEMPORARY' as const,
+      referenceCode: 'HTTP_503',
       messageKey: 'sources.error.mineruTemporary',
       stage: 'parse' as const,
     },
@@ -87,6 +88,8 @@ test('refreshes same-revision processing progress and clears a stale failure aft
   } as unknown as SourcesApi;
   const view = render(<SourceDetail api={api} source={failed} onBack={() => undefined} />);
   await waitFor(() => expect(view.getByText('Processing failure')).toBeInTheDocument());
+  expect(view.getByText('HTTP_503')).toBeInTheDocument();
+  expect(view.getByText('SOURCE_MINERU_TEMPORARY')).toBeInTheDocument();
   expect(view.getByText(/Automatic attempts ended/)).toBeInTheDocument();
   fireEvent.click(view.getByRole('button', { name: /Retry failed work/ }));
   await waitFor(() => expect(view.queryByText('Processing failure')).not.toBeInTheDocument());
@@ -105,4 +108,34 @@ test('refreshes same-revision processing progress and clears a stale failure aft
     />,
   );
   await waitFor(() => expect(view.getByText(/67% parsed/)).toBeInTheDocument());
+});
+
+test('distinguishes PDF upload progress from MinerU parsing progress', async () => {
+  const uploading = sourceFixture({
+    state: 'parsing',
+    progress: { completed: 38, total: 100, stage: 'uploading' },
+  });
+  const api = {
+    getSource: async () => ({
+      status: 'ok' as const,
+      source: {
+        ...uploading,
+        sourceVersionId: 'version',
+        parseSummary: {
+          markdownAvailable: false,
+          originalPreviewAvailable: true,
+          mediaCount: 0,
+          blockCount: 0,
+          indexedBlockCount: 0,
+          failedBlockCount: 0,
+          incompleteBlockCount: 0,
+        },
+      },
+      sourceVersionId: 'version',
+      blocks: [],
+    }),
+  } as unknown as SourcesApi;
+  const view = render(<SourceDetail api={api} source={uploading} onBack={() => undefined} />);
+  await waitFor(() => expect(view.getByText('Uploading PDF')).toBeInTheDocument());
+  expect(view.getByText('38% uploaded.')).toBeInTheDocument();
 });

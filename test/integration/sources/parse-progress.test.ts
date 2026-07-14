@@ -95,6 +95,45 @@ test('persists and publishes MinerU progress so authoritative reads survive even
   expect(projected.sources[0]?.state).toBe('indexing');
 });
 
+test('persists and publishes real upload progress before MinerU parsing starts', async () => {
+  const { session, repository, credentials, jobs, job } = await setup();
+  const events = new SourceEvents();
+  events.activate(session.sessionId);
+  const seen: Array<{ completed: number; stage: string }> = [];
+  events.subscribe(
+    0,
+    (event) => {
+      if (event.type === 'source-upserted' && event.source?.state === 'parsing')
+        seen.push(event.source.progress);
+    },
+    session.sessionId,
+  );
+  const fake = {
+    submitLocalPdf: async (input: {
+      onUploadProgress?(completed: number, total: number): Promise<void>;
+    }) => {
+      await input.onUploadProgress?.(512, 1024);
+      throw new MinerUTransportError('SOURCE_MINERU_TEMPORARY', true, 'upload');
+    },
+  };
+  const pipeline = new SourcePipeline({
+    credentials,
+    repository,
+    events,
+    getActiveSession: () => session,
+    mineru: () => fake as unknown as MinerUAdapter,
+  });
+  await expect(pipeline.process(job, new AbortController().signal, jobs)).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_TEMPORARY',
+  });
+  expect(seen).toContainEqual({ completed: 50, total: 100, stage: 'uploading' });
+  expect(jobs.get(job.jobId)?.progress).toEqual({
+    completed: 50,
+    total: 100,
+    stage: 'uploading',
+  });
+});
+
 test('persists an allocated batch before upload and clears it when signed upload fails', async () => {
   const { session, repository, credentials, jobs, job } = await setup();
   let persistedBeforeUploadFailure = false;

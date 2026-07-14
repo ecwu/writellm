@@ -15,9 +15,15 @@ export type MinerUObservation =
     }
   | { state: 'running'; progress: number }
   | { state: 'done'; resultUrl: string }
-  | { state: 'failed'; code: string; retryable: boolean };
+  | { state: 'failed'; code: string; retryable: boolean; referenceCode?: string };
 
 export type MinerUTransportPhase = 'submit' | 'upload' | 'poll' | 'download';
+export type MinerUFileUpload = (
+  url: string,
+  bytes: Uint8Array,
+  signal: AbortSignal,
+  onProgress: (completed: number, total: number) => void | Promise<void>,
+) => Promise<Response>;
 
 export class MinerUTransportError extends SourceJobExecutionError {
   constructor(
@@ -26,8 +32,9 @@ export class MinerUTransportError extends SourceJobExecutionError {
     readonly phase: MinerUTransportPhase,
     retryAfter?: string,
     readonly httpStatus?: number,
+    referenceCode?: string,
   ) {
-    super(code, retryable, retryAfter);
+    super(code, retryable, retryAfter, referenceCode);
   }
 }
 
@@ -35,6 +42,7 @@ export class MinerUAdapter {
   constructor(
     private credential: () => Promise<string>,
     private request: SourceHttpRequest = fetch,
+    private upload?: MinerUFileUpload,
   ) {}
 
   async submitLocalPdf(input: {
@@ -47,6 +55,7 @@ export class MinerUAdapter {
     formulas: true;
     signal: AbortSignal;
     onBatchAllocated?(remoteBatchId: string): Promise<void>;
+    onUploadProgress?(completed: number, total: number): void | Promise<void>;
   }): Promise<{ remoteBatchId: string }> {
     const info = await stat(input.absolutePath);
     if (!info.isFile() || info.size > MAX_PDF_BYTES)
@@ -63,7 +72,13 @@ export class MinerUAdapter {
         method: 'POST',
         headers: await this.headers(true),
         body: JSON.stringify({
-          files: [{ name: 'source.pdf', data_id: providerDataId(input.dataId) }],
+          files: [
+            {
+              name: 'source.pdf',
+              data_id: providerDataId(input.dataId),
+              is_ocr: input.ocr,
+            },
+          ],
           model_version: input.modelVersion,
         }),
         signal: input.signal,
@@ -76,17 +91,26 @@ export class MinerUAdapter {
     if (!batchId || !uploadUrl)
       throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'submit');
     await input.onBatchAllocated?.(batchId);
-    const uploaded = await this.call(
-      uploadUrl,
-      {
-        method: 'PUT',
-        body: bytes,
-        signal: input.signal,
-      },
-      'upload',
-      false,
-    );
-    if (!uploaded.ok) throw classify(uploaded, 'upload');
+    await input.onUploadProgress?.(0, bytes.byteLength);
+    let uploaded: Response;
+    try {
+      uploaded = this.upload
+        ? await this.upload(uploadUrl, bytes, input.signal, (completed, total) =>
+            input.onUploadProgress?.(completed, total),
+          )
+        : await this.request(uploadUrl, { method: 'PUT', body: bytes, signal: input.signal });
+    } catch {
+      throw new MinerUTransportError(
+        'SOURCE_MINERU_TEMPORARY',
+        true,
+        'upload',
+        undefined,
+        undefined,
+        'NETWORK_ERROR',
+      );
+    }
+    if (!uploaded.ok) throw await classify(uploaded, 'upload');
+    await input.onUploadProgress?.(bytes.byteLength, bytes.byteLength);
     return { remoteBatchId: batchId };
   }
 
@@ -166,7 +190,7 @@ export class MinerUAdapter {
       'download',
       false,
     );
-    if (!response.ok) throw classify(response, 'download');
+    if (!response.ok) throw await classify(response, 'download');
     const contentLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(contentLength) && contentLength > 1024 * 1024 * 1024)
       throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'download');
@@ -191,9 +215,16 @@ export class MinerUAdapter {
     try {
       response = await this.request(url, init);
     } catch {
-      throw new MinerUTransportError('SOURCE_MINERU_TEMPORARY', true, phase);
+      throw new MinerUTransportError(
+        'SOURCE_MINERU_TEMPORARY',
+        true,
+        phase,
+        undefined,
+        undefined,
+        'NETWORK_ERROR',
+      );
     }
-    if (requireOk && !response.ok) throw classify(response, phase);
+    if (requireOk && !response.ok) throw await classify(response, phase);
     return response;
   }
 }
@@ -225,12 +256,28 @@ function observationFromPayload(
     if (!resultUrl) throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'poll');
     return { state: 'done', resultUrl };
   }
-  if (state === 'failed')
-    return { state: 'failed', code: 'SOURCE_MINERU_REJECTED', retryable: false };
+  if (state === 'failed') {
+    const referenceCode =
+      nestedCode(result, ['err_code']) ??
+      nestedCode(result, ['error_code']) ??
+      nestedCode(result, ['code']) ??
+      nestedCode(payload, ['data', 'err_code']) ??
+      nestedCode(payload, ['data', 'error_code']);
+    return {
+      state: 'failed',
+      code: 'SOURCE_MINERU_REJECTED',
+      retryable: false,
+      ...(referenceCode ? { referenceCode } : {}),
+    };
+  }
   throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, 'poll');
 }
 
-function classify(response: Response, phase: MinerUTransportPhase): MinerUTransportError {
+async function classify(
+  response: Response,
+  phase: MinerUTransportPhase,
+): Promise<MinerUTransportError> {
+  const referenceCode = (await responseReferenceCode(response)) ?? `HTTP_${response.status}`;
   if (response.status === 401 || response.status === 403) {
     if (phase === 'submit' || phase === 'poll')
       return new MinerUTransportError(
@@ -239,6 +286,7 @@ function classify(response: Response, phase: MinerUTransportPhase): MinerUTransp
         phase,
         undefined,
         response.status,
+        referenceCode,
       );
     return new MinerUTransportError(
       'SOURCE_MINERU_TEMPORARY',
@@ -246,6 +294,7 @@ function classify(response: Response, phase: MinerUTransportPhase): MinerUTransp
       phase,
       undefined,
       response.status,
+      referenceCode,
     );
   }
   if (response.status === 429)
@@ -255,6 +304,7 @@ function classify(response: Response, phase: MinerUTransportPhase): MinerUTransp
       phase,
       response.headers.get('retry-after') ?? undefined,
       response.status,
+      referenceCode,
     );
   if (response.status >= 500 || response.status === 408)
     return new MinerUTransportError(
@@ -263,6 +313,7 @@ function classify(response: Response, phase: MinerUTransportPhase): MinerUTransp
       phase,
       undefined,
       response.status,
+      referenceCode,
     );
   return new MinerUTransportError(
     'SOURCE_MINERU_REJECTED',
@@ -270,16 +321,41 @@ function classify(response: Response, phase: MinerUTransportPhase): MinerUTransp
     phase,
     undefined,
     response.status,
+    referenceCode,
   );
+}
+
+async function responseReferenceCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = await response.clone().text();
+    try {
+      const code = nestedCode(JSON.parse(body), ['code']);
+      if (code) return code;
+    } catch {
+      // Signed upload and download endpoints commonly return object-storage XML errors.
+    }
+    const xmlCode = body.match(/<Code>\s*([^<]+?)\s*<\/Code>/i)?.[1]?.trim();
+    return xmlCode || undefined;
+  } catch {
+    return undefined;
+  }
 }
 async function successfulPayload(
   response: Response,
   phase: Extract<MinerUTransportPhase, 'submit' | 'poll'>,
 ): Promise<unknown> {
   const payload = await safeJson(response, phase);
-  const code = nestedNumber(payload, ['code']);
+  const code = nestedCode(payload, ['code']);
   if (code === undefined) throw new MinerUTransportError('SOURCE_MINERU_MALFORMED', false, phase);
-  if (code !== 0) throw new MinerUTransportError('SOURCE_MINERU_REJECTED', false, phase);
+  if (code !== '0')
+    throw new MinerUTransportError(
+      'SOURCE_MINERU_REJECTED',
+      false,
+      phase,
+      undefined,
+      undefined,
+      code,
+    );
   return payload;
 }
 async function safeJson(response: Response, phase: MinerUTransportPhase): Promise<unknown> {
@@ -309,6 +385,18 @@ function nestedNumber(value: unknown, parts: string[]): number | undefined {
     else return undefined;
   }
   return typeof current === 'number' ? current : undefined;
+}
+function nestedCode(value: unknown, parts: string[]): string | undefined {
+  let current: unknown = value;
+  for (const part of parts) {
+    if (Array.isArray(current)) current = current[Number(part)];
+    else if (typeof current === 'object' && current !== null)
+      current = (current as Record<string, unknown>)[part];
+    else return undefined;
+  }
+  if (typeof current === 'number' && Number.isFinite(current)) return String(current);
+  if (typeof current === 'string' && current.trim().length > 0) return current.trim();
+  return undefined;
 }
 function nestedRecord(value: unknown, parts: string[]): Record<string, unknown> | undefined {
   let current: unknown = value;

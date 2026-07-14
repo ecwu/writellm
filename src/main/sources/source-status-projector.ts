@@ -29,6 +29,7 @@ export function projectSourceStatus<T extends ProjectableSource>(
         retryable: true,
         failure: {
           code: sourceErrorCode(parse.errorCode),
+          ...(parse.referenceCode ? { referenceCode: parse.referenceCode } : {}),
           messageKey: `sources.error.${sourceErrorCode(parse.errorCode).toLowerCase()}`,
           stage: 'parse',
         },
@@ -83,6 +84,9 @@ export function projectSourceStatus<T extends ProjectableSource>(
       failed > 0
         ? {
             code: sourceErrorCode(failureJob?.errorCode, 'SOURCE_INDEX_FAILED'),
+            ...(failureJob?.referenceCode
+              ? { referenceCode: failureJob.referenceCode }
+              : {}),
             messageKey: `sources.error.${sourceErrorCode(failureJob?.errorCode, 'SOURCE_INDEX_FAILED').toLowerCase()}`,
             stage: 'index',
           }

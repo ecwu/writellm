@@ -6,6 +6,7 @@ export class SourceJobExecutionError extends Error {
     readonly code: string,
     readonly retryable: boolean,
     readonly retryAfter?: string,
+    readonly referenceCode?: string,
   ) {
     super(code);
   }
@@ -93,6 +94,7 @@ export class SourceScheduler {
           retryable: known?.retryable ?? true,
           retryAt: new Date((this.options.now ?? Date.now)() + delay).toISOString(),
           errorCode: known?.code ?? 'SOURCE_INTERNAL',
+          referenceCode: known?.referenceCode,
         });
       } finally {
         this.controllers.delete(job.jobId);

@@ -31,6 +31,7 @@ test('performs signed submit, PUT, poll and immediate download without leaking c
   };
   const adapter = new MinerUAdapter(async () => 'credential-sentinel', fake as typeof fetch);
   let allocated = '';
+  const uploadProgress: Array<[number, number]> = [];
   const submitted = await adapter.submitLocalPdf({
     jobId: 'j',
     dataId: 'd',
@@ -44,13 +45,18 @@ test('performs signed submit, PUT, poll and immediate download without leaking c
       allocated = remoteBatchId;
       expect(calls).toHaveLength(1);
     },
+    onUploadProgress: (completed, total) => void uploadProgress.push([completed, total]),
   });
   expect(submitted.remoteBatchId).toBe('remote-id');
   expect(allocated).toBe('remote-id');
+  expect(uploadProgress).toEqual([
+    [0, validPdfFixture().byteLength],
+    [validPdfFixture().byteLength, validPdfFixture().byteLength],
+  ]);
   expect(calls[0]?.url).toContain('enable_table=true');
   expect(calls[0]?.url).toContain('enable_formula=true');
   expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
-    files: [{ name: 'source.pdf', data_id: 'd' }],
+    files: [{ name: 'source.pdf', data_id: 'd', is_ocr: true }],
     model_version: 'vlm',
   });
   expect(calls[1].init?.method).toBe('PUT');
@@ -181,13 +187,17 @@ test('checks MinerU business success and separates signed transport failures fro
       formulas: true,
       signal: new AbortController().signal,
     }),
-  ).rejects.toMatchObject({ code: 'SOURCE_MINERU_REJECTED', phase: 'submit' });
+  ).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_REJECTED',
+    phase: 'submit',
+    referenceCode: '1001',
+  });
 
   const uploadRejected = new MinerUAdapter(
     async () => 'secret',
     async (url) =>
       String(url).includes('upload.test')
-        ? new Response('', { status: 403 })
+        ? Response.json({ code: 1002, msg: 'signed upload expired' }, { status: 403 })
         : Response.json({
             code: 0,
             data: { batch_id: 'remote-id', file_urls: ['https://upload.test/signed'] },
@@ -208,6 +218,38 @@ test('checks MinerU business success and separates signed transport failures fro
     code: 'SOURCE_MINERU_TEMPORARY',
     retryable: true,
     phase: 'upload',
+    referenceCode: '1002',
+  });
+
+  const xmlUploadRejected = new MinerUAdapter(
+    async () => 'secret',
+    async (url) =>
+      String(url).includes('upload.test')
+        ? new Response(
+            '<?xml version="1.0"?><Error><Code>SignatureDoesNotMatch</Code></Error>',
+            { status: 403 },
+          )
+        : Response.json({
+            code: 0,
+            data: { batch_id: 'remote-id', file_urls: ['https://upload.test/signed'] },
+          }),
+  );
+  await expect(
+    xmlUploadRejected.submitLocalPdf({
+      jobId: 'j',
+      dataId: 'd',
+      absolutePath: pdf,
+      modelVersion: 'vlm',
+      ocr: true,
+      tables: true,
+      formulas: true,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toMatchObject({
+    code: 'SOURCE_MINERU_TEMPORARY',
+    retryable: true,
+    phase: 'upload',
+    referenceCode: 'SignatureDoesNotMatch',
   });
 });
 

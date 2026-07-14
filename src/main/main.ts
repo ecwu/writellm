@@ -29,8 +29,10 @@ import { registerProviderSettingsHandlers } from './provider-settings/handlers.j
 import { ProviderSettingsRepository } from './provider-settings/repository.js';
 import { ElectronSecretProtector } from './provider-settings/secret-protector.js';
 import { registerSourceHandlers } from './sources/handlers.js';
+import { uploadFileWithProgress } from './sources/electron-file-upload.js';
 import { SourceImportService } from './sources/import-service.js';
 import { registerSourceMediaProtocol } from './sources/media-protocol.js';
+import { MinerUAdapter } from './sources/mineru-adapter.js';
 import { SourceReferenceReader } from './sources/reference-reader.js';
 import { SourceRemovalService } from './sources/removal-service.js';
 import { SourceServiceCredentials } from './sources/service-credentials.js';
@@ -403,6 +405,7 @@ if (!hasSingleInstanceLock) {
         events: sourceEvents,
         getActiveSession: () => repository?.getActiveProjectSession() ?? null,
         request: electronFetch,
+        mineru: (credential) => new MinerUAdapter(credential, electronFetch, uploadFileWithProgress),
         wake: () => sourceRuntime?.wake(),
       });
       sourcePipeline = pipeline;

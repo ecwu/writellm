@@ -199,6 +199,7 @@ export class SourceRepository {
     sourceId: string,
     sourceVersionId: string,
     code: SourceErrorCode,
+    referenceCode?: string,
   ): Promise<SourceSummary> {
     return this.serial(`${session.projectId}:${sourceId}`, async () => {
       const catalog = await this.readCatalog(session);
@@ -211,6 +212,7 @@ export class SourceRepository {
         current.state === 'failed' &&
         current.failure?.stage === 'parse' &&
         current.failure.code === code &&
+        current.failure.referenceCode === referenceCode &&
         !current.retrying
       )
         return publicSummary(current);
@@ -223,6 +225,7 @@ export class SourceRepository {
         retryable: true,
         failure: {
           code,
+          ...(referenceCode ? { referenceCode } : {}),
           messageKey: `sources.error.${code.toLowerCase()}`,
           stage: 'parse',
         },

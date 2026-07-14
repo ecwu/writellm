@@ -58,6 +58,7 @@ export class SourcePipeline {
       const current = jobs.get(job.jobId) ?? job;
       let remoteBatchId = current.remoteBatchId;
       if (!remoteBatchId) {
+        let lastUploadPercent = -1;
         const submitted = await withAttemptDeadline(
           signal,
           this.options.attemptDeadlineMs ?? 120_000,
@@ -76,11 +77,33 @@ export class SourcePipeline {
                 remoteBatchId = allocatedBatchId;
                 await jobs.patch(job.jobId, { remoteBatchId: allocatedBatchId });
               },
+              onUploadProgress: async (completed, total) => {
+                const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+                if (percent === lastUploadPercent) return;
+                lastUploadPercent = percent;
+                const progress = {
+                  completed: Math.max(0, Math.min(100, percent)),
+                  total: 100,
+                  stage: 'uploading' as const,
+                };
+                await jobs.patch(job.jobId, { progress });
+                await this.publishTransientParseState(
+                  session,
+                  job,
+                  job.attempt > 1,
+                  progress.completed,
+                  'uploading',
+                );
+              },
             }),
         );
         remoteBatchId = submitted.remoteBatchId;
         if (jobs.get(job.jobId)?.remoteBatchId !== remoteBatchId)
           await jobs.patch(job.jobId, { remoteBatchId });
+        await jobs.patch(job.jobId, {
+          progress: { completed: 0, total: 100, stage: 'parsing' },
+        });
+        await this.publishTransientParseState(session, job, job.attempt > 1);
       }
       if (!remoteBatchId)
         throw new SourceJobExecutionError('SOURCE_MINERU_MALFORMED', false);
@@ -96,13 +119,23 @@ export class SourcePipeline {
         );
         if (observation.state === 'done') resultUrl = observation.resultUrl;
         else if (observation.state === 'failed')
-          throw new SourceJobExecutionError(observation.code, observation.retryable);
+          throw new SourceJobExecutionError(
+            observation.code,
+            observation.retryable,
+            undefined,
+            observation.referenceCode,
+          );
         else {
           if (observation.state === 'pending' && observation.providerState === 'waiting-file') {
             waitingFilePolls += 1;
             if (waitingFilePolls >= (this.options.waitingFileRetryPolls ?? 12)) {
               await jobs.patch(job.jobId, { remoteBatchId: undefined });
-              throw new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true);
+              throw new SourceJobExecutionError(
+                'SOURCE_MINERU_TEMPORARY',
+                true,
+                undefined,
+                'WAITING_FILE_TIMEOUT',
+              );
             }
           } else waitingFilePolls = 0;
           const completed = Math.max(0, Math.min(100, Math.round(observation.progress)));
@@ -175,6 +208,7 @@ export class SourcePipeline {
           job.sourceId,
           job.sourceVersionId,
           error.code as SourceErrorCode,
+          error.referenceCode,
         );
         await this.publishSource(session, updated);
       }
@@ -203,6 +237,7 @@ export class SourcePipeline {
           sourceId,
           source.sourceVersionId,
           sourceErrorCode(parseFailure.errorCode),
+          parseFailure.referenceCode,
         );
         await this.publishSource(session, updated);
         continue;
@@ -444,13 +479,14 @@ export class SourcePipeline {
     job: SourceJob,
     retrying: boolean,
     completed = 0,
+    stage: 'uploading' | 'parsing' = 'parsing',
   ): Promise<void> {
     const source = await this.options.repository.get(session, job.sourceId);
     if (!source || source.sourceVersionId !== job.sourceVersionId) return;
     await this.publishSource(session, {
       ...source,
       state: 'parsing',
-      progress: { completed: Math.max(0, Math.min(100, completed)), total: 100, stage: 'parsing' },
+      progress: { completed: Math.max(0, Math.min(100, completed)), total: 100, stage },
       retrying,
       retryable: false,
     });
@@ -515,13 +551,21 @@ async function withAttemptDeadline<T>(
       new Promise<never>((_resolve, reject) =>
         controller.signal.addEventListener(
           'abort',
-          () => reject(new SourceJobExecutionError(code, true)),
+          () =>
+            reject(
+              new SourceJobExecutionError(
+                code,
+                true,
+                undefined,
+                timedOut ? 'TIMEOUT' : 'ABORTED',
+              ),
+            ),
           { once: true },
         ),
       ),
     ]);
   } catch (error) {
-    if (timedOut) throw new SourceJobExecutionError(code, true);
+    if (timedOut) throw new SourceJobExecutionError(code, true, undefined, 'TIMEOUT');
     throw error;
   } finally {
     clearTimeout(timer);
@@ -536,7 +580,14 @@ function waitAbortable(milliseconds: number, signal: AbortSignal): Promise<void>
       'abort',
       () => {
         clearTimeout(timer);
-        reject(new SourceJobExecutionError('SOURCE_MINERU_TEMPORARY', true));
+        reject(
+          new SourceJobExecutionError(
+            'SOURCE_MINERU_TEMPORARY',
+            true,
+            undefined,
+            'ABORTED',
+          ),
+        );
       },
       { once: true },
     );

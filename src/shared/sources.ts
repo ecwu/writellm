@@ -70,7 +70,11 @@ export type SourceSummary = {
   sizeBytes: number;
   importedAt: string;
   state: SourceState;
-  progress: { completed: number; total: number; stage: 'queued' | 'parsing' | 'indexing' };
+  progress: {
+    completed: number;
+    total: number;
+    stage: 'queued' | 'uploading' | 'parsing' | 'indexing';
+  };
   eligibility: { indexed: number; eligible: number; failed: number };
   retrying: boolean;
   retryable: boolean;
@@ -88,6 +92,7 @@ export type SourceDetail = SourceSummary & {
   };
   failure?: {
     code: SourceErrorCode;
+    referenceCode?: string;
     messageKey: string;
     stage: 'import' | 'parse' | 'index' | 'remove';
   };
@@ -382,6 +387,7 @@ const sourceStates: readonly SourceState[] = [
 ];
 const sourceStages: readonly SourceSummary['progress']['stage'][] = [
   'queued',
+  'uploading',
   'parsing',
   'indexing',
 ];
