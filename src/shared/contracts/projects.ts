@@ -48,7 +48,8 @@ export const activeProjectSchema = z
   .object({
     projectId: projectIdSchema,
     projectSessionId: projectSessionIdSchema,
-    displayName: z.string().trim().min(1).max(255)
+    displayName: z.string().trim().min(1).max(255),
+    indexRebuildRequired: z.boolean()
   })
   .strict()
 

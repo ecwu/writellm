@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import pino from 'pino'
@@ -118,6 +118,9 @@ describe('project snapshots', () => {
       log
     })
     restoredDatabase.close()
+    await expect(readFile(join(restoredRoot, 'writellm.snapshot.json'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   it('restores a database only after a verified pre-restore backup', async () => {
@@ -136,6 +139,12 @@ describe('project snapshots', () => {
     await source.backup(candidatePath)
     source.prepare("UPDATE project_meta SET updated_at = 'changed'").run()
     source.close()
+    const candidate = new Database(candidatePath)
+    candidate.pragma('journal_mode = WAL')
+    candidate.pragma('wal_autocheckpoint = 0')
+    candidate.prepare("UPDATE project_meta SET updated_at = 'candidate-wal'").run()
+    await writeFile(`${databasePath}-wal`, 'stale wal')
+    await writeFile(`${databasePath}-shm`, 'stale shm')
     const result = await restoreProjectDatabase({
       projectRoot: created.projectRoot,
       candidateDatabase: candidatePath,
@@ -144,11 +153,114 @@ describe('project snapshots', () => {
     })
     const preRestore = await readFile(result.preRestoreBackup)
     expect(preRestore.length).toBeGreaterThan(0)
+    await expect(access(`${databasePath}-wal`)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(access(`${databasePath}-shm`)).rejects.toMatchObject({ code: 'ENOENT' })
     const restored = new Database(databasePath, { readonly: true, fileMustExist: true })
-    expect(restored.prepare('SELECT updated_at FROM project_meta').pluck().get()).not.toBe(
-      'changed'
+    expect(restored.prepare('SELECT updated_at FROM project_meta').pluck().get()).toBe(
+      'candidate-wal'
     )
     restored.close()
+    candidate.close()
+  })
+
+  it('rejects incompatible restore candidates without replacing the current database', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'writellm-database-reject-'))
+    directories.push(parent)
+    const current = await createProject({
+      destination: join(parent, 'current.writellm'),
+      forbiddenApplicationDirectories: [],
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    const other = await createProject({
+      destination: join(parent, 'other.writellm'),
+      forbiddenApplicationDirectories: [],
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    await current.writeLock.release()
+    await other.writeLock.release()
+    const databasePath = resolveProjectPath(current.projectRoot, '.writellm/project.sqlite')
+    const originalProjectId = new Database(databasePath, { readonly: true })
+      .prepare('SELECT project_id FROM project_meta')
+      .pluck()
+      .get()
+
+    await expect(
+      restoreProjectDatabase({
+        projectRoot: current.projectRoot,
+        candidateDatabase: resolveProjectPath(other.projectRoot, '.writellm/project.sqlite'),
+        projectId: current.manifest.projectId,
+        log
+      })
+    ).rejects.toThrow('Project database restore failed')
+
+    const unchanged = new Database(databasePath, { readonly: true, fileMustExist: true })
+    expect(unchanged.prepare('SELECT project_id FROM project_meta').pluck().get()).toBe(
+      originalProjectId
+    )
+    unchanged.close()
+    await expect(
+      access(resolveProjectPath(current.projectRoot, '.writellm/backups'))
+    ).resolves.toBe(undefined)
+    expect(
+      await import('node:fs/promises').then(({ readdir }) =>
+        readdir(resolveProjectPath(current.projectRoot, '.writellm/backups'))
+      )
+    ).toEqual([])
+  })
+
+  it('rejects restore candidates with newer schemas or changed migration checksums', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'writellm-database-schema-reject-'))
+    directories.push(parent)
+    const created = await createProject({
+      destination: join(parent, 'schema.writellm'),
+      forbiddenApplicationDirectories: [],
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    await created.writeLock.release()
+    const databasePath = resolveProjectPath(created.projectRoot, '.writellm/project.sqlite')
+
+    const newer = join(parent, 'newer.sqlite')
+    const newerSource = new Database(databasePath)
+    await newerSource.backup(newer)
+    newerSource.close()
+    const newerDatabase = new Database(newer)
+    newerDatabase
+      .prepare(
+        "INSERT INTO schema_migrations VALUES (3, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
+      )
+      .run()
+    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 3').run()
+    newerDatabase.pragma('user_version = 3')
+    newerDatabase.close()
+    await expect(
+      restoreProjectDatabase({
+        projectRoot: created.projectRoot,
+        candidateDatabase: newer,
+        projectId: created.manifest.projectId,
+        log
+      })
+    ).rejects.toThrow('Project database restore failed')
+
+    const changedChecksum = join(parent, 'checksum.sqlite')
+    const checksumSource = new Database(databasePath)
+    await checksumSource.backup(changedChecksum)
+    checksumSource.close()
+    const checksumDatabase = new Database(changedChecksum)
+    checksumDatabase
+      .prepare("UPDATE schema_migrations SET checksum = 'changed' WHERE version = 1")
+      .run()
+    checksumDatabase.close()
+    await expect(
+      restoreProjectDatabase({
+        projectRoot: created.projectRoot,
+        candidateDatabase: changedChecksum,
+        projectId: created.manifest.projectId,
+        log
+      })
+    ).rejects.toThrow('Project database restore failed')
   })
 
   it('rejects traversal and case-colliding snapshot inventory paths', () => {
@@ -181,5 +293,71 @@ describe('project snapshots', () => {
         ]
       })
     ).toThrow()
+    expect(() =>
+      parseProjectSnapshotManifest({
+        ...base,
+        files: [{ relativePath: '/absolute.txt', role: 'fixture', sha256: 'c'.repeat(64), size: 1 }]
+      })
+    ).toThrow()
+    expect(() =>
+      parseProjectSnapshotManifest({
+        ...base,
+        files: [
+          { relativePath: 'same.txt', role: 'fixture', sha256: 'c'.repeat(64), size: 1 },
+          { relativePath: 'same.txt', role: 'fixture', sha256: 'c'.repeat(64), size: 1 }
+        ]
+      })
+    ).toThrow()
+  })
+
+  it('rejects an inventory file reached through a symbolic-link directory', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'writellm-snapshot-symlink-'))
+    directories.push(parent)
+    const created = await createProject({
+      destination: join(parent, 'source.writellm'),
+      forbiddenApplicationDirectories: [],
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    await created.writeLock.release()
+    const outside = join(parent, 'outside')
+    await mkdir(outside)
+    const body = Buffer.from('outside')
+    await writeFile(join(outside, 'file.txt'), body)
+    await symlink(outside, join(created.projectRoot, 'linked'))
+    const database = await openProjectDatabase({
+      projectRoot: created.projectRoot,
+      manifest: created.manifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+
+    await expect(
+      createProjectSnapshot({
+        sourceRoot: created.projectRoot,
+        manifest: created.manifest,
+        sourceDatabase: database,
+        destination: join(parent, 'snapshot'),
+        sourceAppVersion: '1.0.0-test',
+        inventoryFromBackup: () => [
+          {
+            relativePath: 'linked/file.txt',
+            role: 'fixture',
+            sha256: createHash('sha256').update(body).digest('hex'),
+            size: body.byteLength
+          }
+        ],
+        barrier: {
+          pauseMutations: async () => undefined,
+          finalEditorFlush: async () => undefined,
+          pauseFilePublishers: async () => undefined,
+          resumeFilePublishers: async () => undefined,
+          resumeMutations: async () => undefined
+        },
+        log
+      })
+    ).rejects.toThrow('Project snapshot failed')
+    database.close()
+    await expect(access(join(parent, 'snapshot'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

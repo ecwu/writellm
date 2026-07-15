@@ -15,7 +15,8 @@ import {
 const activeProject = {
   projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc001',
   projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc002',
-  displayName: '示例项目'
+  displayName: '示例项目',
+  indexRebuildRequired: false
 }
 
 describe('project contracts', () => {

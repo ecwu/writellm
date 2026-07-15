@@ -8,6 +8,7 @@ import { RecentProjectsRepository } from '../app-db/repositories/recent-projects
 import { createProject, ProjectCreateError } from './project-lifecycle'
 import { inspectProjectWriteLock } from './project-lock'
 import { ProjectManager, ProjectSessionError } from './project-manager'
+import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
 
 const temporaryDirectories: string[] = []
 const silentLog = pino({ level: 'silent' })
@@ -185,6 +186,64 @@ describe('ProjectManager', () => {
     const second = await manager.open(created.projectRoot)
 
     expect(second.activeProject?.projectSessionId).not.toBe(first.activeProject?.projectSessionId)
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('opens without an index and reports rebuild required without rebuilding it', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'missing-index')
+    const indexPath = resolveProjectPath(created.projectRoot, INDEX_DATABASE_RELATIVE_PATH)
+    await rm(indexPath, { force: true })
+
+    const opened = await manager.open(created.projectRoot)
+    expect(opened.activeProject?.indexRebuildRequired).toBe(true)
+    await expect(realpath(indexPath)).rejects.toMatchObject({ code: 'ENOENT' })
+
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('opens with an incompatible index role and reports rebuild required', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'incompatible-index')
+    const indexPath = resolveProjectPath(created.projectRoot, INDEX_DATABASE_RELATIVE_PATH)
+    const index = new (await import('better-sqlite3')).default(indexPath)
+    index.pragma('application_id = 123')
+    index.close()
+
+    const opened = await manager.open(created.projectRoot)
+    expect(opened.activeProject?.indexRebuildRequired).toBe(true)
+
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('restores only through a locked manager transition and reopens with a new session', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'managed-restore')
+    const databasePath = resolveProjectPath(created.projectRoot, '.writellm/project.sqlite')
+    const candidate = join(parent, 'candidate.sqlite')
+    const database = new (await import('better-sqlite3')).default(databasePath)
+    await database.backup(candidate)
+    database.prepare("UPDATE project_meta SET updated_at = 'changed'").run()
+    database.close()
+
+    const restored = await manager.restoreDatabase({
+      selectedRoot: created.projectRoot,
+      candidateDatabase: candidate
+    })
+    expect(restored.state).toBe('open')
+    expect(restored.activeProject?.projectId).toBe(created.manifest.projectId)
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).not.toBeNull()
+    const restoredDatabase = new (await import('better-sqlite3')).default(databasePath, {
+      readonly: true
+    })
+    expect(restoredDatabase.prepare('SELECT updated_at FROM project_meta').pluck().get()).not.toBe(
+      'changed'
+    )
+    restoredDatabase.close()
+
     await manager.close()
     appDatabase.close()
   })

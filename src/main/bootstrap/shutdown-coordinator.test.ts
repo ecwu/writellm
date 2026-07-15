@@ -15,7 +15,8 @@ function setup(options: { projectState?: 'closed' | 'open'; closeRejects?: boole
           ? {
               projectId: '00000000-0000-4000-8000-000000000001',
               projectSessionId: '00000000-0000-4000-8000-000000000002',
-              displayName: 'Project'
+              displayName: 'Project',
+              indexRebuildRequired: false
             }
           : null
     })),

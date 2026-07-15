@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -175,6 +175,61 @@ describe('project database', () => {
     const migrationBackups = await readdir(join(root, '.writellm', 'backups'))
     expect(migrationBackups.filter((name) => name.startsWith('migration-'))).toHaveLength(1)
     upgraded.close()
+  })
+
+  it('keeps the original database and verified backup after migration failure', async () => {
+    const root = await temporaryRoot('迁移失败')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc010')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    database.close()
+
+    const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    const native = new (await import('better-sqlite3')).default(databasePath)
+    native.exec(`
+      DROP TABLE sections;
+      DROP TABLE manuscript_briefs;
+      DROP INDEX manuscripts_one_primary_per_project;
+      DROP TABLE manuscripts;
+      DELETE FROM schema_migrations WHERE version = 2;
+      UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
+      PRAGMA user_version = 1;
+      CREATE TABLE manuscripts (wrong_column TEXT) STRICT;
+    `)
+    native.close()
+    const backups = join(root, '.writellm', 'backups')
+    await mkdir(backups, { recursive: true })
+    await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        writeFile(join(backups, `migration-old-${index}.sqlite`), `old-${index}`)
+      )
+    )
+
+    await expect(
+      openProjectDatabase({
+        projectRoot: root,
+        manifest: projectManifest,
+        applicationVersion: '1.0.0-test',
+        log
+      })
+    ).rejects.toThrow('Failed to open project database')
+
+    const retained = await readdir(backups)
+    expect(retained.filter((name) => name.startsWith('migration-old-'))).toHaveLength(4)
+    expect(retained.filter((name) => name.includes('-to-v2-'))).toHaveLength(1)
+    const original = new (await import('better-sqlite3')).default(databasePath, {
+      readonly: true,
+      fileMustExist: true
+    })
+    expect(original.prepare('SELECT project_id FROM project_meta').pluck().get()).toBe(
+      projectManifest.projectId
+    )
+    expect(original.pragma('user_version', { simple: true })).toBe(1)
+    original.close()
   })
 
   it('rejects a manifest and database identity mismatch before returning access', async () => {

@@ -127,7 +127,7 @@ Acceptance criteria: exactly one active project exists; two instances cannot wri
 
 Acceptance criteria: verified backups include WAL-resident committed data; migration is never attempted without a verified pre-migration backup; restore returns the project to a verified usable state without stale sidecars; a snapshot restored elsewhere opens by project ID, preserves authoritative data, and reports `indexRebuildRequired` without claiming an index rebuild.
 
-Checkpoint 6 verification: `biome check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 27 test files and 120 tests; and `electron-vite build` passes. Direct system-Node Vitest is not a valid verification path for this repository because its Node ABI differs from the Electron-native `better-sqlite3` build.
+Checkpoint 6 verification: `biome check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 27 test files and 130 tests; and `electron-vite build` passes. Recovery-boundary tests additionally prove WAL-resident backup and restore data, pre- and mid-backup cancellation, simulated `ENOSPC`, no-replace backup publication, failed backup validation before migration, migration failure rollback and retention, restore identity/schema/checksum rejection, sidecar quarantine, symbolic-link parent rejection, file mutation during snapshot copy, Unicode relocation, and missing/incompatible index rebuild reporting without rebuilding. Direct system-Node Vitest is not a valid verification path for this repository because its Node ABI differs from the Electron-native `better-sqlite3` build.
 
 ## Phase 4: Project-Local Durable Work
 

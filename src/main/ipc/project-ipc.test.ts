@@ -9,7 +9,12 @@ const sessionId = '11111111-1111-4111-8111-111111111111'
 const projectId = '22222222-2222-4222-8222-222222222222'
 const openSnapshot = {
   state: 'open' as const,
-  activeProject: { projectId, projectSessionId: sessionId, displayName: 'Safe project' }
+  activeProject: {
+    projectId,
+    projectSessionId: sessionId,
+    displayName: 'Safe project',
+    indexRebuildRequired: false
+  }
 }
 const closedSnapshot = { state: 'closed' as const, activeProject: null }
 

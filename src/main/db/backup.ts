@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { access, copyFile, mkdir, open, readdir, rename, rm, stat, lstat } from 'node:fs/promises'
+import { copyFile, mkdir, open, readdir, rm, stat, lstat, link } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
@@ -57,6 +57,27 @@ async function syncDirectory(path: string): Promise<void> {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'EINVAL' || code === 'ENOTSUP' || code === 'EBADF') return
     throw err
+  }
+}
+
+async function publishFileWithoutReplacement(source: string, destination: string): Promise<void> {
+  await link(source, destination)
+  try {
+    await syncDirectory(dirname(destination))
+  } catch (err) {
+    await rm(destination, { force: true })
+    throw err
+  }
+}
+
+function backupOptions(signal?: AbortSignal): Database.BackupOptions | undefined {
+  if (signal === undefined) return undefined
+  signal.throwIfAborted()
+  return {
+    progress: () => {
+      signal.throwIfAborted()
+      return 100
+    }
   }
 }
 
@@ -129,25 +150,18 @@ export async function createVerifiedDatabaseBackup(options: {
   destination: string
   databaseRole: 'app' | 'project'
   applicationId?: number
+  signal?: AbortSignal
   log?: Pick<Logger, 'info' | 'error'>
   validate?: (database: Database.Database) => void
 }): Promise<VerifiedDatabaseBackup> {
   const partial = `${options.destination}.${randomUUID()}.partial`
   await mkdir(dirname(options.destination), { recursive: true })
   try {
-    await access(options.destination).then(
-      () => {
-        throw new Error('Backup destination already exists')
-      },
-      (err: NodeJS.ErrnoException) => {
-        if (err.code !== 'ENOENT') throw err
-      }
-    )
     options.log?.info(
       { event: 'db.backup.started', databaseRole: options.databaseRole },
       `Starting ${options.databaseRole} database backup`
     )
-    await options.source.backup(partial)
+    await options.source.backup(partial, backupOptions(options.signal))
     await normalizeBackupFile(partial)
     const verified = await verifyDatabaseFile(partial, {
       databaseRole: 'backup',
@@ -156,17 +170,8 @@ export async function createVerifiedDatabaseBackup(options: {
       log: options.log,
       validate: options.validate
     })
-    await access(options.destination).then(
-      () => {
-        throw new Error('Backup destination was created concurrently')
-      },
-      (err: NodeJS.ErrnoException) => {
-        if (err.code !== 'ENOENT') throw err
-      }
-    )
     await syncFile(partial)
-    await rename(partial, options.destination)
-    await syncDirectory(dirname(options.destination))
+    await publishFileWithoutReplacement(partial, options.destination)
     options.log?.info(
       {
         event: 'db.backup.completed',
@@ -184,7 +189,14 @@ export async function createVerifiedDatabaseBackup(options: {
     )
     throw new Error(`${options.databaseRole} database backup failed`, { cause: err })
   } finally {
-    await rm(partial, { force: true }).catch(() => undefined)
+    try {
+      await rm(partial, { force: true })
+    } catch (err) {
+      options.log?.error(
+        { event: 'db.backup.partial_cleanup_failed', err, databaseRole: options.databaseRole },
+        `${options.databaseRole} database backup partial cleanup failed`
+      )
+    }
   }
 }
 
@@ -193,25 +205,18 @@ export async function createVerifiedOpenedDatabaseBackup(options: {
   destination: string
   databaseRole: 'app' | 'project'
   applicationId?: number
+  signal?: AbortSignal
   log?: Pick<Logger, 'info' | 'error'>
   validate?: (database: Database.Database) => void
 }): Promise<VerifiedDatabaseBackup> {
   const partial = `${options.destination}.${randomUUID()}.partial`
   await mkdir(dirname(options.destination), { recursive: true })
   try {
-    await access(options.destination).then(
-      () => {
-        throw new Error('Backup destination already exists')
-      },
-      (err: NodeJS.ErrnoException) => {
-        if (err.code !== 'ENOENT') throw err
-      }
-    )
     options.log?.info(
       { event: 'db.backup.started', databaseRole: options.databaseRole },
       `Starting ${options.databaseRole} database backup`
     )
-    await options.source.backup(partial)
+    await options.source.backup(partial, backupOptions(options.signal))
     await normalizeBackupFile(partial)
     const verified = await verifyDatabaseFile(partial, {
       databaseRole: 'backup',
@@ -221,8 +226,7 @@ export async function createVerifiedOpenedDatabaseBackup(options: {
       validate: options.validate
     })
     await syncFile(partial)
-    await rename(partial, options.destination)
-    await syncDirectory(dirname(options.destination))
+    await publishFileWithoutReplacement(partial, options.destination)
     options.log?.info(
       {
         event: 'db.backup.completed',
@@ -240,7 +244,14 @@ export async function createVerifiedOpenedDatabaseBackup(options: {
     )
     throw new Error(`${options.databaseRole} database backup failed`, { cause: err })
   } finally {
-    await rm(partial, { force: true }).catch(() => undefined)
+    try {
+      await rm(partial, { force: true })
+    } catch (err) {
+      options.log?.error(
+        { event: 'db.backup.partial_cleanup_failed', err, databaseRole: options.databaseRole },
+        `${options.databaseRole} database backup partial cleanup failed`
+      )
+    }
   }
 }
 
@@ -262,17 +273,16 @@ export async function verifyAndPublishDatabaseBackup(options: {
       log: options.log,
       validate: options.validate
     })
-    await access(options.destination).then(
-      () => {
-        throw new Error('Backup destination already exists')
-      },
-      (err: NodeJS.ErrnoException) => {
-        if (err.code !== 'ENOENT') throw err
-      }
-    )
     await syncFile(options.partialPath)
-    await rename(options.partialPath, options.destination)
-    await syncDirectory(dirname(options.destination))
+    await publishFileWithoutReplacement(options.partialPath, options.destination)
+    try {
+      await rm(options.partialPath)
+    } catch (err) {
+      options.log?.error(
+        { event: 'db.backup.partial_cleanup_failed', err, databaseRole: options.databaseRole },
+        `${options.databaseRole} backup partial cleanup failed`
+      )
+    }
     return { ...verified, path: options.destination }
   } catch (err) {
     options.log?.error(
@@ -327,11 +337,12 @@ export async function copyVerifiedFile(options: {
   destination: string
   expectedSha256?: string
   expectedSize?: number
+  copy?: (source: string, destination: string) => Promise<unknown>
 }): Promise<{ sha256: string; size: number }> {
   const sourceStat = await lstat(options.source)
   if (!sourceStat.isFile()) throw new Error('Snapshot source must be a regular file')
   await mkdir(dirname(options.destination), { recursive: true })
-  await copyFile(options.source, options.destination)
+  await (options.copy ?? copyFile)(options.source, options.destination)
   const digest = await sha256File(options.destination)
   if (
     (options.expectedSha256 !== undefined && digest.sha256 !== options.expectedSha256) ||

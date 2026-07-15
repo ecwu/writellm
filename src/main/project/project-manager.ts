@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
+import { access, realpath } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
   projectLifecycleSnapshotSchema,
@@ -13,6 +14,7 @@ import type { RecentProjectsRepository } from '../app-db/repositories/recent-pro
 import { type ProjectContext, toActiveProject } from './project-context'
 import {
   createProject,
+  INDEX_DATABASE_APPLICATION_ID,
   type CreateProjectOptions,
   type CreatedProject,
   ProjectCreateError
@@ -24,6 +26,8 @@ import {
   recoverStaleProjectWriteLock,
   type ProjectLockOptions
 } from './project-lock'
+import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
+import { restoreProjectDatabase } from './project-snapshot'
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -385,6 +389,57 @@ export class ProjectManager {
     })
   }
 
+  restoreDatabase(options: {
+    selectedRoot: string
+    candidateDatabase: string
+  }): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'closed' && this.#state !== 'recovery-required') {
+        throw new Error(`Cannot restore a project database while state is ${this.#state}`)
+      }
+      this.#state = 'opening'
+      let writeLock: ProjectWriteLock | undefined
+      let projectId: string | undefined
+      try {
+        const canonicalRoot = await this.#dependencies.canonicalizeRoot(options.selectedRoot)
+        const manifest = await this.#dependencies.readManifest(canonicalRoot)
+        projectId = manifest.projectId
+        writeLock = await this.#dependencies.acquireLock(canonicalRoot, {
+          ...this.#lockOptions,
+          logger: this.#logger
+        })
+        await restoreProjectDatabase({
+          projectRoot: canonicalRoot,
+          candidateDatabase: options.candidateDatabase,
+          projectId: manifest.projectId,
+          log: this.#logger
+        })
+        const restoredLock = writeLock
+        writeLock = undefined
+        await this.#openCanonicalRoot(canonicalRoot, restoredLock)
+        return this.snapshot()
+      } catch (err) {
+        if (writeLock !== undefined) {
+          try {
+            await writeLock.release()
+          } catch (cleanupErr) {
+            this.#logger.error(
+              { event: 'project_manager.restore.lock_cleanup_failed', err: cleanupErr, projectId },
+              'Failed to release project lock after restore failure'
+            )
+          }
+        }
+        this.#context = null
+        this.#state = 'recovery-required'
+        this.#logger.error(
+          { event: 'project_manager.restore.failed', err, projectId },
+          'Project database restore transition failed'
+        )
+        throw new Error('Failed to restore and reopen project database', { cause: err })
+      }
+    })
+  }
+
   async #openCanonicalRoot(canonicalRoot: string, acquiredLock?: ProjectWriteLock): Promise<void> {
     const manifest = await this.#dependencies.readManifest(canonicalRoot)
     let writeLock = acquiredLock
@@ -405,6 +460,7 @@ export class ProjectManager {
         manifest,
         projectSessionId: this.#dependencies.randomUUID(),
         displayName: projectDisplayName(canonicalRoot),
+        indexRebuildRequired: await isIndexRebuildRequired(canonicalRoot, this.#logger),
         database,
         writeLock
       }
@@ -481,6 +537,36 @@ export class ProjectManager {
       () => undefined
     )
     return result
+  }
+}
+
+async function isIndexRebuildRequired(
+  projectRoot: string,
+  log: Pick<Logger, 'info' | 'warn' | 'error'>
+): Promise<boolean> {
+  const indexPath = resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH)
+  const exists = await access(indexPath).then(
+    () => true,
+    (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return false
+      throw err
+    }
+  )
+  if (!exists) return true
+
+  let database: Database.Database | undefined
+  try {
+    database = new Database(indexPath, { readonly: true, fileMustExist: true })
+    const applicationId = database.pragma('application_id', { simple: true }) as number
+    return applicationId !== INDEX_DATABASE_APPLICATION_ID
+  } catch (err) {
+    log.error(
+      { event: 'project.index.compatibility_check_failed', err },
+      'Project index compatibility check failed; rebuild is required'
+    )
+    return true
+  } finally {
+    database?.close()
   }
 }
 

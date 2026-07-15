@@ -9,6 +9,7 @@ export interface ProjectContext {
   readonly manifest: ProjectManifest
   readonly projectSessionId: ProjectSessionId
   readonly displayName: string
+  readonly indexRebuildRequired: boolean
   readonly database: ProjectDatabase
   readonly writeLock: ProjectWriteLock
 }
@@ -17,6 +18,7 @@ export function toActiveProject(context: ProjectContext): ActiveProject {
   return {
     projectId: context.manifest.projectId,
     projectSessionId: context.projectSessionId,
-    displayName: context.displayName
+    displayName: context.displayName,
+    indexRebuildRequired: context.indexRebuildRequired
   }
 }

@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdir, rename, rm, writeFile, access, readFile } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { mkdir, rename, rm, writeFile, access, readFile, lstat, realpath } from 'node:fs/promises'
+import { join, dirname, relative, isAbsolute } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import { z } from 'zod'
@@ -16,7 +16,12 @@ import { projectMigrations } from './migrations'
 import { readMigrationState, validateMigrationState } from '../db/migrations'
 import type { ProjectDatabase } from './project-database'
 import { PROJECT_DATABASE_APPLICATION_ID } from './project-database'
-import { readProjectManifest, writeProjectManifest, type ProjectManifest } from './project-manifest'
+import {
+  readProjectManifest,
+  writeProjectManifest,
+  type ProjectManifest,
+  SUPPORTED_PROJECT_FORMAT_VERSION
+} from './project-manifest'
 import {
   PROJECT_BACKUPS_DIRECTORY,
   PROJECT_DATABASE_RELATIVE_PATH,
@@ -130,6 +135,23 @@ function validateSnapshotFilePaths(files: readonly ProjectSnapshotFile[]): void 
   }
 }
 
+async function assertExistingFileContained(root: string, relativePath: string): Promise<string> {
+  const normalized = normalizeProjectRelativePath(relativePath)
+  const canonicalRoot = await realpath(root)
+  let current = canonicalRoot
+  for (const segment of normalized.split('/')) {
+    current = join(current, segment)
+    const entry = await lstat(current)
+    if (entry.isSymbolicLink()) throw new Error('Snapshot path contains a symbolic link')
+  }
+  const canonicalFile = await realpath(current)
+  const fromRoot = relative(canonicalRoot, canonicalFile)
+  if (fromRoot === '' || fromRoot.startsWith('..') || isAbsolute(fromRoot)) {
+    throw new Error('Snapshot path escapes its root')
+  }
+  return canonicalFile
+}
+
 async function writeAtomicJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomUUID()}.partial`
   try {
@@ -164,14 +186,6 @@ export interface SnapshotBarrier {
   resumeMutations(): Promise<void>
 }
 
-const noOpBarrier: SnapshotBarrier = {
-  pauseMutations: async () => undefined,
-  finalEditorFlush: async () => undefined,
-  pauseFilePublishers: async () => undefined,
-  resumeFilePublishers: async () => undefined,
-  resumeMutations: async () => undefined
-}
-
 export async function createProjectSnapshot(options: {
   sourceRoot: string
   manifest: ProjectManifest
@@ -181,11 +195,11 @@ export async function createProjectSnapshot(options: {
   inventoryFromBackup: (
     database: Database.Database
   ) => Promise<readonly ProjectSnapshotFile[]> | readonly ProjectSnapshotFile[]
-  barrier?: Partial<SnapshotBarrier>
+  barrier: SnapshotBarrier
   indexIncluded?: false
   log: Pick<Logger, 'info' | 'error'>
 }): Promise<ProjectSnapshotManifest> {
-  const barrier = { ...noOpBarrier, ...options.barrier }
+  const barrier = options.barrier
   const parent = dirname(options.destination)
   const stage = join(parent, `.${options.manifest.projectId}.${randomUUID()}.snapshot.partial`)
   let mutationsPaused = false
@@ -228,7 +242,7 @@ export async function createProjectSnapshot(options: {
     validateSnapshotFilePaths(files)
 
     for (const file of files) {
-      const source = resolveProjectPath(options.sourceRoot, file.relativePath)
+      const source = await assertExistingFileContained(options.sourceRoot, file.relativePath)
       const destination = resolveProjectPath(stage, file.relativePath)
       await copyVerifiedFile({
         source,
@@ -334,12 +348,20 @@ export async function restoreProjectSnapshot(options: {
     if (projectManifest.projectId !== snapshot.projectId) {
       throw new Error('Snapshot and project manifest project IDs do not match')
     }
+    if (
+      snapshot.projectFormatVersion !== projectManifest.formatVersion ||
+      snapshot.projectFormatVersion !== SUPPORTED_PROJECT_FORMAT_VERSION
+    ) {
+      throw new Error('Snapshot project format version is not supported')
+    }
     await ensureDestinationAbsent(options.destination)
     await mkdir(stage, { recursive: true, mode: 0o700 })
     await writeProjectManifest(stage, projectManifest)
-    await writeAtomicJson(join(stage, PROJECT_SNAPSHOT_MANIFEST_FILE), snapshot)
 
-    const sourceDatabase = join(options.snapshotRoot, snapshot.database.path)
+    const sourceDatabase = await assertExistingFileContained(
+      options.snapshotRoot,
+      snapshot.database.path
+    )
     const stagedDatabase = resolveProjectPath(stage, snapshot.database.path)
     await copyVerifiedFile({
       source: sourceDatabase,
@@ -354,15 +376,22 @@ export async function restoreProjectSnapshot(options: {
       log: options.log,
       validate: (database) => {
         validateProjectDatabaseIdentity(database, snapshot.projectId)
-        validateMigrationState(database, { databaseRole: 'project', migrations: projectMigrations })
+        const state = validateMigrationState(database, {
+          databaseRole: 'project',
+          migrations: projectMigrations
+        })
+        if (state.schemaVersion !== snapshot.projectDatabaseSchemaVersion) {
+          throw new Error('Snapshot database schema version does not match manifest')
+        }
         if (schemaMigrationsHash(database) !== snapshot.schemaMigrationsSha256) {
           throw new Error('Snapshot database migration checksum does not match manifest')
         }
       }
     })
     for (const file of snapshot.files) {
+      const source = await assertExistingFileContained(options.snapshotRoot, file.relativePath)
       await copyVerifiedFile({
-        source: join(options.snapshotRoot, file.relativePath),
+        source,
         destination: resolveProjectPath(stage, file.relativePath),
         expectedSha256: file.sha256,
         expectedSize: file.size
@@ -415,6 +444,19 @@ export async function restoreProjectDatabase(options: {
   const quarantine = join(recovery, `project.sqlite.${randomUUID()}.quarantine`)
   let current: Database.Database | undefined
   try {
+    await verifyDatabaseFile(options.candidateDatabase, {
+      databaseRole: 'snapshot',
+      applicationId: PROJECT_DATABASE_APPLICATION_ID,
+      integrity: 'full',
+      log: options.log,
+      validate: (database) => {
+        validateProjectDatabaseIdentity(database, options.projectId)
+        validateMigrationState(database, {
+          databaseRole: 'project',
+          migrations: projectMigrations
+        })
+      }
+    })
     current = new Database(databasePath, { fileMustExist: true })
     await createVerifiedDatabaseBackup({
       source: current,
@@ -426,16 +468,22 @@ export async function restoreProjectDatabase(options: {
     })
     current.close()
     current = undefined
-    await verifyDatabaseFile(options.candidateDatabase, {
-      databaseRole: 'snapshot',
-      applicationId: PROJECT_DATABASE_APPLICATION_ID,
-      integrity: 'full',
-      log: options.log,
-      validate: (database) => validateProjectDatabaseIdentity(database, options.projectId)
-    })
     const staged = `${databasePath}.${randomUUID()}.restore.partial`
+    const walQuarantine = `${quarantine}-wal`
+    const shmQuarantine = `${quarantine}-shm`
+    let databaseQuarantined = false
+    let walQuarantined = false
+    let shmQuarantined = false
     try {
-      await copyVerifiedFile({ source: options.candidateDatabase, destination: staged })
+      const candidate = new Database(options.candidateDatabase, {
+        readonly: true,
+        fileMustExist: true
+      })
+      try {
+        await candidate.backup(staged)
+      } finally {
+        candidate.close()
+      }
       await verifyDatabaseFile(staged, {
         databaseRole: 'snapshot',
         applicationId: PROJECT_DATABASE_APPLICATION_ID,
@@ -450,25 +498,43 @@ export async function restoreProjectDatabase(options: {
         }
       })
       await rename(databasePath, quarantine)
+      databaseQuarantined = true
       try {
+        walQuarantined = await moveIfPresent(`${databasePath}-wal`, walQuarantine)
+        shmQuarantined = await moveIfPresent(`${databasePath}-shm`, shmQuarantine)
         await rename(staged, databasePath)
+        databaseQuarantined = false
       } catch (err) {
-        await rename(quarantine, databasePath).catch((rollbackErr) => {
-          options.log.error(
-            { event: 'project.database.restore.rollback_failed', err: rollbackErr },
-            'Database restore rollback failed'
-          )
-        })
+        await rm(databasePath, { force: true })
+        await rename(quarantine, databasePath)
+        databaseQuarantined = false
+        if (walQuarantined) await rename(walQuarantine, `${databasePath}-wal`)
+        if (shmQuarantined) await rename(shmQuarantine, `${databasePath}-shm`)
         throw err
       }
-      await rm(`${databasePath}-wal`, { force: true })
-      await rm(`${databasePath}-shm`, { force: true })
       options.log.info(
         { event: 'project.database.restore.completed', projectId: options.projectId },
         'Project database restored'
       )
       return { preRestoreBackup, quarantine }
     } finally {
+      if (databaseQuarantined) {
+        try {
+          await rm(databasePath, { force: true })
+          await rename(quarantine, databasePath)
+          if (walQuarantined) await rename(walQuarantine, `${databasePath}-wal`)
+          if (shmQuarantined) await rename(shmQuarantine, `${databasePath}-shm`)
+        } catch (err) {
+          options.log.error(
+            {
+              event: 'project.database.restore.rollback_failed',
+              err,
+              projectId: options.projectId
+            },
+            'Database restore rollback failed'
+          )
+        }
+      }
       await rm(staged, { force: true }).catch((err) =>
         options.log.error(
           {
@@ -495,5 +561,15 @@ export async function restoreProjectDatabase(options: {
         'Failed to close database during restore'
       )
     }
+  }
+}
+
+async function moveIfPresent(source: string, destination: string): Promise<boolean> {
+  try {
+    await rename(source, destination)
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw err
   }
 }
