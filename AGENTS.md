@@ -9,6 +9,26 @@ Before changing code, read:
 1. `docs/architecture.md` for fixed technology choices, process boundaries, and invariants.
 2. `docs/implementation-todo.md` for the ordered roadmap and current checkpoint.
 
+## Orchestration And Delegation
+
+The main Claude thread is the only orchestrator. It owns requirement interpretation, task decomposition, worker selection, result integration, final verification, and user communication. Do not create or delegate to a general-purpose worker.
+
+Spawn a fixed-role subagent only when all of these conditions hold:
+
+- the work is expected to take more than roughly 10 minutes;
+- the assignment is independently executable;
+- the result can be returned as a compact summary;
+- the work does not share mutable state with another active worker.
+
+Multiple files alone are not a reason to delegate. Prefer sequential execution unless parallelism is expected to reduce latency without introducing shared-state conflicts. Use these advisory concurrency limits and never exceed eight active workers:
+
+- small task: 0 workers;
+- normal coding task: 1-2 workers;
+- large refactor: 3-4 workers;
+- unusually broad research: 5-8 workers.
+
+Choose workers by capability: research, architecture, implementation, review, testing, documentation, refactoring, or security. Every worker handoff must include `Summary`, `Evidence / files`, `Verification`, and `Unresolved risks`. Workers may not delegate further, commit or push, expand the approved checkpoint, or perform unrelated cleanup.
+
 ## Working Rules
 
 - Implement only the currently agreed checkpoint. Do not continue into later phases without explicit user approval.
@@ -43,6 +63,16 @@ Biome is the repository's single formatter and style checker. Run commands from 
 - `pnpm lint:write`: apply safe lint fixes only.
 
 Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
+
+## UI Design Requirements
+
+- Use the official shadcn/ui `new-york` preset and its generated components as the renderer design system. Do not create a parallel visual system or hand-write replacements for components available from shadcn/ui.
+- Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives. Compose them with standard Tailwind layout utilities; do not add product-specific CSS unless an interaction or platform constraint cannot be expressed by the preset and utilities.
+- Keep a global shadcn `Menubar` at the top of every application state. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
+- Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
+- Base the active-project workspace on the official shadcn `sidebar-09` block: a collapsible icon rail plus contextual secondary sidebar and a `SidebarInset` content region.
+- Extend the established shell and official component language for future screens. Do not introduce bespoke gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.
+- Preserve responsive and keyboard-accessible behavior from the official components. Any unavailable future action must be visibly disabled or labeled as unavailable rather than simulated.
 
 ## Decision Changes
 

@@ -1,0 +1,60 @@
+{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-policy.mjs",
+            "args": [],
+            "timeout": 5,
+            "statusMessage": "Checking Bash command policy"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-todo.mjs",
+            "args": [],
+            "timeout": 5,
+            "statusMessage": "Checking unresolved tasks"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^(researcher|architect|implementer|reviewer|tester|docs|refactor|security)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-start.mjs",
+            "args": [],
+            "timeout": 5,
+            "statusMessage": "Applying worker policy"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^(researcher|architect|implementer|reviewer|tester|docs|refactor|security)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-output.mjs",
+            "args": [],
+            "timeout": 5,
+            "statusMessage": "Validating worker handoff"
+          }
+        ]
+      }
+    ]
+  }
+}
