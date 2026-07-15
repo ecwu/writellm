@@ -1,7 +1,7 @@
 # WriteLLM v2 Implementation Todo
 
 Status: accepted implementation tracker  
-Recorded: 2026-07-14
+Recorded: 2026-07-15
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -18,9 +18,9 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoints 1 through 5 are completed and verified. Waiting for explicit approval before starting Checkpoint 6; no later storage, queue, editor, import, search, or agent work may begin first.
+Checkpoints 1 through 6 are completed and verified. No later storage, queue, editor, import, search, or agent work may begin without approval.
 
-Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary.
+Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary. Production uses Electron's single-instance lock and focuses the existing process on a second launch; the project lock remains defense in depth. The create protocol is manifest-last commit-marker publication, and close has an internal final-flush authorization boundary with a timeout.
 
 ## Phase 0: Baseline And Guardrails
 
@@ -112,19 +112,22 @@ Acceptance criteria: exactly one active project exists; two instances cannot wri
 
 ### Checkpoint 6: Backup, Integrity, Restore, And Project Snapshot
 
-- [ ] Implement online backup for `app.sqlite` and `project.sqlite` using the SQLite backup API or `VACUUM INTO`.
-- [ ] Run project backup after lock acquisition and before project migrations.
-- [ ] Run `quick_check` and `foreign_key_check` after migrations.
-- [ ] Add explicit database restore with safety checks, pre-restore backup, and actionable failure reporting.
-- [ ] Add tests containing committed WAL-resident data.
-- [ ] Define retention and cleanup for migration backups under `.writellm/backups/`.
-- [ ] Implement an initial project snapshot operation that captures the manifest, an online `project.sqlite` backup, referenced manuscript/source/parsed files, and a snapshot manifest.
-- [ ] Allow `index.sqlite` to be omitted from a snapshot and mark it for rebuild.
-- [ ] Validate file hashes before publishing the snapshot.
-- [ ] Never present a raw copy of an open project folder as a verified backup.
-- [ ] Test snapshot restore into a different absolute path and subsequent project open.
+- [x] Fix the implementation to the SQLite Online Backup API; reserve `VACUUM INTO` for a future compact/export mode.
+- [x] Run app/project backup only when migration is needed, after lock acquisition and before any project-database write; verify the backup before migration.
+- [x] Run and inspect `quick_check` plus `foreign_key_check` after migrations; use full `integrity_check` for explicit restore/import.
+- [x] Add explicit project database restore with safety checks, pre-restore backup, staged atomic replacement, sidecar cleanup, and actionable failure reporting.
+- [x] Add tests containing committed WAL-resident data, destination conflicts, failed validation, and migration backup retention.
+- [x] Define retention and cleanup for verified migration backups under `.writellm/backups/`; failed migrations retain their verified backup because cleanup runs only after successful open.
+- [x] Implement an initial project snapshot with a consistency barrier: pause mutations, authorize final editor flush, pause file publishers, back up `project.sqlite`, derive inventory from that backup, copy/hash registered files, and atomically publish.
+- [x] Define and validate the snapshot manifest with independent format/schema versions, project ID, database hash/size, relative file inventory, and index omission flags.
+- [x] Allow `index.sqlite` to be omitted from a snapshot and mark it `indexRebuildRequired`; do not implement actual index rebuild in CP6.
+- [x] Exclude locks, temp/backups/recovery, SQLite sidecars, app data, logs, credentials, caches, partial files, unregistered/orphan files, and the snapshot itself.
+- [x] Distinguish restore (same project ID) from clone/save-as (new project ID); reject mismatched restore candidates at the manifest/database boundary.
+- [x] Test snapshot file-copy hash mismatch detection, traversal/symlinks/case collisions, Unicode/space paths, restore into a different absolute path, and subsequent project open without index.sqlite.
 
-Acceptance criteria: backups include WAL-resident committed data; restore returns the project to a verified usable state; a snapshot restored elsewhere opens by project ID and rebuilds a missing index.
+Acceptance criteria: verified backups include WAL-resident committed data; migration is never attempted without a verified pre-migration backup; restore returns the project to a verified usable state without stale sidecars; a snapshot restored elsewhere opens by project ID, preserves authoritative data, and reports `indexRebuildRequired` without claiming an index rebuild.
+
+Checkpoint 6 verification: `biome check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 27 test files and 120 tests; and `electron-vite build` passes. Direct system-Node Vitest is not a valid verification path for this repository because its Node ABI differs from the Electron-native `better-sqlite3` build.
 
 ## Phase 4: Project-Local Durable Work
 
@@ -461,3 +464,5 @@ Acceptance criteria: all required target-platform jobs pass on real packaged art
 - 2026-07-14: Accepted `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` for interactive agent execution, with AI SDK Core retained behind separate embedding and reranking gateways.
 - 2026-07-14: Accepted a Main-authorized agent tool bridge and typed mutation proposals instead of direct filesystem/database/editor access.
 - 2026-07-14: Completed and verified Checkpoint 4: application-global `app.sqlite`, per-project `project.sqlite`, project manifest/database identity validation, portable relative-path rules, explicit legacy development reset handling, and role-specific database lifecycle logs.
+- 2026-07-15: Started Checkpoint 6 after review. Fixed the backup implementation choice to SQLite Online Backup API and documented manifest-last publication, final-flush close authorization, recovery exits, consistency-barrier snapshots, restore/clone project-ID semantics, and deferred index rebuild.
+- 2026-07-15: Completed and verified Checkpoint 6: Online Backup API for app/project migration backups, WAL-aware verification, staged project restore, snapshot consistency barriers and manifests, same-ID restore semantics, index rebuild deferral, final-flush authorization/timeout, and production single-instance locking.

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -172,6 +172,8 @@ describe('project database', () => {
     expect(await upgraded.kysely.selectFrom('manuscripts').selectAll().execute()).toEqual([])
     expect(await upgraded.kysely.selectFrom('manuscript_briefs').selectAll().execute()).toEqual([])
     expect(await upgraded.kysely.selectFrom('sections').selectAll().execute()).toEqual([])
+    const migrationBackups = await readdir(join(root, '.writellm', 'backups'))
+    expect(migrationBackups.filter((name) => name.startsWith('migration-'))).toHaveLength(1)
     upgraded.close()
   })
 

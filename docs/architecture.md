@@ -18,6 +18,7 @@ WriteLLM v2 is a local-first desktop AI writing application with three product d
 The initial product has these fixed invariants:
 
 - The application has zero or one active project at a time.
+- Production uses Electron's single-instance lock. A second launch focuses the first process and exits; any future command-line open request must be routed through that first process. The project lock remains a defense-in-depth boundary for stale processes and non-standard launchers.
 - A project is a portable folder named `<project-name>.writellm`, created under a user-selected parent directory.
 - The initial product supports one primary manuscript per project. Internal identifiers should not prevent a later multi-manuscript extension, but no multi-manuscript UI or workflow is implemented now.
 - All project business data lives under the project root.
@@ -124,7 +125,7 @@ The root manifest is small, versioned, non-secret, and atomically written:
 }
 ```
 
-The manifest is an identity and compatibility marker, not a duplicate database. Manuscript metadata, section state, provider choices, jobs, imports, and agent history remain in `project.sqlite`.
+The manifest is an identity and compatibility marker, not a duplicate database. Its `formatVersion` is the project-container format version and evolves independently from `project.sqlite`'s `schema_manifest.schema_version`. Manuscript metadata, section state, provider choices, jobs, imports, and agent history remain in `project.sqlite`.
 
 Opening a folder requires:
 
@@ -210,7 +211,7 @@ Creating a project performs, in order:
 4. Main creates the internal layout and acquires the project write lock while the container remains unpublished.
 5. Main initializes `project.sqlite` and `index.sqlite`.
 6. Main creates the singleton project and manuscript records plus the initial section.
-7. Main atomically writes the project manifest as the final validity/publication marker.
+7. Main atomically writes the project manifest as the final validity/commit marker. This is a manifest-last publication protocol, not an atomic rename of the entire directory; a directory without a valid manifest is incomplete and must never be opened as a project.
 8. Main canonicalizes the published root and opens it as the active project using the already-held lock.
 
 A failed create must leave either no project or a clearly marked recoverable staging directory, never a folder that appears valid but lacks required state.
@@ -223,12 +224,12 @@ Opening performs:
 2. Read and validate `writellm.project.json`.
 3. Acquire the write lock.
 4. Open `project.sqlite` with required pragmas.
-5. Back up before migrations.
+5. If the schema is behind the packaged migration set, create and verify an online pre-migration backup before any project-database write. Do not update `lastOpenedAt` or other project state before that backup completes.
 6. Apply forward-only migrations.
 7. Run `quick_check` and `foreign_key_check`.
 8. Validate the manifest/database project ID pair.
 9. Validate or rebuild BlockNote materializations.
-10. Open or create `index.sqlite`; schedule a rebuild if missing or incompatible.
+10. If `index.sqlite` is absent or incompatible, keep the project open and mark `indexRebuildRequired`; the later index checkpoint owns the rebuild.
 11. Recover expired project jobs.
 12. Start project-bound utility processes and the scheduler.
 13. Publish a new opaque `projectSessionId` to project-scoped renderer APIs.
@@ -238,16 +239,19 @@ Opening performs:
 Closing performs:
 
 1. Reject new project mutations.
-2. Flush pending renderer manuscript saves through a bounded protocol.
-3. Stop claiming new jobs.
-4. Abort or park interactive agent runs and mark interrupted requests accurately.
-5. Persist resumable external state such as MinerU `remote_task_id`.
-6. Stop project-bound workers and index access.
-7. Checkpoint/close project databases.
-8. Release the project lock.
-9. Revoke the `projectSessionId` and all project subscriptions.
+2. Enter an internal `closing-accepting-final-flush` phase. Only the already-authorized final editor flush may mutate, and it must carry the active `projectSessionId`, current revision, and a close-scoped token.
+3. Resolve the final flush with a bounded timeout; a non-responsive renderer produces a recoverable close outcome rather than an infinite wait. Recheck the revision after flush completion.
+4. Stop claiming new jobs.
+5. Abort or park interactive agent runs and mark interrupted requests accurately.
+6. Persist resumable external state such as MinerU `remote_task_id`.
+7. Stop project-bound workers and index access.
+8. Checkpoint/close project databases.
+9. Release the project lock.
+10. Revoke the `projectSessionId` and all project subscriptions.
 
 Delayed IPC responses or worker messages carrying an old `projectSessionId` are rejected after close or project switch.
+
+`recovery-required` is recoverable, not a dead-end state. Its allowed exits are explicit `retry-open`, `retry-close`, `restore-from-backup`, `discard-incomplete-create`, `locate-moved-project`, `export-diagnostics`, and `return-to-closed` operations. A failed migration or restore never silently replaces the authoritative database.
 
 ### Project locking
 
@@ -447,22 +451,27 @@ Main-process database work must be short. Do not wait for external APIs, process
 
 Application migrations run at app startup. Project migrations run during project open after lock acquisition and before workers or the renderer receive project access.
 
+The fixed backup implementation is better-sqlite3's SQLite Online Backup API. `VACUUM INTO` is reserved for a future compact/export mode and is not used for migration backups or ordinary snapshots.
+
 The project migration protocol is:
 
 ```text
 acquire project lock
 -> open project.sqlite
 -> inspect manifest and schema versions
--> create online backup including WAL-resident committed data
+-> if migration is needed, block project writes and create an online backup to a partial file
+-> open and verify the backup (projectId, schema manifest/checksum, quick_check, foreign_key_check, hash, size)
+-> atomically publish the verified migration backup
 -> apply forward-only migrations
 -> PRAGMA quick_check
 -> PRAGMA foreign_key_check
--> validate projectId and file-record containment
+-> validate schema manifest/checksum and projectId
 -> update schema manifest
 -> continue project open
 ```
 
 Never back up a live WAL database by copying only the main `.sqlite` file.
+The backup source connection remains write-quiescent until backup completion. `quick_check` and `foreign_key_check` must inspect returned rows; a successful PRAGMA call alone is not a passing check. Explicit restore/import additionally runs `integrity_check`, validates the snapshot/file inventory, and rejects schema versions or checksums the current build cannot understand. Failed migrations retain a verified pre-migration backup and enter recovery-required.
 
 ## Manuscript Domain
 
@@ -863,12 +872,17 @@ Chokidar observes the active project only where external edits are intentionally
 
 A raw folder copy while the project is open is not treated as a verified backup. Provide a project snapshot operation that:
 
-1. quiesces project mutations or captures a consistent point;
+1. pauses project mutations, authorizes one final editor flush, and pauses file-publishing workers;
 2. uses SQLite backup APIs for authoritative databases;
-3. copies referenced authoritative files by hash;
-4. validates the snapshot manifest;
-5. optionally omits `index.sqlite` and marks it for rebuild;
-6. atomically publishes the completed snapshot/archive.
+3. derives its file inventory from the just-created project database backup, not a later read of the live database;
+4. copies only registered immutable/materialized files by hash and aborts if a source changes during the copy;
+5. validates the snapshot manifest;
+6. optionally omits `index.sqlite` and marks it for rebuild;
+7. atomically publishes the completed snapshot directory in the destination parent.
+
+The snapshot manifest contains `snapshotFormat`, `snapshotFormatVersion`, `projectId`, independent project and database schema versions, creation/source-app metadata, `indexIncluded`, `indexRebuildRequired`, a hashed database record, and hashed relative file records. Snapshot contents exclude locks, temp/backups/recovery directories, all SQLite `-wal`/`-shm` sidecars, `index.sqlite`, app databases, logs, credentials, caches, partial files, and the snapshot itself. Relative paths must be normalized, contained, non-symbolic, unique, and free of case-collisions.
+
+Restore preserves the existing `projectId` and is intended to replace or relocate the same project. Clone/Save As is a separate future operation that creates a new `projectId`; two independently located folders with the same ID must not be silently treated as separate projects. Restore stages and fully validates the candidate, creates a pre-restore backup, quarantines the current database, atomically renames the candidate into place, removes old `-wal`/`-shm` sidecars, and only then reopens. CP6 does not hot-replace `app.sqlite`; any future app-database restore must record intent and apply it during early startup after the app database is closed.
 
 A moved or restored project must open without absolute-path repair.
 

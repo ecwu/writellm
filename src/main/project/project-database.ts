@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
+import { createVerifiedDatabaseBackup, cleanupMigrationBackups } from '../db/backup'
 import type { OpenedDatabase } from '../db/open-database'
 import { openDatabase } from '../db/open-database'
+import { hasPendingMigrations, readMigrationState, validateMigrationState } from '../db/migrations'
 import type { ProjectDatabaseSchema } from './database-types'
 import { projectMigrations } from './migrations'
 import type { ProjectManifest } from './project-manifest'
-import { PROJECT_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
+import {
+  PROJECT_BACKUPS_DIRECTORY,
+  PROJECT_DATABASE_RELATIVE_PATH,
+  resolveProjectPath
+} from './project-paths'
 
 export const PROJECT_DATABASE_APPLICATION_ID = 0x574c5052
 export const PROJECT_SCHEMA_VERSION = projectMigrations.at(-1)?.version ?? 0
@@ -130,19 +136,70 @@ export async function initializeProjectDatabase(options: {
   }
 }
 
-export function openProjectDatabase(options: {
+export async function openProjectDatabase(options: {
   projectRoot: string
   manifest: ProjectManifest
   applicationVersion: string
   log: Logger
 }): Promise<ProjectDatabase> {
-  return openDatabase<ProjectDatabaseSchema>({
-    path: resolveProjectPath(options.projectRoot, PROJECT_DATABASE_RELATIVE_PATH),
-    applicationId: PROJECT_DATABASE_APPLICATION_ID,
-    applicationVersion: options.applicationVersion,
-    databaseRole: 'project',
-    migrations: projectMigrations,
-    log: options.log,
-    validate: (database) => validateProjectIdentity(database, options.manifest)
-  })
+  const databasePath = resolveProjectPath(options.projectRoot, PROJECT_DATABASE_RELATIVE_PATH)
+  try {
+    const database = await openDatabase<ProjectDatabaseSchema>({
+      path: databasePath,
+      applicationId: PROJECT_DATABASE_APPLICATION_ID,
+      applicationVersion: options.applicationVersion,
+      databaseRole: 'project',
+      migrations: projectMigrations,
+      log: options.log,
+      beforeMigrate: async (nativeDatabase) => {
+        if (!hasPendingMigrations(nativeDatabase, projectMigrations)) return
+        const state = readMigrationState(nativeDatabase)
+        const destination = resolveProjectPath(
+          options.projectRoot,
+          `${PROJECT_BACKUPS_DIRECTORY}/migration-v${state.schemaVersion}-to-v${PROJECT_SCHEMA_VERSION}-${randomUUID()}.sqlite`
+        )
+        await createVerifiedDatabaseBackup({
+          source: nativeDatabase,
+          destination,
+          databaseRole: 'project',
+          applicationId: PROJECT_DATABASE_APPLICATION_ID,
+          log: options.log,
+          validate: (backup) => {
+            validateMigrationState(backup, {
+              databaseRole: 'project',
+              migrations: projectMigrations
+            })
+            validateProjectIdentity(backup, options.manifest)
+          }
+        })
+      },
+      validate: (database) => {
+        validateMigrationState(database, { databaseRole: 'project', migrations: projectMigrations })
+        validateProjectIdentity(database, options.manifest)
+      }
+    })
+    try {
+      await cleanupMigrationBackups(
+        resolveProjectPath(options.projectRoot, PROJECT_BACKUPS_DIRECTORY),
+        {
+          keep: 3,
+          log: options.log
+        }
+      )
+    } catch (err) {
+      database.close()
+      throw err
+    }
+    return database
+  } catch (err) {
+    options.log.error(
+      {
+        event: 'project.database.open_with_backup.failed',
+        err,
+        projectId: options.manifest.projectId
+      },
+      'Failed to open project database with migration backup'
+    )
+    throw new Error('Failed to open project database with migration backup', { cause: err })
+  }
 }

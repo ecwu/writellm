@@ -283,6 +283,52 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('authorizes and bounds the final editor flush', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'flush-boundary')
+    let authorization:
+      | { projectSessionId: string; currentRevision: string | null; closingToken: string }
+      | undefined
+    let verifiedAuthorization: typeof authorization
+    const manager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      finalFlushTimeoutMs: 10,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      closeParticipants: {
+        getCurrentRevision: async () => 'revision-1',
+        flushEditors: async (_context, value) => {
+          authorization = value
+        },
+        verifyFinalEditorFlush: async (_context, value) => {
+          verifiedAuthorization = value
+        }
+      }
+    })
+    const opened = await manager.open(created.projectRoot)
+    await manager.close()
+    expect(authorization).toMatchObject({
+      projectSessionId: opened.activeProject?.projectSessionId,
+      currentRevision: 'revision-1'
+    })
+    expect(authorization?.closingToken).toMatch(/^[0-9a-f-]{36}$/)
+    expect(verifiedAuthorization).toBe(authorization)
+    appDatabase.close()
+
+    const timedOut = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects: { upsert: vi.fn() },
+      finalFlushTimeoutMs: 10,
+      closeParticipants: { flushEditors: () => new Promise<void>(() => undefined) },
+      lockOptions: { heartbeatIntervalMs: 0 }
+    })
+    await timedOut.open(created.projectRoot)
+    await expect(timedOut.close()).rejects.toThrow('Failed to close project cleanly')
+    expect(timedOut.snapshot().state).toBe('recovery-required')
+  })
+
   it('revokes authority and enters recovery-required while continuing cleanup after close failure', async () => {
     const { parent, appDatabase, recentProjects } = await testEnvironment()
     const created = await existingProject(parent, 'recovery')

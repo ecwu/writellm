@@ -14,6 +14,12 @@ interface MigrationRow {
   checksum: string
 }
 
+export interface MigrationState {
+  schemaVersion: number
+  applied: MigrationRow[]
+  userVersion: number
+}
+
 export interface MigrationOptions {
   applicationVersion: string
   databaseRole: 'app' | 'project'
@@ -63,14 +69,7 @@ export function migrateDatabase(database: Database.Database, options: MigrationO
     .transaction(() => initializeMigrationMetadata(database, options.applicationVersion))
     .immediate()
 
-  const applied = database
-    .prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version')
-    .all() as MigrationRow[]
-  const manifestVersion = database
-    .prepare('SELECT schema_version FROM schema_manifest WHERE id = 1')
-    .pluck()
-    .get() as number
-  const userVersion = database.pragma('user_version', { simple: true }) as number
+  const { applied, schemaVersion: manifestVersion, userVersion } = readMigrationState(database)
 
   if (manifestVersion !== applied.length || userVersion !== manifestVersion) {
     throw new Error(`${options.databaseRole} database schema version metadata is inconsistent`)
@@ -149,4 +148,61 @@ export function migrateDatabase(database: Database.Database, options: MigrationO
     .prepare('UPDATE schema_manifest SET application_version = ?, updated_at = ? WHERE id = 1')
     .run(options.applicationVersion, new Date().toISOString())
   return options.migrations.length
+}
+
+export function readMigrationState(database: Database.Database): MigrationState {
+  const hasManifest = database
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_manifest'")
+    .pluck()
+    .get()
+  const hasMigrations = database
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
+    .pluck()
+    .get()
+  const applied = hasMigrations
+    ? (database
+        .prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version')
+        .all() as MigrationRow[])
+    : []
+  const schemaVersion = hasManifest
+    ? (database.prepare('SELECT schema_version FROM schema_manifest WHERE id = 1').pluck().get() as
+        | number
+        | undefined)
+    : undefined
+  return {
+    schemaVersion: schemaVersion ?? 0,
+    applied,
+    userVersion: database.pragma('user_version', { simple: true }) as number
+  }
+}
+
+export function hasPendingMigrations(
+  database: Database.Database,
+  migrations: readonly DatabaseMigration[]
+): boolean {
+  return readMigrationState(database).schemaVersion < migrations.length
+}
+
+export function validateMigrationState(
+  database: Database.Database,
+  options: Pick<MigrationOptions, 'databaseRole' | 'migrations'>
+): MigrationState {
+  const state = readMigrationState(database)
+  if (state.schemaVersion !== state.applied.length || state.userVersion !== state.schemaVersion) {
+    throw new Error(`${options.databaseRole} database schema version metadata is inconsistent`)
+  }
+  if (state.schemaVersion > options.migrations.length) {
+    throw new Error(
+      `${options.databaseRole} database schema version ${state.schemaVersion} is newer than supported`
+    )
+  }
+  for (const row of state.applied) {
+    const migration = options.migrations[row.version - 1]
+    if (migration?.name !== row.name || migration.checksum !== row.checksum) {
+      throw new Error(
+        `${options.databaseRole} migration ${row.version} does not match the packaged manifest`
+      )
+    }
+  }
+  return state
 }

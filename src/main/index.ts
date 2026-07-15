@@ -20,139 +20,153 @@ import { ProjectManager } from './project/project-manager'
 
 registerAppScheme()
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-void app
-  .whenReady()
-  .then(async () => {
-    // Set app user model id for windows
-    electronApp.setAppUserModelId('com.electron')
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
-    // Default open or close DevTools by F12 in development
-    // and ignore CommandOrControl + R in production.
-    // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-    app.on('browser-window-created', (_, window) => {
-      optimizer.watchWindowShortcuts(window)
-    })
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const existingWindow = BrowserWindow.getAllWindows()[0]
+    if (existingWindow === undefined) return
+    if (existingWindow.isMinimized()) existingWindow.restore()
+    existingWindow.show()
+    existingWindow.focus()
+  })
 
-    const developmentUrl = process.env['ELECTRON_RENDERER_URL']
-    const loggerSystem = await createLoggerSystem({
-      appVersion: app.getVersion(),
-      logDirectory: app.getPath('logs'),
-      development: is.dev
-    })
-    const appLog = loggerSystem.createModuleLogger('app', 'lifecycle')
-    let shuttingDown = false
-    registerProcessErrorHandlers(app, appLog, () => shuttingDown)
+  // This method will be called when Electron has finished
+  // initialization and is ready to create browser windows.
+  // Some APIs can only be used after this event occurs.
+  void app
+    .whenReady()
+    .then(async () => {
+      // Set app user model id for windows
+      electronApp.setAppUserModelId('com.electron')
 
-    try {
-      await cleanupLogRetention(loggerSystem.logDirectory, {
-        activeFileName: loggerSystem.activeFileName,
-        maxAgeMs: 14 * 24 * 60 * 60 * 1_000,
-        maxTotalBytes: 200 * 1_024 * 1_024
+      // Default open or close DevTools by F12 in development
+      // and ignore CommandOrControl + R in production.
+      // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+      app.on('browser-window-created', (_, window) => {
+        optimizer.watchWindowShortcuts(window)
       })
-    } catch (err) {
-      appLog.warn({ event: 'app.log_retention.failed', err }, 'Failed to clean old logs')
-    }
 
-    const appDatabaseLog = loggerSystem.createModuleLogger('db', 'app-database')
-    await quarantineLegacyCoreDatabase(app.getPath('userData'), appDatabaseLog)
-    const appDatabase = await openAppDatabase({
-      path: join(app.getPath('userData'), 'app.sqlite'),
-      applicationVersion: app.getVersion(),
-      log: appDatabaseLog
-    })
+      const developmentUrl = process.env['ELECTRON_RENDERER_URL']
+      const loggerSystem = await createLoggerSystem({
+        appVersion: app.getVersion(),
+        logDirectory: app.getPath('logs'),
+        development: is.dev
+      })
+      const appLog = loggerSystem.createModuleLogger('app', 'lifecycle')
+      let shuttingDown = false
+      registerProcessErrorHandlers(app, appLog, () => shuttingDown)
 
-    const recentProjects = new RecentProjectsRepository(appDatabase)
-    const projectManager = new ProjectManager({
-      applicationVersion: app.getVersion(),
-      logger: loggerSystem.createModuleLogger('project', 'manager'),
-      recentProjects,
-      forbiddenApplicationDirectories: [
-        app.getPath('userData'),
-        app.getPath('logs'),
-        app.getPath('sessionData')
-      ],
-      closeParticipants: {
-        flushEditors: async () => undefined,
-        stopJobClaims: async () => undefined,
-        parkWorkers: async () => undefined,
-        stopWorkersAndIndex: async () => undefined,
-        revokeSubscriptions: async () => undefined
+      try {
+        await cleanupLogRetention(loggerSystem.logDirectory, {
+          activeFileName: loggerSystem.activeFileName,
+          maxAgeMs: 14 * 24 * 60 * 60 * 1_000,
+          maxTotalBytes: 200 * 1_024 * 1_024
+        })
+      } catch (err) {
+        appLog.warn({ event: 'app.log_retention.failed', err }, 'Failed to clean old logs')
       }
-    })
 
-    registerAppProtocol(join(__dirname, '../renderer'))
-    const unregisterAppIpc = registerIpcHandlers(developmentUrl)
-    let mainWindow = createWindow(developmentUrl)
-    const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
-    const unregisterProjectIpc = registerProjectIpc({
-      manager: projectManager,
-      recentProjects,
-      getWindow: () => mainWindow,
-      logger: projectIpcLog,
-      developmentUrl,
-      selectProjectFolderForTest: createProjectDialogTestSelection(projectIpcLog)
-    })
-    const unregisterDiagnostics = registerDiagnosticsIpc(
-      loggerSystem,
-      () => mainWindow,
-      developmentUrl
-    )
-    appLog.info(
-      { event: 'app.started', electronVersion: process.versions.electron },
-      'Application started'
-    )
+      const appDatabaseLog = loggerSystem.createModuleLogger('db', 'app-database')
+      await quarantineLegacyCoreDatabase(app.getPath('userData'), appDatabaseLog)
+      const appDatabase = await openAppDatabase({
+        path: join(app.getPath('userData'), 'app.sqlite'),
+        applicationVersion: app.getVersion(),
+        log: appDatabaseLog
+      })
 
-    if (process.env['WRITELLM_LOGGING_FIXTURE'] === '1') {
-      const workerLog = loggerSystem.createModuleLogger('worker', 'collector')
-      const collector = new LogCollector((envelope) =>
-        loggerSystem.createModuleLogger(
-          envelope.subsystem,
-          envelope.component,
-          envelope.processRole
-        )
+      const recentProjects = new RecentProjectsRepository(appDatabase)
+      const projectManager = new ProjectManager({
+        applicationVersion: app.getVersion(),
+        logger: loggerSystem.createModuleLogger('project', 'manager'),
+        recentProjects,
+        forbiddenApplicationDirectories: [
+          app.getPath('userData'),
+          app.getPath('logs'),
+          app.getPath('sessionData')
+        ],
+        closeParticipants: {
+          flushEditors: async () => undefined,
+          stopJobClaims: async () => undefined,
+          parkWorkers: async () => undefined,
+          stopWorkersAndIndex: async () => undefined,
+          revokeSubscriptions: async () => undefined
+        }
+      })
+
+      registerAppProtocol(join(__dirname, '../renderer'))
+      const unregisterAppIpc = registerIpcHandlers(developmentUrl)
+      let mainWindow = createWindow(developmentUrl)
+      const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
+      const unregisterProjectIpc = registerProjectIpc({
+        manager: projectManager,
+        recentProjects,
+        getWindow: () => mainWindow,
+        logger: projectIpcLog,
+        developmentUrl,
+        selectProjectFolderForTest: createProjectDialogTestSelection(projectIpcLog)
+      })
+      const unregisterDiagnostics = registerDiagnosticsIpc(
+        loggerSystem,
+        () => mainWindow,
+        developmentUrl
       )
-      const child = utilityProcess.fork(join(__dirname, 'logging-fixture.js'), [], {
-        serviceName: 'writellm-logging-fixture',
-        stdio: 'pipe'
-      })
-      const { port1, port2 } = new MessageChannelMain()
-      attachUtilityLogPort(port1, collector, workerLog)
-      captureUtilityStderr(child, workerLog)
-      child.postMessage({ type: 'logging-port' }, [port2])
-    }
+      appLog.info(
+        { event: 'app.started', electronVersion: process.versions.electron },
+        'Application started'
+      )
 
-    app.on('activate', () => {
-      // On macOS it's common to re-create a window in the app when the
-      // dock icon is clicked and there are no other windows open.
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow(developmentUrl)
+      if (process.env['WRITELLM_LOGGING_FIXTURE'] === '1') {
+        const workerLog = loggerSystem.createModuleLogger('worker', 'collector')
+        const collector = new LogCollector((envelope) =>
+          loggerSystem.createModuleLogger(
+            envelope.subsystem,
+            envelope.component,
+            envelope.processRole
+          )
+        )
+        const child = utilityProcess.fork(join(__dirname, 'logging-fixture.js'), [], {
+          serviceName: 'writellm-logging-fixture',
+          stdio: 'pipe'
+        })
+        const { port1, port2 } = new MessageChannelMain()
+        attachUtilityLogPort(port1, collector, workerLog)
+        captureUtilityStderr(child, workerLog)
+        child.postMessage({ type: 'logging-port' }, [port2])
       }
-    })
 
-    const shutdownCoordinator = createShutdownCoordinator({
-      projectManager,
-      unregisterProjectIpc,
-      unregisterAppIpc,
-      unregisterDiagnostics,
-      closeAppDatabase: () => appDatabase.close(),
-      flushLogs: () => loggerSystem.flush(),
-      quit: () => app.quit(),
-      logger: appLog
+      app.on('activate', () => {
+        // On macOS it's common to re-create a window in the app when the
+        // dock icon is clicked and there are no other windows open.
+        if (BrowserWindow.getAllWindows().length === 0) {
+          mainWindow = createWindow(developmentUrl)
+        }
+      })
+
+      const shutdownCoordinator = createShutdownCoordinator({
+        projectManager,
+        unregisterProjectIpc,
+        unregisterAppIpc,
+        unregisterDiagnostics,
+        closeAppDatabase: () => appDatabase.close(),
+        flushLogs: () => loggerSystem.flush(),
+        quit: () => app.quit(),
+        logger: appLog
+      })
+      app.on('before-quit', (event) => {
+        shuttingDown = true
+        shutdownCoordinator.handleBeforeQuit(event)
+      })
     })
-    app.on('before-quit', (event) => {
-      shuttingDown = true
-      shutdownCoordinator.handleBeforeQuit(event)
+    .catch((err) => {
+      process.stderr.write(
+        `WriteLLM failed to initialize: ${err instanceof Error ? err.stack : String(err)}\n`
+      )
+      app.exit(1)
     })
-  })
-  .catch((err) => {
-    process.stderr.write(
-      `WriteLLM failed to initialize: ${err instanceof Error ? err.stack : String(err)}\n`
-    )
-    app.exit(1)
-  })
+}
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

@@ -26,7 +26,15 @@ import {
 } from './project-lock'
 
 export interface ProjectCloseParticipants {
-  flushEditors(context: ProjectContext): Promise<void>
+  getCurrentRevision(context: ProjectContext): Promise<string | null>
+  flushEditors(
+    context: ProjectContext,
+    authorization: ProjectFinalFlushAuthorization
+  ): Promise<void>
+  verifyFinalEditorFlush(
+    context: ProjectContext,
+    authorization: ProjectFinalFlushAuthorization
+  ): Promise<void>
   stopJobClaims(context: ProjectContext): Promise<void>
   parkWorkers(context: ProjectContext): Promise<void>
   stopWorkersAndIndex(context: ProjectContext): Promise<void>
@@ -34,11 +42,19 @@ export interface ProjectCloseParticipants {
 }
 
 const noOpCloseParticipants: ProjectCloseParticipants = {
+  getCurrentRevision: async () => null,
   flushEditors: async () => undefined,
+  verifyFinalEditorFlush: async () => undefined,
   stopJobClaims: async () => undefined,
   parkWorkers: async () => undefined,
   stopWorkersAndIndex: async () => undefined,
   revokeSubscriptions: async () => undefined
+}
+
+export interface ProjectFinalFlushAuthorization {
+  readonly projectSessionId: ProjectSessionId
+  readonly currentRevision: string | null
+  readonly closingToken: string
 }
 
 export interface ProjectManagerDependencies {
@@ -69,6 +85,7 @@ export interface ProjectManagerOptions {
   recentProjects: Pick<RecentProjectsRepository, 'upsert'>
   forbiddenApplicationDirectories?: readonly string[]
   closeParticipants?: Partial<ProjectCloseParticipants>
+  finalFlushTimeoutMs?: number
   lockOptions?: Omit<ProjectLockOptions, 'logger'>
   dependencies?: Partial<ProjectManagerDependencies>
 }
@@ -93,6 +110,7 @@ export class ProjectManager {
   readonly #closeParticipants: ProjectCloseParticipants
   readonly #lockOptions: Omit<ProjectLockOptions, 'logger'>
   readonly #dependencies: ProjectManagerDependencies
+  readonly #finalFlushTimeoutMs: number
   #state: ProjectLifecycleState = 'closed'
   #context: ProjectContext | null = null
   #transition: Promise<void> = Promise.resolve()
@@ -103,6 +121,7 @@ export class ProjectManager {
     this.#recentProjects = options.recentProjects
     this.#forbiddenApplicationDirectories = options.forbiddenApplicationDirectories ?? []
     this.#closeParticipants = { ...noOpCloseParticipants, ...options.closeParticipants }
+    this.#finalFlushTimeoutMs = options.finalFlushTimeoutMs ?? 10_000
     this.#lockOptions = options.lockOptions ?? {}
     this.#dependencies = { ...defaultDependencies, ...options.dependencies }
   }
@@ -228,8 +247,24 @@ export class ProjectManager {
         }
       }
 
+      let currentRevision: string | null = null
+      await attempt('project_manager.close.editor_revision_read_failed', async () => {
+        currentRevision = await this.#closeParticipants.getCurrentRevision(context)
+      })
+      const finalFlushAuthorization: ProjectFinalFlushAuthorization = {
+        projectSessionId: context.projectSessionId,
+        currentRevision,
+        closingToken: this.#dependencies.randomUUID()
+      }
       await attempt('project_manager.close.editor_flush_failed', () =>
-        this.#closeParticipants.flushEditors(context)
+        withTimeout(
+          this.#closeParticipants.flushEditors(context, finalFlushAuthorization),
+          this.#finalFlushTimeoutMs,
+          'Final editor flush timed out'
+        )
+      )
+      await attempt('project_manager.close.editor_flush_verify_failed', () =>
+        this.#closeParticipants.verifyFinalEditorFlush(context, finalFlushAuthorization)
       )
       await attempt('project_manager.close.stop_claims_failed', () =>
         this.#closeParticipants.stopJobClaims(context)
@@ -454,4 +489,22 @@ function projectDisplayName(projectRoot: string): string {
   return directoryName.toLowerCase().endsWith('.writellm')
     ? directoryName.slice(0, -'.writellm'.length)
     : directoryName
+}
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }

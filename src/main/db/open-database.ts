@@ -3,7 +3,8 @@ import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
 import { Kysely, SqliteDialect } from 'kysely'
 import type { Logger } from 'pino'
-import { migrateDatabase, type DatabaseMigration } from './migrations'
+import { assertDatabaseIntegrity } from './integrity'
+import { hasPendingMigrations, migrateDatabase, type DatabaseMigration } from './migrations'
 
 export interface OpenDatabaseOptions {
   path: string
@@ -13,45 +14,13 @@ export interface OpenDatabaseOptions {
   migrations: readonly DatabaseMigration[]
   log: Logger
   validate?: (database: Database.Database) => void
+  beforeMigrate?: (database: Database.Database) => void | Promise<void>
 }
 
 export interface OpenedDatabase<Schema> {
   readonly kysely: Kysely<Schema>
+  backup(destinationFile: string): Promise<Database.BackupMetadata>
   close(): void
-}
-
-function checkIntegrity(
-  database: Database.Database,
-  databaseRole: 'app' | 'project',
-  log: Logger
-): void {
-  const startedAt = Date.now()
-  try {
-    const quickCheck = database.pragma('quick_check') as { quick_check: string }[]
-    const foreignKeyErrors = database.pragma('foreign_key_check') as unknown[]
-    if (
-      quickCheck.length !== 1 ||
-      quickCheck[0]?.quick_check !== 'ok' ||
-      foreignKeyErrors.length > 0
-    ) {
-      throw new Error(`${databaseRole} database integrity check failed`)
-    }
-    log.info(
-      {
-        event: 'db.integrity.completed',
-        databaseRole,
-        durationMs: Date.now() - startedAt,
-        foreignKeyErrorCount: foreignKeyErrors.length
-      },
-      `${databaseRole} database integrity check completed`
-    )
-  } catch (err) {
-    log.error(
-      { event: 'db.integrity.failed', err, databaseRole },
-      `${databaseRole} database integrity check failed`
-    )
-    throw new Error(`${databaseRole} database integrity check failed`, { cause: err })
-  }
 }
 
 export async function openDatabase<Schema>(
@@ -78,8 +47,11 @@ export async function openDatabase<Schema>(
     }
     if (applicationId === 0) nativeDatabase.pragma(`application_id = ${options.applicationId}`)
 
+    if (hasPendingMigrations(nativeDatabase, options.migrations)) {
+      await options.beforeMigrate?.(nativeDatabase)
+    }
     const schemaVersion = migrateDatabase(nativeDatabase, options)
-    checkIntegrity(nativeDatabase, options.databaseRole, options.log)
+    assertDatabaseIntegrity(nativeDatabase, options.databaseRole, 'quick', options.log)
     options.validate?.(nativeDatabase)
     const kysely = new Kysely<Schema>({
       dialect: new SqliteDialect({ database: nativeDatabase })
@@ -97,6 +69,11 @@ export async function openDatabase<Schema>(
     let closed = false
     return {
       kysely,
+      backup(destinationFile) {
+        return (
+          nativeDatabase?.backup(destinationFile) ?? Promise.reject(new Error('Database closed'))
+        )
+      },
       close() {
         if (closed) return
         try {
