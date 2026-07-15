@@ -90,27 +90,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     sender.send(IPC_CHANNELS.projectLifecycleEvent, event)
   }
 
-  const setProjectMaximized = (maximized: boolean): void => {
-    const window = options.getWindow()
-    if (window === null || window.isDestroyed()) return
-
-    try {
-      if (maximized) window.maximize()
-      else window.unmaximize()
-      options.logger.info(
-        {
-          event: maximized ? 'project_window.maximized' : 'project_window.unmaximized'
-        },
-        maximized ? 'Maximized project window' : 'Restored project window'
-      )
-    } catch (err) {
-      options.logger.warn(
-        { event: 'project_window.maximize.failed', err, maximized },
-        'Could not update project window state; keeping the current window state'
-      )
-    }
-  }
-
   ipc.handle(IPC_CHANNELS.projectGetLifecycle, (event) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     return projectLifecycleSnapshotSchema.parse(options.manager.snapshot())
@@ -140,7 +119,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.create({ parentDirectory, name })
       )
-      setProjectMaximized(true)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
       options.logger.error(
@@ -160,7 +138,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.open(selectedRoot)
       )
-      setProjectMaximized(true)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
       options.logger.error({ event: 'ipc.project_open.failed', err }, 'Project open request failed')
@@ -178,7 +155,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.open(recentProject.projectPath)
       )
-      setProjectMaximized(true)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
       options.logger.error(
@@ -201,7 +177,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.switch(selectedRoot)
       )
-      setProjectMaximized(true)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
       options.logger.error(
@@ -219,7 +194,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     revokeSession(projectSessionId)
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(await options.manager.close())
-      setProjectMaximized(false)
       return snapshot
     } catch (err) {
       options.logger.error(

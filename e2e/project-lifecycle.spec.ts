@@ -29,16 +29,17 @@ async function closeApp(app: ElectronApplication): Promise<void> {
   await app.close()
 }
 
-async function expectProjectMaximized(app: ElectronApplication): Promise<void> {
-  await expect(
-    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized())
-  ).resolves.toBe(true)
+async function expectWindowMaximized(app: ElectronApplication, maximized: boolean): Promise<void> {
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized())
+    )
+    .toBe(maximized)
 }
 
-async function expectProjectWindowed(app: ElectronApplication): Promise<void> {
-  await expect(
-    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized())
-  ).resolves.toBe(false)
+async function manuallyRestoreWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.unmaximize())
+  await expectWindowMaximized(app, false)
 }
 
 test('creates, closes, reopens, switches, and reopens after app restart', async ({ testRoot }) => {
@@ -54,8 +55,10 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     await expect(first.page.getByText('API configuration', { exact: true })).toBeVisible()
     await first.page.keyboard.press('Escape')
 
+    await expectWindowMaximized(first.app, true)
+    await manuallyRestoreWindow(first.app)
     await clickAndExpectProject(first.page, 'Create project', 'Alpha project', 'Alpha project')
-    await expectProjectMaximized(first.app)
+    await expectWindowMaximized(first.app, false)
     await expect(first.page.getByRole('menubar')).toBeVisible()
     await first.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
     await expect(first.page.getByText('Untitled section', { exact: true }).first()).toBeVisible()
@@ -64,12 +67,14 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     )
     await first.page.getByRole('button', { name: 'Close project' }).click()
     await expect(first.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
-    await expectProjectWindowed(first.app)
+    await expectWindowMaximized(first.app, false)
     await clickAndExpectProject(first.page, 'Create project', 'Beta project', 'Beta project')
+    await expectWindowMaximized(first.app, false)
     await first.page.getByRole('button', { name: 'Close project' }).click()
     await expect(first.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+    await expectWindowMaximized(first.app, false)
     await clickAndExpectProject(first.page, 'Open project', 'Alpha project')
-    await expectProjectMaximized(first.app)
+    await expectWindowMaximized(first.app, false)
     const reopenedAlphaSession = await first.page.evaluate(
       async () => (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
     )
@@ -86,19 +91,21 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     ).resolves.toBe(true)
     await expect(first.page.getByRole('heading', { name: 'Alpha project' })).toBeVisible()
     await clickAndExpectProject(first.page, 'Switch project', 'Beta project')
-    await expectProjectMaximized(first.app)
+    await expectWindowMaximized(first.app, false)
   } finally {
     await closeApp(first.app)
   }
 
   const restarted = await launchApp({ userData })
   try {
+    await expectWindowMaximized(restarted.app, true)
     await expect(restarted.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     await expect(
       restarted.page.getByRole('button', { name: 'Open Beta project', exact: true })
     ).toBeVisible()
+    await manuallyRestoreWindow(restarted.app)
     await clickRecentAndExpectProject(restarted.page, 'Beta project')
-    await expectProjectMaximized(restarted.app)
+    await expectWindowMaximized(restarted.app, false)
   } finally {
     await closeApp(restarted.app)
   }

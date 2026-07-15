@@ -5,7 +5,9 @@ import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openAppDatabase } from '../app-db/connection'
 import { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
+import { JobStore } from '../jobs/job-store'
 import { createProject, ProjectCreateError } from './project-lifecycle'
+import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
 import { ProjectManager, ProjectSessionError } from './project-manager'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
@@ -124,7 +126,10 @@ describe('ProjectManager', () => {
 
   it('keeps an opened project authoritative when recent metadata update fails', async () => {
     const calls: string[] = []
-    const database = { close: vi.fn(() => calls.push('database.close')) }
+    const database = {
+      immediate: vi.fn(() => ({ recovered: 0, cancelled: 0, failed: 0 })),
+      close: vi.fn(() => calls.push('database.close'))
+    }
     const lock = { release: vi.fn(async () => calls.push('lock.release')) }
     const manifest = {
       format: 'writellm-project' as const,
@@ -187,6 +192,44 @@ describe('ProjectManager', () => {
 
     expect(second.activeProject?.projectSessionId).not.toBe(first.activeProject?.projectSessionId)
     await manager.close()
+    appDatabase.close()
+  })
+
+  it('recovers expired job leases before publishing an open project session', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'lease-recovery')
+    const database = await openProjectDatabase({
+      projectRoot: created.projectRoot,
+      manifest: created.manifest,
+      applicationVersion: '1.0.0-test',
+      log: silentLog
+    })
+    const store = new JobStore({
+      database,
+      projectId: created.manifest.projectId,
+      log: silentLog,
+      now: () => new Date('2020-01-01T00:00:00.000Z')
+    })
+    const job = store.enqueue({ type: 'index.rebuild', payload: { generationId: 'old' } }).job
+    store.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
+    database.close()
+
+    await expect(manager.open(created.projectRoot)).resolves.toMatchObject({ state: 'open' })
+    await manager.close()
+    const verified = await openProjectDatabase({
+      projectRoot: created.projectRoot,
+      manifest: created.manifest,
+      applicationVersion: '1.0.0-test',
+      log: silentLog
+    })
+    expect(
+      await verified.kysely
+        .selectFrom('jobs')
+        .select(['state', 'attempts', 'lease_owner'])
+        .where('job_id', '=', job.jobId)
+        .executeTakeFirstOrThrow()
+    ).toEqual({ state: 'queued', attempts: 1, lease_owner: null })
+    verified.close()
     appDatabase.close()
   })
 

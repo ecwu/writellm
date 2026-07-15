@@ -98,7 +98,7 @@ if (!hasSingleInstanceLock) {
 
       registerAppProtocol(join(__dirname, '../renderer'))
       const unregisterAppIpc = registerIpcHandlers(developmentUrl)
-      let mainWindow = createWindow(developmentUrl)
+      let mainWindow = createWindow(developmentUrl, appLog)
       const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
       const unregisterProjectIpc = registerProjectIpc({
         manager: projectManager,
@@ -141,7 +141,7 @@ if (!hasSingleInstanceLock) {
         // On macOS it's common to re-create a window in the app when the
         // dock icon is clicked and there are no other windows open.
         if (BrowserWindow.getAllWindows().length === 0) {
-          mainWindow = createWindow(developmentUrl)
+          mainWindow = createWindow(developmentUrl, appLog)
         }
       })
 

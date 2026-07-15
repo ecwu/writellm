@@ -145,11 +145,12 @@ describe('project IPC', () => {
     const result = await invoke(IPC_CHANNELS.projectOpen)
 
     expect(manager.open).toHaveBeenCalledWith('/private/renderer-must-not-see')
-    expect(window.maximize).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(result)).not.toContain('/private/renderer-must-not-see')
+    expect(window.maximize).not.toHaveBeenCalled()
+    expect(window.unmaximize).not.toHaveBeenCalled()
   })
 
-  it('maximizes after create and restores the window after close', async () => {
+  it('does not override window state during project lifecycle transitions', async () => {
     const creating = harness()
     creating.projectDialog.showOpenDialog.mockResolvedValue({
       canceled: false,
@@ -157,11 +158,21 @@ describe('project IPC', () => {
     })
 
     await creating.invoke(IPC_CHANNELS.projectCreate, { name: 'Created project' })
-    expect(creating.window.maximize).toHaveBeenCalledTimes(1)
+
+    const switching = harness(openSnapshot)
+    switching.projectDialog.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ['/private/switch-target']
+    })
+    await switching.invoke(IPC_CHANNELS.projectSwitch, { projectSessionId: sessionId })
 
     const closing = harness(openSnapshot)
     await closing.invoke(IPC_CHANNELS.projectClose, { projectSessionId: sessionId })
-    expect(closing.window.unmaximize).toHaveBeenCalledTimes(1)
+
+    for (const window of [creating.window, switching.window, closing.window]) {
+      expect(window.maximize).not.toHaveBeenCalled()
+      expect(window.unmaximize).not.toHaveBeenCalled()
+    }
   })
 
   it('returns at most five recent projects', async () => {

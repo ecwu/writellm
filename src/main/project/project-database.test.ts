@@ -153,11 +153,12 @@ describe('project database', () => {
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
     native.exec(`
+      DROP TABLE jobs;
       DROP TABLE sections;
       DROP TABLE manuscript_briefs;
       DROP INDEX manuscripts_one_primary_per_project;
       DROP TABLE manuscripts;
-      DELETE FROM schema_migrations WHERE version = 2;
+      DELETE FROM schema_migrations WHERE version >= 2;
       UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
       PRAGMA user_version = 1;
     `)
@@ -191,11 +192,12 @@ describe('project database', () => {
     const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
     const native = new (await import('better-sqlite3')).default(databasePath)
     native.exec(`
+      DROP TABLE jobs;
       DROP TABLE sections;
       DROP TABLE manuscript_briefs;
       DROP INDEX manuscripts_one_primary_per_project;
       DROP TABLE manuscripts;
-      DELETE FROM schema_migrations WHERE version = 2;
+      DELETE FROM schema_migrations WHERE version >= 2;
       UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
       PRAGMA user_version = 1;
       CREATE TABLE manuscripts (wrong_column TEXT) STRICT;
@@ -220,7 +222,7 @@ describe('project database', () => {
 
     const retained = await readdir(backups)
     expect(retained.filter((name) => name.startsWith('migration-old-'))).toHaveLength(4)
-    expect(retained.filter((name) => name.includes('-to-v2-'))).toHaveLength(1)
+    expect(retained.filter((name) => name.includes('-to-v3-'))).toHaveLength(1)
     const original = new (await import('better-sqlite3')).default(databasePath, {
       readonly: true,
       fileMustExist: true

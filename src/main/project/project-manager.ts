@@ -11,6 +11,7 @@ import {
   type ProjectSessionId
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
+import { JobStore } from '../jobs/job-store'
 import { type ProjectContext, toActiveProject } from './project-context'
 import {
   createProject,
@@ -455,6 +456,12 @@ export class ProjectManager {
         applicationVersion: this.#applicationVersion,
         log: this.#logger as Logger
       })
+      const jobs = new JobStore({
+        database,
+        projectId: manifest.projectId,
+        log: this.#logger
+      })
+      jobs.recoverExpiredLeases()
       const context: ProjectContext = {
         projectRoot: canonicalRoot,
         manifest,
@@ -462,6 +469,7 @@ export class ProjectManager {
         displayName: projectDisplayName(canonicalRoot),
         indexRebuildRequired: await isIndexRebuildRequired(canonicalRoot, this.#logger),
         database,
+        jobs,
         writeLock
       }
       this.#context = context

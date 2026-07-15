@@ -19,6 +19,7 @@ export interface OpenDatabaseOptions {
 
 export interface OpenedDatabase<Schema> {
   readonly kysely: Kysely<Schema>
+  immediate<T>(operation: (database: Database.Database) => T): T
   backup(
     destinationFile: string,
     options?: Database.BackupOptions
@@ -91,6 +92,10 @@ export async function openDatabase<Schema>(
     let closed = false
     return {
       kysely,
+      immediate(operation) {
+        if (closed || nativeDatabase === undefined) throw new Error('Database closed')
+        return nativeDatabase.transaction(operation).immediate(nativeDatabase)
+      },
       backup(destinationFile, backupOptions) {
         return (
           nativeDatabase?.backup(destinationFile, backupOptions) ??

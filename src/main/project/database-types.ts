@@ -62,11 +62,36 @@ export interface SchemaMigrationTable {
   applied_at: string
 }
 
+export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'paused'
+
+export interface JobTable {
+  job_id: string
+  type: string
+  payload_json: string
+  state: JobState
+  priority: number
+  attempts: number
+  max_attempts: number
+  run_after: string
+  lease_owner: string | null
+  locked_until: string | null
+  heartbeat_at: string | null
+  progress_json: string | null
+  deduplication_key: string | null
+  cancellation_requested: number
+  error_json: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 export interface ProjectDatabaseSchema {
   project_meta: ProjectMetaTable
   manuscripts: ManuscriptTable
   manuscript_briefs: ManuscriptBriefTable
   sections: SectionTable
+  jobs: JobTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
 }

@@ -1,4 +1,5 @@
 import type { ActiveProject, ProjectSessionId } from '../../shared/contracts/projects'
+import type { JobStore } from '../jobs/job-store'
 import type { ProjectDatabase } from './project-database'
 import type { ProjectManifest } from './project-manifest'
 import type { ProjectWriteLock } from './project-lock'
@@ -11,6 +12,7 @@ export interface ProjectContext {
   readonly displayName: string
   readonly indexRebuildRequired: boolean
   readonly database: ProjectDatabase
+  readonly jobs: JobStore
   readonly writeLock: ProjectWriteLock
 }
 

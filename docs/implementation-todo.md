@@ -18,9 +18,15 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoints 1 through 6 are completed and verified. No later storage, queue, editor, import, search, or agent work may begin without approval.
+Checkpoints 1 through 7 are completed and verified. No later scheduler, editor, import, search, or agent work may begin without approval.
 
 Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary. Production uses Electron's single-instance lock and focuses the existing process on a second launch; the project lock remains defense in depth. The create protocol is manifest-last commit-marker publication, and close has an internal final-flush authorization boundary with a timeout.
+
+### Maintenance: Stable Default Window State
+
+- [x] Maximize each newly created application window once before its first display, remove project-lifecycle maximize/unmaximize calls, preserve subsequent user window adjustments, and cover the behavior in IPC and Electron E2E tests.
+
+Verification: Biome check passes with the pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 28 files and 141 tests; `electron-vite build` passes; and all 4 Playwright Electron E2E tests pass. The lifecycle E2E verifies startup maximization, manually restores the window, and proves create, close, reopen, switch, and recent-project open do not override that user adjustment.
 
 ## Phase 0: Baseline And Guardrails
 
@@ -100,7 +106,7 @@ Acceptance criteria: completed and verified. A real Electron startup created and
 - [x] Store only recent project pointers and display metadata in `app.sqlite`.
 - [x] Expose up to five recent project pointers on the startup screen and open them by opaque project ID.
 - [x] Handle moved/renamed projects by stable manifest ID rather than absolute-path identity.
-- [x] Maximize the window after a project opens and restore the windowed state after it closes.
+- [x] Maximize each newly created application window once by default without coupling window state to project open, close, or switch transitions.
 - [x] Add built-app E2E coverage for create, reopen, switch, app restart, moved project, lock contention, and stale IPC, plus deterministic integration coverage for stale-lock recovery.
 - [x] Replace the temporary renderer with the approved shadcn/ui `new-york` application shell: global Menubar, `sidebar-09` workspace, and an anywhere-accessible Command settings surface while preserving project lifecycle behavior.
 
@@ -133,18 +139,20 @@ Checkpoint 6 verification: `biome check` passes with one pre-existing generated 
 
 ### Checkpoint 7: Persistent Job State Machine
 
-- [ ] Finalize the project-local STRICT jobs schema and state/error schemas.
-- [ ] Include type, small JSON payload, state, priority, attempts, max attempts, `run_after`, lease owner, `locked_until`, heartbeat, progress, deduplication key, cancellation request, structured error, and timestamps.
-- [ ] Implement enqueue, dedupe, atomic claim, lease renewal, heartbeat, completion, retry, failure, cancellation, and optional paused transition.
-- [ ] Use short `BEGIN IMMEDIATE` claims and transitions.
-- [ ] Implement startup/project-open recovery for expired leases.
-- [ ] Add exponential backoff with jitter and retryability classification.
-- [ ] Keep document bodies, BlockNote JSON, vectors, absolute paths, signed URLs, and credentials out of payloads.
-- [ ] Add deterministic clock and worker-identity seams.
-- [ ] Test concurrent claims, process crash, lease expiry, cancellation races, deduplication, retry exhaustion, and project close during running work.
-- [ ] Emit project-correlated lifecycle events without treating logs as job history.
+- [x] Finalize the project-local STRICT jobs schema and state/error schemas.
+- [x] Include type, small JSON payload, state, priority, attempts, max attempts, `run_after`, lease owner, `locked_until`, heartbeat, progress, deduplication key, cancellation request, structured error, and timestamps.
+- [x] Implement enqueue, dedupe, atomic claim, lease renewal, heartbeat, completion, retry, failure, cancellation, and optional paused transition.
+- [x] Use short `BEGIN IMMEDIATE` claims and transitions.
+- [x] Implement startup/project-open recovery for expired leases.
+- [x] Add exponential backoff with jitter and retryability classification.
+- [x] Keep document bodies, BlockNote JSON, vectors, absolute paths, signed URLs, and credentials out of payloads.
+- [x] Add deterministic clock and worker-identity seams.
+- [x] Test concurrent claims, process crash, lease expiry, cancellation races, deduplication, retry exhaustion, and project close during running work.
+- [x] Emit project-correlated lifecycle events without treating logs as job history.
 
 Acceptance criteria: one job is not owned by two workers; process or project closure is recoverable; payloads are bounded references; transitions are deterministic and auditable in `project.sqlite`.
+
+Checkpoint 7 verification: the project schema now includes a STRICT `jobs` table with constrained state, lease, retry, cancellation, progress, deduplication, error, and timestamp fields plus claim and expired-lease indexes. `JobStore` validates bounded reference-only payloads, uses short `BEGIN IMMEDIATE` operations for enqueue/dedupe, claims, lease transitions, cancellation races, retries, and recovery, and exposes deterministic clock, randomness, ID, worker-identity, and retry-classification seams. Project open recovers expired leases before publishing a new project session. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 28 test files and 141 tests; and `electron-vite build` passes. Tests cover two-connection claims, deduplication lifecycle, lease renewal and ownership, completion/failure cancellation races, deterministic jitter, retry exhaustion, non-retryable failures, process/project-close lease recovery, open-boundary recovery, pause/resume, structured original-error logging, and forbidden or oversized payload rejection.
 
 ### Checkpoint 8: Runtime Scheduler And Project Close Semantics
 
@@ -466,3 +474,6 @@ Acceptance criteria: all required target-platform jobs pass on real packaged art
 - 2026-07-14: Completed and verified Checkpoint 4: application-global `app.sqlite`, per-project `project.sqlite`, project manifest/database identity validation, portable relative-path rules, explicit legacy development reset handling, and role-specific database lifecycle logs.
 - 2026-07-15: Started Checkpoint 6 after review. Fixed the backup implementation choice to SQLite Online Backup API and documented manifest-last publication, final-flush close authorization, recovery exits, consistency-barrier snapshots, restore/clone project-ID semantics, and deferred index rebuild.
 - 2026-07-15: Completed and verified Checkpoint 6: Online Backup API for app/project migration backups, WAL-aware verification, staged project restore, snapshot consistency barriers and manifests, same-ID restore semantics, index rebuild deferral, final-flush authorization/timeout, and production single-instance locking.
+- 2026-07-15: Started Checkpoint 7 after approval. Scope is the project-local persistent job schema and deterministic state machine, including lease recovery, retries, cancellation, bounded reference payloads, lifecycle logging, and tests; runtime scheduling and job IPC remain in Checkpoint 8.
+- 2026-07-15: Completed and verified Checkpoint 7: project-local STRICT jobs schema, bounded reference payload enforcement, deterministic `BEGIN IMMEDIATE` state transitions, atomic claims and deduplication, lease/heartbeat recovery, cancellation-safe retry/failure handling, project-open recovery, structured lifecycle logging, and concurrency/crash/close tests. Runtime dispatch remains in Checkpoint 8.
+- 2026-07-15: Decoupled application window state from project lifecycle. Each new application window now requests maximization once before first display; later project create/open/close/switch transitions preserve user-managed window state.
