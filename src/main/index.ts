@@ -6,6 +6,8 @@ import { createShutdownCoordinator } from './bootstrap/shutdown-coordinator'
 import { createWindow } from './bootstrap/windows'
 import { createProjectDialogTestSelection } from './ipc/project-dialog-test-seam'
 import { registerProjectIpc } from './ipc/project-ipc'
+import { registerJobIpc } from './ipc/job-ipc'
+import { registerEditorIpc } from './ipc/editor-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
 import { cleanupLogRetention } from './observability/log-retention'
@@ -86,14 +88,7 @@ if (!hasSingleInstanceLock) {
           app.getPath('userData'),
           app.getPath('logs'),
           app.getPath('sessionData')
-        ],
-        closeParticipants: {
-          flushEditors: async () => undefined,
-          stopJobClaims: async () => undefined,
-          parkWorkers: async () => undefined,
-          stopWorkersAndIndex: async () => undefined,
-          revokeSubscriptions: async () => undefined
-        }
+        ]
       })
 
       registerAppProtocol(join(__dirname, '../renderer'))
@@ -107,6 +102,23 @@ if (!hasSingleInstanceLock) {
         logger: projectIpcLog,
         developmentUrl,
         selectProjectFolderForTest: createProjectDialogTestSelection(projectIpcLog)
+      })
+      const jobIpc = registerJobIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'jobs'),
+        developmentUrl
+      })
+      const editorIpc = registerEditorIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'editor'),
+        developmentUrl
+      })
+      projectManager.setCloseParticipants({
+        ...editorIpc.closeParticipants,
+        revokeSubscriptions: async (projectSessionId) => {
+          jobIpc.revokeSession(projectSessionId)
+          editorIpc.revokeSession(projectSessionId)
+        }
       })
       const unregisterDiagnostics = registerDiagnosticsIpc(
         loggerSystem,
@@ -147,7 +159,11 @@ if (!hasSingleInstanceLock) {
 
       const shutdownCoordinator = createShutdownCoordinator({
         projectManager,
-        unregisterProjectIpc,
+        unregisterProjectIpc: () => {
+          editorIpc.unregister()
+          jobIpc.unregister()
+          unregisterProjectIpc()
+        },
         unregisterAppIpc,
         unregisterDiagnostics,
         closeAppDatabase: () => appDatabase.close(),

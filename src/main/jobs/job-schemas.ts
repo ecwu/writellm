@@ -1,4 +1,5 @@
-import { z } from 'zod'
+import { z, type ZodType } from 'zod'
+import { normalizeProjectRelativePath } from '../project/project-paths'
 
 export const JOB_STATES = [
   'queued',
@@ -9,13 +10,65 @@ export const JOB_STATES = [
   'paused'
 ] as const
 
-export const jobStateSchema = z.enum(JOB_STATES)
-export const jobTypeSchema = z
+export const JOB_TYPES = [
+  'embedding.batch',
+  'import.validate',
+  'index.build',
+  'index.publish',
+  'index.rebuild',
+  'mineru.download',
+  'mineru.poll',
+  'mineru.submit',
+  'rerank.request'
+] as const
+
+export type JobType = (typeof JOB_TYPES)[number]
+export type JobPayloadRegistry = Record<JobType, ZodType<Record<string, unknown>>>
+export type JobErrorCode =
+  | 'invalid_input'
+  | 'job_execution_failed'
+  | 'lease_expired'
+  | 'migration_lease_recovered'
+
+export const JOB_ERROR_MESSAGES: Readonly<Record<JobErrorCode, string>> = {
+  invalid_input: 'Job input is invalid',
+  job_execution_failed: 'Job execution failed',
+  lease_expired: 'Worker lease expired before completion',
+  migration_lease_recovered: 'Interrupted job recovered during database migration'
+}
+
+const referenceId = z
   .string()
   .min(1)
-  .max(128)
-  .regex(/^[a-z0-9._-]+$/)
-export const jobPayloadSchema = z.record(z.string().min(1).max(128), z.unknown())
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+const relativePath = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .transform((value, context) => {
+    try {
+      return normalizeProjectRelativePath(value)
+    } catch {
+      context.addIssue({ code: 'custom', message: 'Invalid project-relative path' })
+      return z.NEVER
+    }
+  })
+
+export const jobPayloadRegistry = {
+  'embedding.batch': z.object({ batchId: referenceId }).strict(),
+  'import.validate': z.object({ fileId: referenceId }).strict(),
+  'index.build': z.object({ generationId: referenceId }).strict(),
+  'index.publish': z.object({ generationId: referenceId }).strict(),
+  'index.rebuild': z.object({ generationId: referenceId }).strict(),
+  'mineru.download': z.object({ parseRevisionId: referenceId }).strict(),
+  'mineru.poll': z.object({ importId: referenceId }).strict(),
+  'mineru.submit': z.object({ knowledgeItemId: referenceId, relativePath }).strict(),
+  'rerank.request': z.object({ requestId: referenceId }).strict()
+} satisfies JobPayloadRegistry
+
+export const jobStateSchema = z.enum(JOB_STATES)
+export const jobTypeSchema = z.enum(JOB_TYPES)
 export const jobProgressSchema = z
   .object({
     completed: z.number().finite().nonnegative().optional(),
@@ -29,9 +82,15 @@ export const jobProgressSchema = z
     'Progress completed value cannot exceed total'
   )
 
+export const jobErrorCodeSchema = z.enum([
+  'invalid_input',
+  'job_execution_failed',
+  'lease_expired',
+  'migration_lease_recovered'
+])
 export const jobErrorSchema = z
   .object({
-    code: z.string().min(1).max(128),
+    code: jobErrorCodeSchema,
     message: z.string().min(1).max(2_048),
     retryable: z.boolean(),
     attempt: z.number().int().positive(),
@@ -39,6 +98,10 @@ export const jobErrorSchema = z
   })
   .strict()
 
-export type JobPayload = z.infer<typeof jobPayloadSchema>
+export function parseJobPayload(type: JobType, payload: unknown): JobPayload {
+  return jobPayloadRegistry[type].parse(payload)
+}
+
+export type JobPayload = Record<string, unknown>
 export type JobProgress = z.infer<typeof jobProgressSchema>
 export type JobError = z.infer<typeof jobErrorSchema>

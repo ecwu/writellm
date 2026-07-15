@@ -38,6 +38,7 @@ export async function initializeProjectDatabase(options: {
   manifest: ProjectManifest
   applicationVersion: string
   log: Logger
+  initialTitle?: string
 }): Promise<ProjectDatabase> {
   const database = await openDatabase<ProjectDatabaseSchema>({
     path: resolveProjectPath(options.projectRoot, PROJECT_DATABASE_RELATIVE_PATH),
@@ -53,6 +54,7 @@ export async function initializeProjectDatabase(options: {
     const manuscriptId = randomUUID()
     const manuscriptBriefId = randomUUID()
     const sectionId = randomUUID()
+    const sectionRevisionId = randomUUID()
 
     await database.kysely.transaction().execute(async (transaction) => {
       await transaction
@@ -70,6 +72,7 @@ export async function initializeProjectDatabase(options: {
           manuscript_id: manuscriptId,
           project_id: options.manifest.projectId,
           is_primary: 1,
+          outline_version: 1,
           created_at: now,
           updated_at: now
         })
@@ -80,7 +83,8 @@ export async function initializeProjectDatabase(options: {
           manuscript_brief_id: manuscriptBriefId,
           manuscript_id: manuscriptId,
           version: 1,
-          title: 'Untitled Manuscript',
+          schema_version: 1,
+          title: options.initialTitle ?? 'Untitled Manuscript',
           description: '',
           topic: '',
           target_audience: '',
@@ -106,9 +110,29 @@ export async function initializeProjectDatabase(options: {
           title: 'Untitled Section',
           objective: null,
           status: 'planned',
-          current_revision_id: null,
+          current_revision_id: sectionRevisionId,
           created_at: now,
           updated_at: now
+        })
+        .execute()
+      await transaction
+        .insertInto('section_revisions')
+        .values({
+          section_revision_id: sectionRevisionId,
+          section_id: sectionId,
+          revision_number: 1,
+          source: 'bootstrap',
+          content_json: '[]',
+          content_schema_version: 1,
+          content_hash: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+          prior_revision_id: null,
+          word_count: 0,
+          character_count: 0,
+          count_algorithm_version: 1,
+          agent_run_id: null,
+          agent_tool_call_id: null,
+          agent_proposal_id: null,
+          created_at: now
         })
         .execute()
     })
@@ -117,7 +141,8 @@ export async function initializeProjectDatabase(options: {
         event: 'project.database_bootstrap.completed',
         projectId: options.manifest.projectId,
         manuscriptId,
-        sectionId
+        sectionId,
+        sectionRevisionId
       },
       'Initialized project database records'
     )

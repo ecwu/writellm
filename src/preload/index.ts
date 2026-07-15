@@ -28,6 +28,35 @@ import {
   type ProjectSessionInput
 } from '../shared/contracts/projects'
 import { diagnosticLogSchema, type DiagnosticLog } from '../shared/observability/log-schema'
+import {
+  jobStatusEventSchema,
+  jobStatusInputSchema,
+  jobStatusSchema,
+  listJobsInputSchema,
+  listJobsResultSchema,
+  type JobStatus,
+  type JobStatusEvent,
+  type JobStatusInput,
+  type ListJobsInput,
+  type ListJobsResult
+} from '../shared/contracts/jobs'
+import {
+  editorFlushRequestSchema,
+  editorSectionSchema,
+  editorSessionInputSchema,
+  exportMarkdownInputSchema,
+  exportNativeJsonInputSchema,
+  exportResultSchema,
+  finalFlushSaveInputSchema,
+  importMarkdownInputSchema,
+  loadSectionInputSchema,
+  openEditorResultSchema,
+  saveSectionDocumentInputSchema,
+  saveSectionDocumentResultSchema,
+  type EditorFlushRequest,
+  type SaveSectionDocumentInput,
+  type SaveSectionDocumentResult
+} from '../shared/contracts/manuscript'
 
 export interface DesktopApi {
   app: {
@@ -44,6 +73,49 @@ export interface DesktopApi {
     subscribe(
       input: ProjectSessionInput,
       listener: (event: ProjectLifecycleEvent) => void
+    ): Promise<() => void>
+  }
+  jobs: {
+    list(input: ListJobsInput): Promise<ListJobsResult>
+    status(input: JobStatusInput): Promise<JobStatus>
+    cancel(input: JobStatusInput): Promise<JobStatus>
+    subscribe(
+      input: { projectSessionId: string },
+      listener: (event: JobStatusEvent) => void
+    ): Promise<() => void>
+  }
+  editor: {
+    open(input: {
+      projectSessionId: string
+    }): Promise<ReturnType<typeof openEditorResultSchema.parse>>
+    loadSection(input: {
+      projectSessionId: string
+      sectionId: string
+    }): Promise<ReturnType<typeof editorSectionSchema.parse>>
+    saveSectionDocument(
+      input: SaveSectionDocumentInput & { projectSessionId: string }
+    ): Promise<SaveSectionDocumentResult>
+    importMarkdown(
+      input: SaveSectionDocumentInput & { projectSessionId: string }
+    ): Promise<SaveSectionDocumentResult>
+    exportNativeJson(input: {
+      projectSessionId: string
+      sectionId: string
+    }): Promise<{ relativePath: string }>
+    exportMarkdown(input: {
+      projectSessionId: string
+      sectionId: string
+      sectionRevisionId: string
+      contentHash: string
+      markdown: string
+    }): Promise<{ relativePath: string }>
+    finalFlushSave(
+      input: SaveSectionDocumentInput & { projectSessionId: string; closingToken: string }
+    ): Promise<SaveSectionDocumentResult>
+    acknowledgeFlush(input: EditorFlushRequest & { sectionRevisionId: string }): Promise<void>
+    subscribeFlush(
+      input: { projectSessionId: string },
+      listener: (request: EditorFlushRequest) => void
     ): Promise<() => void>
   }
   diagnostics: {
@@ -115,6 +187,120 @@ const desktopApi: DesktopApi = {
       return () => {
         ipcRenderer.removeListener(IPC_CHANNELS.projectLifecycleEvent, handler)
         void ipcRenderer.invoke(IPC_CHANNELS.projectUnsubscribeLifecycle, parsedInput)
+      }
+    }
+  },
+  jobs: {
+    async list(input) {
+      return listJobsResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.jobsList, listJobsInputSchema.parse(input))
+      )
+    },
+    async status(input) {
+      return jobStatusSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.jobsGetStatus, jobStatusInputSchema.parse(input))
+      )
+    },
+    async cancel(input) {
+      return jobStatusSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.jobsRequestCancellation,
+          jobStatusInputSchema.parse(input)
+        )
+      )
+    },
+    async subscribe(input, listener) {
+      const parsedInput = jobStatusInputSchema.omit({ jobId: true }).parse(input)
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const statusEvent = jobStatusEventSchema.parse(value)
+        if (statusEvent.projectSessionId === parsedInput.projectSessionId) listener(statusEvent)
+      }
+      ipcRenderer.on(IPC_CHANNELS.jobsStatusEvent, handler)
+      try {
+        await ipcRenderer.invoke(IPC_CHANNELS.jobsSubscribeStatus, parsedInput)
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.jobsStatusEvent, handler)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.jobsStatusEvent, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.jobsUnsubscribeStatus, parsedInput)
+      }
+    }
+  },
+  editor: {
+    async open(input) {
+      return openEditorResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.editorOpen, editorSessionInputSchema.parse(input))
+      )
+    },
+    async loadSection(input) {
+      return editorSectionSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorLoadSection,
+          loadSectionInputSchema.parse(input)
+        )
+      )
+    },
+    async saveSectionDocument(input) {
+      return saveSectionDocumentResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorSaveSectionDocument,
+          saveSectionDocumentInputSchema.parse(input)
+        )
+      )
+    },
+    async importMarkdown(input) {
+      return saveSectionDocumentResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorImportMarkdown,
+          importMarkdownInputSchema.parse(input)
+        )
+      )
+    },
+    async exportNativeJson(input) {
+      return exportResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorExportNativeJson,
+          exportNativeJsonInputSchema.parse(input)
+        )
+      )
+    },
+    async exportMarkdown(input) {
+      return exportResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorExportMarkdown,
+          exportMarkdownInputSchema.parse(input)
+        )
+      )
+    },
+    async finalFlushSave(input) {
+      return saveSectionDocumentResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorFinalFlushSave,
+          finalFlushSaveInputSchema.parse(input)
+        )
+      )
+    },
+    async acknowledgeFlush(input) {
+      await ipcRenderer.invoke(IPC_CHANNELS.editorFlushAck, input)
+    },
+    async subscribeFlush(input, listener) {
+      const parsed = editorSessionInputSchema.parse(input)
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const request = editorFlushRequestSchema.parse(value)
+        if (request.projectSessionId === parsed.projectSessionId) listener(request)
+      }
+      ipcRenderer.on(IPC_CHANNELS.editorFlushRequest, handler)
+      try {
+        await ipcRenderer.invoke(IPC_CHANNELS.editorSubscribeFlush, parsed)
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.editorFlushRequest, handler)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.editorFlushRequest, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.editorUnsubscribeFlush, parsed)
       }
     }
   },

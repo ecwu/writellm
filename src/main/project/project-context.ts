@@ -1,5 +1,8 @@
 import type { ActiveProject, ProjectSessionId } from '../../shared/contracts/projects'
 import type { JobStore } from '../jobs/job-store'
+import type { ProjectRuntime } from '../jobs/scheduler/project-runtime'
+import type { ManuscriptService } from '../manuscript/manuscript-service'
+import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import type { ProjectDatabase } from './project-database'
 import type { ProjectManifest } from './project-manifest'
 import type { ProjectWriteLock } from './project-lock'
@@ -13,6 +16,9 @@ export interface ProjectContext {
   readonly indexRebuildRequired: boolean
   readonly database: ProjectDatabase
   readonly jobs: JobStore
+  readonly runtime: ProjectRuntime
+  readonly manuscript: ManuscriptService
+  readonly editorPersistence: EditorPersistenceService
   readonly writeLock: ProjectWriteLock
 }
 

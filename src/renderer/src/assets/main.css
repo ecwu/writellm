@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@blocknote/shadcn/style.css";
+@source "../../../../node_modules/@blocknote/shadcn";
 
 @custom-variant dark (&:is(.dark *));
 

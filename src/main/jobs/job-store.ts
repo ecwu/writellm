@@ -1,21 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
-import type { JobState, JobTable } from '../project/database-types'
+import type { JobState, JobTable, JobTransitionTable } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import {
+  JOB_ERROR_MESSAGES,
+  jobErrorCodeSchema,
   jobErrorSchema,
-  jobPayloadSchema,
+  parseJobPayload,
   jobProgressSchema,
   jobStateSchema,
   jobTypeSchema,
   type JobError,
+  type JobErrorCode,
   type JobPayload,
-  type JobProgress
+  type JobProgress,
+  type JobType
 } from './job-schemas'
 
 const MAX_PAYLOAD_BYTES = 16_384
 const MAX_PROGRESS_BYTES = 4_096
+const MAX_ERROR_BYTES = 8_000
 const MAX_JSON_DEPTH = 8
 const MAX_LEASE_MS = 60 * 60 * 1_000
 const forbiddenPayloadKeys = new Set([
@@ -28,25 +33,28 @@ const forbiddenPayloadKeys = new Set([
   'contentjson',
   'credential',
   'credentials',
+  'data',
   'documentbody',
   'embedding',
   'embeddings',
   'password',
   'prompt',
+  'rawtext',
   'refreshtoken',
   'response',
   'secret',
   'signedurl',
+  'source',
+  'text',
   'token',
   'vector',
   'vectors'
 ])
-const absolutePath = /^(?:[/\\]|[a-z]:[/\\])/i
-const signedUrl = /^https?:\/\/[^\s?]+\?[^\s]*(?:signature|x-amz-|x-goog-|token=)/i
+const forbiddenPathOrUrl = /^(?:[/\\]|[a-z]:[/\\]|\\\\|file:\/\/|https?:\/\/)/i
 
 export interface JobRecord {
   jobId: string
-  type: string
+  type: JobType
   payload: JobPayload
   state: JobState
   priority: number
@@ -64,6 +72,36 @@ export interface JobRecord {
   updatedAt: string
   startedAt: string | null
   completedAt: string | null
+  resumeSameAttempt: boolean
+}
+
+export interface JobLease {
+  jobId: string
+  workerId: string
+  leaseToken: string
+  attempt: number
+}
+
+export interface ClaimedJob {
+  job: JobRecord
+  lease: JobLease
+}
+
+export interface JobFailureClassification {
+  code: JobErrorCode
+  retryable: boolean
+}
+
+export interface JobTransitionRecord {
+  sequence: number
+  jobId: string
+  fromState: JobState | null
+  toState: JobState
+  event: string
+  attempt: number
+  workerId: string | null
+  errorCode: string | null
+  occurredAt: string
 }
 
 export interface JobStoreOptions {
@@ -74,13 +112,14 @@ export interface JobStoreOptions {
   random?: () => number
   createId?: () => string
   createWorkerId?: () => string
-  retryability?: (error: unknown) => boolean
+  createLeaseToken?: () => string
+  classifyFailure?: (error: unknown) => JobFailureClassification
   retryBaseMs?: number
   retryMaxMs?: number
 }
 
 export interface EnqueueJobInput {
-  type: string
+  type: JobType
   payload: JobPayload
   priority?: number
   maxAttempts?: number
@@ -96,7 +135,7 @@ export interface EnqueueJobResult {
 export interface ClaimJobOptions {
   workerId?: string
   leaseMs: number
-  types?: readonly string[]
+  types?: readonly JobType[]
 }
 
 export interface FailJobResult {
@@ -104,9 +143,15 @@ export interface FailJobResult {
   willRetry: boolean
 }
 
+export interface ListJobsOptions {
+  limit: number
+  states?: readonly JobState[]
+  cursor?: { updatedAt: string; jobId: string }
+}
+
 export class JobOwnershipError extends Error {
   constructor() {
-    super('Job is not running under this worker lease')
+    super('Job is not running under this active lease')
     this.name = 'JobOwnershipError'
   }
 }
@@ -119,9 +164,11 @@ export class JobStore {
   readonly #random: () => number
   readonly #createId: () => string
   readonly #createWorkerId: () => string
-  readonly #retryability: (error: unknown) => boolean
+  readonly #createLeaseToken: () => string
+  readonly #classifyFailure: (error: unknown) => JobFailureClassification
   readonly #retryBaseMs: number
   readonly #retryMaxMs: number
+  readonly #listeners = new Set<(job: JobRecord) => void>()
 
   constructor(options: JobStoreOptions) {
     this.#database = options.database
@@ -131,7 +178,8 @@ export class JobStore {
     this.#random = options.random ?? Math.random
     this.#createId = options.createId ?? randomUUID
     this.#createWorkerId = options.createWorkerId ?? (() => `main-${process.pid}-${randomUUID()}`)
-    this.#retryability = options.retryability ?? defaultRetryability
+    this.#createLeaseToken = options.createLeaseToken ?? randomUUID
+    this.#classifyFailure = options.classifyFailure ?? defaultFailureClassification
     this.#retryBaseMs = options.retryBaseMs ?? 1_000
     this.#retryMaxMs = options.retryMaxMs ?? 15 * 60 * 1_000
   }
@@ -142,7 +190,7 @@ export class JobStore {
 
   enqueue(input: EnqueueJobInput): EnqueueJobResult {
     const type = jobTypeSchema.parse(input.type)
-    const payloadJson = serializePayload(input.payload)
+    const payloadJson = serializePayload(type, input.payload)
     const priority = integerInRange(input.priority ?? 0, -1_000, 1_000, 'priority')
     const maxAttempts = integerInRange(input.maxAttempts ?? 3, 1, 100, 'maxAttempts')
     const deduplicationKey = parseOptionalString(input.deduplicationKey, 256, 'deduplicationKey')
@@ -169,6 +217,7 @@ export class JobStore {
            ) VALUES (?, ?, ?, 'queued', ?, 0, ?, ?, ?, 0, ?, ?)`
         )
         .run(jobId, type, payloadJson, priority, maxAttempts, runAfter, deduplicationKey, now, now)
+      this.#insertTransition(database, jobId, null, 'queued', 'enqueued', 0, null, null, now)
       return { job: this.#readOrThrow(database, jobId), created: true }
     })
     this.#log.info(
@@ -180,11 +229,13 @@ export class JobStore {
       },
       result.created ? 'Project job enqueued' : 'Project job deduplicated'
     )
+    this.#emit(result.job)
     return result
   }
 
-  claimNext(options: ClaimJobOptions): JobRecord | null {
+  claimNext(options: ClaimJobOptions): ClaimedJob | null {
     const workerId = parseRequiredString(options.workerId ?? this.createWorkerId(), 256, 'workerId')
+    const leaseToken = parseRequiredString(this.#createLeaseToken(), 256, 'leaseToken')
     const leaseMs = integerInRange(options.leaseMs, 1, MAX_LEASE_MS, 'leaseMs')
     const types = options.types?.map((type) => jobTypeSchema.parse(type)) ?? []
     const nowDate = this.#now()
@@ -196,7 +247,8 @@ export class JobStore {
       const candidate = database
         .prepare(
           `SELECT job_id FROM jobs
-           WHERE state = 'queued' AND cancellation_requested = 0 AND run_after <= ? ${typeClause}
+           WHERE state = 'queued' AND cancellation_requested = 0 AND run_after <= ?
+             AND (attempts < max_attempts OR resume_same_attempt = 1) ${typeClause}
            ORDER BY priority DESC, run_after, created_at, job_id
            LIMIT 1`
         )
@@ -206,120 +258,210 @@ export class JobStore {
       const row = database
         .prepare(
           `UPDATE jobs
-           SET state = 'running', attempts = attempts + 1, lease_owner = ?, locked_until = ?,
-               heartbeat_at = ?, started_at = COALESCE(started_at, ?), updated_at = ?, error_json = NULL
+           SET state = 'running',
+               attempts = attempts + CASE WHEN resume_same_attempt = 1 THEN 0 ELSE 1 END,
+               resume_same_attempt = 0, lease_owner = ?, lease_token = ?,
+               locked_until = ?, heartbeat_at = ?, started_at = COALESCE(started_at, ?),
+               updated_at = ?, error_json = NULL
            WHERE job_id = ? AND state = 'queued' AND cancellation_requested = 0
+             AND (attempts < max_attempts OR resume_same_attempt = 1)
            RETURNING *`
         )
-        .get(workerId, lockedUntil, now, now, now, candidate) as JobTable | undefined
-      return row === undefined ? null : parseRow(row)
+        .get(workerId, leaseToken, lockedUntil, now, now, now, candidate) as JobTable | undefined
+      if (row === undefined) return null
+      this.#insertTransition(
+        database,
+        row.job_id,
+        'queued',
+        'running',
+        'claimed',
+        row.attempts,
+        workerId,
+        null,
+        now
+      )
+      return {
+        job: parseRow(row),
+        lease: { jobId: row.job_id, workerId, leaseToken, attempt: row.attempts }
+      }
     })
     if (claimed !== null) {
       this.#log.info(
         {
           event: 'queue.job.claimed',
           projectId: this.#projectId,
-          jobId: claimed.jobId,
-          jobType: claimed.type,
-          attempt: claimed.attempts,
+          jobId: claimed.job.jobId,
+          jobType: claimed.job.type,
+          attempt: claimed.lease.attempt,
           workerId
         },
         'Project job claimed'
       )
+      this.#emit(claimed.job)
     }
     return claimed
   }
 
-  heartbeat(jobId: string, workerId: string, leaseMs: number, progress?: JobProgress): JobRecord {
+  heartbeat(lease: JobLease, leaseMs: number, progress?: JobProgress): JobRecord {
     const nowDate = this.#now()
     const now = nowDate.toISOString()
     const lockedUntil = new Date(
       nowDate.getTime() + integerInRange(leaseMs, 1, MAX_LEASE_MS, 'leaseMs')
     ).toISOString()
-    const progressJson = progress === undefined ? undefined : serializeProgress(progress)
-    return this.#transitionOwned(
-      jobId,
-      workerId,
-      `UPDATE jobs
-       SET locked_until = ?, heartbeat_at = ?, updated_at = ?,
-           progress_json = COALESCE(?, progress_json)
-       WHERE job_id = ? AND state = 'running' AND lease_owner = ?
-       RETURNING *`,
-      [lockedUntil, now, now, progressJson ?? null, jobId, workerId],
-      'queue.job.heartbeat',
+    const progressJson = progress === undefined ? null : serializeProgress(progress)
+    const row = this.#database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `UPDATE jobs
+             SET locked_until = ?, heartbeat_at = ?, updated_at = ?,
+                 progress_json = COALESCE(?, progress_json)
+             WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+               AND attempts = ? AND locked_until > ?
+             RETURNING *`
+          )
+          .get(
+            lockedUntil,
+            now,
+            now,
+            progressJson,
+            lease.jobId,
+            lease.workerId,
+            lease.leaseToken,
+            lease.attempt,
+            now
+          ) as JobTable | undefined
+    )
+    if (row === undefined) throw new JobOwnershipError()
+    const job = parseRow(row)
+    this.#log.info(
+      {
+        event: 'queue.job.heartbeat',
+        projectId: this.#projectId,
+        jobId: lease.jobId,
+        jobType: job.type,
+        workerId: lease.workerId
+      },
       'Project job lease renewed'
     )
+    this.#emit(job)
+    return job
   }
 
-  complete(jobId: string, workerId: string, progress?: JobProgress): JobRecord {
+  complete(lease: JobLease, progress?: JobProgress): JobRecord {
     const now = this.#now().toISOString()
     const progressJson = progress === undefined ? null : serializeProgress(progress)
-    return this.#transitionOwned(
-      jobId,
-      workerId,
+    return this.#ownedStateTransition(
+      lease,
+      now,
+      'succeeded',
+      'completed',
       `UPDATE jobs
-       SET state = 'succeeded', lease_owner = NULL, locked_until = NULL, heartbeat_at = ?,
-           progress_json = COALESCE(?, progress_json), cancellation_requested = 0,
-           error_json = NULL, completed_at = ?, updated_at = ?
-       WHERE job_id = ? AND state = 'running' AND lease_owner = ?
-         AND cancellation_requested = 0
+       SET state = 'succeeded', lease_owner = NULL, lease_token = NULL, locked_until = NULL,
+           heartbeat_at = ?, progress_json = COALESCE(?, progress_json),
+           cancellation_requested = 0, error_json = NULL, completed_at = ?, updated_at = ?
+       WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+         AND attempts = ? AND locked_until > ? AND cancellation_requested = 0
        RETURNING *`,
-      [now, progressJson, now, now, jobId, workerId],
+      [
+        now,
+        progressJson,
+        now,
+        now,
+        lease.jobId,
+        lease.workerId,
+        lease.leaseToken,
+        lease.attempt,
+        now
+      ],
+      null,
       'queue.job.succeeded',
       'Project job completed'
     )
   }
 
-  fail(jobId: string, workerId: string, error: unknown): FailJobResult {
-    const current = this.get(jobId)
-    if (current === null || current.state !== 'running' || current.leaseOwner !== workerId) {
-      throw new JobOwnershipError()
+  fail(lease: JobLease, error: unknown): FailJobResult {
+    try {
+      this.#log.error(
+        {
+          event: 'queue.job.execution_failed',
+          err: error,
+          projectId: this.#projectId,
+          jobId: lease.jobId,
+          attempt: lease.attempt
+        },
+        'Project job execution failed'
+      )
+    } catch {
+      // Logging was attempted with the original error; archival must still complete.
     }
-    this.#log.error(
-      {
-        event: 'queue.job.execution_failed',
-        err: error,
-        projectId: this.#projectId,
-        jobId,
-        jobType: current.type,
-        attempt: current.attempts
-      },
-      'Project job execution failed'
-    )
     const nowDate = this.#now()
-    const retryable = this.#retryability(error)
-    const errorJson = JSON.stringify(toJobError(error, retryable, current.attempts, nowDate))
+    const now = nowDate.toISOString()
+    let classification: JobFailureClassification
+    try {
+      const candidate = this.#classifyFailure(error)
+      classification = {
+        code: jobErrorCodeSchema.parse(candidate.code),
+        retryable: candidate.retryable === true
+      }
+    } catch (err) {
+      this.#log.error(
+        {
+          event: 'queue.job.failure_classification_failed',
+          err,
+          projectId: this.#projectId,
+          jobId: lease.jobId,
+          attempt: lease.attempt
+        },
+        'Project job failure classification failed'
+      )
+      classification = { code: 'job_execution_failed', retryable: false }
+    }
+    const errorJson = serializeJobError(classification, lease.attempt, nowDate)
     const job = this.#database.immediate((database) => {
-      const owned = database
-        .prepare("SELECT * FROM jobs WHERE job_id = ? AND state = 'running' AND lease_owner = ?")
-        .get(jobId, workerId) as JobTable | undefined
-      if (owned === undefined) throw new JobOwnershipError()
+      const owned = this.#readOwned(database, lease, now)
       const cancelled = owned.cancellation_requested === 1
-      const willRetry = !cancelled && retryable && owned.attempts < owned.max_attempts
+      const willRetry =
+        !cancelled && classification.retryable && owned.attempts < owned.max_attempts
       const state: JobState = cancelled ? 'cancelled' : willRetry ? 'queued' : 'failed'
       const runAfter = willRetry
         ? new Date(nowDate.getTime() + this.#retryDelay(owned.attempts)).toISOString()
         : owned.run_after
-      const completedAt = willRetry ? null : nowDate.toISOString()
+      const completedAt = willRetry ? null : now
       const row = database
         .prepare(
           `UPDATE jobs
-           SET state = ?, run_after = ?, lease_owner = NULL, locked_until = NULL,
-               heartbeat_at = ?, error_json = ?, completed_at = ?, updated_at = ?
-           WHERE job_id = ? AND state = 'running' AND lease_owner = ?
+           SET state = ?, run_after = ?, lease_owner = NULL, lease_token = NULL,
+               locked_until = NULL, heartbeat_at = ?, error_json = ?, completed_at = ?, updated_at = ?
+           WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+             AND attempts = ? AND locked_until > ?
            RETURNING *`
         )
         .get(
           state,
           runAfter,
-          nowDate.toISOString(),
+          now,
           errorJson,
           completedAt,
-          nowDate.toISOString(),
-          jobId,
-          workerId
+          now,
+          lease.jobId,
+          lease.workerId,
+          lease.leaseToken,
+          lease.attempt,
+          now
         ) as JobTable | undefined
       if (row === undefined) throw new JobOwnershipError()
+      this.#insertTransition(
+        database,
+        lease.jobId,
+        'running',
+        state,
+        cancelled ? 'cancellation_acknowledged' : willRetry ? 'retry_scheduled' : 'failed',
+        owned.attempts,
+        lease.workerId,
+        classification.code,
+        now
+      )
       return parseRow(row)
     })
     const willRetry = job.state === 'queued'
@@ -332,9 +474,9 @@ export class JobStore {
               ? 'queue.job.retry_scheduled'
               : 'queue.job.failed',
         projectId: this.#projectId,
-        jobId,
+        jobId: lease.jobId,
         jobType: job.type,
-        workerId
+        workerId: lease.workerId
       },
       job.state === 'cancelled'
         ? 'Project job cancelled after execution failure'
@@ -342,121 +484,199 @@ export class JobStore {
           ? 'Project job retry scheduled'
           : 'Project job failed permanently'
     )
+    this.#emit(job)
     return { job, willRetry }
   }
 
   requestCancellation(jobId: string): JobRecord {
     const now = this.#now().toISOString()
-    const row = this.#database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `UPDATE jobs
-           SET cancellation_requested = 1,
-               state = CASE WHEN state IN ('queued', 'paused') THEN 'cancelled' ELSE state END,
-               completed_at = CASE WHEN state IN ('queued', 'paused') THEN ? ELSE completed_at END,
+    const changed = this.#database.immediate((database) => {
+      const current = database.prepare('SELECT * FROM jobs WHERE job_id = ?').get(jobId) as
+        | JobTable
+        | undefined
+      if (current === undefined || !['queued', 'running', 'paused'].includes(current.state)) {
+        return null
+      }
+      const terminal = current.state === 'queued' || current.state === 'paused'
+      const toState = terminal ? 'cancelled' : 'running'
+      const row = database
+        .prepare(
+          `UPDATE jobs
+           SET cancellation_requested = 1, state = ?,
+               lease_owner = CASE WHEN ? THEN NULL ELSE lease_owner END,
+               lease_token = CASE WHEN ? THEN NULL ELSE lease_token END,
+               locked_until = CASE WHEN ? THEN NULL ELSE locked_until END,
+               completed_at = CASE WHEN ? THEN ? ELSE completed_at END,
                updated_at = ?
-           WHERE job_id = ? AND state IN ('queued', 'running', 'paused')
+           WHERE job_id = ? AND state = ?
            RETURNING *`
-          )
-          .get(now, now, jobId) as JobTable | undefined
-    )
-    if (row === undefined) return this.require(jobId)
-    const job = parseRow(row)
+        )
+        .get(
+          toState,
+          terminal ? 1 : 0,
+          terminal ? 1 : 0,
+          terminal ? 1 : 0,
+          terminal ? 1 : 0,
+          now,
+          now,
+          jobId,
+          current.state
+        ) as JobTable | undefined
+      if (row === undefined) return null
+      this.#insertTransition(
+        database,
+        jobId,
+        current.state,
+        toState,
+        terminal ? 'cancelled' : 'cancellation_requested',
+        current.attempts,
+        current.lease_owner,
+        null,
+        now
+      )
+      return parseRow(row)
+    })
+    if (changed === null) return this.require(jobId)
     this.#log.info(
       {
         event:
-          job.state === 'cancelled' ? 'queue.job.cancelled' : 'queue.job.cancellation_requested',
+          changed.state === 'cancelled'
+            ? 'queue.job.cancelled'
+            : 'queue.job.cancellation_requested',
         projectId: this.#projectId,
-        jobId: job.jobId,
-        jobType: job.type
+        jobId: changed.jobId,
+        jobType: changed.type
       },
-      job.state === 'cancelled' ? 'Project job cancelled' : 'Project job cancellation requested'
+      changed.state === 'cancelled' ? 'Project job cancelled' : 'Project job cancellation requested'
     )
-    return job
+    this.#emit(changed)
+    return changed
   }
 
-  acknowledgeCancellation(jobId: string, workerId: string): JobRecord {
+  acknowledgeCancellation(lease: JobLease): JobRecord {
     const now = this.#now().toISOString()
-    return this.#transitionOwned(
-      jobId,
-      workerId,
+    return this.#ownedStateTransition(
+      lease,
+      now,
+      'cancelled',
+      'cancellation_acknowledged',
       `UPDATE jobs
-       SET state = 'cancelled', lease_owner = NULL, locked_until = NULL, heartbeat_at = ?,
-           completed_at = ?, updated_at = ?
-       WHERE job_id = ? AND state = 'running' AND lease_owner = ?
-         AND cancellation_requested = 1
+       SET state = 'cancelled', lease_owner = NULL, lease_token = NULL, locked_until = NULL,
+           heartbeat_at = ?, completed_at = ?, updated_at = ?
+       WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+         AND attempts = ? AND locked_until > ? AND cancellation_requested = 1
        RETURNING *`,
-      [now, now, now, jobId, workerId],
+      [now, now, now, lease.jobId, lease.workerId, lease.leaseToken, lease.attempt, now],
+      null,
       'queue.job.cancelled',
       'Project job cancellation acknowledged'
     )
   }
 
-  pause(jobId: string, workerId: string): JobRecord {
+  pause(lease: JobLease): JobRecord {
     const now = this.#now().toISOString()
-    return this.#transitionOwned(
-      jobId,
-      workerId,
+    return this.#ownedStateTransition(
+      lease,
+      now,
+      'paused',
+      'paused',
       `UPDATE jobs
-       SET state = 'paused', lease_owner = NULL, locked_until = NULL, heartbeat_at = ?, updated_at = ?
-       WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND cancellation_requested = 0
+       SET state = 'paused', lease_owner = NULL, lease_token = NULL, locked_until = NULL,
+           heartbeat_at = ?, updated_at = ?
+       WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+         AND attempts = ? AND locked_until > ? AND cancellation_requested = 0
        RETURNING *`,
-      [now, now, jobId, workerId],
+      [now, now, lease.jobId, lease.workerId, lease.leaseToken, lease.attempt, now],
+      null,
       'queue.job.paused',
       'Project job paused'
     )
   }
 
-  resume(jobId: string, runAfter = this.#now()): JobRecord {
-    const now = this.#now().toISOString()
-    const row = this.#database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `UPDATE jobs SET state = 'queued', run_after = ?, updated_at = ?
+  resume(jobId: string, runAfter?: Date): JobRecord {
+    const nowDate = this.#now()
+    const now = nowDate.toISOString()
+    const row = this.#database.immediate((database) => {
+      const updated = database
+        .prepare(
+          `UPDATE jobs SET state = 'queued', run_after = ?, updated_at = ?
            WHERE job_id = ? AND state = 'paused' AND cancellation_requested = 0
            RETURNING *`
-          )
-          .get(runAfter.toISOString(), now, jobId) as JobTable | undefined
-    )
-    if (row === undefined) throw new Error('Job is not resumable')
+        )
+        .get((runAfter ?? nowDate).toISOString(), now, jobId) as JobTable | undefined
+      if (updated === undefined) throw new Error('Job is not resumable')
+      this.#insertTransition(
+        database,
+        jobId,
+        'paused',
+        'queued',
+        'resumed',
+        updated.attempts,
+        null,
+        null,
+        now
+      )
+      return updated
+    })
     const job = parseRow(row)
     this.#log.info(
       { event: 'queue.job.resumed', projectId: this.#projectId, jobId, jobType: job.type },
       'Project job resumed'
     )
+    this.#emit(job)
     return job
   }
 
   recoverExpiredLeases(): { recovered: number; cancelled: number; failed: number } {
     const nowDate = this.#now()
     const now = nowDate.toISOString()
+    const errorJson = serializeJobError({ code: 'lease_expired', retryable: true }, 1, nowDate)
     const result = this.#database.immediate((database) => {
       const expired = database
         .prepare("SELECT * FROM jobs WHERE state = 'running' AND locked_until <= ? ORDER BY job_id")
         .all(now) as JobTable[]
       const counts = { recovered: 0, cancelled: 0, failed: 0 }
       for (const row of expired) {
-        const error = JSON.stringify(
-          jobErrorSchema.parse({
-            code: 'lease_expired',
-            message: 'Worker lease expired before completion',
-            retryable: true,
-            attempt: row.attempts,
-            recordedAt: now
-          })
+        const state: 'queued' | 'failed' | 'cancelled' =
+          row.cancellation_requested === 1
+            ? 'cancelled'
+            : row.attempts >= row.max_attempts
+              ? 'failed'
+              : 'queued'
+        const completedAt = state === 'queued' ? null : now
+        const perAttemptError = replaceErrorAttempt(errorJson, row.attempts)
+        const updated = database
+          .prepare(
+            `UPDATE jobs
+             SET state = ?, run_after = ?, lease_owner = NULL, lease_token = NULL,
+                 locked_until = NULL, heartbeat_at = ?, error_json = ?, completed_at = ?, updated_at = ?
+             WHERE job_id = ? AND state = 'running' AND locked_until <= ?`
+          )
+          .run(
+            state,
+            state === 'queued' ? now : row.run_after,
+            now,
+            perAttemptError,
+            completedAt,
+            now,
+            row.job_id,
+            now
+          )
+        if (updated.changes !== 1) continue
+        this.#insertTransition(
+          database,
+          row.job_id,
+          'running',
+          state,
+          'lease_expired',
+          row.attempts,
+          row.lease_owner,
+          'lease_expired',
+          now
         )
-        if (row.cancellation_requested === 1) {
-          this.#recoverRow(database, row.job_id, 'cancelled', now, now, error)
-          counts.cancelled += 1
-        } else if (row.attempts >= row.max_attempts) {
-          this.#recoverRow(database, row.job_id, 'failed', row.run_after, now, error)
-          counts.failed += 1
-        } else {
-          this.#recoverRow(database, row.job_id, 'queued', now, null, error)
-          counts.recovered += 1
-        }
+        if (state === 'cancelled') counts.cancelled += 1
+        else if (state === 'failed') counts.failed += 1
+        else counts.recovered += 1
       }
       return counts
     })
@@ -475,6 +695,67 @@ export class JobStore {
     return result
   }
 
+  requeueForProjectClose(lease: JobLease, runAfter?: Date): JobRecord {
+    const nowDate = this.#now()
+    const now = nowDate.toISOString()
+    const job = this.#database.immediate((database) => {
+      const owned = this.#readOwned(database, lease, now)
+      const cancelled = owned.cancellation_requested === 1
+      const state: JobState = cancelled ? 'cancelled' : 'queued'
+      const row = database
+        .prepare(
+          `UPDATE jobs
+           SET state = ?, run_after = ?, resume_same_attempt = ?,
+               lease_owner = NULL, lease_token = NULL, locked_until = NULL,
+               heartbeat_at = ?, completed_at = ?, updated_at = ?
+           WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+             AND attempts = ? AND locked_until > ?
+           RETURNING *`
+        )
+        .get(
+          state,
+          cancelled ? owned.run_after : (runAfter ?? nowDate).toISOString(),
+          cancelled ? 0 : 1,
+          now,
+          cancelled ? now : null,
+          now,
+          lease.jobId,
+          lease.workerId,
+          lease.leaseToken,
+          lease.attempt,
+          now
+        ) as JobTable | undefined
+      if (row === undefined) throw new JobOwnershipError()
+      this.#insertTransition(
+        database,
+        lease.jobId,
+        'running',
+        state,
+        cancelled ? 'cancellation_acknowledged' : 'project_close_requeued',
+        lease.attempt,
+        lease.workerId,
+        null,
+        now
+      )
+      return parseRow(row)
+    })
+    this.#log.info(
+      {
+        event:
+          job.state === 'cancelled' ? 'queue.job.cancelled' : 'queue.job.project_close_requeued',
+        projectId: this.#projectId,
+        jobId: lease.jobId,
+        jobType: job.type,
+        workerId: lease.workerId
+      },
+      job.state === 'cancelled'
+        ? 'Project job cancellation acknowledged during close'
+        : 'Project job requeued without consuming another attempt'
+    )
+    this.#emit(job)
+    return job
+  }
+
   get(jobId: string): JobRecord | null {
     const row = this.#database.immediate(
       (database) =>
@@ -483,56 +764,128 @@ export class JobStore {
     return row === undefined ? null : parseRow(row)
   }
 
+  list(options: ListJobsOptions): JobRecord[] {
+    const limit = integerInRange(options.limit, 1, 100, 'limit')
+    const states = options.states?.map((state) => jobStateSchema.parse(state)) ?? []
+    const stateClause =
+      states.length === 0 ? '' : `AND state IN (${states.map(() => '?').join(', ')})`
+    const cursorClause = options.cursor === undefined ? '' : 'AND (updated_at, job_id) < (?, ?)'
+    const parameters: unknown[] = [...states]
+    if (options.cursor !== undefined) {
+      parameters.push(options.cursor.updatedAt, options.cursor.jobId)
+    }
+    parameters.push(limit)
+    return this.#database.immediate((database) =>
+      (
+        database
+          .prepare(
+            `SELECT * FROM jobs WHERE 1 = 1 ${stateClause} ${cursorClause}
+             ORDER BY updated_at DESC, job_id DESC LIMIT ?`
+          )
+          .all(...parameters) as JobTable[]
+      ).map(parseRow)
+    )
+  }
+
+  subscribe(listener: (job: JobRecord) => void): () => void {
+    this.#listeners.add(listener)
+    return () => this.#listeners.delete(listener)
+  }
+
   require(jobId: string): JobRecord {
     const job = this.get(jobId)
     if (job === null) throw new Error('Job does not exist')
     return job
   }
 
-  #transitionOwned(
-    jobId: string,
-    workerId: string,
+  listTransitions(jobId: string): JobTransitionRecord[] {
+    return this.#database.immediate((database) =>
+      (
+        database
+          .prepare('SELECT * FROM job_transitions WHERE job_id = ? ORDER BY sequence')
+          .all(jobId) as JobTransitionTable[]
+      ).map(parseTransitionRow)
+    )
+  }
+
+  #ownedStateTransition(
+    lease: JobLease,
+    now: string,
+    toState: JobState,
+    transitionEvent: string,
     statement: string,
     parameters: readonly unknown[],
-    event: string,
+    errorCode: JobErrorCode | null,
+    logEvent: string,
     message: string
   ): JobRecord {
-    const row = this.#database.immediate(
-      (database) => database.prepare(statement).get(...parameters) as JobTable | undefined
-    )
-    if (row === undefined) throw new JobOwnershipError()
+    const row = this.#database.immediate((database) => {
+      const updated = database.prepare(statement).get(...parameters) as JobTable | undefined
+      if (updated === undefined) throw new JobOwnershipError()
+      this.#insertTransition(
+        database,
+        lease.jobId,
+        'running',
+        toState,
+        transitionEvent,
+        lease.attempt,
+        lease.workerId,
+        errorCode,
+        now
+      )
+      return updated
+    })
     const job = parseRow(row)
     this.#log.info(
-      { event, projectId: this.#projectId, jobId, jobType: job.type, workerId },
+      {
+        event: logEvent,
+        projectId: this.#projectId,
+        jobId: lease.jobId,
+        jobType: job.type,
+        workerId: lease.workerId
+      },
       message
     )
+    this.#emit(job)
     return job
   }
 
-  #recoverRow(
+  #emit(job: JobRecord): void {
+    for (const listener of this.#listeners) listener(job)
+  }
+
+  #readOwned(database: Database.Database, lease: JobLease, now: string): JobTable {
+    const row = database
+      .prepare(
+        `SELECT * FROM jobs
+         WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
+           AND attempts = ? AND locked_until > ?`
+      )
+      .get(lease.jobId, lease.workerId, lease.leaseToken, lease.attempt, now) as
+      | JobTable
+      | undefined
+    if (row === undefined) throw new JobOwnershipError()
+    return row
+  }
+
+  #insertTransition(
     database: Database.Database,
     jobId: string,
-    state: 'queued' | 'failed' | 'cancelled',
-    runAfter: string,
-    completedAt: string | null,
-    errorJson: string
+    fromState: JobState | null,
+    toState: JobState,
+    event: string,
+    attempt: number,
+    workerId: string | null,
+    errorCode: JobErrorCode | null,
+    occurredAt: string
   ): void {
     database
       .prepare(
-        `UPDATE jobs
-         SET state = ?, run_after = ?, lease_owner = NULL, locked_until = NULL,
-             heartbeat_at = ?, error_json = ?, completed_at = ?, updated_at = ?
-         WHERE job_id = ? AND state = 'running'`
+        `INSERT INTO job_transitions (
+           job_id, from_state, to_state, event, attempt, worker_id, error_code, occurred_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        state,
-        runAfter,
-        this.#now().toISOString(),
-        errorJson,
-        completedAt,
-        this.#now().toISOString(),
-        jobId
-      )
+      .run(jobId, fromState, toState, event, attempt, workerId, errorCode, occurredAt)
   }
 
   #readOrThrow(database: Database.Database, jobId: string): JobRecord {
@@ -550,10 +903,11 @@ export class JobStore {
 }
 
 function parseRow(row: JobTable): JobRecord {
+  const type = jobTypeSchema.parse(row.type)
   return {
     jobId: row.job_id,
-    type: jobTypeSchema.parse(row.type),
-    payload: jobPayloadSchema.parse(JSON.parse(row.payload_json)),
+    type,
+    payload: parseJobPayload(type, JSON.parse(row.payload_json)),
     state: jobStateSchema.parse(row.state),
     priority: row.priority,
     attempts: row.attempts,
@@ -570,12 +924,27 @@ function parseRow(row: JobTable): JobRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,
-    completedAt: row.completed_at
+    completedAt: row.completed_at,
+    resumeSameAttempt: row.resume_same_attempt === 1
   }
 }
 
-function serializePayload(payload: JobPayload): string {
-  const parsed = jobPayloadSchema.parse(payload)
+function parseTransitionRow(row: JobTransitionTable): JobTransitionRecord {
+  return {
+    sequence: row.sequence,
+    jobId: row.job_id,
+    fromState: row.from_state === null ? null : jobStateSchema.parse(row.from_state),
+    toState: jobStateSchema.parse(row.to_state),
+    event: row.event,
+    attempt: row.attempt,
+    workerId: row.worker_id,
+    errorCode: row.error_code,
+    occurredAt: row.occurred_at
+  }
+}
+
+function serializePayload(type: JobType, payload: JobPayload): string {
+  const parsed = parseJobPayload(type, payload)
   inspectPayload(parsed, 0)
   return boundedJson(parsed, MAX_PAYLOAD_BYTES, 'Job payload')
 }
@@ -588,8 +957,8 @@ function inspectPayload(value: unknown, depth: number, key?: string): void {
   ) {
     throw new Error(`Job payload field is forbidden: ${key}`)
   }
-  if (typeof value === 'string' && (absolutePath.test(value) || signedUrl.test(value))) {
-    throw new Error('Job payload contains a forbidden path or signed URL')
+  if (typeof value === 'string' && forbiddenPathOrUrl.test(value)) {
+    throw new Error('Job payload contains a forbidden path or URL')
   }
   if (typeof value === 'number' && !Number.isFinite(value)) {
     throw new Error('Job payload contains a non-finite number')
@@ -605,8 +974,9 @@ function inspectPayload(value: unknown, depth: number, key?: string): void {
     if (Object.getPrototypeOf(value) !== Object.prototype) {
       throw new Error('Job payload contains a non-plain object')
     }
-    for (const [childKey, child] of Object.entries(value))
+    for (const [childKey, child] of Object.entries(value)) {
       inspectPayload(child, depth + 1, childKey)
+    }
   }
 }
 
@@ -616,8 +986,50 @@ function serializeProgress(progress: JobProgress): string {
 
 function boundedJson(value: unknown, maxBytes: number, label: string): string {
   const json = JSON.stringify(value)
-  if (Buffer.byteLength(json) > maxBytes) throw new Error(`${label} exceeds ${maxBytes} bytes`)
+  if (Buffer.byteLength(json, 'utf8') > maxBytes)
+    throw new Error(`${label} exceeds ${maxBytes} bytes`)
   return json
+}
+
+function serializeJobError(
+  classification: JobFailureClassification,
+  attempt: number,
+  now: Date
+): string {
+  try {
+    const code = jobErrorCodeSchema.safeParse(classification.code).data ?? 'job_execution_failed'
+    const value = jobErrorSchema.parse({
+      code,
+      message: truncateUtf8(JOB_ERROR_MESSAGES[code], 2_048),
+      retryable: classification.retryable === true,
+      attempt: Math.max(1, Math.floor(Number.isFinite(attempt) ? attempt : 1)),
+      recordedAt: now.toISOString()
+    })
+    const serialized = JSON.stringify(value)
+    return Buffer.byteLength(serialized, 'utf8') < MAX_ERROR_BYTES
+      ? serialized
+      : '{"code":"job_execution_failed","message":"Job execution failed","retryable":false,"attempt":1,"recordedAt":"1970-01-01T00:00:00.000Z"}'
+  } catch {
+    return '{"code":"job_execution_failed","message":"Job execution failed","retryable":false,"attempt":1,"recordedAt":"1970-01-01T00:00:00.000Z"}'
+  }
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = ''
+  for (const character of value) {
+    if (Buffer.byteLength(result + character, 'utf8') > maxBytes) break
+    result += character
+  }
+  return result
+}
+
+function replaceErrorAttempt(serialized: string, attempt: number): string {
+  try {
+    const parsed = jobErrorSchema.parse(JSON.parse(serialized))
+    return serializeJobError(parsed, attempt, new Date(parsed.recordedAt))
+  } catch {
+    return serialized
+  }
 }
 
 function integerInRange(value: number, minimum: number, maximum: number, name: string): number {
@@ -642,31 +1054,13 @@ function parseOptionalString(
   return value === undefined ? null : parseRequiredString(value, maxLength, name)
 }
 
-function defaultRetryability(error: unknown): boolean {
-  return !(
-    typeof error === 'object' &&
-    error !== null &&
-    'retryable' in error &&
-    error.retryable === false
-  )
-}
-
-function toJobError(error: unknown, retryable: boolean, attempt: number, now: Date): JobError {
-  const candidate =
-    typeof error === 'object' && error !== null
-      ? (error as { code?: unknown; message?: unknown })
-      : undefined
-  return jobErrorSchema.parse({
-    code:
-      typeof candidate?.code === 'string' && candidate.code.length <= 128
-        ? candidate.code
-        : 'job_execution_failed',
-    message:
-      typeof candidate?.message === 'string'
-        ? candidate.message.slice(0, 2_048)
-        : 'Job execution failed',
-    retryable,
-    attempt,
-    recordedAt: now.toISOString()
-  })
+function defaultFailureClassification(error: unknown): JobFailureClassification {
+  if (typeof error !== 'object' || error === null) {
+    return { code: 'job_execution_failed', retryable: true }
+  }
+  const candidate = error as { code?: unknown; retryable?: unknown }
+  return {
+    code: candidate.code === 'invalid_input' ? 'invalid_input' : 'job_execution_failed',
+    retryable: candidate.retryable !== false
+  }
 }

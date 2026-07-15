@@ -405,6 +405,7 @@ app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
                              file_records
                              imports
                              jobs
+                             job_transitions
                              model_requests
                              agent_sessions
                              agent_runs
@@ -831,6 +832,8 @@ A project close must stop new claims. Running handlers must either:
 - persist external continuation state, such as a MinerU remote task, before stopping.
 
 Handlers are idempotent and deduplicated by stable content/operation keys. Job payloads contain IDs, relative references, hashes, and small options—not document bodies, BlockNote JSON, embeddings, absolute paths, or credentials.
+
+`jobs` is the sole current-state and recovery authority. `job_transitions` durably audits material state transitions and control events in the same transaction as each mutation; it does not participate in scheduling or recovery. Audit history intentionally excludes high-frequency heartbeat and progress updates.
 
 Initial resource queues remain subject to provider limits and benchmarks:
 

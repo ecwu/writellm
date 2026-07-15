@@ -116,7 +116,6 @@ function initializeIndexDatabase(projectRoot: string): void {
 
 async function readInitialRecords(options: {
   projectDatabase: Awaited<ReturnType<typeof initializeProjectDatabase>>
-  initialTitle?: string
 }): Promise<{ manuscriptId: string; manuscriptBriefId: string; initialSectionId: string }> {
   const manuscript = await options.projectDatabase.kysely
     .selectFrom('manuscripts')
@@ -134,14 +133,6 @@ async function readInitialRecords(options: {
     .where('manuscript_id', '=', manuscript.manuscript_id)
     .where('position', '=', 0)
     .executeTakeFirstOrThrow()
-
-  if (options.initialTitle !== undefined) {
-    await options.projectDatabase.kysely
-      .updateTable('manuscript_briefs')
-      .set({ title: options.initialTitle, updated_at: new Date().toISOString() })
-      .where('manuscript_brief_id', '=', brief.manuscript_brief_id)
-      .execute()
-  }
 
   return {
     manuscriptId: manuscript.manuscript_id,
@@ -189,11 +180,11 @@ export async function createProject(options: CreateProjectOptions): Promise<Crea
       projectRoot: destination,
       manifest,
       applicationVersion: options.applicationVersion,
-      log: options.log
+      log: options.log,
+      initialTitle: options.initialTitle
     })
     const { manuscriptId, manuscriptBriefId, initialSectionId } = await readInitialRecords({
-      projectDatabase,
-      initialTitle: options.initialTitle
+      projectDatabase
     })
     initializeIndexDatabase(destination)
     projectDatabase.close()

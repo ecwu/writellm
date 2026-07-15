@@ -39,6 +39,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { SectionEditor } from '@/features/manuscript/section-editor'
+import type { SectionRevision } from '../../shared/contracts/manuscript'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
@@ -81,6 +83,9 @@ function App(): React.JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
+  const [editorSection, setEditorSection] =
+    useState<Awaited<ReturnType<typeof window.desktop.editor.open>>['activeSection']>(null)
+  const [editorLoading, setEditorLoading] = useState(false)
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -128,6 +133,29 @@ function App(): React.JSX.Element {
   }, [])
 
   const projectSessionId = snapshot.activeProject?.projectSessionId
+
+  useEffect(() => {
+    if (!projectSessionId || snapshot.state !== 'open') {
+      setEditorSection(null)
+      return
+    }
+    let current = true
+    setEditorLoading(true)
+    void window.desktop.editor
+      .open({ projectSessionId })
+      .then((result) => {
+        if (current) setEditorSection(result.activeSection)
+      })
+      .catch(() => {
+        if (current) setErrorMessage('WriteLLM could not load the first manuscript section.')
+      })
+      .finally(() => {
+        if (current) setEditorLoading(false)
+      })
+    return () => {
+      current = false
+    }
+  }, [projectSessionId, snapshot.state])
 
   useEffect(() => {
     if (!projectSessionId) return
@@ -355,25 +383,41 @@ function App(): React.JSX.Element {
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle>Untitled section</CardTitle>
+                  <CardTitle>{editorSection?.section.title ?? 'Untitled section'}</CardTitle>
                   <CardDescription>
-                    The manuscript editor becomes available in the writing workspace checkpoint.
+                    {editorLoading
+                      ? 'Loading the canonical section revision.'
+                      : 'First-section editor persistence slice'}
                   </CardDescription>
                   <CardAction>
                     <Badge variant='outline'>Draft</Badge>
                   </CardAction>
                 </CardHeader>
                 <CardContent>
-                  <div className='flex min-h-72 items-center justify-center rounded-lg border border-dashed p-8 text-center'>
-                    <div className='max-w-sm space-y-2'>
-                      <FileText className='mx-auto size-8 text-muted-foreground' />
-                      <p className='font-medium'>Your writing workspace is ready</p>
-                      <p className='text-sm text-muted-foreground'>
-                        Manuscript editing, knowledge sources, and agent tools are not implemented
-                        yet.
-                      </p>
+                  {editorSection && projectSessionId ? (
+                    <SectionEditor
+                      key={`${projectSessionId}:${editorSection.section.sectionId}`}
+                      projectSessionId={projectSessionId}
+                      revision={editorSection.revision}
+                      onRevision={(revision: SectionRevision) =>
+                        setEditorSection((current) =>
+                          current ? { ...current, revision } : current
+                        )
+                      }
+                    />
+                  ) : (
+                    <div className='flex min-h-72 items-center justify-center rounded-lg border border-dashed p-8 text-center'>
+                      <div className='max-w-sm space-y-2'>
+                        <FileText className='mx-auto size-8 text-muted-foreground' />
+                        <p className='font-medium'>Your writing workspace is ready</p>
+                        <p className='text-sm text-muted-foreground'>
+                          {editorLoading
+                            ? 'Loading the first section.'
+                            : 'No manuscript section is available.'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </CardContent>
                 <CardFooter className='gap-2 border-t'>
                   <Button

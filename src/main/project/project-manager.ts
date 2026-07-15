@@ -12,6 +12,13 @@ import {
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import { JobStore } from '../jobs/job-store'
+import { ManuscriptService } from '../manuscript/manuscript-service'
+import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
+import {
+  createProjectHandlerRegistry,
+  ProjectRuntime,
+  type ProjectRuntimeOptions
+} from '../jobs/scheduler/project-runtime'
 import { type ProjectContext, toActiveProject } from './project-context'
 import {
   createProject,
@@ -93,6 +100,10 @@ export interface ProjectManagerOptions {
   finalFlushTimeoutMs?: number
   lockOptions?: Omit<ProjectLockOptions, 'logger'>
   dependencies?: Partial<ProjectManagerDependencies>
+  createRuntime?: (options: ProjectRuntimeOptions) => ProjectRuntime
+  createManuscriptService?: (
+    options: ConstructorParameters<typeof ManuscriptService>[0]
+  ) => ManuscriptService
 }
 
 export interface CreateManagedProjectOptions {
@@ -116,9 +127,15 @@ export class ProjectManager {
   readonly #lockOptions: Omit<ProjectLockOptions, 'logger'>
   readonly #dependencies: ProjectManagerDependencies
   readonly #finalFlushTimeoutMs: number
+  readonly #createRuntime: (options: ProjectRuntimeOptions) => ProjectRuntime
+  readonly #createManuscriptService: (
+    options: ConstructorParameters<typeof ManuscriptService>[0]
+  ) => ManuscriptService
   #state: ProjectLifecycleState = 'closed'
   #context: ProjectContext | null = null
   #transition: Promise<void> = Promise.resolve()
+  #finalFlushAuthorization: ProjectFinalFlushAuthorization | null = null
+  #finalFlushConsumed = false
 
   constructor(options: ProjectManagerOptions) {
     this.#applicationVersion = options.applicationVersion
@@ -129,6 +146,10 @@ export class ProjectManager {
     this.#finalFlushTimeoutMs = options.finalFlushTimeoutMs ?? 10_000
     this.#lockOptions = options.lockOptions ?? {}
     this.#dependencies = { ...defaultDependencies, ...options.dependencies }
+    this.#createRuntime =
+      options.createRuntime ?? ((runtimeOptions) => new ProjectRuntime(runtimeOptions))
+    this.#createManuscriptService =
+      options.createManuscriptService ?? ((serviceOptions) => new ManuscriptService(serviceOptions))
   }
 
   snapshot(): ProjectLifecycleSnapshot {
@@ -136,6 +157,10 @@ export class ProjectManager {
       state: this.#state,
       activeProject: this.#context === null ? null : toActiveProject(this.#context)
     })
+  }
+
+  setCloseParticipants(participants: Partial<ProjectCloseParticipants>): void {
+    Object.assign(this.#closeParticipants, participants)
   }
 
   create(options: CreateManagedProjectOptions): Promise<ProjectLifecycleSnapshot> {
@@ -261,6 +286,8 @@ export class ProjectManager {
         currentRevision,
         closingToken: this.#dependencies.randomUUID()
       }
+      this.#finalFlushAuthorization = finalFlushAuthorization
+      this.#finalFlushConsumed = false
       await attempt('project_manager.close.editor_flush_failed', () =>
         withTimeout(
           this.#closeParticipants.flushEditors(context, finalFlushAuthorization),
@@ -271,14 +298,17 @@ export class ProjectManager {
       await attempt('project_manager.close.editor_flush_verify_failed', () =>
         this.#closeParticipants.verifyFinalEditorFlush(context, finalFlushAuthorization)
       )
+      this.#finalFlushAuthorization = null
       await attempt('project_manager.close.stop_claims_failed', () =>
-        this.#closeParticipants.stopJobClaims(context)
+        Promise.resolve(context.runtime.stopClaims()).then(() =>
+          this.#closeParticipants.stopJobClaims(context)
+        )
       )
       await attempt('project_manager.close.park_workers_failed', () =>
-        this.#closeParticipants.parkWorkers(context)
+        context.runtime.park().then(() => this.#closeParticipants.parkWorkers(context))
       )
       await attempt('project_manager.close.stop_workers_failed', () =>
-        this.#closeParticipants.stopWorkersAndIndex(context)
+        context.runtime.stop().then(() => this.#closeParticipants.stopWorkersAndIndex(context))
       )
       await attempt('project_manager.close.database_failed', () => context.database.close())
       await attempt('project_manager.close.lock_release_failed', async () => {
@@ -350,6 +380,21 @@ export class ProjectManager {
     ) {
       throw new ProjectSessionError()
     }
+    return this.#context
+  }
+
+  authorizeFinalFlush(projectSessionId: string, closingToken: string): ProjectContext {
+    if (
+      this.#state !== 'closing' ||
+      this.#context === null ||
+      this.#finalFlushAuthorization === null ||
+      this.#finalFlushAuthorization.projectSessionId !== projectSessionId ||
+      this.#finalFlushAuthorization.closingToken !== closingToken ||
+      this.#finalFlushConsumed
+    ) {
+      throw new ProjectSessionError('Final editor flush is not authorized')
+    }
+    this.#finalFlushConsumed = true
     return this.#context
   }
 
@@ -445,6 +490,7 @@ export class ProjectManager {
     const manifest = await this.#dependencies.readManifest(canonicalRoot)
     let writeLock = acquiredLock
     let database: ProjectDatabase | undefined
+    let runtime: ProjectRuntime | undefined
     try {
       writeLock ??= await this.#dependencies.acquireLock(canonicalRoot, {
         ...this.#lockOptions,
@@ -462,16 +508,41 @@ export class ProjectManager {
         log: this.#logger
       })
       jobs.recoverExpiredLeases()
+      const projectSessionId = this.#dependencies.randomUUID()
+      const manuscript = this.#createManuscriptService({
+        database,
+        projectId: manifest.projectId,
+        log: this.#logger
+      })
+      const editorPersistence = new EditorPersistenceService({
+        projectRoot: canonicalRoot,
+        projectId: manifest.projectId,
+        database,
+        manuscript,
+        log: this.#logger
+      })
+      await editorPersistence.repairAll()
+      runtime = this.#createRuntime({
+        projectId: manifest.projectId,
+        projectSessionId,
+        jobs,
+        registry: createProjectHandlerRegistry(),
+        log: this.#logger
+      })
       const context: ProjectContext = {
         projectRoot: canonicalRoot,
         manifest,
-        projectSessionId: this.#dependencies.randomUUID(),
+        projectSessionId,
         displayName: projectDisplayName(canonicalRoot),
         indexRebuildRequired: await isIndexRebuildRequired(canonicalRoot, this.#logger),
         database,
         jobs,
+        manuscript,
+        editorPersistence,
+        runtime,
         writeLock
       }
+      runtime.start()
       this.#context = context
       this.#state = 'open'
       try {
@@ -500,6 +571,20 @@ export class ProjectManager {
         'Project open transition completed'
       )
     } catch (err) {
+      if (runtime !== undefined) {
+        try {
+          await runtime.stop()
+        } catch (cleanupErr) {
+          this.#logger.error(
+            {
+              event: 'project_manager.open.runtime_cleanup_failed',
+              err: cleanupErr,
+              projectId: manifest.projectId
+            },
+            'Failed to stop runtime after project open failure'
+          )
+        }
+      }
       if (database !== undefined) {
         try {
           database.close()

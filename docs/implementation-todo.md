@@ -18,7 +18,9 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoints 1 through 7 are completed and verified. No later scheduler, editor, import, search, or agent work may begin without approval.
+Checkpoints 1 through 10 are completed and verified, including the Checkpoint 7, Checkpoint 8, and Checkpoint 9 review hardening. Checkpoint 11 and all import-domain, search, and agent work remain out of scope without separate approval.
+
+Checkpoint 7 review hardening is limited to claim-scoped lease capabilities, total and byte-bounded safe error normalization, a strict per-job-type reference payload registry, and durable transition auditing in `project.sqlite`. This work does not install p-queue or implement runtime scheduling, job IPC, or Checkpoint 8 project-close handling.
 
 Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary. Production uses Electron's single-instance lock and focuses the existing process on a second launch; the project lock remains defense in depth. The create protocol is manifest-last commit-marker publication, and close has an internal final-flush authorization boundary with a timeout.
 
@@ -139,71 +141,87 @@ Checkpoint 6 verification: `biome check` passes with one pre-existing generated 
 
 ### Checkpoint 7: Persistent Job State Machine
 
-- [x] Finalize the project-local STRICT jobs schema and state/error schemas.
-- [x] Include type, small JSON payload, state, priority, attempts, max attempts, `run_after`, lease owner, `locked_until`, heartbeat, progress, deduplication key, cancellation request, structured error, and timestamps.
-- [x] Implement enqueue, dedupe, atomic claim, lease renewal, heartbeat, completion, retry, failure, cancellation, and optional paused transition.
-- [x] Use short `BEGIN IMMEDIATE` claims and transitions.
-- [x] Implement startup/project-open recovery for expired leases.
-- [x] Add exponential backoff with jitter and retryability classification.
-- [x] Keep document bodies, BlockNote JSON, vectors, absolute paths, signed URLs, and credentials out of payloads.
+- [x] Finalize the project-local STRICT jobs schema and state/error schemas, including claim-scoped lease tokens and durable transition history.
+- [x] Include type, strict type-specific reference payload, state, priority, attempts, max attempts, `run_after`, lease owner/token, `locked_until`, heartbeat, progress, deduplication key, cancellation request, safe structured error, and timestamps.
+- [x] Implement enqueue, dedupe, atomic claim, lease renewal, heartbeat, completion, retry, failure, cancellation, and optional paused transition using an opaque lease capability for owned transitions.
+- [x] Use short `BEGIN IMMEDIATE` claims and transitions, atomically inserting material state/control events into `job_transitions`.
+- [x] Implement startup/project-open recovery for expired leases and deterministic migration recovery for pre-v4 running jobs.
+- [x] Add exponential backoff with jitter and a total failure classifier/serializer that cannot leak original error messages into portable state.
+- [x] Enforce reference-only payloads through a strict per-job-type schema registry, retaining generic forbidden-key checks only as defense in depth.
 - [x] Add deterministic clock and worker-identity seams.
-- [x] Test concurrent claims, process crash, lease expiry, cancellation races, deduplication, retry exhaustion, and project close during running work.
-- [x] Emit project-correlated lifecycle events without treating logs as job history.
+- [x] Test lease-token isolation, expiry boundaries, arbitrary error inputs, typed payload parsing, transition history/rollback, migration upgrade, concurrency, cancellation, retry exhaustion, and project close during running work.
+- [x] Emit project-correlated lifecycle events without treating logs as authoritative job history; persistent audit means material transitions and control events, not heartbeat/progress updates.
 
 Acceptance criteria: one job is not owned by two workers; process or project closure is recoverable; payloads are bounded references; transitions are deterministic and auditable in `project.sqlite`.
 
-Checkpoint 7 verification: the project schema now includes a STRICT `jobs` table with constrained state, lease, retry, cancellation, progress, deduplication, error, and timestamp fields plus claim and expired-lease indexes. `JobStore` validates bounded reference-only payloads, uses short `BEGIN IMMEDIATE` operations for enqueue/dedupe, claims, lease transitions, cancellation races, retries, and recovery, and exposes deterministic clock, randomness, ID, worker-identity, and retry-classification seams. Project open recovers expired leases before publishing a new project session. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 28 test files and 141 tests; and `electron-vite build` passes. Tests cover two-connection claims, deduplication lifecycle, lease renewal and ownership, completion/failure cancellation races, deterministic jitter, retry exhaustion, non-retryable failures, process/project-close lease recovery, open-boundary recovery, pause/resume, structured original-error logging, and forbidden or oversized payload rejection.
+Checkpoint 7 verification: schema v4 adds constrained claim-scoped lease tokens and append-only `job_transitions`; every owned operation checks job ID, worker ID, opaque token, attempt, and `locked_until > now` using one captured clock value. Failure archival logs the original top-level `err`, tolerates hostile values and classifier failures, and persists only allowlisted codes with application-controlled messages under the strict byte limit. Enqueue and database reads use strict per-type reference schemas, while the former denylist remains defense in depth. Material transitions and control events commit atomically with current-state mutations; heartbeat/progress remain intentionally excluded from history. A real schema v3 fixture is backed up and upgraded to v4 with deterministic running-job recovery, old-error sanitization, migration snapshots, `quick_check`, and `foreign_key_check`. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; `pnpm typecheck` passes; Electron-hosted Vitest passes 28 test files and 149 tests; `pnpm build` passes; all 4 Playwright Electron E2E tests pass; and `git diff --check` passes. No dependency, scheduler, job IPC, or Checkpoint 8 close-handling work was added.
 
 ### Checkpoint 8: Runtime Scheduler And Project Close Semantics
 
-- [ ] Install and pin p-queue.
-- [ ] Map job types to resource queues for MinerU, embedding, rerank, indexing, and auxiliary LLM work.
-- [ ] Dispatch claimed jobs with configured concurrency, priority, timeout, and `AbortSignal` handling.
-- [ ] Persist progress and expose bounded job status through project-scoped IPC.
-- [ ] Stop claiming before project close.
-- [ ] Define handler-specific close behavior: finish, abort-and-requeue, recover by lease expiry, or persist external continuation state.
-- [ ] Ensure a submitted MinerU task retains `remote_task_id` before workers stop.
-- [ ] Ensure index generation publication is atomic and a half-built generation never becomes active.
-- [ ] Add interruption/restart and close/reopen integration tests.
+- [x] Install and pin p-queue 9.3.1.
+- [x] Create one Main-owned `ProjectRuntime` and scheduler per open project; keep `project.sqlite` authoritative and use p-queue only for current-process resource concurrency.
+- [x] Map job types to MinerU (1), embedding (3), rerank (3), indexing (1), and local I/O (2) queues; reserve auxiliary LLM concurrency (2) without inventing a job type.
+- [x] Claim only when the target resource has an idle slot, preserving database priority, `run_after`, and type ordering as scheduling authority.
+- [x] Dispatch claimed jobs with configured lease, heartbeat, timeout, throttled bounded progress, caught queue promises, and per-job `AbortSignal` handling.
+- [x] Add a forward-only `resume_same_attempt` migration and audited project-close requeue so close/reopen never consumes a retry attempt and every resumed claim receives a new lease token.
+- [x] Persist progress and expose bounded list/status/cancellation/event APIs through sender-authorized, project-session-scoped IPC without payloads, lease capabilities, worker IDs, absolute paths, provider content, or unclean errors.
+- [x] Stop claiming synchronously before project close, pause resource queues, apply handler-specific finish/abort-and-requeue/recover-by-expiry/persist-before-stop policies, and enforce a bounded drain before database close.
+- [x] Reject stale-session and post-stop utility messages before they can submit authoritative state.
+- [x] Verify the MinerU remote-ID persistence barrier and atomic index-generation publisher as controllable handler contracts only; do not add MinerU or index domain tables before their checkpoints.
+- [x] Add concurrency, priority, `run_after`, timeout/cancel/close race, heartbeat/progress, stale lease/session/message, interruption/restart, and close/reopen integration tests.
+
+Cross-checkpoint verification responsibility: Checkpoint 15 must replace the controllable MinerU persistence-barrier handler with the real adapter and prove close/reopen resumes one persisted `remote_task_id` without duplicate submission. Checkpoint 17 must replace the controllable generation publisher with the real index utility/database implementation and prove crash-safe build plus atomic activation without duplicate or half-active generations. Checkpoint 8 does not create either future domain's tables.
 
 Acceptance criteria: p-queue remains an execution detail; `project.sqlite` is authoritative; project reopen resumes unfinished work without duplicate external submission or duplicate index publication.
+
+Checkpoint 8 verification: project schema v5 adds `resume_same_attempt`; audited `project_close_requeued` transitions preserve the current attempt even at `max_attempts`, and resumed claims receive a new opaque lease token. The running scheduler performs throttled expired-lease recovery after open, so a lease that expires later is recovered without another reopen. Resource claims still use database ordering and only available slots. Heartbeat and every lease transition pass through an execution-scoped supervisor gate; a prior execution cannot commit through or release a newer claim for the same job. Cancellation and close requeue are arbitrated in one `BEGIN IMMEDIATE` transaction, yielding exactly one cancellation acknowledgment or same-attempt requeue. A close drain timeout revokes commit/message authority before aborting wrappers, invokes the bounded utility termination hook, rejects close, and prevents a non-cooperative or late handler from touching the database after close. Handlers receive no lease capability. ProjectManager/runtime/JobStore integration proves open, claim, close requeue, database close, reopen, and exactly-once completion without another attempt. Job IPC remains sender-authorized, session-scoped, bounded to 100 records, and free of payload/lease/worker/path/provider capabilities. Fake handlers prove the MinerU persistence barrier and atomic index activation contract without adding future domain tables. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; `pnpm typecheck` passes; Electron-hosted Vitest passes 32 files and 166 tests with no unhandled rejection; `pnpm build` passes with p-queue bundled into Electron Main; all 4 Playwright Electron E2E tests pass; `pnpm build:unpack` produces `dist/mac-arm64`; and `git diff --check` passes. The unpacked build is unsigned because no valid Developer ID Application identity is configured.
 
 ## Phase 5: Manuscript And BlockNote Product Slice
 
 ### Checkpoint 9: Manuscript Brief, Outline, Section State, And Revisions
 
-- [ ] Define the initial one-primary-manuscript schema.
-- [ ] Define a versioned manuscript brief with title, description/purpose, topic/coverage, audience, language, style/tone, scope/exclusions, target length, citation requirements, and extra instructions.
-- [ ] Define ordered hierarchical sections with stable IDs, parent, position, level, title, objective, status, and current revision.
-- [ ] Fix the section status enum to `planned`, `drafting`, and `completed` for the initial product.
-- [ ] Define section body content as native BlockNote JSON separate from the section title.
-- [ ] Add `section_revisions` with source type, content JSON, content hash, prior revision, agent lineage fields, and timestamps.
-- [ ] Define optimistic concurrency using `baseRevisionId` and content hash.
-- [ ] Add domain services for brief read/update, section create/update/reorder/delete, revision read, and whole-manuscript assembly.
-- [ ] Prevent deleting a section with unresolved agent proposals without an explicit policy.
-- [ ] Define deterministic word/character count extraction from BlockNote content.
-- [ ] Test nested outline ordering, status transitions, revision conflicts, delete/reorder constraints, and full assembly.
+Implementation scope: complete schema v6 on top of the existing manuscript bootstrap, then add Main-only contracts, domain services, deterministic content metrics, structured lifecycle logs, and tests. This checkpoint does not add BlockNote dependencies, manuscript IPC/preload/renderer surfaces, editor autosave, file materialization, Markdown interchange, agent/proposal tables, or revision retention cleanup.
+
+- [x] Define the initial one-primary-manuscript schema.
+- [x] Define a versioned manuscript brief with title, description/purpose, topic/coverage, audience, language, style/tone, scope/exclusions, target length, citation requirements, and extra instructions.
+- [x] Define ordered hierarchical sections with stable IDs, parent, position, level, title, objective, status, and current revision.
+- [x] Fix the section status enum to `planned`, `drafting`, and `completed` for the initial product.
+- [x] Define section body content as native BlockNote JSON separate from the section title.
+- [x] Add `section_revisions` with source type, content JSON, content hash, prior revision, agent lineage fields, and timestamps.
+- [x] Define optimistic concurrency using `baseRevisionId` and content hash.
+- [x] Add domain services for brief read/update, section create/update/reorder/delete, revision read, and whole-manuscript assembly.
+- [x] Prevent deleting a section with unresolved agent proposals without an explicit policy.
+- [x] Define deterministic word/character count extraction from BlockNote content.
+- [x] Test nested outline ordering, status transitions, revision conflicts, delete/reorder constraints, and full assembly.
 
 Acceptance criteria: manuscript metadata, ordered structure, status, and section bodies have explicit non-overlapping ownership; stale writes cannot silently overwrite a newer section revision.
 
+Checkpoint 9 verification: project schema v6 adds `outline_version`, independently schema-versioned immutable brief rows, non-null section revision pointers, and append-only `section_revisions` with deterministic bootstrap backfill, canonical SHA-256 content hashes, persisted Unicode counts, prior-revision chains, reserved source values, and constrained agent lineage. Populated v5 databases are backed up and upgraded without changing section identity or metadata; unexplained legacy revision pointers fail and roll back, while empty legacy databases remain empty. The Main-only `ManuscriptService` requires exactly one primary manuscript, uses brief-version, outline-version, and revision ID/hash optimistic concurrency, maintains ordered trees and subtree levels in short `BEGIN IMMEDIATE` transactions, exposes an explicit proposal deletion guard, and assembles current bodies using persisted counts. CP9 emits content-free structured lifecycle logs and mounts the service in `ProjectContext`; manuscript content/brief serialization failures stay inside that logging boundary, and deletion-guard failures log the original top-level `err` before safe domain transformation. New project bootstrap creates the correctly titled first brief and initial empty revision in one transaction. No BlockNote dependency, manuscript IPC/preload/renderer surface, materialized file, Markdown interchange, proposal table, or retention cleanup was added.
+
 ### Checkpoint 10: BlockNote Editor Persistence And Materialization
 
-- [ ] Install and pin BlockNote React and the shadcn-compatible UI packages required by the chosen integration.
-- [ ] Define the approved BlockNote schema and initial allowed block types/props.
-- [ ] Preserve native BlockNote block IDs and reject duplicate IDs.
-- [ ] Implement active-section load into BlockNote.
-- [ ] Implement debounced save of the complete native BlockNote document with `baseRevisionId`.
-- [ ] Validate document shape, nesting, inline content, block count, and serialized size in Main.
-- [ ] Commit the canonical revision transactionally in `project.sqlite`.
-- [ ] Atomically materialize the current revision to `manuscript/sections/<section-id>.blocknote.json`.
-- [ ] Store materialization revision/hash and repair missing or stale files on project open.
-- [ ] Expose explicit save states: clean, saving, saved, conflict, failed.
-- [ ] Retain useful manual and accepted-agent revisions under a bounded retention policy.
-- [ ] Implement native JSON export and lossy Markdown import/export as separate operations.
-- [ ] Ensure Markdown export never replaces the canonical native document.
-- [ ] Add tests for rich text, nested blocks, tables, links, Unicode, duplicate IDs, invalid props, stale saves, crash between revision commit and materialization, and materialization repair.
+- [x] Install and pin BlockNote React and the shadcn-compatible UI packages required by the chosen integration.
+- [x] Define the approved BlockNote schema and initial allowed block types/props.
+- [x] Preserve native BlockNote block IDs and reject duplicate IDs.
+- [x] Implement active-section load into BlockNote.
+- [x] Implement debounced save of the complete native BlockNote document with `baseRevisionId`.
+- [x] Validate document shape, nesting, inline content, block count, and serialized size in Main.
+- [x] Commit the canonical revision transactionally in `project.sqlite`.
+- [x] Atomically materialize the current revision to `manuscript/sections/<section-id>.blocknote.json`.
+- [x] Store materialization revision/hash and repair missing or stale files on project open.
+- [x] Expose explicit save states: clean, saving, saved, conflict, failed.
+- [x] Retain useful manual and accepted-agent revisions under a bounded retention policy.
+- [x] Implement native JSON export and lossy Markdown import/export as separate operations.
+- [x] Ensure Markdown export never replaces the canonical native document.
+- [x] Add tests for rich text, nested blocks, tables, links, Unicode, duplicate IDs, invalid props, stale saves, crash between revision commit and materialization, and materialization repair.
 
 Acceptance criteria: BlockNote native JSON round-trips without loss; Markdown is treated as lossy interchange; a committed revision survives renderer crash even if its mirror must be repaired later.
+
+Checkpoint 10 verification: BlockNote core, React, and shadcn packages are exactly pinned to 0.47.2, with no Mantine dependency. Characterization proves CP9 `[]` cannot be passed as `initialContent`, records the real default paragraph/heading/list/quote/code/table/link JSON shapes, and proves JSON serialization plus reload preserves IDs, props, styles, links, children, and table cells. The shared strict contract allowlists paragraph, heading, bullet/numbered/check lists, quote, code block, table, styled text, links, and nested children while rejecting missing/duplicate IDs, unknown props/types, unsafe URL schemes, excessive depth/count/size, and non-native media/file blocks. Schema v7 adds deterministic section materialization metadata and bounded revision-body retention while preserving revision IDs, hashes, sources, and lineage metadata.
+
+The asynchronous Main persistence path validates the full document, performs idempotent revision/hash CAS, commits SQLite authority first, fsyncs and atomically renames a deterministic envelope, records materialization metadata, and repairs missing, corrupt, stale, or metadata-lagging mirrors on project open without blocking access to canonical content. Fault tests cover failure immediately after DB commit, before rename, and after rename before metadata commit; concurrent stale saves conflict, and a lost-response retry with the current hash succeeds idempotently. Sender-authorized session-scoped IPC exposes first-section open/load/save, Markdown import, native JSON export, lossy Markdown export, and one-shot closing-token flush/ack. The minimal renderer uses the approved shadcn BlockNote schema, 650 ms debounce, a single-flight merge loop, visible clean/saving/saved/mirror-pending/conflict/failed states, and preserves local content on conflict. Electron E2E proves an edit made immediately before close is final-flushed and restored after reopen, and proves Markdown/native exports are separate files while the canonical materialization remains native.
+
+Verification: `pnpm check` passes with the pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 37 files and 199 tests; `pnpm build` passes; all 4 Playwright Electron E2E tests pass; `pnpm build:unpack` produces `dist/mac-arm64`; `git diff --check` passes; and an isolated real-Electron runtime smoke validates `app.sqlite` application ID, schema version, manifest, and table boundary. The unpacked macOS build is unsigned because no valid Developer ID Application identity is configured.
 
 ### Checkpoint 11: Writing Workspace UI
 
@@ -477,3 +495,11 @@ Acceptance criteria: all required target-platform jobs pass on real packaged art
 - 2026-07-15: Started Checkpoint 7 after approval. Scope is the project-local persistent job schema and deterministic state machine, including lease recovery, retries, cancellation, bounded reference payloads, lifecycle logging, and tests; runtime scheduling and job IPC remain in Checkpoint 8.
 - 2026-07-15: Completed and verified Checkpoint 7: project-local STRICT jobs schema, bounded reference payload enforcement, deterministic `BEGIN IMMEDIATE` state transitions, atomic claims and deduplication, lease/heartbeat recovery, cancellation-safe retry/failure handling, project-open recovery, structured lifecycle logging, and concurrency/crash/close tests. Runtime dispatch remains in Checkpoint 8.
 - 2026-07-15: Decoupled application window state from project lifecycle. Each new application window now requests maximization once before first display; later project create/open/close/switch transitions preserve user-managed window state.
+- 2026-07-15: Reopened Checkpoint 7 for review hardening. Scope is claim-scoped lease tokens, total safe error normalization, strict per-job-type reference payload schemas, and durable material transition auditing; p-queue, scheduler dispatch, job IPC, and Checkpoint 8 close handling remain out of scope.
+- 2026-07-15: Completed and re-verified Checkpoint 7 hardening with schema v4 lease capabilities, total safe failure archival, strict typed reference payloads, and durable transactional transition history. Runtime scheduling and Checkpoint 8 remain unstarted.
+- 2026-07-15: Started Checkpoint 8 after approval. Scope is one Main-owned runtime scheduler per open project, p-queue resource concurrency, same-attempt close requeue, bounded job IPC, worker-message revocation, and fake-handler contract verification. Real MinerU remote-task persistence and index generation activation remain owned by Checkpoints 15 and 17 respectively.
+- 2026-07-15: Completed and verified Checkpoint 8 with p-queue 9.3.1 resource scheduling, Main-owned per-project runtime lifecycle, schema v5 same-attempt close recovery, bounded project-scoped job IPC, stale worker-message rejection, and fake persistence/publication contract tests. Checkpoints 15 and 17 retain mandatory real-domain close/reopen and crash-atomicity verification.
+- 2026-07-15: Reopened Checkpoint 8 for review hardening after identifying missing running-scheduler lease recovery, unsafe close-timeout handling for non-cooperative handlers, and cancellation/close arbitration that could leave jobs running. Completion is withdrawn until the three P1 cases and full lifecycle integration tests pass.
+- 2026-07-15: Completed and re-verified Checkpoint 8 review hardening. The running scheduler now recovers leases that expire after open; close timeout revokes execution-scoped authority and invokes bounded worker termination before database close; cancellation versus close is transactionally arbitrated; stale execution cleanup cannot affect a newer claim; and ProjectManager/runtime/JobStore close/reopen integration completes the same job exactly once without spending another attempt.
+- 2026-07-15: Reopened Checkpoint 9 for review hardening after identifying manuscript conversion failures outside the lifecycle logging boundary and deletion-guard errors transformed before the original object was logged at top level. Completion is withdrawn until both logging paths and regression tests pass.
+- 2026-07-15: Completed and re-verified Checkpoint 9 review hardening. Manuscript body and brief serialization failures now emit content-free lifecycle failures with the original top-level `err`; deletion guards log their original error before returning a safe domain error. Biome and both TypeScript checks pass, Electron-hosted Vitest passes 34 files and 183 tests, and the production Electron build passes.

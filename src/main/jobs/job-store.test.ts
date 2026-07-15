@@ -5,7 +5,7 @@ import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initializeProjectDatabase, openProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
-import { JobOwnershipError, JobStore } from './job-store'
+import { JobOwnershipError, JobStore, type JobLease } from './job-store'
 
 const temporaryDirectories: string[] = []
 const silentLog = pino({ level: 'silent' })
@@ -52,20 +52,42 @@ describe('JobStore', () => {
       }).job.payload
     ).toEqual({ knowledgeItemId: 'item-1', relativePath: 'knowledge/originals/file.pdf' })
     expect(() =>
-      store.enqueue({ type: 'unsafe', payload: { absolutePath: '/private/source.pdf' } })
-    ).toThrow('forbidden')
-    expect(() => store.enqueue({ type: 'unsafe', payload: { credential: 'secret' } })).toThrow(
-      'forbidden'
-    )
-    expect(() => store.enqueue({ type: 'unsafe', payload: { apiKey: 'secret' } })).toThrow(
-      'forbidden'
-    )
+      store.enqueue({
+        type: 'mineru.submit',
+        payload: { knowledgeItemId: 'item-1', relativePath: '/private/source.pdf' }
+      })
+    ).toThrow()
+    for (const relativePath of [
+      '../source.pdf',
+      'knowledge\\source.pdf',
+      'C:\\source.pdf',
+      '\\\\server\\source.pdf',
+      'file:///source.pdf',
+      'https://example.test/source.pdf',
+      'https://example.test/source.pdf?token=secret'
+    ]) {
+      expect(() =>
+        store.enqueue({
+          type: 'mineru.submit',
+          payload: { knowledgeItemId: 'item-1', relativePath }
+        })
+      ).toThrow()
+    }
+    for (const forbidden of ['data', 'text', 'source', 'rawText', 'credential', 'apiKey']) {
+      expect(() =>
+        store.enqueue({
+          type: 'mineru.submit',
+          payload: {
+            knowledgeItemId: 'item-1',
+            relativePath: 'knowledge/source.pdf',
+            [forbidden]: 'private'
+          }
+        })
+      ).toThrow()
+    }
     expect(() =>
-      store.enqueue({ type: 'unsafe', payload: { vector: Array.from({ length: 10 }, () => 0.1) } })
-    ).toThrow('forbidden')
-    expect(() =>
-      store.enqueue({ type: 'oversize', payload: { refs: ['x'.repeat(16_384)] } })
-    ).toThrow('exceeds')
+      store.enqueue({ type: 'unknown' as never, payload: { generationId: 'generation-1' } })
+    ).toThrow()
     database.close()
   })
 
@@ -94,7 +116,7 @@ describe('JobStore', () => {
     expect(duplicate).toMatchObject({ created: false, job: { jobId: first.job.jobId } })
 
     const claimed = store.claimNext({ workerId: 'worker-1', leaseMs: 10_000 })
-    store.complete(claimed?.jobId as string, 'worker-1')
+    store.complete(claimed?.lease as JobLease)
     expect(
       store.enqueue({
         type: 'index.build',
@@ -126,7 +148,7 @@ describe('JobStore', () => {
       second.claimNext({ workerId: 'worker-b', leaseMs: 10_000 })
     ].filter((job) => job !== null)
     expect(claims).toHaveLength(1)
-    expect(claims[0]?.attempts).toBe(1)
+    expect(claims[0]?.job.attempts).toBe(1)
     secondDatabase.close()
     database.close()
   })
@@ -140,17 +162,23 @@ describe('JobStore', () => {
       log: silentLog,
       now: () => now
     })
-    const job = store.enqueue({ type: 'embedding.batch', payload: { batchId: 'batch-1' } }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 1_000 })
+    store.enqueue({ type: 'embedding.batch', payload: { batchId: 'batch-1' } })
+    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 1_000 })
     now = new Date('2026-07-15T02:00:00.500Z')
     expect(
-      store.heartbeat(job.jobId, 'worker-a', 2_000, { completed: 1, total: 2, stage: 'embed' })
+      store.heartbeat(claimed?.lease as JobLease, 2_000, {
+        completed: 1,
+        total: 2,
+        stage: 'embed'
+      })
     ).toMatchObject({
       lockedUntil: '2026-07-15T02:00:02.500Z',
       progress: { completed: 1, total: 2, stage: 'embed' }
     })
-    expect(() => store.complete(job.jobId, 'worker-b')).toThrow(JobOwnershipError)
-    expect(store.complete(job.jobId, 'worker-a').state).toBe('succeeded')
+    expect(() => store.complete({ ...(claimed?.lease as JobLease), workerId: 'worker-b' })).toThrow(
+      JobOwnershipError
+    )
+    expect(store.complete(claimed?.lease as JobLease).state).toBe('succeeded')
     database.close()
   })
 
@@ -158,14 +186,14 @@ describe('JobStore', () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
     const job = store.enqueue({ type: 'rerank.request', payload: { requestId: 'request-1' } }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
+    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
 
     expect(store.requestCancellation(job.jobId)).toMatchObject({
       state: 'running',
       cancellationRequested: true
     })
-    expect(() => store.complete(job.jobId, 'worker-a')).toThrow(JobOwnershipError)
-    expect(store.acknowledgeCancellation(job.jobId, 'worker-a')).toMatchObject({
+    expect(() => store.complete(claimed?.lease as JobLease)).toThrow(JobOwnershipError)
+    expect(store.acknowledgeCancellation(claimed?.lease as JobLease)).toMatchObject({
       state: 'cancelled',
       cancellationRequested: true
     })
@@ -176,10 +204,10 @@ describe('JobStore', () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
     const job = store.enqueue({ type: 'embedding.batch', payload: { batchId: 'batch-2' } }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
+    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     store.requestCancellation(job.jobId)
 
-    expect(store.fail(job.jobId, 'worker-a', new Error('aborted by provider'))).toMatchObject({
+    expect(store.fail(claimed?.lease as JobLease, new Error('aborted by provider'))).toMatchObject({
       willRetry: false,
       job: { state: 'cancelled', cancellationRequested: true }
     })
@@ -199,14 +227,14 @@ describe('JobStore', () => {
       random: () => 0,
       retryBaseMs: 1_000
     })
-    const job = store.enqueue({
+    store.enqueue({
       type: 'mineru.download',
       payload: { parseRevisionId: 'revision-1' },
       maxAttempts: 2
-    }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
+    })
+    const firstClaim = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     const firstFailure = new Error('temporary provider failure')
-    expect(store.fail(job.jobId, 'worker-a', firstFailure)).toMatchObject({
+    expect(store.fail(firstClaim?.lease as JobLease, firstFailure)).toMatchObject({
       willRetry: true,
       job: { state: 'queued', runAfter: '2026-07-15T03:00:00.500Z' }
     })
@@ -216,8 +244,10 @@ describe('JobStore', () => {
     )
 
     now = new Date('2026-07-15T03:00:00.500Z')
-    store.claimNext({ workerId: 'worker-b', leaseMs: 10_000 })
-    expect(store.fail(job.jobId, 'worker-b', new Error('still unavailable'))).toMatchObject({
+    const secondClaim = store.claimNext({ workerId: 'worker-b', leaseMs: 10_000 })
+    expect(
+      store.fail(secondClaim?.lease as JobLease, new Error('still unavailable'))
+    ).toMatchObject({
       willRetry: false,
       job: { state: 'failed', attempts: 2, completedAt: now.toISOString() }
     })
@@ -227,13 +257,13 @@ describe('JobStore', () => {
   it('does not retry an explicitly non-retryable error', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'import.validate', payload: { fileId: 'file-1' } }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
+    store.enqueue({ type: 'import.validate', payload: { fileId: 'file-1' } })
+    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     const error = Object.assign(new Error('invalid input'), {
       retryable: false,
       code: 'invalid_input'
     })
-    expect(store.fail(job.jobId, 'worker-a', error)).toMatchObject({
+    expect(store.fail(claimed?.lease as JobLease, error)).toMatchObject({
       willRetry: false,
       job: { state: 'failed', error: { code: 'invalid_input', retryable: false } }
     })
@@ -280,8 +310,7 @@ describe('JobStore', () => {
     expect(reopened.require(recoverable.jobId)).toMatchObject({ state: 'queued', attempts: 1 })
     expect(reopened.require(cancelled.jobId).state).toBe('cancelled')
     expect(reopened.claimNext({ workerId: 'replacement-worker', leaseMs: 1_000 })).toMatchObject({
-      jobId: recoverable.jobId,
-      attempts: 2
+      job: { jobId: recoverable.jobId, attempts: 2 }
     })
     reopenedDatabase.close()
   })
@@ -290,9 +319,346 @@ describe('JobStore', () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
     const job = store.enqueue({ type: 'mineru.poll', payload: { importId: 'import-2' } }).job
-    store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
-    expect(store.pause(job.jobId, 'worker-a').state).toBe('paused')
+    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
+    expect(store.pause(claimed?.lease as JobLease).state).toBe('paused')
     expect(store.resume(job.jobId).state).toBe('queued')
+    database.close()
+  })
+
+  it('treats a lease token and attempt as a claim-scoped capability', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let now = new Date('2026-07-15T05:00:00.000Z')
+    let token = 0
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      now: () => now,
+      createLeaseToken: () => `lease-${++token}`
+    })
+    const job = store.enqueue({ type: 'index.rebuild', payload: { generationId: 'g-1' } }).job
+    const oldClaim = store.claimNext({ workerId: 'same-worker', leaseMs: 1_000 })
+    expect(store.require(job.jobId).leaseOwner).toBe('same-worker')
+
+    now = new Date('2026-07-15T05:00:01.000Z')
+    for (const operation of [
+      () => store.heartbeat(oldClaim?.lease as JobLease, 1_000),
+      () => store.complete(oldClaim?.lease as JobLease),
+      () => store.fail(oldClaim?.lease as JobLease, null),
+      () => store.pause(oldClaim?.lease as JobLease),
+      () => store.acknowledgeCancellation(oldClaim?.lease as JobLease)
+    ]) {
+      expect(operation).toThrow(JobOwnershipError)
+    }
+
+    expect(store.recoverExpiredLeases()).toEqual({ recovered: 1, cancelled: 0, failed: 0 })
+    const newClaim = store.claimNext({ workerId: 'same-worker', leaseMs: 1_000 })
+    expect(newClaim?.lease).toMatchObject({ leaseToken: 'lease-2', attempt: 2 })
+    expect(() => store.complete(oldClaim?.lease as JobLease)).toThrow(JobOwnershipError)
+    expect(store.complete(newClaim?.lease as JobLease).state).toBe('succeeded')
+    database.close()
+  })
+
+  it('archives arbitrary failures without persisting untrusted messages', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const loggedErrors: unknown[] = []
+    const log = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn((fields: { err?: unknown }) => loggedErrors.push(fields.err))
+    }
+    let sequence = 0
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('getter secret')
+        }
+      }
+    )
+    const failures: unknown[] = [
+      new Error(''),
+      { code: '', message: '' },
+      null,
+      42,
+      'Authorization: Bearer secret-token /Users/private signed=https://example.test?a=token',
+      hostile,
+      { message: `${'中文😀'.repeat(4_000)}\ud800` }
+    ]
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log,
+      createId: () => `failure-${++sequence}`,
+      createLeaseToken: () => `failure-lease-${sequence}`,
+      classifyFailure: () => ({ code: 'job_execution_failed', retryable: false })
+    })
+
+    for (const failure of failures) {
+      const job = store.enqueue({
+        type: 'embedding.batch',
+        payload: { batchId: `batch-${sequence + 1}` }
+      }).job
+      const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+      const result = store.fail(claim?.lease as JobLease, failure)
+      expect(result.job).toMatchObject({
+        jobId: job.jobId,
+        state: 'failed',
+        error: {
+          code: 'job_execution_failed',
+          message: 'Job execution failed',
+          retryable: false
+        }
+      })
+      const persisted = database.immediate(
+        (native) =>
+          native
+            .prepare('SELECT error_json FROM jobs WHERE job_id = ?')
+            .pluck()
+            .get(job.jobId) as string
+      )
+      expect(Buffer.byteLength(persisted, 'utf8')).toBeLessThan(8_192)
+      expect(persisted).not.toContain('secret-token')
+      expect(persisted).not.toContain('/Users/private')
+    }
+    for (const failure of failures) expect(loggedErrors.includes(failure)).toBe(true)
+    database.close()
+  })
+
+  it('falls back conservatively when failure classification throws', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const classifierError = new Error('classifier broke')
+    const errorLog = vi.fn()
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: { info: vi.fn(), warn: vi.fn(), error: errorLog },
+      classifyFailure: () => {
+        throw classifierError
+      }
+    })
+    store.enqueue({ type: 'mineru.poll', payload: { importId: 'import-classifier' } })
+    const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+
+    expect(store.fail(claim?.lease as JobLease, new Error('private failure'))).toMatchObject({
+      willRetry: false,
+      job: { state: 'failed', error: { code: 'job_execution_failed', retryable: false } }
+    })
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'queue.job.failure_classification_failed',
+        err: classifierError
+      }),
+      expect.any(String)
+    )
+    database.close()
+  })
+
+  it('still archives a hostile error when the logger serializer rejects it', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('hostile logger getter')
+        }
+      }
+    )
+    const throwingLog = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn((_fields: { err?: unknown }) => {
+        if (typeof _fields.err === 'object' && _fields.err !== null) {
+          Reflect.get(_fields.err, 'message')
+        }
+      })
+    }
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: throwingLog,
+      classifyFailure: () => ({ code: 'job_execution_failed', retryable: false })
+    })
+    store.enqueue({ type: 'import.validate', payload: { fileId: 'hostile-file' } })
+    const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+
+    expect(store.fail(claim?.lease as JobLease, hostile).job.state).toBe('failed')
+    expect(throwingLog.error).toHaveBeenCalledOnce()
+    expect(throwingLog.error.mock.calls[0]?.[0].err === hostile).toBe(true)
+    database.close()
+  })
+
+  it('validates type-specific payloads when reading portable database rows', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
+    const job = store.enqueue({ type: 'index.build', payload: { generationId: 'g-valid' } }).job
+    database.immediate((native) => {
+      native
+        .prepare('UPDATE jobs SET payload_json = ? WHERE job_id = ?')
+        .run(JSON.stringify({ generationId: 'g-valid', text: 'private body' }), job.jobId)
+    })
+
+    expect(() => store.require(job.jobId)).toThrow()
+    database.close()
+  })
+
+  it('persists material transitions atomically and keeps retry error history', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let now = new Date('2026-07-15T06:00:00.000Z')
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      now: () => now,
+      random: () => 0,
+      createLeaseToken: () => `lease-${now.getTime()}`
+    })
+    const job = store.enqueue({ type: 'index.build', payload: { generationId: 'audit-g' } }).job
+    const first = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    store.fail(first?.lease as JobLease, new Error('private retry message'))
+    now = new Date('2026-07-15T06:00:00.500Z')
+    const second = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    store.complete(second?.lease as JobLease)
+
+    expect(store.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
+      'enqueued',
+      'claimed',
+      'retry_scheduled',
+      'claimed',
+      'completed'
+    ])
+    expect(store.require(job.jobId).error).toBeNull()
+    expect(store.listTransitions(job.jobId)[2]).toMatchObject({
+      errorCode: 'job_execution_failed',
+      workerId: 'worker'
+    })
+
+    const rollbackJob = store.enqueue({
+      type: 'index.publish',
+      payload: { generationId: 'rollback-g' }
+    }).job
+    const rollbackClaim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    database.immediate((native) => {
+      native.exec(`
+        CREATE TRIGGER reject_job_transition
+        BEFORE INSERT ON job_transitions
+        BEGIN
+          SELECT RAISE(ABORT, 'transition rejected');
+        END;
+      `)
+    })
+    expect(() => store.complete(rollbackClaim?.lease as JobLease)).toThrow('transition rejected')
+    expect(store.require(rollbackJob.jobId).state).toBe('running')
+    database.close()
+  })
+
+  it('audits pause, resume, cancellation, and expired lease recovery in order', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let now = new Date('2026-07-15T07:00:00.000Z')
+    let token = 0
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      now: () => now,
+      createLeaseToken: () => `audit-lease-${++token}`
+    })
+    const job = store.enqueue({ type: 'mineru.poll', payload: { importId: 'audit-import' } }).job
+    const first = store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
+    store.pause(first?.lease as JobLease)
+    store.resume(job.jobId)
+    const second = store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
+    store.requestCancellation(job.jobId)
+    store.acknowledgeCancellation(second?.lease as JobLease)
+
+    const recovery = store.enqueue({
+      type: 'index.rebuild',
+      payload: { generationId: 'audit-recovery' }
+    }).job
+    store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
+    now = new Date('2026-07-15T07:00:01.000Z')
+    store.recoverExpiredLeases()
+
+    expect(store.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
+      'enqueued',
+      'claimed',
+      'paused',
+      'resumed',
+      'claimed',
+      'cancellation_requested',
+      'cancellation_acknowledged'
+    ])
+    expect(store.listTransitions(recovery.jobId).map(({ event }) => event)).toEqual([
+      'enqueued',
+      'claimed',
+      'lease_expired'
+    ])
+    database.close()
+  })
+
+  it('requeues project-close work without consuming another retry attempt', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let token = 0
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      createLeaseToken: () => `close-lease-${++token}`
+    })
+    const job = store.enqueue({
+      type: 'embedding.batch',
+      payload: { batchId: 'close-batch' },
+      maxAttempts: 1
+    }).job
+    const first = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+
+    expect(store.requeueForProjectClose(first?.lease as JobLease)).toMatchObject({
+      state: 'queued',
+      attempts: 1,
+      resumeSameAttempt: true
+    })
+    const resumed = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    expect(resumed).toMatchObject({ job: { attempts: 1, resumeSameAttempt: false } })
+    expect(resumed?.lease.leaseToken).not.toBe(first?.lease.leaseToken)
+    expect(() => store.complete(first?.lease as JobLease)).toThrow(JobOwnershipError)
+    store.complete(resumed?.lease as JobLease)
+    expect(store.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
+      'enqueued',
+      'claimed',
+      'project_close_requeued',
+      'claimed',
+      'completed'
+    ])
+    database.close()
+  })
+
+  it('does not let an ineligible queued row starve later claimable work', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let sequence = 0
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      createId: () => `starvation-${++sequence}`
+    })
+    const exhausted = store.enqueue({
+      type: 'index.build',
+      payload: { generationId: 'exhausted' },
+      priority: 100,
+      maxAttempts: 1
+    }).job
+    const eligible = store.enqueue({
+      type: 'index.build',
+      payload: { generationId: 'eligible' },
+      priority: 0
+    }).job
+    database.immediate((native) => {
+      native
+        .prepare('UPDATE jobs SET attempts = max_attempts WHERE job_id = ?')
+        .run(exhausted.jobId)
+    })
+
+    expect(store.claimNext({ workerId: 'worker', leaseMs: 10_000 })?.job.jobId).toBe(eligible.jobId)
     database.close()
   })
 })

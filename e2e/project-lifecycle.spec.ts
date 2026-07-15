@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, launchApp, test } from './fixtures'
@@ -62,6 +62,10 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     await expect(first.page.getByRole('menubar')).toBeVisible()
     await first.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
     await expect(first.page.getByText('Untitled section', { exact: true }).first()).toBeVisible()
+    const editor = first.page.locator('.bn-editor').first()
+    await expect(editor).toBeVisible()
+    await editor.click()
+    await first.page.keyboard.type('Close flush persistence')
     const firstAlphaSession = await first.page.evaluate(
       async () => (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
     )
@@ -90,6 +94,36 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
       }, firstAlphaSession as string)
     ).resolves.toBe(true)
     await expect(first.page.getByRole('heading', { name: 'Alpha project' })).toBeVisible()
+    await expect(first.page.locator('.bn-editor').first()).toContainText('Close flush persistence')
+    await first.page.getByRole('button', { name: 'Markdown', exact: true }).click()
+    await first.page.getByRole('button', { name: 'Native JSON', exact: true }).click()
+    const exportsDirectory = join(alpha, 'manuscript', 'exports')
+    await expect
+      .poll(async () => {
+        const names = await readdir(exportsDirectory)
+        return {
+          markdown: names.some((name) => name.endsWith('.md')),
+          native: names.some((name) => name.endsWith('.blocknote.json')),
+          temporary: names.some((name) => name.endsWith('.tmp'))
+        }
+      })
+      .toEqual({ markdown: true, native: true, temporary: false })
+    const exportNames = await readdir(exportsDirectory)
+    const markdownName = exportNames.find((name) => name.endsWith('.md'))
+    const nativeName = exportNames.find((name) => name.endsWith('.blocknote.json'))
+    expect(markdownName).toBeDefined()
+    expect(nativeName).toBeDefined()
+    await expect(
+      readFile(join(exportsDirectory, markdownName as string), 'utf8')
+    ).resolves.toContain('Close flush persistence')
+    await expect(readFile(join(exportsDirectory, nativeName as string), 'utf8')).resolves.toContain(
+      'Close flush persistence'
+    )
+    const materializations = await readdir(join(alpha, 'manuscript', 'sections'))
+    expect(materializations).toHaveLength(1)
+    await expect(
+      readFile(join(alpha, 'manuscript', 'sections', materializations[0] as string), 'utf8')
+    ).resolves.toContain('writellm-blocknote-section')
     await clickAndExpectProject(first.page, 'Switch project', 'Beta project')
     await expectWindowMaximized(first.app, false)
   } finally {

@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openAppDatabase } from '../app-db/connection'
 import { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import { JobStore } from '../jobs/job-store'
+import { JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
+import { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
@@ -146,6 +148,7 @@ describe('ProjectManager', () => {
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
+      createManuscriptService: () => ({ listSections: () => [] }) as never,
       lockOptions: { heartbeatIntervalMs: 0 },
       dependencies: {
         canonicalizeRoot: async () => {
@@ -402,6 +405,15 @@ describe('ProjectManager', () => {
         getCurrentRevision: async () => 'revision-1',
         flushEditors: async (_context, value) => {
           authorization = value
+          expect(manager.authorizeFinalFlush(value.projectSessionId, value.closingToken)).toBe(
+            _context
+          )
+          expect(() =>
+            manager.authorizeFinalFlush(value.projectSessionId, value.closingToken)
+          ).toThrow('not authorized')
+          expect(() =>
+            manager.authorizeFinalFlush(value.projectSessionId, crypto.randomUUID())
+          ).toThrow('not authorized')
         },
         verifyFinalEditorFlush: async (_context, value) => {
           verifiedAuthorization = value
@@ -416,6 +428,12 @@ describe('ProjectManager', () => {
     })
     expect(authorization?.closingToken).toMatch(/^[0-9a-f-]{36}$/)
     expect(verifiedAuthorization).toBe(authorization)
+    expect(() =>
+      manager.authorizeFinalFlush(
+        authorization?.projectSessionId ?? '',
+        authorization?.closingToken ?? ''
+      )
+    ).toThrow('not authorized')
     appDatabase.close()
 
     const timedOut = new ProjectManager({
@@ -497,6 +515,70 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('requeues runtime work on close and completes it once after reopen without spending an attempt', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'runtime-reopen')
+    let firstExecutions = 0
+    const firstRegistry = new JobHandlerRegistry()
+    firstRegistry.register('import.validate', async ({ signal }) => {
+      firstExecutions += 1
+      await new Promise<void>((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    })
+    const firstManager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      createRuntime: (options) =>
+        new ProjectRuntime({ ...options, registry: firstRegistry, pollIntervalMs: 5 })
+    })
+    const firstOpen = await firstManager.open(created.projectRoot)
+    const firstContext = firstManager.assertActiveSession(
+      firstOpen.activeProject?.projectSessionId as string
+    )
+    const job = firstContext.jobs.enqueue({
+      type: 'import.validate',
+      payload: { fileId: 'manager-runtime' },
+      maxAttempts: 1
+    }).job
+    firstContext.runtime.scheduler.wake()
+    await waitFor(() => firstContext.jobs.require(job.jobId).state === 'running')
+    await firstManager.close()
+    expect(firstExecutions).toBe(1)
+
+    let resumedExecutions = 0
+    const secondRegistry = new JobHandlerRegistry()
+    secondRegistry.register('import.validate', async () => {
+      resumedExecutions += 1
+    })
+    const secondManager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      createRuntime: (options) =>
+        new ProjectRuntime({ ...options, registry: secondRegistry, pollIntervalMs: 5 })
+    })
+    const reopened = await secondManager.open(created.projectRoot)
+    const secondContext = secondManager.assertActiveSession(
+      reopened.activeProject?.projectSessionId as string
+    )
+    await waitFor(() => secondContext.jobs.require(job.jobId).state === 'succeeded')
+    expect(secondContext.jobs.require(job.jobId).attempts).toBe(1)
+    expect(resumedExecutions).toBe(1)
+    expect(secondContext.jobs.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
+      'enqueued',
+      'claimed',
+      'project_close_requeued',
+      'claimed',
+      'completed'
+    ])
+    await secondManager.close()
+    appDatabase.close()
+  })
+
   it('updates recent metadata by stable manifest ID after a project move', async () => {
     const { parent, appDatabase, recentProjects, manager } = await testEnvironment()
     const created = await existingProject(parent, 'original')
@@ -547,3 +629,11 @@ describe('ProjectManager', () => {
     expect(manager.snapshot()).toEqual({ state: 'closed', activeProject: null })
   })
 })
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for project runtime state')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
