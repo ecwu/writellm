@@ -2,18 +2,33 @@ import type { BlockNoteDocument, SectionRevision } from '../../../../shared/cont
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
 import { AlertCircle, Check, Download, LoaderCircle, Upload } from 'lucide-react'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 
-type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
+export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
-export function SectionEditor(props: {
-  projectSessionId: string
-  revision: SectionRevision
-  onRevision(revision: SectionRevision): void
-}): React.JSX.Element {
+export interface EditorSelectionContext {
+  activeBlockId: string
+  selectedBlockIds: string[]
+}
+
+export interface SectionEditorHandle {
+  flush(): Promise<void>
+  finalFlush(request: { projectSessionId: string; closingToken: string }): Promise<void>
+}
+
+export const SectionEditor = forwardRef<
+  SectionEditorHandle,
+  {
+    projectSessionId: string
+    revision: SectionRevision
+    onRevision(revision: SectionRevision): void
+    onSaveStateChange?(state: SaveState): void
+    onSelectionContextChange?(context: EditorSelectionContext): void
+  }
+>(function SectionEditor(props, ref): React.JSX.Element {
   const initialContent =
     props.revision.content.length === 0
       ? [
@@ -31,16 +46,27 @@ export function SectionEditor(props: {
         ]
       : (props.revision.content as ApprovedEditorBlock[])
   const editor = useCreateBlockNote({ schema: approvedEditorSchema, initialContent })
-  const [saveState, setSaveState] = useState<SaveState>('clean')
+  const [saveState, setSaveState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
   const baseRef = useRef(props.revision)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const runningRef = useRef<Promise<void> | null>(null)
   const replacingImportedDocumentRef = useRef(false)
+  const saveBlockedRef = useRef(false)
+
+  useEffect(() => {
+    props.onSaveStateChange?.(saveState)
+  }, [props.onSaveStateChange, saveState])
 
   const save = async (closingToken?: string): Promise<void> => {
-    if (runningRef.current !== null) await runningRef.current
+    if (runningRef.current !== null) {
+      try {
+        await runningRef.current
+      } catch (error) {
+        if (closingToken === undefined) throw error
+      }
+    }
     if (!dirtyRef.current && closingToken === undefined) return
 
     const operation = (async () => {
@@ -55,19 +81,26 @@ export function SectionEditor(props: {
           baseContentHash: base.contentHash,
           document: JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument
         }
+        let conflict = false
         try {
-          const result =
+          const response =
             closingToken === undefined
               ? await window.desktop.editor.saveSectionDocument(input)
               : await window.desktop.editor.finalFlushSave({ ...input, closingToken })
+          if (!response.ok) {
+            conflict = true
+            throw new Error(response.error.message)
+          }
+          const result = response.result
           baseRef.current = result.revision
+          saveBlockedRef.current = false
           props.onRevision(result.revision)
           setSaveState(
             result.disposition === 'saved_materialization_pending' ? 'mirror-pending' : 'saved'
           )
         } catch (error) {
           dirtyRef.current = true
-          const conflict = String(error).toLowerCase().includes('section body has changed')
+          saveBlockedRef.current = true
           setSaveState(conflict ? 'conflict' : 'failed')
           throw error
         }
@@ -81,37 +114,39 @@ export function SectionEditor(props: {
     }
   }
 
-  const handleFlush = useEffectEvent(
-    async (request: { projectSessionId: string; closingToken: string }): Promise<void> => {
-      setReadOnly(true)
+  useEffect(() => {
+    return () => {
       if (timerRef.current !== undefined) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => editor.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [editor])
+
+  useImperativeHandle(ref, () => ({
+    async flush() {
+      if (timerRef.current !== undefined) {
+        clearTimeout(timerRef.current)
+        timerRef.current = undefined
+      }
+      await save()
+    },
+    async finalFlush(request) {
+      setReadOnly(true)
+      if (timerRef.current !== undefined) {
+        clearTimeout(timerRef.current)
+        timerRef.current = undefined
+      }
       await save(request.closingToken)
       await window.desktop.editor.acknowledgeFlush({
         ...request,
+        sectionId: baseRef.current.sectionId,
         sectionRevisionId: baseRef.current.sectionRevisionId
       })
     }
-  )
-
-  useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
-    void window.desktop.editor
-      .subscribeFlush({ projectSessionId: props.projectSessionId }, (request) => {
-        if (disposed) return
-        void handleFlush(request).catch(() => setSaveState('failed'))
-      })
-      .then((release) => {
-        if (disposed) release()
-        else unsubscribe = release
-      })
-      .catch(() => setSaveState('failed'))
-    return () => {
-      disposed = true
-      if (timerRef.current !== undefined) clearTimeout(timerRef.current)
-      unsubscribe?.()
-    }
-  }, [props.projectSessionId])
+  }))
 
   return (
     <div className='min-h-80'>
@@ -137,28 +172,32 @@ export function SectionEditor(props: {
                   editor.replaceBlocks(editor.document, blocks)
                   setSaveState('saving')
                   const document = JSON.parse(JSON.stringify(blocks)) as BlockNoteDocument
+                  let conflict = false
                   try {
-                    const result = await window.desktop.editor.importMarkdown({
+                    const response = await window.desktop.editor.importMarkdown({
                       projectSessionId: props.projectSessionId,
                       sectionId: base.sectionId,
                       baseRevisionId: base.sectionRevisionId,
                       baseContentHash: base.contentHash,
                       document
                     })
+                    if (!response.ok) {
+                      conflict = true
+                      throw new Error(response.error.message)
+                    }
+                    const result = response.result
                     baseRef.current = result.revision
+                    saveBlockedRef.current = false
                     props.onRevision(result.revision)
                     setSaveState(
                       result.disposition === 'saved_materialization_pending'
                         ? 'mirror-pending'
                         : 'saved'
                     )
-                  } catch (error) {
+                  } catch {
                     dirtyRef.current = true
-                    setSaveState(
-                      String(error).toLowerCase().includes('section body has changed')
-                        ? 'conflict'
-                        : 'failed'
-                    )
+                    saveBlockedRef.current = true
+                    setSaveState(conflict ? 'conflict' : 'failed')
                   }
                 })
                 .catch(() => setSaveState('failed'))
@@ -211,23 +250,85 @@ export function SectionEditor(props: {
             return
           }
           dirtyRef.current = true
+          if (saveBlockedRef.current) return
           setSaveState('clean')
           if (timerRef.current !== undefined) clearTimeout(timerRef.current)
           timerRef.current = setTimeout(() => void save().catch(() => undefined), 650)
         }}
+        onSelectionChange={() => {
+          const cursor = editor.getTextCursorPosition()
+          const selection = editor.getSelection()
+          props.onSelectionContextChange?.({
+            activeBlockId: cursor.block.id,
+            selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id]
+          })
+        }}
         className='min-h-72 py-6'
       />
       {saveState === 'conflict' && (
-        <p className='border-t px-4 py-3 text-sm text-destructive'>
-          This section changed elsewhere. Your local document is preserved and has not overwritten
-          the database version.
-        </p>
+        <div className='flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm text-destructive'>
+          <p>
+            This section changed elsewhere. Your local document is preserved and has not overwritten
+            the database version.
+          </p>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => {
+              void window.desktop.editor
+                .loadSection({
+                  projectSessionId: props.projectSessionId,
+                  sectionId: baseRef.current.sectionId
+                })
+                .then((current) => {
+                  const replacement =
+                    current.revision.content.length === 0
+                      ? [
+                          {
+                            id: crypto.randomUUID(),
+                            type: 'paragraph' as const,
+                            props: {
+                              backgroundColor: 'default',
+                              textColor: 'default',
+                              textAlignment: 'left' as const
+                            },
+                            content: [],
+                            children: []
+                          }
+                        ]
+                      : (current.revision.content as ApprovedEditorBlock[])
+                  replacingImportedDocumentRef.current = true
+                  editor.replaceBlocks(editor.document, replacement)
+                  baseRef.current = current.revision
+                  dirtyRef.current = false
+                  saveBlockedRef.current = false
+                  props.onRevision(current.revision)
+                  setSaveState('saved')
+                })
+                .catch(() => setSaveState('failed'))
+            }}
+          >
+            Reload canonical version
+          </Button>
+        </div>
       )}
       {saveState === 'failed' && (
-        <p className='border-t px-4 py-3 text-sm text-destructive'>
-          The latest edit could not be fully saved or its project mirror needs repair. Keep this
-          editor open and retry by editing again.
-        </p>
+        <div className='flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm text-destructive'>
+          <p>
+            The latest edit could not be fully saved or its project mirror needs repair. Keep this
+            editor open and retry the save.
+          </p>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => {
+              saveBlockedRef.current = false
+              void save().catch(() => undefined)
+            }}
+          >
+            Retry save
+          </Button>
+        </div>
       )}
       {saveState === 'mirror-pending' && (
         <p className='border-t px-4 py-3 text-sm text-muted-foreground'>
@@ -237,7 +338,7 @@ export function SectionEditor(props: {
       )}
     </div>
   )
-}
+})
 
 function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
   const labels: Record<SaveState, string> = {

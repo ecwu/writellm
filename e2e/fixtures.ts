@@ -9,10 +9,13 @@ import {
 } from '@playwright/test'
 
 export const PROJECT_DIALOG_PATHS_ENV = 'WRITELLM_E2E_PROJECT_DIALOG_PATHS'
+export const KNOWLEDGE_DIALOG_PATHS_ENV = 'WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS'
 
 export interface AppLaunchOptions {
   userData: string
   dialogPaths?: string[]
+  knowledgeDialogPaths?: string[]
+  env?: Record<string, string>
 }
 
 export async function launchApp(options: AppLaunchOptions): Promise<{
@@ -24,8 +27,10 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
     cwd: process.cwd(),
     env: {
       ...process.env,
+      ...options.env,
       ELECTRON_RUN_AS_NODE: undefined,
-      [PROJECT_DIALOG_PATHS_ENV]: JSON.stringify(options.dialogPaths ?? [])
+      [PROJECT_DIALOG_PATHS_ENV]: JSON.stringify(options.dialogPaths ?? []),
+      [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? [])
     }
   })
   const page = await app.firstWindow()

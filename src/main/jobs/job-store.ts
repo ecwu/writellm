@@ -149,6 +149,12 @@ export interface ListJobsOptions {
   cursor?: { updatedAt: string; jobId: string }
 }
 
+export interface JobPayloadCancellationQuery {
+  types: readonly JobType[]
+  field: 'parseTaskId' | 'parseRevisionId'
+  values: readonly string[]
+}
+
 export class JobOwnershipError extends Error {
   constructor() {
     super('Job is not running under this active lease')
@@ -551,6 +557,27 @@ export class JobStore {
     )
     this.#emit(changed)
     return changed
+  }
+
+  requestCancellationForPayload(query: JobPayloadCancellationQuery): JobRecord[] {
+    if (query.types.length === 0 || query.values.length === 0) return []
+    const types = query.types.map((type) => jobTypeSchema.parse(type))
+    const typeClause = types.map(() => '?').join(', ')
+    const valueClause = query.values.map(() => '?').join(', ')
+    const path = `$.${query.field}`
+    const jobIds = this.#database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT job_id FROM jobs
+             WHERE type IN (${typeClause})
+               AND state IN ('queued', 'running', 'paused')
+               AND json_extract(payload_json, ?) IN (${valueClause})`
+          )
+          .pluck()
+          .all(...types, path, ...query.values) as string[]
+    )
+    return jobIds.map((jobId) => this.requestCancellation(jobId))
   }
 
   acknowledgeCancellation(lease: JobLease): JobRecord {

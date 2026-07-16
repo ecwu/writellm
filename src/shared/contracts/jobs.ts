@@ -14,9 +14,12 @@ export const jobTypeDtoSchema = z.enum([
   'embedding.batch',
   'import.validate',
   'index.build',
+  'index.item-delete',
+  'index.item-upsert',
   'index.publish',
   'index.rebuild',
   'mineru.download',
+  'mineru.normalize',
   'mineru.poll',
   'mineru.submit',
   'rerank.request'

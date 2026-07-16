@@ -229,11 +229,11 @@ describe('project snapshots', () => {
     const newerDatabase = new Database(newer)
     newerDatabase
       .prepare(
-        "INSERT INTO schema_migrations VALUES (8, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
+        "INSERT INTO schema_migrations VALUES (12, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
       )
       .run()
-    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 8').run()
-    newerDatabase.pragma('user_version = 8')
+    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 12').run()
+    newerDatabase.pragma('user_version = 12')
     newerDatabase.close()
     await expect(
       restoreProjectDatabase({

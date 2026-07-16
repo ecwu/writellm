@@ -41,6 +41,29 @@ afterEach(async () => {
 })
 
 describe('JobStore', () => {
+  it('cancels jobs by a bounded parse reference without scanning renderer-visible jobs', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
+    const target = store.enqueue({
+      type: 'mineru.submit',
+      payload: { parseTaskId: 'parse-target' }
+    }).job
+    const other = store.enqueue({
+      type: 'mineru.submit',
+      payload: { parseTaskId: 'parse-other' }
+    }).job
+
+    expect(
+      store.requestCancellationForPayload({
+        types: ['mineru.submit', 'mineru.poll', 'mineru.download'],
+        field: 'parseTaskId',
+        values: ['parse-target']
+      })
+    ).toEqual([expect.objectContaining({ jobId: target.jobId, state: 'cancelled' })])
+    expect(store.require(other.jobId).state).toBe('queued')
+    database.close()
+  })
+
   it('stores bounded reference payloads and rejects private or heavyweight values', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
@@ -48,13 +71,13 @@ describe('JobStore', () => {
     expect(
       store.enqueue({
         type: 'mineru.submit',
-        payload: { knowledgeItemId: 'item-1', relativePath: 'knowledge/originals/file.pdf' }
+        payload: { parseTaskId: 'parse-1' }
       }).job.payload
-    ).toEqual({ knowledgeItemId: 'item-1', relativePath: 'knowledge/originals/file.pdf' })
+    ).toEqual({ parseTaskId: 'parse-1' })
     expect(() =>
       store.enqueue({
         type: 'mineru.submit',
-        payload: { knowledgeItemId: 'item-1', relativePath: '/private/source.pdf' }
+        payload: { parseTaskId: 'parse-1', absolutePath: '/private/source.pdf' }
       })
     ).toThrow()
     for (const relativePath of [
@@ -69,7 +92,7 @@ describe('JobStore', () => {
       expect(() =>
         store.enqueue({
           type: 'mineru.submit',
-          payload: { knowledgeItemId: 'item-1', relativePath }
+          payload: { parseTaskId: 'parse-1', relativePath }
         })
       ).toThrow()
     }
@@ -78,8 +101,7 @@ describe('JobStore', () => {
         store.enqueue({
           type: 'mineru.submit',
           payload: {
-            knowledgeItemId: 'item-1',
-            relativePath: 'knowledge/source.pdf',
+            parseTaskId: 'parse-1',
             [forbidden]: 'private'
           }
         })
@@ -130,7 +152,7 @@ describe('JobStore', () => {
   it('atomically prevents two database connections from claiming one job', async () => {
     const { root, database, projectManifest } = await createDatabase()
     const first = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    first.enqueue({ type: 'mineru.poll', payload: { importId: 'import-1' } })
+    first.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-1' } })
     const secondDatabase = await openProjectDatabase({
       projectRoot: root,
       manifest: projectManifest,
@@ -229,7 +251,7 @@ describe('JobStore', () => {
     })
     store.enqueue({
       type: 'mineru.download',
-      payload: { parseRevisionId: 'revision-1' },
+      payload: { parseTaskId: 'parse-1' },
       maxAttempts: 2
     })
     const firstClaim = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
@@ -286,7 +308,7 @@ describe('JobStore', () => {
     }).job
     const cancelled = beforeClose.enqueue({
       type: 'mineru.poll',
-      payload: { importId: 'import-1' }
+      payload: { parseTaskId: 'parse-1' }
     }).job
     beforeClose.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
     beforeClose.claimNext({ workerId: 'closing-worker', leaseMs: 1_000 })
@@ -318,7 +340,7 @@ describe('JobStore', () => {
   it('supports an explicit pause and resume transition', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'mineru.poll', payload: { importId: 'import-2' } }).job
+    const job = store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-2' } }).job
     const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     expect(store.pause(claimed?.lease as JobLease).state).toBe('paused')
     expect(store.resume(job.jobId).state).toBe('queued')
@@ -437,7 +459,7 @@ describe('JobStore', () => {
         throw classifierError
       }
     })
-    store.enqueue({ type: 'mineru.poll', payload: { importId: 'import-classifier' } })
+    store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-classifier' } })
     const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
 
     expect(store.fail(claim?.lease as JobLease, new Error('private failure'))).toMatchObject({
@@ -563,7 +585,7 @@ describe('JobStore', () => {
       now: () => now,
       createLeaseToken: () => `audit-lease-${++token}`
     })
-    const job = store.enqueue({ type: 'mineru.poll', payload: { importId: 'audit-import' } }).job
+    const job = store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'audit-parse' } }).job
     const first = store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
     store.pause(first?.lease as JobLease)
     store.resume(job.jobId)

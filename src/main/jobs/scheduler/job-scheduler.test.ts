@@ -125,7 +125,7 @@ describe('JobScheduler', () => {
     })
     const job = jobs.enqueue({
       type: 'mineru.submit',
-      payload: { knowledgeItemId: 'item', relativePath: 'knowledge/source.pdf' }
+      payload: { parseTaskId: 'parse-item' }
     }).job
     const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
     scheduler.start()
@@ -268,7 +268,7 @@ describe('JobScheduler', () => {
     )
     const job = jobs.enqueue({
       type: 'mineru.submit',
-      payload: { knowledgeItemId: 'late', relativePath: 'knowledge/late.pdf' }
+      payload: { parseTaskId: 'parse-late' }
     }).job
     const scheduler = new JobScheduler({
       jobs,

@@ -1,0 +1,91 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import pino from 'pino'
+import { afterEach, describe, expect, it } from 'vitest'
+import { openAppDatabase, type AppDatabase } from '../app-db/connection'
+import { CredentialService, type SafeStorageAdapter } from './credential-service'
+import { MainPiCredentialStore } from './pi-credential-store'
+
+const directories: string[] = []
+const log = pino({ level: 'silent' })
+
+class FakeSafeStorage implements SafeStorageAdapter {
+  isEncryptionAvailable(): boolean {
+    return true
+  }
+  encryptString(value: string): Buffer {
+    return Buffer.from(Buffer.from(value).map((byte) => byte ^ 0xa5))
+  }
+  decryptString(value: Buffer): string {
+    return Buffer.from(value.map((byte) => byte ^ 0xa5)).toString()
+  }
+  getSelectedStorageBackend(): string {
+    return 'kwallet6'
+  }
+}
+
+async function database(): Promise<AppDatabase> {
+  const directory = await mkdtemp(join(tmpdir(), 'writellm-pi-credentials-'))
+  directories.push(directory)
+  const database = await openAppDatabase({
+    path: join(directory, 'app.sqlite'),
+    applicationVersion: 'test',
+    log
+  })
+  await database.kysely
+    .insertInto('provider_configs')
+    .values({
+      id: 'agent',
+      provider: 'openai-compatible',
+      config_json: '{}',
+      created_at: '2026-07-16T00:00:00.000Z',
+      updated_at: '2026-07-16T00:00:00.000Z'
+    })
+    .execute()
+  return database
+}
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true })))
+})
+
+describe('MainPiCredentialStore', () => {
+  it('implements serialized read-modify-write through encrypted app storage', async () => {
+    const appDatabase = await database()
+    const credentialService = new CredentialService(
+      appDatabase,
+      new FakeSafeStorage(),
+      log,
+      'linux'
+    )
+    const store = new MainPiCredentialStore(credentialService)
+    expect(await store.read('openai-compatible')).toBeUndefined()
+
+    await store.modify('openai-compatible', async () => ({ type: 'api_key', key: 'first-key' }))
+    const observed: string[] = []
+    await Promise.all([
+      store.modify('openai-compatible', async (current) => {
+        observed.push(current?.type === 'api_key' ? (current.key ?? '') : '')
+        await Promise.resolve()
+        return { type: 'api_key', key: 'second-key' }
+      }),
+      store.modify('openai-compatible', async (current) => {
+        observed.push(current?.type === 'api_key' ? (current.key ?? '') : '')
+        return { type: 'api_key', key: 'third-key' }
+      })
+    ])
+    expect(observed).toEqual(['first-key', 'second-key'])
+    expect(await store.read('openai-compatible')).toEqual({ type: 'api_key', key: 'third-key' })
+    const persisted = await appDatabase.kysely
+      .selectFrom('encrypted_credentials')
+      .select('ciphertext')
+      .executeTakeFirstOrThrow()
+    expect(persisted.ciphertext).not.toContain('third-key')
+
+    await store.delete('openai-compatible')
+    expect(await store.read('openai-compatible')).toBeUndefined()
+    await expect(store.read('other-provider')).rejects.toThrow('not available')
+    appDatabase.close()
+  })
+})

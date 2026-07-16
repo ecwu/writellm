@@ -12,6 +12,9 @@ import {
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import { JobStore } from '../jobs/job-store'
+import { KnowledgeImportService } from '../knowledge/knowledge-import-service'
+import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
+import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import {
@@ -36,6 +39,10 @@ import {
 } from './project-lock'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
 import { restoreProjectDatabase } from './project-snapshot'
+import type { ProjectIndexService } from '../search/index-service'
+import type { RetrievalService } from '../search/retrieval-service'
+import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
+import { ProjectOperationRegistry } from './project-operations'
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -104,6 +111,21 @@ export interface ProjectManagerOptions {
   createManuscriptService?: (
     options: ConstructorParameters<typeof ManuscriptService>[0]
   ) => ManuscriptService
+  createKnowledgeRuntime?: (options: {
+    projectRoot: string
+    projectId: string
+    projectSessionId: string
+    database: ProjectDatabase
+    jobs: JobStore
+    log: Pick<Logger, 'info' | 'warn' | 'error'>
+  }) => {
+    mineruWorkflow: MineruWorkflowService
+    knowledgeNormalization: KnowledgeNormalizationService
+    projectIndex?: ProjectIndexService
+    retrieval?: RetrievalService
+    registry: ReturnType<typeof createProjectHandlerRegistry>
+    terminateWorkers?: () => void | Promise<void>
+  }
 }
 
 export interface CreateManagedProjectOptions {
@@ -131,6 +153,7 @@ export class ProjectManager {
   readonly #createManuscriptService: (
     options: ConstructorParameters<typeof ManuscriptService>[0]
   ) => ManuscriptService
+  readonly #createKnowledgeRuntime?: ProjectManagerOptions['createKnowledgeRuntime']
   #state: ProjectLifecycleState = 'closed'
   #context: ProjectContext | null = null
   #transition: Promise<void> = Promise.resolve()
@@ -150,6 +173,7 @@ export class ProjectManager {
       options.createRuntime ?? ((runtimeOptions) => new ProjectRuntime(runtimeOptions))
     this.#createManuscriptService =
       options.createManuscriptService ?? ((serviceOptions) => new ManuscriptService(serviceOptions))
+    this.#createKnowledgeRuntime = options.createKnowledgeRuntime
   }
 
   snapshot(): ProjectLifecycleSnapshot {
@@ -304,6 +328,7 @@ export class ProjectManager {
           this.#closeParticipants.stopJobClaims(context)
         )
       )
+      context.operations?.abortAll(new Error('Project is closing'))
       await attempt('project_manager.close.park_workers_failed', () =>
         context.runtime.park().then(() => this.#closeParticipants.parkWorkers(context))
       )
@@ -509,6 +534,7 @@ export class ProjectManager {
       })
       jobs.recoverExpiredLeases()
       const projectSessionId = this.#dependencies.randomUUID()
+      const operations = new ProjectOperationRegistry()
       const manuscript = this.#createManuscriptService({
         database,
         projectId: manifest.projectId,
@@ -522,26 +548,71 @@ export class ProjectManager {
         log: this.#logger
       })
       await editorPersistence.repairAll()
+      const knowledgeRuntime = this.#createKnowledgeRuntime?.({
+        projectRoot: canonicalRoot,
+        projectId: manifest.projectId,
+        projectSessionId,
+        database,
+        jobs,
+        log: this.#logger
+      })
+      const projectIndex = knowledgeRuntime?.projectIndex
+      const knowledgeImports = new KnowledgeImportService({
+        projectRoot: canonicalRoot,
+        projectId: manifest.projectId,
+        database,
+        log: this.#logger,
+        onStored:
+          knowledgeRuntime === undefined
+            ? undefined
+            : async (item) => {
+                try {
+                  await knowledgeRuntime.mineruWorkflow.start(item.knowledgeItemId)
+                } catch (err) {
+                  this.#logger.error(
+                    {
+                      event: 'mineru.parse.auto_queue_failed',
+                      err,
+                      projectId: manifest.projectId,
+                      knowledgeItemId: item.knowledgeItemId
+                    },
+                    'Failed to queue MinerU parse after knowledge import'
+                  )
+                }
+              },
+        onDeleted:
+          projectIndex === undefined
+            ? undefined
+            : async (knowledgeItemId) => projectIndex.requestItemDelete(knowledgeItemId)
+      })
       runtime = this.#createRuntime({
         projectId: manifest.projectId,
         projectSessionId,
         jobs,
-        registry: createProjectHandlerRegistry(),
-        log: this.#logger
+        registry: knowledgeRuntime?.registry ?? createProjectHandlerRegistry(),
+        log: this.#logger,
+        terminateWorkers: knowledgeRuntime?.terminateWorkers
       })
       const context: ProjectContext = {
         projectRoot: canonicalRoot,
         manifest,
         projectSessionId,
+        operations,
         displayName: projectDisplayName(canonicalRoot),
         indexRebuildRequired: await isIndexRebuildRequired(canonicalRoot, this.#logger),
         database,
         jobs,
         manuscript,
         editorPersistence,
+        knowledgeImports,
+        mineruWorkflow: knowledgeRuntime?.mineruWorkflow ?? null,
+        knowledgeNormalization: knowledgeRuntime?.knowledgeNormalization ?? null,
+        projectIndex: projectIndex ?? null,
+        retrieval: knowledgeRuntime?.retrieval ?? null,
         runtime,
         writeLock
       }
+      await projectIndex?.initialize()
       runtime.start()
       this.#context = context
       this.#state = 'open'
@@ -651,7 +722,20 @@ async function isIndexRebuildRequired(
   try {
     database = new Database(indexPath, { readonly: true, fileMustExist: true })
     const applicationId = database.pragma('application_id', { simple: true }) as number
-    return applicationId !== INDEX_DATABASE_APPLICATION_ID
+    const userVersion = database.pragma('user_version', { simple: true }) as number
+    const quickCheck = database.pragma('quick_check', { simple: true }) as string
+    if (
+      applicationId !== INDEX_DATABASE_APPLICATION_ID ||
+      userVersion !== INDEX_SCHEMA_VERSION ||
+      quickCheck !== 'ok'
+    ) {
+      return true
+    }
+    const active = database
+      .prepare("SELECT count(*) FROM index_generations WHERE state = 'active'")
+      .pluck()
+      .get() as number
+    return active !== 1
   } catch (err) {
     log.error(
       { event: 'project.index.compatibility_check_failed', err },

@@ -13,9 +13,11 @@ import {
   type DeleteSectionInput,
   type ManuscriptAssembly,
   type ManuscriptBrief,
+  type ManuscriptWorkspace,
   type MoveSectionInput,
   type Section,
   type SectionRevision,
+  type SectionRevisionSummary,
   type UpdateManuscriptBriefInput,
   type UpdateSectionInput,
   updateManuscriptBriefInputSchema,
@@ -79,12 +81,12 @@ export class ManuscriptService {
   }
 
   updateBrief(input: UpdateManuscriptBriefInput): ManuscriptBrief {
-    const parsed = updateManuscriptBriefInputSchema.parse(input)
-    const now = this.#now().toISOString()
-    const briefId = this.#createId()
     const startedAt = Date.now()
     try {
-      const extensibleJson = JSON.stringify(parsed.extensible)
+      const extensibleJson = JSON.stringify(input.extensible)
+      const parsed = updateManuscriptBriefInputSchema.parse(input)
+      const now = this.#now().toISOString()
+      const briefId = this.#createId()
       const row = this.#database.immediate((database) => {
         const manuscript = this.#primary(database)
         const current = this.#repository.latestBrief(manuscript.manuscript_id, database)
@@ -536,7 +538,7 @@ export class ManuscriptService {
   }
 
   assemble(): ManuscriptAssembly {
-    return this.#database.immediate((database) => {
+    const snapshot = this.#database.immediate((database) => {
       const manuscript = this.#primary(database)
       const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
       if (brief === undefined) throw new Error('Primary manuscript brief is missing')
@@ -545,17 +547,49 @@ export class ManuscriptService {
       ).map((section) => {
         const revision = this.#repository.revision(section.current_revision_id, database)
         if (revision === undefined) throw new Error('Section current revision is missing')
-        return { section: sectionFromRow(section), revision: revisionFromRow(revision) }
+        return { section, revision }
       })
-      return {
-        manuscriptId: manuscript.manuscript_id,
-        outlineVersion: manuscript.outline_version,
-        brief: briefFromRow(brief),
-        sections,
-        wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
-        characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
-      }
+      return { manuscript, brief, sections }
     })
+    const sections = snapshot.sections.map(({ section, revision }) => ({
+      section: sectionFromRow(section),
+      revision: revisionFromRow(revision)
+    }))
+    return {
+      manuscriptId: snapshot.manuscript.manuscript_id,
+      outlineVersion: snapshot.manuscript.outline_version,
+      brief: briefFromRow(snapshot.brief),
+      sections,
+      wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
+      characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
+    }
+  }
+
+  getWorkspace(): ManuscriptWorkspace {
+    const snapshot = this.#database.immediate((database) => {
+      const manuscript = this.#primary(database)
+      const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
+      if (brief === undefined) throw new Error('Primary manuscript brief is missing')
+      const sections = orderOutline(
+        this.#repository.sections(manuscript.manuscript_id, database)
+      ).map((section) => {
+        const revision = this.#repository.revision(section.current_revision_id, database)
+        if (revision === undefined) throw new Error('Section current revision is missing')
+        return { section, revision }
+      })
+      return { manuscript, brief, sections }
+    })
+    const sections = snapshot.sections.map(({ section, revision }) => {
+      return { section: sectionFromRow(section), revision: revisionSummaryFromRow(revision) }
+    })
+    return {
+      manuscriptId: snapshot.manuscript.manuscript_id,
+      outlineVersion: snapshot.manuscript.outline_version,
+      brief: briefFromRow(snapshot.brief),
+      sections,
+      wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
+      characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
+    }
   }
 
   #primary(database?: Database.Database): ManuscriptTable {
@@ -627,6 +661,25 @@ function revisionFromRow(row: SectionRevisionTable): SectionRevision {
     revisionNumber: row.revision_number,
     source: row.source,
     content: blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
+    contentSchemaVersion: 1,
+    contentHash: row.content_hash,
+    priorRevisionId: row.prior_revision_id,
+    wordCount: row.word_count,
+    characterCount: row.character_count,
+    countAlgorithmVersion: 1,
+    agentRunId: row.agent_run_id,
+    agentToolCallId: row.agent_tool_call_id,
+    agentProposalId: row.agent_proposal_id,
+    createdAt: row.created_at
+  }
+}
+
+function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSummary {
+  return {
+    sectionRevisionId: row.section_revision_id,
+    sectionId: row.section_id,
+    revisionNumber: row.revision_number,
+    source: row.source,
     contentSchemaVersion: 1,
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,

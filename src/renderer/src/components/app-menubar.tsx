@@ -17,6 +17,7 @@ interface AppMenubarProps {
   onCreate: () => void
   onOpen: () => void
   onSwitch: () => void
+  onSave: () => void
   onClose: () => void
   onOpenSettings: () => void
   onOpenLogs: () => void
@@ -29,6 +30,7 @@ export function AppMenubar({
   onCreate,
   onOpen,
   onSwitch,
+  onSave,
   onClose,
   onOpenSettings,
   onOpenLogs
@@ -52,9 +54,9 @@ export function AppMenubar({
               <FolderSync /> Switch project
             </MenubarItem>
             <MenubarSeparator />
-            <MenubarItem disabled={!hasProject}>
+            <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
               <Save /> Save
-              <MenubarShortcut>Unavailable</MenubarShortcut>
+              <MenubarShortcut>⌘S</MenubarShortcut>
             </MenubarItem>
             <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
               <FileText /> Close project

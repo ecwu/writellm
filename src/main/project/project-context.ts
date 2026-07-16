@@ -1,17 +1,24 @@
 import type { ActiveProject, ProjectSessionId } from '../../shared/contracts/projects'
 import type { JobStore } from '../jobs/job-store'
+import type { KnowledgeImportService } from '../knowledge/knowledge-import-service'
+import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
+import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
 import type { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
+import type { ProjectIndexService } from '../search/index-service'
+import type { RetrievalService } from '../search/retrieval-service'
 import type { ProjectDatabase } from './project-database'
 import type { ProjectManifest } from './project-manifest'
 import type { ProjectWriteLock } from './project-lock'
+import type { ProjectOperationRegistry } from './project-operations'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
   readonly projectRoot: string
   readonly manifest: ProjectManifest
   readonly projectSessionId: ProjectSessionId
+  readonly operations?: ProjectOperationRegistry
   readonly displayName: string
   readonly indexRebuildRequired: boolean
   readonly database: ProjectDatabase
@@ -19,6 +26,11 @@ export interface ProjectContext {
   readonly runtime: ProjectRuntime
   readonly manuscript: ManuscriptService
   readonly editorPersistence: EditorPersistenceService
+  readonly knowledgeImports: KnowledgeImportService
+  readonly mineruWorkflow: MineruWorkflowService | null
+  readonly knowledgeNormalization: KnowledgeNormalizationService | null
+  readonly projectIndex: ProjectIndexService | null
+  readonly retrieval: RetrievalService | null
   readonly writeLock: ProjectWriteLock
 }
 

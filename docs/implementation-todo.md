@@ -1,7 +1,7 @@
 # WriteLLM v2 Implementation Todo
 
-Status: accepted implementation tracker  
-Recorded: 2026-07-15
+Status: accepted implementation tracker; Checkpoints 1 through 19 completed after audit remediation, CP19.5 pending
+Recorded: 2026-07-16
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -18,456 +18,76 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoints 1 through 10 are completed and verified, including the Checkpoint 7, Checkpoint 8, and Checkpoint 9 review hardening. Checkpoint 11 and all import-domain, search, and agent work remain out of scope without separate approval.
+Checkpoints 1 through 19 are functionally completed and verified after the 2026-07-16 audit remediation. The 2026-07-16 complexity-reduction audit is recorded in [the audit record](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 19.5 is the current mandatory gate; Checkpoint 20 remains not started and cannot begin until 19.5 passes and the user approves continuing. MinerU research must use only the official MinerU API documentation at https://mineru.net/apiManage/docs, never Context7.
 
-Checkpoint 7 review hardening is limited to claim-scoped lease capabilities, total and byte-bounded safe error normalization, a strict per-job-type reference payload registry, and durable transition auditing in `project.sqlite`. This work does not install p-queue or implement runtime scheduling, job IPC, or Checkpoint 8 project-close handling.
+The functional completion records for CP1–19 remain useful historical evidence. Where they describe encrypted signed URLs, broad durable queues, the original Agent tool/table set, 650 ms autosave, an 8D performance benchmark, `chokidar`, or the old worker/module layout, those statements are superseded by the CP19.5 audit and must not be extended.
 
-Checkpoint 5 completed the Main-owned project lifecycle, exclusive write lock, revocable project sessions, and portable create/open/close/switch boundary. Production uses Electron's single-instance lock and focuses the existing process on a second launch; the project lock remains defense in depth. The create protocol is manifest-last commit-marker publication, and close has an internal final-flush authorization boundary with a timeout.
+### Checkpoint 19.5: Complexity Reduction And Agent Boundary Freeze
 
-### Maintenance: Stable Default Window State
+- [ ] 19.5.1 Create the lean current-plan/ADR/history document entry points and mark superseded plan sections; update `AGENTS.md` reading rules without deleting historical evidence.
+- [ ] 19.5.2 Remove persisted MinerU signed/download URL capabilities; add migration/cleanup and snapshot absence checks.
+- [ ] 19.5.3 Restrict durable jobs to MinerU parse, normalization, index/embedding build, item removal, rebuild, and artifact cleanup; keep interactive requests request-scoped and abortable.
+- [ ] 19.5.4 Freeze the first Agent read/write tool set and reduce persistence to `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
+- [ ] 19.5.5 Add content-hash no-op detection, 1–2 second idle autosave, source classification, and background revision retention cleanup.
+- [ ] 19.5.6 Rename/fix the three worker roles and verify stale-message handling without provider-specific workers or a generic RPC layer.
+- [ ] 19.5.7 Reclassify the 8D vector test as correctness smoke and run representative 10k/50k/100k real-dimension benchmark coverage, including generation-build debounce evidence.
+- [ ] 19.5.8 Remove unused `chokidar` and duplicate atomic-write implementations; merge only confirmed forwarding/empty modules.
 
-- [x] Maximize each newly created application window once before its first display, remove project-lifecycle maximize/unmaximize calls, preserve subsequent user window adjustments, and cover the behavior in IPC and Electron E2E tests.
+Acceptance criteria: all eight audit items have source-level evidence, required migrations and cleanup are safe for existing projects, focused tests pass, structured lifecycle logs cover new boundaries, and no CP20 code starts before this gate is complete.
 
-Verification: Biome check passes with the pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 28 files and 141 tests; `electron-vite build` passes; and all 4 Playwright Electron E2E tests pass. The lifecycle E2E verifies startup maximization, manually restores the window, and proves create, close, reopen, switch, and recent-project open do not override that user adjustment.
+Maintenance fix completed: MinerU provider configuration now follows the official v4 contract and does not require a model revision; revision tracking remains limited to agent, embedding, and rerank providers. Legacy MinerU configurations are accepted without a database rewrite.
 
-## Phase 0: Baseline And Guardrails
+Maintenance fix completed: MinerU archive extraction accepts the documented Markdown/JSON/HTML and optional document export artifacts, preserves bounded extraction checks, and reports the rejected extension without logging a private archive path.
 
-- [x] Replace ESLint and Prettier with Biome for formatting and style checks, document the commands in `AGENTS.md`, and verify the repository.
-- [x] Record the original fixed architecture and technology choices.
-- [x] Add root agent instructions requiring architecture and todo review.
-- [x] Record the repository's initial gaps.
-- [x] Confirm initial foundation scope.
-- [x] Replace the architecture baseline with the accepted project-container revision after review.
-- [x] Replace the future implementation tracker with this accepted sequence after review.
+Maintenance fix completed: Parsed MinerU Markdown is rendered by the read-only `react-markdown`/`remark-gfm` viewer with shadcn typography utilities, and normalized image references are resolved through the session-authorized parsed-asset IPC before display.
 
-## Phase 1: Completed Security And Observability Foundations
+Maintenance fix completed: Parsed Markdown now supports sanitized raw HTML and KaTeX math (`remark-math`/`rehype-katex`), while the inline knowledge card has an explicit bounded scroll chain for long results.
 
-### Checkpoint 1: Secure Electron Foundation
+Maintenance fix completed: Markdown tables now use the shadcn Table primitives inside an independent horizontal overflow container, preventing wide tables from expanding the Parsed card.
 
-- [x] Align Electron to major 43 and electron-vite to stable 5.x.
-- [x] Enable sandboxed, isolated renderer settings.
-- [x] Remove broad Electron/IPC exposure.
-- [x] Add narrow typed preload APIs and shared contracts.
-- [x] Add sender, navigation, and external-URL authorization.
-- [x] Add custom production protocol and CSP.
-- [x] Add contract and authorization tests plus development and packaged smoke tests.
+Maintenance fix completed: KaTeX formulas inside parsed Markdown tables are represented as math AST nodes before `rehype-katex` rendering, preventing escaped KaTeX HTML in both GFM tables and raw HTML tables emitted by document parsers.
 
-Acceptance criteria: completed under the original tracker.
+Maintenance fix completed: MinerU Markdown fallback now copies and rewrites local image references into normalized manifest assets, and parsed-asset reads accept the bounded legacy source-path alias for already-published revisions.
 
-### Checkpoint 2: Structured Logging And Error Capture
+The detailed plan is split into 11 ordered Phase files plus one maintenance file. The existing checkpoint verification paragraphs and completion entries in the Decision Log are retained as historical records; they do not override the unchecked audit remediation items.
 
-- [x] Implement centralized Pino logging, rotation, retention, correlation, redaction, diagnostics APIs, utility-process aggregation, renderer error reports, and fatal handling.
-- [x] Prove Error stack/cause preservation and packaged transport startup.
+## How To Read This Tracker
 
-Acceptance criteria: completed under the original tracker.
+1. Read this file first for the current gate, phase order, checkpoint status, and Decision Log.
+2. Read `docs/architecture.md`, the [audit record](audits/2026-07-16-complexity-reduction-and-agent-boundary.md), and only the Phase/ADR material directly related to the current item.
+3. Treat historical verification and older Phase details as evidence, not as permission to extend superseded designs.
+4. Do not start a later Phase or Checkpoint until the current one passes its acceptance criteria and the user approves continuing.
 
-## Phase 2: Completed Database Primitives
+## Plan File Inventory
 
-### Checkpoint 3: SQLite Connection And Migration Primitives
+There are 13 planning files in total: this overview, 11 Phase detail files, and one maintenance detail file. The 11 Phase files contain 26 Checkpoints.
 
-- [x] Install better-sqlite3, Kysely, and types.
-- [x] Implement required pragmas and short transaction helpers.
-- [x] Implement statically packaged forward-only migrations and schema manifests.
-- [x] Add fresh-create, sequential-upgrade, failure rollback, and foreign-key tests.
-- [x] Add database lifecycle logging and packaged migration smoke tests.
+| Phase | Detail file | Main purpose | Checkpoints | Current status |
+| --- | --- | --- | --- | --- |
+| 0 | [phase-0.md](implementation-todo/phase-0.md) | Baseline and guardrails | None | Completed |
+| 1 | [phase-1.md](implementation-todo/phase-1.md) | Secure Electron, logging, and error capture | 1–2 | Completed |
+| 2 | [phase-2.md](implementation-todo/phase-2.md) | SQLite connection and migration primitives | 3 | Completed |
+| 3 | [phase-3.md](implementation-todo/phase-3.md) | Project container, lifecycle, backup, restore, and snapshots | 4–6 | Completed |
+| 4 | [phase-4.md](implementation-todo/phase-4.md) | Project-local durable jobs and scheduler | 7–8 | Completed |
+| 5 | [phase-5.md](implementation-todo/phase-5.md) | Manuscript, BlockNote, and writing workspace | 9–11 | Completed |
+| 6 | [phase-6.md](implementation-todo/phase-6.md) | Knowledge import, providers, and model gateways | 12–14 | Completed |
+| 7 | [phase-7.md](implementation-todo/phase-7.md) | MinerU submission, normalization, and parsed viewer | 15–16 | Completed |
+| 8 | [phase-8.md](implementation-todo/phase-8.md) | Indexing, embeddings, and hybrid retrieval | 17–19 | Completed |
+| 9 | [phase-9.md](implementation-todo/phase-9.md) | Pi writing agent | 20–23 | Not started |
+| 10 | [phase-10.md](implementation-todo/phase-10.md) | Export, packaging, and release confidence | 24–26 | Not started |
 
-Acceptance criteria: completed under the original tracker. The primitives are accepted; the database ownership model is revised by Checkpoint 4.
+| Maintenance | [maintenance.md](implementation-todo/maintenance.md) | Cross-cutting window-state maintenance | — | Completed |
 
-## Phase 3: Project Container And Recovery Boundary
+## Status Rules
 
-### Checkpoint 4: Split Application And Project Database Roles
-
-- [x] Add an application-global `app.sqlite` connection under Electron `userData`.
-- [x] Limit `app.sqlite` schema to application settings, recent projects, provider configuration metadata, encrypted credential records, and app schema metadata.
-- [x] Refactor the existing authoritative connection code into a parameterized `ProjectDatabase` opened from `<ProjectRoot>/.writellm/project.sqlite`.
-- [x] Remove or prevent project/manuscript/knowledge/job tables from the global application database.
-- [x] Define and validate the `writellm.project.json` manifest schema with stable `projectId` and `formatVersion`.
-- [x] Add the singleton project row and require its `projectId` to match the manifest.
-- [x] Define the initial project directory constants and project-relative path normalization rules.
-- [x] Ensure no project table or job payload stores an absolute path; Checkpoint 4 creates only the path-free singleton project row, and future project tables/jobs must use the validated project-relative path boundary.
-- [x] Add migration handling for the current development `core.sqlite` state; unreleased development files are explicitly quarantined with a `.development-reset` suffix rather than reinterpreted as application state.
-- [x] Add lifecycle events for app database open/migrate and project database open/migrate with distinct `databaseRole` fields.
-- [x] Test app/project isolation, manifest/database ID mismatch, unsupported manifest versions, and Unicode project roots.
-
-Acceptance criteria: completed and verified. A real Electron startup created and migrated `app.sqlite` without a project; isolated Unicode project roots created separate `project.sqlite` databases; the app schema contains no project tables; and identity mismatch is rejected before a project database handle is returned. Verification: `pnpm check`, `pnpm typecheck`, 46 Vitest tests, `pnpm build`, and an isolated-userData Electron runtime smoke.
-
-### Checkpoint 5: Project Create, Open, Close, Switch, And Lock
-
-- [x] Implement `ProjectManager` states: closed, creating, opening, open, closing, and recovery-required.
-- [x] Implement named project creation into a new `<name>.writellm` child of a Main-selected parent directory, plus existing-project folder selection through Main-owned dialogs.
-- [x] Replace empty-destination adoption with validated project names and creation of a new `<name>.writellm` child; keep clean pre-publication failures retryable in the same app session.
-- [x] Create the complete staged project directory layout and atomically publish a valid new project.
-- [x] Create the initial project, manuscript, writing brief, and first section records.
-- [x] Implement a cross-platform project write lock with owner token, process/host metadata, heartbeat, and stale-lock recovery policy.
-- [x] Reject concurrent writable opens from a second application instance.
-- [x] Generate a new opaque `projectSessionId` on every successful open.
-- [x] Require the active `projectSessionId` on every active-project IPC subscription and mutation.
-- [x] Reject delayed results and requests from a closed or previously active project at the core manager boundary.
-- [x] Implement ordered close: block new mutations, request editor flush, stop claims, park/abort workers, close databases, release lock, revoke session.
-- [x] Implement project switch strictly as close-then-open.
-- [x] Store only recent project pointers and display metadata in `app.sqlite`.
-- [x] Expose up to five recent project pointers on the startup screen and open them by opaque project ID.
-- [x] Handle moved/renamed projects by stable manifest ID rather than absolute-path identity.
-- [x] Maximize each newly created application window once by default without coupling window state to project open, close, or switch transitions.
-- [x] Add built-app E2E coverage for create, reopen, switch, app restart, moved project, lock contention, and stale IPC, plus deterministic integration coverage for stale-lock recovery.
-- [x] Replace the temporary renderer with the approved shadcn/ui `new-york` application shell: global Menubar, `sidebar-09` workspace, and an anywhere-accessible Command settings surface while preserving project lifecycle behavior.
-
-Checkpoint 5 verification now includes built-app Playwright Electron coverage for real renderer/preload/Main create, close/reopen, switch, recent-project startup listing and direct reopen, moved-root stable manifest identity, stale IPC session rejection, and live lock contention across two application processes with isolated `userData`. Deterministic integration tests retain explicit observed-owner stale-lock recovery, owner-change races, delayed-result/session rejection, immediate closing authority revocation, ordered close participants, recovery-required cleanup, and moved-project recent-pointer updates. Stale-lock recovery remains outside E2E because no user-facing explicit recovery workflow exists yet; E2E also does not claim automatic startup reopen or packaged-artifact coverage.
-
-The renderer shell refresh is verified with the official shadcn/ui `new-york` generated components, Tailwind CSS 4, a persistent Menubar in closed and active-project states, `sidebar-09`-style nested sidebars, and a global Command settings surface. Named creation validates a renderer-provided project name and its UTF-8 filesystem component length at the preload and Main boundaries, lets Main select an arbitrary parent directory, exclusively reserves a new `<name>.writellm` child without replacing a directory or symlink, acquires its lock before publishing the manifest, and canonicalizes it before open. Component-aware containment protects forbidden application directories, recent-project metadata updates are best effort, recent startup entries are capped at five and opened by opaque project ID, filesystem errors are path-redacted in every logger destination, and project dialogs are state/concurrency gated before display. Existing target names are rejected cleanly and retry remains available in the same app session. Verification: the installed Biome, TypeScript, Vitest, electron-vite, and Playwright binaries passed (`biome check` with one pre-existing generated shadcn sidebar cookie warning, typecheck, 112 Vitest tests, build, and 4 Electron E2E tests). The local pnpm shim could not switch to the lockfile-pinned pnpm 11.10.0 because registry signature verification was unavailable; no dependencies or lockfiles were changed during verification.
-
-Acceptance criteria: exactly one active project exists; two instances cannot write the same project; closing revokes every project capability; a project can be moved and reopened without database path repair.
-
-### Checkpoint 6: Backup, Integrity, Restore, And Project Snapshot
-
-- [x] Fix the implementation to the SQLite Online Backup API; reserve `VACUUM INTO` for a future compact/export mode.
-- [x] Run app/project backup only when migration is needed, after lock acquisition and before any project-database write; verify the backup before migration.
-- [x] Run and inspect `quick_check` plus `foreign_key_check` after migrations; use full `integrity_check` for explicit restore/import.
-- [x] Add explicit project database restore with safety checks, pre-restore backup, staged atomic replacement, sidecar cleanup, and actionable failure reporting.
-- [x] Add tests containing committed WAL-resident data, destination conflicts, failed validation, and migration backup retention.
-- [x] Define retention and cleanup for verified migration backups under `.writellm/backups/`; failed migrations retain their verified backup because cleanup runs only after successful open.
-- [x] Implement an initial project snapshot with a consistency barrier: pause mutations, authorize final editor flush, pause file publishers, back up `project.sqlite`, derive inventory from that backup, copy/hash registered files, and atomically publish.
-- [x] Define and validate the snapshot manifest with independent format/schema versions, project ID, database hash/size, relative file inventory, and index omission flags.
-- [x] Allow `index.sqlite` to be omitted from a snapshot and mark it `indexRebuildRequired`; do not implement actual index rebuild in CP6.
-- [x] Exclude locks, temp/backups/recovery, SQLite sidecars, app data, logs, credentials, caches, partial files, unregistered/orphan files, and the snapshot itself.
-- [x] Distinguish restore (same project ID) from clone/save-as (new project ID); reject mismatched restore candidates at the manifest/database boundary.
-- [x] Test snapshot file-copy hash mismatch detection, traversal/symlinks/case collisions, Unicode/space paths, restore into a different absolute path, and subsequent project open without index.sqlite.
-
-Acceptance criteria: verified backups include WAL-resident committed data; migration is never attempted without a verified pre-migration backup; restore returns the project to a verified usable state without stale sidecars; a snapshot restored elsewhere opens by project ID, preserves authoritative data, and reports `indexRebuildRequired` without claiming an index rebuild.
-
-Checkpoint 6 verification: `biome check` passes with one pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 27 test files and 130 tests; and `electron-vite build` passes. Recovery-boundary tests additionally prove WAL-resident backup and restore data, pre- and mid-backup cancellation, simulated `ENOSPC`, no-replace backup publication, failed backup validation before migration, migration failure rollback and retention, restore identity/schema/checksum rejection, sidecar quarantine, symbolic-link parent rejection, file mutation during snapshot copy, Unicode relocation, and missing/incompatible index rebuild reporting without rebuilding. Direct system-Node Vitest is not a valid verification path for this repository because its Node ABI differs from the Electron-native `better-sqlite3` build.
-
-## Phase 4: Project-Local Durable Work
-
-### Checkpoint 7: Persistent Job State Machine
-
-- [x] Finalize the project-local STRICT jobs schema and state/error schemas, including claim-scoped lease tokens and durable transition history.
-- [x] Include type, strict type-specific reference payload, state, priority, attempts, max attempts, `run_after`, lease owner/token, `locked_until`, heartbeat, progress, deduplication key, cancellation request, safe structured error, and timestamps.
-- [x] Implement enqueue, dedupe, atomic claim, lease renewal, heartbeat, completion, retry, failure, cancellation, and optional paused transition using an opaque lease capability for owned transitions.
-- [x] Use short `BEGIN IMMEDIATE` claims and transitions, atomically inserting material state/control events into `job_transitions`.
-- [x] Implement startup/project-open recovery for expired leases and deterministic migration recovery for pre-v4 running jobs.
-- [x] Add exponential backoff with jitter and a total failure classifier/serializer that cannot leak original error messages into portable state.
-- [x] Enforce reference-only payloads through a strict per-job-type schema registry, retaining generic forbidden-key checks only as defense in depth.
-- [x] Add deterministic clock and worker-identity seams.
-- [x] Test lease-token isolation, expiry boundaries, arbitrary error inputs, typed payload parsing, transition history/rollback, migration upgrade, concurrency, cancellation, retry exhaustion, and project close during running work.
-- [x] Emit project-correlated lifecycle events without treating logs as authoritative job history; persistent audit means material transitions and control events, not heartbeat/progress updates.
-
-Acceptance criteria: one job is not owned by two workers; process or project closure is recoverable; payloads are bounded references; transitions are deterministic and auditable in `project.sqlite`.
-
-Checkpoint 7 verification: schema v4 adds constrained claim-scoped lease tokens and append-only `job_transitions`; every owned operation checks job ID, worker ID, opaque token, attempt, and `locked_until > now` using one captured clock value. Failure archival logs the original top-level `err`, tolerates hostile values and classifier failures, and persists only allowlisted codes with application-controlled messages under the strict byte limit. Enqueue and database reads use strict per-type reference schemas, while the former denylist remains defense in depth. Material transitions and control events commit atomically with current-state mutations; heartbeat/progress remain intentionally excluded from history. A real schema v3 fixture is backed up and upgraded to v4 with deterministic running-job recovery, old-error sanitization, migration snapshots, `quick_check`, and `foreign_key_check`. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; `pnpm typecheck` passes; Electron-hosted Vitest passes 28 test files and 149 tests; `pnpm build` passes; all 4 Playwright Electron E2E tests pass; and `git diff --check` passes. No dependency, scheduler, job IPC, or Checkpoint 8 close-handling work was added.
-
-### Checkpoint 8: Runtime Scheduler And Project Close Semantics
-
-- [x] Install and pin p-queue 9.3.1.
-- [x] Create one Main-owned `ProjectRuntime` and scheduler per open project; keep `project.sqlite` authoritative and use p-queue only for current-process resource concurrency.
-- [x] Map job types to MinerU (1), embedding (3), rerank (3), indexing (1), and local I/O (2) queues; reserve auxiliary LLM concurrency (2) without inventing a job type.
-- [x] Claim only when the target resource has an idle slot, preserving database priority, `run_after`, and type ordering as scheduling authority.
-- [x] Dispatch claimed jobs with configured lease, heartbeat, timeout, throttled bounded progress, caught queue promises, and per-job `AbortSignal` handling.
-- [x] Add a forward-only `resume_same_attempt` migration and audited project-close requeue so close/reopen never consumes a retry attempt and every resumed claim receives a new lease token.
-- [x] Persist progress and expose bounded list/status/cancellation/event APIs through sender-authorized, project-session-scoped IPC without payloads, lease capabilities, worker IDs, absolute paths, provider content, or unclean errors.
-- [x] Stop claiming synchronously before project close, pause resource queues, apply handler-specific finish/abort-and-requeue/recover-by-expiry/persist-before-stop policies, and enforce a bounded drain before database close.
-- [x] Reject stale-session and post-stop utility messages before they can submit authoritative state.
-- [x] Verify the MinerU remote-ID persistence barrier and atomic index-generation publisher as controllable handler contracts only; do not add MinerU or index domain tables before their checkpoints.
-- [x] Add concurrency, priority, `run_after`, timeout/cancel/close race, heartbeat/progress, stale lease/session/message, interruption/restart, and close/reopen integration tests.
-
-Cross-checkpoint verification responsibility: Checkpoint 15 must replace the controllable MinerU persistence-barrier handler with the real adapter and prove close/reopen resumes one persisted `remote_task_id` without duplicate submission. Checkpoint 17 must replace the controllable generation publisher with the real index utility/database implementation and prove crash-safe build plus atomic activation without duplicate or half-active generations. Checkpoint 8 does not create either future domain's tables.
-
-Acceptance criteria: p-queue remains an execution detail; `project.sqlite` is authoritative; project reopen resumes unfinished work without duplicate external submission or duplicate index publication.
-
-Checkpoint 8 verification: project schema v5 adds `resume_same_attempt`; audited `project_close_requeued` transitions preserve the current attempt even at `max_attempts`, and resumed claims receive a new opaque lease token. The running scheduler performs throttled expired-lease recovery after open, so a lease that expires later is recovered without another reopen. Resource claims still use database ordering and only available slots. Heartbeat and every lease transition pass through an execution-scoped supervisor gate; a prior execution cannot commit through or release a newer claim for the same job. Cancellation and close requeue are arbitrated in one `BEGIN IMMEDIATE` transaction, yielding exactly one cancellation acknowledgment or same-attempt requeue. A close drain timeout revokes commit/message authority before aborting wrappers, invokes the bounded utility termination hook, rejects close, and prevents a non-cooperative or late handler from touching the database after close. Handlers receive no lease capability. ProjectManager/runtime/JobStore integration proves open, claim, close requeue, database close, reopen, and exactly-once completion without another attempt. Job IPC remains sender-authorized, session-scoped, bounded to 100 records, and free of payload/lease/worker/path/provider capabilities. Fake handlers prove the MinerU persistence barrier and atomic index activation contract without adding future domain tables. Verification: `pnpm check` passes with one pre-existing generated shadcn sidebar cookie warning; `pnpm typecheck` passes; Electron-hosted Vitest passes 32 files and 166 tests with no unhandled rejection; `pnpm build` passes with p-queue bundled into Electron Main; all 4 Playwright Electron E2E tests pass; `pnpm build:unpack` produces `dist/mac-arm64`; and `git diff --check` passes. The unpacked build is unsigned because no valid Developer ID Application identity is configured.
-
-## Phase 5: Manuscript And BlockNote Product Slice
-
-### Checkpoint 9: Manuscript Brief, Outline, Section State, And Revisions
-
-Implementation scope: complete schema v6 on top of the existing manuscript bootstrap, then add Main-only contracts, domain services, deterministic content metrics, structured lifecycle logs, and tests. This checkpoint does not add BlockNote dependencies, manuscript IPC/preload/renderer surfaces, editor autosave, file materialization, Markdown interchange, agent/proposal tables, or revision retention cleanup.
-
-- [x] Define the initial one-primary-manuscript schema.
-- [x] Define a versioned manuscript brief with title, description/purpose, topic/coverage, audience, language, style/tone, scope/exclusions, target length, citation requirements, and extra instructions.
-- [x] Define ordered hierarchical sections with stable IDs, parent, position, level, title, objective, status, and current revision.
-- [x] Fix the section status enum to `planned`, `drafting`, and `completed` for the initial product.
-- [x] Define section body content as native BlockNote JSON separate from the section title.
-- [x] Add `section_revisions` with source type, content JSON, content hash, prior revision, agent lineage fields, and timestamps.
-- [x] Define optimistic concurrency using `baseRevisionId` and content hash.
-- [x] Add domain services for brief read/update, section create/update/reorder/delete, revision read, and whole-manuscript assembly.
-- [x] Prevent deleting a section with unresolved agent proposals without an explicit policy.
-- [x] Define deterministic word/character count extraction from BlockNote content.
-- [x] Test nested outline ordering, status transitions, revision conflicts, delete/reorder constraints, and full assembly.
-
-Acceptance criteria: manuscript metadata, ordered structure, status, and section bodies have explicit non-overlapping ownership; stale writes cannot silently overwrite a newer section revision.
-
-Checkpoint 9 verification: project schema v6 adds `outline_version`, independently schema-versioned immutable brief rows, non-null section revision pointers, and append-only `section_revisions` with deterministic bootstrap backfill, canonical SHA-256 content hashes, persisted Unicode counts, prior-revision chains, reserved source values, and constrained agent lineage. Populated v5 databases are backed up and upgraded without changing section identity or metadata; unexplained legacy revision pointers fail and roll back, while empty legacy databases remain empty. The Main-only `ManuscriptService` requires exactly one primary manuscript, uses brief-version, outline-version, and revision ID/hash optimistic concurrency, maintains ordered trees and subtree levels in short `BEGIN IMMEDIATE` transactions, exposes an explicit proposal deletion guard, and assembles current bodies using persisted counts. CP9 emits content-free structured lifecycle logs and mounts the service in `ProjectContext`; manuscript content/brief serialization failures stay inside that logging boundary, and deletion-guard failures log the original top-level `err` before safe domain transformation. New project bootstrap creates the correctly titled first brief and initial empty revision in one transaction. No BlockNote dependency, manuscript IPC/preload/renderer surface, materialized file, Markdown interchange, proposal table, or retention cleanup was added.
-
-### Checkpoint 10: BlockNote Editor Persistence And Materialization
-
-- [x] Install and pin BlockNote React and the shadcn-compatible UI packages required by the chosen integration.
-- [x] Define the approved BlockNote schema and initial allowed block types/props.
-- [x] Preserve native BlockNote block IDs and reject duplicate IDs.
-- [x] Implement active-section load into BlockNote.
-- [x] Implement debounced save of the complete native BlockNote document with `baseRevisionId`.
-- [x] Validate document shape, nesting, inline content, block count, and serialized size in Main.
-- [x] Commit the canonical revision transactionally in `project.sqlite`.
-- [x] Atomically materialize the current revision to `manuscript/sections/<section-id>.blocknote.json`.
-- [x] Store materialization revision/hash and repair missing or stale files on project open.
-- [x] Expose explicit save states: clean, saving, saved, conflict, failed.
-- [x] Retain useful manual and accepted-agent revisions under a bounded retention policy.
-- [x] Implement native JSON export and lossy Markdown import/export as separate operations.
-- [x] Ensure Markdown export never replaces the canonical native document.
-- [x] Add tests for rich text, nested blocks, tables, links, Unicode, duplicate IDs, invalid props, stale saves, crash between revision commit and materialization, and materialization repair.
-
-Acceptance criteria: BlockNote native JSON round-trips without loss; Markdown is treated as lossy interchange; a committed revision survives renderer crash even if its mirror must be repaired later.
-
-Checkpoint 10 verification: BlockNote core, React, and shadcn packages are exactly pinned to 0.47.2, with no Mantine dependency. Characterization proves CP9 `[]` cannot be passed as `initialContent`, records the real default paragraph/heading/list/quote/code/table/link JSON shapes, and proves JSON serialization plus reload preserves IDs, props, styles, links, children, and table cells. The shared strict contract allowlists paragraph, heading, bullet/numbered/check lists, quote, code block, table, styled text, links, and nested children while rejecting missing/duplicate IDs, unknown props/types, unsafe URL schemes, excessive depth/count/size, and non-native media/file blocks. Schema v7 adds deterministic section materialization metadata and bounded revision-body retention while preserving revision IDs, hashes, sources, and lineage metadata.
-
-The asynchronous Main persistence path validates the full document, performs idempotent revision/hash CAS, commits SQLite authority first, fsyncs and atomically renames a deterministic envelope, records materialization metadata, and repairs missing, corrupt, stale, or metadata-lagging mirrors on project open without blocking access to canonical content. Fault tests cover failure immediately after DB commit, before rename, and after rename before metadata commit; concurrent stale saves conflict, and a lost-response retry with the current hash succeeds idempotently. Sender-authorized session-scoped IPC exposes first-section open/load/save, Markdown import, native JSON export, lossy Markdown export, and one-shot closing-token flush/ack. The minimal renderer uses the approved shadcn BlockNote schema, 650 ms debounce, a single-flight merge loop, visible clean/saving/saved/mirror-pending/conflict/failed states, and preserves local content on conflict. Electron E2E proves an edit made immediately before close is final-flushed and restored after reopen, and proves Markdown/native exports are separate files while the canonical materialization remains native.
-
-Verification: `pnpm check` passes with the pre-existing generated shadcn sidebar cookie warning; Node and web TypeScript checks pass; Electron-hosted Vitest passes 37 files and 199 tests; `pnpm build` passes; all 4 Playwright Electron E2E tests pass; `pnpm build:unpack` produces `dist/mac-arm64`; `git diff --check` passes; and an isolated real-Electron runtime smoke validates `app.sqlite` application ID, schema version, manifest, and table boundary. The unpacked macOS build is unsigned because no valid Developer ID Application identity is configured.
-
-### Checkpoint 11: Writing Workspace UI
-
-- [ ] Build the active-project shell with manuscript, knowledge, agent, and settings areas.
-- [ ] Build the manuscript outline panel with nested sections, drag/reorder, create/delete, title editing, objectives, and status controls.
-- [ ] Build the manuscript brief editor with validated fields and unsaved/error state.
-- [ ] Build the BlockNote section editor with current section title/status context.
-- [ ] Preserve editor selection and active block context for agent use without persisting unnecessary high-frequency cursor events.
-- [ ] Display section and manuscript word/character counts.
-- [ ] Add next/previous section navigation and outline completion indicators.
-- [ ] Build a read-only whole-manuscript preview assembled from section order and bodies.
-- [ ] Add keyboard shortcuts and accessible focus behavior for save, section navigation, and agent panel toggling.
-- [ ] Add Playwright E2E for project creation through manual writing, reload, conflict handling, section reorder, and whole-manuscript preview.
-
-Acceptance criteria: a user can create a project, define the writing brief and outline, write multiple sections, assign statuses, close the app, and reopen with identical native content and structure.
-
-## Phase 6: Project Knowledge Source Storage And Providers
-
-### Checkpoint 12: Batch Source Import And Project-Local File Records
-
-- [ ] Implement batch file picker and drag/drop contracts without exposing renderer filesystem access.
-- [ ] Define exact supported MIME/extension capability checks for PDF, DOCX, PPTX, and common images.
-- [ ] Reject or clearly route legacy DOC/PPT rather than misidentifying them.
-- [ ] Copy each source to project temp storage while hashing.
-- [ ] Sanitize display names while preserving the original name in metadata.
-- [ ] Publish originals under content-addressed project-local paths.
-- [ ] Define duplicate policy by SHA-256 and ensure repeated import is idempotent.
-- [ ] Create `file_records`, `knowledge_items`, and high-level ingestion state.
-- [ ] Build the knowledge item list with per-file progress, failure, retry, cancel, delete, and reveal/open-original actions.
-- [ ] Implement deletion policy that cancels pending work and schedules index removal without leaving active references.
-- [ ] Add tests for Unicode names, spaces, long names, duplicate content, MIME mismatch, interrupted copy, insufficient disk space, and project close during import.
-
-Acceptance criteria: imported originals are durable inside the project before remote submission; duplicate imports do not create duplicate bytes or external tasks; renderer-controlled paths cannot escape the active project.
-
-### Checkpoint 13: Secrets, Provider Configuration, And Capability Registry
-
-- [ ] Implement `app.sqlite` provider configuration records and `safeStorage` ciphertext persistence.
-- [ ] Detect and report the Linux safeStorage backend, including the `basic_text` policy.
-- [ ] Expose configured/unconfigured provider status without returning secret values.
-- [ ] Define a provider capability registry for agent chat/tool-calling, embeddings, reranking, and MinerU parsing.
-- [ ] Validate base URLs, provider IDs, models, dimensions, batch limits, file limits, timeout limits, and supported formats.
-- [ ] Implement a credential resolver that decrypts only for the current utility request.
-- [ ] Ensure secrets never enter project files, job payloads, renderer state, logs, snapshots, or diagnostic exports.
-- [ ] Add settings UI for provider endpoints, model choices, connection tests, and capability status.
-- [ ] Test redaction, missing keys, invalid auth, key replacement, provider removal, project portability without keys, and Linux backend reporting.
-
-Acceptance criteria: project folders and snapshots contain no plaintext credentials; only Main can persist/decrypt secrets; provider capability failures are explicit before durable work starts.
-
-### Checkpoint 14: Pi Model Runtime, Embedding Gateway, And Rerank Gateway
-
-- [ ] Install and pin `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`.
-- [ ] Install and pin AI SDK Core plus only the embedding/rerank provider packages required by the first product slice.
-- [ ] Define separate `AgentModelRuntime`, `EmbeddingGateway`, and `RerankGateway` interfaces.
-- [ ] Implement a Pi `CredentialStore` adapter backed by Main-owned safeStorage records rather than Pi's default file store.
-- [ ] Implement AI SDK `embedMany` adapters with batch limits, retry policy, usage, response IDs, and abort support.
-- [ ] Implement AI SDK rerank adapters with top-N limits, retry policy, usage where available, and abort support.
-- [ ] Implement OpenAI-compatible custom endpoint support only behind validated adapters.
-- [ ] Normalize provider/model fingerprints, timing, token/usage metadata, estimated cost, retry count, and structured errors in `model_requests`.
-- [ ] Place external requests in the appropriate utility process and keep credentials ephemeral.
-- [ ] Add mock-provider contract tests for success, streaming, abort, rate limit, authentication failure, malformed response, retryable server error, and redaction.
-
-Acceptance criteria: Pi owns interactive agent generation; AI SDK owns embedding/rerank adapters; business code does not depend on provider-specific response shapes; no credential or unredacted body leaks into ordinary logs.
-
-## Phase 7: MinerU And Parsed Knowledge
-
-### Checkpoint 15: Durable MinerU Submit, Poll, Download, And Publish
-
-- [ ] Define the MinerU adapter contract and capability limits independently of UI and job handlers.
-- [ ] Implement submit and persist `remote_task_id` immediately before further polling.
-- [ ] Implement durable polling without duplicate resubmission.
-- [ ] Persist remote state transitions and retry metadata.
-- [ ] Implement download to project temp storage with content-length and hash checks.
-- [ ] Validate archive format and reject path traversal, absolute entries, unsafe symlinks, excessive expanded size, excessive file count, and unexpected file types.
-- [ ] Extract only into a project temp directory.
-- [ ] Preserve the provider's raw output and response manifest.
-- [ ] Atomically publish a new parse revision under `knowledge/parsed/<item>/<revision>/`.
-- [ ] Handle cancellation according to provider capability without pretending a remote task was cancelled when only local polling stopped.
-- [ ] Resume after project reopen at submit, poll, download, extraction, and pre-publish boundaries.
-- [ ] Add fixtures and mock HTTP tests for all retry and restart boundaries.
-
-Acceptance criteria: reopening the project resumes the same remote task; no unsafe or partial archive is published; each stage is idempotent and traceable to source hash and remote task ID.
-
-### Checkpoint 16: MinerU Normalization And Parsed Document Viewer
-
-- [ ] Define a versioned `NormalizedKnowledgeBlock` schema with stable local ID, ordinal, type, text/Markdown, heading path, page, bounding box, provider block ID, asset references, and content hash.
-- [ ] Normalize the active MinerU raw output into `blocks.jsonl`, `document.md`, `images/`, and `manifest.json` without discarding raw artifacts.
-- [ ] Preserve tables, formulas, captions, images, and reading-order provenance.
-- [ ] Record normalization version and allow re-normalization from raw output without re-upload.
-- [ ] Validate that every referenced image/asset exists and remains contained under the parse revision.
-- [ ] Define activation rules so a failed new parse revision does not replace the prior active revision.
-- [ ] Build a parsed document viewer with Markdown/content view, page/source metadata, image display, parse status, and raw-result diagnostics.
-- [ ] Add tests using representative PDF, DOCX, PPTX, scanned image, table, formula, multi-column, and malformed provider fixtures.
-
-Acceptance criteria: the UI can inspect normalized content and images with provenance; changing the normalizer does not require re-upload; an invalid revision never becomes active.
-
-## Phase 8: Rebuildable Index And Retrieval
-
-### Checkpoint 17: Project Index Database And Deterministic Chunk Pipeline
-
-- [ ] Add the project-local `index.sqlite` connection and manifest schema.
-- [ ] Launch one project-bound Index utility process with a narrow protocol and centralized logging port.
-- [ ] Define deterministic chunk IDs from parse revision, source block range, chunker version, and content hash.
-- [ ] Implement chunking from normalized blocks, not from unstructured Markdown alone.
-- [ ] Preserve heading path, page/bbox, source block IDs, table/formula/image references, and item metadata in `chunk_sources`.
-- [ ] Merge short adjacent text blocks and split only overlong text with deterministic overlap.
-- [ ] Implement idempotent add/update/delete jobs and generation build/switch.
-- [ ] Implement full deletion and rebuild from active parse revisions and normalized artifacts.
-- [ ] Handle Index utility crash, project close, and missing/corrupt `index.sqlite`.
-- [ ] Add golden chunk fixtures and equivalent-rebuild tests.
-
-Acceptance criteria: deleting `index.sqlite` loses no authoritative knowledge; rebuild produces equivalent active chunks and provenance; a partial generation never becomes active.
-
-### Checkpoint 18: FTS5, Embeddings, sqlite-vec, And Generation Compatibility
-
-- [ ] Implement FTS5 indexing behind a search repository.
-- [ ] Benchmark and test `unicode61` and `trigram` on representative Chinese and English fixtures.
-- [ ] Implement the approved dual-index or short-query fallback strategy.
-- [ ] Install sqlite-vec and implement the `VectorIndex` abstraction.
-- [ ] Load the packaged extension from a platform/architecture resource path.
-- [ ] Define embedding generation records with provider, model, revision, dimension, metric, normalization, chunker version, and content fingerprint.
-- [ ] Implement project-local embedding jobs using `EmbeddingGateway.embedBatch`.
-- [ ] Cache/reuse vectors only when content hash and the complete embedding contract match.
-- [ ] Reject incompatible dimensions, model revisions, normalization strategies, or chunker versions.
-- [ ] Implement vector upsert, deletion, query, generation switch, and rebuild.
-- [ ] Add development and packaged extension/vector smoke tests.
-- [ ] Benchmark at 100k representative chunks before considering another vector engine.
-
-Acceptance criteria: Chinese and English fixtures have an explicit tested path; incompatible vectors cannot mix; a packaged app can build and query the project-local vector index.
-
-### Checkpoint 19: Hybrid Retrieval, Reranking, Citations, And Search UI
-
-- [ ] Implement FTS and vector candidate retrieval with configurable limits.
-- [ ] Implement deterministic reciprocal-rank fusion.
-- [ ] Implement optional `RerankGateway` refinement over a bounded candidate set.
-- [ ] Return stable citation IDs, source item, parse revision, chunk, title, snippet, page, heading path, source block IDs, and asset references.
-- [ ] Implement filters by knowledge item, file type, parse revision, and optional page/heading fields.
-- [ ] Add a separate citation-expansion API rather than returning full source documents in initial search results.
-- [ ] Implement graceful behavior when rerank is unconfigured or unavailable.
-- [ ] Build knowledge search UI with score/debug information behind a developer option, source preview, page context, and image links.
-- [ ] Add ranking fixtures, deletion/update tests, query-embedding compatibility tests, rerank failure fallback tests, and bounded-result tests.
-
-Acceptance criteria: retrieval is deterministic before rerank; rerank improves ordering without losing provenance; every result shown to the user or agent can be traced back to normalized source blocks and project files.
-
-## Phase 9: Pi Writing Agent
-
-### Checkpoint 20: Agent Utility Process, Sessions, Events, And Durable Trace
-
-- [ ] Launch a dedicated Agent utility process only while a project is open or an agent run requires it.
-- [ ] Instantiate `@earendil-works/pi-agent-core` with the selected pi-ai model runtime.
-- [ ] Define project-local `agent_sessions`, `agent_runs`, `agent_messages`, `agent_tool_calls`, and model request records.
-- [ ] Persist session/run/request records before starting an external model stream.
-- [ ] Stream Pi agent, message, thinking, and tool events through a narrow MessagePort contract.
-- [ ] Persist normalized message and tool lifecycle state without relying on rotatable logs.
-- [ ] Support abort, renderer closure, worker crash, steering, and follow-up queues with explicit state.
-- [ ] Mark interrupted output as interrupted, never complete.
-- [ ] Store Pi package/runtime version with serialized session state and define compatibility handling.
-- [ ] Use a mock/faux model to test event order, tool calls, abort, retry/continue, and crash recovery.
-
-Acceptance criteria: an agent conversation is project-local and durable; renderer or worker interruption cannot create a falsely complete answer; project close revokes the run and a later reopen shows accurate history.
-
-### Checkpoint 21: Context Builder And Read-Only Agent Tools
-
-- [ ] Implement a token-budgeted `ContextBuilder` using manuscript brief, outline, statuses, active section, selected blocks, neighboring summaries, user request, and prior compacted conversation.
-- [ ] Define read tools: manuscript brief, manuscript overview, section list, section read, block read, manuscript search, knowledge search, citation expansion, and active editor context.
-- [ ] Give every tool a strict TypeBox model-facing schema and a corresponding Main/domain validation schema.
-- [ ] Route every tool through the Agent-to-Main bridge; do not expose database/filesystem primitives.
-- [ ] Add project session, agent run, and tool call identity to every request.
-- [ ] Enforce result count, text size, image size, and pagination limits.
-- [ ] Permit parallel execution only for independent read tools.
-- [ ] Clearly delimit retrieved knowledge as untrusted source content and prevent it from changing system/tool policy.
-- [ ] Persist citation IDs and tool provenance in the agent transcript.
-- [ ] Test prompt-injection fixtures, stale project sessions, unauthorized tool names, malformed arguments, oversized results, parallel ordering, and source deletion during a run.
-
-Acceptance criteria: the agent can understand the writing brief, outline, active section, full project through bounded tools, and relevant knowledge with citations; it has no generic project or operating-system access.
-
-### Checkpoint 22: Typed Mutation Proposals, Preview, Approval, And Application
-
-- [ ] Define versioned domain mutation schemas for manuscript brief updates, section create/update/reorder/delete, and block insert/update/remove/replace/move.
-- [ ] Require target IDs and `baseRevisionId`/base outline revision on every proposal.
-- [ ] Configure write tools as sequential.
-- [ ] Use Pi tool preflight plus Main policy to block disallowed or oversized mutations.
-- [ ] Persist a `mutation_proposal` before returning tool success.
-- [ ] Build a pure validator/simulator that applies block operations to native BlockNote JSON without committing.
-- [ ] Validate block IDs, schema, nesting, content size, operation count, target existence, and resulting document.
-- [ ] Generate a structured preview showing affected sections/blocks, before/after text, and cited sources.
-- [ ] Default to user approval; rejection records a decision without changing manuscript state.
-- [ ] Revalidate against the current revision immediately before approval application.
-- [ ] Apply accepted mutations in Main, create new revisions, materialize files, and notify the active editor.
-- [ ] Link accepted revisions to agent session, run, tool call, proposal, prior revision, model request, and cited source blocks.
-- [ ] Implement undo as a new revision, not destructive history rewriting.
-- [ ] Test stale proposal rejection, concurrent manual edit, missing block, invalid nesting, duplicate IDs, partial multi-operation failure, approve-after-project-switch, reject, undo, and crash after proposal but before apply.
-
-Acceptance criteria: the agent cannot bypass user/policy approval or revision checks; accepted changes are atomic, visible, undoable, and fully traceable; stale proposals never overwrite newer manual work.
-
-### Checkpoint 23: Agent Writing UI, Compaction, And End-To-End Workflow
-
-- [ ] Build the agent panel with session list, message streaming, thinking visibility policy, stop, retry/continue, steering, and follow-up controls.
-- [ ] Render tool calls as structured cards with status, bounded arguments, results, errors, and citations.
-- [ ] Render mutation proposals with section/block diff, source citations, approve, reject, and undo state.
-- [ ] Show active model/provider, usage, estimated cost, interruption, and retry state without exposing secrets.
-- [ ] Implement conversation compaction through Pi context transformation while retaining durable full history.
-- [ ] Prevent compacted summaries from becoming manuscript or source authority.
-- [ ] Allow starting an agent request from current selection, active section, or project overview.
-- [ ] Add an E2E scenario: create project, write brief/outline, import source, complete MinerU/indexing, ask agent for evidence, propose a section edit, approve it, verify citations/lineage, close, reopen, and undo.
-
-Acceptance criteria: the complete assisted-writing workflow is understandable and recoverable; tool and mutation states remain accurate across cancellation, close, reopen, and compaction.
-
-## Phase 10: Export, Packaging, And Release Confidence
-
-### Checkpoint 24: Manuscript Export And Project Portability
-
-- [ ] Implement whole-manuscript native JSON export with outline and section revision metadata.
-- [ ] Implement deterministic whole-manuscript Markdown export from section headings and BlockNote bodies.
-- [ ] Make the lossy nature of Markdown explicit where unsupported BlockNote structures exist.
-- [ ] Export or copy manuscript assets using project-relative references.
-- [ ] Finalize verified project snapshot/clone UI and conflict-safe destination handling.
-- [ ] Validate a project copied or restored to Windows/macOS/Linux-compatible paths.
-- [ ] Ensure opening a project with a missing index schedules rebuild rather than failing manuscript access.
-- [ ] Add export fixtures and moved/restored project E2E tests.
-
-Acceptance criteria: users can export the article and move or snapshot the complete project without hidden absolute-path dependencies; native content remains lossless and Markdown limitations are explicit.
-
-### Checkpoint 25: Native Packaging
-
-- [ ] Enable electron-builder native dependency rebuilding for Electron 43.
-- [ ] Configure sequential rebuilding and ASAR unpack rules for better-sqlite3, sqlite-vec, and native resources.
-- [ ] Audit pnpm build-script allowlists from the lockfile.
-- [ ] Copy sqlite-vec binaries into platform/architecture resource directories.
-- [ ] Keep Pino/thread-stream/transport assets available in packaged builds.
-- [ ] Verify BlockNote, Pi, AI SDK provider lazy imports, utility entrypoints, and MessagePort protocols in packaged artifacts.
-- [ ] Smoke-test installed or unpacked artifacts rather than source-mode paths.
-
-Acceptance criteria: each target artifact creates and opens a project, persists BlockNote content, loads sqlite-vec, starts Pi and utility processes, and performs a local vector insert/search without source-tree dependencies.
-
-### Checkpoint 26: Cross-Platform Recovery CI And Release Gate
-
-- [ ] Add CI builds for Windows x64, macOS arm64, macOS x64, and Linux x64.
-- [ ] Run Vitest and Playwright Electron E2E at appropriate layers.
-- [ ] Test app/project migrations, backup/restore, project locking, stale sessions, moved project paths, BlockNote persistence/materialization repair, vector loading, Unicode paths, lease recovery, MinerU polling recovery, index rebuild, agent interruption, tool authorization, stale proposal rejection, and accepted mutation lineage.
-- [ ] Test CSP, navigation restrictions, IPC sender rejection, and safeStorage backend reporting.
-- [ ] Test centralized logging transport, cross-process aggregation, Error serialization, redaction, rotation/retention, and shutdown flush in packaged artifacts.
-- [ ] Define artifact retention, migration-fixture retention, and release gating.
-
-Acceptance criteria: all required target-platform jobs pass on real packaged artifacts before release.
+- '[ ]' not started
+- '[~]' in progress
+- '[x]' completed and verified
+- '[!]' blocked; record the blocker immediately below the item
 
 ## Deferred Until Evidence Requires It
+
+The following items remain deferred until evidence requires them. See the Phase files for the active ordered plan.
 
 - [ ] Multiple simultaneously open projects or multiple project windows.
 - [ ] Multiple manuscripts per project UI/workflow.
@@ -503,3 +123,32 @@ Acceptance criteria: all required target-platform jobs pass on real packaged art
 - 2026-07-15: Completed and re-verified Checkpoint 8 review hardening. The running scheduler now recovers leases that expire after open; close timeout revokes execution-scoped authority and invokes bounded worker termination before database close; cancellation versus close is transactionally arbitrated; stale execution cleanup cannot affect a newer claim; and ProjectManager/runtime/JobStore close/reopen integration completes the same job exactly once without spending another attempt.
 - 2026-07-15: Reopened Checkpoint 9 for review hardening after identifying manuscript conversion failures outside the lifecycle logging boundary and deletion-guard errors transformed before the original object was logged at top level. Completion is withdrawn until both logging paths and regression tests pass.
 - 2026-07-15: Completed and re-verified Checkpoint 9 review hardening. Manuscript body and brief serialization failures now emit content-free lifecycle failures with the original top-level `err`; deletion guards log their original error before returning a safe domain error. Biome and both TypeScript checks pass, Electron-hosted Vitest passes 34 files and 183 tests, and the production Electron build passes.
+- 2026-07-16: Started Checkpoint 11 under the user's approval to continue sequentially through Checkpoint 19. Scope is the project-session-scoped writing workspace UI and manuscript IPC for brief/outline operations, active-section BlockNote switching, counts, whole-manuscript preview, keyboard/focus behavior, and E2E verification; knowledge, provider, import, search, and functional agent behavior remain owned by later checkpoints.
+- 2026-07-16: Completed Checkpoint 11 after review-driven hardening of final-flush leases, explicit active-section authority, conflict-preserving brief/metadata/body drafts, current-version outline mutations, serialized materialization publication, and expanded E2E coverage. All checkpoint and repository gates pass.
+- 2026-07-16: Started Checkpoint 12. The implementation order is schema/contracts first, then Main-owned selection and streaming content-addressed publication, project-session IPC, knowledge list actions, and fault/E2E verification. Provider submission, parsing, and indexing remain outside this checkpoint.
+- 2026-07-16: Completed Checkpoint 12 after security review of preload-only drop path extraction, content/MIME validation, serialized content-addressed publication, SHA deduplication, cancel/close cleanup, and delete semantics. All checkpoint and repository gates pass.
+- 2026-07-16: Started Checkpoint 13. The implementation order is app schema and contracts, safeStorage credential authority/backend policy, capability validation and renderer-safe IPC, settings Command UI, then redaction/portability/backend/failure tests. Model execution remains owned by Checkpoint 14.
+- 2026-07-16: Completed Checkpoint 13 after moving connection-test networking from Main into an ephemeral utility process, enforcing the Linux `basic_text` deny policy for both writes and reads, and proving the safeStorage/utility/UI/project-portability path with unit, integration, build, and Electron E2E gates.
+- 2026-07-16: Started Checkpoint 14. The order is current package/API characterization and exact pinning, separate runtime interfaces and `model_requests` schema, Main credential adapters plus agent/import utility execution, then mock-provider streaming/retry/abort/auth/redaction verification. MinerU remains governed only by its official documentation and is outside this checkpoint's model transports.
+- 2026-07-16: Completed Checkpoint 14 after review hardened true Pi retry counting, safe utility diagnostics, rerank/vector validation, credential bounds, and event-delivery abort behavior; all unit, type, format, build, diff, and Electron E2E gates pass.
+- 2026-07-16: Started Checkpoint 15. The order is official MinerU contract characterization, project schema and state invariants, submit-ID persistence barrier, resumable polling/download/extraction/publication, then restart/cancellation/archive-adversary verification. Context7 is explicitly prohibited for MinerU.
+- 2026-07-16: Completed Checkpoint 15 after review hardened encrypted signed-URL recovery, same-remote-task restart barriers, expired-download refresh, bounded hostile-ZIP extraction, atomic raw-revision reconciliation, retry auditing, and the production `p-queue` ESM interop path. All unit, type, format, build, diff, and Electron E2E gates pass.
+- 2026-07-16: Started Checkpoint 16. The order is versioned normalized-block contracts and project activation schema, deterministic raw-output normalization with asset containment, re-normalization and invalid-revision arbitration, then parsed-viewer IPC/UI and representative fixture verification. MinerU API research remains restricted to the official MinerU documentation.
+- 2026-07-16: Completed Checkpoint 16 after review moved CPU-heavy normalization from Main into the Import/API utility, added independent Main-side staging verification, fixed the strict parsed-image IPC boundary, and proved re-normalization, invalid-revision arbitration, representative provider output, and the complete Electron viewer path. All checkpoint and repository gates pass.
+- 2026-07-16: Started Checkpoint 17. The order is index manifest/schema and utility protocol, deterministic normalized-block chunking and provenance, staged generation build/activation plus add/update/delete jobs, then rebuild/crash/corruption/close recovery and golden-equivalence verification. FTS5, embeddings, sqlite-vec, and retrieval remain owned by Checkpoint 18.
+- 2026-07-16: Completed Checkpoint 17 after review hardened request-ID correlation, independent source/artifact hashing, generation-currentness checks, utility-exit retry, derived-index corruption recovery, and normal close. Golden, deletion-equivalence, forced-crash, missing-index, corrupt-index, unit, build, and full Electron regression gates pass.
+- 2026-07-16: Started Checkpoint 18. The order is tokenizer benchmark fixtures and FTS schema, packaged sqlite-vec loading plus vector schema, immutable embedding-generation contracts and batched utility requests, compatibility-gated activation/query operations, then generation deletion/rebuild and 100k-chunk benchmark verification. Hybrid retrieval, reranking, and citation UI remain owned by Checkpoint 19.
+- 2026-07-16: Completed Checkpoint 18 after review hardened FTS literal parsing, embedding job replay, active-index revalidation, and generation-contract collision handling. Bilingual fixtures, complete-contract cache reuse, incompatible vector rejection, the measured 100k benchmark, unpacked packaged extension insert/search, full unit/build/Electron regression, and diff gates pass.
+- 2026-07-16: Started Checkpoint 19. The order is strict bounded search contracts and Index utility candidate/provenance queries, deterministic RRF plus compatibility-gated query embeddings, optional bounded reranking with fallback, filters and citation expansion, then project-session IPC, shadcn search UI, ranking/deletion/update/adversarial tests, and full regression. Agent functionality remains owned by Phase 9.
+- 2026-07-16: Completed Checkpoint 19 after review tightened candidate and expansion payload bounds, execution-time embedding contract guards, abort propagation, active-generation citation isolation, and atomic image-chunk expectations. Deterministic hybrid/rerank fixtures, full provenance filters, deletion/update invalidation, strict IPC, search/citation UI, recovery E2E, unit/build/package, and diff gates pass. Work stops before Phase 9 as requested.
+- 2026-07-16: Audited Checkpoints 11 through 19 against their acceptance criteria and the fixed architecture invariants. The functional bodies and recorded gates remain valuable evidence, but the audit reopened all nine checkpoints: 11 and 14 require bounded-contract or verification hardening, while 12, 13, and 15 through 19 have correctness, lifecycle, capability, provenance, or revocable-session gaps listed under `Audit Remediation`. Checkpoint 20 remains not started, and remediation requires explicit user approval before implementation.
+- 2026-07-16: Completed the approved remediation for Checkpoints 11 through 19. Added bounded manuscript/workspace contracts and terminate/relaunch verification; non-blocking durable imports, cleanup durability, TIFF capability alignment, model-request recovery, and strict rerank response validation; terminal MinerU failure, cancellation arbitration, allocation idempotency, redirect validation, and monotonic normalization activation; and project-session-bound Index protocol, logical fingerprints, independent model revisions, bounded derived-data cleanup, pre-Top-K filters, parse-revision citation assets, project-scoped aborts, and the Electron-run `smoke:packaged-hybrid` active-generation workflow. Final gates: Node/web TypeScript, Biome on changed files, Electron-hosted Vitest 62 files/280 tests, writing-workspace Playwright 3/3, packaged hybrid smoke, and `git diff --check`.
+- 2026-07-16: Recorded the complexity-reduction and Agent-boundary audit. CP1–19 remain historical functional evidence, but CP19.5 is now a mandatory pre-CP20 gate for ephemeral MinerU URLs, a narrow durable-job boundary, a frozen first Agent tool/schema surface, revision-growth controls, three worker roles, real-dimension sqlite-vec benchmarking, removal of unused watchers/atomic-write duplication, and confirmed empty-module cleanup. Conflicting historical Phase statements are superseded and must not guide new implementation.
+- 2026-07-16: Implemented the parsed-document lifecycle hardening within CP19.5.3 scope: repeated starts remain idempotent through active normalization, the renderer distinguishes parsing from normalization, session-authorized parse cancellation aborts associated durable jobs and removes unpublished staging artifacts, and knowledge deletion removes the item's parsed artifact tree. CP19.5.3 remains in progress until the broader durable-job boundary and artifact-cleanup job migration are complete.
+- 2026-07-16: Started the Knowledge workspace redesign within the existing knowledge/search UI scope. The renderer is moving from a modal Sheet to a full-screen workspace with a shared Manuscript/Knowledge rail, source/task sidebar, compact drag target, aggregate processing status, and inline parsed-document details; existing project-session IPC remains unchanged.
+- 2026-07-16: Completed the Knowledge workspace redesign. The Sheet was replaced by a full-screen shadcn workspace with direct Manuscript/Knowledge switching, source/task sidebar, compact drag target that expands on drag, aggregate parse/embedding/queue/failure status, inline parsed content, reparse/cancel controls, Finder/open/delete actions, and updated E2E selectors. Web typecheck, focused Biome checks, and the Electron renderer build pass; Electron E2E and native SQLite Vitest remain environment-blocked by Electron SIGABRT and a better-sqlite3 Node ABI mismatch.
+- 2026-07-16: Started a user-requested Knowledge workspace layout refinement within the existing CP19 knowledge/search surface. Scope is limited to replacing card-heavy summary, detail, search, and parsed-block presentation with a flatter source-reader hierarchy; behavior, IPC, and checkpoint boundaries remain unchanged.
+- 2026-07-16: Completed the Knowledge workspace layout refinement. Aggregate metrics are now one compact status strip; source details, parsed blocks, empty state, search controls, and search results use a flat reader/list hierarchy with semantic sections and separators instead of general-purpose Cards. Existing behavior and IPC are unchanged, the duplicated file-name E2E selector is now scoped to the document heading, focused Biome and web TypeScript checks pass, and the production Electron build passes. The focused Electron E2E reached the redesigned workspace on its first run, then exposed the corrected duplicate selector; subsequent full reruns stopped earlier on unrelated existing fixture flakes in project-name entry and provider credential persistence.
+- 2026-07-16: Started the user-requested Knowledge overview/detail state correction. Entering Knowledge must show an unselected, vertically and horizontally centered statistics overview; selecting a source alone opens its document, and an accessible close action returns to the overview without changing source data or background work.
+- 2026-07-16: Completed the Knowledge overview/detail state correction. Knowledge now enters with no selected source and centers the title, upload action, and aggregate status in the available workspace; search remains below that first-screen overview. A source opens only after an explicit sidebar click, and the document header has an accessible X action that clears selection and returns to the intact overview. Focused Biome and web TypeScript checks, the production Electron build, `git diff --check`, and the complete parsed-knowledge Electron E2E pass, including import-without-auto-open, explicit selection, close-to-overview, parsing, search, citation, recovery, and rebuild coverage.
+- 2026-07-16: Fixed KaTeX rendering inside parsed Markdown tables. Raw HTML table text is converted to the same `math-inline`/`math-display` AST contract used by `remark-math` before `rehype-katex`, rather than rendering KaTeX to raw HTML and reparsing it in table context. Focused GFM/raw-HTML table regression tests pass, along with the repository Biome check, Node/web TypeScript checks, production Electron build, and `git diff --check`; Biome retains the pre-existing generated shadcn sidebar cookie warning.

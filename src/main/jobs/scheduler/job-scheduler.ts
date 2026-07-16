@@ -1,4 +1,4 @@
-import PQueue from 'p-queue'
+import PQueueDefault from 'p-queue'
 import type { Logger } from 'pino'
 import { JobOwnershipError, type ClaimedJob, type JobStore } from '../job-store'
 import type { JobProgress } from '../job-schemas'
@@ -13,6 +13,9 @@ interface Execution {
   progress?: JobProgress
   closeRequested: boolean
 }
+
+const PQueue =
+  (PQueueDefault as unknown as { default?: typeof PQueueDefault }).default ?? PQueueDefault
 
 export interface JobSchedulerOptions {
   jobs: JobStore
@@ -35,7 +38,7 @@ export class JobScheduler {
   readonly #closeTimeoutMs: number
   readonly #workerId: string
   readonly #leaseRecoveryIntervalMs: number
-  readonly #queues = new Map<JobResource, PQueue>()
+  readonly #queues = new Map<JobResource, InstanceType<typeof PQueueDefault>>()
   readonly #executions = new Map<string, Execution>()
   #claiming = false
   #dispatching = false
@@ -176,7 +179,7 @@ export class JobScheduler {
     )
   }
 
-  #dispatch(queue: PQueue, claimed: ClaimedJob): void {
+  #dispatch(queue: InstanceType<typeof PQueueDefault>, claimed: ClaimedJob): void {
     const definition = this.#registry.require(claimed.job.type)
     const controller = new AbortController()
     const executionId = this.#supervisor.track(claimed.job.jobId)

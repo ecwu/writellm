@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { blockNoteDocumentSchema, MAX_SECTION_NESTING_DEPTH } from './manuscript'
+import {
+  blockNoteDocumentSchema,
+  manuscriptBriefFieldsSchema,
+  manuscriptWorkspaceSchema,
+  MAX_BRIEF_EXTENSIBLE_BYTES,
+  MAX_BRIEF_EXTENSIBLE_DEPTH,
+  MAX_SECTION_NESTING_DEPTH
+} from './manuscript'
 
 const paragraph = (id: string, text = '正文') => ({
   id,
@@ -88,5 +95,83 @@ describe('approved BlockNote document contract', () => {
       current = child
     }
     expect(blockNoteDocumentSchema.safeParse(document).success).toBe(false)
+  })
+
+  it('bounds extensible brief data and workspace section identity/count', () => {
+    const brief = {
+      title: 'Bounded brief',
+      description: '',
+      topic: '',
+      targetAudience: '',
+      language: 'en',
+      styleTone: '',
+      scopeExclusions: '',
+      targetLength: '',
+      citationRequirements: '',
+      additionalInstructions: '',
+      extensible: {}
+    }
+    let nested: Record<string, unknown> = {}
+    for (let depth = 0; depth <= MAX_BRIEF_EXTENSIBLE_DEPTH; depth += 1) {
+      nested = { child: nested }
+    }
+    expect(manuscriptBriefFieldsSchema.safeParse({ ...brief, extensible: nested }).success).toBe(
+      false
+    )
+    expect(
+      manuscriptBriefFieldsSchema.safeParse({
+        ...brief,
+        extensible: { payload: 'x'.repeat(MAX_BRIEF_EXTENSIBLE_BYTES) }
+      }).success
+    ).toBe(false)
+
+    const section = {
+      sectionId: 'section-1',
+      manuscriptId: 'manuscript-1',
+      parentSectionId: null,
+      position: 0,
+      level: 1,
+      title: 'Section',
+      objective: null,
+      status: 'planned' as const,
+      currentRevisionId: 'revision-1',
+      createdAt: '2026-07-16T00:00:00.000Z',
+      updatedAt: '2026-07-16T00:00:00.000Z'
+    }
+    const revision = {
+      sectionRevisionId: 'revision-1',
+      sectionId: 'section-1',
+      revisionNumber: 1,
+      source: 'bootstrap' as const,
+      contentSchemaVersion: 1 as const,
+      contentHash: 'a'.repeat(64),
+      priorRevisionId: null,
+      wordCount: 0,
+      characterCount: 0,
+      countAlgorithmVersion: 1 as const,
+      agentRunId: null,
+      agentToolCallId: null,
+      agentProposalId: null,
+      createdAt: '2026-07-16T00:00:00.000Z'
+    }
+    const workspace = {
+      manuscriptId: 'manuscript-1',
+      outlineVersion: 1,
+      brief: {
+        ...brief,
+        manuscriptBriefId: 'brief-1',
+        manuscriptId: 'manuscript-1',
+        version: 1,
+        schemaVersion: 1 as const,
+        createdAt: '2026-07-16T00:00:00.000Z'
+      },
+      sections: [
+        { section, revision },
+        { section: { ...section }, revision: { ...revision } }
+      ],
+      wordCount: 0,
+      characterCount: 0
+    }
+    expect(manuscriptWorkspaceSchema.safeParse(workspace).success).toBe(false)
   })
 })

@@ -1,5 +1,4 @@
 import { z, type ZodType } from 'zod'
-import { normalizeProjectRelativePath } from '../project/project-paths'
 
 export const JOB_STATES = [
   'queued',
@@ -14,9 +13,12 @@ export const JOB_TYPES = [
   'embedding.batch',
   'import.validate',
   'index.build',
+  'index.item-delete',
+  'index.item-upsert',
   'index.publish',
   'index.rebuild',
   'mineru.download',
+  'mineru.normalize',
   'mineru.poll',
   'mineru.submit',
   'rerank.request'
@@ -42,28 +44,18 @@ const referenceId = z
   .min(1)
   .max(256)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-const relativePath = z
-  .string()
-  .min(1)
-  .max(1_024)
-  .transform((value, context) => {
-    try {
-      return normalizeProjectRelativePath(value)
-    } catch {
-      context.addIssue({ code: 'custom', message: 'Invalid project-relative path' })
-      return z.NEVER
-    }
-  })
-
 export const jobPayloadRegistry = {
   'embedding.batch': z.object({ batchId: referenceId }).strict(),
   'import.validate': z.object({ fileId: referenceId }).strict(),
   'index.build': z.object({ generationId: referenceId }).strict(),
+  'index.item-delete': z.object({ knowledgeItemId: referenceId }).strict(),
+  'index.item-upsert': z.object({ knowledgeItemId: referenceId }).strict(),
   'index.publish': z.object({ generationId: referenceId }).strict(),
   'index.rebuild': z.object({ generationId: referenceId }).strict(),
-  'mineru.download': z.object({ parseRevisionId: referenceId }).strict(),
-  'mineru.poll': z.object({ importId: referenceId }).strict(),
-  'mineru.submit': z.object({ knowledgeItemId: referenceId, relativePath }).strict(),
+  'mineru.download': z.object({ parseTaskId: referenceId }).strict(),
+  'mineru.normalize': z.object({ parseRevisionId: referenceId }).strict(),
+  'mineru.poll': z.object({ parseTaskId: referenceId }).strict(),
+  'mineru.submit': z.object({ parseTaskId: referenceId }).strict(),
   'rerank.request': z.object({ requestId: referenceId }).strict()
 } satisfies JobPayloadRegistry
 

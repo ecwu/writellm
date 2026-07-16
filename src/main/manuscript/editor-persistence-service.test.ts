@@ -147,6 +147,58 @@ describe('EditorPersistenceService', () => {
     database.close()
   })
 
+  it('does not let an older in-flight materialization overwrite the current revision', async () => {
+    let releaseFirstRename: (() => void) | undefined
+    const firstRenameStarted = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve
+    })
+    let renameAttempt = 0
+    let signalFirstRenameStarted: (() => void) | undefined
+    const firstRenameReached = new Promise<void>((resolve) => {
+      signalFirstRenameStarted = resolve
+    })
+    const { projectRoot, database, manuscript, persistence } = await fixture({
+      beforeMaterializationRename: async () => {
+        renameAttempt += 1
+        if (renameAttempt === 1) {
+          signalFirstRenameStarted?.()
+          await firstRenameStarted
+        }
+      }
+    })
+    const opened = persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const older = manuscript.appendRevision({
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      content: [paragraph('older', 'older')],
+      source: 'manual'
+    })
+    const olderPublication = persistence.materialize(older)
+    await firstRenameReached
+    const newer = manuscript.appendRevision({
+      sectionId: opened.section.sectionId,
+      baseRevisionId: older.sectionRevisionId,
+      baseContentHash: older.contentHash,
+      content: [paragraph('newer', 'newer')],
+      source: 'manual'
+    })
+    const newerPublication = persistence.materialize(newer)
+    releaseFirstRename?.()
+    await Promise.all([olderPublication, newerPublication])
+
+    const envelope = JSON.parse(
+      await readFile(
+        resolveProjectPath(projectRoot, sectionMaterializationPath(opened.section.sectionId)),
+        'utf8'
+      )
+    )
+    expect(envelope.sectionRevisionId).toBe(newer.sectionRevisionId)
+    expect(envelope.document[0].id).toBe('newer')
+    database.close()
+  })
+
   it('reports a pending mirror after rename failure and repairs missing, corrupt, and stale metadata from DB', async () => {
     const beforeRename = vi.fn(async () => {
       throw new Error('injected rename failure')

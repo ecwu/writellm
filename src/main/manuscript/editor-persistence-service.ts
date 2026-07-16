@@ -44,6 +44,7 @@ export class EditorPersistenceService {
   readonly #log: EditorPersistenceServiceOptions['log']
   readonly #now: () => Date
   readonly #faults: EditorPersistenceFaults
+  readonly #publicationQueues = new Map<string, Promise<void>>()
 
   constructor(options: EditorPersistenceServiceOptions) {
     this.#projectRoot = options.projectRoot
@@ -150,7 +151,19 @@ export class EditorPersistenceService {
     }
   }
 
+  async removeMaterialization(sectionId: string): Promise<void> {
+    await this.#serializePublication(sectionId, async () => {
+      await rm(resolveProjectPath(this.#projectRoot, sectionMaterializationPath(sectionId)), {
+        force: true
+      })
+    })
+  }
+
   async materialize(revision: SectionRevision): Promise<void> {
+    await this.#serializePublication(revision.sectionId, () => this.#materialize(revision))
+  }
+
+  async #materialize(revision: SectionRevision): Promise<void> {
     const relativePath = sectionMaterializationPath(revision.sectionId)
     const destination = resolveProjectPath(this.#projectRoot, relativePath)
     const envelope = {
@@ -174,8 +187,13 @@ export class EditorPersistenceService {
       await handle.close()
       handle = undefined
       await this.#faults.beforeMaterializationRename?.()
+      if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) return
       await rename(temporary, destination)
       await this.#faults.afterMaterializationRename?.()
+      if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) {
+        await rm(destination, { force: true })
+        return
+      }
       const directory = await open(dirname(destination), 'r')
       try {
         await directory.sync()
@@ -218,6 +236,33 @@ export class EditorPersistenceService {
           this.#now().toISOString()
         )
     })
+  }
+
+  #currentRevisionId(sectionId: string): string | undefined {
+    return this.#database.immediate(
+      (database) =>
+        database
+          .prepare('SELECT current_revision_id FROM sections WHERE section_id = ?')
+          .pluck()
+          .get(sectionId) as string | undefined
+    )
+  }
+
+  async #serializePublication<T>(sectionId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.#publicationQueues.get(sectionId) ?? Promise.resolve()
+    const operation = previous.catch(() => undefined).then(task)
+    const tail = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    this.#publicationQueues.set(sectionId, tail)
+    try {
+      return await operation
+    } finally {
+      if (this.#publicationQueues.get(sectionId) === tail) {
+        this.#publicationQueues.delete(sectionId)
+      }
+    }
   }
 
   async #isCurrentMaterialization(revision: SectionRevision): Promise<boolean> {

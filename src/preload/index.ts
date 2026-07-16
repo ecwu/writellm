@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { appInfoSchema, type AppInfo } from '../shared/contracts/app'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
@@ -41,7 +41,22 @@ import {
   type ListJobsResult
 } from '../shared/contracts/jobs'
 import {
+  knowledgeImportPathsInputSchema,
+  knowledgeItemActionInputSchema,
+  knowledgeListInputSchema,
+  knowledgeListResultSchema,
+  parsedKnowledgeAssetInputSchema,
+  parsedKnowledgeAssetSchema,
+  parsedKnowledgeDocumentSchema,
+  type ParsedKnowledgeDocument,
+  type KnowledgeItem
+} from '../shared/contracts/knowledge'
+import {
+  createSectionRequestSchema,
+  deleteSectionRequestSchema,
+  editorFlushAckInputSchema,
   editorFlushRequestSchema,
+  editorFlushSubscriptionInputSchema,
   editorSectionSchema,
   editorSessionInputSchema,
   exportMarkdownInputSchema,
@@ -50,13 +65,46 @@ import {
   finalFlushSaveInputSchema,
   importMarkdownInputSchema,
   loadSectionInputSchema,
+  manuscriptAssemblySchema,
+  manuscriptWorkspaceInputSchema,
+  manuscriptWorkspaceSchema,
+  moveSectionRequestSchema,
   openEditorResultSchema,
   saveSectionDocumentInputSchema,
-  saveSectionDocumentResultSchema,
+  saveSectionDocumentResponseSchema,
+  updateManuscriptBriefRequestSchema,
+  updateSectionRequestSchema,
+  type CreateSectionRequest,
+  type DeleteSectionRequest,
   type EditorFlushRequest,
+  type ManuscriptAssembly,
+  type ManuscriptWorkspace,
+  type ManuscriptWorkspaceInput,
+  type MoveSectionRequest,
   type SaveSectionDocumentInput,
-  type SaveSectionDocumentResult
+  type SaveSectionDocumentResponse,
+  type UpdateManuscriptBriefRequest,
+  type UpdateSectionRequest
 } from '../shared/contracts/manuscript'
+import {
+  providerConnectionTestResultSchema,
+  providerRoleInputSchema,
+  providerSaveInputSchema,
+  providerSettingsSnapshotSchema,
+  type ProviderConnectionTestResult,
+  type ProviderRoleInput,
+  type ProviderSaveInput,
+  type ProviderSettingsSnapshot
+} from '../shared/contracts/providers'
+import {
+  citationExpansionInputSchema,
+  citationExpansionResultSchema,
+  knowledgeSearchInputSchema,
+  knowledgeSearchResultSchema,
+  type ExpandedCitation,
+  type KnowledgeSearchInput,
+  type KnowledgeSearchResult
+} from '../shared/contracts/search'
 
 export interface DesktopApi {
   app: {
@@ -92,12 +140,13 @@ export interface DesktopApi {
       projectSessionId: string
       sectionId: string
     }): Promise<ReturnType<typeof editorSectionSchema.parse>>
+    setActiveSection(input: { projectSessionId: string; sectionId: string }): Promise<void>
     saveSectionDocument(
       input: SaveSectionDocumentInput & { projectSessionId: string }
-    ): Promise<SaveSectionDocumentResult>
+    ): Promise<SaveSectionDocumentResponse>
     importMarkdown(
       input: SaveSectionDocumentInput & { projectSessionId: string }
-    ): Promise<SaveSectionDocumentResult>
+    ): Promise<SaveSectionDocumentResponse>
     exportNativeJson(input: {
       projectSessionId: string
       sectionId: string
@@ -111,12 +160,55 @@ export interface DesktopApi {
     }): Promise<{ relativePath: string }>
     finalFlushSave(
       input: SaveSectionDocumentInput & { projectSessionId: string; closingToken: string }
-    ): Promise<SaveSectionDocumentResult>
-    acknowledgeFlush(input: EditorFlushRequest & { sectionRevisionId: string }): Promise<void>
+    ): Promise<SaveSectionDocumentResponse>
+    acknowledgeFlush(
+      input: EditorFlushRequest & { sectionId: string; sectionRevisionId: string }
+    ): Promise<void>
     subscribeFlush(
       input: { projectSessionId: string },
       listener: (request: EditorFlushRequest) => void
     ): Promise<() => void>
+  }
+  manuscript: {
+    workspace(input: ManuscriptWorkspaceInput): Promise<ManuscriptWorkspace>
+    preview(input: ManuscriptWorkspaceInput): Promise<ManuscriptAssembly>
+    updateBrief(input: UpdateManuscriptBriefRequest): Promise<ManuscriptWorkspace>
+    createSection(input: CreateSectionRequest): Promise<ManuscriptWorkspace>
+    updateSection(input: UpdateSectionRequest): Promise<ManuscriptWorkspace>
+    moveSection(input: MoveSectionRequest): Promise<ManuscriptWorkspace>
+    deleteSection(input: DeleteSectionRequest): Promise<ManuscriptWorkspace>
+  }
+  knowledge: {
+    list(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
+    chooseAndImport(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
+    importDropped(input: { projectSessionId: string; files: File[] }): Promise<KnowledgeItem[]>
+    cancel(input: { projectSessionId: string; knowledgeItemId: string }): Promise<KnowledgeItem[]>
+    delete(input: { projectSessionId: string; knowledgeItemId: string }): Promise<KnowledgeItem[]>
+    reveal(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
+    openOriginal(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
+    startParse(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
+    cancelParse(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
+    parsedDocument(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+    }): Promise<ParsedKnowledgeDocument>
+    parsedAsset(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+      parseRevisionId: string
+      assetRef: string
+    }): Promise<{ mimeType: string; dataBase64: string }>
+    search(input: KnowledgeSearchInput): Promise<KnowledgeSearchResult>
+    expandCitations(input: {
+      projectSessionId: string
+      citationIds: string[]
+    }): Promise<ExpandedCitation[]>
+  }
+  providers: {
+    snapshot(): Promise<ProviderSettingsSnapshot>
+    save(input: ProviderSaveInput): Promise<ProviderSettingsSnapshot>
+    remove(input: ProviderRoleInput): Promise<ProviderSettingsSnapshot>
+    testConnection(input: ProviderRoleInput): Promise<ProviderConnectionTestResult>
   }
   diagnostics: {
     snapshot(): Promise<DiagnosticsSnapshot>
@@ -242,8 +334,14 @@ const desktopApi: DesktopApi = {
         )
       )
     },
+    async setActiveSection(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.editorSetActiveSection,
+        loadSectionInputSchema.parse(input)
+      )
+    },
     async saveSectionDocument(input) {
-      return saveSectionDocumentResultSchema.parse(
+      return saveSectionDocumentResponseSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.editorSaveSectionDocument,
           saveSectionDocumentInputSchema.parse(input)
@@ -251,7 +349,7 @@ const desktopApi: DesktopApi = {
       )
     },
     async importMarkdown(input) {
-      return saveSectionDocumentResultSchema.parse(
+      return saveSectionDocumentResponseSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.editorImportMarkdown,
           importMarkdownInputSchema.parse(input)
@@ -275,7 +373,7 @@ const desktopApi: DesktopApi = {
       )
     },
     async finalFlushSave(input) {
-      return saveSectionDocumentResultSchema.parse(
+      return saveSectionDocumentResponseSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.editorFinalFlushSave,
           finalFlushSaveInputSchema.parse(input)
@@ -283,13 +381,17 @@ const desktopApi: DesktopApi = {
       )
     },
     async acknowledgeFlush(input) {
-      await ipcRenderer.invoke(IPC_CHANNELS.editorFlushAck, input)
+      await ipcRenderer.invoke(IPC_CHANNELS.editorFlushAck, editorFlushAckInputSchema.parse(input))
     },
     async subscribeFlush(input, listener) {
-      const parsed = editorSessionInputSchema.parse(input)
+      const session = editorSessionInputSchema.parse(input)
+      const parsed = editorFlushSubscriptionInputSchema.parse({
+        ...session,
+        subscriptionId: globalThis.crypto.randomUUID()
+      })
       const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
         const request = editorFlushRequestSchema.parse(value)
-        if (request.projectSessionId === parsed.projectSessionId) listener(request)
+        if (request.projectSessionId === session.projectSessionId) listener(request)
       }
       ipcRenderer.on(IPC_CHANNELS.editorFlushRequest, handler)
       try {
@@ -302,6 +404,188 @@ const desktopApi: DesktopApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.editorFlushRequest, handler)
         void ipcRenderer.invoke(IPC_CHANNELS.editorUnsubscribeFlush, parsed)
       }
+    }
+  },
+  manuscript: {
+    async workspace(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptGetWorkspace,
+          manuscriptWorkspaceInputSchema.parse(input)
+        )
+      )
+    },
+    async preview(input) {
+      return manuscriptAssemblySchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptGetPreview,
+          manuscriptWorkspaceInputSchema.parse(input)
+        )
+      )
+    },
+    async updateBrief(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptUpdateBrief,
+          updateManuscriptBriefRequestSchema.parse(input)
+        )
+      )
+    },
+    async createSection(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptCreateSection,
+          createSectionRequestSchema.parse(input)
+        )
+      )
+    },
+    async updateSection(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptUpdateSection,
+          updateSectionRequestSchema.parse(input)
+        )
+      )
+    },
+    async moveSection(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptMoveSection,
+          moveSectionRequestSchema.parse(input)
+        )
+      )
+    },
+    async deleteSection(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptDeleteSection,
+          deleteSectionRequestSchema.parse(input)
+        )
+      )
+    }
+  },
+  knowledge: {
+    async list(input) {
+      return knowledgeListResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.knowledgeList, knowledgeListInputSchema.parse(input))
+      )
+    },
+    async chooseAndImport(input) {
+      return knowledgeListResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeChooseAndImport,
+          knowledgeListInputSchema.parse(input)
+        )
+      )
+    },
+    async importDropped(input) {
+      const paths = input.files.map((file) => webUtils.getPathForFile(file)).filter(Boolean)
+      return knowledgeListResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeImportDropped,
+          knowledgeImportPathsInputSchema.parse({
+            projectSessionId: input.projectSessionId,
+            paths
+          })
+        )
+      )
+    },
+    async cancel(input) {
+      return knowledgeListResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeCancel,
+          knowledgeItemActionInputSchema.parse(input)
+        )
+      )
+    },
+    async delete(input) {
+      return knowledgeListResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeDelete,
+          knowledgeItemActionInputSchema.parse(input)
+        )
+      )
+    },
+    async reveal(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeReveal,
+        knowledgeItemActionInputSchema.parse(input)
+      )
+    },
+    async openOriginal(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeOpenOriginal,
+        knowledgeItemActionInputSchema.parse(input)
+      )
+    },
+    async startParse(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeStartParse,
+        knowledgeItemActionInputSchema.parse(input)
+      )
+    },
+    async cancelParse(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeCancelParse,
+        knowledgeItemActionInputSchema.parse(input)
+      )
+    },
+    async parsedDocument(input) {
+      return parsedKnowledgeDocumentSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeParsedDocument,
+          knowledgeItemActionInputSchema.parse(input)
+        )
+      )
+    },
+    async parsedAsset(input) {
+      return parsedKnowledgeAssetSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeParsedAsset,
+          parsedKnowledgeAssetInputSchema.parse(input)
+        )
+      )
+    },
+    async search(input) {
+      return knowledgeSearchResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeSearch,
+          knowledgeSearchInputSchema.parse(input)
+        )
+      )
+    },
+    async expandCitations(input) {
+      return citationExpansionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeExpandCitations,
+          citationExpansionInputSchema.parse(input)
+        )
+      )
+    }
+  },
+  providers: {
+    async snapshot() {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.providersSnapshot)
+      )
+    },
+    async save(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.providersSave, providerSaveInputSchema.parse(input))
+      )
+    },
+    async remove(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.providersRemove, providerRoleInputSchema.parse(input))
+      )
+    },
+    async testConnection(input) {
+      return providerConnectionTestResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersTestConnection,
+          providerRoleInputSchema.parse(input)
+        )
+      )
     }
   },
   diagnostics: {

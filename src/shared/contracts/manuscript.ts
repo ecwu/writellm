@@ -9,6 +9,12 @@ export const MAX_SECTION_DOCUMENT_BYTES = 2 * 1024 * 1024
 export const MAX_SECTION_BLOCKS = 10_000
 export const MAX_SECTION_INLINE_NODES = 50_000
 export const MAX_SECTION_NESTING_DEPTH = 16
+export const MAX_MANUSCRIPT_SECTIONS = 1_000
+export const MAX_MANUSCRIPT_OUTLINE_DEPTH = 64
+export const MAX_MANUSCRIPT_WORKSPACE_BYTES = 8 * 1024 * 1024
+export const MAX_BRIEF_EXTENSIBLE_BYTES = 256 * 1024
+export const MAX_BRIEF_EXTENSIBLE_DEPTH = 8
+export const MAX_BRIEF_EXTENSIBLE_KEYS = 2_000
 
 export const manuscriptIdSchema = z.string().min(1).max(256)
 export const manuscriptBriefIdSchema = z.string().min(1).max(256)
@@ -270,7 +276,51 @@ export const manuscriptBriefFieldsSchema = z
     targetLength: z.string().max(2_000),
     citationRequirements: boundedText,
     additionalInstructions: boundedText,
-    extensible: z.record(z.string(), z.unknown())
+    extensible: z.record(z.string().min(1).max(256), z.unknown()).superRefine((value, context) => {
+      const seen = new WeakSet<object>()
+      let keys = 0
+      const visit = (candidate: unknown, depth: number): void => {
+        if (candidate === null || typeof candidate !== 'object') return
+        if (seen.has(candidate)) {
+          context.addIssue({ code: 'custom', message: 'Brief extensible data must be acyclic' })
+          return
+        }
+        if (depth > MAX_BRIEF_EXTENSIBLE_DEPTH) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Brief extensible data is too deeply nested'
+          })
+          return
+        }
+        seen.add(candidate)
+        for (const [key, child] of Object.entries(candidate)) {
+          keys += 1
+          if (keys > MAX_BRIEF_EXTENSIBLE_KEYS) {
+            context.addIssue({ code: 'custom', message: 'Brief extensible data has too many keys' })
+            return
+          }
+          if (key.length > 256) {
+            context.addIssue({ code: 'custom', message: 'Brief extensible key is too long' })
+            return
+          }
+          visit(child, depth + 1)
+        }
+        seen.delete(candidate)
+      }
+      visit(value, 0)
+      try {
+        if (
+          new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_BRIEF_EXTENSIBLE_BYTES
+        ) {
+          context.addIssue({ code: 'custom', message: 'Brief extensible data is too large' })
+        }
+      } catch {
+        context.addIssue({
+          code: 'custom',
+          message: 'Brief extensible data is not JSON serializable'
+        })
+      }
+    })
   })
   .strict()
 
@@ -294,7 +344,7 @@ export const sectionSchema = z
     manuscriptId: manuscriptIdSchema,
     parentSectionId: sectionIdSchema.nullable(),
     position: z.number().int().nonnegative(),
-    level: z.number().int().positive(),
+    level: z.number().int().positive().max(MAX_MANUSCRIPT_OUTLINE_DEPTH),
     title: requiredTitle,
     objective: boundedText.nullable(),
     status: sectionStatusSchema,
@@ -366,6 +416,8 @@ export const sectionRevisionSchema = z
   })
   .strict()
 
+export const sectionRevisionSummarySchema = sectionRevisionSchema.omit({ content: true }).strict()
+
 export const appendSectionRevisionInputSchema = z
   .object({
     sectionId: sectionIdSchema,
@@ -379,19 +431,82 @@ export const appendSectionRevisionInputSchema = z
   })
   .strict()
 
+const manuscriptSectionCollectionSchema = z
+  .array(
+    z
+      .object({
+        section: sectionSchema,
+        revision: sectionRevisionSchema
+      })
+      .strict()
+  )
+  .max(MAX_MANUSCRIPT_SECTIONS)
+  .superRefine((sections, context) => {
+    const ids = new Set<string>()
+    for (const item of sections) {
+      if (ids.has(item.section.sectionId)) {
+        context.addIssue({ code: 'custom', message: 'Manuscript contains duplicate section IDs' })
+      }
+      ids.add(item.section.sectionId)
+    }
+    try {
+      if (
+        new TextEncoder().encode(JSON.stringify(sections)).byteLength >
+        MAX_MANUSCRIPT_WORKSPACE_BYTES
+      ) {
+        context.addIssue({ code: 'custom', message: 'Manuscript section collection is too large' })
+      }
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manuscript section collection is not serializable'
+      })
+    }
+  })
+
+const manuscriptSectionSummaryCollectionSchema = z
+  .array(z.object({ section: sectionSchema, revision: sectionRevisionSummarySchema }).strict())
+  .max(MAX_MANUSCRIPT_SECTIONS)
+  .superRefine((sections, context) => {
+    const ids = new Set<string>()
+    for (const item of sections) {
+      if (ids.has(item.section.sectionId)) {
+        context.addIssue({ code: 'custom', message: 'Manuscript contains duplicate section IDs' })
+      }
+      ids.add(item.section.sectionId)
+    }
+    try {
+      if (
+        new TextEncoder().encode(JSON.stringify(sections)).byteLength >
+        MAX_MANUSCRIPT_WORKSPACE_BYTES
+      ) {
+        context.addIssue({ code: 'custom', message: 'Manuscript section collection is too large' })
+      }
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manuscript section collection is not serializable'
+      })
+    }
+  })
+
 export const manuscriptAssemblySchema = z
   .object({
     manuscriptId: manuscriptIdSchema,
     outlineVersion: z.number().int().positive(),
     brief: manuscriptBriefSchema,
-    sections: z.array(
-      z
-        .object({
-          section: sectionSchema,
-          revision: sectionRevisionSchema
-        })
-        .strict()
-    ),
+    sections: manuscriptSectionCollectionSchema,
+    wordCount: z.number().int().nonnegative(),
+    characterCount: z.number().int().nonnegative()
+  })
+  .strict()
+
+export const manuscriptWorkspaceSchema = z
+  .object({
+    manuscriptId: manuscriptIdSchema,
+    outlineVersion: z.number().int().positive(),
+    brief: manuscriptBriefSchema,
+    sections: manuscriptSectionSummaryCollectionSchema,
     wordCount: z.number().int().nonnegative(),
     characterCount: z.number().int().nonnegative()
   })
@@ -399,6 +514,9 @@ export const manuscriptAssemblySchema = z
 
 export const editorSessionInputSchema = z
   .object({ projectSessionId: z.string().min(1).max(256) })
+  .strict()
+export const editorFlushSubscriptionInputSchema = editorSessionInputSchema
+  .extend({ subscriptionId: z.string().uuid() })
   .strict()
 export const loadSectionInputSchema = editorSessionInputSchema
   .extend({ sectionId: sectionIdSchema })
@@ -422,6 +540,20 @@ export const saveSectionDocumentResultSchema = z
     disposition: z.enum(['saved', 'unchanged', 'saved_materialization_pending'])
   })
   .strict()
+export const saveSectionDocumentResponseSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), result: saveSectionDocumentResultSchema }).strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: z
+        .object({
+          code: z.literal('section_revision_conflict'),
+          message: z.literal('The section body has changed')
+        })
+        .strict()
+    })
+    .strict()
+])
 export const finalFlushSaveInputSchema = saveSectionDocumentInputSchema
   .extend({ closingToken: z.string().uuid() })
   .strict()
@@ -432,7 +564,7 @@ export const editorFlushRequestSchema = z
   })
   .strict()
 export const editorFlushAckInputSchema = editorFlushRequestSchema
-  .extend({ sectionRevisionId: sectionRevisionIdSchema })
+  .extend({ sectionId: sectionIdSchema, sectionRevisionId: sectionRevisionIdSchema })
   .strict()
 export const importMarkdownInputSchema = saveSectionDocumentInputSchema
 export const exportNativeJsonInputSchema = loadSectionInputSchema
@@ -444,6 +576,23 @@ export const exportMarkdownInputSchema = loadSectionInputSchema
   })
   .strict()
 export const exportResultSchema = z.object({ relativePath: z.string().min(1).max(1_024) }).strict()
+
+export const manuscriptWorkspaceInputSchema = editorSessionInputSchema
+export const updateManuscriptBriefRequestSchema = editorSessionInputSchema
+  .extend({ update: updateManuscriptBriefInputSchema })
+  .strict()
+export const createSectionRequestSchema = editorSessionInputSchema
+  .extend({ create: createSectionInputSchema })
+  .strict()
+export const updateSectionRequestSchema = editorSessionInputSchema
+  .extend({ update: updateSectionInputSchema })
+  .strict()
+export const moveSectionRequestSchema = editorSessionInputSchema
+  .extend({ move: moveSectionInputSchema })
+  .strict()
+export const deleteSectionRequestSchema = editorSessionInputSchema
+  .extend({ delete: deleteSectionInputSchema })
+  .strict()
 
 export const MANUSCRIPT_ERROR_CODES = [
   'primary_manuscript_missing',
@@ -474,9 +623,18 @@ export type SectionRevision = z.infer<typeof sectionRevisionSchema>
 export type SectionRevisionSource = z.infer<typeof sectionRevisionSourceSchema>
 export type AppendSectionRevisionInput = z.input<typeof appendSectionRevisionInputSchema>
 export type ManuscriptAssembly = z.infer<typeof manuscriptAssemblySchema>
+export type SectionRevisionSummary = z.infer<typeof sectionRevisionSummarySchema>
+export type ManuscriptWorkspace = z.infer<typeof manuscriptWorkspaceSchema>
 export type SaveSectionDocumentInput = z.infer<typeof saveSectionDocumentInputSchema>
 export type SaveSectionDocumentResult = z.infer<typeof saveSectionDocumentResultSchema>
+export type SaveSectionDocumentResponse = z.infer<typeof saveSectionDocumentResponseSchema>
 export type EditorFlushRequest = z.infer<typeof editorFlushRequestSchema>
+export type ManuscriptWorkspaceInput = z.infer<typeof manuscriptWorkspaceInputSchema>
+export type UpdateManuscriptBriefRequest = z.infer<typeof updateManuscriptBriefRequestSchema>
+export type CreateSectionRequest = z.infer<typeof createSectionRequestSchema>
+export type UpdateSectionRequest = z.infer<typeof updateSectionRequestSchema>
+export type MoveSectionRequest = z.infer<typeof moveSectionRequestSchema>
+export type DeleteSectionRequest = z.infer<typeof deleteSectionRequestSchema>
 
 export class ManuscriptDomainError extends Error {
   readonly code: ManuscriptErrorCode

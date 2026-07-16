@@ -8,6 +8,9 @@ Before changing code, read:
 
 1. `docs/architecture.md` for fixed technology choices, process boundaries, and invariants.
 2. `docs/implementation-todo.md` for the ordered roadmap and current checkpoint.
+3. `docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md` while Checkpoint 19.5 is pending, or when a task touches its frozen boundaries.
+
+The Phase files under `docs/implementation-todo/` contain historical implementation evidence. Read only the Phase material related to the current checkpoint. If a Phase file conflicts with the architecture amendment or the CP19.5 audit, the newer amendment is authoritative and the older passage is historical.
 
 ## Orchestration And Delegation
 
@@ -68,6 +71,7 @@ Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` wi
 
 - Use the official shadcn/ui `new-york` preset and its generated components as the renderer design system. Do not create a parallel visual system or hand-write replacements for components available from shadcn/ui.
 - Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives. Compose them with standard Tailwind layout utilities; do not add product-specific CSS unless an interaction or platform constraint cannot be expressed by the preset and utilities.
+- Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts, and define responsive breakpoints deliberately for different screen sizes.
 - Keep a global shadcn `Menubar` at the top of every application state. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
 - Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
 - Base the active-project workspace on the official shadcn `sidebar-09` block: a collapsible icon rail plus contextual secondary sidebar and a `SidebarInset` content region.

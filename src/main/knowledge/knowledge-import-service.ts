@@ -1,0 +1,567 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
+import { basename, dirname, extname } from 'node:path'
+import type { Logger } from 'pino'
+import {
+  knowledgeItemSchema,
+  knowledgeListResultSchema,
+  SUPPORTED_KNOWLEDGE_EXTENSIONS,
+  type KnowledgeItem
+} from '../../shared/contracts/knowledge'
+import type { FileRecordTable, KnowledgeItemTable } from '../project/database-types'
+import type { ProjectDatabase } from '../project/project-database'
+import { PROJECT_TEMP_DIRECTORY, resolveProjectPath } from '../project/project-paths'
+
+const MAX_FILE_BYTES = 250 * 1024 * 1024
+const MAX_BATCH_BYTES = 1024 * 1024 * 1024
+
+export class KnowledgeImportError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    options?: ErrorOptions
+  ) {
+    super(message, options)
+    this.name = 'KnowledgeImportError'
+  }
+}
+
+export class KnowledgeImportService {
+  readonly #projectRoot: string
+  readonly #projectId: string
+  readonly #database: ProjectDatabase
+  readonly #log: Pick<Logger, 'info' | 'error'>
+  readonly #faults: { beforeTempOpen?(): void | Promise<void> }
+  readonly #onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
+  readonly #onDeleted?: (knowledgeItemId: string) => void | Promise<void>
+  readonly #controllers = new Map<string, AbortController>()
+  readonly #operations = new Map<string, Promise<KnowledgeItem>>()
+  #queue: Promise<void> = Promise.resolve()
+  #acceptingImports = true
+
+  constructor(options: {
+    projectRoot: string
+    projectId: string
+    database: ProjectDatabase
+    log: Pick<Logger, 'info' | 'error'>
+    faults?: { beforeTempOpen?(): void | Promise<void> }
+    onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
+    onDeleted?: (knowledgeItemId: string) => void | Promise<void>
+  }) {
+    this.#projectRoot = options.projectRoot
+    this.#projectId = options.projectId
+    this.#database = options.database
+    this.#log = options.log
+    this.#faults = options.faults ?? {}
+    this.#onStored = options.onStored
+    this.#onDeleted = options.onDeleted
+  }
+
+  list(): KnowledgeItem[] {
+    const rows = this.#database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT knowledge_items.*, file_records.sha256, file_records.byte_size,
+                    file_records.mime_type, file_records.extension, imports.bytes_copied
+               FROM knowledge_items
+               LEFT JOIN file_records USING (file_record_id)
+               LEFT JOIN imports USING (knowledge_item_id)
+              ORDER BY knowledge_items.created_at DESC, knowledge_items.rowid DESC`
+          )
+          .all() as Array<KnowledgeItemTable & Partial<FileRecordTable> & { bytes_copied: number }>
+    )
+    return knowledgeListResultSchema.parse(rows.map(toKnowledgeItem))
+  }
+
+  async importPaths(paths: readonly string[]): Promise<KnowledgeItem[]> {
+    const started = await this.startImportPaths(paths)
+    const operations = started
+      .map((item) => this.#operations.get(item.knowledgeItemId))
+      .filter((operation): operation is Promise<KnowledgeItem> => operation !== undefined)
+    await Promise.allSettled(operations)
+    return this.list()
+  }
+
+  async startImportPaths(paths: readonly string[]): Promise<KnowledgeItem[]> {
+    if (paths.length === 0 || paths.length > 50) {
+      throw new KnowledgeImportError('batch_count_invalid', 'Choose between 1 and 50 files')
+    }
+    const sizes = await Promise.all(paths.map(async (path) => (await lstat(path)).size))
+    if (sizes.reduce((total, size) => total + size, 0) > MAX_BATCH_BYTES) {
+      throw new KnowledgeImportError('batch_too_large', 'The selected batch is too large')
+    }
+    for (const path of paths) {
+      try {
+        await this.#serialize(async () => {
+          if (!this.#acceptingImports) {
+            throw new KnowledgeImportError('project_closing', 'The project is closing')
+          }
+          this.#startImport(path)
+        })
+      } catch (err) {
+        if (err instanceof KnowledgeImportError && err.code === 'project_closing') throw err
+      }
+    }
+    return this.list()
+  }
+
+  cancel(knowledgeItemId: string): void {
+    this.#database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE imports SET cancellation_requested = 1, updated_at = ?
+            WHERE knowledge_item_id = ? AND state = 'copying'`
+        )
+        .run(new Date().toISOString(), knowledgeItemId)
+    })
+    this.#controllers.get(knowledgeItemId)?.abort()
+  }
+
+  async cancelAll(): Promise<void> {
+    this.#acceptingImports = false
+    for (const controller of this.#controllers.values()) controller.abort()
+    await Promise.allSettled(this.#operations.values())
+  }
+
+  async delete(knowledgeItemId: string): Promise<void> {
+    this.cancel(knowledgeItemId)
+    try {
+      await this.#operations.get(knowledgeItemId)
+    } catch (err) {
+      this.#log.error(
+        { event: 'knowledge.delete.import_wait_failed', err, knowledgeItemId },
+        'Knowledge import ended with an error before deletion'
+      )
+    }
+    const relativePath = this.#database.immediate((database) => {
+      const row = database
+        .prepare(
+          `SELECT file_records.relative_path
+             FROM knowledge_items
+             LEFT JOIN file_records USING (file_record_id)
+            WHERE knowledge_item_id = ?`
+        )
+        .get(knowledgeItemId) as { relative_path?: string } | undefined
+      database
+        .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
+        .run(knowledgeItemId)
+      if (row?.relative_path) {
+        database.prepare('DELETE FROM file_records WHERE relative_path = ?').run(row.relative_path)
+      }
+      return row?.relative_path
+    })
+    if (relativePath) await rm(resolveProjectPath(this.#projectRoot, relativePath), { force: true })
+    try {
+      await this.#onDeleted?.(knowledgeItemId)
+    } catch (err) {
+      this.#log.error(
+        { event: 'knowledge.delete.index_queue_failed', err, knowledgeItemId },
+        'Failed to queue index deletion after knowledge deletion'
+      )
+      throw new KnowledgeImportError('index_queue_failed', 'Knowledge index update failed', {
+        cause: err
+      })
+    }
+  }
+
+  originalRelativePath(knowledgeItemId: string): string {
+    const row = this.#database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT file_records.relative_path
+               FROM knowledge_items
+               JOIN file_records USING (file_record_id)
+              WHERE knowledge_item_id = ? AND knowledge_items.state = 'stored'`
+          )
+          .get(knowledgeItemId) as { relative_path: string } | undefined
+    )
+    if (!row) throw new KnowledgeImportError('original_unavailable', 'Original is unavailable')
+    return row.relative_path
+  }
+
+  #startImport(sourcePath: string): void {
+    const knowledgeItemId = randomUUID()
+    const importId = randomUUID()
+    const originalName = basename(sourcePath).normalize('NFC')
+    const displayName = sanitizeDisplayName(originalName)
+    const now = new Date().toISOString()
+    this.#database.immediate((database) => {
+      database
+        .prepare(
+          `INSERT INTO knowledge_items (
+            knowledge_item_id, file_record_id, original_name, display_name,
+            state, error_code, created_at, updated_at
+          ) VALUES (?, NULL, ?, ?, 'importing', NULL, ?, ?)`
+        )
+        .run(knowledgeItemId, originalName, displayName, now, now)
+      database
+        .prepare(
+          `INSERT INTO imports (
+            import_id, knowledge_item_id, state, bytes_copied,
+            cancellation_requested, error_code, created_at, updated_at
+          ) VALUES (?, ?, 'copying', 0, 0, NULL, ?, ?)`
+        )
+        .run(importId, knowledgeItemId, now, now)
+    })
+    const controller = new AbortController()
+    this.#controllers.set(knowledgeItemId, controller)
+    const operation = this.#importOne({
+      sourcePath,
+      originalName,
+      displayName,
+      knowledgeItemId,
+      importId,
+      signal: controller.signal
+    })
+    this.#operations.set(knowledgeItemId, operation)
+    void operation
+      .catch(() => undefined)
+      .finally(() => {
+        this.#controllers.delete(knowledgeItemId)
+        this.#operations.delete(knowledgeItemId)
+      })
+  }
+
+  async #importOne(input: {
+    sourcePath: string
+    originalName: string
+    displayName: string
+    knowledgeItemId: string
+    importId: string
+    signal: AbortSignal
+  }): Promise<KnowledgeItem> {
+    const startedAt = Date.now()
+    const tempRelativePath = `${PROJECT_TEMP_DIRECTORY}/imports/${input.importId}.partial`
+    const tempPath = resolveProjectPath(this.#projectRoot, tempRelativePath)
+    let uncommittedDestination: string | undefined
+    try {
+      const before = await lstat(input.sourcePath)
+      if (!before.isFile() || before.isSymbolicLink()) {
+        throw new KnowledgeImportError('source_not_regular', 'Source must be a regular file')
+      }
+      if (before.size <= 0 || before.size > MAX_FILE_BYTES) {
+        throw new KnowledgeImportError('file_size_invalid', 'Source file size is unsupported')
+      }
+      const capability = await inspectCapability(input.sourcePath, input.originalName, before.size)
+      await mkdir(resolveProjectPath(this.#projectRoot, `${PROJECT_TEMP_DIRECTORY}/imports`), {
+        recursive: true
+      })
+      await this.#faults.beforeTempOpen?.()
+      const handle = await open(tempPath, 'wx', 0o600)
+      const hash = createHash('sha256')
+      let copied = 0
+      let lastReported = 0
+      try {
+        for await (const chunk of createReadStream(input.sourcePath, { signal: input.signal })) {
+          const bytes = Buffer.from(chunk)
+          await handle.write(bytes)
+          hash.update(bytes)
+          copied += bytes.byteLength
+          if (copied - lastReported >= 4 * 1024 * 1024) {
+            lastReported = copied
+            this.#database.immediate((database) => {
+              database
+                .prepare('UPDATE imports SET bytes_copied = ?, updated_at = ? WHERE import_id = ?')
+                .run(copied, new Date().toISOString(), input.importId)
+            })
+          }
+        }
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      if (input.signal.aborted) throw new KnowledgeImportError('cancelled', 'Import cancelled')
+      const after = await lstat(input.sourcePath)
+      if (
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs ||
+        copied !== before.size
+      ) {
+        throw new KnowledgeImportError('source_changed', 'Source changed while it was copied')
+      }
+      const sha256 = hash.digest('hex')
+      const duplicate = this.#database.immediate(
+        (database) =>
+          database
+            .prepare(
+              `SELECT knowledge_items.knowledge_item_id
+                 FROM knowledge_items
+                 JOIN file_records USING (file_record_id)
+                WHERE file_records.sha256 = ? AND knowledge_items.state = 'stored'`
+            )
+            .get(sha256) as { knowledge_item_id: string } | undefined
+      )
+      if (duplicate) {
+        await rm(tempPath, { force: true })
+        this.#database.immediate((database) => {
+          database
+            .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
+            .run(input.knowledgeItemId)
+        })
+        return this.list().find(
+          (item) => item.knowledgeItemId === duplicate.knowledge_item_id
+        ) as KnowledgeItem
+      }
+      const relativePath = `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}/${input.displayName}`
+      const destination = resolveProjectPath(this.#projectRoot, relativePath)
+      await mkdir(
+        resolveProjectPath(
+          this.#projectRoot,
+          `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}`
+        ),
+        { recursive: true }
+      )
+      await rename(tempPath, destination)
+      uncommittedDestination = destination
+      await syncDirectory(dirname(destination))
+      const fileRecordId = randomUUID()
+      const completedAt = new Date().toISOString()
+      this.#database.immediate((database) => {
+        database
+          .prepare(
+            `INSERT INTO file_records (
+              file_record_id, sha256, byte_size, mime_type, extension, relative_path, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            fileRecordId,
+            sha256,
+            copied,
+            capability.mimeType,
+            capability.extension,
+            relativePath,
+            completedAt
+          )
+        database
+          .prepare(
+            `UPDATE knowledge_items
+                SET file_record_id = ?, state = 'stored', error_code = NULL, updated_at = ?
+              WHERE knowledge_item_id = ?`
+          )
+          .run(fileRecordId, completedAt, input.knowledgeItemId)
+        database
+          .prepare(
+            `UPDATE imports
+                SET state = 'stored', bytes_copied = ?, error_code = NULL, updated_at = ?
+              WHERE import_id = ?`
+          )
+          .run(copied, completedAt, input.importId)
+      })
+      uncommittedDestination = undefined
+      const stored = this.list().find(
+        (item) => item.knowledgeItemId === input.knowledgeItemId
+      ) as KnowledgeItem
+      await this.#onStored?.(stored)
+      this.#log.info(
+        {
+          event: 'knowledge.import.stored',
+          projectId: this.#projectId,
+          knowledgeItemId: input.knowledgeItemId,
+          byteSize: copied,
+          mimeType: capability.mimeType,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge original imported'
+      )
+      return stored
+    } catch (err) {
+      try {
+        await rm(tempPath, { force: true })
+      } catch (cleanupErr) {
+        this.#log.error(
+          {
+            event: 'knowledge.import.temp_cleanup_failed',
+            err: cleanupErr,
+            knowledgeItemId: input.knowledgeItemId
+          },
+          'Failed to clean import temporary file'
+        )
+      }
+      if (uncommittedDestination) {
+        try {
+          await rm(uncommittedDestination, { force: true })
+        } catch (cleanupErr) {
+          this.#log.error(
+            {
+              event: 'knowledge.import.destination_cleanup_failed',
+              err: cleanupErr,
+              knowledgeItemId: input.knowledgeItemId
+            },
+            'Failed to clean unpublished import destination'
+          )
+        }
+      }
+      const cancelled =
+        input.signal.aborted || (err instanceof KnowledgeImportError && err.code === 'cancelled')
+      const code = cancelled
+        ? 'cancelled'
+        : err instanceof KnowledgeImportError
+          ? err.code
+          : (err as NodeJS.ErrnoException).code === 'ENOSPC'
+            ? 'insufficient_disk_space'
+            : 'copy_failed'
+      const failedAt = new Date().toISOString()
+      try {
+        this.#database.immediate((database) => {
+          database
+            .prepare(
+              'UPDATE knowledge_items SET state = ?, error_code = ?, updated_at = ? WHERE knowledge_item_id = ?'
+            )
+            .run(cancelled ? 'cancelled' : 'failed', code, failedAt, input.knowledgeItemId)
+          database
+            .prepare(
+              'UPDATE imports SET state = ?, error_code = ?, updated_at = ? WHERE import_id = ?'
+            )
+            .run(cancelled ? 'cancelled' : 'failed', code, failedAt, input.importId)
+        })
+      } catch (databaseErr) {
+        this.#log.error(
+          {
+            event: 'knowledge.import.failure_state_persist_failed',
+            err: databaseErr,
+            projectId: this.#projectId,
+            knowledgeItemId: input.knowledgeItemId,
+            importId: input.importId,
+            originalError: err
+          },
+          'Failed to persist the original import failure state'
+        )
+      }
+      this.#log.error(
+        {
+          event: 'knowledge.import.failed',
+          err,
+          projectId: this.#projectId,
+          knowledgeItemId: input.knowledgeItemId,
+          errorCode: code,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge original import failed'
+      )
+      throw new KnowledgeImportError(code, 'Knowledge import failed', { cause: err })
+    }
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#queue.then(operation, operation)
+    this.#queue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+}
+
+function toKnowledgeItem(
+  row: KnowledgeItemTable & Partial<FileRecordTable> & { bytes_copied: number }
+): KnowledgeItem {
+  return knowledgeItemSchema.parse({
+    knowledgeItemId: row.knowledge_item_id,
+    originalName: row.original_name,
+    displayName: row.display_name,
+    state: row.state,
+    errorCode: row.error_code,
+    mimeType: row.mime_type ?? null,
+    extension: row.extension ?? null,
+    byteSize: row.byte_size ?? null,
+    bytesCopied: row.bytes_copied,
+    sha256: row.sha256 ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  })
+}
+
+function sanitizeDisplayName(value: string): string {
+  const extension = extname(value).toLowerCase()
+  const stem = value.slice(0, Math.max(0, value.length - extension.length))
+  const sanitized =
+    Array.from(stem)
+      .map((character) => {
+        const code = character.charCodeAt(0)
+        return code < 32 || code === 127 || '/\\:'.includes(character) ? '_' : character
+      })
+      .join('')
+      .trim() || 'source'
+  return `${sanitized.slice(0, 180 - extension.length)}${extension}`
+}
+
+async function inspectCapability(
+  path: string,
+  originalName: string,
+  size: number
+): Promise<{ extension: string; mimeType: string }> {
+  const extension = extname(originalName).slice(1).toLowerCase()
+  if (extension === 'doc' || extension === 'ppt') {
+    throw new KnowledgeImportError('legacy_format_unsupported', 'Legacy DOC/PPT is unsupported')
+  }
+  if (!(SUPPORTED_KNOWLEDGE_EXTENSIONS as readonly string[]).includes(extension)) {
+    throw new KnowledgeImportError('format_unsupported', 'Source format is unsupported')
+  }
+  const handle = await open(path, 'r')
+  try {
+    const head = Buffer.alloc(Math.min(32, size))
+    await handle.read(head, 0, head.length, 0)
+    const tail = Buffer.alloc(Math.min(2 * 1024 * 1024, size))
+    await handle.read(tail, 0, tail.length, Math.max(0, size - tail.length))
+    const zip = head.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    const checks: Record<string, { valid: boolean; mimeType: string }> = {
+      pdf: { valid: head.subarray(0, 5).toString() === '%PDF-', mimeType: 'application/pdf' },
+      docx: {
+        valid: zip && tail.includes(Buffer.from('word/')),
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      },
+      pptx: {
+        valid: zip && tail.includes(Buffer.from('ppt/')),
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      },
+      png: {
+        valid: head.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+        mimeType: 'image/png'
+      },
+      jpg: {
+        valid: head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff,
+        mimeType: 'image/jpeg'
+      },
+      jpeg: {
+        valid: head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff,
+        mimeType: 'image/jpeg'
+      },
+      gif: {
+        valid: ['GIF87a', 'GIF89a'].includes(head.subarray(0, 6).toString()),
+        mimeType: 'image/gif'
+      },
+      webp: {
+        valid:
+          head.subarray(0, 4).toString() === 'RIFF' && head.subarray(8, 12).toString() === 'WEBP',
+        mimeType: 'image/webp'
+      },
+      tif: {
+        valid: ['II*\u0000', 'MM\u0000*'].includes(head.subarray(0, 4).toString()),
+        mimeType: 'image/tiff'
+      },
+      tiff: {
+        valid: ['II*\u0000', 'MM\u0000*'].includes(head.subarray(0, 4).toString()),
+        mimeType: 'image/tiff'
+      },
+      bmp: { valid: head.subarray(0, 2).toString() === 'BM', mimeType: 'image/bmp' }
+    }
+    const capability = checks[extension]
+    if (!capability?.valid)
+      throw new KnowledgeImportError('mime_mismatch', 'File content does not match its extension')
+    return { extension, mimeType: capability.mimeType }
+  } finally {
+    await handle.close()
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const directory = await open(path, 'r')
+  try {
+    await directory.sync()
+  } finally {
+    await directory.close()
+  }
+}

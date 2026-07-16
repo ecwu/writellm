@@ -37,6 +37,15 @@ function manifest(projectId: string): ProjectManifest {
 function restoreV5ManuscriptSchema(database: Database.Database): void {
   database.pragma('foreign_keys = OFF')
   database.exec(`
+    DROP TABLE active_parse_revisions;
+    DROP TABLE normalization_runs;
+    DROP TABLE parse_task_events;
+    DROP TABLE parse_revisions;
+    DROP TABLE parse_tasks;
+    DROP TABLE model_requests;
+    DROP TABLE imports;
+    DROP TABLE knowledge_items;
+    DROP TABLE file_records;
     DROP TABLE section_materializations;
     DROP TABLE section_revisions;
     ALTER TABLE sections RENAME TO sections_v6_fixture;
@@ -203,6 +212,15 @@ describe('project database', () => {
     )
     native.pragma('foreign_keys = OFF')
     native.exec(`
+      DROP TABLE active_parse_revisions;
+      DROP TABLE normalization_runs;
+      DROP TABLE parse_task_events;
+      DROP TABLE parse_revisions;
+      DROP TABLE parse_tasks;
+      DROP TABLE model_requests;
+      DROP TABLE imports;
+      DROP TABLE knowledge_items;
+      DROP TABLE file_records;
       DROP TABLE section_materializations;
       DROP TABLE section_revisions;
       DROP TABLE job_transitions;
@@ -344,7 +362,7 @@ describe('project database', () => {
     )
     expect(upgraded.immediate((current) => current.pragma('foreign_key_check'))).toEqual([])
     expect(
-      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v7-'))
+      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v11-'))
     ).toBe(true)
     upgraded.close()
   })
@@ -412,7 +430,7 @@ describe('project database', () => {
     )
     expect(upgraded.immediate((current) => current.pragma('foreign_key_check'))).toEqual([])
     expect(
-      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v7-'))
+      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v11-'))
     ).toBe(true)
     upgraded.close()
   })
@@ -510,7 +528,7 @@ describe('project database', () => {
 
     const retained = await readdir(backups)
     expect(retained.filter((name) => name.startsWith('migration-old-'))).toHaveLength(4)
-    expect(retained.filter((name) => name.includes('-to-v7-'))).toHaveLength(1)
+    expect(retained.filter((name) => name.includes('-to-v11-'))).toHaveLength(1)
     const original = new (await import('better-sqlite3')).default(databasePath, {
       readonly: true,
       fileMustExist: true

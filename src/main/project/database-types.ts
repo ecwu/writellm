@@ -81,6 +81,178 @@ export interface SectionMaterializationTable {
   materialized_at: string
 }
 
+export interface FileRecordTable {
+  file_record_id: string
+  sha256: string
+  byte_size: number
+  mime_type: string
+  extension: string
+  relative_path: string
+  created_at: string
+}
+
+export type KnowledgeItemState = 'importing' | 'stored' | 'failed' | 'cancelled'
+
+export interface KnowledgeItemTable {
+  knowledge_item_id: string
+  file_record_id: string | null
+  original_name: string
+  display_name: string
+  state: KnowledgeItemState
+  error_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ImportTable {
+  import_id: string
+  knowledge_item_id: string
+  state: 'copying' | 'stored' | 'failed' | 'cancelled'
+  bytes_copied: number
+  cancellation_requested: number
+  error_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ModelRequestOperationKind = 'agent' | 'embedding' | 'rerank'
+export type ModelRequestStatus = 'running' | 'succeeded' | 'failed' | 'aborted'
+
+export interface ModelRequestTable {
+  model_request_id: string
+  operation_kind: ModelRequestOperationKind
+  provider_id: string
+  model_id: string
+  provider_fingerprint: string
+  request_fingerprint: string
+  status: ModelRequestStatus
+  attempt_count: number
+  retry_count: number
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_read_tokens: number | null
+  cache_write_tokens: number | null
+  input_items: number
+  output_items: number | null
+  estimated_cost_usd_micros: number | null
+  usage_json: string
+  response_ids_json: string
+  error_json: string | null
+  operation_id: string | null
+  job_id: string | null
+  agent_run_id: string | null
+  started_at: string
+  completed_at: string | null
+  duration_ms: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type ParseTaskState =
+  | 'queued'
+  | 'allocating'
+  | 'awaiting_upload'
+  | 'polling'
+  | 'downloading'
+  | 'extracting'
+  | 'publishing'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+export type MineruRemoteState =
+  | 'waiting-file'
+  | 'pending'
+  | 'running'
+  | 'converting'
+  | 'done'
+  | 'failed'
+
+export interface ParseTaskTable {
+  parse_task_id: string
+  knowledge_item_id: string
+  source_file_record_id: string
+  provider_id: 'mineru'
+  provider_fingerprint: string
+  model_version: 'pipeline' | 'vlm' | 'MinerU-HTML'
+  state: ParseTaskState
+  remote_task_id: string | null
+  upload_url_ciphertext: string | null
+  download_url_ciphertext: string | null
+  remote_state: MineruRemoteState | null
+  trace_id: string | null
+  poll_count: number
+  retry_count: number
+  error_code: string | null
+  submitted_at: string | null
+  uploaded_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ParseRevisionTable {
+  parse_revision_id: string
+  parse_task_id: string
+  knowledge_item_id: string
+  revision_number: number
+  state: 'staging' | 'raw_published' | 'failed'
+  source_sha256: string
+  provider_id: 'mineru'
+  provider_api_version: 'v4'
+  provider_fingerprint: string
+  model_version: 'pipeline' | 'vlm' | 'MinerU-HTML'
+  remote_task_id: string
+  relative_path: string
+  archive_sha256: string | null
+  archive_byte_size: number | null
+  expanded_byte_size: number | null
+  file_count: number | null
+  manifest_sha256: string | null
+  error_code: string | null
+  created_at: string
+  published_at: string | null
+  updated_at: string
+}
+
+export interface ParseTaskEventTable {
+  sequence: Generated<number>
+  parse_task_id: string
+  from_state: ParseTaskState | null
+  to_state: ParseTaskState
+  event: string
+  remote_state: MineruRemoteState | null
+  error_code: string | null
+  occurred_at: string
+}
+
+export interface NormalizationRunTable {
+  normalization_run_id: string
+  parse_revision_id: string
+  knowledge_item_id: string
+  normalizer_version: number
+  state: 'staging' | 'published' | 'failed'
+  relative_path: string
+  source_manifest_sha256: string
+  blocks_sha256: string | null
+  document_sha256: string | null
+  manifest_sha256: string | null
+  block_count: number | null
+  asset_count: number | null
+  error_code: string | null
+  created_at: string
+  published_at: string | null
+  updated_at: string
+}
+
+export interface ActiveParseRevisionTable {
+  knowledge_item_id: string
+  parse_revision_id: string
+  normalization_run_id: string
+  activated_at: string
+  updated_at: string
+}
+
 export interface SchemaManifestTable {
   id: number
   application_version: string
@@ -140,6 +312,15 @@ export interface ProjectDatabaseSchema {
   sections: SectionTable
   section_revisions: SectionRevisionTable
   section_materializations: SectionMaterializationTable
+  file_records: FileRecordTable
+  knowledge_items: KnowledgeItemTable
+  imports: ImportTable
+  model_requests: ModelRequestTable
+  parse_tasks: ParseTaskTable
+  parse_revisions: ParseRevisionTable
+  parse_task_events: ParseTaskEventTable
+  normalization_runs: NormalizationRunTable
+  active_parse_revisions: ActiveParseRevisionTable
   jobs: JobTable
   job_transitions: JobTransitionTable
   schema_manifest: SchemaManifestTable

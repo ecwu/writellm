@@ -14,7 +14,13 @@ export function createPortLogger(
   port: LogPort,
   bindings: { processRole: ProcessRole; subsystem: Subsystem; component: string },
   context: LogContext = {}
-): (level: LogLevel, event: string, message: string, fields?: LogEnvelope['fields']) => void {
+): (
+  level: LogLevel,
+  event: string,
+  message: string,
+  fields?: LogEnvelope['fields'],
+  error?: unknown
+) => void {
   let sequence = 0
   let pending: LogEnvelope[] = []
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -27,7 +33,8 @@ export function createPortLogger(
     pending = []
   }
 
-  return (level, event, message, fields) => {
+  return (level, event, message, fields, error) => {
+    const original = error instanceof Error ? error : undefined
     const envelope = {
       level,
       sourceTime: new Date().toISOString(),
@@ -36,6 +43,18 @@ export function createPortLogger(
       message,
       context,
       fields,
+      ...(original === undefined
+        ? {}
+        : {
+            error: {
+              type: original.name.slice(0, 128),
+              message: original.message.slice(0, 4_096),
+              ...(original.stack === undefined ? {} : { stack: original.stack.slice(0, 32_768) }),
+              ...(original.cause === undefined
+                ? {}
+                : { cause: String(original.cause).slice(0, 4_096) })
+            }
+          }),
       processSequence: sequence++
     } satisfies LogEnvelope
 

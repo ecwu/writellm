@@ -6,10 +6,12 @@ describe('redactLogValue', () => {
     expect(
       redactLogValue({
         credentials: { apiKey: 'secret' },
+        ciphertext: 'encrypted-but-sensitive',
         filePath: '/Users/private/Documents/manuscript.md'
       })
     ).toEqual({
       credentials: '[REDACTED]',
+      ciphertext: '[REDACTED]',
       filePath: '[PRIVATE_PATH]'
     })
   })

@@ -8,7 +8,7 @@ const projectSessionId = '11111111-1111-4111-8111-111111111111'
 const job: JobRecord = {
   jobId: 'job-1',
   type: 'mineru.submit',
-  payload: { knowledgeItemId: 'private-item', relativePath: 'knowledge/private.pdf' },
+  payload: { parseTaskId: 'private-parse-task' },
   state: 'running',
   priority: 5,
   attempts: 1,

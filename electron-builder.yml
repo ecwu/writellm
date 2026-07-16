@@ -12,6 +12,9 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
+extraResources:
+  - from: resources/native
+    to: native
 win:
   executableName: writellm
 nsis:

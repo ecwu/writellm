@@ -1,11 +1,25 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline  
-Recorded: 2026-07-14
+Status: accepted implementation baseline, amended by the 2026-07-16 CP19.5 audit gate
+Recorded: 2026-07-16
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
-The ordered delivery plan lives in `docs/implementation-todo.md`.
+The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 20 is blocked until Checkpoint 19.5 passes.
+
+## 2026-07-16 Architecture Amendment
+
+The following rules are now the current target. Any older section in this document or in a Phase file that contradicts them is historical and marked superseded below; it must not guide new implementation.
+
+- Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
+- Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
+- MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
+- The initial Agent surface is four read tools (`get_writing_context`, `read_section`, `search_knowledge`, `read_citations`) and three proposal tools (`propose_brief_update`, `propose_outline_patch`, `propose_section_patch`).
+- The initial Agent persistence surface is `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
+- The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
+- `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
+- The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
+- BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
 
 ## Product Scope And Invariants
 
@@ -157,11 +171,11 @@ Opening a folder requires:
 | Full-text search        | project-local SQLite FTS5                                                     |
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
 | Hybrid retrieval        | FTS5, sqlite-vec, RRF, optional API reranking                                 |
-| Files                   | `node:fs/promises`, write-file-atomic, chokidar                               |
+| Files                   | `node:fs/promises` plus one tested atomic-publication implementation            |
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
-| MinerU                  | independent HTTP adapter and durable polling workflow                         |
+| MinerU                  | independent HTTP adapter and one durable parse workflow; URLs stay ephemeral  |
 | Secrets                 | Electron `safeStorage` with an application credential-store adapter           |
 | Tests                   | Vitest and Playwright Electron E2E                                            |
 
@@ -278,12 +292,12 @@ Main process
    |-- agent tool authorization and mutation application
    |-- centralized LogCollector
    |
-   |-- Agent utility process
+   |-- agent-worker
    |     |-- pi-agent-core loop and event stream
    |     |-- pi-ai model calls
    |     `-- custom tool bridge only; no direct DB/filesystem APIs
    |
-   |-- Import/API utility process
+   |-- background-worker (formerly Import/API utility process)
    |     |-- MinerU submit/poll/download
    |     |-- normalization work
    |     |-- embedding and rerank API calls
@@ -296,16 +310,16 @@ Main process
          `-- generation build, switch, and rebuild
 ```
 
-Responsibilities are strict:
+Responsibilities are strict. The older names `Agent utility process`, `Import/API utility process`, and `Index utility process` remain in completed Phase verification only; the role names below are the current target:
 
 - Renderer displays and edits application state. It never accesses privileged resources.
 - Main owns the active project identity, authorization, authoritative project state, short transactions, mutation validation, scheduling, file publication, locks, and secrets.
-- Agent utility owns Pi runtime state for an active run but cannot directly read or modify the project.
-- Import/API utility owns external API calls and CPU-heavy normalization, but authoritative stage transitions are committed by Main.
-- Index utility owns all writes to `index.sqlite` and exposes a narrow search/index protocol.
+- `agent-worker` owns Pi runtime state for an active run but cannot directly read or modify the project.
+- `background-worker` owns external API calls and CPU-heavy normalization, embedding, and reranking, but authoritative stage transitions are committed by Main.
+- `index-worker` owns all writes to `index.sqlite` and exposes a narrow search/index protocol.
 - Only Main owns the file log sink.
 
-Use Electron `utilityProcess` rather than introducing a local HTTP backend. Agent tools communicate with Main through a dedicated MessagePort protocol distinct from model streaming and logging traffic.
+Use Electron `utilityProcess` rather than introducing a local HTTP backend. An open project has at most one worker for each of the three roles. Agent tools communicate with Main through a dedicated MessagePort protocol distinct from model streaming and logging traffic. A stale response is rejected and logged; a worker is terminated only for protocol or capability violations, not for one ordinary late response.
 
 ## Electron Security Invariants
 
@@ -373,7 +387,7 @@ Fixed subsystem names are extended to:
 ```text
 app, project, ipc, db, queue, storage, manuscript, knowledge,
 import, index, search, agent, tool, llm, embedding, rerank,
-mineru, worker, security, updater
+mineru, worker, security
 ```
 
 Project logs remain in the global Electron logs directory rather than inside the project. A project diagnostic export may filter by `projectId`, but rotatable logs are not project authority.
@@ -409,11 +423,8 @@ app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
                              model_requests
                              agent_sessions
                              agent_runs
-                             agent_messages
-                             agent_tool_calls
+                             agent_events
                              mutation_proposals
-                             mutation_applications
-                             accepted_source_links
                              project_schema_manifest
 
 <ProjectRoot>/.writellm/index.sqlite
@@ -533,11 +544,15 @@ Markdown import/export is explicitly lossy. Exported Markdown is written under `
 Renderer editing uses:
 
 - a BlockNote instance scoped to the active section;
-- debounced saves carrying `sectionId`, `baseRevisionId`, and the complete validated native document;
+- canonicalize the complete validated native document and calculate its content hash before creating a revision;
+- 1–2 second idle-debounced saves carrying `sectionId`, `baseRevisionId`, and the canonical document;
+- single-flight persistence where new input replaces an unsubmitted pending save;
 - optimistic concurrency in Main;
 - atomic revision commit followed by materialization;
 - a visible save state: clean, saving, saved, conflict, failed;
 - bounded local retry without swallowing errors.
+
+An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, and `import`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, all `agent_accepted` revisions, and each Agent edit's direct parent. Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
 
@@ -611,6 +626,8 @@ source stored
 ```
 
 On restart or project reopen, resume the persisted remote task rather than submitting again.
+
+The project never persists a MinerU signed or download URL, encrypted URL ciphertext, or recovery capability. `parse_tasks` stores only the remote task identity, provider state, timestamps, result fingerprint, download state, and retry metadata. A reopened or expired download always polls the persisted `remote_task_id` to obtain a fresh URL. The URL may exist only in background-worker request memory and is discarded after the request.
 
 Safe extraction rejects traversal entries, absolute paths, symlinks where unsupported, excessive expanded size, excessive file count, and invalid MIME/extension combinations.
 
@@ -725,14 +742,13 @@ Persist normalized project-local records for:
 
 - agent session;
 - agent run/turn;
-- user and assistant messages;
-- tool calls and results;
+- ordered Agent events (`user_message`, `assistant_message`, `tool_call`, `tool_result`, `run_interrupted`, `run_completed`);
 - model request metadata and usage;
-- interruption/cancellation status;
-- context compaction summaries;
 - mutation proposals and decisions.
 
 Pi runtime events stream to the renderer for responsive UI, but durable records are created before the corresponding external operation or mutation can become authoritative.
+
+The initial persistence schema is limited to `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. `mutation_proposals` owns decision status, decision time, applied revision ID, and rejection reason. Do not add separate `mutation_applications`, `accepted_source_links`, or a compaction subsystem before real usage proves they are necessary. A bounded compaction summary, if needed, is an ordinary `agent_events` row.
 
 ### Context construction
 
@@ -753,29 +769,27 @@ Retrieved knowledge is untrusted content. It is clearly delimited and never allo
 ### Initial read tools
 
 ```text
-get_manuscript_brief
-get_manuscript_overview
-list_sections
+get_writing_context
 read_section
-read_blocks
-search_manuscript
 search_knowledge
-read_knowledge_citations
-get_active_editor_context
+read_citations
 ```
+
+`get_writing_context({ includeBrief, includeOutline, activeSectionId? })` returns the brief summary, outline, section status and counts, active section, Renderer-supplied selected block IDs, and the current revision. `read_section({ sectionId, blockIds?, cursor?, limit? })` covers both section and selected-block reads. The UI injects active editor context; the Agent does not fetch high-frequency cursor state.
 
 Read-only tools may execute in parallel when their results are independent.
 
 ### Initial write tools
 
 ```text
-propose_update_manuscript_brief
-propose_create_section
-propose_update_section
-propose_reorder_sections
-propose_delete_section
-propose_block_mutation
+propose_brief_update
+propose_outline_patch
+propose_section_patch
 ```
+
+`propose_outline_patch` covers section create, metadata update, move/reorder, and delete. `propose_section_patch` uses the existing typed BlockNote operations.
+
+The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process tools, custom tool creation, plugin or skill registries, automatic application, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
 
 Write tools are sequential and create `mutation_proposals`; they do not directly commit project state.
 
@@ -821,8 +835,9 @@ queued -> running -> succeeded
                   -> failed
                   -> queued      retry
                   -> cancelled
-                  -> paused      explicit project close when supported
 ```
+
+`paused` is not a current state because there is no handler or recovery contract for it.
 
 A project close must stop new claims. Running handlers must either:
 
@@ -835,11 +850,11 @@ Handlers are idempotent and deduplicated by stable content/operation keys. Job p
 
 `jobs` is the sole current-state and recovery authority. `job_transitions` durably audits material state transitions and control events in the same transaction as each mutation; it does not participate in scheduling or recovery. Audit history intentionally excludes high-frequency heartbeat and progress updates.
 
+The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns are request-scoped work; they use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
+
 Initial resource queues remain subject to provider limits and benchmarks:
 
 ```text
-agent: 1 active run per project
-llm auxiliary: 2
 embedding: 3
 rerank: 3
 mineru: 1
@@ -912,6 +927,8 @@ Packaged tests must cover:
 
 ## Target Source Layout
 
+The detailed tree that follows in older revisions is illustrative history, not a requirement that every directory become a class or forwarding module. Keep a module only when it has an independent security/transaction boundary, multiple callers, a replaceable implementation, a lifecycle, or a testable invariant. Do not create a large rename-only refactor during CP19.5.
+
 ```text
 src/
   main/
@@ -925,20 +942,15 @@ src/
       project-context.ts
       project-manifest.ts
       project-lock.ts
-      project-lifecycle.ts
       project-snapshot.ts
     ipc/
     observability/
     manuscript/
-      repositories/
-      services/
+      *-store.ts only where a transaction boundary exists
       blocknote-schema.ts
       block-mutations.ts
       materialization.ts
-      assembly.ts
     knowledge/
-      repositories/
-      storage/
       mineru/
       normalization/
     jobs/
@@ -949,16 +961,13 @@ src/
       retrieval-service.ts
     agent/
       session-service.ts
-      context-builder.ts
       tool-registry.ts
-      tool-policy.ts
       proposal-service.ts
     providers/
-      credentials/
       embedding/
       rerank/
+      credential-service.ts
     storage/
-    secrets/
     workers/
 
   preload/
@@ -987,7 +996,7 @@ src/
     pi-models/
     tool-bridge/
 
-  import-worker/
+  background-worker/
     mineru/
     normalization/
     embedding/
@@ -1008,6 +1017,8 @@ resources/
   native/sqlite-vec/
 ```
 
+The old `import-worker` name, split `providers/credentials` plus `secrets` abstractions, duplicate storage layers, per-table repository directories, standalone `tool-policy.ts`/`context-builder.ts`/`assembly.ts`, and early updater/provider-factory modules are superseded by the CP19.5 worker and module rules.
+
 Remain a single package initially. Introduce a pnpm workspace split only when a real reusable CLI, service, or SDK exists.
 
 ## Explicit Non-Choices
@@ -1023,6 +1034,11 @@ Do not use in the current architecture:
 - renderer database, filesystem, provider, credential, or generic IPC access;
 - Markdown as the lossless editor authority;
 - arbitrary JSON Patch as the agent manuscript-edit protocol;
+- persisted MinerU signed/download URLs or encrypted bearer capabilities;
+- durable jobs for search, query embedding, rerank, provider probes, ordinary saves, or Agent turns;
+- project-wide file watchers before an external-edit synchronization feature exists;
+- provider-specific workers, a local HTTP server, or a generic RPC framework;
+- an updater subsystem before release-updater work is approved;
 - generic Pi filesystem, shell, process, or network tools;
 - direct agent writes that bypass proposal validation and revision checks;
 - Yjs or collaboration infrastructure before a real collaboration requirement;

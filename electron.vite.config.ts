@@ -9,7 +9,12 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'logging-fixture': resolve('src/main/observability/logging-fixture.ts')
+          'agent-model': resolve('src/workers/agent-model.ts'),
+          'auxiliary-model': resolve('src/workers/auxiliary-model.ts'),
+          'logging-fixture': resolve('src/main/observability/logging-fixture.ts'),
+          'index-worker': resolve('src/workers/index-worker.ts'),
+          mineru: resolve('src/workers/mineru.ts'),
+          'provider-probe': resolve('src/workers/provider-probe.ts')
         }
       }
     }

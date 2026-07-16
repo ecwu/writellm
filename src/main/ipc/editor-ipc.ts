@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   editorFlushAckInputSchema,
   editorFlushRequestSchema,
+  editorFlushSubscriptionInputSchema,
   editorSectionSchema,
   editorSessionInputSchema,
   exportMarkdownInputSchema,
@@ -15,9 +16,11 @@ import {
   finalFlushSaveInputSchema,
   importMarkdownInputSchema,
   loadSectionInputSchema,
+  ManuscriptDomainError,
   openEditorResultSchema,
   saveSectionDocumentInputSchema,
-  saveSectionDocumentResultSchema
+  saveSectionDocumentResponseSchema,
+  type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
 import type { ProjectContext } from '../project/project-context'
 import type {
@@ -35,6 +38,7 @@ interface PendingFlush {
   authorization: ProjectFinalFlushAuthorization
   resolve: () => void
   reject: (error: Error) => void
+  acknowledgedSectionId: string | null
   acknowledgedRevision: string | null
 }
 
@@ -49,39 +53,55 @@ export function registerEditorIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
-  const subscribers = new Map<string, WebContents>()
+  const subscribers = new Map<string, Map<string, WebContents>>()
+  const activeSections = new Map<string, string>()
   const pending = new Map<string, PendingFlush>()
 
   ipc.handle(IPC_CHANNELS.editorOpen, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = editorSessionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    return openEditorResultSchema.parse(context.editorPersistence.openEditor())
+    const result = openEditorResultSchema.parse(context.editorPersistence.openEditor())
+    if (result.activeSection !== null) {
+      activeSections.set(parsed.projectSessionId, result.activeSection.section.sectionId)
+    }
+    return result
   })
   ipc.handle(IPC_CHANNELS.editorLoadSection, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = loadSectionInputSchema.parse(input)
-    return editorSectionSchema.parse(
+    const result = editorSectionSchema.parse(
       options.manager
         .assertActiveSession(parsed.projectSessionId)
         .editorPersistence.loadSection(parsed.sectionId)
     )
+    activeSections.set(parsed.projectSessionId, result.section.sectionId)
+    return result
+  })
+  ipc.handle(IPC_CHANNELS.editorSetActiveSection, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = loadSectionInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    context.manuscript.getSection(parsed.sectionId)
+    activeSections.set(parsed.projectSessionId, parsed.sectionId)
   })
   ipc.handle(IPC_CHANNELS.editorSaveSectionDocument, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = saveSectionDocumentInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const result = await context.editorPersistence.save(parsed)
+    const result = await saveWithConflictResult(() => context.editorPersistence.save(parsed))
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return saveSectionDocumentResultSchema.parse(result)
+    return result
   })
   ipc.handle(IPC_CHANNELS.editorImportMarkdown, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = importMarkdownInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const result = await context.editorPersistence.save(parsed, 'import')
+    const result = await saveWithConflictResult(() =>
+      context.editorPersistence.save(parsed, 'import')
+    )
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return saveSectionDocumentResultSchema.parse(result)
+    return result
   })
   ipc.handle(IPC_CHANNELS.editorExportNativeJson, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -116,15 +136,20 @@ export function registerEditorIpc(options: {
   })
   ipc.handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = editorSessionInputSchema.parse(input)
+    const parsed = editorFlushSubscriptionInputSchema.parse(input)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    subscribers.set(parsed.projectSessionId, event.sender)
+    const leases = subscribers.get(parsed.projectSessionId) ?? new Map<string, WebContents>()
+    leases.set(parsed.subscriptionId, event.sender)
+    subscribers.set(parsed.projectSessionId, leases)
   })
   ipc.handle(IPC_CHANNELS.editorUnsubscribeFlush, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = editorSessionInputSchema.parse(input)
-    if (subscribers.get(parsed.projectSessionId)?.id === event.sender.id)
-      subscribers.delete(parsed.projectSessionId)
+    const parsed = editorFlushSubscriptionInputSchema.parse(input)
+    const leases = subscribers.get(parsed.projectSessionId)
+    if (leases?.get(parsed.subscriptionId)?.id === event.sender.id) {
+      leases.delete(parsed.subscriptionId)
+      if (leases.size === 0) subscribers.delete(parsed.projectSessionId)
+    }
   })
   ipc.handle(IPC_CHANNELS.editorFinalFlushSave, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -136,7 +161,7 @@ export function registerEditorIpc(options: {
       parsed.projectSessionId,
       parsed.closingToken
     )
-    return saveSectionDocumentResultSchema.parse(await context.editorPersistence.save(parsed))
+    return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
   ipc.handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -146,24 +171,34 @@ export function registerEditorIpc(options: {
       currentPending === undefined ||
       currentPending.senderId !== event.sender.id ||
       currentPending.authorization.projectSessionId !== parsed.projectSessionId ||
+      currentPending.acknowledgedSectionId !== null ||
       currentPending.acknowledgedRevision !== null
     )
       throw new Error('Editor flush acknowledgment is not authorized')
+    currentPending.acknowledgedSectionId = parsed.sectionId
     currentPending.acknowledgedRevision = parsed.sectionRevisionId
     currentPending.resolve()
   })
 
   const closeParticipants: ProjectCloseParticipants = {
-    getCurrentRevision: async (context) => firstRevision(context),
+    getCurrentRevision: async (context) => activeRevision(context, activeSections),
     flushEditors: async (context, authorization) => {
-      const sender = subscribers.get(context.projectSessionId)
-      if (sender === undefined || sender.isDestroyed()) return
+      const sender = Array.from(subscribers.get(context.projectSessionId)?.values() ?? []).find(
+        (candidate) => !candidate.isDestroyed()
+      )
+      if (sender === undefined) {
+        if (activeSections.has(context.projectSessionId)) {
+          throw new Error('Active editor final-flush subscriber is unavailable')
+        }
+        return
+      }
       await new Promise<void>((resolve, reject) => {
         pending.set(authorization.closingToken, {
           senderId: sender.id,
           authorization,
           resolve,
           reject,
+          acknowledgedSectionId: null,
           acknowledgedRevision: null
         })
         sender.send(
@@ -179,8 +214,15 @@ export function registerEditorIpc(options: {
       const request = pending.get(authorization.closingToken)
       pending.delete(authorization.closingToken)
       if (request === undefined) return
-      const currentRevision = firstRevision(context)
-      if (request.acknowledgedRevision !== currentRevision) {
+      const activeSectionId = resolveActiveSection(context, activeSections)
+      const currentRevision =
+        activeSectionId === undefined
+          ? null
+          : context.manuscript.getSection(activeSectionId).currentRevisionId
+      if (
+        request.acknowledgedSectionId !== activeSectionId ||
+        request.acknowledgedRevision !== currentRevision
+      ) {
         throw new Error('Final editor flush revision was not acknowledged')
       }
     },
@@ -189,6 +231,7 @@ export function registerEditorIpc(options: {
     stopWorkersAndIndex: async () => undefined,
     revokeSubscriptions: async (sessionId) => {
       subscribers.delete(sessionId)
+      activeSections.delete(sessionId)
     }
   }
 
@@ -205,11 +248,13 @@ export function registerEditorIpc(options: {
     },
     unregister() {
       subscribers.clear()
+      activeSections.clear()
       for (const request of pending.values()) request.reject(new Error('Editor IPC unregistered'))
       pending.clear()
       for (const channel of [
         IPC_CHANNELS.editorOpen,
         IPC_CHANNELS.editorLoadSection,
+        IPC_CHANNELS.editorSetActiveSection,
         IPC_CHANNELS.editorSaveSectionDocument,
         IPC_CHANNELS.editorImportMarkdown,
         IPC_CHANNELS.editorExportNativeJson,
@@ -224,8 +269,50 @@ export function registerEditorIpc(options: {
   }
 }
 
-function firstRevision(context: ProjectContext): string | null {
-  return context.manuscript.listSections()[0]?.currentRevisionId ?? null
+async function saveWithConflictResult(
+  operation: () => Promise<ReturnType<typeof saveSectionDocumentResultSchema.parse>>
+): Promise<ReturnType<typeof saveSectionDocumentResponseSchema.parse>> {
+  try {
+    return saveSectionDocumentResponseSchema.parse({ ok: true, result: await operation() })
+  } catch (err) {
+    if (err instanceof ManuscriptDomainError && err.code === 'section_revision_conflict') {
+      return saveSectionDocumentResponseSchema.parse({
+        ok: false,
+        error: { code: err.code, message: 'The section body has changed' }
+      })
+    }
+    throw err
+  }
+}
+
+function activeRevision(
+  context: ProjectContext,
+  activeSections: Map<string, string>
+): string | null {
+  const activeSectionId = resolveActiveSection(context, activeSections)
+  return activeSectionId === undefined
+    ? null
+    : context.manuscript.getSection(activeSectionId).currentRevisionId
+}
+
+function resolveActiveSection(
+  context: ProjectContext,
+  activeSections: Map<string, string>
+): string | undefined {
+  const sections = context.manuscript.listSections()
+  const activeSectionId = activeSections.get(context.projectSessionId)
+  if (
+    activeSectionId !== undefined &&
+    sections.some((section) => section.sectionId === activeSectionId)
+  ) {
+    return activeSectionId
+  }
+  const fallback = sections[0]?.sectionId
+  if (activeSectionId !== undefined) {
+    if (fallback === undefined) activeSections.delete(context.projectSessionId)
+    else activeSections.set(context.projectSessionId, fallback)
+  }
+  return fallback
 }
 
 async function writeAtomic(destination: string, bytes: Buffer): Promise<void> {

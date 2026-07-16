@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@blocknote/shadcn/style.css";
+@import "katex/dist/katex.min.css";
 @source "../../../../node_modules/@blocknote/shadcn";
 
 @custom-variant dark (&:is(.dark *));

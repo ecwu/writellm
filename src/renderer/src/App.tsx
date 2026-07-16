@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, FileText, FolderOpen, LoaderCircle, Plus, Settings2 } from 'lucide-react'
+import { AlertCircle, FolderOpen, LoaderCircle, Plus, Settings2 } from 'lucide-react'
 import type {
   ProjectLifecycleSnapshot,
   ProjectLifecycleState,
@@ -7,16 +7,9 @@ import type {
 } from '../../shared/contracts/projects'
 import { projectNameSchema } from '../../shared/contracts/projects'
 import { AppMenubar } from '@/components/app-menubar'
-import { AppSidebar } from '@/components/app-sidebar'
 import { SettingsCommand } from '@/components/settings-command'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
-} from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -37,10 +30,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { SectionEditor } from '@/features/manuscript/section-editor'
-import type { SectionRevision } from '../../shared/contracts/manuscript'
+import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
@@ -83,9 +73,6 @@ function App(): React.JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
-  const [editorSection, setEditorSection] =
-    useState<Awaited<ReturnType<typeof window.desktop.editor.open>>['activeSection']>(null)
-  const [editorLoading, setEditorLoading] = useState(false)
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -133,29 +120,6 @@ function App(): React.JSX.Element {
   }, [])
 
   const projectSessionId = snapshot.activeProject?.projectSessionId
-
-  useEffect(() => {
-    if (!projectSessionId || snapshot.state !== 'open') {
-      setEditorSection(null)
-      return
-    }
-    let current = true
-    setEditorLoading(true)
-    void window.desktop.editor
-      .open({ projectSessionId })
-      .then((result) => {
-        if (current) setEditorSection(result.activeSection)
-      })
-      .catch(() => {
-        if (current) setErrorMessage('WriteLLM could not load the first manuscript section.')
-      })
-      .finally(() => {
-        if (current) setEditorLoading(false)
-      })
-    return () => {
-      current = false
-    }
-  }, [projectSessionId, snapshot.state])
 
   useEffect(() => {
     if (!projectSessionId) return
@@ -343,102 +307,21 @@ function App(): React.JSX.Element {
         }}
         onOpen={() => void openProject()}
         onSwitch={() => void switchProject()}
+        onSave={() => window.dispatchEvent(new Event('writellm:save'))}
         onClose={() => void closeProject()}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
       />
 
-      {activeProject ? (
-        <SidebarProvider
-          className='min-h-0 flex-1'
-          style={{ '--sidebar-width': '350px' } as React.CSSProperties}
-        >
-          <AppSidebar projectName={activeProject.displayName} />
-          <SidebarInset className='min-h-0 overflow-auto'>
-            <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
-              <SidebarTrigger className='-ml-1' />
-              <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{activeProject.displayName}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            </header>
-            <div className='mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-4 md:p-8'>
-              {errorAlert}
-              <div className='flex flex-wrap items-start justify-between gap-4'>
-                <div className='space-y-1'>
-                  <h1 className='text-2xl font-semibold tracking-tight'>
-                    {activeProject.displayName}
-                  </h1>
-                  <p className='text-sm text-muted-foreground'>Project writing workspace</p>
-                </div>
-                <Badge
-                  variant={snapshot.state === 'recovery-required' ? 'destructive' : 'secondary'}
-                >
-                  {stateLabels[snapshot.state]}
-                </Badge>
-              </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>{editorSection?.section.title ?? 'Untitled section'}</CardTitle>
-                  <CardDescription>
-                    {editorLoading
-                      ? 'Loading the canonical section revision.'
-                      : 'First-section editor persistence slice'}
-                  </CardDescription>
-                  <CardAction>
-                    <Badge variant='outline'>Draft</Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardContent>
-                  {editorSection && projectSessionId ? (
-                    <SectionEditor
-                      key={`${projectSessionId}:${editorSection.section.sectionId}`}
-                      projectSessionId={projectSessionId}
-                      revision={editorSection.revision}
-                      onRevision={(revision: SectionRevision) =>
-                        setEditorSection((current) =>
-                          current ? { ...current, revision } : current
-                        )
-                      }
-                    />
-                  ) : (
-                    <div className='flex min-h-72 items-center justify-center rounded-lg border border-dashed p-8 text-center'>
-                      <div className='max-w-sm space-y-2'>
-                        <FileText className='mx-auto size-8 text-muted-foreground' />
-                        <p className='font-medium'>Your writing workspace is ready</p>
-                        <p className='text-sm text-muted-foreground'>
-                          {editorLoading
-                            ? 'Loading the first section.'
-                            : 'No manuscript section is available.'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-                <CardFooter className='gap-2 border-t'>
-                  <Button
-                    variant='outline'
-                    disabled={isBusy || snapshot.state !== 'open'}
-                    onClick={() => void switchProject()}
-                  >
-                    {activeAction === 'switch' ? 'Switching…' : 'Switch project'}
-                  </Button>
-                  <Button
-                    variant='destructive'
-                    disabled={isBusy || snapshot.state !== 'open'}
-                    onClick={() => void closeProject()}
-                  >
-                    {activeAction === 'close' ? 'Closing…' : 'Close project'}
-                  </Button>
-                </CardFooter>
-              </Card>
-            </div>
-          </SidebarInset>
-        </SidebarProvider>
+      {activeProject && projectSessionId ? (
+        <WritingWorkspace
+          projectSessionId={projectSessionId}
+          projectName={activeProject.displayName}
+          lifecycleState={stateLabels[snapshot.state]}
+          globalAlert={errorAlert}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onError={setErrorMessage}
+        />
       ) : (
         <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
           <div className='m-auto flex w-full max-w-xl flex-col gap-4'>

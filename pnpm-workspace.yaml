@@ -1,5 +1,7 @@
 allowBuilds:
+  '@google/genai': false
   better-sqlite3: true
   electron: true
   electron-winstaller: false
   esbuild: true
+  protobufjs: false

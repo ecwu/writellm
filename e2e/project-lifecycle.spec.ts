@@ -1,4 +1,6 @@
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, launchApp, test } from './fixtures'
@@ -9,7 +11,12 @@ async function clickAndExpectProject(
   displayName: string,
   projectName?: string
 ): Promise<void> {
-  await page.getByRole('button', { name: action, exact: true }).click()
+  if (action === 'Switch project') {
+    await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await page.getByRole('menuitem', { name: action, exact: true }).click()
+  } else {
+    await page.getByRole('button', { name: action, exact: true }).click()
+  }
   if (projectName !== undefined) {
     const dialog = page.getByRole('dialog', { name: 'Create project' })
     await dialog.getByLabel('Project name').fill(projectName)
@@ -17,6 +24,11 @@ async function clickAndExpectProject(
   }
   await expect(page.getByRole('heading', { name: displayName, exact: true })).toBeVisible()
   await expect(page.getByText('Open', { exact: true })).toBeVisible()
+}
+
+async function closeProject(page: Page): Promise<void> {
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
 }
 
 async function clickRecentAndExpectProject(page: Page, displayName: string): Promise<void> {
@@ -42,6 +54,81 @@ async function manuallyRestoreWindow(app: ElectronApplication): Promise<void> {
   await expectWindowMaximized(app, false)
 }
 
+test('configures provider metadata without returning a credential', async ({ testRoot }) => {
+  let authorizationHeader: string | undefined
+  const server = createServer((request, response) => {
+    authorizationHeader = request.headers.authorization
+    if (request.url === '/v1/models' && authorizationHeader === 'Bearer e2e-secret') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end('{"data":[]}')
+      return
+    }
+    response.writeHead(401, { 'content-type': 'application/json' })
+    response.end('{"error":"unauthorized"}')
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = (server.address() as AddressInfo).port
+  try {
+    const userData = join(testRoot, 'provider-user-data')
+    const portableProject = join(testRoot, 'Portable no key.writellm')
+    await mkdir(userData)
+    const first = await launchApp({ userData, dialogPaths: [testRoot] })
+    try {
+      await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await first.page.getByRole('option', { name: /Agent model provider/ }).click()
+      const dialog = first.page.getByRole('dialog', { name: 'Agent model' })
+      await expect(dialog).toBeVisible()
+      await dialog.getByLabel('Base URL').fill(`http://127.0.0.1:${port}/v1`)
+      await dialog.getByLabel('Model ID').fill('writer-e2e')
+      await dialog.getByLabel('API key or token').fill('e2e-secret')
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(dialog.getByText('Credential stored', { exact: true })).toBeVisible()
+      await dialog.getByRole('button', { name: 'Test connection' }).click()
+      await expect(dialog.getByText('Connected', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(/Connection succeeded\. \(\d+ ms\)/)).toBeVisible()
+      expect(authorizationHeader).toBe('Bearer e2e-secret')
+      await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+      await clickAndExpectProject(
+        first.page,
+        'Create project',
+        'Portable no key',
+        'Portable no key'
+      )
+    } finally {
+      await closeApp(first.app)
+    }
+
+    const restarted = await launchApp({ userData })
+    try {
+      await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await restarted.page.getByRole('option', { name: /Agent model provider/ }).click()
+      const dialog = restarted.page.getByRole('dialog', { name: 'Agent model' })
+      await expect(dialog.getByLabel('Base URL')).toHaveValue(`http://127.0.0.1:${port}/v1`)
+      await expect(dialog.getByLabel('Model ID')).toHaveValue('writer-e2e')
+      await expect(dialog.getByLabel('API key or token')).toHaveValue('')
+    } finally {
+      await closeApp(restarted.app)
+    }
+
+    const freshUserData = join(testRoot, 'fresh-provider-user-data')
+    await mkdir(freshUserData)
+    const portable = await launchApp({ userData: freshUserData, dialogPaths: [portableProject] })
+    try {
+      await clickAndExpectProject(portable.page, 'Open project', 'Portable no key')
+      await expect(portable.page.locator('.bn-editor').first()).toBeVisible()
+    } finally {
+      await closeApp(portable.app)
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
+  }
+})
+
 test('creates, closes, reopens, switches, and reopens after app restart', async ({ testRoot }) => {
   const userData = join(testRoot, 'user-data')
   const alpha = join(testRoot, 'Alpha project.writellm')
@@ -61,7 +148,7 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     await expectWindowMaximized(first.app, false)
     await expect(first.page.getByRole('menubar')).toBeVisible()
     await first.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-    await expect(first.page.getByText('Untitled section', { exact: true }).first()).toBeVisible()
+    await expect(first.page.getByText('Untitled Section', { exact: true }).first()).toBeVisible()
     const editor = first.page.locator('.bn-editor').first()
     await expect(editor).toBeVisible()
     await editor.click()
@@ -69,12 +156,12 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     const firstAlphaSession = await first.page.evaluate(
       async () => (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
     )
-    await first.page.getByRole('button', { name: 'Close project' }).click()
+    await closeProject(first.page)
     await expect(first.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     await expectWindowMaximized(first.app, false)
     await clickAndExpectProject(first.page, 'Create project', 'Beta project', 'Beta project')
     await expectWindowMaximized(first.app, false)
-    await first.page.getByRole('button', { name: 'Close project' }).click()
+    await closeProject(first.page)
     await expect(first.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     await expectWindowMaximized(first.app, false)
     await clickAndExpectProject(first.page, 'Open project', 'Alpha project')

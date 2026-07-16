@@ -1,13 +1,18 @@
-import { app, BrowserWindow, MessageChannelMain, utilityProcess } from 'electron'
+import { app, BrowserWindow, MessageChannelMain, safeStorage, utilityProcess } from 'electron'
 import { join } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
 import { createShutdownCoordinator } from './bootstrap/shutdown-coordinator'
 import { createWindow } from './bootstrap/windows'
 import { createProjectDialogTestSelection } from './ipc/project-dialog-test-seam'
+import { createKnowledgeDialogTestSelection } from './ipc/knowledge-dialog-test-seam'
 import { registerProjectIpc } from './ipc/project-ipc'
 import { registerJobIpc } from './ipc/job-ipc'
 import { registerEditorIpc } from './ipc/editor-ipc'
+import { registerManuscriptIpc } from './ipc/manuscript-ipc'
+import { registerKnowledgeIpc } from './ipc/knowledge-ipc'
+import { registerProviderIpc } from './ipc/provider-ipc'
+import { registerSearchIpc } from './ipc/search-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
 import { cleanupLogRetention } from './observability/log-retention'
@@ -19,6 +24,28 @@ import { openAppDatabase } from './app-db/connection'
 import { quarantineLegacyCoreDatabase } from './app-db/legacy-core'
 import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
 import { ProjectManager } from './project/project-manager'
+import { CredentialService } from './providers/credential-service'
+import { ProviderService } from './providers/provider-service'
+import { ProviderProbeClient } from './providers/provider-probe-client'
+import { AgentModelClient } from './providers/agent-model-client'
+import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
+import { ModelExecutionService } from './providers/model-execution-service'
+import { MineruClient } from './knowledge/mineru-client'
+import { MineruWorkflowService, registerMineruHandlers } from './knowledge/mineru-workflow-service'
+import { JobHandlerRegistry } from './jobs/scheduler/job-handler-registry'
+import {
+  KnowledgeNormalizationService,
+  registerNormalizationHandler
+} from './knowledge/knowledge-normalization-service'
+import { IndexClient } from './search/index-client'
+import {
+  embeddingContractSha256,
+  ProjectIndexService,
+  registerIndexHandlers
+} from './search/index-service'
+import { RetrievalService } from './search/retrieval-service'
+import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project/project-paths'
+import { getLoadablePath as getSqliteVecLoadablePath } from 'sqlite-vec'
 
 registerAppScheme()
 
@@ -58,6 +85,13 @@ if (!hasSingleInstanceLock) {
         development: is.dev
       })
       const appLog = loggerSystem.createModuleLogger('app', 'lifecycle')
+      const logCollector = new LogCollector((envelope) =>
+        loggerSystem.createModuleLogger(
+          envelope.subsystem,
+          envelope.component,
+          envelope.processRole
+        )
+      )
       let shuttingDown = false
       registerProcessErrorHandlers(app, appLog, () => shuttingDown)
 
@@ -80,6 +114,37 @@ if (!hasSingleInstanceLock) {
       })
 
       const recentProjects = new RecentProjectsRepository(appDatabase)
+      const credentialLog = loggerSystem.createModuleLogger('security', 'credentials')
+      const credentials = new CredentialService(appDatabase, safeStorage, credentialLog)
+      const providerProbe = new ProviderProbeClient(
+        join(__dirname, 'provider-probe.js'),
+        loggerSystem.createModuleLogger('worker', 'provider-probe')
+      )
+      const providers = new ProviderService(
+        appDatabase,
+        credentials,
+        loggerSystem.createModuleLogger('app', 'provider-configuration'),
+        providerProbe.probe
+      )
+      const agentModel = new AgentModelClient(
+        join(__dirname, 'agent-model.js'),
+        loggerSystem.createModuleLogger('worker', 'agent-model')
+      )
+      const auxiliaryModel = new AuxiliaryModelClient(
+        join(__dirname, 'auxiliary-model.js'),
+        loggerSystem.createModuleLogger('worker', 'auxiliary-model')
+      )
+      const modelExecution = new ModelExecutionService({
+        providers,
+        agent: agentModel,
+        embeddings: auxiliaryModel,
+        reranker: auxiliaryModel,
+        log: loggerSystem.createModuleLogger('embedding', 'execution')
+      })
+      const mineruClient = new MineruClient(
+        join(__dirname, 'mineru.js'),
+        loggerSystem.createModuleLogger('worker', 'mineru')
+      )
       const projectManager = new ProjectManager({
         applicationVersion: app.getVersion(),
         logger: loggerSystem.createModuleLogger('project', 'manager'),
@@ -88,7 +153,115 @@ if (!hasSingleInstanceLock) {
           app.getPath('userData'),
           app.getPath('logs'),
           app.getPath('sessionData')
-        ]
+        ],
+        createKnowledgeRuntime: ({
+          projectRoot,
+          projectId,
+          projectSessionId,
+          database,
+          jobs,
+          log
+        }) => {
+          modelExecution.recoverRunning(database)
+          const mineruWorkflow = new MineruWorkflowService({
+            projectRoot,
+            projectId,
+            database,
+            jobs,
+            providers: {
+              getConfiguredProvider: () => providers.getConfiguredProvider('mineru'),
+              withConfiguredProvider: (operation) =>
+                providers.withConfiguredProvider('mineru', operation)
+            },
+            cipher: {
+              encrypt: (value) => credentials.encryptForPersistence(value),
+              decrypt: (ciphertext) => credentials.decryptPersistedValue(ciphertext)
+            },
+            gateway: mineruClient,
+            log
+          })
+          const registry = new JobHandlerRegistry()
+          registerMineruHandlers(registry, mineruWorkflow)
+          const indexClient = new IndexClient({
+            modulePath: join(__dirname, 'index-worker.js'),
+            indexPath: resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH),
+            extensionPath: app.isPackaged
+              ? join(
+                  process.resourcesPath,
+                  'native',
+                  'sqlite-vec',
+                  `${process.platform}-${process.arch}`,
+                  process.platform === 'win32'
+                    ? 'vec0.dll'
+                    : process.platform === 'darwin'
+                      ? 'vec0.dylib'
+                      : 'vec0.so'
+                )
+              : getSqliteVecLoadablePath(),
+            projectId,
+            projectSessionId,
+            collector: logCollector,
+            log: loggerSystem.createModuleLogger('index', 'client')
+          })
+          const projectIndex = new ProjectIndexService({
+            projectRoot,
+            projectId,
+            database,
+            jobs,
+            client: indexClient,
+            getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
+            embedBatch: (values, correlation, signal) =>
+              modelExecution.embedBatch(database, { values }, correlation, signal),
+            log
+          })
+          const retrieval = new RetrievalService({
+            projectId,
+            client: indexClient,
+            getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
+            embedQuery: async (query, expectedContractSha256, operationId, signal) => {
+              const result = await modelExecution.embedBatch(
+                database,
+                { values: [query] },
+                { operationId },
+                signal,
+                (config) => {
+                  if (embeddingContractSha256(config) !== expectedContractSha256) {
+                    throw new Error('Embedding provider changed before query execution')
+                  }
+                }
+              )
+              const vector = result.embeddings[0]
+              if (vector === undefined)
+                throw new Error('Embedding provider returned no query vector')
+              return vector
+            },
+            getRerankProvider: () => providers.getConfiguredProvider('rerank'),
+            rerank: (query, documents, topN, operationId, signal) =>
+              modelExecution.rerank(database, { query, documents, topN }, { operationId }, signal),
+            log: loggerSystem.createModuleLogger('search', 'retrieval')
+          })
+          const knowledgeNormalization = new KnowledgeNormalizationService({
+            projectRoot,
+            projectId,
+            database,
+            log,
+            normalizeInUtility: (input, signal) => mineruClient.normalize(input, signal),
+            jobs
+          })
+          registerNormalizationHandler(registry, knowledgeNormalization)
+          registerIndexHandlers(registry, projectIndex)
+          return {
+            mineruWorkflow,
+            knowledgeNormalization,
+            projectIndex,
+            retrieval,
+            registry,
+            terminateWorkers: () => {
+              mineruClient.terminateAll()
+              projectIndex.terminate()
+            }
+          }
+        }
       })
 
       registerAppProtocol(join(__dirname, '../renderer'))
@@ -113,8 +286,34 @@ if (!hasSingleInstanceLock) {
         logger: loggerSystem.createModuleLogger('ipc', 'editor'),
         developmentUrl
       })
+      const unregisterManuscriptIpc = registerManuscriptIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
+        developmentUrl
+      })
+      const unregisterKnowledgeIpc = registerKnowledgeIpc({
+        manager: projectManager,
+        getWindow: () => mainWindow,
+        logger: loggerSystem.createModuleLogger('ipc', 'knowledge'),
+        developmentUrl,
+        selectFilesForTest: createKnowledgeDialogTestSelection(
+          loggerSystem.createModuleLogger('ipc', 'knowledge-dialog')
+        )
+      })
+      const unregisterProviderIpc = registerProviderIpc({
+        providers,
+        logger: loggerSystem.createModuleLogger('ipc', 'providers'),
+        developmentUrl
+      })
+      const unregisterSearchIpc = registerSearchIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'search'),
+        developmentUrl
+      })
       projectManager.setCloseParticipants({
         ...editorIpc.closeParticipants,
+        stopJobClaims: async (context) => context.knowledgeImports.cancelAll(),
+        stopWorkersAndIndex: async (context) => context.projectIndex?.close(),
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
@@ -132,19 +331,12 @@ if (!hasSingleInstanceLock) {
 
       if (process.env['WRITELLM_LOGGING_FIXTURE'] === '1') {
         const workerLog = loggerSystem.createModuleLogger('worker', 'collector')
-        const collector = new LogCollector((envelope) =>
-          loggerSystem.createModuleLogger(
-            envelope.subsystem,
-            envelope.component,
-            envelope.processRole
-          )
-        )
         const child = utilityProcess.fork(join(__dirname, 'logging-fixture.js'), [], {
           serviceName: 'writellm-logging-fixture',
           stdio: 'pipe'
         })
         const { port1, port2 } = new MessageChannelMain()
-        attachUtilityLogPort(port1, collector, workerLog)
+        attachUtilityLogPort(port1, logCollector, workerLog)
         captureUtilityStderr(child, workerLog)
         child.postMessage({ type: 'logging-port' }, [port2])
       }
@@ -160,6 +352,10 @@ if (!hasSingleInstanceLock) {
       const shutdownCoordinator = createShutdownCoordinator({
         projectManager,
         unregisterProjectIpc: () => {
+          unregisterProviderIpc()
+          unregisterSearchIpc()
+          unregisterKnowledgeIpc()
+          unregisterManuscriptIpc()
           editorIpc.unregister()
           jobIpc.unregister()
           unregisterProjectIpc()

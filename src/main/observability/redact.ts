@@ -1,4 +1,5 @@
-const SENSITIVE_KEYS = /authorization|cookie|credential|password|secret|token|api[-_]?key/i
+const SENSITIVE_KEYS =
+  /authorization|cookie|credential|password|secret|token|api[-_]?key|ciphertext/i
 const PRIVATE_PATH = /(?:[A-Za-z]:\\|\/)[^\s"'():]+(?:[\\/][^\s"'():]+)*/g
 
 export function redactLogValue(value: unknown, depth = 0): unknown {
