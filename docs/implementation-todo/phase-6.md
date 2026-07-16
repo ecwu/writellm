@@ -7,6 +7,8 @@
 - Current status: Completed after audit remediation; Checkpoints 12–14 are complete and verified.
 - Implementation state: functional import/provider/model implementations exist, with format, lifecycle, protocol, and recovery remediation at the end of this file.
 
+> **历史记录：utility process 生命周期措辞已过时。** 本 Phase verification 中 "short-lived utility process" 描述的是当时的一次性进程模型。CP19.5 已固定为三个持久 worker 角色：provider probe、embedding、rerank 和 MinerU 请求运行在持久的 `background-worker`，agent 模型请求运行在持久的 `agent-worker`；网络执行仍不经过 Main。
+
 ### Checkpoint 12: Batch Source Import And Project-Local File Records
 
 Implementation scope: add a narrow Main-owned batch source selection and ingestion boundary, schema v8 project records for content-addressed originals and knowledge item state, a streaming temp-copy/hash/publish service with duplicate and cancellation semantics, and a shadcn knowledge list wired through project-session-scoped IPC. Renderer input is limited to opaque picker/drop tokens and never receives or submits arbitrary filesystem paths. This checkpoint stops at durable local originals and high-level ingestion state; provider submission and parsing remain disabled until Checkpoints 13 and 15.
@@ -75,11 +77,11 @@ Project schema v9 adds STRICT `model_requests` provenance with provider/request 
 The 2026-07-16 completion audit reopened this Phase. These items are required before the affected Checkpoints can return to completed and verified:
 
 - [x] Make batch import startup non-blocking from the renderer perspective so newly created `importing` records, byte progress, and cancellation remain reachable while copies are active.
-- [x] Add Electron E2E coverage for long-copy progress, cancellation, retry, project close, delete, open, and reveal behavior.
+- [x] Add behavior coverage for long-copy progress, cancellation, retry, project close, delete, open, and reveal behavior. Correction (2026-07-16 implementation audit): delivered coverage is unit-level for cancellation/ENOSPC/delete plus one Electron E2E covering import, deduplication, Unicode names, and reopen; the remaining E2E scenarios are backfilled under Checkpoint 19.7.
 - [x] Log every original import or cleanup error as top-level `err` before another cleanup/database failure can replace or hide it, and verify parent-directory durability after publication.
 - [x] Align the import capability set and MinerU `supportedFormats`, including an explicit TIFF decision, and enforce the selected format before creating durable parse work.
 - [x] Add a capability-registry test proving every importable format is either accepted by the selected parser or rejected with an explicit pre-job error.
 - [x] Reject duplicate rerank document indices at the utility response/schema boundary rather than relying on downstream fallback validation.
 - [x] Expand real worker/provider-protocol tests for authentication failure, retryable server failure, timeout, abort, malformed response, and terminal correlation; define recovery for model requests left `running` after process loss.
 
-Remediation verification: IPC import handlers return immediately after durable `importing` rows are created, while the service retains cancellable operations and progress polling; publication fsyncs the containing directory and logs original copy, cleanup, and persistence failures. The import/parser capability test covers PDF, OOXML, common images, and TIFF; MinerU rejects unsupported extensions before parse-task creation. Rerank responses reject duplicate indices at the shared schema boundary, and startup recovery transitions model requests left `running` by a lost utility to a bounded aborted state. Existing import cancellation/ENOSPC/reopen E2E and Electron-hosted worker/provider tests pass.
+Remediation verification: IPC import handlers return immediately after durable `importing` rows are created, while the service retains cancellable operations and progress polling; publication fsyncs the containing directory and logs original copy, cleanup, and persistence failures. The import/parser capability test covers PDF, OOXML, common images, and TIFF; MinerU rejects unsupported extensions before parse-task creation. Rerank responses reject duplicate indices at the shared schema boundary, and startup recovery transitions model requests left `running` by a lost utility to a bounded aborted state. Import cancellation/ENOSPC unit tests, the import/reopen Electron E2E, and Electron-hosted worker/provider tests pass.

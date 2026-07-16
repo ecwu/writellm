@@ -457,11 +457,11 @@ export class KnowledgeNormalizationService {
     })
   }
 
-  #requestIndex(knowledgeItemId: string, normalizationRunId: string): void {
+  #requestIndex(_knowledgeItemId: string, _normalizationRunId: string): void {
     this.#jobs?.enqueue({
-      type: 'index.item-upsert',
-      payload: { knowledgeItemId },
-      deduplicationKey: `index-upsert:${normalizationRunId}`,
+      type: 'rebuild_index',
+      payload: { generationId: 'requested' },
+      deduplicationKey: 'index-rebuild:pending',
       maxAttempts: 8
     })
   }
@@ -471,7 +471,7 @@ export function registerNormalizationHandler(
   registry: JobHandlerRegistry,
   service: KnowledgeNormalizationService
 ): void {
-  registry.register('mineru.normalize', (context) => service.handle(context), {
+  registry.register('normalize_parse_revision', (context) => service.handle(context), {
     timeoutMs: 10 * 60_000,
     leaseMs: 60_000,
     heartbeatMs: 15_000,

@@ -9,6 +9,10 @@ import type { ProjectDatabaseSchema } from './database-types'
 import { projectMigrations } from './migrations'
 import type { ProjectManifest } from './project-manifest'
 import {
+  assertJobPersistenceBoundary,
+  assertNoPersistedMineruCapabilities
+} from './mineru-persistence-invariant'
+import {
   PROJECT_BACKUPS_DIRECTORY,
   PROJECT_DATABASE_RELATIVE_PATH,
   resolveProjectPath
@@ -122,6 +126,7 @@ export async function initializeProjectDatabase(options: {
           section_id: sectionId,
           revision_number: 1,
           source: 'bootstrap',
+          source_class: 'manual_checkpoint',
           content_json: '[]',
           content_schema_version: 1,
           content_hash: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
@@ -201,6 +206,8 @@ export async function openProjectDatabase(options: {
       validate: (database) => {
         validateMigrationState(database, { databaseRole: 'project', migrations: projectMigrations })
         validateProjectIdentity(database, options.manifest)
+        assertNoPersistedMineruCapabilities(database)
+        assertJobPersistenceBoundary(database)
       }
     })
     try {

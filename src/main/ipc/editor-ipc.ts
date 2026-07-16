@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, open, rename, rm } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -26,9 +23,11 @@ import type { ProjectContext } from '../project/project-context'
 import type {
   ProjectCloseParticipants,
   ProjectFinalFlushAuthorization,
+  ProjectSnapshotParticipants,
   ProjectManager
 } from '../project/project-manager'
 import { resolveProjectPath } from '../project/project-paths'
+import { writeAtomicFile } from '../storage/atomic-file'
 import { authorizeSender } from './authorize-sender'
 
 export interface EditorIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
@@ -49,6 +48,7 @@ export function registerEditorIpc(options: {
   ipc?: EditorIpcMain
 }): {
   closeParticipants: ProjectCloseParticipants
+  snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
   revokeSession(sessionId: string): void
   unregister(): void
 } {
@@ -88,7 +88,7 @@ export function registerEditorIpc(options: {
   ipc.handle(IPC_CHANNELS.editorSaveSectionDocument, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = saveSectionDocumentInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const result = await saveWithConflictResult(() => context.editorPersistence.save(parsed))
     options.manager.assertActiveSession(parsed.projectSessionId)
     return result
@@ -96,43 +96,64 @@ export function registerEditorIpc(options: {
   ipc.handle(IPC_CHANNELS.editorImportMarkdown, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = importMarkdownInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const result = await saveWithConflictResult(() =>
       context.editorPersistence.save(parsed, 'import')
     )
     options.manager.assertActiveSession(parsed.projectSessionId)
     return result
   })
-  ipc.handle(IPC_CHANNELS.editorExportNativeJson, (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.editorExportNativeJson, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = exportNativeJsonInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const current = editorSectionSchema.parse(
-      context.editorPersistence.loadSection(parsed.sectionId)
-    )
-    const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${current.revision.sectionRevisionId}.blocknote.json`
-    return writeAtomic(
-      resolveProjectPath(context.projectRoot, relativePath),
-      Buffer.from(JSON.stringify(current.revision.content))
-    ).then(() => exportResultSchema.parse({ relativePath }))
+    try {
+      const context = options.manager.assertActiveSession(parsed.projectSessionId)
+      const current = editorSectionSchema.parse(
+        context.editorPersistence.loadSection(parsed.sectionId)
+      )
+      const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${current.revision.sectionRevisionId}.blocknote.json`
+      await writeAtomicFile(
+        resolveProjectPath(context.projectRoot, relativePath),
+        Buffer.from(JSON.stringify(current.revision.content))
+      )
+      return exportResultSchema.parse({ relativePath })
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'editor.export_native_json.failed',
+          err,
+          projectSessionId: parsed.projectSessionId
+        },
+        'Native JSON export failed'
+      )
+      throw new Error('Native JSON export could not be completed', { cause: err })
+    }
   })
   ipc.handle(IPC_CHANNELS.editorExportMarkdown, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = exportMarkdownInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const current = context.editorPersistence.loadSection(parsed.sectionId).revision
-    if (
-      current.sectionRevisionId !== parsed.sectionRevisionId ||
-      current.contentHash !== parsed.contentHash
-    ) {
-      throw new Error('Markdown export source revision is stale')
+    try {
+      const context = options.manager.assertActiveSession(parsed.projectSessionId)
+      const current = context.editorPersistence.loadSection(parsed.sectionId).revision
+      if (
+        current.sectionRevisionId !== parsed.sectionRevisionId ||
+        current.contentHash !== parsed.contentHash
+      ) {
+        throw new Error('Markdown export source revision is stale')
+      }
+      const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${parsed.sectionRevisionId}.md`
+      await writeAtomicFile(
+        resolveProjectPath(context.projectRoot, relativePath),
+        Buffer.from(parsed.markdown)
+      )
+      return exportResultSchema.parse({ relativePath })
+    } catch (err) {
+      options.logger.error(
+        { event: 'editor.export_markdown.failed', err, projectSessionId: parsed.projectSessionId },
+        'Markdown export failed'
+      )
+      throw new Error('Markdown export could not be completed', { cause: err })
     }
-    const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${parsed.sectionRevisionId}.md`
-    await writeAtomic(
-      resolveProjectPath(context.projectRoot, relativePath),
-      Buffer.from(parsed.markdown)
-    )
-    return exportResultSchema.parse({ relativePath })
   })
   ipc.handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -157,10 +178,10 @@ export function registerEditorIpc(options: {
     const currentPending = pending.get(parsed.closingToken)
     if (currentPending?.senderId !== event.sender.id)
       throw new Error('Final editor flush sender is not authorized')
-    const context = options.manager.authorizeFinalFlush(
-      parsed.projectSessionId,
-      parsed.closingToken
-    )
+    const context =
+      parsed.purpose === 'snapshot'
+        ? options.manager.authorizeSnapshotFlush(parsed.projectSessionId, parsed.closingToken)
+        : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
   ipc.handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
@@ -183,6 +204,12 @@ export function registerEditorIpc(options: {
   const closeParticipants: ProjectCloseParticipants = {
     getCurrentRevision: async (context) => activeRevision(context, activeSections),
     flushEditors: async (context, authorization) => {
+      const activeSectionId = resolveActiveSection(context, activeSections)
+      const currentRevision =
+        activeSectionId === undefined
+          ? undefined
+          : context.manuscript.getSection(activeSectionId).currentRevisionId
+      if (activeSectionId === undefined || currentRevision === undefined) return
       const sender = Array.from(subscribers.get(context.projectSessionId)?.values() ?? []).find(
         (candidate) => !candidate.isDestroyed()
       )
@@ -205,7 +232,9 @@ export function registerEditorIpc(options: {
           IPC_CHANNELS.editorFlushRequest,
           editorFlushRequestSchema.parse({
             projectSessionId: context.projectSessionId,
-            closingToken: authorization.closingToken
+            closingToken: authorization.closingToken,
+            sectionId: activeSectionId,
+            sectionRevisionId: currentRevision
           })
         )
       })
@@ -220,7 +249,7 @@ export function registerEditorIpc(options: {
           ? null
           : context.manuscript.getSection(activeSectionId).currentRevisionId
       if (
-        request.acknowledgedSectionId !== activeSectionId ||
+        request.acknowledgedSectionId !== (activeSectionId ?? null) ||
         request.acknowledgedRevision !== currentRevision
       ) {
         throw new Error('Final editor flush revision was not acknowledged')
@@ -235,8 +264,66 @@ export function registerEditorIpc(options: {
     }
   }
 
+  const snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'> = {
+    finalEditorFlush: async (context) => {
+      const authorization = options.manager.beginSnapshotFlush(context.projectSessionId)
+      const activeSectionId = resolveActiveSection(context, activeSections)
+      const currentRevision =
+        activeSectionId === undefined
+          ? undefined
+          : context.manuscript.getSection(activeSectionId).currentRevisionId
+      const sender = Array.from(subscribers.get(context.projectSessionId)?.values() ?? []).find(
+        (candidate) => !candidate.isDestroyed()
+      )
+      if (activeSectionId === undefined || currentRevision === undefined || sender === undefined) {
+        options.manager.completeSnapshotFlush(authorization.closingToken)
+        return
+      }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          pending.set(authorization.closingToken, {
+            senderId: sender.id,
+            authorization: { ...authorization, currentRevision },
+            resolve,
+            reject,
+            acknowledgedSectionId: null,
+            acknowledgedRevision: null
+          })
+          try {
+            sender.send(
+              IPC_CHANNELS.editorFlushRequest,
+              editorFlushRequestSchema.parse({
+                projectSessionId: context.projectSessionId,
+                closingToken: authorization.closingToken,
+                purpose: 'snapshot',
+                sectionId: activeSectionId,
+                sectionRevisionId: currentRevision
+              })
+            )
+          } catch (err) {
+            pending.delete(authorization.closingToken)
+            reject(err)
+          }
+        })
+        const request = pending.get(authorization.closingToken)
+        pending.delete(authorization.closingToken)
+        if (
+          request?.acknowledgedSectionId !== activeSectionId ||
+          request.acknowledgedRevision !==
+            context.manuscript.getSection(activeSectionId).currentRevisionId
+        ) {
+          throw new Error('Snapshot editor flush revision was not acknowledged')
+        }
+      } finally {
+        pending.delete(authorization.closingToken)
+        options.manager.completeSnapshotFlush(authorization.closingToken)
+      }
+    }
+  }
+
   return {
     closeParticipants,
+    snapshotParticipants,
     revokeSession(sessionId) {
       subscribers.delete(sessionId)
       for (const [token, request] of pending) {
@@ -313,27 +400,4 @@ function resolveActiveSection(
     else activeSections.set(context.projectSessionId, fallback)
   }
   return fallback
-}
-
-async function writeAtomic(destination: string, bytes: Buffer): Promise<void> {
-  await mkdir(dirname(destination), { recursive: true })
-  const temporary = `${destination}.${randomUUID()}.tmp`
-  let handle: Awaited<ReturnType<typeof open>> | undefined
-  try {
-    handle = await open(temporary, 'wx', 0o600)
-    await handle.writeFile(bytes)
-    await handle.sync()
-    await handle.close()
-    handle = undefined
-    await rename(temporary, destination)
-    const directory = await open(dirname(destination), 'r')
-    try {
-      await directory.sync()
-    } finally {
-      await directory.close()
-    }
-  } finally {
-    await handle?.close().catch(() => undefined)
-    await rm(temporary, { force: true }).catch(() => undefined)
-  }
 }

@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, FolderOpen, LoaderCircle, Plus, Settings2 } from 'lucide-react'
+import {
+  AlertCircle,
+  Download,
+  FolderOpen,
+  LoaderCircle,
+  MapPin,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Settings2,
+  Trash2,
+  XCircle
+} from 'lucide-react'
 import type {
   ProjectLifecycleSnapshot,
   ProjectLifecycleState,
+  ProjectSelectionResult,
   RecentProjects
 } from '../../shared/contracts/projects'
 import { projectNameSchema } from '../../shared/contracts/projects'
@@ -37,7 +50,7 @@ const closedSnapshot: ProjectLifecycleSnapshot = {
   activeProject: null
 }
 
-type ProjectAction = 'create' | 'open' | 'openRecent' | 'close' | 'switch'
+type ProjectAction = 'create' | 'open' | 'openRecent' | 'close' | 'switch' | 'recovery' | 'snapshot'
 
 const actionErrorMessages: Record<
   ProjectAction | 'load' | 'recent' | 'subscribe' | 'diagnostics',
@@ -51,7 +64,9 @@ const actionErrorMessages: Record<
   openRecent: 'WriteLLM could not open the recent project. Check that it is still available.',
   close: 'WriteLLM could not close the project. Please try again.',
   switch: 'WriteLLM could not switch projects. Check the project state and try again.',
-  diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.'
+  diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
+  recovery: 'WriteLLM could not complete that recovery action. Check diagnostics and try again.',
+  snapshot: 'WriteLLM could not complete the snapshot action. Please try again.'
 }
 
 const stateLabels: Record<ProjectLifecycleState, string> = {
@@ -239,6 +254,70 @@ function App(): React.JSX.Element {
     }
   }, [projectSessionId, refreshLifecycle])
 
+  const createSnapshot = useCallback(async (): Promise<void> => {
+    if (!projectSessionId) return
+    setActiveAction('snapshot')
+    setErrorMessage(null)
+    try {
+      await window.desktop.projects.createSnapshot({ projectSessionId })
+    } catch {
+      setErrorMessage(actionErrorMessages.snapshot)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [projectSessionId])
+
+  const restoreSnapshot = useCallback(async (): Promise<void> => {
+    setActiveAction('snapshot')
+    setErrorMessage(null)
+    try {
+      const result = await window.desktop.projects.restoreSnapshot()
+      if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
+      else await refreshLifecycle()
+    } catch {
+      setErrorMessage(actionErrorMessages.snapshot)
+      await refreshLifecycle()
+    } finally {
+      setActiveAction(null)
+    }
+  }, [refreshLifecycle])
+
+  const runRecovery = useCallback(
+    async (
+      action: () => Promise<ProjectLifecycleSnapshot | ProjectSelectionResult>
+    ): Promise<void> => {
+      setActiveAction('recovery')
+      setErrorMessage(null)
+      try {
+        const result = await action()
+        if ('project' in result) {
+          if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
+          else await refreshLifecycle()
+        } else {
+          setSnapshot(result)
+        }
+      } catch {
+        setErrorMessage(actionErrorMessages.recovery)
+        await refreshLifecycle()
+      } finally {
+        setActiveAction(null)
+      }
+    },
+    [refreshLifecycle]
+  )
+
+  const exportRecoveryDiagnostics = useCallback(async (): Promise<void> => {
+    setActiveAction('recovery')
+    setErrorMessage(null)
+    try {
+      await window.desktop.projects.exportRecoveryDiagnostics()
+    } catch {
+      setErrorMessage(actionErrorMessages.recovery)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [])
+
   const runDiagnostics = useCallback(async (action: () => Promise<unknown>): Promise<void> => {
     try {
       await action()
@@ -308,6 +387,9 @@ function App(): React.JSX.Element {
         onOpen={() => void openProject()}
         onSwitch={() => void switchProject()}
         onSave={() => window.dispatchEvent(new Event('writellm:save'))}
+        onCreateSnapshot={() => void createSnapshot()}
+        onRestoreSnapshot={() => void restoreSnapshot()}
+        canRestoreSnapshot={snapshot.state === 'closed' || snapshot.state === 'recovery-required'}
         onClose={() => void closeProject()}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
@@ -352,10 +434,55 @@ function App(): React.JSX.Element {
                         <AlertCircle />
                         <AlertTitle>Recovery required</AlertTitle>
                         <AlertDescription>
-                          WriteLLM could not complete project cleanup safely. Close and restart
-                          WriteLLM before creating or opening another project. Check diagnostics if
-                          the problem continues.
+                          Choose a recovery action below. WriteLLM keeps the project closed until
+                          the selected transition is verified.
                         </AlertDescription>
+                        <div className='grid gap-2 border-t pt-4 sm:grid-cols-2'>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
+                          >
+                            <RefreshCcw /> Retry open
+                          </Button>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() => void runRecovery(window.desktop.projects.retryClose)}
+                          >
+                            <RotateCcw /> Retry close
+                          </Button>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() =>
+                              void runRecovery(window.desktop.projects.discardIncompleteCreate)
+                            }
+                          >
+                            <Trash2 /> Discard incomplete create
+                          </Button>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() => void runRecovery(window.desktop.projects.locateMoved)}
+                          >
+                            <MapPin /> Locate moved project
+                          </Button>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() => void exportRecoveryDiagnostics()}
+                          >
+                            <Download /> Export diagnostics
+                          </Button>
+                          <Button
+                            variant='outline'
+                            disabled={isBusy}
+                            onClick={() => void runRecovery(window.desktop.projects.returnToClosed)}
+                          >
+                            <XCircle /> Return to closed
+                          </Button>
+                        </div>
                       </Alert>
                     )}
                   </CardContent>

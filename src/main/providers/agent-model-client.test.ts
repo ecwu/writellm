@@ -52,9 +52,12 @@ class FakeUtilityProcess extends EventEmitter {
 describe('AgentModelClient', () => {
   it('streams bounded events and resolves a utility-process result without returning credentials', async () => {
     const child = new FakeUtilityProcess()
-    const client = new AgentModelClient('/private/agent-model.js', pino({ level: 'silent' }), {
-      fork: () => child
-    } as never)
+    const factory = { fork: vi.fn(() => child) }
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      factory as never
+    )
     const events: string[] = []
     const result = await client.run(
       config,
@@ -70,7 +73,15 @@ describe('AgentModelClient', () => {
     expect(child.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ config, credential: 'process-secret' })
     )
-    expect(child.kill).toHaveBeenCalledOnce()
+    await client.run(
+      config,
+      'process-secret',
+      { systemPrompt: 'system', prompt: 'second', maxOutputTokens: 100 },
+      new AbortController().signal,
+      () => undefined
+    )
+    expect(factory.fork).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 
   it('kills and rejects a running utility process when its capability is revoked', async () => {
@@ -90,6 +101,6 @@ describe('AgentModelClient', () => {
     controller.abort()
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(child.kill).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 })

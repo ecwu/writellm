@@ -1,4 +1,13 @@
-import { FilePlus2, FileText, FolderOpen, FolderSync, Logs, Save, Settings2 } from 'lucide-react'
+import {
+  ArchiveRestore,
+  FilePlus2,
+  FileText,
+  FolderOpen,
+  FolderSync,
+  Logs,
+  Save,
+  Settings2
+} from 'lucide-react'
 import {
   Menubar,
   MenubarContent,
@@ -18,6 +27,9 @@ interface AppMenubarProps {
   onOpen: () => void
   onSwitch: () => void
   onSave: () => void
+  onCreateSnapshot: () => void
+  onRestoreSnapshot: () => void
+  canRestoreSnapshot: boolean
   onClose: () => void
   onOpenSettings: () => void
   onOpenLogs: () => void
@@ -31,6 +43,9 @@ export function AppMenubar({
   onOpen,
   onSwitch,
   onSave,
+  onCreateSnapshot,
+  onRestoreSnapshot,
+  canRestoreSnapshot,
   onClose,
   onOpenSettings,
   onOpenLogs
@@ -57,6 +72,12 @@ export function AppMenubar({
             <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
               <Save /> Save
               <MenubarShortcut>⌘S</MenubarShortcut>
+            </MenubarItem>
+            <MenubarItem disabled={busy || !hasProject} onSelect={onCreateSnapshot}>
+              <Save /> Create snapshot
+            </MenubarItem>
+            <MenubarItem disabled={busy || !canRestoreSnapshot} onSelect={onRestoreSnapshot}>
+              <ArchiveRestore /> Restore snapshot
             </MenubarItem>
             <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
               <FileText /> Close project

@@ -9,6 +9,7 @@ export interface ModelRequestCorrelation {
   operationId?: string
   jobId?: string
   agentRunId?: string
+  projectSessionId?: string
 }
 
 export interface StartModelRequestInput extends ModelRequestCorrelation {

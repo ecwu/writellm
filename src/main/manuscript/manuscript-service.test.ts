@@ -189,6 +189,52 @@ describe('ManuscriptService', () => {
     database.close()
   })
 
+  it('enforces the outline depth cap on create and subtree moves', async () => {
+    const { database, service } = await fixture()
+    const roots = service.listSections()
+    const root = roots[0]
+    if (root === undefined) throw new Error('Missing root fixture')
+    let parentId = root.sectionId
+    for (let level = 2; level <= 64; level += 1) {
+      const child = service.createSection({
+        baseOutlineVersion: service.assemble().outlineVersion,
+        title: `Depth ${level}`,
+        parentSectionId: parentId,
+        position: 0
+      })
+      parentId = child.sectionId
+    }
+    expect(() =>
+      service.createSection({
+        baseOutlineVersion: service.assemble().outlineVersion,
+        title: 'Too deep',
+        parentSectionId: parentId,
+        position: 0
+      })
+    ).toThrowError(expect.objectContaining({ code: 'outline_depth_exceeded' }))
+
+    const movableRoot = service.createSection({
+      baseOutlineVersion: service.assemble().outlineVersion,
+      title: 'Movable root',
+      position: 1
+    })
+    service.createSection({
+      baseOutlineVersion: service.assemble().outlineVersion,
+      title: 'Movable child',
+      parentSectionId: movableRoot.sectionId,
+      position: 0
+    })
+    expect(() =>
+      service.moveSection({
+        baseOutlineVersion: service.assemble().outlineVersion,
+        sectionId: movableRoot.sectionId,
+        parentSectionId: parentId,
+        position: 0
+      })
+    ).toThrowError(expect.objectContaining({ code: 'outline_depth_exceeded' }))
+    database.close()
+  })
+
   it('increments outline version only for metadata and structure changes', async () => {
     const { database, service } = await fixture()
     const initial = service.assemble()

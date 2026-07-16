@@ -4,6 +4,7 @@ import { JobOwnershipError, type ClaimedJob, type JobStore } from '../job-store'
 import type { JobProgress } from '../job-schemas'
 import type { JobHandlerDefinition, JobResource, JobHandlerRegistry } from './job-handler-registry'
 import type { WorkerSupervisor } from './worker-supervisor'
+import { withLogContext } from '../../observability/log-context'
 
 interface Execution {
   readonly claimed: ClaimedJob
@@ -123,6 +124,19 @@ export class JobScheduler {
     )
   }
 
+  resumeClaims(): void {
+    if (this.#stopped || this.#claiming) return
+    for (const queue of this.#queues.values()) queue.start()
+    this.#claiming = true
+    this.#pollTimer = setInterval(() => this.wake(), this.#pollIntervalMs)
+    this.#pollTimer.unref?.()
+    this.#log.info(
+      { event: 'queue.scheduler.claims_resumed', projectId: this.#projectId },
+      'Project job claims resumed'
+    )
+    this.wake()
+  }
+
   cancel(jobId: string): void {
     this.#executions.get(jobId)?.controller.abort(new Error('Job cancellation requested'))
   }
@@ -192,11 +206,22 @@ export class JobScheduler {
     }
     this.#executions.set(claimed.job.jobId, execution)
     void queue
-      .add(() => this.#execute(execution), {
-        id: claimed.job.jobId,
-        priority: claimed.job.priority,
-        signal: controller.signal
-      })
+      .add(
+        () =>
+          withLogContext(
+            {
+              operationId: execution.executionId,
+              jobId: claimed.job.jobId,
+              projectId: this.#projectId
+            },
+            () => this.#execute(execution)
+          ),
+        {
+          id: claimed.job.jobId,
+          priority: claimed.job.priority,
+          signal: controller.signal
+        }
+      )
       .catch((err) => {
         if (!controller.signal.aborted) {
           this.#log.error(

@@ -46,6 +46,10 @@ export class ProjectRuntime {
     this.scheduler.stopClaims()
   }
 
+  resumeClaims(): void {
+    this.scheduler.resumeClaims()
+  }
+
   park(): Promise<void> {
     return this.scheduler.park()
   }

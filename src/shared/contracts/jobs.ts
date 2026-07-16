@@ -1,28 +1,16 @@
 import { z } from 'zod'
 import { projectSessionIdSchema } from './projects'
 
-export const jobStateDtoSchema = z.enum([
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-  'paused'
-])
+export const jobStateDtoSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled'])
 
 export const jobTypeDtoSchema = z.enum([
-  'embedding.batch',
-  'import.validate',
-  'index.build',
-  'index.item-delete',
-  'index.item-upsert',
-  'index.publish',
-  'index.rebuild',
-  'mineru.download',
-  'mineru.normalize',
-  'mineru.poll',
-  'mineru.submit',
-  'rerank.request'
+  'mineru_parse',
+  'normalize_parse_revision',
+  'build_index_generation',
+  'build_embedding_generation',
+  'remove_index_item',
+  'rebuild_index',
+  'artifact_cleanup'
 ])
 
 export const jobStatusSchema = z

@@ -22,6 +22,10 @@ interface PendingRequest {
   reject(error: unknown): void
 }
 
+export interface IndexUtilityProcessFactory {
+  fork(modulePath: string, args?: string[], options?: Electron.ForkOptions): UtilityProcess
+}
+
 export class IndexClient {
   readonly #pending = new Map<string, PendingRequest>()
   #child: UtilityProcess | undefined
@@ -42,6 +46,7 @@ export class IndexClient {
       projectSessionId: string
       collector: LogCollector
       log: Logger
+      processFactory?: IndexUtilityProcessFactory
     }
   ) {}
 
@@ -338,10 +343,14 @@ export class IndexClient {
     if (this.#ready !== undefined) return this.#ready
     const requestId = randomUUID()
     this.#initialRequestId = requestId
-    const child = utilityProcess.fork(this.options.modulePath, [], {
-      serviceName: 'writellm-index',
-      stdio: 'pipe'
-    })
+    const child = (this.options.processFactory ?? utilityProcess).fork(
+      this.options.modulePath,
+      [],
+      {
+        serviceName: 'writellm-index',
+        stdio: 'pipe'
+      }
+    )
     this.#child = child
     captureUtilityStderr(child, this.options.log)
     const { port1, port2 } = new MessageChannelMain()

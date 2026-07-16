@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openAppDatabase } from '../connection'
-import { RecentProjectsRepository } from './recent-projects'
+import { RECENT_PROJECT_LIMIT, RecentProjectsRepository } from './recent-projects'
 
 const temporaryDirectories: string[] = []
 const log = pino({ level: 'silent' })
@@ -139,6 +139,36 @@ describe('RecentProjectsRepository', () => {
     await expect(repository.remove(projectId)).resolves.toBe(true)
     await expect(repository.remove(projectId)).resolves.toBe(false)
     await expect(repository.list()).resolves.toEqual([])
+    database.close()
+  })
+
+  it('prunes stored pointers beyond the recent-project limit on upsert', async () => {
+    const database = await openTestDatabase()
+    const repository = new RecentProjectsRepository(database)
+
+    for (let index = 0; index < RECENT_PROJECT_LIMIT + 2; index += 1) {
+      await repository.upsert({
+        projectId: `11111111-1111-4111-8111-11111111111${index}`,
+        projectPath: `/projects/project-${index}`,
+        displayName: `Project ${index}`,
+        lastOpenedAt: `2026-07-14T1${index}:00:00.000Z`
+      })
+    }
+
+    const stored = await repository.list()
+    expect(stored).toHaveLength(RECENT_PROJECT_LIMIT)
+    expect(stored.map((pointer) => pointer.displayName)).toEqual([
+      'Project 6',
+      'Project 5',
+      'Project 4',
+      'Project 3',
+      'Project 2'
+    ])
+    const storedRows = await database.kysely
+      .selectFrom('recent_projects')
+      .select('project_id')
+      .execute()
+    expect(storedRows).toHaveLength(RECENT_PROJECT_LIMIT)
     database.close()
   })
 })

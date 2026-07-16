@@ -34,7 +34,8 @@ export class RetrievalService {
         query: string,
         expectedContractSha256: string,
         operationId: string,
-        signal: AbortSignal
+        signal: AbortSignal,
+        projectSessionId?: string
       ) => Promise<number[]>
       getRerankProvider: () => Promise<ProviderConfig>
       rerank: (
@@ -42,7 +43,8 @@ export class RetrievalService {
         documents: string[],
         topN: number,
         operationId: string,
-        signal: AbortSignal
+        signal: AbortSignal,
+        projectSessionId?: string
       ) => Promise<RerankResult>
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }

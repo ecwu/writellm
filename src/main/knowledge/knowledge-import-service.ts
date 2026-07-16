@@ -38,6 +38,7 @@ export class KnowledgeImportService {
   readonly #controllers = new Map<string, AbortController>()
   readonly #operations = new Map<string, Promise<KnowledgeItem>>()
   #queue: Promise<void> = Promise.resolve()
+  #publicationQueue: Promise<void> = Promise.resolve()
   #acceptingImports = true
 
   constructor(options: {
@@ -92,7 +93,7 @@ export class KnowledgeImportService {
     if (sizes.reduce((total, size) => total + size, 0) > MAX_BATCH_BYTES) {
       throw new KnowledgeImportError('batch_too_large', 'The selected batch is too large')
     }
-    for (const path of paths) {
+    for (const [index, path] of paths.entries()) {
       try {
         await this.#serialize(async () => {
           if (!this.#acceptingImports) {
@@ -102,6 +103,15 @@ export class KnowledgeImportService {
         })
       } catch (err) {
         if (err instanceof KnowledgeImportError && err.code === 'project_closing') throw err
+        this.#log.error(
+          {
+            event: 'knowledge.import.start_failed',
+            err,
+            projectId: this.#projectId,
+            batchIndex: index
+          },
+          'Failed to create a knowledge import record; continuing the batch'
+        )
       }
     }
     return this.list()
@@ -283,77 +293,87 @@ export class KnowledgeImportService {
         throw new KnowledgeImportError('source_changed', 'Source changed while it was copied')
       }
       const sha256 = hash.digest('hex')
-      const duplicate = this.#database.immediate(
-        (database) =>
-          database
-            .prepare(
-              `SELECT knowledge_items.knowledge_item_id
-                 FROM knowledge_items
-                 JOIN file_records USING (file_record_id)
-                WHERE file_records.sha256 = ? AND knowledge_items.state = 'stored'`
-            )
-            .get(sha256) as { knowledge_item_id: string } | undefined
-      )
-      if (duplicate) {
-        await rm(tempPath, { force: true })
+      const publication = await this.#serializePublication(async () => {
+        const duplicate = this.#database.immediate(
+          (database) =>
+            database
+              .prepare(
+                `SELECT knowledge_items.knowledge_item_id
+                   FROM knowledge_items
+                   JOIN file_records USING (file_record_id)
+                  WHERE file_records.sha256 = ? AND knowledge_items.state = 'stored'`
+              )
+              .get(sha256) as { knowledge_item_id: string } | undefined
+        )
+        if (duplicate) {
+          await rm(tempPath, { force: true })
+          this.#database.immediate((database) => {
+            database
+              .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
+              .run(input.knowledgeItemId)
+          })
+          return {
+            duplicate: true,
+            item: this.list().find(
+              (item) => item.knowledgeItemId === duplicate.knowledge_item_id
+            ) as KnowledgeItem
+          }
+        }
+        const relativePath = `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}/${input.displayName}`
+        const destination = resolveProjectPath(this.#projectRoot, relativePath)
+        await mkdir(
+          resolveProjectPath(
+            this.#projectRoot,
+            `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}`
+          ),
+          { recursive: true }
+        )
+        await rename(tempPath, destination)
+        uncommittedDestination = destination
+        await syncDirectory(dirname(destination))
+        const fileRecordId = randomUUID()
+        const completedAt = new Date().toISOString()
         this.#database.immediate((database) => {
           database
-            .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
-            .run(input.knowledgeItemId)
+            .prepare(
+              `INSERT INTO file_records (
+                file_record_id, sha256, byte_size, mime_type, extension, relative_path, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(
+              fileRecordId,
+              sha256,
+              copied,
+              capability.mimeType,
+              capability.extension,
+              relativePath,
+              completedAt
+            )
+          database
+            .prepare(
+              `UPDATE knowledge_items
+                  SET file_record_id = ?, state = 'stored', error_code = NULL, updated_at = ?
+                WHERE knowledge_item_id = ?`
+            )
+            .run(fileRecordId, completedAt, input.knowledgeItemId)
+          database
+            .prepare(
+              `UPDATE imports
+                  SET state = 'stored', bytes_copied = ?, error_code = NULL, updated_at = ?
+                WHERE import_id = ?`
+            )
+            .run(copied, completedAt, input.importId)
         })
-        return this.list().find(
-          (item) => item.knowledgeItemId === duplicate.knowledge_item_id
-        ) as KnowledgeItem
-      }
-      const relativePath = `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}/${input.displayName}`
-      const destination = resolveProjectPath(this.#projectRoot, relativePath)
-      await mkdir(
-        resolveProjectPath(
-          this.#projectRoot,
-          `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}`
-        ),
-        { recursive: true }
-      )
-      await rename(tempPath, destination)
-      uncommittedDestination = destination
-      await syncDirectory(dirname(destination))
-      const fileRecordId = randomUUID()
-      const completedAt = new Date().toISOString()
-      this.#database.immediate((database) => {
-        database
-          .prepare(
-            `INSERT INTO file_records (
-              file_record_id, sha256, byte_size, mime_type, extension, relative_path, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            fileRecordId,
-            sha256,
-            copied,
-            capability.mimeType,
-            capability.extension,
-            relativePath,
-            completedAt
-          )
-        database
-          .prepare(
-            `UPDATE knowledge_items
-                SET file_record_id = ?, state = 'stored', error_code = NULL, updated_at = ?
-              WHERE knowledge_item_id = ?`
-          )
-          .run(fileRecordId, completedAt, input.knowledgeItemId)
-        database
-          .prepare(
-            `UPDATE imports
-                SET state = 'stored', bytes_copied = ?, error_code = NULL, updated_at = ?
-              WHERE import_id = ?`
-          )
-          .run(copied, completedAt, input.importId)
+        uncommittedDestination = undefined
+        return {
+          duplicate: false,
+          item: this.list().find(
+            (item) => item.knowledgeItemId === input.knowledgeItemId
+          ) as KnowledgeItem
+        }
       })
-      uncommittedDestination = undefined
-      const stored = this.list().find(
-        (item) => item.knowledgeItemId === input.knowledgeItemId
-      ) as KnowledgeItem
+      if (publication.duplicate) return publication.item
+      const stored = publication.item
       await this.#onStored?.(stored)
       this.#log.info(
         {
@@ -448,6 +468,15 @@ export class KnowledgeImportService {
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#queue.then(operation, operation)
     this.#queue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  #serializePublication<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#publicationQueue.then(operation, operation)
+    this.#publicationQueue = result.then(
       () => undefined,
       () => undefined
     )

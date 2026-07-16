@@ -7,8 +7,14 @@ This file is the entry point for agents working in this repository.
 Before changing code, read:
 
 1. `docs/architecture.md` for fixed technology choices, process boundaries, and invariants.
-2. `docs/implementation-todo.md` for the ordered roadmap and current checkpoint.
-3. `docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md` while Checkpoint 19.5 is pending, or when a task touches its frozen boundaries.
+2. `docs/current-plan.md` for the current checkpoint, acceptance gate, and deferred work.
+3. The ADR under `docs/adrs/` that covers the current boundary or decision.
+4. `docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md` when a task touches its frozen boundaries, and the Checkpoint 19.6/19.7 task lists in `docs/implementation-todo.md` while that remediation window is pending.
+
+`docs/implementation-todo.md`, `docs/implementation-todo/`, and older audit
+records are historical evidence. Read only the Phase material relevant to the
+current checkpoint; newer architecture amendments and ADRs are authoritative
+when historical text conflicts with them.
 
 The Phase files under `docs/implementation-todo/` contain historical implementation evidence. Read only the Phase material related to the current checkpoint. If a Phase file conflicts with the architecture amendment or the CP19.5 audit, the newer amendment is authoritative and the older passage is historical.
 
@@ -66,6 +72,61 @@ Biome is the repository's single formatter and style checker. Run commands from 
 - `pnpm lint:write`: apply safe lint fixes only.
 
 Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
+
+## Testing And Native Runtime
+
+Run the full test suite from the repository root with:
+
+```sh
+pnpm test
+```
+
+The canonical runner is `scripts/run-tests.mjs`. It launches the bundled
+Electron runtime with `ELECTRON_RUN_AS_NODE=1` and then runs Vitest. Use this
+runtime for tests that import `better-sqlite3` or other native modules. Do not
+run `vitest run`, `pnpm exec vitest run`, or a SQLite benchmark directly with
+the system Node runtime unless the native dependency has deliberately been
+rebuilt for that exact Node ABI.
+
+If Corepack or pnpm cannot start, it is valid to bypass only the package
+manager wrapper and run the repository's canonical runner directly:
+
+```sh
+node scripts/run-tests.mjs
+```
+
+`npm test` is equivalent because the `test` script points to the same runner.
+This direct Node command is not, by itself, a request for elevated sandbox
+access. Request escalation only when the command produces a concrete
+sandbox-related error such as `EACCES`, `EPERM`, a denied path outside the
+workspace, or a blocked network/GUI operation. A non-zero Vitest exit caused
+by assertion failures, migration errors, or Electron's non-fatal diagnostic
+warnings is a test/code result, not evidence of sandbox blocking.
+
+Before diagnosing a native-module failure, compare the ABI of the runtime
+that will execute the test with the ABI of the installed addon:
+
+```sh
+node -p "process.versions.modules"
+ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "process.versions.modules"
+```
+
+The system Node and Electron ABIs are allowed to differ. For this repository,
+the full suite targets Electron, so an Electron-compatible `better-sqlite3`
+binary is the expected state. Restore that state with the existing dependency
+installer when necessary:
+
+```sh
+./node_modules/.bin/electron-builder install-app-deps
+```
+
+Do not rebuild `better-sqlite3` for system Node merely to make direct Vitest
+invocation pass; that can replace the Electron-compatible binary and make the
+canonical suite fail. If a Node-only benchmark is required, use a separate
+dependency environment or explicitly rebuild for Node and restore the
+Electron dependencies before running the application test suite. Record the
+runtime, ABI, command, test counts, and failure class in the verification
+report.
 
 ## UI Design Requirements
 

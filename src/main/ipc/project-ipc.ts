@@ -1,10 +1,12 @@
 import { dialog, ipcMain, type BrowserWindow, type IpcMain, type WebContents } from 'electron'
+import { basename, join } from 'node:path'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   projectCreateInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
+  projectRecoveryActionInputSchema,
   recentProjectOpenInputSchema,
   recentProjectsSchema,
   projectSelectionResultSchema,
@@ -14,6 +16,7 @@ import {
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
+import { withIpcLogContext } from '../observability/ipc-context'
 
 export interface ProjectIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -23,6 +26,11 @@ export interface ProjectDialog {
     options: Electron.OpenDialogOptions
   ): Promise<Electron.OpenDialogReturnValue>
   showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>
+  showSaveDialog?(
+    window: BrowserWindow,
+    options: Electron.SaveDialogOptions
+  ): Promise<Electron.SaveDialogReturnValue>
+  showSaveDialog?(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>
 }
 
 export interface RegisterProjectIpcOptions {
@@ -34,6 +42,9 @@ export interface RegisterProjectIpcOptions {
   ipc?: ProjectIpcMain
   projectDialog?: ProjectDialog
   selectProjectFolderForTest?: () => Promise<string | null>
+  selectSnapshotDestinationForTest?: () => Promise<string | null>
+  selectRestoreSourceForTest?: () => Promise<string | null>
+  selectRestoreDestinationParentForTest?: () => Promise<string | null>
 }
 
 const operationError = (message: string): Error => new Error(message)
@@ -46,6 +57,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     { sender: WebContents; projectSessionId: ProjectSessionId }
   >()
   let projectDialogOpen = false
+  const handle = (
+    channel: string,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    ipc.handle(channel, (event, ...args) =>
+      withIpcLogContext(event, args[0], () => handler(event, ...args))
+    )
+  }
 
   const selectFolder = async (purpose: 'create' | 'open'): Promise<string | null> => {
     if (projectDialogOpen) throw new Error('A project folder dialog is already open')
@@ -66,6 +85,35 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     } finally {
       projectDialogOpen = false
     }
+  }
+
+  const selectSnapshotDestination = async (): Promise<string | null> => {
+    if (options.selectSnapshotDestinationForTest) {
+      return options.selectSnapshotDestinationForTest()
+    }
+    if (projectDialog.showSaveDialog === undefined) return selectFolder('open')
+    const owner = options.getWindow()
+    const dialogOptions: Electron.SaveDialogOptions = {
+      defaultPath: 'WriteLLM Snapshot',
+      properties: ['createDirectory']
+    }
+    const result =
+      owner === null
+        ? await projectDialog.showSaveDialog(dialogOptions)
+        : await projectDialog.showSaveDialog(owner, dialogOptions)
+    return result.canceled ? null : (result.filePath ?? null)
+  }
+
+  const selectRestoreSource = async (): Promise<string | null> => {
+    if (options.selectRestoreSourceForTest) return options.selectRestoreSourceForTest()
+    return selectFolder('open')
+  }
+
+  const selectRestoreDestinationParent = async (): Promise<string | null> => {
+    if (options.selectRestoreDestinationParentForTest) {
+      return options.selectRestoreDestinationParentForTest()
+    }
+    return selectFolder('open')
   }
 
   const assertClosedBeforeSelection = (): void => {
@@ -90,12 +138,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     sender.send(IPC_CHANNELS.projectLifecycleEvent, event)
   }
 
-  ipc.handle(IPC_CHANNELS.projectGetLifecycle, (event) => {
+  handle(IPC_CHANNELS.projectGetLifecycle, (event) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     return projectLifecycleSnapshotSchema.parse(options.manager.snapshot())
   })
 
-  ipc.handle(IPC_CHANNELS.projectGetRecent, async (event) => {
+  handle(IPC_CHANNELS.projectGetRecent, async (event) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     try {
       const recentProjects = await options.recentProjects.list()
@@ -109,7 +157,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectCreate, async (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectCreate, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { name } = projectCreateInputSchema.parse(input)
     assertClosedBeforeSelection()
@@ -129,7 +177,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectOpen, async (event) => {
+  handle(IPC_CHANNELS.projectOpen, async (event) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     assertClosedBeforeSelection()
     const selectedRoot = await selectFolder('open')
@@ -145,7 +193,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectOpenRecent, async (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectOpenRecent, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectId } = recentProjectOpenInputSchema.parse(input)
     assertClosedBeforeSelection()
@@ -165,7 +213,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectSwitch, async (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectSwitch, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
@@ -187,7 +235,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectClose, async (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectClose, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
@@ -204,7 +252,132 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  ipc.handle(IPC_CHANNELS.projectSubscribeLifecycle, (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectRecoveryRetryOpen, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return projectLifecycleSnapshotSchema.parse(await options.manager.retryOpen())
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.retry_open.failed', err },
+        'Project open retry failed'
+      )
+      throw operationError('Unable to retry opening the project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRecoveryRetryClose, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return projectLifecycleSnapshotSchema.parse(await options.manager.retryClose())
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.retry_close.failed', err },
+        'Project close retry failed'
+      )
+      throw operationError('Unable to retry closing the project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return projectLifecycleSnapshotSchema.parse(await options.manager.discardIncompleteCreate())
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.discard_create.failed', err },
+        'Incomplete project discard failed'
+      )
+      throw operationError('Unable to discard the incomplete project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRecoveryLocateMoved, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    const selectedRoot = await selectRestoreSource()
+    if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
+    try {
+      const snapshot = await options.manager.locateMovedProject(selectedRoot)
+      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.locate_moved.failed', err },
+        'Moved project recovery failed'
+      )
+      throw operationError('Unable to open the located project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRecoveryExportDiagnostics, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return await options.manager.exportDiagnostics()
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.export_diagnostics.failed', err },
+        'Recovery diagnostics export failed'
+      )
+      throw operationError('Unable to export recovery diagnostics')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRecoveryReturnToClosed, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return projectLifecycleSnapshotSchema.parse(await options.manager.returnToClosed())
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.return_closed.failed', err },
+        'Recovery return-to-closed failed'
+      )
+      throw operationError('Unable to return to the closed state')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectSnapshotCreate, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = projectSessionInputSchema.parse(input)
+    options.manager.assertActiveSession(projectSessionId)
+    const destination = await selectSnapshotDestination()
+    if (destination === null) return { created: false }
+    try {
+      await options.manager.createSnapshot(projectSessionId, destination)
+      return { created: true }
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_snapshot.create.failed', err, projectSessionId },
+        'Project snapshot creation failed'
+      )
+      throw operationError('Unable to create the project snapshot')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectSnapshotRestore, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    const source = await selectRestoreSource()
+    if (source === null) return projectSelectionResultSchema.parse({ project: null })
+    const parent = await selectRestoreDestinationParent()
+    if (parent === null) return projectSelectionResultSchema.parse({ project: null })
+    try {
+      const destination = join(parent, `${basename(source)}.writellm`)
+      const snapshot = await options.manager.restoreSnapshot({ snapshotRoot: source, destination })
+      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_snapshot.restore.failed', err },
+        'Project snapshot restore failed'
+      )
+      throw operationError('Unable to restore the project snapshot')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectSubscribeLifecycle, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
@@ -212,7 +385,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     sendCurrent(event.sender, projectSessionId)
   })
 
-  ipc.handle(IPC_CHANNELS.projectUnsubscribeLifecycle, (event, input: unknown) => {
+  handle(IPC_CHANNELS.projectUnsubscribeLifecycle, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     const subscription = subscriptions.get(event.sender.id)
@@ -229,6 +402,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectOpenRecent,
       IPC_CHANNELS.projectSwitch,
       IPC_CHANNELS.projectClose,
+      IPC_CHANNELS.projectRecoveryRetryOpen,
+      IPC_CHANNELS.projectRecoveryRetryClose,
+      IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate,
+      IPC_CHANNELS.projectRecoveryLocateMoved,
+      IPC_CHANNELS.projectRecoveryExportDiagnostics,
+      IPC_CHANNELS.projectRecoveryReturnToClosed,
+      IPC_CHANNELS.projectSnapshotCreate,
+      IPC_CHANNELS.projectSnapshotRestore,
       IPC_CHANNELS.projectSubscribeLifecycle,
       IPC_CHANNELS.projectUnsubscribeLifecycle
     ]) {

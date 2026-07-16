@@ -106,7 +106,11 @@ describe('editor IPC active-section final flush', () => {
     const flush = registration.closeParticipants.flushEditors(context as never, authorization)
     expect(sender.send).toHaveBeenCalledWith(
       IPC_CHANNELS.editorFlushRequest,
-      expect.objectContaining({ closingToken: authorization.closingToken })
+      expect.objectContaining({
+        closingToken: authorization.closingToken,
+        sectionId: 'section-2',
+        sectionRevisionId: 'revision-2'
+      })
     )
     invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,

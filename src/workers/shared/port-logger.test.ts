@@ -10,7 +10,7 @@ describe('createPortLogger', () => {
     const log = createPortLogger(
       { postMessage },
       {
-        processRole: 'api-worker',
+        processRole: 'background-worker',
         subsystem: 'worker',
         component: 'test'
       }

@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdir, rename, rm, writeFile, access, readFile, lstat, realpath } from 'node:fs/promises'
+import { mkdir, rename, rm, access, readFile, lstat, realpath, readdir } from 'node:fs/promises'
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
@@ -31,6 +31,11 @@ import {
   normalizeProjectRelativePath
 } from './project-paths'
 import { projectIdSchema } from '../../shared/contracts/projects'
+import {
+  assertJobPersistenceBoundary,
+  assertNoPersistedMineruCapabilities
+} from './mineru-persistence-invariant'
+import { writeAtomicFile } from '../storage/atomic-file'
 
 export const PROJECT_SNAPSHOT_FORMAT = 'writellm-project-snapshot'
 export const PROJECT_SNAPSHOT_FORMAT_VERSION = 1
@@ -71,6 +76,48 @@ const snapshotManifestSchema = z
 
 export type ProjectSnapshotManifest = z.infer<typeof snapshotManifestSchema>
 export type ProjectSnapshotFile = z.infer<typeof snapshotFileSchema>
+
+/** Inventory all published project files while excluding rebuildable and transient state. */
+export async function inventoryProjectFiles(
+  projectRoot: string
+): Promise<readonly ProjectSnapshotFile[]> {
+  const files: ProjectSnapshotFile[] = []
+  const visit = async (relativeDirectory: string): Promise<void> => {
+    const absoluteDirectory =
+      relativeDirectory === ''
+        ? await realpath(projectRoot)
+        : resolveProjectPath(projectRoot, relativeDirectory)
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true })
+    for (const entry of entries) {
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
+      if (
+        relativePath === PROJECT_MANIFEST_FILE ||
+        relativePath === PROJECT_SNAPSHOT_MANIFEST_FILE ||
+        relativePath === '.writellm'
+      ) {
+        continue
+      }
+      const target = resolveProjectPath(projectRoot, relativePath)
+      if (entry.isSymbolicLink())
+        throw new Error('Project snapshot inventory contains a symbolic link')
+      if (entry.isDirectory()) {
+        await visit(relativePath)
+        continue
+      }
+      if (!entry.isFile()) throw new Error('Project snapshot inventory contains a non-file entry')
+      const digest = await sha256File(target)
+      files.push({ relativePath, role: snapshotRole(relativePath), ...digest })
+    }
+  }
+  await visit('')
+  return files
+}
+
+function snapshotRole(relativePath: string): string {
+  if (relativePath.startsWith('manuscript/')) return 'manuscript'
+  if (relativePath.startsWith('knowledge/')) return 'knowledge'
+  return 'project-file'
+}
 
 export function parseProjectSnapshotManifest(value: unknown): ProjectSnapshotManifest {
   const manifest = snapshotManifestSchema.parse(value)
@@ -152,21 +199,6 @@ async function assertExistingFileContained(root: string, relativePath: string): 
   return canonicalFile
 }
 
-async function writeAtomicJson(path: string, value: unknown): Promise<void> {
-  const temporary = `${path}.${randomUUID()}.partial`
-  try {
-    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-      flag: 'wx'
-    })
-    await rename(temporary, path)
-  } catch (err) {
-    await rm(temporary, { force: true }).catch(() => undefined)
-    throw new Error('Failed to atomically write snapshot manifest', { cause: err })
-  }
-}
-
 async function ensureDestinationAbsent(path: string): Promise<void> {
   await access(path).then(
     () => {
@@ -230,6 +262,8 @@ export async function createProjectSnapshot(options: {
       backupDatabase.pragma('foreign_keys = ON')
       assertDatabaseIntegrity(backupDatabase, 'snapshot', 'full', options.log)
       validateProjectDatabaseIdentity(backupDatabase, options.manifest.projectId)
+      assertNoPersistedMineruCapabilities(backupDatabase)
+      assertJobPersistenceBoundary(backupDatabase)
       validateMigrationState(backupDatabase, {
         databaseRole: 'project',
         migrations: projectMigrations
@@ -279,7 +313,14 @@ export async function createProjectSnapshot(options: {
       database: { path: PROJECT_DATABASE_RELATIVE_PATH, ...databaseDigest },
       files
     })
-    await writeAtomicJson(join(stage, PROJECT_SNAPSHOT_MANIFEST_FILE), snapshotManifest)
+    try {
+      await writeAtomicFile(
+        join(stage, PROJECT_SNAPSHOT_MANIFEST_FILE),
+        `${JSON.stringify(snapshotManifest, null, 2)}\n`
+      )
+    } catch (err) {
+      throw new Error('Failed to atomically write snapshot manifest', { cause: err })
+    }
     await ensureDestinationAbsent(options.destination)
     await rename(stage, options.destination)
     options.log.info(
@@ -376,6 +417,8 @@ export async function restoreProjectSnapshot(options: {
       log: options.log,
       validate: (database) => {
         validateProjectDatabaseIdentity(database, snapshot.projectId)
+        assertNoPersistedMineruCapabilities(database)
+        assertJobPersistenceBoundary(database)
         const state = validateMigrationState(database, {
           databaseRole: 'project',
           migrations: projectMigrations
@@ -451,6 +494,8 @@ export async function restoreProjectDatabase(options: {
       log: options.log,
       validate: (database) => {
         validateProjectDatabaseIdentity(database, options.projectId)
+        assertNoPersistedMineruCapabilities(database)
+        assertJobPersistenceBoundary(database)
         validateMigrationState(database, {
           databaseRole: 'project',
           migrations: projectMigrations
@@ -491,6 +536,8 @@ export async function restoreProjectDatabase(options: {
         log: options.log,
         validate: (database) => {
           validateProjectDatabaseIdentity(database, options.projectId)
+          assertNoPersistedMineruCapabilities(database)
+          assertJobPersistenceBoundary(database)
           validateMigrationState(database, {
             databaseRole: 'project',
             migrations: projectMigrations

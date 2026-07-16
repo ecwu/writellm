@@ -15,6 +15,8 @@ import {
   projectCreateInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
+  projectRecoveryActionInputSchema,
+  projectSnapshotResultSchema,
   recentProjectOpenInputSchema,
   recentProjectsSchema,
   projectSelectionResultSchema,
@@ -118,6 +120,14 @@ export interface DesktopApi {
     openRecent(input: RecentProjectOpenInput): Promise<ProjectSelectionResult>
     close(input: ProjectSessionInput): Promise<ProjectLifecycleSnapshot>
     switch(input: ProjectSessionInput): Promise<ProjectSelectionResult>
+    retryOpen(): Promise<ProjectLifecycleSnapshot>
+    retryClose(): Promise<ProjectLifecycleSnapshot>
+    discardIncompleteCreate(): Promise<ProjectLifecycleSnapshot>
+    locateMoved(): Promise<ProjectSelectionResult>
+    exportRecoveryDiagnostics(): Promise<{ exported: boolean }>
+    returnToClosed(): Promise<ProjectLifecycleSnapshot>
+    createSnapshot(input: ProjectSessionInput): Promise<{ created: boolean }>
+    restoreSnapshot(): Promise<ProjectSelectionResult>
     subscribe(
       input: ProjectSessionInput,
       listener: (event: ProjectLifecycleEvent) => void
@@ -159,7 +169,11 @@ export interface DesktopApi {
       markdown: string
     }): Promise<{ relativePath: string }>
     finalFlushSave(
-      input: SaveSectionDocumentInput & { projectSessionId: string; closingToken: string }
+      input: SaveSectionDocumentInput & {
+        projectSessionId: string
+        closingToken: string
+        purpose?: 'close' | 'snapshot'
+      }
     ): Promise<SaveSectionDocumentResponse>
     acknowledgeFlush(
       input: EditorFlushRequest & { sectionId: string; sectionRevisionId: string }
@@ -259,6 +273,70 @@ const desktopApi: DesktopApi = {
     async switch(input) {
       return projectSelectionResultSchema.parse(
         await ipcRenderer.invoke(IPC_CHANNELS.projectSwitch, projectSessionInputSchema.parse(input))
+      )
+    },
+    async retryOpen() {
+      return projectLifecycleSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryRetryOpen,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async retryClose() {
+      return projectLifecycleSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryRetryClose,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async discardIncompleteCreate() {
+      return projectLifecycleSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async locateMoved() {
+      return projectSelectionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryLocateMoved,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async exportRecoveryDiagnostics() {
+      return diagnosticExportResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryExportDiagnostics,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async returnToClosed() {
+      return projectLifecycleSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryReturnToClosed,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async createSnapshot(input) {
+      return projectSnapshotResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectSnapshotCreate,
+          projectSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async restoreSnapshot() {
+      return projectSelectionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectSnapshotRestore,
+          projectRecoveryActionInputSchema.parse({})
+        )
       )
     },
     async subscribe(input, listener) {

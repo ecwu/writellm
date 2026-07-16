@@ -98,6 +98,11 @@ describe('project snapshots', () => {
     await expect(readFile(join(snapshotRoot, '.writellm', 'index.sqlite'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
+    const snapshotDatabaseBytes = await readFile(join(snapshotRoot, '.writellm', 'project.sqlite'))
+    const snapshotDatabaseText = snapshotDatabaseBytes.toString('utf8').toLowerCase()
+    expect(snapshotDatabaseText).not.toMatch(
+      /upload_url_ciphertext|download_url_ciphertext|signature=|recovery_capability/
+    )
     expect(await readFile(join(snapshotRoot, sourceFile), 'utf8')).toBe(sourceBody)
 
     const restoredRoot = join(parent, '恢复后的项目.writellm')
@@ -229,11 +234,11 @@ describe('project snapshots', () => {
     const newerDatabase = new Database(newer)
     newerDatabase
       .prepare(
-        "INSERT INTO schema_migrations VALUES (12, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
+        "INSERT INTO schema_migrations VALUES (16, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
       )
       .run()
-    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 12').run()
-    newerDatabase.pragma('user_version = 12')
+    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 16').run()
+    newerDatabase.pragma('user_version = 16')
     newerDatabase.close()
     await expect(
       restoreProjectDatabase({

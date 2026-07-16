@@ -9,6 +9,8 @@ export interface RecentProjectPointer {
 
 export type UpsertRecentProjectPointer = RecentProjectPointer
 
+export const RECENT_PROJECT_LIMIT = 5
+
 export class RecentProjectsRepository {
   constructor(
     private readonly database: AppDatabase,
@@ -58,6 +60,24 @@ export class RecentProjectsRepository {
         })
       )
       .execute()
+
+    const kept = await this.database.kysely
+      .selectFrom('recent_projects')
+      .select('project_id')
+      .orderBy('last_opened_at', 'desc')
+      .orderBy('project_id', 'asc')
+      .limit(RECENT_PROJECT_LIMIT)
+      .execute()
+    if (kept.length > 0) {
+      await this.database.kysely
+        .deleteFrom('recent_projects')
+        .where(
+          'project_id',
+          'not in',
+          kept.map((row) => row.project_id)
+        )
+        .execute()
+    }
   }
 
   async remove(projectId: string): Promise<boolean> {

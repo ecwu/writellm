@@ -7,7 +7,8 @@ import { openAppDatabase } from '../app-db/connection'
 import {
   initializeProjectDatabase,
   openProjectDatabase,
-  PROJECT_DATABASE_APPLICATION_ID
+  PROJECT_DATABASE_APPLICATION_ID,
+  PROJECT_SCHEMA_VERSION
 } from './project-database'
 import type { ProjectManifest } from './project-manifest'
 import { PROJECT_DATABASE_RELATIVE_PATH } from './project-paths'
@@ -196,6 +197,31 @@ describe('project database', () => {
     database.close()
   })
 
+  it('materializes the strict CP19.5 job vocabulary without a paused schema state', async () => {
+    const root = await temporaryRoot('严格任务状态')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc009')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    const schema = database.immediate(
+      (native) =>
+        native
+          .prepare("SELECT name, sql FROM sqlite_master WHERE name IN ('jobs', 'job_transitions')")
+          .all() as Array<{ name: string; sql: string }>
+    )
+    expect(schema).toHaveLength(2)
+    expect(schema.every((entry) => !entry.sql.toLowerCase().includes("'paused'"))).toBe(true)
+    expect(
+      database.immediate((native) =>
+        native.prepare("SELECT COUNT(*) FROM jobs WHERE state = 'paused'").pluck().get()
+      )
+    ).toBe(0)
+    database.close()
+  })
+
   it('upgrades a version 1 project database without inventing project content', async () => {
     const root = await temporaryRoot('迁移')
     const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc009')
@@ -229,6 +255,8 @@ describe('project database', () => {
       DROP TABLE manuscript_briefs;
       DROP INDEX manuscripts_one_primary_per_project;
       DROP TABLE manuscripts;
+      DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
+      DROP TABLE IF EXISTS artifact_cleanup_requests;
       DELETE FROM schema_migrations WHERE version >= 2;
       UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
       PRAGMA user_version = 1;
@@ -288,6 +316,8 @@ describe('project database', () => {
         started_at TEXT,
         completed_at TEXT
       ) STRICT;
+      DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
+      DROP TABLE IF EXISTS artifact_cleanup_requests;
       DELETE FROM schema_migrations WHERE version >= 4;
       UPDATE schema_manifest SET schema_version = 3 WHERE id = 1;
       PRAGMA user_version = 3;
@@ -298,7 +328,7 @@ describe('project database', () => {
         lease_owner, locked_until, heartbeat_at, progress_json, deduplication_key,
         cancellation_requested, error_json, created_at, updated_at, started_at, completed_at
       ) VALUES (
-        ?, 'index.build', '{"generationId":"migration-g"}', 'running', 0, ?, ?,
+        ?, 'build_index_generation', '{"generationId":"migration-g"}', 'running', 0, ?, ?,
         '2026-07-15T00:00:00.000Z', 'old-worker', '2026-07-15T01:00:00.000Z',
         NULL, NULL, NULL, ?, ?,
         '2026-07-15T00:00:00.000Z', '2026-07-15T00:00:01.000Z',
@@ -315,7 +345,20 @@ describe('project database', () => {
           lease_owner, locked_until, heartbeat_at, progress_json, deduplication_key,
           cancellation_requested, error_json, created_at, updated_at, started_at, completed_at
         ) VALUES (
-          'legacy-failed', 'index.build', '{"generationId":"legacy-g"}', 'failed', 0, 1, 1,
+          'legacy-paused', 'build_index_generation', '{"generationId":"paused-g"}', 'paused', 0, 0, 3,
+          '2026-07-15T00:00:00.000Z', NULL, NULL, NULL, NULL, NULL, 0, NULL,
+          '2026-07-15T00:00:00.000Z', '2026-07-15T00:00:01.000Z', NULL, NULL
+        )
+      `)
+      .run()
+    native
+      .prepare(`
+        INSERT INTO jobs (
+          job_id, type, payload_json, state, priority, attempts, max_attempts, run_after,
+          lease_owner, locked_until, heartbeat_at, progress_json, deduplication_key,
+          cancellation_requested, error_json, created_at, updated_at, started_at, completed_at
+        ) VALUES (
+          'legacy-failed', 'build_index_generation', '{"generationId":"legacy-g"}', 'failed', 0, 1, 1,
           '2026-07-15T00:00:00.000Z', NULL, NULL, NULL, NULL, NULL, 0,
           '{"code":"provider_error","message":"Authorization Bearer secret /Users/private","retryable":false,"attempt":1,"recordedAt":"2026-07-15T00:00:00.000Z"}',
           '2026-07-15T00:00:00.000Z', '2026-07-15T00:00:01.000Z',
@@ -336,6 +379,7 @@ describe('project database', () => {
     ) as Array<Record<string, unknown>>
     expect(rows.map(({ job_id, state }) => [job_id, state])).toEqual([
       ['legacy-failed', 'failed'],
+      ['legacy-paused', 'queued'],
       ['running-cancelled', 'cancelled'],
       ['running-exhausted', 'failed'],
       ['running-queued', 'queued']
@@ -347,22 +391,24 @@ describe('project database', () => {
       expect(String(row.error_json)).not.toContain('secret')
       expect(String(row.error_json)).not.toContain('/Users/private')
     }
-    expect(
-      upgraded.immediate((current) =>
-        current.prepare('SELECT event FROM job_transitions ORDER BY sequence').pluck().all()
-      )
-    ).toEqual([
-      'migration_snapshot',
-      'migration_snapshot',
-      'migration_snapshot',
-      'migration_snapshot'
-    ])
+    const transitions = upgraded.immediate((current) =>
+      current.prepare('SELECT event FROM job_transitions ORDER BY sequence').pluck().all()
+    )
+    expect(transitions).toHaveLength(5)
+    expect(new Set(transitions)).toEqual(new Set(['migration_snapshot']))
+    const jobsSchema = upgraded.immediate((current) =>
+      current.prepare("SELECT sql FROM sqlite_schema WHERE name = 'jobs'").pluck().get()
+    )
+    expect(String(jobsSchema).toLowerCase()).not.toContain("'paused'")
+    expect(rows.some(({ state }) => state === 'paused')).toBe(false)
     expect(upgraded.immediate((current) => current.pragma('quick_check', { simple: true }))).toBe(
       'ok'
     )
     expect(upgraded.immediate((current) => current.pragma('foreign_key_check'))).toEqual([])
     expect(
-      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v11-'))
+      (await readdir(join(root, '.writellm', 'backups'))).some((name) =>
+        name.includes(`-to-v${PROJECT_SCHEMA_VERSION}-`)
+      )
     ).toBe(true)
     upgraded.close()
   })
@@ -387,6 +433,8 @@ describe('project database', () => {
     )
     restoreV5ManuscriptSchema(native)
     native.exec(`
+      DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
+      DROP TABLE IF EXISTS artifact_cleanup_requests;
       DELETE FROM schema_migrations WHERE version >= 6;
       UPDATE schema_manifest SET schema_version = 5 WHERE id = 1;
       PRAGMA user_version = 5;
@@ -430,7 +478,9 @@ describe('project database', () => {
     )
     expect(upgraded.immediate((current) => current.pragma('foreign_key_check'))).toEqual([])
     expect(
-      (await readdir(join(root, '.writellm', 'backups'))).some((name) => name.includes('-to-v11-'))
+      (await readdir(join(root, '.writellm', 'backups'))).some((name) =>
+        name.includes(`-to-v${PROJECT_SCHEMA_VERSION}-`)
+      )
     ).toBe(true)
     upgraded.close()
   })
@@ -503,6 +553,8 @@ describe('project database', () => {
       DROP TABLE manuscript_briefs;
       DROP INDEX manuscripts_one_primary_per_project;
       DROP TABLE manuscripts;
+      DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
+      DROP TABLE IF EXISTS artifact_cleanup_requests;
       DELETE FROM schema_migrations WHERE version >= 2;
       UPDATE schema_manifest SET schema_version = 1 WHERE id = 1;
       PRAGMA user_version = 1;
@@ -528,7 +580,9 @@ describe('project database', () => {
 
     const retained = await readdir(backups)
     expect(retained.filter((name) => name.startsWith('migration-old-'))).toHaveLength(4)
-    expect(retained.filter((name) => name.includes('-to-v11-'))).toHaveLength(1)
+    expect(
+      retained.filter((name) => name.includes(`-to-v${PROJECT_SCHEMA_VERSION}-`))
+    ).toHaveLength(1)
     const original = new (await import('better-sqlite3')).default(databasePath, {
       readonly: true,
       fileMustExist: true

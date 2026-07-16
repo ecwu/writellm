@@ -9,101 +9,117 @@ import {
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { AgentModelRuntime } from './gateways'
 import type { UtilityProcessFactory } from './provider-probe-client'
+import {
+  PersistentUtilityProcess,
+  type UtilityMessageDecision
+} from '../workers/persistent-utility-process'
+import type { LogCollector } from '../observability/log-collector'
 
 export class AgentModelClient implements AgentModelRuntime {
+  readonly #worker: PersistentUtilityProcess
+
   constructor(
-    private readonly modulePath: string,
+    modulePath: string,
     private readonly log: Logger,
-    private readonly processFactory: UtilityProcessFactory = utilityProcess
-  ) {}
+    processFactory: UtilityProcessFactory = utilityProcess,
+    collector?: LogCollector
+  ) {
+    this.#worker = new PersistentUtilityProcess({
+      modulePath,
+      serviceName: 'writellm-agent-worker',
+      log,
+      factory: processFactory,
+      collector,
+      processRole: 'agent-worker',
+      subsystem: 'agent',
+      component: 'model'
+    })
+  }
+
+  terminate(): void {
+    this.#worker.terminate()
+  }
 
   run(
     config: ProviderConfig,
     credential: string,
     rawInput: Parameters<AgentModelRuntime['run']>[2],
     signal: AbortSignal,
-    onEvent: Parameters<AgentModelRuntime['run']>[4]
+    onEvent: Parameters<AgentModelRuntime['run']>[4],
+    projectSessionId?: string
   ): ReturnType<AgentModelRuntime['run']> {
     if (signal.aborted) return Promise.reject(abortError())
     if (config.role !== 'agent') return Promise.reject(new Error('Agent provider role is required'))
     const input = agentRunInputSchema.parse(rawInput)
-    const request: AgentUtilityRequest = { requestId: randomUUID(), config, credential, input }
-    const child = this.processFactory.fork(this.modulePath, [], {
-      serviceName: 'writellm-agent-model',
-      stdio: 'ignore'
+    const request: AgentUtilityRequest = {
+      requestId: randomUUID(),
+      projectSessionId: projectSessionId ?? null,
+      config,
+      credential,
+      input
+    }
+    return this.#worker.request({
+      requestId: request.requestId,
+      payload: request,
+      signal,
+      rejectOnAbort: abortError(),
+      cancelPayload: {
+        type: 'cancel',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId
+      },
+      onMessage: (raw) =>
+        this.#handleMessage(raw, request.requestId, request.projectSessionId, onEvent)
     })
-    return new Promise((resolve, reject) => {
-      let settled = false
-      const finish = (operation: () => void): void => {
-        if (settled) return
-        settled = true
-        signal.removeEventListener('abort', onAbort)
-        child.removeListener('message', onMessage)
-        child.removeListener('exit', onExit)
-        operation()
+  }
+
+  #handleMessage(
+    raw: unknown,
+    requestId: string,
+    projectSessionId: string | null | undefined,
+    onEvent: Parameters<AgentModelRuntime['run']>[4]
+  ): UtilityMessageDecision<Awaited<ReturnType<AgentModelRuntime['run']>>> {
+    const parsed = agentUtilityMessageSchema.safeParse(raw)
+    if (
+      !parsed.success ||
+      parsed.data.requestId !== requestId ||
+      (parsed.data.projectSessionId ?? null) !== (projectSessionId ?? null)
+    ) {
+      const err = parsed.success
+        ? new Error('Agent response request or project session mismatch')
+        : parsed.error
+      this.log.error(
+        { event: 'agent_model.response_invalid', err, requestId },
+        'Agent model utility returned an invalid response'
+      )
+      return {
+        kind: 'reject',
+        error: new Error('Agent model utility returned an invalid response'),
+        terminate: true
       }
-      const onAbort = (): void => {
-        finish(() => reject(abortError()))
-        child.kill()
-      }
-      const onExit = (code: number): void => {
-        finish(() => reject(new Error(`Agent model utility exited before responding (${code})`)))
-      }
-      const onMessage = (raw: unknown): void => {
-        const parsed = agentUtilityMessageSchema.safeParse(raw)
-        if (!parsed.success || parsed.data.requestId !== request.requestId) {
-          const err = parsed.success
-            ? new Error('Agent response request ID mismatch')
-            : parsed.error
-          this.log.error(
-            { event: 'agent_model.response_invalid', err, requestId: request.requestId },
-            'Agent model utility returned an invalid response'
-          )
-          finish(() => reject(new Error('Agent model utility returned an invalid response')))
-          child.kill()
-          return
-        }
-        const message = parsed.data
-        if (message.type === 'text-delta') {
-          try {
-            onEvent({ type: 'text-delta', delta: message.delta })
-          } catch (err) {
-            this.log.error(
-              { event: 'agent_model.event_delivery_failed', err, requestId: request.requestId },
-              'Agent model event delivery failed'
-            )
-            finish(() => reject(new Error('Agent model event delivery failed', { cause: err })))
-            child.kill()
-          }
-          return
-        }
-        if (message.type === 'error') {
-          const err = reconstructError(message.error)
-          this.log.error(
-            { event: 'agent_model.failed', err, requestId: request.requestId },
-            'Agent model request failed'
-          )
-          finish(() => reject(new Error('Agent model request failed', { cause: err })))
-          child.kill()
-          return
-        }
-        finish(() => resolve(message.result))
-        child.kill()
-      }
-      signal.addEventListener('abort', onAbort, { once: true })
-      child.on('message', onMessage)
-      child.once('exit', onExit)
+    }
+    const message = parsed.data
+    if (message.type === 'text-delta') {
       try {
-        child.postMessage(request)
+        onEvent({ type: 'text-delta', delta: message.delta })
       } catch (err) {
         this.log.error(
-          { event: 'agent_model.start_failed', err, requestId: request.requestId },
-          'Failed to start agent model utility'
+          { event: 'agent_model.event_delivery_failed', err, requestId },
+          'Agent model event delivery failed'
         )
-        finish(() => reject(new Error('Agent model utility could not be started', { cause: err })))
-        child.kill()
+        return {
+          kind: 'reject',
+          error: new Error('Agent model event delivery failed', { cause: err })
+        }
       }
-    })
+      return { kind: 'event' }
+    }
+    if (message.type === 'error') {
+      const err = reconstructError(message.error)
+      this.log.error({ event: 'agent_model.failed', err, requestId }, 'Agent model request failed')
+      return { kind: 'reject', error: new Error('Agent model request failed', { cause: err }) }
+    }
+    return { kind: 'resolve', value: message.result }
   }
 }
 

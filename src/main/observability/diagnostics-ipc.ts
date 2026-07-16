@@ -1,5 +1,6 @@
 import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import { writeFile } from 'node:fs/promises'
+import type { Logger } from 'pino'
 import {
   diagnosticsLevelInputSchema,
   diagnosticsSnapshotSchema,
@@ -60,32 +61,7 @@ export function registerDiagnosticsIpc(
   })
   ipcMain.handle(IPC_CHANNELS.diagnosticsExport, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
-    const owner = getWindow()
-    const options = {
-      defaultPath: 'writellm-diagnostics.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    }
-    const result =
-      owner === null
-        ? await dialog.showSaveDialog(options)
-        : await dialog.showSaveDialog(owner, options)
-    if (result.canceled || result.filePath === undefined) return { exported: false }
-
-    try {
-      await writeFile(
-        result.filePath,
-        JSON.stringify(
-          { exportedAt: new Date().toISOString(), logs: loggerSystem.ringBuffer.snapshot() },
-          null,
-          2
-        ),
-        { encoding: 'utf8', mode: 0o600 }
-      )
-      return { exported: true }
-    } catch (err) {
-      log.error({ event: 'app.diagnostics_export.failed', err }, 'Failed to export diagnostics')
-      throw new Error('Failed to export diagnostics', { cause: err })
-    }
+    return exportDiagnosticsBundle(loggerSystem, getWindow, log)
   })
 
   let unsubscribe = (): void => undefined
@@ -115,5 +91,38 @@ export function registerDiagnosticsIpc(
       ipcMain.removeHandler(channel)
     }
     ipcMain.removeAllListeners(IPC_CHANNELS.diagnosticsReportRendererError)
+  }
+}
+
+export async function exportDiagnosticsBundle(
+  loggerSystem: LoggerSystem,
+  getWindow: () => BrowserWindow | null,
+  log: Pick<Logger, 'error'> = loggerSystem.createModuleLogger('ipc', 'diagnostics')
+): Promise<{ exported: boolean }> {
+  const owner = getWindow()
+  const options = {
+    defaultPath: 'writellm-diagnostics.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  }
+  const result =
+    owner === null
+      ? await dialog.showSaveDialog(options)
+      : await dialog.showSaveDialog(owner, options)
+  if (result.canceled || result.filePath === undefined) return { exported: false }
+
+  try {
+    await writeFile(
+      result.filePath,
+      JSON.stringify(
+        { exportedAt: new Date().toISOString(), logs: loggerSystem.ringBuffer.snapshot() },
+        null,
+        2
+      ),
+      { encoding: 'utf8', mode: 0o600 }
+    )
+    return { exported: true }
+  } catch (err) {
+    log.error({ event: 'app.diagnostics_export.failed', err }, 'Failed to export diagnostics')
+    throw new Error('Failed to export diagnostics', { cause: err })
   }
 }

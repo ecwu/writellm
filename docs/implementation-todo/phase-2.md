@@ -15,4 +15,6 @@
 - [x] Add fresh-create, sequential-upgrade, failure rollback, and foreign-key tests.
 - [x] Add database lifecycle logging and packaged migration smoke tests.
 
+Correction (2026-07-16 implementation audit): lifecycle logging is implemented; the packaged migration smoke was a one-off historical verification run and no durable packaged-migration smoke script remains in `scripts/`. The durable packaged smokes are `smoke:packaged-hybrid` and the packaged vector smoke.
+
 Acceptance criteria: completed under the original tracker. The primitives are accepted; the database ownership model is revised by Checkpoint 4.

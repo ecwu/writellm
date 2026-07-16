@@ -17,7 +17,7 @@ import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
 import { cleanupLogRetention } from './observability/log-retention'
 import { registerProcessErrorHandlers } from './observability/process-errors'
-import { registerDiagnosticsIpc } from './observability/diagnostics-ipc'
+import { exportDiagnosticsBundle, registerDiagnosticsIpc } from './observability/diagnostics-ipc'
 import { LogCollector } from './observability/log-collector'
 import { attachUtilityLogPort, captureUtilityStderr } from './observability/utility-logs'
 import { openAppDatabase } from './app-db/connection'
@@ -46,6 +46,7 @@ import {
 import { RetrievalService } from './search/retrieval-service'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project/project-paths'
 import { getLoadablePath as getSqliteVecLoadablePath } from 'sqlite-vec'
+import { PersistentUtilityProcess } from './workers/persistent-utility-process'
 
 registerAppScheme()
 
@@ -116,9 +117,21 @@ if (!hasSingleInstanceLock) {
       const recentProjects = new RecentProjectsRepository(appDatabase)
       const credentialLog = loggerSystem.createModuleLogger('security', 'credentials')
       const credentials = new CredentialService(appDatabase, safeStorage, credentialLog)
+      const backgroundWorker = new PersistentUtilityProcess({
+        modulePath: join(__dirname, 'background-worker.js'),
+        serviceName: 'writellm-background-worker',
+        log: loggerSystem.createModuleLogger('worker', 'background'),
+        factory: utilityProcess,
+        collector: logCollector,
+        processRole: 'background-worker',
+        subsystem: 'worker',
+        component: 'background'
+      })
       const providerProbe = new ProviderProbeClient(
-        join(__dirname, 'provider-probe.js'),
-        loggerSystem.createModuleLogger('worker', 'provider-probe')
+        join(__dirname, 'background-worker.js'),
+        loggerSystem.createModuleLogger('worker', 'provider-probe'),
+        utilityProcess,
+        backgroundWorker
       )
       const providers = new ProviderService(
         appDatabase,
@@ -127,12 +140,16 @@ if (!hasSingleInstanceLock) {
         providerProbe.probe
       )
       const agentModel = new AgentModelClient(
-        join(__dirname, 'agent-model.js'),
-        loggerSystem.createModuleLogger('worker', 'agent-model')
+        join(__dirname, 'agent-worker.js'),
+        loggerSystem.createModuleLogger('worker', 'agent-model'),
+        utilityProcess,
+        logCollector
       )
       const auxiliaryModel = new AuxiliaryModelClient(
-        join(__dirname, 'auxiliary-model.js'),
-        loggerSystem.createModuleLogger('worker', 'auxiliary-model')
+        join(__dirname, 'background-worker.js'),
+        loggerSystem.createModuleLogger('worker', 'auxiliary-model'),
+        utilityProcess,
+        backgroundWorker
       )
       const modelExecution = new ModelExecutionService({
         providers,
@@ -142,13 +159,22 @@ if (!hasSingleInstanceLock) {
         log: loggerSystem.createModuleLogger('embedding', 'execution')
       })
       const mineruClient = new MineruClient(
-        join(__dirname, 'mineru.js'),
-        loggerSystem.createModuleLogger('worker', 'mineru')
+        join(__dirname, 'background-worker.js'),
+        loggerSystem.createModuleLogger('worker', 'mineru'),
+        utilityProcess,
+        backgroundWorker
       )
+      let mainWindow: BrowserWindow | null = null
       const projectManager = new ProjectManager({
         applicationVersion: app.getVersion(),
         logger: loggerSystem.createModuleLogger('project', 'manager'),
         recentProjects,
+        exportDiagnostics: () =>
+          exportDiagnosticsBundle(
+            loggerSystem,
+            () => mainWindow,
+            loggerSystem.createModuleLogger('ipc', 'project-recovery')
+          ),
         forbiddenApplicationDirectories: [
           app.getPath('userData'),
           app.getPath('logs'),
@@ -172,10 +198,6 @@ if (!hasSingleInstanceLock) {
               getConfiguredProvider: () => providers.getConfiguredProvider('mineru'),
               withConfiguredProvider: (operation) =>
                 providers.withConfiguredProvider('mineru', operation)
-            },
-            cipher: {
-              encrypt: (value) => credentials.encryptForPersistence(value),
-              decrypt: (ciphertext) => credentials.decryptPersistedValue(ciphertext)
             },
             gateway: mineruClient,
             log
@@ -211,7 +233,12 @@ if (!hasSingleInstanceLock) {
             client: indexClient,
             getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
             embedBatch: (values, correlation, signal) =>
-              modelExecution.embedBatch(database, { values }, correlation, signal),
+              modelExecution.embedBatch(
+                database,
+                { values },
+                { ...correlation, projectSessionId },
+                signal
+              ),
             log
           })
           const retrieval = new RetrievalService({
@@ -222,7 +249,7 @@ if (!hasSingleInstanceLock) {
               const result = await modelExecution.embedBatch(
                 database,
                 { values: [query] },
-                { operationId },
+                { operationId, projectSessionId },
                 signal,
                 (config) => {
                   if (embeddingContractSha256(config) !== expectedContractSha256) {
@@ -237,7 +264,12 @@ if (!hasSingleInstanceLock) {
             },
             getRerankProvider: () => providers.getConfiguredProvider('rerank'),
             rerank: (query, documents, topN, operationId, signal) =>
-              modelExecution.rerank(database, { query, documents, topN }, { operationId }, signal),
+              modelExecution.rerank(
+                database,
+                { query, documents, topN },
+                { operationId, projectSessionId },
+                signal
+              ),
             log: loggerSystem.createModuleLogger('search', 'retrieval')
           })
           const knowledgeNormalization = new KnowledgeNormalizationService({
@@ -257,7 +289,6 @@ if (!hasSingleInstanceLock) {
             retrieval,
             registry,
             terminateWorkers: () => {
-              mineruClient.terminateAll()
               projectIndex.terminate()
             }
           }
@@ -266,15 +297,19 @@ if (!hasSingleInstanceLock) {
 
       registerAppProtocol(join(__dirname, '../renderer'))
       const unregisterAppIpc = registerIpcHandlers(developmentUrl)
-      let mainWindow = createWindow(developmentUrl, appLog)
+      mainWindow = createWindow(developmentUrl, appLog)
       const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
+      const projectDialogSelection = createProjectDialogTestSelection(projectIpcLog)
       const unregisterProjectIpc = registerProjectIpc({
         manager: projectManager,
         recentProjects,
         getWindow: () => mainWindow,
         logger: projectIpcLog,
         developmentUrl,
-        selectProjectFolderForTest: createProjectDialogTestSelection(projectIpcLog)
+        selectProjectFolderForTest: projectDialogSelection,
+        selectSnapshotDestinationForTest: projectDialogSelection,
+        selectRestoreSourceForTest: projectDialogSelection,
+        selectRestoreDestinationParentForTest: projectDialogSelection
       })
       const jobIpc = registerJobIpc({
         manager: projectManager,
@@ -317,6 +352,15 @@ if (!hasSingleInstanceLock) {
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
+        }
+      })
+      projectManager.setSnapshotParticipants({
+        finalEditorFlush: editorIpc.snapshotParticipants.finalEditorFlush,
+        pauseFilePublishers: async (context) => {
+          await context.runtime.park()
+        },
+        resumeFilePublishers: async (context) => {
+          context.runtime.resumeClaims()
         }
       })
       const unregisterDiagnostics = registerDiagnosticsIpc(
@@ -363,6 +407,10 @@ if (!hasSingleInstanceLock) {
         unregisterAppIpc,
         unregisterDiagnostics,
         closeAppDatabase: () => appDatabase.close(),
+        terminateUtilityWorkers: () => {
+          agentModel.terminate()
+          backgroundWorker.terminate()
+        },
         flushLogs: () => loggerSystem.flush(),
         quit: () => app.quit(),
         logger: appLog

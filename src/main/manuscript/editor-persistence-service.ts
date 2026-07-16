@@ -1,6 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readFile, rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
   blockNoteDocumentSchema,
@@ -16,9 +15,23 @@ import type { ProjectDatabase } from '../project/project-database'
 import { resolveProjectPath } from '../project/project-paths'
 import { prepareSectionContent } from './content'
 import type { ManuscriptService } from './manuscript-service'
+import { writeAtomicFile } from '../storage/atomic-file'
 
-const MANUAL_BODY_LIMIT = 95
-const OTHER_BODY_LIMIT = 32
+const MANUAL_AUTOSAVE_BODY_LIMIT = 20
+
+// Import revisions are discrete user-triggered markdown imports; keeping the latest 5
+// bodies per section bounds growth while leaving recent imports inspectable.
+const IMPORT_BODY_LIMIT = 5
+
+type RevisionSourceClass = NonNullable<SaveSectionDocumentInput['revisionSource']>
+
+// Renderer-driven save channels accept only their own manual classes; `agent_accepted`
+// is minted exclusively by the Main-side agent application path, never by the renderer.
+const ALLOWED_REVISION_SOURCE_CLASSES: Record<'manual' | 'import', readonly RevisionSourceClass[]> =
+  {
+    manual: ['manual_autosave', 'manual_checkpoint'],
+    import: ['import']
+  }
 
 export interface EditorPersistenceFaults {
   afterDatabaseCommit?(): void | Promise<void>
@@ -74,6 +87,25 @@ export class EditorPersistenceService {
     source: 'manual' | 'import' = 'manual'
   ): Promise<SaveSectionDocumentResult> {
     const startedAt = Date.now()
+    const requestedClass = input.revisionSource
+    if (
+      requestedClass !== undefined &&
+      !ALLOWED_REVISION_SOURCE_CLASSES[source].includes(requestedClass)
+    ) {
+      this.#log.warn(
+        {
+          event: 'editor.persistence.revision_source_rejected',
+          projectId: this.#projectId,
+          sectionId: input.sectionId,
+          channel: source,
+          revisionSource: requestedClass
+        },
+        'Renderer-supplied revision source class rejected for this save channel'
+      )
+      throw new TypeError(
+        `Revision source class '${requestedClass}' is not allowed on the '${source}' save channel`
+      )
+    }
     const document = blockNoteDocumentSchema.parse(input.document)
     const documentHash = prepareSectionContent(document).contentHash
     const wasAlreadyCurrent =
@@ -85,7 +117,8 @@ export class EditorPersistenceService {
         baseRevisionId: input.baseRevisionId,
         baseContentHash: input.baseContentHash,
         content: document,
-        source
+        source,
+        sourceClass: input.revisionSource ?? (source === 'import' ? 'import' : 'manual_autosave')
       })
     } catch (err) {
       this.#log.error(
@@ -104,7 +137,14 @@ export class EditorPersistenceService {
     try {
       await this.#faults.afterDatabaseCommit?.()
       await this.materialize(revision)
-      this.#pruneRevisionBodies(input.sectionId)
+      try {
+        this.#pruneRevisionBodies(input.sectionId)
+      } catch (err) {
+        this.#log.warn(
+          { event: 'editor.revision_retention.cleanup_failed', err, projectId: this.#projectId },
+          'Revision retention cleanup failed; canonical revision remains available'
+        )
+      }
       this.#log.info(
         {
           event: unchanged ? 'editor.persistence.unchanged' : 'editor.persistence.saved',
@@ -177,32 +217,16 @@ export class EditorPersistenceService {
     }
     const bytes = Buffer.from(JSON.stringify(envelope), 'utf8')
     const fileSha256 = sha256(bytes)
-    await mkdir(dirname(destination), { recursive: true })
-    const temporary = `${destination}.${randomUUID()}.tmp`
-    let handle: Awaited<ReturnType<typeof open>> | undefined
-    try {
-      handle = await open(temporary, 'wx', 0o600)
-      await handle.writeFile(bytes)
-      await handle.sync()
-      await handle.close()
-      handle = undefined
-      await this.#faults.beforeMaterializationRename?.()
-      if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) return
-      await rename(temporary, destination)
-      await this.#faults.afterMaterializationRename?.()
-      if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) {
-        await rm(destination, { force: true })
-        return
-      }
-      const directory = await open(dirname(destination), 'r')
-      try {
-        await directory.sync()
-      } finally {
-        await directory.close()
-      }
-    } finally {
-      await handle?.close().catch(() => undefined)
-      await rm(temporary, { force: true }).catch(() => undefined)
+    const published = await writeAtomicFile(destination, bytes, {
+      beforeRename: this.#faults.beforeMaterializationRename,
+      shouldRename: () =>
+        this.#currentRevisionId(revision.sectionId) === revision.sectionRevisionId,
+      afterRename: this.#faults.afterMaterializationRename
+    })
+    if (!published) return
+    if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) {
+      await rm(destination, { force: true })
+      return
     }
     this.#database.immediate((database) => {
       const current = database
@@ -301,23 +325,83 @@ export class EditorPersistenceService {
 
   #pruneRevisionBodies(sectionId: string): void {
     this.#database.immediate((database) => {
-      for (const [sourceGroup, limit] of [
-        ['manual', MANUAL_BODY_LIMIT],
-        ['other', OTHER_BODY_LIMIT]
-      ] as const) {
-        database
-          .prepare(
-            `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
-             WHERE section_revision_id IN (
-               SELECT section_revision_id FROM section_revisions
-               WHERE section_id = ? AND content_body_retained = 1
-                 AND section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
-                 AND ${sourceGroup === 'manual' ? "source = 'manual'" : "source <> 'manual'"}
-               ORDER BY revision_number DESC LIMIT -1 OFFSET ?
+      database
+        .prepare(
+          `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
+           WHERE section_revision_id IN (
+             SELECT section_revision_id FROM section_revisions
+             WHERE section_id = ? AND content_body_retained = 1
+               AND section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
+               AND source_class = 'manual_autosave'
+               AND NOT EXISTS (
+                 SELECT 1 FROM section_revisions AS agent_revision
+                 WHERE agent_revision.source_class = 'agent_accepted'
+                   AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+               )
+             ORDER BY revision_number DESC LIMIT -1 OFFSET ?
+           )`
+        )
+        .run(sectionId, sectionId, MANUAL_AUTOSAVE_BODY_LIMIT)
+
+      // Manual checkpoints: older than 30 days drop entirely; 24h-30d compact to the
+      // newest per day; sub-24h compact to the newest per hour bucket. The current
+      // revision and direct parents of accepted agent revisions are always retained.
+      database
+        .prepare(
+          `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
+           WHERE section_id = ? AND content_body_retained = 1
+             AND section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
+             AND source_class = 'manual_checkpoint'
+             AND NOT EXISTS (
+               SELECT 1 FROM section_revisions AS agent_revision
+                 WHERE agent_revision.source_class = 'agent_accepted'
+                   AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+             )
+             AND (
+               julianday(created_at) < julianday('now', '-30 days')
+               OR (
+                 julianday(created_at) < julianday('now', '-24 hours')
+                 AND EXISTS (
+                   SELECT 1 FROM section_revisions AS newer
+                   WHERE newer.section_id = section_revisions.section_id
+                     AND newer.source_class = 'manual_checkpoint'
+                     AND newer.created_at > section_revisions.created_at
+                     AND date(newer.created_at) = date(section_revisions.created_at)
+                 )
+               )
+               OR (
+                 julianday(created_at) >= julianday('now', '-24 hours')
+                 AND EXISTS (
+                   SELECT 1 FROM section_revisions AS newer
+                   WHERE newer.section_id = section_revisions.section_id
+                     AND newer.source_class = 'manual_checkpoint'
+                     AND newer.created_at > section_revisions.created_at
+                     AND strftime('%Y-%m-%dT%H', newer.created_at) =
+                         strftime('%Y-%m-%dT%H', section_revisions.created_at)
+                 )
+               )
              )`
-          )
-          .run(sectionId, sectionId, limit)
-      }
+        )
+        .run(sectionId, sectionId)
+
+      // Import-class bodies: retain only the latest IMPORT_BODY_LIMIT per section.
+      database
+        .prepare(
+          `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
+           WHERE section_revision_id IN (
+             SELECT section_revision_id FROM section_revisions
+             WHERE section_id = ? AND content_body_retained = 1
+               AND section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
+               AND source_class = 'import'
+               AND NOT EXISTS (
+                 SELECT 1 FROM section_revisions AS agent_revision
+                 WHERE agent_revision.source_class = 'agent_accepted'
+                   AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+               )
+             ORDER BY revision_number DESC LIMIT -1 OFFSET ?
+           )`
+        )
+        .run(sectionId, sectionId, IMPORT_BODY_LIMIT)
     })
   }
 }

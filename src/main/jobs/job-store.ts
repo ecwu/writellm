@@ -209,7 +209,7 @@ export class JobStore {
           .prepare(
             `SELECT * FROM jobs
              WHERE type = ? AND deduplication_key = ?
-               AND state IN ('queued', 'running', 'paused')`
+               AND state IN ('queued', 'running')`
           )
           .get(type, deduplicationKey) as JobTable | undefined
         if (existing !== undefined) return { job: parseRow(existing), created: false }
@@ -500,10 +500,10 @@ export class JobStore {
       const current = database.prepare('SELECT * FROM jobs WHERE job_id = ?').get(jobId) as
         | JobTable
         | undefined
-      if (current === undefined || !['queued', 'running', 'paused'].includes(current.state)) {
+      if (current === undefined || !['queued', 'running'].includes(current.state)) {
         return null
       }
-      const terminal = current.state === 'queued' || current.state === 'paused'
+      const terminal = current.state === 'queued'
       const toState = terminal ? 'cancelled' : 'running'
       const row = database
         .prepare(
@@ -571,7 +571,7 @@ export class JobStore {
           .prepare(
             `SELECT job_id FROM jobs
              WHERE type IN (${typeClause})
-               AND state IN ('queued', 'running', 'paused')
+               AND state IN ('queued', 'running')
                AND json_extract(payload_json, ?) IN (${valueClause})`
           )
           .pluck()
@@ -598,60 +598,6 @@ export class JobStore {
       'queue.job.cancelled',
       'Project job cancellation acknowledged'
     )
-  }
-
-  pause(lease: JobLease): JobRecord {
-    const now = this.#now().toISOString()
-    return this.#ownedStateTransition(
-      lease,
-      now,
-      'paused',
-      'paused',
-      `UPDATE jobs
-       SET state = 'paused', lease_owner = NULL, lease_token = NULL, locked_until = NULL,
-           heartbeat_at = ?, updated_at = ?
-       WHERE job_id = ? AND state = 'running' AND lease_owner = ? AND lease_token = ?
-         AND attempts = ? AND locked_until > ? AND cancellation_requested = 0
-       RETURNING *`,
-      [now, now, lease.jobId, lease.workerId, lease.leaseToken, lease.attempt, now],
-      null,
-      'queue.job.paused',
-      'Project job paused'
-    )
-  }
-
-  resume(jobId: string, runAfter?: Date): JobRecord {
-    const nowDate = this.#now()
-    const now = nowDate.toISOString()
-    const row = this.#database.immediate((database) => {
-      const updated = database
-        .prepare(
-          `UPDATE jobs SET state = 'queued', run_after = ?, updated_at = ?
-           WHERE job_id = ? AND state = 'paused' AND cancellation_requested = 0
-           RETURNING *`
-        )
-        .get((runAfter ?? nowDate).toISOString(), now, jobId) as JobTable | undefined
-      if (updated === undefined) throw new Error('Job is not resumable')
-      this.#insertTransition(
-        database,
-        jobId,
-        'paused',
-        'queued',
-        'resumed',
-        updated.attempts,
-        null,
-        null,
-        now
-      )
-      return updated
-    })
-    const job = parseRow(row)
-    this.#log.info(
-      { event: 'queue.job.resumed', projectId: this.#projectId, jobId, jobType: job.type },
-      'Project job resumed'
-    )
-    this.#emit(job)
-    return job
   }
 
   recoverExpiredLeases(): { recovered: number; cancelled: number; failed: number } {

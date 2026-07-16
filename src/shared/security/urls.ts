@@ -2,6 +2,8 @@ export const APP_SCHEME = 'writellm'
 export const APP_HOST = 'bundle'
 export const APP_URL = `${APP_SCHEME}://${APP_HOST}/`
 
+const EXTERNAL_HOST_ALLOWLIST = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i
+
 export function isApplicationUrl(url: string): boolean {
   if (!URL.canParse(url)) return false
   const candidate = new URL(url)
@@ -25,6 +27,15 @@ export function isTrustedRendererUrl(url: string, developmentUrl?: string): bool
 
 export function isAllowedExternalUrl(url: string): boolean {
   if (!URL.canParse(url)) return false
-  const protocol = new URL(url).protocol
-  return protocol === 'https:' || protocol === 'http:'
+  const candidate = new URL(url)
+  return (
+    candidate.protocol === 'https:' &&
+    candidate.username === '' &&
+    candidate.password === '' &&
+    candidate.port === '' &&
+    candidate.hostname.length <= 253 &&
+    EXTERNAL_HOST_ALLOWLIST.test(candidate.hostname) &&
+    !candidate.hostname.endsWith('.localhost') &&
+    candidate.hostname !== 'localhost'
+  )
 }

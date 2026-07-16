@@ -5,7 +5,7 @@ process.parentPort.once('message', (event) => {
   if (port === undefined) throw new Error('Logging fixture did not receive a MessagePort')
   const log = createPortLogger(
     port,
-    { processRole: 'api-worker', subsystem: 'worker', component: 'logging-fixture' },
+    { processRole: 'background-worker', subsystem: 'worker', component: 'logging-fixture' },
     { operationId: 'logging-fixture' }
   )
   log('info', 'worker.fixture.started', 'Logging fixture started')

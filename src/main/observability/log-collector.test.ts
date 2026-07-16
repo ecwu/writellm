@@ -20,7 +20,7 @@ describe('LogCollector', () => {
     collector.ingest({
       level: 'error',
       sourceTime: new Date().toISOString(),
-      processRole: 'api-worker',
+      processRole: 'background-worker',
       subsystem: 'worker',
       component: 'fixture',
       event: 'worker.fixture.failed',

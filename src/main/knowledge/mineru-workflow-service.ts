@@ -8,6 +8,7 @@ import { getProviderCapability } from '../providers/capability-registry'
 import type { JobStore } from '../jobs/job-store'
 import type { JobHandlerContext, JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
 import type {
+  ArtifactCleanupRequestTable,
   MineruRemoteState,
   ParseRevisionTable,
   ParseTaskState,
@@ -20,11 +21,6 @@ import type { MineruGateway } from './mineru-gateway'
 
 const DOWNLOAD_LIMIT_BYTES = 512 * 1024 * 1024
 const POLL_DELAY_MS = 2_000
-
-export interface SensitiveValueCipher {
-  encrypt(value: string): string
-  decrypt(ciphertext: string): string
-}
 
 export interface MineruProviderAccess {
   getConfiguredProvider(): Promise<MineruProviderConfig>
@@ -62,7 +58,6 @@ export class MineruWorkflowService {
   readonly #database: ProjectDatabase
   readonly #jobs: JobStore
   readonly #providers: MineruProviderAccess
-  readonly #cipher: SensitiveValueCipher
   readonly #gateway: MineruGateway
   readonly #log: Pick<Logger, 'info' | 'warn' | 'error'>
   readonly #faults: MineruWorkflowFaults
@@ -75,7 +70,6 @@ export class MineruWorkflowService {
     database: ProjectDatabase
     jobs: JobStore
     providers: MineruProviderAccess
-    cipher: SensitiveValueCipher
     gateway: MineruGateway
     log: Pick<Logger, 'info' | 'warn' | 'error'>
     faults?: MineruWorkflowFaults
@@ -87,7 +81,6 @@ export class MineruWorkflowService {
     this.#database = options.database
     this.#jobs = options.jobs
     this.#providers = options.providers
-    this.#cipher = options.cipher
     this.#gateway = options.gateway
     this.#log = options.log
     this.#faults = options.faults ?? {}
@@ -149,9 +142,9 @@ export class MineruWorkflowService {
       insertEvent(database, parseTaskId, null, 'queued', 'parse.requested', null, null, now)
     })
     this.#jobs.enqueue({
-      type: 'mineru.submit',
+      type: 'mineru_parse',
       payload: { parseTaskId },
-      deduplicationKey: `mineru-submit:${parseTaskId}`,
+      deduplicationKey: `mineru-parse:${parseTaskId}`,
       maxAttempts: 8
     })
     this.#log.info(
@@ -176,8 +169,7 @@ export class MineruWorkflowService {
         database
           .prepare(
             `UPDATE parse_tasks
-                SET state = 'cancelled', upload_url_ciphertext = NULL,
-                    download_url_ciphertext = NULL, completed_at = ?, updated_at = ?
+                SET state = 'cancelled', completed_at = ?, updated_at = ?
               WHERE parse_task_id = ? AND state NOT IN ('succeeded', 'failed', 'cancelled')`
           )
           .run(now, now, task.parse_task_id)
@@ -220,7 +212,7 @@ export class MineruWorkflowService {
   async cleanupCancelledArtifacts(
     knowledgeItemId: string,
     references: MineruWorkReferences
-  ): Promise<void> {
+  ): Promise<string> {
     const stagingPaths = this.#database.immediate((database) => {
       if (references.parseRevisionIds.length === 0) return []
       const placeholders = references.parseRevisionIds.map(() => '?').join(', ')
@@ -234,38 +226,115 @@ export class MineruWorkflowService {
         .pluck()
         .all(knowledgeItemId, ...references.parseRevisionIds) as string[]
     })
-    const paths = [
-      ...references.parseTaskIds.map((parseTaskId) =>
-        resolveProjectPath(this.#projectRoot, `.writellm/temp/mineru/${parseTaskId}`)
-      ),
-      ...references.normalizationRunIds.map((normalizationRunId) =>
-        resolveProjectPath(
-          this.#projectRoot,
-          `.writellm/temp/normalization/${normalizationRunId}.staging`
-        )
-      ),
-      ...stagingPaths.map((relativePath) => resolveProjectPath(this.#projectRoot, relativePath))
-    ]
-    await this.#removeArtifacts(paths, knowledgeItemId, 'cancelled')
+    return this.#enqueueArtifactCleanup(knowledgeItemId, references, stagingPaths, 'cancelled')
   }
 
   async cleanupAllArtifacts(
     knowledgeItemId: string,
     references: MineruWorkReferences
-  ): Promise<void> {
+  ): Promise<string> {
+    const stagingPaths = this.#readStagingPaths(references, knowledgeItemId)
+    return this.#enqueueArtifactCleanup(knowledgeItemId, references, stagingPaths, 'deleted')
+  }
+
+  requeuePendingArtifactCleanups(): void {
+    const requests = this.#database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE artifact_cleanup_requests
+              SET state = 'queued', updated_at = ?
+            WHERE state = 'running'`
+        )
+        .run(this.#now().toISOString())
+      return database
+        .prepare(
+          `SELECT cleanup_id FROM artifact_cleanup_requests
+            WHERE state IN ('queued', 'running')
+            ORDER BY created_at, cleanup_id`
+        )
+        .pluck()
+        .all() as string[]
+    })
+    for (const cleanupId of requests) {
+      this.#jobs.enqueue({
+        type: 'artifact_cleanup',
+        payload: { cleanupId },
+        deduplicationKey: `artifact-cleanup:${cleanupId}`,
+        maxAttempts: 8
+      })
+    }
+  }
+
+  async handleArtifactCleanup(context: JobHandlerContext): Promise<void> {
+    const cleanupId = context.job.payload.cleanupId
+    if (typeof cleanupId !== 'string') throw new Error('Artifact cleanup job payload is invalid')
+    const request = this.#database.immediate(
+      (database) =>
+        database
+          .prepare('SELECT * FROM artifact_cleanup_requests WHERE cleanup_id = ?')
+          .get(cleanupId) as ArtifactCleanupRequestTable | undefined
+    )
+    if (request === undefined) throw new Error('Artifact cleanup request is missing')
+    if (request.state === 'succeeded') return
+    this.#database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE artifact_cleanup_requests
+              SET state = 'running', error_code = NULL, updated_at = ?
+            WHERE cleanup_id = ?`
+        )
+        .run(this.#now().toISOString(), cleanupId)
+    })
+
+    const parseTaskIds = readStringArray(request.parse_task_ids_json, 'parse task IDs')
+    const normalizationRunIds = readStringArray(
+      request.normalization_run_ids_json,
+      'normalization run IDs'
+    )
+    const stagingRelativePaths = readStringArray(
+      request.staging_relative_paths_json,
+      'staging paths'
+    )
     const paths = [
-      resolveProjectPath(this.#projectRoot, `knowledge/parsed/${knowledgeItemId}`),
-      ...references.parseTaskIds.map((parseTaskId) =>
+      ...(request.reason === 'deleted'
+        ? [resolveProjectPath(this.#projectRoot, `knowledge/parsed/${request.knowledge_item_id}`)]
+        : []),
+      ...parseTaskIds.map((parseTaskId) =>
         resolveProjectPath(this.#projectRoot, `.writellm/temp/mineru/${parseTaskId}`)
       ),
-      ...references.normalizationRunIds.map((normalizationRunId) =>
+      ...normalizationRunIds.map((normalizationRunId) =>
         resolveProjectPath(
           this.#projectRoot,
           `.writellm/temp/normalization/${normalizationRunId}.staging`
         )
+      ),
+      ...stagingRelativePaths.map((relativePath) =>
+        resolveProjectPath(this.#projectRoot, relativePath)
       )
     ]
-    await this.#removeArtifacts(paths, knowledgeItemId, 'deleted')
+    try {
+      await this.#removeArtifacts(paths, request.knowledge_item_id, request.reason)
+      this.#database.immediate((database) => {
+        database
+          .prepare(
+            `UPDATE artifact_cleanup_requests
+                SET state = 'succeeded', completed_at = ?, updated_at = ?
+              WHERE cleanup_id = ?`
+          )
+          .run(this.#now().toISOString(), this.#now().toISOString(), cleanupId)
+      })
+    } catch (err) {
+      this.#database.immediate((database) => {
+        database
+          .prepare(
+            `UPDATE artifact_cleanup_requests
+                SET state = 'queued', error_code = 'cleanup_failed', updated_at = ?
+              WHERE cleanup_id = ?`
+          )
+          .run(this.#now().toISOString(), cleanupId)
+      })
+      throw err
+    }
   }
 
   cancel(parseTaskId: string): void {
@@ -276,8 +345,7 @@ export class MineruWorkflowService {
       database
         .prepare(
           `UPDATE parse_tasks
-              SET state = 'cancelled', upload_url_ciphertext = NULL,
-                  download_url_ciphertext = NULL, completed_at = ?, updated_at = ?
+              SET state = 'cancelled', completed_at = ?, updated_at = ?
             WHERE parse_task_id = ?`
         )
         .run(now, now, parseTaskId)
@@ -323,6 +391,75 @@ export class MineruWorkflowService {
       },
       'MinerU artifacts cleaned'
     )
+  }
+
+  #readStagingPaths(references: MineruWorkReferences, knowledgeItemId: string): string[] {
+    if (references.parseRevisionIds.length === 0) return []
+    const placeholders = references.parseRevisionIds.map(() => '?').join(', ')
+    return this.#database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT relative_path FROM parse_revisions
+               WHERE knowledge_item_id = ?
+                 AND parse_revision_id IN (${placeholders})
+                 AND state = 'staging'`
+          )
+          .pluck()
+          .all(knowledgeItemId, ...references.parseRevisionIds) as string[]
+    )
+  }
+
+  #enqueueArtifactCleanup(
+    knowledgeItemId: string,
+    references: MineruWorkReferences,
+    stagingRelativePaths: readonly string[],
+    reason: 'cancelled' | 'deleted'
+  ): string {
+    const cleanupId = this.#createId()
+    const now = this.#now().toISOString()
+    this.#database.immediate((database) => {
+      database
+        .prepare(
+          `INSERT INTO artifact_cleanup_requests (
+             cleanup_id, knowledge_item_id, reason,
+             parse_task_ids_json, parse_revision_ids_json, normalization_run_ids_json,
+             staging_relative_paths_json, state, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`
+        )
+        .run(
+          cleanupId,
+          knowledgeItemId,
+          reason,
+          JSON.stringify(references.parseTaskIds),
+          JSON.stringify(references.parseRevisionIds),
+          JSON.stringify(references.normalizationRunIds),
+          JSON.stringify(stagingRelativePaths),
+          now,
+          now
+        )
+    })
+    this.#jobs.enqueue({
+      type: 'artifact_cleanup',
+      payload: { cleanupId },
+      deduplicationKey: `artifact-cleanup:${cleanupId}`,
+      maxAttempts: 8
+    })
+    this.#log.info(
+      {
+        event: 'mineru.artifact_cleanup.queued',
+        projectId: this.#projectId,
+        cleanupId,
+        knowledgeItemId,
+        reason,
+        artifactReferenceCount:
+          references.parseTaskIds.length +
+          references.normalizationRunIds.length +
+          stagingRelativePaths.length
+      },
+      'MinerU artifact cleanup queued'
+    )
+    return cleanupId
   }
 
   recordRetry(parseTaskId: string, error: unknown): void {
@@ -385,11 +522,30 @@ export class MineruWorkflowService {
     )
   }
 
+  async handleParse(context: JobHandlerContext): Promise<void> {
+    const task = this.#requireTask(payloadTaskId(context))
+    if (terminal(task.state)) return
+    if (
+      task.state === 'queued' ||
+      task.state === 'allocating' ||
+      task.state === 'awaiting_upload'
+    ) {
+      await this.handleSubmit(context)
+      return
+    }
+    if (task.state === 'polling') {
+      await this.handlePoll(context)
+      return
+    }
+    await this.handleDownload(context)
+  }
+
   async handleSubmit(context: JobHandlerContext): Promise<void> {
     const parseTaskId = payloadTaskId(context)
     let task = this.#requireTask(parseTaskId)
     if (terminal(task.state)) return
     const source = this.#readSource(task.knowledge_item_id)
+    let uploadUrl: string | undefined
 
     if (task.remote_task_id === null) {
       this.#transition(task, 'allocating', 'remote.allocate.started')
@@ -401,7 +557,6 @@ export class MineruWorkflowService {
           context.signal
         )
       )
-      const ciphertext = this.#cipher.encrypt(allocated.uploadUrl)
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
         const current = requireTask(database, parseTaskId)
@@ -409,11 +564,11 @@ export class MineruWorkflowService {
         database
           .prepare(
             `UPDATE parse_tasks
-                SET state = 'awaiting_upload', remote_task_id = ?, upload_url_ciphertext = ?,
+                SET state = 'awaiting_upload', remote_task_id = ?,
                     trace_id = ?, submitted_at = ?, updated_at = ?
               WHERE parse_task_id = ? AND remote_task_id IS NULL`
           )
-          .run(allocated.remoteTaskId, ciphertext, allocated.traceId, now, now, parseTaskId)
+          .run(allocated.remoteTaskId, allocated.traceId, now, now, parseTaskId)
         insertEvent(
           database,
           parseTaskId,
@@ -425,15 +580,26 @@ export class MineruWorkflowService {
           now
         )
       })
+      uploadUrl = allocated.uploadUrl
       await this.#faults.afterRemoteIdPersisted?.()
       task = this.#requireTask(parseTaskId)
     }
     if (task.state === 'cancelled' || terminal(task.state)) return
-    if (task.upload_url_ciphertext === null) {
-      if (task.state === 'polling' || task.state === 'downloading') return
-      throw new Error('MinerU upload recovery capability is missing')
+    if (task.state !== 'awaiting_upload') return
+    if (uploadUrl === undefined) {
+      const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
+        this.#gateway.allocate(
+          config,
+          credential,
+          { parseTaskId, fileName: basename(source.original_name) },
+          context.signal
+        )
+      )
+      if (refreshed.remoteTaskId !== task.remote_task_id) {
+        throw new Error('MinerU remote task allocation changed during upload recovery')
+      }
+      uploadUrl = refreshed.uploadUrl
     }
-    const uploadUrl = this.#cipher.decrypt(task.upload_url_ciphertext)
     await this.#gateway.upload(
       {
         uploadUrl,
@@ -450,8 +616,7 @@ export class MineruWorkflowService {
       database
         .prepare(
           `UPDATE parse_tasks
-              SET state = 'polling', upload_url_ciphertext = NULL,
-                  remote_state = 'pending', uploaded_at = ?, updated_at = ?
+              SET state = 'polling', remote_state = 'pending', uploaded_at = ?, updated_at = ?
             WHERE parse_task_id = ?`
         )
         .run(now, now, parseTaskId)
@@ -518,17 +683,16 @@ export class MineruWorkflowService {
     }
     if (result.remoteState === 'done') {
       if (result.downloadUrl === undefined) throw new Error('MinerU result URL is missing')
-      const ciphertext = this.#cipher.encrypt(result.downloadUrl)
       this.#database.immediate((database) => {
         const current = requireTask(database, parseTaskId)
         if (current.state === 'cancelled') return
         database
           .prepare(
             `UPDATE parse_tasks SET state = 'downloading', remote_state = 'done',
-                    download_url_ciphertext = ?, trace_id = COALESCE(?, trace_id),
-                    poll_count = ?, updated_at = ? WHERE parse_task_id = ?`
+                    trace_id = COALESCE(?, trace_id), poll_count = ?, updated_at = ?
+             WHERE parse_task_id = ?`
           )
-          .run(ciphertext, result.traceId, nextPollCount, now, parseTaskId)
+          .run(result.traceId, nextPollCount, now, parseTaskId)
         insertEvent(
           database,
           parseTaskId,
@@ -541,7 +705,7 @@ export class MineruWorkflowService {
         )
       })
       this.#jobs.enqueue({
-        type: 'mineru.download',
+        type: 'mineru_parse',
         payload: { parseTaskId },
         deduplicationKey: `mineru-download:${parseTaskId}`,
         maxAttempts: 8
@@ -595,8 +759,17 @@ export class MineruWorkflowService {
     const archivePath = `${stagingPath}/raw/provider-result.zip`
 
     if (task.state === 'downloading') {
-      if (task.download_url_ciphertext === null) {
-        throw new Error('MinerU download recovery capability is missing')
+      const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
+        this.#gateway.poll(
+          config,
+          credential,
+          { parseTaskId, remoteTaskId: task.remote_task_id as string },
+          context.signal
+        )
+      )
+      if (this.#requireTask(parseTaskId).state === 'cancelled') return
+      if (refreshed.remoteState !== 'done' || refreshed.downloadUrl === undefined) {
+        throw new Error('MinerU download URL was not available during recovery polling')
       }
       await rm(downloadPath, { force: true })
       await mkdir(dirname(downloadPath), { recursive: true })
@@ -604,7 +777,7 @@ export class MineruWorkflowService {
       try {
         downloaded = await this.#gateway.download(
           {
-            downloadUrl: this.#cipher.decrypt(task.download_url_ciphertext),
+            downloadUrl: refreshed.downloadUrl,
             destinationPath: downloadPath,
             maxBytes: DOWNLOAD_LIMIT_BYTES
           },
@@ -621,8 +794,7 @@ export class MineruWorkflowService {
             const current = requireTask(database, parseTaskId)
             database
               .prepare(
-                `UPDATE parse_tasks SET state = 'polling', download_url_ciphertext = NULL,
-                        updated_at = ? WHERE parse_task_id = ?`
+                `UPDATE parse_tasks SET state = 'polling', updated_at = ? WHERE parse_task_id = ?`
               )
               .run(now, parseTaskId)
             insertEvent(
@@ -657,7 +829,7 @@ export class MineruWorkflowService {
           .run(downloaded.sha256, downloaded.byteSize, now, revision.parse_revision_id)
         database
           .prepare(
-            `UPDATE parse_tasks SET state = 'extracting', download_url_ciphertext = NULL,
+            `UPDATE parse_tasks SET state = 'extracting',
                     updated_at = ? WHERE parse_task_id = ?`
           )
           .run(now, parseTaskId)
@@ -756,7 +928,7 @@ export class MineruWorkflowService {
 
   #enqueuePoll(parseTaskId: string, sequence: number): void {
     this.#jobs.enqueue({
-      type: 'mineru.poll',
+      type: 'mineru_parse',
       payload: { parseTaskId },
       deduplicationKey: `mineru-poll:${parseTaskId}:${sequence}`,
       maxAttempts: 8,
@@ -899,8 +1071,7 @@ export class MineruWorkflowService {
         .run(now, now, revision.parse_revision_id)
       database
         .prepare(
-          `UPDATE parse_tasks SET state = 'succeeded', upload_url_ciphertext = NULL,
-                  download_url_ciphertext = NULL, completed_at = ?, updated_at = ?
+          `UPDATE parse_tasks SET state = 'succeeded', completed_at = ?, updated_at = ?
             WHERE parse_task_id = ?`
         )
         .run(now, now, task.parse_task_id)
@@ -933,7 +1104,7 @@ export class MineruWorkflowService {
       'MinerU raw parse revision published'
     )
     this.#jobs.enqueue({
-      type: 'mineru.normalize',
+      type: 'normalize_parse_revision',
       payload: { parseRevisionId: revision.parse_revision_id },
       deduplicationKey: `mineru-normalize:${revision.parse_revision_id}:v1`,
       maxAttempts: 3
@@ -946,35 +1117,24 @@ export function registerMineruHandlers(
   registry: JobHandlerRegistry,
   service: MineruWorkflowService
 ): void {
-  registry.register('mineru.submit', (context) => audited(service, context, 'submit'), {
-    timeoutMs: 10 * 60_000,
-    leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'finish'
-  })
-  registry.register('mineru.poll', (context) => audited(service, context, 'poll'), {
-    timeoutMs: 6 * 60_000,
+  service.requeuePendingArtifactCleanups()
+  registry.register('mineru_parse', (context) => audited(service, context), {
+    timeoutMs: 30 * 60_000,
     leaseMs: 60_000,
     heartbeatMs: 15_000,
     closePolicy: 'abort-and-requeue'
   })
-  registry.register('mineru.download', (context) => audited(service, context, 'download'), {
-    timeoutMs: 30 * 60_000,
+  registry.register('artifact_cleanup', (context) => service.handleArtifactCleanup(context), {
+    timeoutMs: 10 * 60_000,
     leaseMs: 60_000,
     heartbeatMs: 15_000,
     closePolicy: 'abort-and-requeue'
   })
 }
 
-async function audited(
-  service: MineruWorkflowService,
-  context: JobHandlerContext,
-  operation: 'submit' | 'poll' | 'download'
-): Promise<void> {
+async function audited(service: MineruWorkflowService, context: JobHandlerContext): Promise<void> {
   try {
-    if (operation === 'submit') await service.handleSubmit(context)
-    else if (operation === 'poll') await service.handlePoll(context)
-    else await service.handleDownload(context)
+    await service.handleParse(context)
   } catch (err) {
     const value = context.job.payload.parseTaskId
     if (typeof value === 'string') {
@@ -1017,6 +1177,14 @@ function readWorkReferences(
     .pluck()
     .all(knowledgeItemId) as string[]
   return { parseTaskIds, parseRevisionIds, normalizationRunIds }
+}
+
+function readStringArray(value: string, label: string): string[] {
+  const parsed: unknown = JSON.parse(value)
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
+    throw new Error(`Artifact cleanup ${label} are invalid`)
+  }
+  return parsed
 }
 
 function payloadTaskId(context: JobHandlerContext): string {

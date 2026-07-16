@@ -11,19 +11,42 @@ import {
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { EmbeddingGateway, RerankGateway } from './gateways'
 import type { UtilityProcessFactory } from './provider-probe-client'
+import {
+  PersistentUtilityProcess,
+  type UtilityMessageDecision
+} from '../workers/persistent-utility-process'
+
+type AuxiliarySuccessResponse = Exclude<AuxiliaryUtilityResponse, { type: 'error' }>
 
 export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
+  readonly #worker: PersistentUtilityProcess
+
   constructor(
-    private readonly modulePath: string,
+    modulePath: string,
     private readonly log: Logger,
-    private readonly processFactory: UtilityProcessFactory = utilityProcess
-  ) {}
+    processFactory: UtilityProcessFactory = utilityProcess,
+    sharedWorker?: PersistentUtilityProcess
+  ) {
+    this.#worker =
+      sharedWorker ??
+      new PersistentUtilityProcess({
+        modulePath,
+        serviceName: 'writellm-background-worker',
+        log,
+        factory: processFactory
+      })
+  }
+
+  terminate(): void {
+    this.#worker.terminate()
+  }
 
   embedBatch(
     config: ProviderConfig,
     credential: string,
     rawInput: Parameters<EmbeddingGateway['embedBatch']>[2],
-    signal: AbortSignal
+    signal: AbortSignal,
+    projectSessionId?: string
   ): ReturnType<EmbeddingGateway['embedBatch']> {
     if (config.role !== 'embedding') return Promise.reject(new Error('Embedding role is required'))
     const request: AuxiliaryUtilityRequest = {
@@ -33,7 +56,7 @@ export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
       credential,
       input: embeddingBatchInputSchema.parse(rawInput)
     }
-    return this.run(request, signal).then((response) => {
+    return this.#run(request, signal, projectSessionId).then((response) => {
       if (response.type !== 'embedding-result') throw new Error('Embedding response type mismatch')
       return response.result
     })
@@ -43,7 +66,8 @@ export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
     config: ProviderConfig,
     credential: string,
     rawInput: Parameters<RerankGateway['rerank']>[2],
-    signal: AbortSignal
+    signal: AbortSignal,
+    projectSessionId?: string
   ): ReturnType<RerankGateway['rerank']> {
     if (config.role !== 'rerank') return Promise.reject(new Error('Rerank role is required'))
     const request: AuxiliaryUtilityRequest = {
@@ -53,80 +77,68 @@ export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
       credential,
       input: rerankInputSchema.parse(rawInput)
     }
-    return this.run(request, signal).then((response) => {
+    return this.#run(request, signal, projectSessionId).then((response) => {
       if (response.type !== 'rerank-result') throw new Error('Rerank response type mismatch')
       return response.result
     })
   }
 
-  private run(
+  #run(
     request: AuxiliaryUtilityRequest,
-    signal: AbortSignal
-  ): Promise<Exclude<AuxiliaryUtilityResponse, { type: 'error' }>> {
+    signal: AbortSignal,
+    projectSessionId?: string
+  ): Promise<AuxiliarySuccessResponse> {
     if (signal.aborted) return Promise.reject(abortError())
-    const child = this.processFactory.fork(this.modulePath, [], {
-      serviceName: 'writellm-auxiliary-model',
-      stdio: 'ignore'
+    const requestWithSession = { ...request, projectSessionId: projectSessionId ?? null }
+    return this.#worker.request({
+      requestId: request.requestId,
+      payload: requestWithSession,
+      signal,
+      rejectOnAbort: abortError(),
+      cancelPayload: {
+        type: 'cancel',
+        requestId: request.requestId,
+        projectSessionId: requestWithSession.projectSessionId
+      },
+      onMessage: (raw) =>
+        this.#handleResponse(raw, request.requestId, requestWithSession.projectSessionId)
     })
-    return new Promise((resolve, reject) => {
-      let settled = false
-      const finish = (operation: () => void): void => {
-        if (settled) return
-        settled = true
-        signal.removeEventListener('abort', onAbort)
-        child.removeListener('message', onMessage)
-        child.removeListener('exit', onExit)
-        operation()
+  }
+
+  #handleResponse(
+    raw: unknown,
+    requestId: string,
+    projectSessionId: string | null
+  ): UtilityMessageDecision<AuxiliarySuccessResponse> {
+    const parsed = auxiliaryUtilityResponseSchema.safeParse(raw)
+    if (
+      !parsed.success ||
+      parsed.data.requestId !== requestId ||
+      (parsed.data.projectSessionId ?? null) !== projectSessionId
+    ) {
+      const err = parsed.success
+        ? new Error('Auxiliary response request or project session mismatch')
+        : parsed.error
+      this.log.error(
+        { event: 'auxiliary_model.response_invalid', err, requestId },
+        'Auxiliary model utility returned an invalid response'
+      )
+      return {
+        kind: 'reject',
+        error: new Error('Auxiliary model utility returned an invalid response'),
+        terminate: true
       }
-      const onAbort = (): void => {
-        finish(() => reject(abortError()))
-        child.kill()
-      }
-      const onExit = (code: number): void => {
-        finish(() => reject(new Error(`Auxiliary model utility exited early (${code})`)))
-      }
-      const onMessage = (raw: unknown): void => {
-        const parsed = auxiliaryUtilityResponseSchema.safeParse(raw)
-        if (!parsed.success || parsed.data.requestId !== request.requestId) {
-          const err = parsed.success
-            ? new Error('Auxiliary response request ID mismatch')
-            : parsed.error
-          this.log.error(
-            { event: 'auxiliary_model.response_invalid', err, requestId: request.requestId },
-            'Auxiliary model utility returned an invalid response'
-          )
-          finish(() => reject(new Error('Auxiliary model utility returned an invalid response')))
-          child.kill()
-          return
-        }
-        const response = parsed.data
-        if (response.type === 'error') {
-          const err = reconstructError(response.error)
-          this.log.error(
-            { event: 'auxiliary_model.failed', err, requestId: request.requestId },
-            'Auxiliary model request failed'
-          )
-          finish(() => reject(new Error('Auxiliary model request failed', { cause: err })))
-          child.kill()
-          return
-        }
-        finish(() => resolve(response))
-        child.kill()
-      }
-      signal.addEventListener('abort', onAbort, { once: true })
-      child.once('message', onMessage)
-      child.once('exit', onExit)
-      try {
-        child.postMessage(request)
-      } catch (err) {
-        this.log.error(
-          { event: 'auxiliary_model.start_failed', err, requestId: request.requestId },
-          'Failed to start auxiliary model utility'
-        )
-        finish(() => reject(new Error('Auxiliary model utility could not start', { cause: err })))
-        child.kill()
-      }
-    })
+    }
+    const response = parsed.data
+    if (response.type === 'error') {
+      const err = reconstructError(response.error)
+      this.log.error(
+        { event: 'auxiliary_model.failed', err, requestId },
+        'Auxiliary model request failed'
+      )
+      return { kind: 'reject', error: new Error('Auxiliary model request failed', { cause: err }) }
+    }
+    return { kind: 'resolve', value: response }
   }
 }
 

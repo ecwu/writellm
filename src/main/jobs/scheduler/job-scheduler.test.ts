@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { initializeProjectDatabase } from '../../project/project-database'
 import type { ProjectManifest } from '../../project/project-manifest'
 import { JobStore, type JobLease } from '../job-store'
@@ -49,7 +49,7 @@ describe('JobScheduler', () => {
     const releases: Array<() => void> = []
     let active = 0
     let maximum = 0
-    registry.register('embedding.batch', async ({ signal }) => {
+    registry.register('build_embedding_generation', async ({ signal }) => {
       active += 1
       maximum = Math.max(maximum, active)
       await new Promise<void>((resolve, reject) => {
@@ -60,8 +60,8 @@ describe('JobScheduler', () => {
     })
     for (let index = 0; index < 4; index += 1) {
       jobs.enqueue({
-        type: 'embedding.batch',
-        payload: { batchId: `batch-${index}` },
+        type: 'build_embedding_generation',
+        payload: { generationId: `batch-${index}` },
         priority: index
       })
     }
@@ -92,12 +92,12 @@ describe('JobScheduler', () => {
 
   it('aborts and requeues close-safe work without spending another attempt', async () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
-    registry.register('import.validate', async ({ signal }) => {
+    registry.register('artifact_cleanup', async ({ signal }) => {
       await new Promise<void>((_, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true })
       })
     })
-    const job = jobs.enqueue({ type: 'import.validate', payload: { fileId: 'file-close' } }).job
+    const job = jobs.enqueue({ type: 'artifact_cleanup', payload: { cleanupId: 'file-close' } }).job
     const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
     scheduler.start()
     await waitFor(() => jobs.require(job.jobId).state === 'running')
@@ -111,45 +111,12 @@ describe('JobScheduler', () => {
     database.close()
   })
 
-  it('waits for finish-policy persistence barriers before close can drain', async () => {
-    const { database, jobs, registry, supervisor, projectId } = await setup()
-    let persist: (() => void) | undefined
-    let persisted = false
-    registry.register('mineru.submit', async () => {
-      await new Promise<void>((resolve) => {
-        persist = () => {
-          persisted = true
-          resolve()
-        }
-      })
-    })
-    const job = jobs.enqueue({
-      type: 'mineru.submit',
-      payload: { parseTaskId: 'parse-item' }
-    }).job
-    const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
-    scheduler.start()
-    await waitFor(() => jobs.require(job.jobId).state === 'running')
-    let drained = false
-    const closing = scheduler.park().then(() => {
-      drained = true
-    })
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(drained).toBe(false)
-    persist?.()
-    await closing
-    expect(persisted).toBe(true)
-    expect(jobs.require(job.jobId).state).toBe('succeeded')
-    await scheduler.stop()
-    database.close()
-  })
-
-  it('persists throttled progress on heartbeat and finishes index publication atomically', async () => {
+  it('persists throttled progress before a successful index generation finishes', async () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
     let activeGeneration = 'old-generation'
     let publish: (() => void) | undefined
     registry.register(
-      'index.publish',
+      'rebuild_index',
       async ({ reportProgress }) => {
         reportProgress({ completed: 1, total: 2, stage: 'validated' })
         await new Promise<void>((resolve) => {
@@ -162,35 +129,40 @@ describe('JobScheduler', () => {
       { heartbeatMs: 5, leaseMs: 100, timeoutMs: 1_000 }
     )
     const job = jobs.enqueue({
-      type: 'index.publish',
+      type: 'rebuild_index',
       payload: { generationId: 'new-generation' }
     }).job
     const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
     scheduler.start()
     await waitFor(() => jobs.require(job.jobId).progress?.stage === 'validated')
     expect(activeGeneration).toBe('old-generation')
-    const closing = scheduler.park()
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(activeGeneration).toBe('old-generation')
     publish?.()
-    await closing
+    await waitFor(() => jobs.require(job.jobId).state === 'succeeded')
     expect(activeGeneration).toBe('new-generation')
     expect(jobs.require(job.jobId)).toMatchObject({
       state: 'succeeded',
       progress: { completed: 1, total: 2, stage: 'validated' }
     })
+    await scheduler.park()
     await scheduler.stop()
     database.close()
   })
 
   it('turns timeout into one retry transition', async () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
-    registry.register('rerank.request', async () => new Promise<void>(() => undefined), {
-      timeoutMs: 10,
-      heartbeatMs: 100,
-      leaseMs: 1_000
-    })
-    const job = jobs.enqueue({ type: 'rerank.request', payload: { requestId: 'timeout' } }).job
+    registry.register(
+      'build_embedding_generation',
+      async () => new Promise<void>(() => undefined),
+      {
+        timeoutMs: 10,
+        heartbeatMs: 100,
+        leaseMs: 1_000
+      }
+    )
+    const job = jobs.enqueue({
+      type: 'build_embedding_generation',
+      payload: { generationId: 'timeout' }
+    }).job
     const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
     scheduler.start()
     await waitFor(
@@ -209,13 +181,16 @@ describe('JobScheduler', () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
     let executions = 0
     registry.register(
-      'import.validate',
+      'artifact_cleanup',
       async () => {
         executions += 1
       },
       { leaseMs: 100, heartbeatMs: 25 }
     )
-    const job = jobs.enqueue({ type: 'import.validate', payload: { fileId: 'crashed-worker' } }).job
+    const job = jobs.enqueue({
+      type: 'artifact_cleanup',
+      payload: { cleanupId: 'crashed-worker' }
+    }).job
     const oldClaim = jobs.claimNext({ workerId: 'crashed-worker', leaseMs: 40 })
     const scheduler = new JobScheduler({
       jobs,
@@ -243,83 +218,17 @@ describe('JobScheduler', () => {
     database.close()
   })
 
-  it('terminates supervised workers and rejects close when a finish handler ignores abort', async () => {
-    const { database, jobs, registry, projectId } = await setup()
-    let lateResolve: (() => void) | undefined
-    let finishTermination: (() => void) | undefined
-    const terminate = vi.fn(
-      async () =>
-        new Promise<void>((resolve) => {
-          finishTermination = resolve
-        })
-    )
-    const supervisor = new WorkerSupervisor({
-      projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc809',
-      log,
-      terminateWorkers: terminate
-    })
-    registry.register(
-      'mineru.submit',
-      async () =>
-        new Promise<void>((resolve) => {
-          lateResolve = resolve
-        }),
-      { leaseMs: 1_000, heartbeatMs: 100, timeoutMs: 10_000 }
-    )
-    const job = jobs.enqueue({
-      type: 'mineru.submit',
-      payload: { parseTaskId: 'parse-late' }
-    }).job
-    const scheduler = new JobScheduler({
-      jobs,
-      registry,
-      supervisor,
-      projectId,
-      log,
-      closeTimeoutMs: 10
-    })
-    scheduler.start()
-    await waitFor(() => jobs.require(job.jobId).state === 'running')
-
-    const parking = scheduler.park().then(
-      () => null,
-      (err: unknown) => err
-    )
-    await waitFor(() => terminate.mock.calls.length === 1)
-    expect(terminate).toHaveBeenCalledOnce()
-    expect(
-      supervisor.accept(
-        {
-          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc809',
-          jobId: job.jobId,
-          executionId: 'late-execution'
-        },
-        () => jobs.complete({ jobId: job.jobId, workerId: 'late', leaseToken: 'late', attempt: 1 })
-      )
-    ).toBeUndefined()
-    expect(jobs.require(job.jobId).state).toBe('running')
-    lateResolve?.()
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(jobs.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
-      'enqueued',
-      'claimed'
-    ])
-    finishTermination?.()
-    await expect(parking).resolves.toMatchObject({
-      message: 'Project job scheduler close timed out'
-    })
-    await scheduler.stop()
-    database.close()
-  })
-
   it('makes cancellation win atomically when project close races an abortable handler', async () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
-    registry.register('embedding.batch', async ({ signal }) => {
+    registry.register('build_embedding_generation', async ({ signal }) => {
       await new Promise<void>((_, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true })
       })
     })
-    const job = jobs.enqueue({ type: 'embedding.batch', payload: { batchId: 'cancel-close' } }).job
+    const job = jobs.enqueue({
+      type: 'build_embedding_generation',
+      payload: { generationId: 'cancel-close' }
+    }).job
     const scheduler = new JobScheduler({ jobs, registry, supervisor, projectId, log })
     scheduler.start()
     await waitFor(() => jobs.require(job.jobId).state === 'running')

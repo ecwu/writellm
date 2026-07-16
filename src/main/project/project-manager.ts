@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { access, realpath } from 'node:fs/promises'
+import { access, realpath, rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
@@ -38,7 +38,13 @@ import {
   type ProjectLockOptions
 } from './project-lock'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
-import { restoreProjectDatabase } from './project-snapshot'
+import {
+  createProjectSnapshot,
+  inventoryProjectFiles,
+  restoreProjectDatabase,
+  restoreProjectSnapshot,
+  type ProjectSnapshotManifest
+} from './project-snapshot'
 import type { ProjectIndexService } from '../search/index-service'
 import type { RetrievalService } from '../search/retrieval-service'
 import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
@@ -60,6 +66,12 @@ export interface ProjectCloseParticipants {
   revokeSubscriptions(projectSessionId: ProjectSessionId): Promise<void>
 }
 
+export interface ProjectSnapshotParticipants {
+  finalEditorFlush(context: ProjectContext): Promise<void>
+  pauseFilePublishers(context: ProjectContext): Promise<void>
+  resumeFilePublishers(context: ProjectContext): Promise<void>
+}
+
 const noOpCloseParticipants: ProjectCloseParticipants = {
   getCurrentRevision: async () => null,
   flushEditors: async () => undefined,
@@ -68,6 +80,12 @@ const noOpCloseParticipants: ProjectCloseParticipants = {
   parkWorkers: async () => undefined,
   stopWorkersAndIndex: async () => undefined,
   revokeSubscriptions: async () => undefined
+}
+
+const noOpSnapshotParticipants: ProjectSnapshotParticipants = {
+  finalEditorFlush: async () => undefined,
+  pauseFilePublishers: async () => undefined,
+  resumeFilePublishers: async () => undefined
 }
 
 export interface ProjectFinalFlushAuthorization {
@@ -104,6 +122,8 @@ export interface ProjectManagerOptions {
   recentProjects: Pick<RecentProjectsRepository, 'upsert'>
   forbiddenApplicationDirectories?: readonly string[]
   closeParticipants?: Partial<ProjectCloseParticipants>
+  snapshotParticipants?: Partial<ProjectSnapshotParticipants>
+  exportDiagnostics?: () => Promise<{ exported: boolean }>
   finalFlushTimeoutMs?: number
   lockOptions?: Omit<ProjectLockOptions, 'logger'>
   dependencies?: Partial<ProjectManagerDependencies>
@@ -146,6 +166,8 @@ export class ProjectManager {
   readonly #recentProjects: ProjectManagerOptions['recentProjects']
   readonly #forbiddenApplicationDirectories: readonly string[]
   readonly #closeParticipants: ProjectCloseParticipants
+  readonly #snapshotParticipants: ProjectSnapshotParticipants
+  readonly #exportDiagnostics?: () => Promise<{ exported: boolean }>
   readonly #lockOptions: Omit<ProjectLockOptions, 'logger'>
   readonly #dependencies: ProjectManagerDependencies
   readonly #finalFlushTimeoutMs: number
@@ -159,6 +181,17 @@ export class ProjectManager {
   #transition: Promise<void> = Promise.resolve()
   #finalFlushAuthorization: ProjectFinalFlushAuthorization | null = null
   #finalFlushConsumed = false
+  #snapshotFlushAuthorization: ProjectFinalFlushAuthorization | null = null
+  #snapshotFlushConsumed = false
+  #recovery:
+    | { kind: 'open'; selectedRoot: string }
+    | { kind: 'create'; projectRoot: string }
+    | {
+        kind: 'close'
+        context: ProjectContext
+        completed: Set<'claims' | 'park' | 'workers' | 'database' | 'lock' | 'subscriptions'>
+      }
+    | null = null
 
   constructor(options: ProjectManagerOptions) {
     this.#applicationVersion = options.applicationVersion
@@ -166,6 +199,8 @@ export class ProjectManager {
     this.#recentProjects = options.recentProjects
     this.#forbiddenApplicationDirectories = options.forbiddenApplicationDirectories ?? []
     this.#closeParticipants = { ...noOpCloseParticipants, ...options.closeParticipants }
+    this.#snapshotParticipants = { ...noOpSnapshotParticipants, ...options.snapshotParticipants }
+    this.#exportDiagnostics = options.exportDiagnostics
     this.#finalFlushTimeoutMs = options.finalFlushTimeoutMs ?? 10_000
     this.#lockOptions = options.lockOptions ?? {}
     this.#dependencies = { ...defaultDependencies, ...options.dependencies }
@@ -187,11 +222,17 @@ export class ProjectManager {
     Object.assign(this.#closeParticipants, participants)
   }
 
+  setSnapshotParticipants(participants: Partial<ProjectSnapshotParticipants>): void {
+    Object.assign(this.#snapshotParticipants, participants)
+  }
+
   create(options: CreateManagedProjectOptions): Promise<ProjectLifecycleSnapshot> {
     return this.#serialize(async () => {
       const name = projectNameSchema.parse(options.name)
+      const projectRoot = join(options.parentDirectory, `${name}.writellm`)
       this.#requireState('closed')
       this.#state = 'creating'
+      this.#recovery = { kind: 'create', projectRoot }
       this.#logger.info(
         { event: 'project_manager.create.started' },
         'Project create transition started'
@@ -200,7 +241,7 @@ export class ProjectManager {
       let created: CreatedProject | undefined
       try {
         created = await this.#dependencies.createProject({
-          destination: join(options.parentDirectory, `${name}.writellm`),
+          destination: projectRoot,
           forbiddenApplicationDirectories: this.#forbiddenApplicationDirectories,
           applicationVersion: this.#applicationVersion,
           log: this.#logger as Logger,
@@ -214,6 +255,7 @@ export class ProjectManager {
           throw new Error('Created project root identity changed before open')
         }
         await this.#openCanonicalRoot(canonicalRoot, created.writeLock)
+        this.#recovery = null
         this.#logger.info(
           { event: 'project_manager.create.completed', projectId: created.manifest.projectId },
           'Project create transition completed'
@@ -242,6 +284,7 @@ export class ProjectManager {
           !projectPublished && err instanceof ProjectCreateError && err.disposition === 'clean'
             ? 'closed'
             : 'recovery-required'
+        if (this.#state === 'closed') this.#recovery = null
         throw new Error('Failed to create and open project', { cause: err })
       }
       return this.snapshot()
@@ -252,6 +295,7 @@ export class ProjectManager {
     return this.#serialize(async () => {
       this.#requireState('closed')
       this.#state = 'opening'
+      this.#recovery = { kind: 'open', selectedRoot }
       this.#logger.info(
         { event: 'project_manager.open.started' },
         'Project open transition started'
@@ -278,6 +322,8 @@ export class ProjectManager {
     }
     const context = this.#context
     this.#state = 'closing'
+    this.#snapshotFlushAuthorization = null
+    this.#snapshotFlushConsumed = false
 
     return this.#serialize(async () => {
       const startedAt = Date.now()
@@ -286,18 +332,23 @@ export class ProjectManager {
         'Project close transition started'
       )
       let firstError: unknown
+      const completed = new Set<
+        'claims' | 'park' | 'workers' | 'database' | 'lock' | 'subscriptions'
+      >()
       const attempt = async (
         event: string,
         operation: () => void | Promise<void>
-      ): Promise<void> => {
+      ): Promise<boolean> => {
         try {
           await operation()
+          return true
         } catch (err) {
           firstError ??= err
           this.#logger.error(
             { event, err, projectId: context.manifest.projectId },
             'Project close step failed'
           )
+          return false
         }
       }
 
@@ -323,27 +374,45 @@ export class ProjectManager {
         this.#closeParticipants.verifyFinalEditorFlush(context, finalFlushAuthorization)
       )
       this.#finalFlushAuthorization = null
-      await attempt('project_manager.close.stop_claims_failed', () =>
-        Promise.resolve(context.runtime.stopClaims()).then(() =>
-          this.#closeParticipants.stopJobClaims(context)
+      if (
+        await attempt('project_manager.close.stop_claims_failed', () =>
+          Promise.resolve(context.runtime.stopClaims()).then(() =>
+            this.#closeParticipants.stopJobClaims(context)
+          )
         )
       )
+        completed.add('claims')
       context.operations?.abortAll(new Error('Project is closing'))
-      await attempt('project_manager.close.park_workers_failed', () =>
-        context.runtime.park().then(() => this.#closeParticipants.parkWorkers(context))
+      if (
+        await attempt('project_manager.close.park_workers_failed', () =>
+          context.runtime.park().then(() => this.#closeParticipants.parkWorkers(context))
+        )
       )
-      await attempt('project_manager.close.stop_workers_failed', () =>
-        context.runtime.stop().then(() => this.#closeParticipants.stopWorkersAndIndex(context))
+        completed.add('park')
+      if (
+        await attempt('project_manager.close.stop_workers_failed', () =>
+          context.runtime.stop().then(() => this.#closeParticipants.stopWorkersAndIndex(context))
+        )
       )
-      await attempt('project_manager.close.database_failed', () => context.database.close())
-      await attempt('project_manager.close.lock_release_failed', async () => {
-        await context.writeLock.release()
-      })
-      await attempt('project_manager.close.subscription_revoke_failed', () =>
-        this.#closeParticipants.revokeSubscriptions(context.projectSessionId)
+        completed.add('workers')
+      if (await attempt('project_manager.close.database_failed', () => context.database.close())) {
+        completed.add('database')
+      }
+      if (
+        await attempt('project_manager.close.lock_release_failed', async () => {
+          await context.writeLock.release()
+        })
       )
+        completed.add('lock')
+      if (
+        await attempt('project_manager.close.subscription_revoke_failed', () =>
+          this.#closeParticipants.revokeSubscriptions(context.projectSessionId)
+        )
+      )
+        completed.add('subscriptions')
 
       this.#context = null
+      this.#recovery = { kind: 'close', context, completed }
       if (firstError !== undefined) {
         this.#state = 'recovery-required'
         this.#logger.error(
@@ -359,6 +428,7 @@ export class ProjectManager {
       }
 
       this.#state = 'closed'
+      this.#recovery = null
       this.#logger.info(
         {
           event: 'project_manager.close.completed',
@@ -377,6 +447,7 @@ export class ProjectManager {
       await closing
       this.#requireState('closed')
       this.#state = 'opening'
+      this.#recovery = { kind: 'open', selectedRoot }
       this.#logger.info(
         { event: 'project_manager.open.started' },
         'Project open transition started'
@@ -408,6 +479,12 @@ export class ProjectManager {
     return this.#context
   }
 
+  assertMutationSession(projectSessionId: string): ProjectContext {
+    const context = this.assertActiveSession(projectSessionId)
+    context.operations?.assertMutationsAllowed()
+    return context
+  }
+
   authorizeFinalFlush(projectSessionId: string, closingToken: string): ProjectContext {
     if (
       this.#state !== 'closing' ||
@@ -421,6 +498,40 @@ export class ProjectManager {
     }
     this.#finalFlushConsumed = true
     return this.#context
+  }
+
+  beginSnapshotFlush(projectSessionId: string): ProjectFinalFlushAuthorization {
+    const context = this.assertActiveSession(projectSessionId)
+    const authorization: ProjectFinalFlushAuthorization = {
+      projectSessionId: context.projectSessionId,
+      currentRevision: null,
+      closingToken: this.#dependencies.randomUUID()
+    }
+    this.#snapshotFlushAuthorization = authorization
+    this.#snapshotFlushConsumed = false
+    return authorization
+  }
+
+  authorizeSnapshotFlush(projectSessionId: string, closingToken: string): ProjectContext {
+    if (
+      this.#state !== 'open' ||
+      this.#context === null ||
+      this.#snapshotFlushAuthorization === null ||
+      this.#snapshotFlushAuthorization.projectSessionId !== projectSessionId ||
+      this.#snapshotFlushAuthorization.closingToken !== closingToken ||
+      this.#snapshotFlushConsumed
+    ) {
+      throw new ProjectSessionError('Snapshot editor flush is not authorized')
+    }
+    this.#snapshotFlushConsumed = true
+    return this.#context
+  }
+
+  completeSnapshotFlush(closingToken: string): void {
+    if (this.#snapshotFlushAuthorization?.closingToken === closingToken) {
+      this.#snapshotFlushAuthorization = null
+      this.#snapshotFlushConsumed = false
+    }
   }
 
   async guardDelayedResult<T>(projectSessionId: string, result: Promise<T>): Promise<T> {
@@ -488,6 +599,7 @@ export class ProjectManager {
         const restoredLock = writeLock
         writeLock = undefined
         await this.#openCanonicalRoot(canonicalRoot, restoredLock)
+        this.#recovery = null
         return this.snapshot()
       } catch (err) {
         if (writeLock !== undefined) {
@@ -507,6 +619,241 @@ export class ProjectManager {
           'Project database restore transition failed'
         )
         throw new Error('Failed to restore and reopen project database', { cause: err })
+      }
+    })
+  }
+
+  retryOpen(): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'open') {
+        throw new Error('No failed project open is available to retry')
+      }
+      const selectedRoot = this.#recovery.selectedRoot
+      this.#state = 'opening'
+      try {
+        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
+        await this.#openCanonicalRoot(canonicalRoot)
+        this.#recovery = null
+        return this.snapshot()
+      } catch (err) {
+        this.#state = 'recovery-required'
+        this.#logger.error(
+          { event: 'project_manager.retry_open.failed', err },
+          'Project open retry failed'
+        )
+        throw new Error('Failed to retry opening the project', { cause: err })
+      }
+    })
+  }
+
+  retryClose(): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'close') {
+        throw new Error('No failed project close is available to retry')
+      }
+      const recovery = this.#recovery
+      try {
+        if (!recovery.completed.has('workers')) {
+          await recovery.context.runtime.stop()
+          await this.#closeParticipants.stopWorkersAndIndex(recovery.context)
+          recovery.completed.add('workers')
+        }
+        if (!recovery.completed.has('database')) {
+          recovery.context.database.close()
+          recovery.completed.add('database')
+        }
+        if (!recovery.completed.has('lock')) {
+          await recovery.context.writeLock.release()
+          recovery.completed.add('lock')
+        }
+        if (!recovery.completed.has('subscriptions')) {
+          await this.#closeParticipants.revokeSubscriptions(recovery.context.projectSessionId)
+          recovery.completed.add('subscriptions')
+        }
+        this.#recovery = null
+        this.#state = 'closed'
+        this.#logger.info(
+          {
+            event: 'project_manager.retry_close.completed',
+            projectId: recovery.context.manifest.projectId
+          },
+          'Project close retry completed'
+        )
+        return this.snapshot()
+      } catch (err) {
+        this.#state = 'recovery-required'
+        this.#logger.error(
+          {
+            event: 'project_manager.retry_close.failed',
+            err,
+            projectId: recovery.context.manifest.projectId
+          },
+          'Project close retry failed'
+        )
+        throw new Error('Failed to retry closing the project', { cause: err })
+      }
+    })
+  }
+
+  discardIncompleteCreate(): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'create') {
+        throw new Error('No incomplete project creation is available to discard')
+      }
+      const projectRoot = this.#recovery.projectRoot
+      try {
+        try {
+          await this.#dependencies.readManifest(projectRoot)
+          throw new Error('The failed creation target contains a published project manifest')
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('published project manifest')) throw err
+        }
+        await rm(projectRoot, { recursive: true, force: true })
+        this.#recovery = null
+        this.#state = 'closed'
+        this.#logger.info(
+          { event: 'project_manager.create.discarded' },
+          'Incomplete project discarded'
+        )
+        return this.snapshot()
+      } catch (err) {
+        this.#logger.error(
+          { event: 'project_manager.create.discard_failed', err },
+          'Failed to discard incomplete project'
+        )
+        throw new Error('Failed to discard the incomplete project', { cause: err })
+      }
+    })
+  }
+
+  locateMovedProject(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'recovery-required')
+        throw new Error('Project location recovery is unavailable')
+      this.#state = 'opening'
+      this.#recovery = { kind: 'open', selectedRoot }
+      try {
+        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
+        await this.#openCanonicalRoot(canonicalRoot)
+        this.#recovery = null
+        return this.snapshot()
+      } catch (err) {
+        this.#state = 'recovery-required'
+        this.#logger.error(
+          { event: 'project_manager.locate_moved.failed', err },
+          'Moved project location recovery failed'
+        )
+        throw new Error('Failed to open the located project', { cause: err })
+      }
+    })
+  }
+
+  async exportDiagnostics(): Promise<{ exported: boolean }> {
+    if (this.#state !== 'recovery-required')
+      throw new Error('Diagnostics export is only available during recovery')
+    try {
+      const result = await this.#exportDiagnostics?.()
+      this.#logger.info(
+        {
+          event: 'project_manager.recovery_diagnostics.exported',
+          exported: result?.exported ?? false
+        },
+        'Recovery diagnostics export completed'
+      )
+      return result ?? { exported: false }
+    } catch (err) {
+      this.#logger.error(
+        { event: 'project_manager.recovery_diagnostics.export_failed', err },
+        'Recovery diagnostics export failed'
+      )
+      throw new Error('Failed to export recovery diagnostics', { cause: err })
+    }
+  }
+
+  returnToClosed(): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'recovery-required')
+        throw new Error('Project manager is not awaiting recovery')
+      if (this.#recovery?.kind === 'create' || this.#recovery?.kind === 'close') {
+        throw new Error('Complete the pending project recovery action before returning to closed')
+      }
+      this.#recovery = null
+      this.#context = null
+      this.#state = 'closed'
+      this.#logger.info(
+        { event: 'project_manager.recovery.returned_to_closed' },
+        'Recovery state returned to closed'
+      )
+      return this.snapshot()
+    })
+  }
+
+  createSnapshot(projectSessionId: string, destination: string): Promise<ProjectSnapshotManifest> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      const operations = context.operations
+      const barrier = {
+        pauseMutations: async () => {
+          operations?.pauseMutations()
+        },
+        finalEditorFlush: () => this.#snapshotParticipants.finalEditorFlush(context),
+        pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
+        resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
+        resumeMutations: async () => {
+          operations?.resumeMutations()
+        }
+      }
+      try {
+        return await createProjectSnapshot({
+          sourceRoot: context.projectRoot,
+          manifest: context.manifest,
+          sourceDatabase: context.database,
+          destination,
+          sourceAppVersion: this.#applicationVersion,
+          inventoryFromBackup: () => inventoryProjectFiles(context.projectRoot),
+          barrier,
+          log: this.#logger
+        })
+      } catch (err) {
+        this.#logger.error(
+          {
+            event: 'project_manager.snapshot_create.failed',
+            err,
+            projectId: context.manifest.projectId
+          },
+          'Project snapshot creation failed'
+        )
+        throw new Error('Failed to create project snapshot', { cause: err })
+      }
+    })
+  }
+
+  restoreSnapshot(options: {
+    snapshotRoot: string
+    destination: string
+  }): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (this.#state !== 'closed' && this.#state !== 'recovery-required') {
+        throw new Error(`Cannot restore a snapshot while state is ${this.#state}`)
+      }
+      this.#state = 'opening'
+      try {
+        const restored = await restoreProjectSnapshot({
+          snapshotRoot: options.snapshotRoot,
+          destination: options.destination,
+          log: this.#logger
+        })
+        const canonicalRoot = await this.#dependencies.canonicalizeRoot(restored.destination)
+        await this.#openCanonicalRoot(canonicalRoot)
+        this.#recovery = null
+        return this.snapshot()
+      } catch (err) {
+        this.#state = 'recovery-required'
+        this.#logger.error(
+          { event: 'project_manager.snapshot_restore.failed', err },
+          'Project snapshot restore failed'
+        )
+        throw new Error('Failed to restore the project snapshot', { cause: err })
       }
     })
   }

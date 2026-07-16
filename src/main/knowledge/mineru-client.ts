@@ -8,6 +8,10 @@ import {
 } from '../../shared/contracts/mineru'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
 import type { UtilityProcessFactory } from '../providers/provider-probe-client'
+import {
+  PersistentUtilityProcess,
+  type UtilityMessageDecision
+} from '../workers/persistent-utility-process'
 import type {
   MineruAllocatedResult,
   MineruDownloadedResult,
@@ -30,17 +34,26 @@ export class MineruGatewayError extends Error {
 }
 
 export class MineruClient implements MineruGateway {
-  readonly #active = new Set<Electron.UtilityProcess>()
+  readonly #worker: PersistentUtilityProcess
 
   constructor(
-    private readonly modulePath: string,
+    modulePath: string,
     private readonly log: Logger,
-    private readonly processFactory: UtilityProcessFactory = utilityProcess
-  ) {}
+    processFactory: UtilityProcessFactory = utilityProcess,
+    sharedWorker?: PersistentUtilityProcess
+  ) {
+    this.#worker =
+      sharedWorker ??
+      new PersistentUtilityProcess({
+        modulePath,
+        serviceName: 'writellm-background-worker',
+        log,
+        factory: processFactory
+      })
+  }
 
   terminateAll(): void {
-    for (const child of this.#active) child.kill()
-    this.#active.clear()
+    this.#worker.terminate()
   }
 
   async allocate(
@@ -49,7 +62,7 @@ export class MineruClient implements MineruGateway {
     input: { parseTaskId: string; fileName: string },
     signal: AbortSignal
   ): Promise<MineruAllocatedResult> {
-    const response = await this.run(
+    const response = await this.#run(
       { operation: 'allocate', requestId: randomUUID(), config, credential, ...input },
       signal
     )
@@ -65,7 +78,7 @@ export class MineruClient implements MineruGateway {
     input: { uploadUrl: string; sourcePath: string; expectedBytes: number },
     signal: AbortSignal
   ): Promise<void> {
-    const response = await this.run(
+    const response = await this.#run(
       { operation: 'upload', requestId: randomUUID(), ...input },
       signal
     )
@@ -80,7 +93,7 @@ export class MineruClient implements MineruGateway {
     input: { parseTaskId: string; remoteTaskId: string },
     signal: AbortSignal
   ): Promise<MineruPolledResult> {
-    const response = await this.run(
+    const response = await this.#run(
       { operation: 'poll', requestId: randomUUID(), config, credential, ...input },
       signal
     )
@@ -93,7 +106,7 @@ export class MineruClient implements MineruGateway {
     input: { downloadUrl: string; destinationPath: string; maxBytes: number },
     signal: AbortSignal
   ): Promise<MineruDownloadedResult> {
-    const response = await this.run(
+    const response = await this.#run(
       { operation: 'download', requestId: randomUUID(), ...input },
       signal
     )
@@ -109,7 +122,7 @@ export class MineruClient implements MineruGateway {
     >,
     signal: AbortSignal
   ): Promise<MineruNormalizedResult> {
-    const response = await this.run(
+    const response = await this.#run(
       { operation: 'normalize', requestId: randomUUID(), ...input },
       signal
     )
@@ -118,74 +131,42 @@ export class MineruClient implements MineruGateway {
     return result
   }
 
-  private run(request: MineruUtilityRequest, signal: AbortSignal): Promise<MineruSuccessResponse> {
+  #run(request: MineruUtilityRequest, signal: AbortSignal): Promise<MineruSuccessResponse> {
     if (signal.aborted) return Promise.reject(abortError())
     const parsedRequest = mineruUtilityRequestSchema.parse(request)
-    const child = this.processFactory.fork(this.modulePath, [], {
-      serviceName: 'writellm-mineru',
-      stdio: 'ignore'
+    return this.#worker.request({
+      requestId: parsedRequest.requestId,
+      payload: parsedRequest,
+      signal,
+      rejectOnAbort: abortError(),
+      onMessage: (raw) => this.#handleResponse(raw, parsedRequest.requestId)
     })
-    this.#active.add(child)
-    return new Promise((resolve, reject) => {
-      let settled = false
-      const finish = (operation: () => void): void => {
-        if (settled) return
-        settled = true
-        signal.removeEventListener('abort', onAbort)
-        child.removeListener('message', onMessage)
-        child.removeListener('exit', onExit)
-        this.#active.delete(child)
-        operation()
+  }
+
+  #handleResponse(raw: unknown, requestId: string): UtilityMessageDecision<MineruSuccessResponse> {
+    const parsed = mineruUtilityResponseSchema.safeParse(raw)
+    if (!parsed.success || parsed.data.requestId !== requestId) {
+      const err = parsed.success ? new Error('MinerU response request ID mismatch') : parsed.error
+      this.log.error(
+        { event: 'mineru.utility.response_invalid', err, requestId },
+        'MinerU utility returned an invalid response'
+      )
+      return {
+        kind: 'reject',
+        error: new Error('MinerU utility returned an invalid response'),
+        terminate: true
       }
-      const onAbort = (): void => {
-        finish(() => reject(abortError()))
-        child.kill()
-      }
-      const onExit = (code: number): void => {
-        finish(() => reject(new Error(`MinerU utility exited before responding (${code})`)))
-      }
-      const onMessage = (raw: unknown): void => {
-        const parsed = mineruUtilityResponseSchema.safeParse(raw)
-        if (!parsed.success || parsed.data.requestId !== parsedRequest.requestId) {
-          const err = parsed.success
-            ? new Error('MinerU response request ID mismatch')
-            : parsed.error
-          this.log.error(
-            { event: 'mineru.utility.response_invalid', err, requestId: parsedRequest.requestId },
-            'MinerU utility returned an invalid response'
-          )
-          finish(() => reject(new Error('MinerU utility returned an invalid response')))
-          child.kill()
-          return
-        }
-        const response = parsed.data
-        if (response.type === 'error') {
-          const err = reconstructError(response.error)
-          this.log.error(
-            { event: 'mineru.utility.failed', err, requestId: parsedRequest.requestId },
-            'MinerU utility request failed'
-          )
-          finish(() => reject(err))
-          child.kill()
-          return
-        }
-        finish(() => resolve(response))
-        child.kill()
-      }
-      signal.addEventListener('abort', onAbort, { once: true })
-      child.once('message', onMessage)
-      child.once('exit', onExit)
-      try {
-        child.postMessage(parsedRequest)
-      } catch (err) {
-        this.log.error(
-          { event: 'mineru.utility.start_failed', err, requestId: parsedRequest.requestId },
-          'Failed to start MinerU utility'
-        )
-        finish(() => reject(new Error('MinerU utility could not start', { cause: err })))
-        child.kill()
-      }
-    })
+    }
+    const response = parsed.data
+    if (response.type === 'error') {
+      const err = reconstructError(response.error)
+      this.log.error(
+        { event: 'mineru.utility.failed', err, requestId },
+        'MinerU utility request failed'
+      )
+      return { kind: 'reject', error: err }
+    }
+    return { kind: 'resolve', value: response }
   }
 }
 

@@ -75,8 +75,9 @@ describe('KnowledgeImportService', () => {
       )
     ).resolves.toEqual(bytes)
 
-    const [duplicate] = await service.importPaths([source])
-    expect(duplicate?.knowledgeItemId).toBe(stored?.knowledgeItemId)
+    const duplicates = await service.importPaths([source, source])
+    expect(duplicates).toHaveLength(1)
+    expect(duplicates[0]?.knowledgeItemId).toBe(stored?.knowledgeItemId)
     expect(service.list()).toHaveLength(1)
     expect(
       database.immediate((native) =>

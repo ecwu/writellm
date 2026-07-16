@@ -295,6 +295,14 @@ export function WritingWorkspace(props: {
             await editorRef.current.finalFlush(request)
             return
           }
+          if (request.sectionId !== undefined && request.sectionRevisionId !== undefined) {
+            await window.desktop.editor.acknowledgeFlush({
+              ...request,
+              sectionId: request.sectionId,
+              sectionRevisionId: request.sectionRevisionId
+            })
+            return
+          }
           const currentWorkspace =
             queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey) ??
             (await window.desktop.manuscript.workspace({
@@ -312,7 +320,16 @@ export function WritingWorkspace(props: {
             sectionId,
             sectionRevisionId: current.revision.sectionRevisionId
           })
-        })().catch(() => setEditorSaveState('failed'))
+        })().catch((err: unknown) => {
+          const error = err instanceof Error ? err : new Error(String(err))
+          window.desktop.diagnostics.reportRendererError({
+            event: 'renderer.unhandled_rejection',
+            message: error.message,
+            ...(error.stack === undefined ? {} : { stack: error.stack }),
+            source: 'writing-workspace.final-flush'
+          })
+          setEditorSaveState('failed')
+        })
       })
       .then((release) => {
         if (disposed) release()

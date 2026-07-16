@@ -2,19 +2,22 @@ import type {
   AuxiliaryUtilityRequest,
   AuxiliaryUtilityResponse
 } from '../shared/contracts/model-runtime'
+import { linkAbortSignal } from './shared/linked-abort-signal'
 
 export async function runAuxiliaryModelRequest(
   request: AuxiliaryUtilityRequest,
-  fetchImplementation: typeof fetch = fetch
+  fetchImplementation: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<AuxiliaryUtilityResponse> {
   return request.operation === 'embedding'
-    ? runEmbedding(request, fetchImplementation)
-    : runRerank(request, fetchImplementation)
+    ? runEmbedding(request, fetchImplementation, signal)
+    : runRerank(request, fetchImplementation, signal)
 }
 
 async function runEmbedding(
   request: Extract<AuxiliaryUtilityRequest, { operation: 'embedding' }>,
-  fetchImplementation: typeof fetch
+  fetchImplementation: typeof fetch,
+  externalSignal?: AbortSignal
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.config.role !== 'embedding') throw new Error('Embedding provider role is required')
   const [{ embedMany }, { createOpenAICompatible }] = await Promise.all([
@@ -33,6 +36,7 @@ async function runEmbedding(
     fetch: countedFetch
   })
   const controller = new AbortController()
+  const unlink = linkAbortSignal(externalSignal, controller)
   const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
   const embeddings: number[][] = []
   const responseIds: string[] = []
@@ -63,6 +67,7 @@ async function runEmbedding(
     }
   } finally {
     clearTimeout(timeout)
+    unlink()
   }
   if (embeddings.length !== request.input.values.length) {
     throw new Error('Embedding provider returned an unexpected vector count')
@@ -77,6 +82,7 @@ async function runEmbedding(
   return {
     type: 'embedding-result',
     requestId: request.requestId,
+    projectSessionId: request.projectSessionId ?? null,
     result: {
       embeddings,
       metadata: {
@@ -97,7 +103,8 @@ async function runEmbedding(
 
 async function runRerank(
   request: Extract<AuxiliaryUtilityRequest, { operation: 'rerank' }>,
-  fetchImplementation: typeof fetch
+  fetchImplementation: typeof fetch,
+  externalSignal?: AbortSignal
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.config.role !== 'rerank') throw new Error('Rerank provider role is required')
   const [{ rerank }, { createCohere }] = await Promise.all([import('ai'), import('@ai-sdk/cohere')])
@@ -112,6 +119,7 @@ async function runRerank(
     fetch: countedFetch
   })
   const controller = new AbortController()
+  const unlink = linkAbortSignal(externalSignal, controller)
   const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
   try {
     const result = await rerank({
@@ -132,6 +140,7 @@ async function runRerank(
     return {
       type: 'rerank-result',
       requestId: request.requestId,
+      projectSessionId: request.projectSessionId ?? null,
       result: {
         ranking: result.ranking.map(({ originalIndex, score }) => ({ originalIndex, score })),
         metadata: {
@@ -150,5 +159,6 @@ async function runRerank(
     }
   } finally {
     clearTimeout(timeout)
+    unlink()
   }
 }

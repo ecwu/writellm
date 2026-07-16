@@ -31,10 +31,11 @@ class FakeUtilityProcess extends EventEmitter {
 }
 
 describe('MineruClient', () => {
-  it('uses a short-lived utility process for an allocation response', async () => {
+  it('keeps one background worker for sequential allocation responses', async () => {
     const child = new FakeUtilityProcess()
+    const factory = { fork: vi.fn(() => child) }
     const client = new MineruClient('/private/mineru.js', pino({ level: 'silent' }), {
-      fork: () => child
+      fork: factory.fork
     } as never)
     const result = await client.allocate(
       config,
@@ -47,7 +48,14 @@ describe('MineruClient', () => {
     expect(child.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ config, credential: 'process-secret' })
     )
-    expect(child.kill).toHaveBeenCalledOnce()
+    await client.allocate(
+      config,
+      'process-secret',
+      { parseTaskId: 'parse-2', fileName: 'source-2.pdf' },
+      new AbortController().signal
+    )
+    expect(factory.fork).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 
   it('routes normalization through the utility without a provider credential', async () => {
@@ -87,7 +95,7 @@ describe('MineruClient', () => {
       expect.objectContaining({ operation: 'normalize', normalizerVersion: 1 })
     )
     expect(child.postMessage.mock.calls[0]?.[0]).not.toHaveProperty('credential')
-    expect(child.kill).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 
   it('reconstructs only safe provider diagnostics and revokes active utilities', async () => {
@@ -138,7 +146,7 @@ describe('MineruClient', () => {
     )
     activeClient.terminateAll()
     activeChild.emit('exit', 1)
-    await expect(pending).rejects.toThrow('exited before responding')
+    await expect(pending).rejects.toThrow('terminated')
     expect(activeChild.kill).toHaveBeenCalledOnce()
   })
 })

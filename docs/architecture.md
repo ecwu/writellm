@@ -5,7 +5,7 @@ Recorded: 2026-07-16
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
-The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 20 is blocked until Checkpoint 19.5 passes.
+The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 20 remains deferred until the user approves continuation after Checkpoint 19.5.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -20,6 +20,7 @@ The following rules are now the current target. Any older section in this docume
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
 - BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
+- Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
 
 ## Product Scope And Invariants
 
@@ -412,7 +413,7 @@ app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
   recent_projects            manuscript
   provider_configs           manuscript_briefs
   encrypted_credentials      sections
-  app_schema_manifest        section_revisions
+  schema_manifest            section_revisions
                              section_materializations
                              knowledge_items
                              parse_revisions
@@ -425,7 +426,7 @@ app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
                              agent_runs
                              agent_events
                              mutation_proposals
-                             project_schema_manifest
+                             schema_manifest
 
 <ProjectRoot>/.writellm/index.sqlite
   chunks
@@ -852,13 +853,13 @@ Handlers are idempotent and deduplicated by stable content/operation keys. Job p
 
 The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns are request-scoped work; they use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
 
-Initial resource queues remain subject to provider limits and benchmarks:
+Current resource queues (rerank is request-scoped and has no durable queue; the set remains subject to provider limits and benchmarks):
 
 ```text
-embedding: 3
-rerank: 3
 mineru: 1
-indexing: 1
+embedding: 3
+index: 1
+local-io: 2
 ```
 
 Write-type agent tools remain sequential even when Pi permits parallel tool execution globally.
@@ -886,7 +887,7 @@ fileId, role, relativePath, sha256, size, mimeType,
 sourceName, sourceType, revision, createdAt, updatedAt
 ```
 
-Chokidar observes the active project only where external edits are intentionally supported. Internal atomic writes are suppressed or reconciled to avoid feedback loops.
+External project watching is intentionally not implemented until an external-edit synchronization requirement exists. The historical watcher design is superseded by the CP19.5 fixed-stack rule; internal atomic writes therefore have no watcher feedback loop to suppress.
 
 A raw folder copy while the project is open is not treated as a verified backup. Provide a project snapshot operation that:
 

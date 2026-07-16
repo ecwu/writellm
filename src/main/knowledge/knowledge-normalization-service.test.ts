@@ -104,9 +104,7 @@ describe('KnowledgeNormalizationService', () => {
     expect(blockLines[2]?.assetRefs[0]).toMatch(/^images\/[a-f0-9]{64}\.png$/)
     expect(blockLines.every((block, index) => block.ordinal === index)).toBe(true)
     expect(new Set(blockLines.map((block) => block.id)).size).toBe(blockLines.length)
-    expect(fixture.jobs.list({ limit: 10 }).some((job) => job.type === 'index.item-upsert')).toBe(
-      true
-    )
+    expect(fixture.jobs.list({ limit: 10 }).some((job) => job.type === 'rebuild_index')).toBe(true)
     fixture.database.close()
   })
 

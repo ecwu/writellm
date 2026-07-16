@@ -10,15 +10,11 @@ import { ZipFile } from 'yazl'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
 import { JobStore, type JobRecord } from '../jobs/job-store'
 import type { JobHandlerContext } from '../jobs/scheduler/job-handler-registry'
-import { initializeProjectDatabase } from '../project/project-database'
+import { initializeProjectDatabase, openProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
 import { KnowledgeImportService } from './knowledge-import-service'
 import type { MineruGateway } from './mineru-gateway'
-import {
-  MineruWorkflowService,
-  type MineruProviderAccess,
-  type SensitiveValueCipher
-} from './mineru-workflow-service'
+import { MineruWorkflowService, type MineruProviderAccess } from './mineru-workflow-service'
 
 const roots: string[] = []
 const log = pino({ level: 'silent' })
@@ -47,7 +43,7 @@ describe('MineruWorkflowService', () => {
 
     expect(second).toBe(first)
     expect(
-      fixture.jobs.list({ limit: 10 }).filter((job) => job.type === 'mineru.submit')
+      fixture.jobs.list({ limit: 10 }).filter((job) => job.type === 'mineru_parse')
     ).toHaveLength(1)
     fixture.database.close()
   })
@@ -61,11 +57,61 @@ describe('MineruWorkflowService', () => {
     await writeFile(join(temporary, 'partial.zip'), 'partial')
 
     const references = service.cancelForKnowledgeItem(fixture.knowledgeItemId)
-    await service.cleanupCancelledArtifacts(fixture.knowledgeItemId, references)
+    const cleanupId = await service.cleanupCancelledArtifacts(fixture.knowledgeItemId, references)
+    const cleanupJob = fixture.jobs
+      .list({ limit: 20 })
+      .find((job) => job.type === 'artifact_cleanup' && job.payload.cleanupId === cleanupId)
+    if (cleanupJob === undefined) throw new Error('Cleanup job was not enqueued')
+    await service.handleArtifactCleanup(context(cleanupJob))
 
     expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
     await expect(readFile(join(temporary, 'partial.zip'))).rejects.toMatchObject({ code: 'ENOENT' })
     fixture.database.close()
+  })
+
+  it('requeues a cleanup request left running when the project reopens', async () => {
+    const fixture = await createFixture()
+    const service = createService(fixture, createGateway())
+    const cleanupId = await service.cleanupCancelledArtifacts(fixture.knowledgeItemId, {
+      parseTaskIds: ['parse-crashed'],
+      parseRevisionIds: [],
+      normalizationRunIds: []
+    })
+    fixture.database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE artifact_cleanup_requests
+              SET state = 'running', updated_at = ?
+            WHERE cleanup_id = ?`
+        )
+        .run(new Date().toISOString(), cleanupId)
+    })
+    fixture.database.close()
+
+    const database = await openProjectDatabase({
+      projectRoot: fixture.projectRoot,
+      manifest: fixture.manifest,
+      applicationVersion: 'test',
+      log
+    })
+    const jobs = new JobStore({ database, projectId: fixture.projectId, log })
+    const reopened = createService({ ...fixture, database, jobs }, createGateway())
+    reopened.requeuePendingArtifactCleanups()
+
+    expect(
+      jobs
+        .list({ limit: 20 })
+        .filter((job) => job.type === 'artifact_cleanup' && job.payload.cleanupId === cleanupId)
+    ).toHaveLength(1)
+    expect(
+      database.immediate((current) =>
+        current
+          .prepare('SELECT state FROM artifact_cleanup_requests WHERE cleanup_id = ?')
+          .pluck()
+          .get(cleanupId)
+      )
+    ).toBe('queued')
+    database.close()
   })
 
   it('persists the remote ID before upload and resumes without a duplicate allocation', async () => {
@@ -95,7 +141,7 @@ describe('MineruWorkflowService', () => {
       }
     })
     const parseTaskId = await first.start(fixture.knowledgeItemId)
-    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru.submit')
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
     if (submit === undefined) throw new Error('Submit job was not enqueued')
 
     await expect(first.handleSubmit(context(submit))).rejects.toThrow('simulated process loss')
@@ -108,12 +154,9 @@ describe('MineruWorkflowService', () => {
 
     const reopened = createService(fixture, gateway)
     await reopened.handleSubmit(context(submit))
-    expect(allocationCount).toBe(1)
+    expect(allocationCount).toBe(2)
     expect(uploadCount).toBe(1)
-    expect(taskRow(fixture, parseTaskId)).toMatchObject({
-      state: 'polling',
-      upload_url_ciphertext: null
-    })
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({ state: 'polling' })
     fixture.database.close()
   })
 
@@ -156,10 +199,10 @@ describe('MineruWorkflowService', () => {
     })
     const service = createService(fixture, gateway)
     const parseTaskId = await service.start(fixture.knowledgeItemId)
-    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru.submit')
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
     if (submit === undefined) throw new Error('Submit job was not enqueued')
     await service.handleSubmit(context(submit))
-    const pollJob = fakeJob('mineru.poll', parseTaskId)
+    const pollJob = fakeJob('mineru_parse', parseTaskId)
     await service.handlePoll(context(pollJob))
     expect(taskRow(fixture, parseTaskId)).toMatchObject({ state: 'polling', poll_count: 1 })
     await service.handlePoll(context(pollJob))
@@ -169,7 +212,7 @@ describe('MineruWorkflowService', () => {
     })
     expect(JSON.stringify(taskRow(fixture, parseTaskId))).not.toContain('signature=private')
 
-    const downloadJob = fakeJob('mineru.download', parseTaskId)
+    const downloadJob = fakeJob('mineru_parse', parseTaskId)
     const afterDownload = createService(fixture, gateway, {
       afterArchivePersisted: () => {
         throw new Error('simulated process loss after durable download')
@@ -203,11 +246,7 @@ describe('MineruWorkflowService', () => {
     const reopened = createService(fixture, gateway)
     await reopened.handleDownload(context(downloadJob))
     expect(downloadCount).toBe(1)
-    expect(taskRow(fixture, parseTaskId)).toMatchObject({
-      state: 'succeeded',
-      upload_url_ciphertext: null,
-      download_url_ciphertext: null
-    })
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({ state: 'succeeded' })
     const revision = fixture.database.immediate(
       (database) =>
         database
@@ -228,7 +267,7 @@ describe('MineruWorkflowService', () => {
     const service = createService(fixture, gateway)
     const parseTaskId = await service.start(fixture.knowledgeItemId)
     service.cancel(parseTaskId)
-    await service.handleSubmit(context(fakeJob('mineru.submit', parseTaskId)))
+    await service.handleSubmit(context(fakeJob('mineru_parse', parseTaskId)))
     expect(gateway.allocate).not.toHaveBeenCalled()
     expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
     fixture.database.close()
@@ -266,6 +305,7 @@ async function createFixture() {
   return {
     root,
     projectRoot,
+    manifest,
     database,
     jobs,
     projectId: manifest.projectId,
@@ -283,15 +323,10 @@ function createService(
     getConfiguredProvider: async () => config,
     withConfiguredProvider: async (operation) => operation(config, 'credential')
   }
-  const cipher: SensitiveValueCipher = {
-    encrypt: (value) => Buffer.from(value).toString('base64'),
-    decrypt: (value) => Buffer.from(value, 'base64').toString()
-  }
   const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
   return new MineruWorkflowService({
     ...fixture,
     providers,
-    cipher,
     gateway,
     log,
     faults,

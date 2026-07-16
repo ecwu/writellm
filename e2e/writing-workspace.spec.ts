@@ -226,6 +226,37 @@ test('surfaces a stale section conflict and can reload the canonical revision', 
   }
 })
 
+test('creates a project snapshot and restores it into a new project folder', async ({
+  testRoot
+}) => {
+  const projectName = 'Snapshot source'
+  const snapshotRoot = join(testRoot, 'Snapshot backup')
+  const restoredRoot = join(testRoot, 'Snapshot backup.writellm')
+  const launched = await launchApp({
+    userData: join(testRoot, 'user-data'),
+    dialogPaths: [testRoot, snapshotRoot, snapshotRoot, testRoot]
+  })
+  try {
+    await createProject(launched.page, projectName)
+    await saveEditorText(launched.page, 'Snapshot content')
+
+    await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Create snapshot', exact: true }).click()
+    await expect(readdir(snapshotRoot)).resolves.toContain('writellm.snapshot.json')
+
+    await closeProject(launched.page)
+    await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Restore snapshot', exact: true }).click()
+    await expect(
+      launched.page.getByRole('heading', { name: 'Snapshot backup', exact: true })
+    ).toBeVisible()
+    await expect(readdir(restoredRoot)).resolves.toContain('writellm.project.json')
+    await expect(launched.page.locator('.bn-editor').first()).toContainText('Snapshot content')
+  } finally {
+    await launched.app.close()
+  }
+})
+
 test('imports a durable project-local knowledge original and deduplicates repeated bytes', async ({
   testRoot
 }) => {
@@ -235,7 +266,7 @@ test('imports a durable project-local knowledge original and deduplicates repeat
   const projectRoot = join(testRoot, `${projectName}.writellm`)
   const launched = await launchApp({
     userData: join(testRoot, 'user-data'),
-    dialogPaths: [testRoot],
+    dialogPaths: [testRoot, projectRoot],
     knowledgeDialogPaths: [source, source]
   })
   try {
@@ -243,14 +274,33 @@ test('imports a durable project-local knowledge original and deduplicates repeat
     await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     const knowledge = launched.page.getByTestId('knowledge-workspace')
     await knowledge.getByTestId('knowledge-upload-button').click()
+    await expect
+      .poll(
+        () =>
+          launched.page.evaluate(async () => {
+            const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+              ?.projectSessionId
+            if (projectSessionId === undefined) return 0
+            const items = await window.desktop.knowledge.list({ projectSessionId })
+            return items.filter((item) => item.state === 'stored').length
+          }),
+        { timeout: 20_000 }
+      )
+      .toBe(1)
+    await expect(knowledge.getByTestId(/^knowledge-file-/)).toHaveCount(1)
     await expect(knowledge.getByText('研究 source.pdf', { exact: true })).toBeVisible()
-    await expect(knowledge.getByText('stored', { exact: true })).toHaveCount(1)
     const originalNames = await readdir(join(projectRoot, 'knowledge', 'originals', 'sha256'), {
       recursive: true
     })
     expect(originalNames.some((name) => name.endsWith('研究 source.pdf'))).toBe(true)
     await closeProject(launched.page)
-    await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+    await expect
+      .poll(
+        () => launched.page.evaluate(async () => (await window.desktop.projects.lifecycle()).state),
+        { timeout: 30_000 }
+      )
+      .toBe('closed')
+    await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
     await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     await expect(
       launched.page.getByTestId('knowledge-workspace').getByText('研究 source.pdf')

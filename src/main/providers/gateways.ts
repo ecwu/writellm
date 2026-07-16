@@ -15,7 +15,8 @@ export interface AgentModelRuntime {
     credential: string,
     input: AgentRunInput,
     signal: AbortSignal,
-    onEvent: (event: AgentStreamEvent) => void
+    onEvent: (event: AgentStreamEvent) => void,
+    projectSessionId?: string
   ): Promise<AgentRunResult>
 }
 
@@ -24,7 +25,8 @@ export interface EmbeddingGateway {
     config: ProviderConfig,
     credential: string,
     input: EmbeddingBatchInput,
-    signal: AbortSignal
+    signal: AbortSignal,
+    projectSessionId?: string
   ): Promise<EmbeddingBatchResult>
 }
 
@@ -33,6 +35,7 @@ export interface RerankGateway {
     config: ProviderConfig,
     credential: string,
     input: RerankInput,
-    signal: AbortSignal
+    signal: AbortSignal,
+    projectSessionId?: string
   ): Promise<RerankResult>
 }

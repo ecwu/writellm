@@ -28,6 +28,12 @@ export const sectionRevisionSourceSchema = z.enum([
   'agent',
   'undo'
 ])
+export const sectionRevisionClassSchema = z.enum([
+  'manual_autosave',
+  'manual_checkpoint',
+  'agent_accepted',
+  'import'
+])
 
 const boundedText = z.string().max(32_000)
 const requiredTitle = z.string().trim().min(1).max(500)
@@ -402,6 +408,7 @@ export const sectionRevisionSchema = z
     sectionId: sectionIdSchema,
     revisionNumber: z.number().int().positive(),
     source: sectionRevisionSourceSchema,
+    sourceClass: sectionRevisionClassSchema.optional(),
     content: blockNoteDocumentSchema,
     contentSchemaVersion: z.literal(SECTION_CONTENT_SCHEMA_VERSION),
     contentHash: contentHashSchema,
@@ -425,6 +432,7 @@ export const appendSectionRevisionInputSchema = z
     baseContentHash: contentHashSchema,
     content: blockNoteDocumentSchema,
     source: sectionRevisionSourceSchema.default('manual'),
+    sourceClass: sectionRevisionClassSchema.optional(),
     agentRunId: z.string().min(1).max(256).nullable().default(null),
     agentToolCallId: z.string().min(1).max(256).nullable().default(null),
     agentProposalId: z.string().min(1).max(256).nullable().default(null)
@@ -525,7 +533,8 @@ export const saveSectionDocumentInputSchema = loadSectionInputSchema
   .extend({
     baseRevisionId: sectionRevisionIdSchema,
     baseContentHash: contentHashSchema,
-    document: blockNoteDocumentSchema
+    document: blockNoteDocumentSchema,
+    revisionSource: sectionRevisionClassSchema.optional()
   })
   .strict()
 export const editorSectionSchema = z
@@ -555,12 +564,18 @@ export const saveSectionDocumentResponseSchema = z.discriminatedUnion('ok', [
     .strict()
 ])
 export const finalFlushSaveInputSchema = saveSectionDocumentInputSchema
-  .extend({ closingToken: z.string().uuid() })
+  .extend({
+    closingToken: z.string().uuid(),
+    purpose: z.enum(['close', 'snapshot']).optional()
+  })
   .strict()
 export const editorFlushRequestSchema = z
   .object({
     projectSessionId: z.string().min(1).max(256),
-    closingToken: z.string().uuid()
+    closingToken: z.string().uuid(),
+    purpose: z.enum(['close', 'snapshot']).optional(),
+    sectionId: sectionIdSchema.optional(),
+    sectionRevisionId: sectionRevisionIdSchema.optional()
   })
   .strict()
 export const editorFlushAckInputSchema = editorFlushRequestSchema
@@ -605,6 +620,7 @@ export const MANUSCRIPT_ERROR_CODES = [
   'section_parent_invalid',
   'section_cycle',
   'section_position_invalid',
+  'outline_depth_exceeded',
   'section_has_children',
   'section_is_last',
   'section_deletion_blocked'

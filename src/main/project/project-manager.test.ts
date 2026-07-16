@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rename, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import pino from 'pino'
@@ -213,7 +213,7 @@ describe('ProjectManager', () => {
       log: silentLog,
       now: () => new Date('2020-01-01T00:00:00.000Z')
     })
-    const job = store.enqueue({ type: 'index.rebuild', payload: { generationId: 'old' } }).job
+    const job = store.enqueue({ type: 'rebuild_index', payload: { generationId: 'old' } }).job
     store.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
     database.close()
 
@@ -290,6 +290,28 @@ describe('ProjectManager', () => {
     )
     restoredDatabase.close()
 
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('creates a verified snapshot through the live manager and restores it elsewhere', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'snapshot-source')
+    const opened = await manager.open(created.projectRoot)
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const snapshotRoot = join(parent, 'snapshot.writellm-snapshot')
+    const manifest = await manager.createSnapshot(sessionId, snapshotRoot)
+    expect(manifest.projectId).toBe(created.manifest.projectId)
+    await manager.close()
+
+    const restored = await manager.restoreSnapshot({
+      snapshotRoot,
+      destination: join(parent, 'snapshot-restored.writellm')
+    })
+    expect(restored.state).toBe('open')
+    expect(restored.activeProject?.projectId).toBe(created.manifest.projectId)
+    expect(restored.activeProject?.projectSessionId).not.toBe(sessionId)
     await manager.close()
     appDatabase.close()
   })
@@ -483,6 +505,86 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('retries the unresolved close steps after a recovery-required close', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'retry-close')
+    const stopWorkers = vi.fn().mockRejectedValueOnce(new Error('worker stop failed'))
+    const manager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      closeParticipants: { stopWorkersAndIndex: stopWorkers }
+    })
+    await manager.open(created.projectRoot)
+    await expect(manager.close()).rejects.toThrow('Failed to close project cleanly')
+    expect(manager.snapshot().state).toBe('recovery-required')
+    await expect(manager.retryClose()).resolves.toEqual({ state: 'closed', activeProject: null })
+    expect(stopWorkers).toHaveBeenCalledTimes(2)
+    appDatabase.close()
+  })
+
+  it('supports retry-open, locate-moved, diagnostics export, return-to-closed, and create discard exits', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'recovery-exits')
+    let failOpen = true
+    const manager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      dependencies: {
+        openDatabase: async (options) => {
+          if (failOpen) {
+            failOpen = false
+            throw new Error('open failed')
+          }
+          return openProjectDatabase(options)
+        }
+      },
+      exportDiagnostics: async () => ({ exported: true })
+    })
+    await expect(manager.open(created.projectRoot)).rejects.toThrow('Failed to open project')
+    await expect(manager.retryOpen()).resolves.toMatchObject({ state: 'open' })
+    await manager.close()
+
+    await expect(manager.open(join(parent, 'missing-project'))).rejects.toThrow()
+    await expect(manager.exportDiagnostics()).resolves.toEqual({ exported: true })
+    await expect(manager.returnToClosed()).resolves.toEqual({
+      state: 'closed',
+      activeProject: null
+    })
+
+    await expect(manager.open(join(parent, 'missing-project'))).rejects.toThrow()
+    await expect(manager.locateMovedProject(created.projectRoot)).resolves.toMatchObject({
+      state: 'open'
+    })
+    await manager.close()
+
+    const incompleteRoot = join(parent, 'incomplete.writellm')
+    await mkdir(incompleteRoot, { recursive: true })
+    await mkdir(join(incompleteRoot, '.writellm'), { recursive: true })
+    const discardManager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      dependencies: {
+        createProject: async () => {
+          throw new ProjectCreateError(new Error('ambiguous create'), 'recovery-required')
+        }
+      }
+    })
+    await expect(
+      discardManager.create({ parentDirectory: parent, name: 'incomplete' })
+    ).rejects.toThrow('Failed to create and open project')
+    await expect(discardManager.discardIncompleteCreate()).resolves.toEqual({
+      state: 'closed',
+      activeProject: null
+    })
+    await expect(realpath(incompleteRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    appDatabase.close()
+  })
+
   it('switches strictly by completing close before opening the selected project', async () => {
     const { parent, appDatabase, recentProjects } = await testEnvironment()
     const first = await existingProject(parent, 'first')
@@ -520,7 +622,7 @@ describe('ProjectManager', () => {
     const created = await existingProject(parent, 'runtime-reopen')
     let firstExecutions = 0
     const firstRegistry = new JobHandlerRegistry()
-    firstRegistry.register('import.validate', async ({ signal }) => {
+    firstRegistry.register('artifact_cleanup', async ({ signal }) => {
       firstExecutions += 1
       await new Promise<void>((_, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true })
@@ -539,8 +641,8 @@ describe('ProjectManager', () => {
       firstOpen.activeProject?.projectSessionId as string
     )
     const job = firstContext.jobs.enqueue({
-      type: 'import.validate',
-      payload: { fileId: 'manager-runtime' },
+      type: 'artifact_cleanup',
+      payload: { cleanupId: 'manager-runtime' },
       maxAttempts: 1
     }).job
     firstContext.runtime.scheduler.wake()
@@ -550,7 +652,7 @@ describe('ProjectManager', () => {
 
     let resumedExecutions = 0
     const secondRegistry = new JobHandlerRegistry()
-    secondRegistry.register('import.validate', async () => {
+    secondRegistry.register('artifact_cleanup', async () => {
       resumedExecutions += 1
     })
     const secondManager = new ProjectManager({

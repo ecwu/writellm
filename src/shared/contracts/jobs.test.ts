@@ -12,7 +12,7 @@ describe('job IPC contracts', () => {
     expect(() =>
       jobStatusSchema.parse({
         jobId: 'job',
-        type: 'index.build',
+        type: 'build_index_generation',
         state: 'queued',
         priority: 0,
         attempts: 0,

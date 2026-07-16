@@ -5,6 +5,7 @@ import type {
   ProcessRole,
   Subsystem
 } from '../../shared/observability/log-schema'
+import { currentLogContext } from '../../main/observability/log-context'
 
 interface LogPort {
   postMessage(message: unknown): void
@@ -41,7 +42,7 @@ export function createPortLogger(
       ...bindings,
       event,
       message,
-      context,
+      context: { ...context, ...currentLogContext() },
       fields,
       ...(original === undefined
         ? {}

@@ -56,6 +56,7 @@ export interface SectionRevisionTable {
   section_id: string
   revision_number: number
   source: SectionRevisionSource
+  source_class: 'manual_autosave' | 'manual_checkpoint' | 'agent_accepted' | 'import'
   content_json: string
   content_schema_version: number
   content_hash: string
@@ -177,8 +178,6 @@ export interface ParseTaskTable {
   model_version: 'pipeline' | 'vlm' | 'MinerU-HTML'
   state: ParseTaskState
   remote_task_id: string | null
-  upload_url_ciphertext: string | null
-  download_url_ciphertext: string | null
   remote_state: MineruRemoteState | null
   trace_id: string | null
   poll_count: number
@@ -253,6 +252,21 @@ export interface ActiveParseRevisionTable {
   updated_at: string
 }
 
+export interface ArtifactCleanupRequestTable {
+  cleanup_id: string
+  knowledge_item_id: string
+  reason: 'cancelled' | 'deleted'
+  parse_task_ids_json: string
+  parse_revision_ids_json: string
+  normalization_run_ids_json: string
+  staging_relative_paths_json: string
+  state: 'queued' | 'running' | 'succeeded'
+  error_code: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
 export interface SchemaManifestTable {
   id: number
   application_version: string
@@ -267,7 +281,7 @@ export interface SchemaMigrationTable {
   applied_at: string
 }
 
-export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'paused'
+export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 export interface JobTable {
   job_id: string
@@ -321,6 +335,7 @@ export interface ProjectDatabaseSchema {
   parse_task_events: ParseTaskEventTable
   normalization_runs: NormalizationRunTable
   active_parse_revisions: ActiveParseRevisionTable
+  artifact_cleanup_requests: ArtifactCleanupRequestTable
   jobs: JobTable
   job_transitions: JobTransitionTable
   schema_manifest: SchemaManifestTable

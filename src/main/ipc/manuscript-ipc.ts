@@ -110,7 +110,7 @@ export function registerManuscriptIpc(options: {
       parsed.projectSessionId,
       () => {
         options.manager
-          .assertActiveSession(parsed.projectSessionId)
+          .assertMutationSession(parsed.projectSessionId)
           .manuscript.updateBrief(parsed.update)
         return workspace(parsed.projectSessionId)
       },
@@ -125,7 +125,7 @@ export function registerManuscriptIpc(options: {
       'manuscript.section.create',
       parsed.projectSessionId,
       async () => {
-        const context = options.manager.assertActiveSession(parsed.projectSessionId)
+        const context = options.manager.assertMutationSession(parsed.projectSessionId)
         const created = context.manuscript.createSection(parsed.create)
         try {
           await context.editorPersistence.materialize(
@@ -157,7 +157,7 @@ export function registerManuscriptIpc(options: {
       parsed.projectSessionId,
       () => {
         options.manager
-          .assertActiveSession(parsed.projectSessionId)
+          .assertMutationSession(parsed.projectSessionId)
           .manuscript.updateSection(parsed.update)
         return workspace(parsed.projectSessionId)
       },
@@ -176,7 +176,7 @@ export function registerManuscriptIpc(options: {
       parsed.projectSessionId,
       () => {
         options.manager
-          .assertActiveSession(parsed.projectSessionId)
+          .assertMutationSession(parsed.projectSessionId)
           .manuscript.moveSection(parsed.move)
         return workspace(parsed.projectSessionId)
       },
@@ -194,7 +194,7 @@ export function registerManuscriptIpc(options: {
       'manuscript.section.delete',
       parsed.projectSessionId,
       async () => {
-        const context = options.manager.assertActiveSession(parsed.projectSessionId)
+        const context = options.manager.assertMutationSession(parsed.projectSessionId)
         context.manuscript.deleteSection(parsed.delete)
         try {
           await context.editorPersistence.removeMaterialization(parsed.delete.sectionId)

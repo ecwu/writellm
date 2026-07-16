@@ -2,7 +2,8 @@ import type { AgentRunResult, AgentUtilityRequest } from '../shared/contracts/mo
 
 export async function runAgentModelRequest(
   request: AgentUtilityRequest,
-  onTextDelta: (delta: string) => void
+  onTextDelta: (delta: string) => void,
+  externalSignal?: AbortSignal
 ): Promise<AgentRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
@@ -68,11 +69,15 @@ export async function runAgentModelRequest(
     return originalFetch(input, init)
   }
   const timeout = setTimeout(() => agent.abort(), request.config.timeoutMs)
+  const abortExternal = (): void => agent.abort()
+  if (externalSignal?.aborted) agent.abort()
+  else externalSignal?.addEventListener('abort', abortExternal, { once: true })
   try {
     await agent.prompt(request.input.prompt)
     await agent.waitForIdle()
   } finally {
     clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', abortExternal)
     globalThis.fetch = originalFetch
   }
 

@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { providerConfigSchema } from './providers'
+import { projectSessionIdSchema } from './projects'
 
 export const providerProbeRequestSchema = z.object({
   requestId: z.uuid(),
+  projectSessionId: projectSessionIdSchema.nullable().optional(),
   config: providerConfigSchema,
   credential: z.string().min(1).max(16_384)
 })
@@ -12,12 +14,14 @@ export const providerProbeResponseSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('result'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     status: z.number().int().min(100).max(599),
     providerCode: z.string().max(100).optional()
   }),
   z.object({
     type: z.literal('error'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     error: z.object({
       name: z.string().max(200),
       message: z.string().max(4_096),

@@ -45,17 +45,17 @@ describe('JobStore', () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
     const target = store.enqueue({
-      type: 'mineru.submit',
+      type: 'mineru_parse',
       payload: { parseTaskId: 'parse-target' }
     }).job
     const other = store.enqueue({
-      type: 'mineru.submit',
+      type: 'mineru_parse',
       payload: { parseTaskId: 'parse-other' }
     }).job
 
     expect(
       store.requestCancellationForPayload({
-        types: ['mineru.submit', 'mineru.poll', 'mineru.download'],
+        types: ['mineru_parse'],
         field: 'parseTaskId',
         values: ['parse-target']
       })
@@ -70,13 +70,13 @@ describe('JobStore', () => {
 
     expect(
       store.enqueue({
-        type: 'mineru.submit',
+        type: 'mineru_parse',
         payload: { parseTaskId: 'parse-1' }
       }).job.payload
     ).toEqual({ parseTaskId: 'parse-1' })
     expect(() =>
       store.enqueue({
-        type: 'mineru.submit',
+        type: 'mineru_parse',
         payload: { parseTaskId: 'parse-1', absolutePath: '/private/source.pdf' }
       })
     ).toThrow()
@@ -91,7 +91,7 @@ describe('JobStore', () => {
     ]) {
       expect(() =>
         store.enqueue({
-          type: 'mineru.submit',
+          type: 'mineru_parse',
           payload: { parseTaskId: 'parse-1', relativePath }
         })
       ).toThrow()
@@ -99,7 +99,7 @@ describe('JobStore', () => {
     for (const forbidden of ['data', 'text', 'source', 'rawText', 'credential', 'apiKey']) {
       expect(() =>
         store.enqueue({
-          type: 'mineru.submit',
+          type: 'mineru_parse',
           payload: {
             parseTaskId: 'parse-1',
             [forbidden]: 'private'
@@ -125,12 +125,12 @@ describe('JobStore', () => {
     })
 
     const first = store.enqueue({
-      type: 'index.build',
+      type: 'build_index_generation',
       payload: { generationId: 'generation-1' },
       deduplicationKey: 'generation-1'
     })
     const duplicate = store.enqueue({
-      type: 'index.build',
+      type: 'build_index_generation',
       payload: { generationId: 'generation-1' },
       deduplicationKey: 'generation-1'
     })
@@ -141,7 +141,7 @@ describe('JobStore', () => {
     store.complete(claimed?.lease as JobLease)
     expect(
       store.enqueue({
-        type: 'index.build',
+        type: 'build_index_generation',
         payload: { generationId: 'generation-1' },
         deduplicationKey: 'generation-1'
       })
@@ -152,7 +152,7 @@ describe('JobStore', () => {
   it('atomically prevents two database connections from claiming one job', async () => {
     const { root, database, projectManifest } = await createDatabase()
     const first = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    first.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-1' } })
+    first.enqueue({ type: 'mineru_parse', payload: { parseTaskId: 'parse-1' } })
     const secondDatabase = await openProjectDatabase({
       projectRoot: root,
       manifest: projectManifest,
@@ -184,7 +184,7 @@ describe('JobStore', () => {
       log: silentLog,
       now: () => now
     })
-    store.enqueue({ type: 'embedding.batch', payload: { batchId: 'batch-1' } })
+    store.enqueue({ type: 'build_embedding_generation', payload: { generationId: 'batch-1' } })
     const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 1_000 })
     now = new Date('2026-07-15T02:00:00.500Z')
     expect(
@@ -207,7 +207,10 @@ describe('JobStore', () => {
   it('makes running cancellation win over a racing completion', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'rerank.request', payload: { requestId: 'request-1' } }).job
+    const job = store.enqueue({
+      type: 'build_embedding_generation',
+      payload: { generationId: 'request-1' }
+    }).job
     const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
 
     expect(store.requestCancellation(job.jobId)).toMatchObject({
@@ -225,7 +228,10 @@ describe('JobStore', () => {
   it('makes cancellation win when a worker reports failure after the request', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'embedding.batch', payload: { batchId: 'batch-2' } }).job
+    const job = store.enqueue({
+      type: 'build_embedding_generation',
+      payload: { generationId: 'batch-2' }
+    }).job
     const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     store.requestCancellation(job.jobId)
 
@@ -250,7 +256,7 @@ describe('JobStore', () => {
       retryBaseMs: 1_000
     })
     store.enqueue({
-      type: 'mineru.download',
+      type: 'mineru_parse',
       payload: { parseTaskId: 'parse-1' },
       maxAttempts: 2
     })
@@ -279,7 +285,7 @@ describe('JobStore', () => {
   it('does not retry an explicitly non-retryable error', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    store.enqueue({ type: 'import.validate', payload: { fileId: 'file-1' } })
+    store.enqueue({ type: 'artifact_cleanup', payload: { cleanupId: 'file-1' } })
     const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
     const error = Object.assign(new Error('invalid input'), {
       retryable: false,
@@ -302,12 +308,12 @@ describe('JobStore', () => {
       now: () => now
     })
     const recoverable = beforeClose.enqueue({
-      type: 'index.publish',
+      type: 'rebuild_index',
       payload: { generationId: 'generation-1' },
       maxAttempts: 2
     }).job
     const cancelled = beforeClose.enqueue({
-      type: 'mineru.poll',
+      type: 'mineru_parse',
       payload: { parseTaskId: 'parse-1' }
     }).job
     beforeClose.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
@@ -337,16 +343,6 @@ describe('JobStore', () => {
     reopenedDatabase.close()
   })
 
-  it('supports an explicit pause and resume transition', async () => {
-    const { database, projectManifest } = await createDatabase()
-    const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-2' } }).job
-    const claimed = store.claimNext({ workerId: 'worker-a', leaseMs: 10_000 })
-    expect(store.pause(claimed?.lease as JobLease).state).toBe('paused')
-    expect(store.resume(job.jobId).state).toBe('queued')
-    database.close()
-  })
-
   it('treats a lease token and attempt as a claim-scoped capability', async () => {
     const { database, projectManifest } = await createDatabase()
     let now = new Date('2026-07-15T05:00:00.000Z')
@@ -358,7 +354,7 @@ describe('JobStore', () => {
       now: () => now,
       createLeaseToken: () => `lease-${++token}`
     })
-    const job = store.enqueue({ type: 'index.rebuild', payload: { generationId: 'g-1' } }).job
+    const job = store.enqueue({ type: 'rebuild_index', payload: { generationId: 'g-1' } }).job
     const oldClaim = store.claimNext({ workerId: 'same-worker', leaseMs: 1_000 })
     expect(store.require(job.jobId).leaseOwner).toBe('same-worker')
 
@@ -367,7 +363,6 @@ describe('JobStore', () => {
       () => store.heartbeat(oldClaim?.lease as JobLease, 1_000),
       () => store.complete(oldClaim?.lease as JobLease),
       () => store.fail(oldClaim?.lease as JobLease, null),
-      () => store.pause(oldClaim?.lease as JobLease),
       () => store.acknowledgeCancellation(oldClaim?.lease as JobLease)
     ]) {
       expect(operation).toThrow(JobOwnershipError)
@@ -418,8 +413,8 @@ describe('JobStore', () => {
 
     for (const failure of failures) {
       const job = store.enqueue({
-        type: 'embedding.batch',
-        payload: { batchId: `batch-${sequence + 1}` }
+        type: 'build_embedding_generation',
+        payload: { generationId: `batch-${sequence + 1}` }
       }).job
       const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
       const result = store.fail(claim?.lease as JobLease, failure)
@@ -459,7 +454,7 @@ describe('JobStore', () => {
         throw classifierError
       }
     })
-    store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'parse-classifier' } })
+    store.enqueue({ type: 'mineru_parse', payload: { parseTaskId: 'parse-classifier' } })
     const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
 
     expect(store.fail(claim?.lease as JobLease, new Error('private failure'))).toMatchObject({
@@ -501,7 +496,7 @@ describe('JobStore', () => {
       log: throwingLog,
       classifyFailure: () => ({ code: 'job_execution_failed', retryable: false })
     })
-    store.enqueue({ type: 'import.validate', payload: { fileId: 'hostile-file' } })
+    store.enqueue({ type: 'artifact_cleanup', payload: { cleanupId: 'hostile-file' } })
     const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
 
     expect(store.fail(claim?.lease as JobLease, hostile).job.state).toBe('failed')
@@ -513,7 +508,10 @@ describe('JobStore', () => {
   it('validates type-specific payloads when reading portable database rows', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
-    const job = store.enqueue({ type: 'index.build', payload: { generationId: 'g-valid' } }).job
+    const job = store.enqueue({
+      type: 'build_index_generation',
+      payload: { generationId: 'g-valid' }
+    }).job
     database.immediate((native) => {
       native
         .prepare('UPDATE jobs SET payload_json = ? WHERE job_id = ?')
@@ -535,7 +533,10 @@ describe('JobStore', () => {
       random: () => 0,
       createLeaseToken: () => `lease-${now.getTime()}`
     })
-    const job = store.enqueue({ type: 'index.build', payload: { generationId: 'audit-g' } }).job
+    const job = store.enqueue({
+      type: 'build_index_generation',
+      payload: { generationId: 'audit-g' }
+    }).job
     const first = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
     store.fail(first?.lease as JobLease, new Error('private retry message'))
     now = new Date('2026-07-15T06:00:00.500Z')
@@ -556,7 +557,7 @@ describe('JobStore', () => {
     })
 
     const rollbackJob = store.enqueue({
-      type: 'index.publish',
+      type: 'rebuild_index',
       payload: { generationId: 'rollback-g' }
     }).job
     const rollbackClaim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
@@ -574,7 +575,7 @@ describe('JobStore', () => {
     database.close()
   })
 
-  it('audits pause, resume, cancellation, and expired lease recovery in order', async () => {
+  it('audits cancellation and expired lease recovery in order', async () => {
     const { database, projectManifest } = await createDatabase()
     let now = new Date('2026-07-15T07:00:00.000Z')
     let token = 0
@@ -585,16 +586,13 @@ describe('JobStore', () => {
       now: () => now,
       createLeaseToken: () => `audit-lease-${++token}`
     })
-    const job = store.enqueue({ type: 'mineru.poll', payload: { parseTaskId: 'audit-parse' } }).job
+    const job = store.enqueue({ type: 'mineru_parse', payload: { parseTaskId: 'audit-parse' } }).job
     const first = store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
-    store.pause(first?.lease as JobLease)
-    store.resume(job.jobId)
-    const second = store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
     store.requestCancellation(job.jobId)
-    store.acknowledgeCancellation(second?.lease as JobLease)
+    store.acknowledgeCancellation(first?.lease as JobLease)
 
     const recovery = store.enqueue({
-      type: 'index.rebuild',
+      type: 'rebuild_index',
       payload: { generationId: 'audit-recovery' }
     }).job
     store.claimNext({ workerId: 'worker', leaseMs: 1_000 })
@@ -603,9 +601,6 @@ describe('JobStore', () => {
 
     expect(store.listTransitions(job.jobId).map(({ event }) => event)).toEqual([
       'enqueued',
-      'claimed',
-      'paused',
-      'resumed',
       'claimed',
       'cancellation_requested',
       'cancellation_acknowledged'
@@ -628,8 +623,8 @@ describe('JobStore', () => {
       createLeaseToken: () => `close-lease-${++token}`
     })
     const job = store.enqueue({
-      type: 'embedding.batch',
-      payload: { batchId: 'close-batch' },
+      type: 'build_embedding_generation',
+      payload: { generationId: 'close-batch' },
       maxAttempts: 1
     }).job
     const first = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
@@ -664,13 +659,13 @@ describe('JobStore', () => {
       createId: () => `starvation-${++sequence}`
     })
     const exhausted = store.enqueue({
-      type: 'index.build',
+      type: 'build_index_generation',
       payload: { generationId: 'exhausted' },
       priority: 100,
       maxAttempts: 1
     }).job
     const eligible = store.enqueue({
-      type: 'index.build',
+      type: 'build_index_generation',
       payload: { generationId: 'eligible' },
       priority: 0
     }).job

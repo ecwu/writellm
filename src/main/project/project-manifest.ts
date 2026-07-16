@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { PROJECT_MANIFEST_FILE } from './project-paths'
+import { writeAtomicFile } from '../storage/atomic-file'
 
 export const PROJECT_FORMAT = 'writellm-project'
 export const SUPPORTED_PROJECT_FORMAT_VERSION = 1
@@ -43,16 +44,12 @@ export async function writeProjectManifest(
   manifest: ProjectManifest
 ): Promise<void> {
   const destination = join(projectRoot, PROJECT_MANIFEST_FILE)
-  const temporary = `${destination}.${randomUUID()}.tmp`
   try {
-    await writeFile(temporary, `${JSON.stringify(parseProjectManifest(manifest), null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-      flag: 'wx'
-    })
-    await rename(temporary, destination)
+    await writeAtomicFile(
+      destination,
+      `${JSON.stringify(parseProjectManifest(manifest), null, 2)}\n`
+    )
   } catch (err) {
-    await rm(temporary, { force: true }).catch(() => undefined)
     throw new Error('Failed to write project manifest', { cause: err })
   }
 }

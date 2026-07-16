@@ -40,7 +40,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeChooseAndImport, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeListInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const paths = options.selectFilesForTest
       ? await options.selectFilesForTest()
       : await chooseFiles(options.getWindow())
@@ -62,7 +62,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeImportDropped, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeImportPathsInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     try {
       await context.knowledgeImports.startImportPaths(parsed.paths)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -79,7 +79,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeCancel, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const service = options.manager.assertActiveSession(parsed.projectSessionId).knowledgeImports
+    const service = options.manager.assertMutationSession(parsed.projectSessionId).knowledgeImports
     service.cancel(parsed.knowledgeItemId)
     return knowledgeListResultSchema.parse(service.list())
   })
@@ -87,7 +87,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeDelete, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (context.mineruWorkflow !== null) {
       const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
       cancelMineruJobs(context, references)
@@ -137,7 +137,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeStartParse, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (context.mineruWorkflow === null) throw new Error('MinerU parsing is unavailable')
     try {
       await context.mineruWorkflow.start(parsed.knowledgeItemId)
@@ -154,7 +154,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeCancelParse, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (context.mineruWorkflow === null) throw new Error('MinerU parsing is unavailable')
     try {
       const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
@@ -173,7 +173,7 @@ export function registerKnowledgeIpc(options: {
   ipc.handle(IPC_CHANNELS.knowledgeParsedDocument, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
       const result = await context.knowledgeNormalization.detail(parsed.knowledgeItemId)
@@ -231,12 +231,12 @@ export function registerKnowledgeIpc(options: {
 function cancelMineruJobs(context: ProjectContext, references: MineruWorkReferences): void {
   const cancelled = [
     ...context.jobs.requestCancellationForPayload({
-      types: ['mineru.submit', 'mineru.poll', 'mineru.download'],
+      types: ['mineru_parse'],
       field: 'parseTaskId',
       values: references.parseTaskIds
     }),
     ...context.jobs.requestCancellationForPayload({
-      types: ['mineru.normalize'],
+      types: ['normalize_parse_revision'],
       field: 'parseRevisionId',
       values: references.parseRevisionIds
     })

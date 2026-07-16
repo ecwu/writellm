@@ -6,6 +6,7 @@ import {
   createSectionInputSchema,
   deleteSectionInputSchema,
   MANUSCRIPT_BRIEF_SCHEMA_VERSION,
+  MAX_MANUSCRIPT_OUTLINE_DEPTH,
   ManuscriptDomainError,
   moveSectionInputSchema,
   type AppendSectionRevisionInput,
@@ -175,6 +176,12 @@ export class ManuscriptService {
         if (parsed.parentSectionId !== null && parent === undefined) {
           throw new ManuscriptDomainError('section_parent_invalid', 'Section parent does not exist')
         }
+        if ((parent?.level ?? 0) + 1 > MAX_MANUSCRIPT_OUTLINE_DEPTH) {
+          throw new ManuscriptDomainError(
+            'outline_depth_exceeded',
+            `Outline depth cannot exceed ${MAX_MANUSCRIPT_OUTLINE_DEPTH}`
+          )
+        }
         const siblings = siblingRows(rows, parsed.parentSectionId)
         if (parsed.position > siblings.length) {
           throw new ManuscriptDomainError(
@@ -221,6 +228,7 @@ export class ManuscriptService {
           sectionId,
           revisionNumber: 1,
           source: 'bootstrap',
+          sourceClass: 'manual_checkpoint',
           prepared,
           priorRevisionId: null,
           agentRunId: null,
@@ -326,6 +334,15 @@ export class ManuscriptService {
           throw new ManuscriptDomainError(
             'section_cycle',
             'Section move would create an outline cycle'
+          )
+        }
+        if (
+          (parent?.level ?? 0) + subtreeHeightFromRows(rows, target.section_id) >
+          MAX_MANUSCRIPT_OUTLINE_DEPTH
+        ) {
+          throw new ManuscriptDomainError(
+            'outline_depth_exceeded',
+            `Outline depth cannot exceed ${MAX_MANUSCRIPT_OUTLINE_DEPTH}`
           )
         }
         const sourceSiblings = siblingRows(rows, target.parent_section_id).filter(
@@ -488,6 +505,8 @@ export class ManuscriptService {
           sectionId: section.section_id,
           revisionNumber: current.revision_number + 1,
           source: parsed.source,
+          sourceClass:
+            parsed.sourceClass ?? (parsed.source === 'import' ? 'import' : 'manual_autosave'),
           prepared,
           priorRevisionId: current.section_revision_id,
           agentRunId: parsed.agentRunId,
@@ -660,6 +679,7 @@ function revisionFromRow(row: SectionRevisionTable): SectionRevision {
     sectionId: row.section_id,
     revisionNumber: row.revision_number,
     source: row.source,
+    sourceClass: row.source_class,
     content: blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
     contentSchemaVersion: 1,
     contentHash: row.content_hash,
@@ -680,6 +700,7 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
     sectionId: row.section_id,
     revisionNumber: row.revision_number,
     source: row.source,
+    sourceClass: row.source_class,
     contentSchemaVersion: 1,
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,
@@ -710,6 +731,12 @@ function descendantIds(rows: SectionTable[], sectionId: string): Set<string> {
   }
   visit(sectionId)
   return result
+}
+
+function subtreeHeightFromRows(rows: SectionTable[], sectionId: string): number {
+  const children = rows.filter((row) => row.parent_section_id === sectionId)
+  if (children.length === 0) return 1
+  return 1 + Math.max(...children.map((child) => subtreeHeightFromRows(rows, child.section_id)))
 }
 
 function orderOutline(rows: SectionTable[]): SectionTable[] {
@@ -787,6 +814,7 @@ function insertRevision(
     sectionId: string
     revisionNumber: number
     source: SectionRevisionTable['source']
+    sourceClass: SectionRevisionTable['source_class']
     prepared: ReturnType<typeof prepareSectionContent>
     priorRevisionId: string | null
     agentRunId: string | null
@@ -797,13 +825,14 @@ function insertRevision(
 ): void {
   database
     .prepare(
-      `INSERT INTO section_revisions (section_revision_id, section_id, revision_number, source, content_json, content_schema_version, content_hash, prior_revision_id, word_count, character_count, count_algorithm_version, agent_run_id, agent_tool_call_id, agent_proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO section_revisions (section_revision_id, section_id, revision_number, source, source_class, content_json, content_schema_version, content_hash, prior_revision_id, word_count, character_count, count_algorithm_version, agent_run_id, agent_tool_call_id, agent_proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.revisionId,
       input.sectionId,
       input.revisionNumber,
       input.source,
+      input.sourceClass,
       input.prepared.contentJson,
       input.prepared.contentSchemaVersion,
       input.prepared.contentHash,

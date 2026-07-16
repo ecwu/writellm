@@ -1,27 +1,15 @@
 import { z, type ZodType } from 'zod'
 
-export const JOB_STATES = [
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-  'paused'
-] as const
+export const JOB_STATES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const
 
 export const JOB_TYPES = [
-  'embedding.batch',
-  'import.validate',
-  'index.build',
-  'index.item-delete',
-  'index.item-upsert',
-  'index.publish',
-  'index.rebuild',
-  'mineru.download',
-  'mineru.normalize',
-  'mineru.poll',
-  'mineru.submit',
-  'rerank.request'
+  'mineru_parse',
+  'normalize_parse_revision',
+  'build_index_generation',
+  'build_embedding_generation',
+  'remove_index_item',
+  'rebuild_index',
+  'artifact_cleanup'
 ] as const
 
 export type JobType = (typeof JOB_TYPES)[number]
@@ -45,18 +33,13 @@ const referenceId = z
   .max(256)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 export const jobPayloadRegistry = {
-  'embedding.batch': z.object({ batchId: referenceId }).strict(),
-  'import.validate': z.object({ fileId: referenceId }).strict(),
-  'index.build': z.object({ generationId: referenceId }).strict(),
-  'index.item-delete': z.object({ knowledgeItemId: referenceId }).strict(),
-  'index.item-upsert': z.object({ knowledgeItemId: referenceId }).strict(),
-  'index.publish': z.object({ generationId: referenceId }).strict(),
-  'index.rebuild': z.object({ generationId: referenceId }).strict(),
-  'mineru.download': z.object({ parseTaskId: referenceId }).strict(),
-  'mineru.normalize': z.object({ parseRevisionId: referenceId }).strict(),
-  'mineru.poll': z.object({ parseTaskId: referenceId }).strict(),
-  'mineru.submit': z.object({ parseTaskId: referenceId }).strict(),
-  'rerank.request': z.object({ requestId: referenceId }).strict()
+  mineru_parse: z.object({ parseTaskId: referenceId }).strict(),
+  normalize_parse_revision: z.object({ parseRevisionId: referenceId }).strict(),
+  build_index_generation: z.object({ generationId: referenceId }).strict(),
+  build_embedding_generation: z.object({ generationId: referenceId }).strict(),
+  remove_index_item: z.object({ knowledgeItemId: referenceId }).strict(),
+  rebuild_index: z.object({ generationId: referenceId }).strict(),
+  artifact_cleanup: z.object({ cleanupId: referenceId }).strict()
 } satisfies JobPayloadRegistry
 
 export const jobStateSchema = z.enum(JOB_STATES)

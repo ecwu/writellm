@@ -30,7 +30,7 @@ class FakeUtilityProcess extends EventEmitter {
 }
 
 describe('ProviderProbeClient', () => {
-  it('uses a short-lived utility process and returns only normalized status', async () => {
+  it('keeps a persistent worker and returns only normalized status', async () => {
     const child = new FakeUtilityProcess()
     const factory = { fork: vi.fn(() => child) }
     const client = new ProviderProbeClient(
@@ -46,7 +46,9 @@ describe('ProviderProbeClient', () => {
       expect.objectContaining({ config, credential: 'process-secret' })
     )
     expect(JSON.stringify(response)).not.toContain('process-secret')
-    expect(child.kill).toHaveBeenCalledOnce()
+    await client.probe(config, 'process-secret', new AbortController().signal)
+    expect(factory.fork).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 
   it('revokes a running utility process when the request is aborted', async () => {
@@ -63,6 +65,6 @@ describe('ProviderProbeClient', () => {
     controller.abort()
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(child.kill).toHaveBeenCalledOnce()
+    expect(child.kill).not.toHaveBeenCalled()
   })
 })

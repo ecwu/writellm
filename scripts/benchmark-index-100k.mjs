@@ -2,6 +2,8 @@ import { performance } from 'node:perf_hooks'
 import Database from 'better-sqlite3'
 import { getLoadablePath } from 'sqlite-vec'
 
+// Historical correctness smoke. This deliberately stays 8D and must not be used for
+// performance claims; use benchmark-index.mjs for representative dimensions.
 const chunkCount = 100_000
 const dimension = 8
 const database = new Database(':memory:')

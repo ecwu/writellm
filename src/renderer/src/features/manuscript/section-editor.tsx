@@ -16,7 +16,11 @@ export interface EditorSelectionContext {
 
 export interface SectionEditorHandle {
   flush(): Promise<void>
-  finalFlush(request: { projectSessionId: string; closingToken: string }): Promise<void>
+  finalFlush(request: {
+    projectSessionId: string
+    closingToken: string
+    purpose?: 'close' | 'snapshot'
+  }): Promise<void>
 }
 
 export const SectionEditor = forwardRef<
@@ -59,7 +63,11 @@ export const SectionEditor = forwardRef<
     props.onSaveStateChange?.(saveState)
   }, [props.onSaveStateChange, saveState])
 
-  const save = async (closingToken?: string): Promise<void> => {
+  const save = async (
+    closingToken?: string,
+    revisionSource: 'manual_autosave' | 'manual_checkpoint' = 'manual_autosave',
+    purpose?: 'close' | 'snapshot'
+  ): Promise<void> => {
     if (runningRef.current !== null) {
       try {
         await runningRef.current
@@ -79,14 +87,19 @@ export const SectionEditor = forwardRef<
           sectionId: base.sectionId,
           baseRevisionId: base.sectionRevisionId,
           baseContentHash: base.contentHash,
-          document: JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument
+          document: JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument,
+          revisionSource
         }
         let conflict = false
         try {
           const response =
             closingToken === undefined
               ? await window.desktop.editor.saveSectionDocument(input)
-              : await window.desktop.editor.finalFlushSave({ ...input, closingToken })
+              : await window.desktop.editor.finalFlushSave({
+                  ...input,
+                  closingToken,
+                  ...(purpose === undefined ? {} : { purpose })
+                })
           if (!response.ok) {
             conflict = true
             throw new Error(response.error.message)
@@ -131,15 +144,15 @@ export const SectionEditor = forwardRef<
         clearTimeout(timerRef.current)
         timerRef.current = undefined
       }
-      await save()
+      await save(undefined, 'manual_checkpoint')
     },
     async finalFlush(request) {
-      setReadOnly(true)
+      if (request.purpose !== 'snapshot') setReadOnly(true)
       if (timerRef.current !== undefined) {
         clearTimeout(timerRef.current)
         timerRef.current = undefined
       }
-      await save(request.closingToken)
+      await save(request.closingToken, 'manual_checkpoint', request.purpose)
       await window.desktop.editor.acknowledgeFlush({
         ...request,
         sectionId: baseRef.current.sectionId,
@@ -253,7 +266,7 @@ export const SectionEditor = forwardRef<
           if (saveBlockedRef.current) return
           setSaveState('clean')
           if (timerRef.current !== undefined) clearTimeout(timerRef.current)
-          timerRef.current = setTimeout(() => void save().catch(() => undefined), 650)
+          timerRef.current = setTimeout(() => void save().catch(() => undefined), 1_500)
         }}
         onSelectionChange={() => {
           const cursor = editor.getTextCursorPosition()

@@ -759,7 +759,7 @@ function getStats(
       parsedById.get(item.knowledgeItemId)?.parseState === 'failed' ||
       parsedById.get(item.knowledgeItemId)?.normalizationState === 'failed'
   ).length
-  const embeddings = jobs.filter((job) => job.type === 'embedding.batch')
+  const embeddings = jobs.filter((job) => job.type === 'build_embedding_generation')
   return {
     total: items.length,
     stored: items.filter((item) => item.state === 'stored').length,
@@ -784,18 +784,13 @@ function formatBytes(bytes: number): string {
 
 function jobLabel(type: JobStatus['type']): string {
   const labels: Partial<Record<JobStatus['type'], string>> = {
-    'embedding.batch': 'Embedding generation',
-    'index.build': 'Index build',
-    'index.item-delete': 'Remove from index',
-    'index.item-upsert': 'Update search index',
-    'index.publish': 'Publish search index',
-    'index.rebuild': 'Rebuild search index',
-    'mineru.download': 'Download parse result',
-    'mineru.normalize': 'Normalize parsed content',
-    'mineru.poll': 'Check parser status',
-    'mineru.submit': 'Submit to parser',
-    'import.validate': 'Validate import',
-    'rerank.request': 'Rerank search results'
+    mineru_parse: 'Parse with MinerU',
+    normalize_parse_revision: 'Normalize parsed content',
+    build_index_generation: 'Build search index',
+    build_embedding_generation: 'Embedding generation',
+    remove_index_item: 'Remove from index',
+    rebuild_index: 'Rebuild search index',
+    artifact_cleanup: 'Clean up artifacts'
   }
   return labels[type] ?? type
 }

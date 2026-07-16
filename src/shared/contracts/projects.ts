@@ -98,6 +98,10 @@ export const projectLifecycleSnapshotSchema = z
     }
   })
 
+export const projectRecoveryActionInputSchema = z.object({}).strict()
+export const projectSnapshotSessionInputSchema = projectSessionInputSchema
+export const projectSnapshotResultSchema = z.object({ created: z.boolean() }).strict()
+
 export const projectLifecycleEventSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,

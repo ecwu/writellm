@@ -148,10 +148,22 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
             const session = (await window.desktop.projects.lifecycle()).activeProject
               ?.projectSessionId
             if (session === undefined) return false
-            const result = await window.desktop.jobs.list({ projectSessionId: session, limit: 100 })
-            return result.jobs.some(
-              (job) => job.type === 'index.publish' && job.state === 'succeeded'
-            )
+            try {
+              const result = await window.desktop.knowledge.search({
+                projectSessionId: session,
+                query: 'Normalized body',
+                filters: {
+                  knowledgeItemIds: [],
+                  fileExtensions: [],
+                  parseRevisionIds: []
+                },
+                limits: { fts: 100, vector: 100, fused: 50, results: 20 },
+                rerank: true
+              })
+              return result.hits.some((hit) => hit.snippet.includes('Normalized body from MinerU'))
+            } catch {
+              return false
+            }
           }),
         { timeout: 20_000 }
       )
@@ -177,7 +189,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(imageCitation.getByAltText(/^Source asset images\/.+\.png$/)).toBeVisible()
     await imageCitation.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(readFile(crashMarker)).resolves.toHaveLength(0)
-    const publishCountBeforeDelete = await succeededPublishCount(launched.page)
+    const publishCountBeforeDelete = await succeededBuildCount(launched.page)
 
     await launched.app.close()
     firstClosed = true
@@ -199,13 +211,13 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
             if (session === undefined) return false
             const result = await window.desktop.jobs.list({ projectSessionId: session, limit: 100 })
             return result.jobs.filter(
-              (job) => job.type === 'index.publish' && job.state === 'succeeded'
+              (job) => job.type === 'build_index_generation' && job.state === 'succeeded'
             ).length
           }) ?? 0,
         { timeout: 20_000 }
       )
       .toBeGreaterThan(publishCountBeforeDelete)
-    const publishCountBeforeCorruption = await succeededPublishCount(reopened.page)
+    const publishCountBeforeCorruption = await succeededBuildCount(reopened.page)
     await reopened.app.close()
     reopened = undefined
     await writeFile(indexPath, 'corrupt derived index')
@@ -215,7 +227,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
       recovered.page.getByRole('heading', { name: projectName, exact: true })
     ).toBeVisible()
     await expect
-      .poll(() => succeededPublishCount(recovered?.page), { timeout: 20_000 })
+      .poll(() => succeededBuildCount(recovered?.page), { timeout: 20_000 })
       .toBeGreaterThan(publishCountBeforeCorruption)
     expect(uploadedBytes).toBeGreaterThan(0)
   } finally {
@@ -228,7 +240,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
   }
 })
 
-async function succeededPublishCount(
+async function succeededBuildCount(
   page: Awaited<ReturnType<typeof launchApp>>['page'] | undefined
 ) {
   if (page === undefined) return 0
@@ -236,8 +248,9 @@ async function succeededPublishCount(
     const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
     if (session === undefined) return 0
     const result = await window.desktop.jobs.list({ projectSessionId: session, limit: 100 })
-    return result.jobs.filter((job) => job.type === 'index.publish' && job.state === 'succeeded')
-      .length
+    return result.jobs.filter(
+      (job) => job.type === 'build_index_generation' && job.state === 'succeeded'
+    ).length
   })
 }
 

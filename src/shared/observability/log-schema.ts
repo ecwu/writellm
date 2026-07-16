@@ -23,7 +23,13 @@ export const SUBSYSTEMS = [
   'updater'
 ] as const
 
-export const PROCESS_ROLES = ['main', 'renderer', 'api-worker', 'index-worker'] as const
+export const PROCESS_ROLES = [
+  'main',
+  'renderer',
+  'agent-worker',
+  'background-worker',
+  'index-worker'
+] as const
 export const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const
 
 export type Subsystem = (typeof SUBSYSTEMS)[number]

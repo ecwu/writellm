@@ -1,7 +1,7 @@
 import type { JobRecord } from '../job-store'
 import type { JobProgress, JobType } from '../job-schemas'
 
-export type JobResource = 'mineru' | 'embedding' | 'rerank' | 'index' | 'local-io'
+export type JobResource = 'mineru' | 'embedding' | 'index' | 'local-io'
 export type JobClosePolicy = 'finish' | 'abort-and-requeue' | 'recover-by-lease-expiry'
 
 export interface JobHandlerContext {
@@ -25,39 +25,28 @@ export interface JobHandlerDefinition {
 const resourceConcurrency: Readonly<Record<JobResource, number>> = {
   mineru: 1,
   embedding: 3,
-  rerank: 3,
   index: 1,
   'local-io': 2
 }
 
 const resourceByType: Readonly<Record<JobType, JobResource>> = {
-  'mineru.submit': 'mineru',
-  'mineru.poll': 'mineru',
-  'mineru.download': 'mineru',
-  'mineru.normalize': 'local-io',
-  'embedding.batch': 'embedding',
-  'rerank.request': 'rerank',
-  'index.build': 'index',
-  'index.item-delete': 'index',
-  'index.item-upsert': 'index',
-  'index.publish': 'index',
-  'index.rebuild': 'index',
-  'import.validate': 'local-io'
+  mineru_parse: 'mineru',
+  normalize_parse_revision: 'local-io',
+  build_index_generation: 'index',
+  build_embedding_generation: 'embedding',
+  remove_index_item: 'index',
+  rebuild_index: 'index',
+  artifact_cleanup: 'local-io'
 }
 
 const closePolicyByType: Readonly<Record<JobType, JobClosePolicy>> = {
-  'mineru.submit': 'finish',
-  'mineru.poll': 'abort-and-requeue',
-  'mineru.download': 'abort-and-requeue',
-  'mineru.normalize': 'abort-and-requeue',
-  'embedding.batch': 'abort-and-requeue',
-  'rerank.request': 'abort-and-requeue',
-  'index.build': 'abort-and-requeue',
-  'index.item-delete': 'abort-and-requeue',
-  'index.item-upsert': 'abort-and-requeue',
-  'index.publish': 'finish',
-  'index.rebuild': 'abort-and-requeue',
-  'import.validate': 'abort-and-requeue'
+  mineru_parse: 'abort-and-requeue',
+  normalize_parse_revision: 'abort-and-requeue',
+  build_index_generation: 'abort-and-requeue',
+  build_embedding_generation: 'abort-and-requeue',
+  remove_index_item: 'abort-and-requeue',
+  rebuild_index: 'abort-and-requeue',
+  artifact_cleanup: 'abort-and-requeue'
 }
 
 export class JobHandlerRegistry {
@@ -96,5 +85,3 @@ export class JobHandlerRegistry {
     return [...new Set([...this.#definitions.values()].map(({ resource }) => resource))]
   }
 }
-
-export const AUXILIARY_LLM_CONCURRENCY = 2

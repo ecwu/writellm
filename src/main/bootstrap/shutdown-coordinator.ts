@@ -14,6 +14,7 @@ export interface ShutdownCoordinatorOptions {
   unregisterAppIpc(): void
   unregisterDiagnostics(): void
   closeAppDatabase(): void
+  terminateUtilityWorkers?: () => void | Promise<void>
   flushLogs(): Promise<void>
   quit(): void
   logger: Pick<Logger, 'info' | 'error'>
@@ -47,6 +48,10 @@ export function createShutdownCoordinator(
     await attempt('app.shutdown.app_ipc_unregister_failed', options.unregisterAppIpc)
     await attempt('app.shutdown.diagnostics_unregister_failed', options.unregisterDiagnostics)
     await attempt('app.shutdown.database_close_failed', options.closeAppDatabase)
+    await attempt(
+      'app.shutdown.utility_workers_terminate_failed',
+      options.terminateUtilityWorkers ?? (() => undefined)
+    )
     options.logger.info({ event: 'app.stopping' }, 'Application stopping')
     await attempt('app.shutdown.log_flush_failed', options.flushLogs)
   }

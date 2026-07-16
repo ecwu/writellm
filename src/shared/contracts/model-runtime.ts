@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { providerConfigSchema } from './providers'
+import { projectSessionIdSchema } from './projects'
 
 export const modelUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative().nullable(),
@@ -115,6 +116,7 @@ const diagnosticErrorSchema = z.object({
 
 export const agentUtilityRequestSchema = z.object({
   requestId: z.uuid(),
+  projectSessionId: projectSessionIdSchema.nullable().optional(),
   config: providerConfigSchema.refine((config) => config.role === 'agent'),
   credential: z.string().min(1).max(16_384),
   input: agentRunInputSchema
@@ -125,10 +127,21 @@ export const agentUtilityMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('text-delta'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     delta: z.string().min(1).max(65_536)
   }),
-  z.object({ type: z.literal('result'), requestId: z.uuid(), result: agentRunResultSchema }),
-  z.object({ type: z.literal('error'), requestId: z.uuid(), error: diagnosticErrorSchema })
+  z.object({
+    type: z.literal('result'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
+    result: agentRunResultSchema
+  }),
+  z.object({
+    type: z.literal('error'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
+    error: diagnosticErrorSchema
+  })
 ])
 export type AgentUtilityMessage = z.infer<typeof agentUtilityMessageSchema>
 
@@ -136,6 +149,7 @@ export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('embedding'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     config: providerConfigSchema.refine((config) => config.role === 'embedding'),
     credential: z.string().min(1).max(16_384),
     input: embeddingBatchInputSchema
@@ -143,6 +157,7 @@ export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('rerank'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     config: providerConfigSchema.refine((config) => config.role === 'rerank'),
     credential: z.string().min(1).max(16_384),
     input: rerankInputSchema
@@ -154,13 +169,29 @@ export const auxiliaryUtilityResponseSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('embedding-result'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     result: embeddingBatchResultSchema
   }),
   z.object({
     type: z.literal('rerank-result'),
     requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
     result: rerankResultSchema
   }),
-  z.object({ type: z.literal('error'), requestId: z.uuid(), error: diagnosticErrorSchema })
+  z.object({
+    type: z.literal('error'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
+    error: diagnosticErrorSchema
+  })
 ])
 export type AuxiliaryUtilityResponse = z.infer<typeof auxiliaryUtilityResponseSchema>
+
+export const utilityCancelMessageSchema = z
+  .object({
+    type: z.literal('cancel'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional()
+  })
+  .strict()
+export type UtilityCancelMessage = z.infer<typeof utilityCancelMessageSchema>

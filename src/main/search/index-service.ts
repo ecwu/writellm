@@ -21,6 +21,8 @@ interface CurrentIndexGeneration {
   sources: IndexSource[]
 }
 
+export const GENERATION_BUILD_DEBOUNCE_MS = 1_500
+
 export class ProjectIndexService {
   constructor(
     private readonly options: {
@@ -33,7 +35,8 @@ export class ProjectIndexService {
       embedBatch: (
         values: string[],
         correlation: { operationId: string; jobId: string },
-        signal: AbortSignal
+        signal: AbortSignal,
+        projectSessionId?: string
       ) => Promise<EmbeddingBatchResult>
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }
@@ -69,18 +72,9 @@ export class ProjectIndexService {
     )
   }
 
-  requestItemUpsert(knowledgeItemId: string): void {
-    this.options.jobs.enqueue({
-      type: 'index.item-upsert',
-      payload: { knowledgeItemId },
-      deduplicationKey: `index-upsert:${knowledgeItemId}`,
-      maxAttempts: 8
-    })
-  }
-
   requestItemDelete(knowledgeItemId: string): void {
     this.options.jobs.enqueue({
-      type: 'index.item-delete',
+      type: 'remove_index_item',
       payload: { knowledgeItemId },
       deduplicationKey: `index-delete:${knowledgeItemId}`,
       maxAttempts: 8
@@ -89,6 +83,7 @@ export class ProjectIndexService {
 
   async handleRefresh(context: JobHandlerContext): Promise<void> {
     if (context.signal.aborted) throw abortError()
+    if (context.job.type === 'rebuild_index') await waitForGenerationBuildDebounce(context)
     const current = this.#currentGeneration()
     this.#enqueueBuild(current.generationId, context.job.jobId)
   }
@@ -102,7 +97,7 @@ export class ProjectIndexService {
       return
     }
     context.reportProgress({ completed: 0, total: 2, stage: 'chunking' })
-    const built = await this.options.client.build(
+    await this.options.client.build(
       {
         generationId,
         chunkerVersion: INDEX_CHUNKER_VERSION,
@@ -111,22 +106,19 @@ export class ProjectIndexService {
       context.signal
     )
     context.reportProgress({ completed: 1, total: 2, stage: 'built' })
-    this.options.jobs.enqueue({
-      type: 'index.publish',
-      payload: { generationId },
-      deduplicationKey: `index-publish:${generationId}`,
-      maxAttempts: 8
-    })
+    const activation = await this.options.client.activate(generationId, context.signal)
+    context.reportProgress({ completed: 2, total: 2, stage: 'active' })
     this.options.log.info(
       {
-        event: 'index.generation.built',
+        event: 'index.generation.activated',
         projectId: this.options.projectId,
         generationId,
-        chunkCount: built.chunkCount,
-        sourceCount: built.sourceCount
+        chunkCount: activation.snapshot.chunkCount,
+        sourceCount: activation.snapshot.sourceCount
       },
-      'Index generation built'
+      'Index generation built and activated'
     )
+    await this.#queueEmbeddings(current, context.job.jobId)
   }
 
   async handlePublish(context: JobHandlerContext): Promise<void> {
@@ -154,12 +146,12 @@ export class ProjectIndexService {
   }
 
   async handleEmbedding(context: JobHandlerContext): Promise<void> {
-    const batchId = context.job.payload.batchId
-    if (typeof batchId !== 'string') throw new Error('Embedding batch payload is invalid')
+    const generationId = context.job.payload.generationId
+    if (typeof generationId !== 'string') throw new Error('Embedding generation payload is invalid')
     const current = this.#currentGeneration()
     const config = await this.options.getEmbeddingProvider()
     const contract = embeddingContract(config, current)
-    if (batchId !== contract.embeddingGenerationId) {
+    if (generationId !== contract.embeddingGenerationId) {
       this.#enqueueEmbedding(contract.embeddingGenerationId, context.job.jobId)
       return
     }
@@ -324,8 +316,8 @@ export class ProjectIndexService {
 
   #enqueueEmbedding(embeddingGenerationId: string, cause: string): void {
     this.options.jobs.enqueue({
-      type: 'embedding.batch',
-      payload: { batchId: embeddingGenerationId },
+      type: 'build_embedding_generation',
+      payload: { generationId: embeddingGenerationId },
       deduplicationKey: `embedding:${embeddingGenerationId}`,
       maxAttempts: 8
     })
@@ -342,7 +334,7 @@ export class ProjectIndexService {
 
   #enqueueBuild(generationId: string, cause: string): void {
     this.options.jobs.enqueue({
-      type: 'index.build',
+      type: 'build_index_generation',
       payload: { generationId },
       deduplicationKey: `index-build:${generationId}`,
       maxAttempts: 8
@@ -354,27 +346,43 @@ export class ProjectIndexService {
   }
 }
 
+async function waitForGenerationBuildDebounce(context: JobHandlerContext): Promise<void> {
+  const createdAt = Date.parse(context.job.createdAt)
+  if (!Number.isFinite(createdAt)) return
+  const remaining = createdAt + GENERATION_BUILD_DEBOUNCE_MS - Date.now()
+  if (remaining <= 0) return
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      context.signal.removeEventListener('abort', onAbort)
+      reject(abortError())
+    }
+    const timer = setTimeout(() => {
+      context.signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, remaining)
+    context.signal.addEventListener('abort', onAbort, { once: true })
+    timer.unref?.()
+  })
+}
+
 export function registerIndexHandlers(
   registry: JobHandlerRegistry,
   service: ProjectIndexService
 ): void {
-  for (const type of ['index.item-upsert', 'index.item-delete', 'index.rebuild'] as const) {
+  for (const type of ['remove_index_item', 'rebuild_index'] as const) {
     registry.register(type, (context) => service.handleRefresh(context), {
       timeoutMs: 60_000,
       closePolicy: 'abort-and-requeue'
     })
   }
-  registry.register('index.build', (context) => service.handleBuild(context), {
+  registry.register('build_index_generation', (context) => service.handleBuild(context), {
     timeoutMs: 10 * 60_000,
     leaseMs: 60_000,
     heartbeatMs: 15_000,
     closePolicy: 'abort-and-requeue'
   })
-  registry.register('index.publish', (context) => service.handlePublish(context), {
-    timeoutMs: 60_000,
-    closePolicy: 'finish'
-  })
-  registry.register('embedding.batch', (context) => service.handleEmbedding(context), {
+  registry.register('build_embedding_generation', (context) => service.handleEmbedding(context), {
     timeoutMs: 30 * 60_000,
     leaseMs: 60_000,
     heartbeatMs: 15_000,

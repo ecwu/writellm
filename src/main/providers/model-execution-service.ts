@@ -51,7 +51,15 @@ export class ModelExecutionService {
       1,
       correlation,
       signal,
-      (config, credential) => this.options.agent.run(config, credential, input, signal, onEvent),
+      (config, credential) =>
+        this.options.agent.run(
+          config,
+          credential,
+          input,
+          signal,
+          onEvent,
+          correlation.projectSessionId
+        ),
       (result) => ({ metadata: result.metadata, outputItems: result.text.length === 0 ? 0 : 1 })
     )
   }
@@ -71,7 +79,14 @@ export class ModelExecutionService {
       input.values.length,
       correlation,
       signal,
-      (config, credential) => this.options.embeddings.embedBatch(config, credential, input, signal),
+      (config, credential) =>
+        this.options.embeddings.embedBatch(
+          config,
+          credential,
+          input,
+          signal,
+          correlation.projectSessionId
+        ),
       (result) => ({ metadata: result.metadata, outputItems: result.embeddings.length }),
       configGuard
     )
@@ -91,7 +106,14 @@ export class ModelExecutionService {
       input.documents.length,
       correlation,
       signal,
-      (config, credential) => this.options.reranker.rerank(config, credential, input, signal),
+      (config, credential) =>
+        this.options.reranker.rerank(
+          config,
+          credential,
+          input,
+          signal,
+          correlation.projectSessionId
+        ),
       (result) => ({ metadata: result.metadata, outputItems: result.ranking.length })
     )
   }
