@@ -298,6 +298,129 @@ describe('KnowledgeNormalizationService', () => {
     )
     fixture.database.close()
   })
+
+  it('keeps the newer revision active when an older normalization finishes last', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Original' }]))
+    })
+    const nextTask = '66666666-6666-4666-8666-666666666666'
+    const nextRevision = '77777777-7777-4777-8777-777777777777'
+    await publishRaw(
+      fixture,
+      { contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Revised' }])) },
+      nextTask,
+      nextRevision,
+      2
+    )
+    const started = deferred()
+    const release = deferred()
+    const older = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      normalizeInUtility: async (input, signal) => {
+        started.resolve()
+        await release.promise
+        return fixture.normalizeInUtility(input, signal)
+      }
+    })
+    const newer = new KnowledgeNormalizationService({ ...fixture, log })
+
+    // The older revision's normalization is submitted first but completes after
+    // the newer one; activation must remain monotonic in revision number.
+    const pendingOlder = older.normalize(parseRevisionId, new AbortController().signal)
+    await started.promise
+    await newer.normalize(nextRevision, new AbortController().signal)
+    release.resolve()
+    await pendingOlder
+
+    const active = fixture.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            'SELECT parse_revision_id, normalization_run_id FROM active_parse_revisions WHERE knowledge_item_id = ?'
+          )
+          .get(knowledgeItemId) as Record<string, unknown>
+    )
+    expect(active.parse_revision_id).toBe(nextRevision)
+    const runState = (revisionId: string) =>
+      fixture.database.immediate((database) =>
+        database
+          .prepare('SELECT state FROM normalization_runs WHERE parse_revision_id = ?')
+          .pluck()
+          .get(revisionId)
+      )
+    expect(runState(parseRevisionId)).toBe('published')
+    expect(runState(nextRevision)).toBe('published')
+    fixture.database.close()
+  })
+
+  it('keeps a concurrent duplicate normalization of one revision consistent', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Shared run' }]))
+    })
+    const started = deferred()
+    const release = deferred()
+    const blocked = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      normalizeInUtility: async (input, signal) => {
+        started.resolve()
+        await release.promise
+        return fixture.normalizeInUtility(input, signal)
+      }
+    })
+    const plain = new KnowledgeNormalizationService({ ...fixture, log })
+
+    // Both normalizations share one normalization_runs row and one staging
+    // directory; the loser must fail without downgrading the published run.
+    const pendingBlocked = blocked.normalize(parseRevisionId, new AbortController().signal)
+    await started.promise
+    const runId = await plain.normalize(parseRevisionId, new AbortController().signal)
+    release.resolve()
+    await expect(pendingBlocked).rejects.toThrow('normalization failed')
+
+    const runs = fixture.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            'SELECT normalization_run_id, state, published_at FROM normalization_runs WHERE parse_revision_id = ?'
+          )
+          .all(parseRevisionId) as Array<Record<string, unknown>>
+    )
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ normalization_run_id: runId, state: 'published' })
+    const activeRows = () =>
+      fixture.database.immediate(
+        (database) =>
+          database
+            .prepare(
+              'SELECT parse_revision_id, normalization_run_id FROM active_parse_revisions WHERE knowledge_item_id = ?'
+            )
+            .all(knowledgeItemId) as Array<Record<string, unknown>>
+      )
+    expect(activeRows()).toEqual([
+      { parse_revision_id: parseRevisionId, normalization_run_id: runId }
+    ])
+
+    // A retry reconciles the published output instead of activating twice.
+    const again = await plain.normalize(parseRevisionId, new AbortController().signal)
+    expect(again).toBe(runId)
+    expect(activeRows()).toEqual([
+      { parse_revision_id: parseRevisionId, normalization_run_id: runId }
+    ])
+    const runsAfter = fixture.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            'SELECT normalization_run_id, state, published_at FROM normalization_runs WHERE parse_revision_id = ?'
+          )
+          .all(parseRevisionId) as Array<Record<string, unknown>>
+    )
+    expect(runsAfter).toEqual(runs)
+    fixture.database.close()
+  })
 })
 
 async function createFixture(
@@ -440,6 +563,14 @@ async function publishRaw(
 
 function hash(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex')
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }
 
 function tinyPng(): Buffer {

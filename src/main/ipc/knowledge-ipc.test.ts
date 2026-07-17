@@ -79,11 +79,13 @@ function harness() {
     }
   }
   let active = true
+  const assertSession = (value: string) => {
+    if (!active || value !== projectSessionId) throw new Error('stale project session')
+    return context
+  }
   const manager = {
-    assertActiveSession: vi.fn((value: string) => {
-      if (!active || value !== projectSessionId) throw new Error('stale project session')
-      return context
-    })
+    assertActiveSession: vi.fn(assertSession),
+    assertMutationSession: vi.fn(assertSession)
   }
   registerKnowledgeIpc({
     manager: manager as never,

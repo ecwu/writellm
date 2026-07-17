@@ -1,10 +1,36 @@
 import { app, ipcMain } from 'electron'
-import { appInfoSchema } from '../../shared/contracts/app'
+import {
+  appInfoSchema,
+  setThemePreferenceInputSchema,
+  themePreferenceSchema
+} from '../../shared/contracts/app'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
+import type { Logger } from 'pino'
 import { authorizeSender } from './authorize-sender'
 
-export function registerIpcHandlers(developmentUrl?: string): () => void {
-  ipcMain.handle(IPC_CHANNELS.appGetInfo, (event) => {
+export interface AppIpcMain {
+  handle(
+    channel: string,
+    listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void
+  removeHandler(channel: string): void
+}
+
+export interface RegisterIpcHandlersOptions {
+  appSettings: AppSettingsRepository
+  logger: Logger
+  developmentUrl?: string
+  ipc?: AppIpcMain
+}
+
+export function registerIpcHandlers({
+  appSettings,
+  logger,
+  developmentUrl,
+  ipc = ipcMain
+}: RegisterIpcHandlersOptions): () => void {
+  ipc.handle(IPC_CHANNELS.appGetInfo, (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
 
     return appInfoSchema.parse({
@@ -13,5 +39,29 @@ export function registerIpcHandlers(developmentUrl?: string): () => void {
     })
   })
 
-  return () => ipcMain.removeHandler(IPC_CHANNELS.appGetInfo)
+  ipc.handle(IPC_CHANNELS.appGetThemePreference, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return themePreferenceSchema.parse(await appSettings.getThemePreference())
+  })
+
+  ipc.handle(IPC_CHANNELS.appSetThemePreference, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { preference } = setThemePreferenceInputSchema.parse(rawInput)
+    const persisted = await appSettings.setThemePreference(preference)
+    logger.info(
+      { event: 'app.settings.theme_preference_updated', preference: persisted },
+      'Theme preference updated'
+    )
+    return themePreferenceSchema.parse(persisted)
+  })
+
+  return () => {
+    for (const channel of [
+      IPC_CHANNELS.appGetInfo,
+      IPC_CHANNELS.appGetThemePreference,
+      IPC_CHANNELS.appSetThemePreference
+    ]) {
+      ipc.removeHandler(channel)
+    }
+  }
 }

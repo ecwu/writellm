@@ -5,6 +5,7 @@ import {
   _electron as electron,
   test as base,
   type ElectronApplication,
+  expect,
   type Page
 } from '@playwright/test'
 
@@ -36,6 +37,16 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   return { app, page }
+}
+
+/**
+ * Asserts that a project is open by checking the workspace sidebar header, which
+ * renders the project name as plain text next to an `Active` badge (not a heading).
+ */
+export async function expectActiveProject(page: Page, name: string): Promise<void> {
+  const header = page.locator('[data-slot="sidebar-header"]').filter({ hasText: name })
+  await expect(header.getByText(name, { exact: true })).toBeVisible()
+  await expect(header.getByText('Active', { exact: true })).toBeVisible()
 }
 
 interface Fixtures {

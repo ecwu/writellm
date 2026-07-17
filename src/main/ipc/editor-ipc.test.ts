@@ -1,13 +1,13 @@
 import type { IpcMainInvokeEvent } from 'electron'
-import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { ManuscriptDomainError } from '../../shared/contracts/manuscript'
 import { registerEditorIpc, type EditorIpcMain } from './editor-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
+const snapshotClosingToken = '99999999-9999-4999-8999-999999999999'
 
-function harness() {
+function harness(options: { snapshotFlushTimeoutMs?: number } = {}) {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   const ipc: EditorIpcMain = {
     handle: vi.fn((channel, handler) => handlers.set(channel, handler as never)),
@@ -68,13 +68,25 @@ function harness() {
       if (value !== projectSessionId) throw new Error('stale')
       return context
     }),
-    authorizeFinalFlush: vi.fn(() => context)
+    assertMutationSession: vi.fn((value: string) => {
+      if (value !== projectSessionId) throw new Error('stale')
+      return context
+    }),
+    authorizeFinalFlush: vi.fn(() => context),
+    beginSnapshotFlush: vi.fn((value: string) => ({
+      projectSessionId: value,
+      currentRevision: null,
+      closingToken: snapshotClosingToken
+    })),
+    completeSnapshotFlush: vi.fn()
   }
+  const logger = { error: vi.fn() }
   const registration = registerEditorIpc({
     manager: manager as never,
-    logger: pino({ level: 'silent' }),
+    logger,
     developmentUrl: 'http://localhost:5173',
-    ipc
+    ipc,
+    snapshotFlushTimeoutMs: options.snapshotFlushTimeoutMs
   })
   const sender = { id: 7, send: vi.fn(), isDestroyed: vi.fn(() => false) }
   const event = {
@@ -83,7 +95,7 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { context, editorPersistence, invoke, registration, sections, sender }
+  return { context, editorPersistence, invoke, logger, manager, registration, sections, sender }
 }
 
 describe('editor IPC active-section final flush', () => {
@@ -206,5 +218,81 @@ describe('editor IPC active-section final flush', () => {
         message: 'The section body has changed'
       }
     })
+  })
+
+  it('times out an unacknowledged snapshot flush instead of hanging', async () => {
+    const { context, invoke, logger, manager, registration, sender } = harness({
+      snapshotFlushTimeoutMs: 10
+    })
+    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+      projectSessionId,
+      subscriptionId: '33333333-3333-4333-8333-333333333333'
+    })
+
+    await expect(
+      registration.snapshotParticipants.finalEditorFlush(context as never)
+    ).rejects.toThrow('Snapshot editor flush timed out')
+
+    expect(sender.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.editorFlushRequest,
+      expect.objectContaining({
+        purpose: 'snapshot',
+        closingToken: snapshotClosingToken,
+        sectionId: 'section-2',
+        sectionRevisionId: 'revision-2'
+      })
+    )
+    expect(manager.completeSnapshotFlush).toHaveBeenCalledWith(snapshotClosingToken)
+    const logged = logger.error.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(logged).toMatchObject({
+      event: 'editor.snapshot_flush.timeout',
+      projectSessionId,
+      closingToken: snapshotClosingToken,
+      timeoutMs: 10
+    })
+    expect(logged.err).toBeInstanceOf(Error)
+  })
+
+  it('logs the original export error while the renderer receives no absolute path', async () => {
+    const { editorPersistence, invoke, logger } = harness()
+    const absolutePath = '/Users/private/project/manuscript/exports/section-1.blocknote.json'
+    const original = new Error(`ENOENT: no such file or directory, open '${absolutePath}'`)
+    original.stack = `Error: ENOENT: no such file or directory\n    at save (${absolutePath}:1:1)`
+
+    editorPersistence.loadSection.mockImplementationOnce(() => {
+      throw original
+    })
+    const nativeJsonFailure = await Promise.resolve(
+      invoke(IPC_CHANNELS.editorExportNativeJson, {
+        projectSessionId,
+        sectionId: 'section-1'
+      })
+    ).catch((err: unknown) => err)
+    expect(nativeJsonFailure).toBeInstanceOf(Error)
+    expect((nativeJsonFailure as Error).message).toBe('Native JSON export could not be completed')
+    expect((nativeJsonFailure as Error).message).not.toContain('/Users/private')
+    const nativeJsonLog = logger.error.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(nativeJsonLog.event).toBe('editor.export_native_json.failed')
+    expect(nativeJsonLog.err).toBe(original)
+
+    editorPersistence.loadSection.mockImplementationOnce(() => {
+      throw original
+    })
+    const markdownFailure = await Promise.resolve(
+      invoke(IPC_CHANNELS.editorExportMarkdown, {
+        projectSessionId,
+        sectionId: 'section-1',
+        sectionRevisionId: 'revision-1',
+        contentHash: 'a'.repeat(64),
+        markdown: '# Section'
+      })
+    ).catch((err: unknown) => err)
+    expect(markdownFailure).toBeInstanceOf(Error)
+    expect((markdownFailure as Error).message).toBe('Markdown export could not be completed')
+    expect((markdownFailure as Error).message).not.toContain('/Users/private')
+    const markdownLog = logger.error.mock.calls[1]?.[0] as Record<string, unknown>
+    expect(markdownLog.event).toBe('editor.export_markdown.failed')
+    expect(markdownLog.err).toBe(original)
   })
 })

@@ -1,8 +1,8 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import pino, { type Logger } from 'pino'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initializeProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
 import { KnowledgeImportService } from './knowledge-import-service'
@@ -11,7 +11,8 @@ const roots: string[] = []
 const log = pino({ level: 'silent' })
 
 async function fixture(
-  faults: ConstructorParameters<typeof KnowledgeImportService>[0]['faults'] = {}
+  faults: ConstructorParameters<typeof KnowledgeImportService>[0]['faults'] = {},
+  serviceLog: Pick<Logger, 'info' | 'error'> = log
 ) {
   const root = await mkdtemp(join(tmpdir(), 'writellm-knowledge-'))
   roots.push(root)
@@ -33,7 +34,7 @@ async function fixture(
     projectRoot,
     projectId: manifest.projectId,
     database,
-    log,
+    log: serviceLog,
     faults
   })
   return { root, projectRoot, database, service }
@@ -142,6 +143,47 @@ describe('KnowledgeImportService', () => {
     await expect(
       readdir(join(projectRoot, 'knowledge'), { recursive: true }).catch(() => [])
     ).resolves.not.toEqual(expect.arrayContaining([expect.stringMatching(/\.pdf$/)]))
+    database.close()
+  })
+
+  it('logs and surfaces a per-file row-creation failure while the batch continues', async () => {
+    const startError = new Error('row create exploded')
+    const logger = { info: vi.fn(), error: vi.fn() }
+    let failOnce = true
+    const { root, database, service } = await fixture(
+      {
+        beforeImportRowCreate: () => {
+          if (failOnce) {
+            failOnce = false
+            throw startError
+          }
+        }
+      },
+      logger
+    )
+    const broken = join(root, 'broken.pdf')
+    const good = join(root, 'good.pdf')
+    await writeFile(broken, '%PDF-1.7\nbroken')
+    await writeFile(good, '%PDF-1.7\ngood')
+
+    const result = await service.importPaths([broken, good])
+
+    const startFailure = logger.error.mock.calls.find(
+      ([payload]) => (payload as { event?: string }).event === 'knowledge.import.start_failed'
+    )
+    if (startFailure === undefined) throw new Error('Missing start_failed log record')
+    const [payload, message] = startFailure as [{ err: unknown }, string]
+    expect(payload.err).toBe(startError)
+    expect(message).toBe('Failed to create a knowledge import record; continuing the batch')
+
+    expect(result).toHaveLength(2)
+    expect(result.find((item) => item.originalName === 'broken.pdf')).toMatchObject({
+      state: 'failed',
+      errorCode: 'start_failed'
+    })
+    expect(result.find((item) => item.originalName === 'good.pdf')).toMatchObject({
+      state: 'stored'
+    })
     database.close()
   })
 })

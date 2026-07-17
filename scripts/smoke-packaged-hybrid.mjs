@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { access, mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 const resourcesArgument = process.argv[2]
@@ -228,4 +229,425 @@ function sha256(value) {
 
 function vectorBlob(values) {
   return Buffer.from(new Float32Array(values).buffer)
+}
+
+// Checkpoint 19.7.10 backfill: drive the packaged app itself through the
+// provider-failure retrieval fallback and the stale-session rejection using the
+// existing env-gated dialog seams and the renderer IPC surface.
+await runPackagedAppScenarios(resources)
+
+async function runPackagedAppScenarios(resources) {
+  const repoRequire = createRequire(join(process.cwd(), 'package.json'))
+  const { _electron: electron } = repoRequire('@playwright/test')
+  const executable = await packagedExecutable(resources)
+  const root = await mkdtemp(join('/tmp', 'writellm-packaged-app-'))
+  const userData = join(root, 'user-data')
+  const projectsParent = join(root, 'projects')
+  const sourcePath = join(root, 'packaged fallback.pdf')
+  const projectName = 'Packaged fallback'
+  const evidence = 'Packaged fallback evidence for hybrid retrieval'
+  const zipBytes = await resultZip(evidence)
+  const mineru = await startMineruServer(zipBytes)
+  const embeddingsState = { requests: 0 }
+  const embeddings = await startEmbeddingsServer(embeddingsState)
+  const mineruUrl = `http://127.0.0.1:${mineru.address().port}`
+  const embeddingsUrl = `http://127.0.0.1:${embeddings.address().port}/v1`
+  let app
+  try {
+    await writeFile(sourcePath, '%PDF-1.7\nPackaged fallback source')
+    await mkdir(projectsParent, { recursive: true })
+    app = await electron.launch({
+      executablePath: executable,
+      args: [`--user-data-dir=${userData}`],
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: undefined,
+        WRITELLM_E2E_PROJECT_DIALOG_PATHS: JSON.stringify([projectsParent]),
+        WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS: JSON.stringify([sourcePath])
+      }
+    })
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+
+    await page.evaluate(
+      async ({ mineruUrl: mineruBase, embeddingsUrl: embeddingsBase }) => {
+        await window.desktop.providers.save({
+          config: {
+            role: 'mineru',
+            providerId: 'mineru',
+            baseUrl: mineruBase,
+            model: 'pipeline',
+            embeddingDimension: null,
+            fileSizeLimitMb: 10,
+            timeoutMs: 30_000,
+            batchLimit: 25
+          },
+          apiKey: 'packaged-smoke-mineru'
+        })
+        await window.desktop.providers.save({
+          config: {
+            role: 'embedding',
+            providerId: 'openai-compatible',
+            baseUrl: embeddingsBase,
+            model: 'packaged-embed',
+            modelRevision: 'embed-rev-1',
+            embeddingDimension: 3,
+            fileSizeLimitMb: null,
+            timeoutMs: 30_000,
+            batchLimit: 16
+          },
+          apiKey: 'packaged-smoke-embedding'
+        })
+      },
+      { mineruUrl, embeddingsUrl }
+    )
+
+    await page.getByRole('button', { name: 'Create project', exact: true }).click()
+    const createDialog = page.getByRole('dialog', { name: 'Create project' })
+    await createDialog.getByLabel('Project name').fill(projectName)
+    await createDialog.getByRole('button', { name: 'Choose location' }).click()
+    await page
+      .locator('[data-slot="sidebar-header"]')
+      .filter({ hasText: projectName })
+      .getByText('Active', { exact: true })
+      .waitFor({ timeout: 60_000 })
+
+    await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+    await page.getByTestId('knowledge-upload-button').click()
+
+    const projectSessionId = await pollUntil(() =>
+      page.evaluate(async () => {
+        const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
+        if (session === undefined) return null
+        const items = await window.desktop.knowledge.list({ projectSessionId: session })
+        const item = items.find((entry) => entry.state === 'stored')
+        if (item === undefined) return null
+        const parsed = await window.desktop.knowledge.parsedDocument({
+          projectSessionId: session,
+          knowledgeItemId: item.knowledgeItemId
+        })
+        return parsed.active !== null && parsed.active !== undefined ? session : null
+      })
+    )
+    const baseline = await pollUntil(async () => {
+      const result = await searchPackaged(page, projectSessionId, evidence)
+      return result.mode === 'hybrid' && result.hits.some((hit) => hit.snippet.includes(evidence))
+        ? result
+        : null
+    })
+    assert(
+      baseline.hits.some((hit) => hit.snippet.includes(evidence)),
+      `baseline hybrid search missed the evidence chunk: ${JSON.stringify(baseline)}`
+    )
+    assert(baseline.mode === 'hybrid', `baseline search should be hybrid, was ${baseline.mode}`)
+    assert(
+      baseline.rerankStatus === 'not-configured',
+      `baseline rerank status should be not-configured, was ${baseline.rerankStatus}`
+    )
+
+    // Embedding provider failure: the vector leg must degrade to FTS results.
+    await closeServer(embeddings)
+    const embeddingFailure = await searchPackaged(page, projectSessionId, evidence)
+    assert(
+      embeddingFailure.hits.some((hit) => hit.snippet.includes(evidence)),
+      `embedding-failure search lost the FTS fallback hits: ${JSON.stringify(embeddingFailure)}`
+    )
+    assert(
+      embeddingFailure.mode === 'fts',
+      `embedding-failure search should fall back to fts, was ${embeddingFailure.mode}`
+    )
+
+    // Rerank provider failure: the fused ordering must still return hits.
+    await page.evaluate(async () => {
+      await window.desktop.providers.save({
+        config: {
+          role: 'rerank',
+          providerId: 'cohere-compatible',
+          baseUrl: 'http://127.0.0.1:1',
+          model: 'packaged-rerank',
+          modelRevision: 'rerank-rev-1',
+          embeddingDimension: null,
+          fileSizeLimitMb: null,
+          timeoutMs: 5_000,
+          batchLimit: 25
+        },
+        apiKey: 'packaged-smoke-rerank'
+      })
+    })
+    const rerankFailure = await searchPackaged(page, projectSessionId, evidence)
+    assert(
+      rerankFailure.hits.some((hit) => hit.snippet.includes(evidence)),
+      `rerank-failure search lost the fallback hits: ${JSON.stringify(rerankFailure)}`
+    )
+    assert(
+      rerankFailure.rerankStatus === 'unavailable',
+      `rerank-failure status should be unavailable, was ${rerankFailure.rerankStatus}`
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'provider-failure-fallback',
+        baselineMode: baseline.mode,
+        baselineRerankStatus: baseline.rerankStatus,
+        baselineHits: baseline.hits.length,
+        embeddingRequestsServed: embeddingsState.requests,
+        embeddingFailureMode: embeddingFailure.mode,
+        embeddingFailureHits: embeddingFailure.hits.length,
+        rerankFailureStatus: rerankFailure.rerankStatus,
+        rerankFailureHits: rerankFailure.hits.length
+      })}\n`
+    )
+
+    // Stale sessions: unknown and revoked projectSessionId values must be rejected.
+    const unknownSessionSearch = await page.evaluate(async () => {
+      try {
+        await window.desktop.knowledge.search({
+          projectSessionId: '00000000-0000-4000-8000-000000000000',
+          query: 'Packaged fallback evidence',
+          filters: { knowledgeItemIds: [], fileExtensions: [], parseRevisionIds: [] },
+          limits: { fts: 10, vector: 10, fused: 10, results: 5 },
+          rerank: false
+        })
+        return 'accepted'
+      } catch {
+        return 'rejected'
+      }
+    })
+    const closedSessionList = await page.evaluate(async (session) => {
+      await window.desktop.projects.close({ projectSessionId: session })
+      try {
+        await window.desktop.knowledge.list({ projectSessionId: session })
+        return 'accepted'
+      } catch {
+        return 'rejected'
+      }
+    }, projectSessionId)
+    const lifecycleAfterClose = await page.evaluate(
+      async () => (await window.desktop.projects.lifecycle()).state
+    )
+    assert(unknownSessionSearch === 'rejected', 'unknown projectSessionId search was not rejected')
+    assert(closedSessionList === 'rejected', 'closed projectSessionId list was not rejected')
+    assert(
+      lifecycleAfterClose === 'closed',
+      `project should be closed after the stale-session check, was ${lifecycleAfterClose}`
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'stale-session',
+        unknownSessionSearch,
+        closedSessionList,
+        lifecycleAfterClose
+      })}\n`
+    )
+  } finally {
+    if (app !== undefined) await app.close()
+    await closeServer(mineru)
+    await closeServer(embeddings)
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+async function packagedExecutable(resources) {
+  if (process.platform === 'darwin') {
+    const macosDirectory = join(resources, '..', 'MacOS')
+    const entries = await readdir(macosDirectory)
+    const executable = entries.find((entry) => !entry.startsWith('.'))
+    if (executable === undefined)
+      throw new Error(`No packaged executable found in ${macosDirectory}`)
+    return join(macosDirectory, executable)
+  }
+  const appPackage = join(resources, 'app.asar', 'package.json')
+  const metadata = JSON.parse(await readFile(appPackage, 'utf8'))
+  const name = metadata.productName ?? metadata.name
+  return join(resources, '..', process.platform === 'win32' ? `${name}.exe` : name)
+}
+
+async function searchPackaged(page, projectSessionId, query) {
+  return page.evaluate(
+    async (input) => {
+      const { session, query: text } = input
+      return window.desktop.knowledge.search({
+        projectSessionId: session,
+        query: text,
+        filters: { knowledgeItemIds: [], fileExtensions: [], parseRevisionIds: [] },
+        limits: { fts: 100, vector: 100, fused: 50, results: 20 },
+        rerank: true
+      })
+    },
+    { session: projectSessionId, query }
+  )
+}
+
+async function pollUntil(probe, timeoutMs = 180_000) {
+  const deadline = Date.now() + timeoutMs
+  let lastError
+  while (Date.now() < deadline) {
+    try {
+      const value = await probe()
+      if (value !== null && value !== undefined && value !== false) return value
+    } catch (error) {
+      lastError = error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  throw new Error(
+    `Packaged smoke timed out waiting for a condition${lastError ? `: ${lastError.message}` : ''}`
+  )
+}
+
+async function closeServer(server) {
+  await new Promise((resolve) => server.close(() => resolve()))
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(`Packaged smoke assertion failed: ${message}`)
+}
+
+function startMineruServer(zipBytes) {
+  let parseTaskId = ''
+  const server = createServer((request, response) => {
+    const port = server.address().port
+    if (request.method === 'POST' && request.url === '/api/v4/file-urls/batch') {
+      const chunks = []
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+      request.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        parseTaskId = body.files[0]?.data_id ?? ''
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            code: 0,
+            trace_id: 'packaged-submit-trace',
+            data: {
+              batch_id: 'packaged-batch-1',
+              file_urls: [`http://127.0.0.1:${port}/upload?signature=private`]
+            }
+          })
+        )
+      })
+      return
+    }
+    if (request.method === 'PUT' && request.url?.startsWith('/upload')) {
+      request.resume()
+      request.on('end', () => {
+        response.writeHead(200)
+        response.end()
+      })
+      return
+    }
+    if (
+      request.method === 'GET' &&
+      request.url === '/api/v4/extract-results/batch/packaged-batch-1'
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          code: 0,
+          trace_id: 'packaged-poll-trace',
+          data: {
+            batch_id: 'packaged-batch-1',
+            extract_result: [
+              {
+                file_name: 'packaged fallback.pdf',
+                data_id: parseTaskId,
+                state: 'done',
+                full_zip_url: `http://127.0.0.1:${port}/result.zip`
+              }
+            ]
+          }
+        })
+      )
+      return
+    }
+    if (request.method === 'GET' && request.url === '/result.zip') {
+      response.writeHead(200, {
+        'content-type': 'application/zip',
+        'content-length': String(zipBytes.byteLength)
+      })
+      response.end(zipBytes)
+      return
+    }
+    response.writeHead(404)
+    response.end()
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function startEmbeddingsServer(state) {
+  const server = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/v1/embeddings') {
+      const chunks = []
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+      request.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        const inputs = Array.isArray(body.input) ? body.input : [body.input]
+        state.requests += 1
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            object: 'list',
+            data: inputs.map((value, index) => ({
+              object: 'embedding',
+              index,
+              embedding: hashVector(String(value), 3)
+            })),
+            model: body.model ?? 'packaged-embed',
+            usage: { prompt_tokens: inputs.length, total_tokens: inputs.length }
+          })
+        )
+      })
+      return
+    }
+    response.writeHead(404)
+    response.end()
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function hashVector(value, dimension) {
+  const digest = createHash('sha256').update(value).digest()
+  return Array.from({ length: dimension }, (_, index) => (digest[index] - 128) / 128)
+}
+
+async function resultZip(evidence) {
+  const { ZipFile } = createRequire(join(process.cwd(), 'package.json'))('yazl')
+  const zip = new ZipFile()
+  zip.addBuffer(
+    Buffer.from(
+      JSON.stringify([
+        {
+          type: 'text',
+          text: evidence,
+          page_idx: 0,
+          bbox: [10, 20, 900, 80]
+        },
+        {
+          type: 'image',
+          img_path: 'images/figure.png',
+          page_idx: 0,
+          bbox: [20, 100, 800, 700]
+        }
+      ])
+    ),
+    'content_list.json'
+  )
+  zip.addBuffer(Buffer.from(evidence), 'full.md')
+  zip.addBuffer(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    ),
+    'images/figure.png'
+  )
+  zip.end()
+  const chunks = []
+  for await (const chunk of zip.outputStream) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks)
 }

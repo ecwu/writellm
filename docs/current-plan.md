@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 19.5 remediation complete; Checkpoints 19.6/19.7 are complete under the user's approval; Checkpoint 20 is not started.
-Recorded: 2026-07-16
+Status: Checkpoint 19.5 remediation complete; Checkpoints 19.6/19.7 are implementation-complete and their final verification gate passed on 2026-07-17; Checkpoint 20 is not started.
+Recorded: 2026-07-17
 
 ## Objective
 
@@ -29,17 +29,25 @@ the three superseded one-shot worker entry files were removed.
 ## Ordered work
 
 1. Checkpoint 19.6 items 19.6.1–19.6.6 are implemented and verified.
-2. Checkpoint 19.7 items 19.7.1–19.7.10 are implemented and verified.
+2. Checkpoint 19.7 items 19.7.1–19.7.10 are implemented and verified, including the C2 E2E/packaged backfill and the shared project-name helper correction.
 3. Ask the user whether to begin Checkpoint 20; it remains unstarted.
 
 ## Acceptance gate
 
-The gate for this window: every 19.6/19.7 item has source-level evidence and
-focused tests; no new durable job types, worker roles, or renderer capabilities
-are introduced; `pnpm check`, both typechecks, Electron-hosted Vitest, and the
-production build pass. The user approved this remediation window on
-2026-07-16; both checkpoints are now complete and Checkpoint 20 remains
-deferred.
+The final gate was verified on 2026-07-17: every 19.6/19.7 item has
+source-level evidence and focused tests; no new durable job types, worker roles,
+or renderer capabilities were introduced; the local Biome check passed with
+the existing shadcn `document.cookie` warning; Node/web TypeScript passed;
+Electron-hosted Vitest passed 70 files/322 tests; the production
+`electron-vite build` passed; the full Playwright Electron suite passed 11/11;
+the unpacked packaged app and hybrid smoke passed; and runtime app.sqlite
+verification captured application_id 1464615248, user_version 1, and a valid
+schema_manifest row. The `pnpm` wrapper itself could not run because Corepack
+rejected the pnpm 11 registry signature, so this record does not claim that
+`pnpm check` or `pnpm test:e2e` executed successfully; their local equivalent
+commands and the canonical Electron test runner passed. The user approved this
+remediation window on 2026-07-16; both checkpoints are complete and Checkpoint
+20 remains deferred.
 
 ## Deferred
 

@@ -1,8 +1,15 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import electron from 'electron'
 
 const script = new URL('./smoke-packaged-hybrid.mjs', import.meta.url)
-const result = spawnSync(electron, [script.pathname, ...process.argv.slice(2)], {
+const args = process.argv.slice(2)
+if (args.length === 0) {
+  const defaultResources = join('dist', 'mac-arm64', 'writellm.app', 'Contents', 'Resources')
+  if (existsSync(defaultResources)) args.push(defaultResources)
+}
+const result = spawnSync(electron, [script.pathname, ...args], {
   env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
   stdio: 'inherit'
 })

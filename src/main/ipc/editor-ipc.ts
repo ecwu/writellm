@@ -46,6 +46,7 @@ export function registerEditorIpc(options: {
   logger: Pick<Logger, 'error'>
   developmentUrl?: string
   ipc?: EditorIpcMain
+  snapshotFlushTimeoutMs?: number
 }): {
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
@@ -53,6 +54,7 @@ export function registerEditorIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
+  const snapshotFlushTimeoutMs = options.snapshotFlushTimeoutMs ?? 10_000
   const subscribers = new Map<string, Map<string, WebContents>>()
   const activeSections = new Map<string, string>()
   const pending = new Map<string, PendingFlush>()
@@ -280,31 +282,51 @@ export function registerEditorIpc(options: {
         return
       }
       try {
-        await new Promise<void>((resolve, reject) => {
-          pending.set(authorization.closingToken, {
-            senderId: sender.id,
-            authorization: { ...authorization, currentRevision },
-            resolve,
-            reject,
-            acknowledgedSectionId: null,
-            acknowledgedRevision: null
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await new Promise<void>((resolve, reject) => {
+            pending.set(authorization.closingToken, {
+              senderId: sender.id,
+              authorization: { ...authorization, currentRevision },
+              resolve,
+              reject,
+              acknowledgedSectionId: null,
+              acknowledgedRevision: null
+            })
+            timer = setTimeout(() => {
+              pending.delete(authorization.closingToken)
+              const err = new Error('Snapshot editor flush timed out')
+              options.logger.error(
+                {
+                  event: 'editor.snapshot_flush.timeout',
+                  err,
+                  projectSessionId: context.projectSessionId,
+                  closingToken: authorization.closingToken,
+                  timeoutMs: snapshotFlushTimeoutMs
+                },
+                'Snapshot editor flush timed out'
+              )
+              reject(err)
+            }, snapshotFlushTimeoutMs)
+            try {
+              sender.send(
+                IPC_CHANNELS.editorFlushRequest,
+                editorFlushRequestSchema.parse({
+                  projectSessionId: context.projectSessionId,
+                  closingToken: authorization.closingToken,
+                  purpose: 'snapshot',
+                  sectionId: activeSectionId,
+                  sectionRevisionId: currentRevision
+                })
+              )
+            } catch (err) {
+              pending.delete(authorization.closingToken)
+              reject(err)
+            }
           })
-          try {
-            sender.send(
-              IPC_CHANNELS.editorFlushRequest,
-              editorFlushRequestSchema.parse({
-                projectSessionId: context.projectSessionId,
-                closingToken: authorization.closingToken,
-                purpose: 'snapshot',
-                sectionId: activeSectionId,
-                sectionRevisionId: currentRevision
-              })
-            )
-          } catch (err) {
-            pending.delete(authorization.closingToken)
-            reject(err)
-          }
-        })
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+        }
         const request = pending.get(authorization.closingToken)
         pending.delete(authorization.closingToken)
         if (

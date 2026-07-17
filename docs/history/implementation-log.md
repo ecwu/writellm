@@ -33,3 +33,25 @@ here rather than extending superseded Phase designs.
   and the three superseded one-shot worker entry files were removed. Neither
   checkpoint has started; both require the user's approval, and Checkpoint 20
   remains deferred behind them.
+
+## 2026-07-17
+
+- Completed the approved Checkpoint 19.6/19.7 remediation and final gate. The
+  C2 backfill covers the import progress/cancel/retry/delete/open/reveal flow,
+  MinerU cancellation races, reverse and concurrent normalization completion,
+  terminal parse failure, direct IndexClient stale/unmatched responses,
+  parse/index activation races, and packaged provider-failure/stale-session
+  scenarios. The current sidebar project assertion is shared by the writing
+  workspace and project lifecycle E2E helpers.
+- Added a post-build source-fingerprint recheck so a superseded index
+  generation is never activated, and fixed the packaged smoke harness to
+  create its project parent and wait for a real hybrid evidence hit instead of
+  treating an earlier empty-index job as readiness.
+- Final evidence: local Biome check (one existing shadcn cookie warning), Node
+  and web TypeScript, Electron-hosted Vitest 70 files/322 tests, production
+  `electron-vite build`, full Electron Playwright E2E 11/11, unpacked
+  electron-builder packaging, packaged sqlite-vec/provider-fallback/stale-
+  session smoke, and runtime app.sqlite inspection (application_id 1464615248,
+  user_version 1, valid schema_manifest). The pnpm wrapper was unavailable
+  because Corepack rejected the pnpm 11 registry signature; equivalent local
+  commands passed. Checkpoint 20 remains not started.

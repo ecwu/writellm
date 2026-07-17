@@ -1,35 +1,15 @@
 import type {
   ManuscriptWorkspace,
   SectionRevision,
-  SectionStatus,
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  IndentDecrease,
-  IndentIncrease,
-  LoaderCircle,
-  Save
-} from 'lucide-react'
+import { AlertCircle, Bot, FileText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
-} from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -38,15 +18,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
   SheetContent,
@@ -55,9 +27,9 @@ import {
   SheetTitle
 } from '@/components/ui/sheet'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { Textarea } from '@/components/ui/textarea'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
+import { OutlineEditPanel, type OutlineMove } from './outline-edit-panel'
 import { ManuscriptPreview } from './manuscript-preview'
 import {
   SectionEditor,
@@ -65,12 +37,6 @@ import {
   type SectionEditorHandle,
   type SaveState
 } from './section-editor'
-
-const statusLabels: Record<SectionStatus, string> = {
-  planned: 'Planned',
-  drafting: 'Drafting',
-  completed: 'Completed'
-}
 
 export function WritingWorkspace(props: {
   projectSessionId: string
@@ -101,18 +67,14 @@ export function WritingWorkspace(props: {
   const [deleteSectionId, setDeleteSectionId] = useState<string | null>(null)
   const [editorSaveState, setEditorSaveState] = useState<SaveState>('saved')
   const [metadataTitle, setMetadataTitle] = useState('')
-  const [metadataObjective, setMetadataObjective] = useState('')
-  const [metadataStatus, setMetadataStatus] = useState<SectionStatus>('planned')
   const [metadataError, setMetadataError] = useState(false)
+  const [outlineEditOpen, setOutlineEditOpen] = useState(false)
   const editorRef = useRef<SectionEditorHandle>(null)
   const activeSectionIdRef = useRef<string | null>(null)
   const metadataDraftSectionIdRef = useRef<string | null>(null)
   const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
-  const metadataDraftRef = useRef({
-    title: '',
-    objective: '',
-    status: 'planned' as SectionStatus
-  })
+  const metadataSaveRef = useRef<Promise<boolean> | null>(null)
+  const metadataDraftRef = useRef({ title: '' })
   const selectionContextRef = useRef<(EditorSelectionContext & { sectionId: string }) | null>(null)
 
   const editorQuery = useQuery({
@@ -148,13 +110,7 @@ export function WritingWorkspace(props: {
         ?.sections.find((item) => item.section.sectionId === sectionId)
       if (target) {
         setMetadataTitle(target.section.title)
-        setMetadataObjective(target.section.objective ?? '')
-        setMetadataStatus(target.section.status)
-        metadataDraftRef.current = {
-          title: target.section.title,
-          objective: target.section.objective ?? '',
-          status: target.section.status
-        }
+        metadataDraftRef.current = { title: target.section.title }
         metadataDraftSectionIdRef.current = sectionId
         metadataCanonicalUpdatedAtRef.current = target.section.updatedAt
         setMetadataError(false)
@@ -186,12 +142,21 @@ export function WritingWorkspace(props: {
     (item) => item.section.sectionId === activeSectionId
   )
 
-  const metadataDirty = Boolean(
-    activeSummary &&
-      (metadataTitle !== activeSummary.section.title ||
-        metadataObjective !== (activeSummary.section.objective ?? '') ||
-        metadataStatus !== activeSummary.section.status)
-  )
+  const outlineMoveAvailability = useMemo(() => {
+    if (!workspace || !activeSummary) {
+      return { up: false, down: false, indent: false, outdent: false }
+    }
+    const section = activeSummary.section
+    const siblings = workspace.sections.filter(
+      (item) => item.section.parentSectionId === section.parentSectionId
+    )
+    return {
+      up: section.position > 0,
+      down: section.position < siblings.length - 1,
+      indent: section.position > 0,
+      outdent: section.parentSectionId !== null
+    }
+  }, [activeSummary, workspace])
 
   useEffect(() => {
     if (!activeSummary) return
@@ -199,19 +164,10 @@ export function WritingWorkspace(props: {
     const canonicalChanged =
       metadataCanonicalUpdatedAtRef.current !== activeSummary.section.updatedAt
     const draft = metadataDraftRef.current
-    const draftDirty =
-      draft.title !== activeSummary.section.title ||
-      draft.objective !== (activeSummary.section.objective ?? '') ||
-      draft.status !== activeSummary.section.status
+    const draftDirty = draft.title !== activeSummary.section.title
     if (!sectionChanged && (!canonicalChanged || draftDirty || metadataError)) return
     setMetadataTitle(activeSummary.section.title)
-    setMetadataObjective(activeSummary.section.objective ?? '')
-    setMetadataStatus(activeSummary.section.status)
-    metadataDraftRef.current = {
-      title: activeSummary.section.title,
-      objective: activeSummary.section.objective ?? '',
-      status: activeSummary.section.status
-    }
+    metadataDraftRef.current = { title: activeSummary.section.title }
     metadataDraftSectionIdRef.current = activeSummary.section.sectionId
     metadataCanonicalUpdatedAtRef.current = activeSummary.section.updatedAt
     setMetadataError(false)
@@ -230,36 +186,39 @@ export function WritingWorkspace(props: {
   )
 
   const saveMetadata = useCallback(async (): Promise<boolean> => {
-    if (!activeSummary) return true
-    const draft = metadataDraftRef.current
-    const draftDirty =
-      draft.title !== activeSummary.section.title ||
-      draft.objective !== (activeSummary.section.objective ?? '') ||
-      draft.status !== activeSummary.section.status
-    if (!draftDirty) return true
-    if (draft.title.trim().length === 0) {
-      props.onError('Section titles cannot be empty.')
-      return false
+    if (metadataSaveRef.current !== null) return metadataSaveRef.current
+    const operation = (async (): Promise<boolean> => {
+      if (!activeSummary) return true
+      const draft = metadataDraftRef.current
+      if (draft.title === activeSummary.section.title) return true
+      if (draft.title.trim().length === 0) {
+        props.onError('Section titles cannot be empty.')
+        return false
+      }
+      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
+      const currentSummary = current?.sections.find(
+        (item) => item.section.sectionId === activeSummary.section.sectionId
+      )
+      if (!current || !currentSummary) return false
+      const result = await runMutation(() =>
+        window.desktop.manuscript.updateSection({
+          projectSessionId: props.projectSessionId,
+          update: {
+            baseOutlineVersion: current.outlineVersion,
+            sectionId: activeSummary.section.sectionId,
+            title: draft.title.trim()
+          }
+        })
+      )
+      setMetadataError(result === null)
+      return result !== null
+    })()
+    metadataSaveRef.current = operation
+    try {
+      return await operation
+    } finally {
+      if (metadataSaveRef.current === operation) metadataSaveRef.current = null
     }
-    const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
-    const currentSummary = current?.sections.find(
-      (item) => item.section.sectionId === activeSummary.section.sectionId
-    )
-    if (!current || !currentSummary) return false
-    const result = await runMutation(() =>
-      window.desktop.manuscript.updateSection({
-        projectSessionId: props.projectSessionId,
-        update: {
-          baseOutlineVersion: current.outlineVersion,
-          sectionId: activeSummary.section.sectionId,
-          title: draft.title.trim(),
-          objective: draft.objective.trim() || null,
-          status: draft.status
-        }
-      })
-    )
-    setMetadataError(result === null)
-    return result !== null
   }, [activeSummary, props, queryClient, runMutation, workspaceKey])
 
   const flushCurrent = useCallback(async (): Promise<boolean> => {
@@ -413,7 +372,7 @@ export function WritingWorkspace(props: {
     )
   }
 
-  const moveActive = async (kind: 'up' | 'down' | 'indent' | 'outdent'): Promise<void> => {
+  const moveActive = async (kind: OutlineMove): Promise<void> => {
     if (!workspace || !activeSummary) return
     const section = activeSummary.section
     const siblings = workspace.sections
@@ -449,6 +408,41 @@ export function WritingWorkspace(props: {
     })
   }
 
+  const runPanelEditorAction = async (
+    action: () => Promise<void>,
+    failureMessage: string
+  ): Promise<void> => {
+    if (!(await flushCurrent())) return
+    try {
+      await action()
+    } catch {
+      props.onError(failureMessage)
+    }
+  }
+
+  const importMarkdownFromPanel = (): Promise<void> =>
+    runPanelEditorAction(async () => {
+      await editorRef.current?.importMarkdown()
+    }, 'Markdown could not be imported into the current section.')
+
+  const exportNativeJsonFromPanel = (): Promise<void> =>
+    runPanelEditorAction(async () => {
+      await editorRef.current?.exportNativeJson()
+    }, 'The native section document could not be exported.')
+
+  const exportMarkdownFromPanel = (): Promise<void> =>
+    runPanelEditorAction(async () => {
+      await editorRef.current?.exportMarkdown()
+    }, 'The Markdown section export could not be created.')
+
+  const previewFromPanel = async (): Promise<void> => {
+    try {
+      await openPreview()
+    } catch {
+      props.onError('The manuscript preview could not be loaded.')
+    }
+  }
+
   if (activeWorkspace === 'knowledge') {
     return (
       <KnowledgeManager
@@ -480,7 +474,7 @@ export function WritingWorkspace(props: {
           void moveSection(sectionId, parentSectionId, position)
         }
         onOpenBrief={() => setBriefOpen(true)}
-        onOpenPreview={() => void openPreview()}
+        onOpenOutlineEditor={() => setOutlineEditOpen(true)}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onToggleAgent={() => setAgentOpen((current) => !current)}
@@ -489,24 +483,11 @@ export function WritingWorkspace(props: {
       <SidebarInset className='min-h-0 overflow-auto'>
         <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
           <SidebarTrigger className='-ml-1' />
-          <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage>{props.projectName}</BreadcrumbPage>
-              </BreadcrumbItem>
-              {activeSummary ? (
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{activeSummary.section.title}</BreadcrumbPage>
-                </BreadcrumbItem>
-              ) : null}
-            </BreadcrumbList>
-          </Breadcrumb>
           <Badge className='ml-auto' variant='secondary'>
             {props.lifecycleState}
           </Badge>
         </header>
-        <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 p-4 md:p-8'>
+        <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:px-12 md:py-10 lg:px-20'>
           {props.globalAlert}
           {workspaceQuery.isError ? (
             <Alert variant='destructive'>
@@ -517,181 +498,44 @@ export function WritingWorkspace(props: {
               </AlertDescription>
             </Alert>
           ) : null}
-          <div className='flex flex-wrap items-center justify-between gap-3'>
-            <div>
-              <h1 className='text-2xl font-semibold tracking-tight'>{props.projectName}</h1>
-              {workspace?.brief.title && workspace.brief.title !== props.projectName ? (
-                <p className='text-sm font-medium'>{workspace.brief.title}</p>
-              ) : null}
-              <p className='text-sm text-muted-foreground'>
-                {workspace?.wordCount.toLocaleString() ?? 0} words ·{' '}
-                {workspace?.characterCount.toLocaleString() ?? 0} characters ·{' '}
-                {workspace?.sections.filter((item) => item.section.status === 'completed').length ??
-                  0}
-                /{workspace?.sections.length ?? 0} sections completed
-              </p>
-            </div>
-            <div className='flex items-center gap-2'>
-              <Button variant='outline' onClick={() => setBriefOpen(true)}>
-                Manuscript brief
-              </Button>
-              <Button variant='outline' onClick={() => void openPreview()}>
-                <FileText /> Preview all
-              </Button>
-            </div>
-          </div>
           {workspaceQuery.isPending || editorQuery.isPending ? (
             <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
               <LoaderCircle className='size-5 animate-spin' /> Loading writing workspace…
             </div>
           ) : editorQuery.data && activeSummary ? (
-            <Card>
-              <CardHeader className='gap-4 border-b'>
-                <div className='flex flex-wrap items-start justify-between gap-3'>
-                  <div>
-                    <CardTitle>{activeSummary.section.title}</CardTitle>
-                    <p className='mt-1 text-sm text-muted-foreground'>
-                      {activeSummary.revision.wordCount.toLocaleString()} words ·{' '}
-                      {activeSummary.revision.characterCount.toLocaleString()} characters
-                    </p>
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Button
-                      variant='outline'
-                      size='icon-sm'
-                      disabled={activeIndex <= 0}
-                      aria-label='Previous section'
-                      onClick={() => void selectSection(orderedIds[activeIndex - 1] as string)}
-                    >
-                      <ChevronLeft />
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='icon-sm'
-                      disabled={activeIndex < 0 || activeIndex >= orderedIds.length - 1}
-                      aria-label='Next section'
-                      onClick={() => void selectSection(orderedIds[activeIndex + 1] as string)}
-                    >
-                      <ChevronRight />
-                    </Button>
-                  </div>
-                </div>
-                <div className='grid gap-3 lg:grid-cols-[1fr_1.4fr_auto]'>
-                  <label className='grid gap-1.5' htmlFor='section-title'>
-                    <span className='text-xs font-medium text-muted-foreground'>Section title</span>
-                    <Input
-                      id='section-title'
-                      value={metadataTitle}
-                      onChange={(event) => {
-                        metadataDraftRef.current.title = event.target.value
-                        setMetadataTitle(event.target.value)
-                      }}
-                    />
-                  </label>
-                  <label className='grid gap-1.5' htmlFor='section-objective'>
-                    <span className='text-xs font-medium text-muted-foreground'>Objective</span>
-                    <Textarea
-                      id='section-objective'
-                      className='min-h-9 resize-y py-2'
-                      value={metadataObjective}
-                      onChange={(event) => {
-                        metadataDraftRef.current.objective = event.target.value
-                        setMetadataObjective(event.target.value)
-                      }}
-                    />
-                  </label>
-                  <div className='flex flex-wrap items-end gap-2'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='outline'>{statusLabels[metadataStatus]}</Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuRadioGroup
-                          value={metadataStatus}
-                          onValueChange={(value) => {
-                            metadataDraftRef.current.status = value as SectionStatus
-                            setMetadataStatus(value as SectionStatus)
-                          }}
-                        >
-                          {Object.entries(statusLabels).map(([value, label]) => (
-                            <DropdownMenuRadioItem key={value} value={value}>
-                              {label}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button
-                      disabled={!metadataDirty || mutation.isPending}
-                      onClick={() => void saveMetadata()}
-                    >
-                      <Save /> Save details
-                    </Button>
-                    {metadataError ? (
-                      <Button
-                        variant='outline'
-                        disabled={mutation.isPending}
-                        onClick={() => {
-                          void workspaceQuery.refetch().then(({ data }) => {
-                            const latest = data?.sections.find(
-                              (item) => item.section.sectionId === activeSectionId
-                            )
-                            if (!latest) return
-                            setMetadataTitle(latest.section.title)
-                            setMetadataObjective(latest.section.objective ?? '')
-                            setMetadataStatus(latest.section.status)
-                            metadataDraftRef.current = {
-                              title: latest.section.title,
-                              objective: latest.section.objective ?? '',
-                              status: latest.section.status
-                            }
-                            metadataDraftSectionIdRef.current = latest.section.sectionId
-                            metadataCanonicalUpdatedAtRef.current = latest.section.updatedAt
-                            setMetadataError(false)
-                          })
-                        }}
-                      >
-                        Reload details
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <span className='text-xs text-muted-foreground'>Outline position</span>
-                  <Button variant='ghost' size='sm' onClick={() => void moveActive('up')}>
-                    <ArrowUp /> Up
-                  </Button>
-                  <Button variant='ghost' size='sm' onClick={() => void moveActive('down')}>
-                    <ArrowDown /> Down
-                  </Button>
-                  <Button variant='ghost' size='sm' onClick={() => void moveActive('indent')}>
-                    <IndentIncrease /> Indent
-                  </Button>
-                  <Button variant='ghost' size='sm' onClick={() => void moveActive('outdent')}>
-                    <IndentDecrease /> Outdent
-                  </Button>
-                  <Badge className='ml-auto' variant='outline'>
-                    {editorSaveState === 'clean' ? 'Unsaved body' : editorSaveState}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className='p-0'>
-                <SectionEditor
-                  ref={editorRef}
-                  key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
-                  projectSessionId={props.projectSessionId}
-                  revision={editorQuery.data.revision}
-                  onRevision={updateRevision}
-                  onSaveStateChange={setEditorSaveState}
-                  onSelectionContextChange={(context) => {
-                    selectionContextRef.current = {
-                      sectionId: activeSummary.section.sectionId,
-                      ...context
-                    }
-                  }}
-                />
-              </CardContent>
-            </Card>
+            <section className='flex flex-col gap-2'>
+              <Input
+                id='section-title'
+                aria-label='Section title'
+                value={metadataTitle}
+                onBlur={() => void saveMetadata()}
+                onChange={(event) => {
+                  metadataDraftRef.current.title = event.target.value
+                  setMetadataError(false)
+                  setMetadataTitle(event.target.value)
+                }}
+                className='h-auto border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
+              />
+              {metadataError ? (
+                <p className='text-sm text-destructive' role='alert'>
+                  The title could not be saved. Press ⌘/Ctrl+S to retry.
+                </p>
+              ) : null}
+              <SectionEditor
+                ref={editorRef}
+                key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
+                projectSessionId={props.projectSessionId}
+                revision={editorQuery.data.revision}
+                onRevision={updateRevision}
+                onSaveStateChange={setEditorSaveState}
+                onSelectionContextChange={(context) => {
+                  selectionContextRef.current = {
+                    sectionId: activeSummary.section.sectionId,
+                    ...context
+                  }
+                }}
+              />
+            </section>
           ) : (
             <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
               <div className='space-y-3'>
@@ -707,6 +551,22 @@ export function WritingWorkspace(props: {
           </div>
         </main>
       </SidebarInset>
+
+      <OutlineEditPanel
+        open={outlineEditOpen}
+        onOpenChange={setOutlineEditOpen}
+        activeSection={activeSummary?.section}
+        saveState={editorSaveState}
+        canMoveUp={outlineMoveAvailability.up}
+        canMoveDown={outlineMoveAvailability.down}
+        canIndent={outlineMoveAvailability.indent}
+        canOutdent={outlineMoveAvailability.outdent}
+        onMove={(move) => void moveActive(move)}
+        onImportMarkdown={importMarkdownFromPanel}
+        onExportNativeJson={exportNativeJsonFromPanel}
+        onExportMarkdown={exportMarkdownFromPanel}
+        onPreviewAll={previewFromPanel}
+      />
 
       {workspace ? (
         <ManuscriptBriefDialog

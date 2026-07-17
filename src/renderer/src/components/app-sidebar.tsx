@@ -7,6 +7,7 @@ import {
   FileText,
   LibraryBig,
   ListTree,
+  Pencil,
   Plus,
   Settings2,
   Trash2
@@ -21,6 +22,7 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarFooter,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -37,7 +39,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onDeleteSection(sectionId: string): void
   onMoveSection(sectionId: string, parentSectionId: string | null, position: number): void
   onOpenBrief(): void
-  onOpenPreview(): void
+  onOpenOutlineEditor(): void
   onOpenKnowledge(): void
   onOpenManuscript(): void
   onToggleAgent(): void
@@ -54,7 +56,7 @@ export function AppSidebar({
   onDeleteSection,
   onMoveSection,
   onOpenBrief,
-  onOpenPreview,
+  onOpenOutlineEditor,
   onOpenKnowledge,
   onOpenManuscript,
   onToggleAgent,
@@ -108,8 +110,8 @@ export function AppSidebar({
             <Button variant='outline' size='sm' onClick={onOpenBrief}>
               Brief
             </Button>
-            <Button variant='outline' size='sm' onClick={onOpenPreview}>
-              Preview
+            <Button variant='outline' size='sm' onClick={onOpenOutlineEditor}>
+              <Pencil /> Edit outline
             </Button>
           </div>
         </SidebarHeader>
@@ -192,6 +194,22 @@ export function AppSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+        <SidebarFooter className='shrink-0 border-t p-4'>
+          <section
+            className='space-y-1 text-xs text-muted-foreground'
+            aria-label='Manuscript statistics'
+          >
+            <p>
+              {workspace?.wordCount.toLocaleString() ?? 0} words ·{' '}
+              {workspace?.characterCount.toLocaleString() ?? 0} characters
+            </p>
+            <p>
+              {workspace?.sections.filter((item) => item.section.status === 'completed').length ??
+                0}
+              /{workspace?.sections.length ?? 0} sections completed
+            </p>
+          </section>
+        </SidebarFooter>
       </Sidebar>
     </Sidebar>
   )

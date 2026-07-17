@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
+import { dialog, ipcMain, shell, type BrowserWindow, type IpcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
@@ -10,18 +10,22 @@ import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { LoggerSystem } from './logger'
 import { authorizeSender } from '../ipc/authorize-sender'
 
+export interface DiagnosticsIpcMain
+  extends Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeAllListeners'> {}
+
 export function registerDiagnosticsIpc(
   loggerSystem: LoggerSystem,
   getWindow: () => BrowserWindow | null,
-  developmentUrl?: string
+  developmentUrl?: string,
+  ipc: DiagnosticsIpcMain = ipcMain
 ): () => void {
   const log = loggerSystem.createModuleLogger('ipc', 'diagnostics')
 
-  ipcMain.handle(IPC_CHANNELS.diagnosticsSnapshot, (event) => {
+  ipc.handle(IPC_CHANNELS.diagnosticsSnapshot, (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return diagnosticsSnapshotSchema.parse(loggerSystem.ringBuffer.snapshot())
   })
-  ipcMain.on(IPC_CHANNELS.diagnosticsReportRendererError, (event, input: unknown) => {
+  ipc.on(IPC_CHANNELS.diagnosticsReportRendererError, (event, input: unknown) => {
     try {
       authorizeSender(event.senderFrame, developmentUrl)
       const report = rendererErrorReportSchema.parse(input)
@@ -44,13 +48,13 @@ export function registerDiagnosticsIpc(
       )
     }
   })
-  ipcMain.handle(IPC_CHANNELS.diagnosticsSetLevel, (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.diagnosticsSetLevel, (event, input: unknown) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const change = diagnosticsLevelInputSchema.parse(input)
     loggerSystem.setSubsystemLevel(change.subsystem, change.level, change.durationMs)
     log.info({ event: 'app.log_level.changed', ...change }, 'Subsystem log level changed')
   })
-  ipcMain.handle(IPC_CHANNELS.diagnosticsOpenLogs, async (event) => {
+  ipc.handle(IPC_CHANNELS.diagnosticsOpenLogs, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const errorMessage = await shell.openPath(loggerSystem.logDirectory)
     if (errorMessage !== '') {
@@ -59,7 +63,7 @@ export function registerDiagnosticsIpc(
       throw err
     }
   })
-  ipcMain.handle(IPC_CHANNELS.diagnosticsExport, async (event) => {
+  ipc.handle(IPC_CHANNELS.diagnosticsExport, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return exportDiagnosticsBundle(loggerSystem, getWindow, log)
   })
@@ -88,9 +92,9 @@ export function registerDiagnosticsIpc(
       IPC_CHANNELS.diagnosticsOpenLogs,
       IPC_CHANNELS.diagnosticsExport
     ]) {
-      ipcMain.removeHandler(channel)
+      ipc.removeHandler(channel)
     }
-    ipcMain.removeAllListeners(IPC_CHANNELS.diagnosticsReportRendererError)
+    ipc.removeAllListeners(IPC_CHANNELS.diagnosticsReportRendererError)
   }
 }
 

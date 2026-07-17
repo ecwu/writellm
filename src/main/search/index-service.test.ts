@@ -225,9 +225,153 @@ describe('ProjectIndexService embeddings', () => {
       expect.any(AbortSignal)
     )
   })
+
+  it('does not activate a generation built from a superseded parse revision', async () => {
+    const queued: Array<{
+      type: string
+      payload: Record<string, unknown>
+      deduplicationKey?: string
+      maxAttempts?: number
+    }> = []
+    const client = {
+      build: vi.fn(async () => {
+        throw new Error('stale generation must not build')
+      }),
+      activate: vi.fn(async () => {
+        throw new Error('stale generation must not activate')
+      })
+    } as unknown as IndexClient
+    const database = {
+      immediate: (operation: (database: { prepare: () => { all: () => unknown[] } }) => unknown) =>
+        operation({
+          prepare: () => ({
+            all: () => [
+              {
+                knowledge_item_id: knowledgeItemId,
+                display_name: 'Fixture',
+                extension: 'pdf',
+                parse_revision_id: parseRevisionId,
+                normalization_run_id: normalizationRunId,
+                relative_path: '.writellm/normalized/run',
+                manifest_sha256: manifestSha256
+              }
+            ]
+          })
+        })
+    } as unknown as ProjectDatabase
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database,
+      jobs: {
+        enqueue: (input: (typeof queued)[number]) => queued.push(input)
+      } as never,
+      client,
+      getEmbeddingProvider: async () => config,
+      embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+    // The queued build job still carries the generation derived from a parse
+    // revision that has since been superseded; the current fingerprint differs.
+    const staleGenerationId = expectedIndexGeneration('99999999-9999-4999-8999-999999999999')
+    expect(staleGenerationId).not.toBe(expectedIndexGeneration())
+
+    await service.handleBuild(
+      context('build_index_generation', { generationId: staleGenerationId })
+    )
+
+    expect(client.build).not.toHaveBeenCalled()
+    expect(client.activate).not.toHaveBeenCalled()
+    expect(queued).toEqual([
+      {
+        type: 'build_index_generation',
+        payload: { generationId: expectedIndexGeneration() },
+        deduplicationKey: `index-build:${expectedIndexGeneration()}`,
+        maxAttempts: 8
+      }
+    ])
+  })
+
+  it('does not activate when a parse revision changes during index build', async () => {
+    const supersededRevisionId = '99999999-9999-4999-8999-999999999999'
+    let currentRevisionId = parseRevisionId
+    let releaseBuild!: () => void
+    let resolveBuildStarted!: () => void
+    const buildStarted = new Promise<void>((resolve) => {
+      resolveBuildStarted = resolve
+    })
+    const buildRelease = new Promise<void>((resolve) => {
+      releaseBuild = resolve
+    })
+    const queued: Array<{
+      type: string
+      payload: Record<string, unknown>
+      deduplicationKey?: string
+      maxAttempts?: number
+    }> = []
+    const activate = vi.fn(async () => {
+      throw new Error('superseded generation must not activate')
+    })
+    const client = {
+      build: vi.fn(async () => {
+        resolveBuildStarted()
+        await buildRelease
+        return { type: 'built', requestId: randomUUID() }
+      }),
+      activate
+    } as unknown as IndexClient
+    const database = {
+      immediate: (operation: (database: { prepare: () => { all: () => unknown[] } }) => unknown) =>
+        operation({
+          prepare: () => ({
+            all: () => [
+              {
+                knowledge_item_id: knowledgeItemId,
+                display_name: 'Fixture',
+                extension: 'pdf',
+                parse_revision_id: currentRevisionId,
+                normalization_run_id: normalizationRunId,
+                relative_path: '.writellm/normalized/run',
+                manifest_sha256: manifestSha256
+              }
+            ]
+          })
+        })
+    } as unknown as ProjectDatabase
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database,
+      jobs: { enqueue: (input: (typeof queued)[number]) => queued.push(input) } as never,
+      client,
+      getEmbeddingProvider: async () => config,
+      embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+
+    const pending = service.handleBuild(
+      context('build_index_generation', {
+        generationId: expectedIndexGeneration()
+      })
+    )
+    await buildStarted
+    currentRevisionId = supersededRevisionId
+    releaseBuild()
+    await pending
+
+    expect(activate).not.toHaveBeenCalled()
+    expect(queued).toEqual([
+      {
+        type: 'build_index_generation',
+        payload: { generationId: expectedIndexGeneration(supersededRevisionId) },
+        deduplicationKey: `index-build:${expectedIndexGeneration(supersededRevisionId)}`,
+        maxAttempts: 8
+      }
+    ])
+  })
 })
 
-function expectedIndexGeneration(): string {
+function expectedIndexGeneration(revisionId = parseRevisionId): string {
   const sourceSet = sha256(
     Buffer.from(
       JSON.stringify({
@@ -236,7 +380,7 @@ function expectedIndexGeneration(): string {
           {
             knowledgeItemId,
             extension: 'pdf',
-            parseRevisionId,
+            parseRevisionId: revisionId,
             normalizationRunId,
             manifestSha256
           }

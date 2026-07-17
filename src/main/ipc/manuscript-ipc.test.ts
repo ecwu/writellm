@@ -99,6 +99,10 @@ function harness() {
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
       return context
+    }),
+    assertMutationSession: vi.fn((value: string) => {
+      if (value !== projectSessionId) throw new Error('stale')
+      return context
     })
   }
   registerManuscriptIpc({

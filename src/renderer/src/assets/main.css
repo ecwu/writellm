@@ -106,3 +106,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  /* Keep the writing column aligned with its title while BlockNote's floating
+     side menu uses the space just outside the column. */
+  .writing-editor .bn-editor {
+    padding-inline: 0;
+  }
+
+  @media (max-width: 767px) {
+    .writing-editor .bn-editor {
+      padding-inline: 54px;
+    }
+  }
+}

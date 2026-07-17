@@ -272,6 +272,166 @@ describe('MineruWorkflowService', () => {
     expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
     fixture.database.close()
   })
+
+  it('does not download or publish when cancellation races an in-flight poll', async () => {
+    const fixture = await createFixture()
+    const pollStarted = deferred()
+    const releasePoll = deferred()
+    const gateway = createGateway({
+      poll: vi.fn(async () => {
+        pollStarted.resolve()
+        await releasePoll.promise
+        return {
+          remoteState: 'done' as const,
+          downloadUrl: 'https://download.example/result?signature=private',
+          traceId: 'trace-race',
+          extractedPages: null,
+          totalPages: null,
+          remoteErrorCode: null
+        }
+      })
+    })
+    const service = createService(fixture, gateway)
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+    await service.handleSubmit(context(submit))
+    expect(taskRow(fixture, parseTaskId).state).toBe('polling')
+
+    const pending = service.handlePoll(context(fakeJob('mineru_parse', parseTaskId)))
+    await pollStarted.promise
+    // Cancel while the gateway poll is in flight, then deliver the late response.
+    service.cancel(parseTaskId)
+    releasePoll.resolve()
+    await pending
+
+    expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
+    expect(gateway.download).not.toHaveBeenCalled()
+    expect(
+      fixture.jobs
+        .list({ limit: 20 })
+        .some((job) => job.deduplicationKey === `mineru-download:${parseTaskId}`)
+    ).toBe(false)
+    expect(taskEvents(fixture, parseTaskId).some((event) => event.to_state === 'downloading')).toBe(
+      false
+    )
+    fixture.database.close()
+  })
+
+  it('does not publish when cancellation races an in-flight download', async () => {
+    const fixture = await createFixture()
+    const archive = join(fixture.root, 'mineru-result.zip')
+    await createZip(archive)
+    const archiveBytes = await readFile(archive)
+    const downloadStarted = deferred()
+    const releaseDownload = deferred()
+    const gateway = createGateway({
+      download: vi.fn(async ({ destinationPath }) => {
+        downloadStarted.resolve()
+        await releaseDownload.promise
+        await copyFile(archive, destinationPath)
+        return {
+          sha256: createHash('sha256').update(archiveBytes).digest('hex'),
+          byteSize: archiveBytes.byteLength,
+          contentType: 'application/zip'
+        }
+      })
+    })
+    const service = createService(fixture, gateway)
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+    await service.handleSubmit(context(submit))
+    await service.handlePoll(context(fakeJob('mineru_parse', parseTaskId)))
+    expect(taskRow(fixture, parseTaskId).state).toBe('downloading')
+
+    const pending = service.handleDownload(context(fakeJob('mineru_parse', parseTaskId)))
+    await downloadStarted.promise
+    // Cancel while the archive download is in flight, then deliver the late bytes.
+    service.cancel(parseTaskId)
+    releaseDownload.resolve()
+    await pending
+
+    expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
+    const revision = fixture.database.immediate(
+      (database) =>
+        database
+          .prepare('SELECT * FROM parse_revisions WHERE parse_task_id = ?')
+          .get(parseTaskId) as Record<string, unknown>
+    )
+    expect(revision).toMatchObject({ state: 'staging', archive_sha256: null })
+    expect(
+      fixture.jobs.list({ limit: 20 }).some((job) => job.type === 'normalize_parse_revision')
+    ).toBe(false)
+    const events = taskEvents(fixture, parseTaskId)
+    expect(events.some((event) => event.event === 'archive.persisted')).toBe(false)
+    expect(events.some((event) => event.event === 'raw_revision.published')).toBe(false)
+    fixture.database.close()
+  })
+
+  it('records a terminal parse failure with a structured error and stops retrying', async () => {
+    const fixture = await createFixture()
+    const gateway = createGateway()
+    const errorLog = vi.fn()
+    const service = new MineruWorkflowService({
+      projectRoot: fixture.projectRoot,
+      projectId: fixture.projectId,
+      database: fixture.database,
+      jobs: fixture.jobs,
+      providers: {
+        getConfiguredProvider: async () => config,
+        withConfiguredProvider: async (operation) => operation(config, 'credential')
+      },
+      gateway,
+      log: { info: vi.fn(), warn: vi.fn(), error: errorLog }
+    })
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+    await service.handleSubmit(context(submit))
+    expect(taskRow(fixture, parseTaskId).state).toBe('polling')
+
+    const failure = Object.assign(new Error('provider exploded'), { providerCode: 'GLMT-404' })
+    service.recordPermanentFailure(parseTaskId, failure)
+
+    const row = taskRow(fixture, parseTaskId)
+    expect(row).toMatchObject({ state: 'failed', error_code: 'provider_GLMT-404', retry_count: 0 })
+    expect(row.completed_at).not.toBeNull()
+    const terminalEvents = taskEvents(fixture, parseTaskId).filter(
+      (event) => event.event === 'operation.failed_permanently'
+    )
+    expect(terminalEvents).toHaveLength(1)
+    expect(terminalEvents[0]).toMatchObject({
+      from_state: 'polling',
+      to_state: 'failed',
+      error_code: 'provider_GLMT-404'
+    })
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'mineru.parse.failed_permanently',
+        err: failure,
+        projectId: fixture.projectId,
+        parseTaskId,
+        errorCode: 'provider_GLMT-404'
+      }),
+      expect.any(String)
+    )
+
+    // A terminal task records no further retries or failures and performs no remote work.
+    service.recordPermanentFailure(parseTaskId, new Error('duplicate failure'))
+    service.recordRetry(parseTaskId, new Error('late retry'))
+    await service.handleParse(context(fakeJob('mineru_parse', parseTaskId)))
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({
+      state: 'failed',
+      error_code: 'provider_GLMT-404',
+      retry_count: 0
+    })
+    expect(gateway.poll).not.toHaveBeenCalled()
+    const events = taskEvents(fixture, parseTaskId)
+    expect(events.filter((event) => event.event === 'operation.failed_permanently')).toHaveLength(1)
+    expect(events.some((event) => event.event === 'operation.retry_scheduled')).toBe(false)
+    fixture.database.close()
+  })
 })
 
 async function createFixture() {
@@ -399,6 +559,38 @@ function taskRow(
         .prepare('SELECT * FROM parse_tasks WHERE parse_task_id = ?')
         .get(parseTaskId) as Record<string, unknown> & { state: string }
   )
+}
+
+function taskEvents(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  parseTaskId: string
+): Array<{
+  event: string
+  from_state: string | null
+  to_state: string
+  error_code: string | null
+}> {
+  return fixture.database.immediate(
+    (database) =>
+      database
+        .prepare(
+          'SELECT event, from_state, to_state, error_code FROM parse_task_events WHERE parse_task_id = ?'
+        )
+        .all(parseTaskId) as Array<{
+        event: string
+        from_state: string | null
+        to_state: string
+        error_code: string | null
+      }>
+  )
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }
 
 async function createZip(path: string): Promise<void> {

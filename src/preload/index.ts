@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { appInfoSchema, type AppInfo } from '../shared/contracts/app'
+import {
+  appInfoSchema,
+  setThemePreferenceInputSchema,
+  themePreferenceSchema,
+  type AppInfo,
+  type SetThemePreferenceInput,
+  type ThemePreference
+} from '../shared/contracts/app'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
   diagnosticExportResultSchema,
@@ -111,6 +118,8 @@ import {
 export interface DesktopApi {
   app: {
     getInfo(): Promise<AppInfo>
+    getThemePreference(): Promise<ThemePreference>
+    setThemePreference(input: SetThemePreferenceInput): Promise<ThemePreference>
   }
   projects: {
     lifecycle(): Promise<ProjectLifecycleSnapshot>
@@ -238,6 +247,19 @@ const desktopApi: DesktopApi = {
   app: {
     async getInfo() {
       return appInfoSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appGetInfo))
+    },
+    async getThemePreference() {
+      return themePreferenceSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.appGetThemePreference)
+      )
+    },
+    async setThemePreference(input) {
+      return themePreferenceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.appSetThemePreference,
+          setThemePreferenceInputSchema.parse(input)
+        )
+      )
     }
   },
   projects: {

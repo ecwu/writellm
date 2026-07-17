@@ -22,3 +22,29 @@ export function withIpcLogContext<T>(
     callback
   )
 }
+
+export interface IpcMainHandleCarrier {
+  handle(
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void
+  removeHandler(channel: string): void
+}
+
+export function withIpcLogging<T extends IpcMainHandleCarrier>(ipc: T): T {
+  return new Proxy(ipc, {
+    get(target, property, receiver) {
+      if (property === 'handle') {
+        return (
+          channel: string,
+          listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
+        ) =>
+          target.handle(channel, (event, ...args) =>
+            withIpcLogContext(event, args[0], () => listener(event, ...args))
+          )
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+}

@@ -553,7 +553,7 @@ Renderer editing uses:
 - a visible save state: clean, saving, saved, conflict, failed;
 - bounded local retry without swallowing errors.
 
-An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, and `import`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, all `agent_accepted` revisions, and each Agent edit's direct parent. Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
+An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, and `import`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, the latest 5 `import`-class revision bodies per section (including the current revision), all `agent_accepted` revisions, and each Agent edit's direct parent. Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
 
@@ -679,6 +679,11 @@ Chunking starts from normalized MinerU blocks:
 - derive `chunkId` from parse revision, source block range, chunker version, and content hash.
 
 Deleting `index.sqlite` must not lose authoritative knowledge. Rebuild reads active parse revisions and normalized block artifacts.
+
+Index generation activation is guarded by a final current-source check after
+the generation build and before activation. If the active parse/normalization
+fingerprint changed during the build, Main records the superseded generation,
+does not activate it, and queues the current generation instead.
 
 ### Embedding generations
 

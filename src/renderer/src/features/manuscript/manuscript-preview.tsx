@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { useTheme } from '@/theme-provider'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 
 function fallbackDocument(): ApprovedEditorBlock[] {
@@ -24,11 +25,14 @@ function fallbackDocument(): ApprovedEditorBlock[] {
 }
 
 function ReadOnlySectionBody({ document }: { document: BlockNoteDocument }): React.JSX.Element {
+  const { resolvedTheme } = useTheme()
   const editor = useCreateBlockNote({
     schema: approvedEditorSchema,
     initialContent: document.length === 0 ? fallbackDocument() : (document as ApprovedEditorBlock[])
   })
-  return <BlockNoteView editor={editor} editable={false} className='px-0 py-2' />
+  return (
+    <BlockNoteView editor={editor} theme={resolvedTheme} editable={false} className='px-0 py-2' />
+  )
 }
 
 export function ManuscriptPreview(props: {

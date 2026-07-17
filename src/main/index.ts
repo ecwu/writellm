@@ -1,4 +1,11 @@
-import { app, BrowserWindow, MessageChannelMain, safeStorage, utilityProcess } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  MessageChannelMain,
+  safeStorage,
+  utilityProcess
+} from 'electron'
 import { join } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
@@ -15,6 +22,7 @@ import { registerProviderIpc } from './ipc/provider-ipc'
 import { registerSearchIpc } from './ipc/search-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
+import { withIpcLogging } from './observability/ipc-context'
 import { cleanupLogRetention } from './observability/log-retention'
 import { registerProcessErrorHandlers } from './observability/process-errors'
 import { exportDiagnosticsBundle, registerDiagnosticsIpc } from './observability/diagnostics-ipc'
@@ -22,6 +30,7 @@ import { LogCollector } from './observability/log-collector'
 import { attachUtilityLogPort, captureUtilityStderr } from './observability/utility-logs'
 import { openAppDatabase } from './app-db/connection'
 import { quarantineLegacyCoreDatabase } from './app-db/legacy-core'
+import { AppSettingsRepository } from './app-db/repositories/app-settings'
 import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
 import { ProjectManager } from './project/project-manager'
 import { CredentialService } from './providers/credential-service'
@@ -114,6 +123,10 @@ if (!hasSingleInstanceLock) {
         log: appDatabaseLog
       })
 
+      const appSettings = new AppSettingsRepository(
+        appDatabase,
+        loggerSystem.createModuleLogger('app', 'settings')
+      )
       const recentProjects = new RecentProjectsRepository(appDatabase)
       const credentialLog = loggerSystem.createModuleLogger('security', 'credentials')
       const credentials = new CredentialService(appDatabase, safeStorage, credentialLog)
@@ -296,7 +309,13 @@ if (!hasSingleInstanceLock) {
       })
 
       registerAppProtocol(join(__dirname, '../renderer'))
-      const unregisterAppIpc = registerIpcHandlers(developmentUrl)
+      const ipc = withIpcLogging(ipcMain)
+      const unregisterAppIpc = registerIpcHandlers({
+        appSettings,
+        logger: loggerSystem.createModuleLogger('ipc', 'app'),
+        developmentUrl,
+        ipc
+      })
       mainWindow = createWindow(developmentUrl, appLog)
       const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
       const projectDialogSelection = createProjectDialogTestSelection(projectIpcLog)
@@ -306,6 +325,7 @@ if (!hasSingleInstanceLock) {
         getWindow: () => mainWindow,
         logger: projectIpcLog,
         developmentUrl,
+        ipc,
         selectProjectFolderForTest: projectDialogSelection,
         selectSnapshotDestinationForTest: projectDialogSelection,
         selectRestoreSourceForTest: projectDialogSelection,
@@ -314,23 +334,27 @@ if (!hasSingleInstanceLock) {
       const jobIpc = registerJobIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'jobs'),
-        developmentUrl
+        developmentUrl,
+        ipc
       })
       const editorIpc = registerEditorIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'editor'),
-        developmentUrl
+        developmentUrl,
+        ipc
       })
       const unregisterManuscriptIpc = registerManuscriptIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
-        developmentUrl
+        developmentUrl,
+        ipc
       })
       const unregisterKnowledgeIpc = registerKnowledgeIpc({
         manager: projectManager,
         getWindow: () => mainWindow,
         logger: loggerSystem.createModuleLogger('ipc', 'knowledge'),
         developmentUrl,
+        ipc,
         selectFilesForTest: createKnowledgeDialogTestSelection(
           loggerSystem.createModuleLogger('ipc', 'knowledge-dialog')
         )
@@ -338,12 +362,14 @@ if (!hasSingleInstanceLock) {
       const unregisterProviderIpc = registerProviderIpc({
         providers,
         logger: loggerSystem.createModuleLogger('ipc', 'providers'),
-        developmentUrl
+        developmentUrl,
+        ipc
       })
       const unregisterSearchIpc = registerSearchIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'search'),
-        developmentUrl
+        developmentUrl,
+        ipc
       })
       projectManager.setCloseParticipants({
         ...editorIpc.closeParticipants,
@@ -366,7 +392,8 @@ if (!hasSingleInstanceLock) {
       const unregisterDiagnostics = registerDiagnosticsIpc(
         loggerSystem,
         () => mainWindow,
-        developmentUrl
+        developmentUrl,
+        ipc
       )
       appLog.info(
         { event: 'app.started', electronVersion: process.versions.electron },

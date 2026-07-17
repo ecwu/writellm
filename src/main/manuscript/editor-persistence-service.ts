@@ -384,14 +384,15 @@ export class EditorPersistenceService {
         )
         .run(sectionId, sectionId)
 
-      // Import-class bodies: retain only the latest IMPORT_BODY_LIMIT per section.
+      // Import-class bodies: retain only the latest IMPORT_BODY_LIMIT per section, counting
+      // the current revision in the ranking; the outer guard keeps it regardless.
       database
         .prepare(
           `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
-           WHERE section_revision_id IN (
+           WHERE section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
+             AND section_revision_id IN (
              SELECT section_revision_id FROM section_revisions
              WHERE section_id = ? AND content_body_retained = 1
-               AND section_revision_id <> (SELECT current_revision_id FROM sections WHERE section_id = ?)
                AND source_class = 'import'
                AND NOT EXISTS (
                  SELECT 1 FROM section_revisions AS agent_revision

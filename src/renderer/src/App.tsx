@@ -573,6 +573,7 @@ function App(): React.JSX.Element {
         onOpenChange={setSettingsOpen}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onExportDiagnostics={() => void runDiagnostics(window.desktop.diagnostics.exportBundle)}
+        onError={setErrorMessage}
       />
       <Dialog
         open={createDialogOpen}

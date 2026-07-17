@@ -32,6 +32,7 @@ describe('provider utility probe request', () => {
     await expect(runProviderProbeRequest(request, fetchImplementation)).resolves.toEqual({
       type: 'result',
       requestId: request.requestId,
+      projectSessionId: null,
       status: 200
     })
   })

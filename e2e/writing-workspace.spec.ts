@@ -1,14 +1,22 @@
 import { readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, launchApp, test } from './fixtures'
+import { expect, expectActiveProject, launchApp, test } from './fixtures'
 
 async function createProject(page: Page, name: string): Promise<void> {
   await page.getByRole('button', { name: 'Create project', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Create project' })
   await dialog.getByLabel('Project name').fill(name)
   await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  await expectActiveProject(page, name)
+}
+
+async function expectBriefTitle(page: Page, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Brief', exact: true }).click()
+  const brief = page.getByRole('dialog', { name: 'Manuscript brief' })
+  await expect(brief.getByLabel('Title')).toHaveValue(title)
+  await brief.getByRole('button', { name: 'Close', exact: true }).first().click()
+  await expect(brief).not.toBeVisible()
 }
 
 async function createSection(page: Page, title: string, parentTitle?: string): Promise<void> {
@@ -33,6 +41,16 @@ async function saveEditorText(page: Page, text: string): Promise<void> {
   await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
 }
 
+async function moveSectionBefore(
+  page: Page,
+  sourceTitle: string,
+  targetTitle: string
+): Promise<void> {
+  const source = page.getByTestId(/^outline-section-/).filter({ hasText: sourceTitle })
+  const target = page.getByTestId(/^outline-section-/).filter({ hasText: targetTitle })
+  await source.dragTo(target)
+}
+
 async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
@@ -52,7 +70,7 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
   try {
     await createProject(launched.page, projectName)
 
-    await launched.page.getByRole('button', { name: 'Manuscript brief' }).click()
+    await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
     const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
     await brief.getByLabel('Title').fill('Field Notes')
     await brief.getByLabel('Purpose').fill('A durable multi-section writing workflow.')
@@ -60,24 +78,25 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     await brief.getByRole('button', { name: 'Save brief' }).click()
     await expect(brief.getByText('Saved', { exact: true })).toBeVisible()
     await brief.getByRole('button', { name: 'Close', exact: true }).first().click()
-    await expect(launched.page.getByText('Field Notes', { exact: true })).toBeVisible()
+    await expect(brief).not.toBeVisible()
+    await expectBriefTitle(launched.page, 'Field Notes')
 
-    await launched.page.getByLabel('Section title').fill('Introduction')
-    await launched.page.getByLabel('Objective').fill('Frame the evidence.')
-    await launched.page.getByRole('button', { name: 'Planned' }).click()
-    await launched.page.getByRole('menuitemradio', { name: 'Drafting' }).click()
-    await launched.page.getByRole('button', { name: 'Save details' }).click()
+    await launched.page.locator('#section-title').fill('Introduction')
+    await launched.page.locator('#section-title').press('Tab')
     await expect(launched.page.getByText('Introduction', { exact: true }).first()).toBeVisible()
     await saveEditorText(launched.page, 'Opening evidence')
 
     await createSection(launched.page, 'Conclusion')
     await saveEditorText(launched.page, 'Final synthesis')
-    await launched.page.getByRole('button', { name: 'Up', exact: true }).click()
+    await moveSectionBefore(launched.page, 'Conclusion', 'Introduction')
 
     await createSection(launched.page, 'Background', 'Introduction')
     await saveEditorText(launched.page, 'Supporting context')
 
-    await launched.page.getByRole('button', { name: 'Preview all' }).click()
+    await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+    const outlinePanel = launched.page.getByRole('dialog', { name: 'Outline editor' })
+    await expect(outlinePanel).toBeVisible()
+    await outlinePanel.getByRole('button', { name: 'Preview all', exact: true }).click()
     const preview = launched.page.getByTestId('whole-manuscript-preview')
     await expect(preview).toBeVisible()
     await expect(preview.getByRole('heading', { name: 'Field Notes' })).toBeVisible()
@@ -89,14 +108,15 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     expect(previewText).toContain('Final synthesis')
     expect(previewText).toContain('Supporting context')
     await launched.page.keyboard.press('Escape')
+    await expect(preview).not.toBeVisible()
+    await launched.page.keyboard.press('Escape')
+    await expect(outlinePanel).not.toBeVisible()
 
     await closeProject(launched.page)
     await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     await launched.page.getByRole('button', { name: 'Open project' }).click()
-    await expect(
-      launched.page.getByRole('heading', { name: projectName, exact: true })
-    ).toBeVisible()
-    await expect(launched.page.getByText('Field Notes', { exact: true })).toBeVisible()
+    await expectActiveProject(launched.page, projectName)
+    await expectBriefTitle(launched.page, 'Field Notes')
     const outlineSections = launched.page.getByTestId(/^outline-section-/)
     await expect(outlineSections.filter({ hasText: 'Conclusion' })).toBeVisible()
     await expect(outlineSections.filter({ hasText: 'Introduction' })).toBeVisible()
@@ -117,11 +137,8 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       .getByTestId(/^outline-section-/)
       .filter({ hasText: 'Introduction' })
       .click()
-    await launched.page.getByLabel('Objective').fill('Preserved while the outline changes.')
-    await launched.page.getByRole('button', { name: 'Up', exact: true }).click()
-    await expect(launched.page.getByLabel('Objective')).toHaveValue(
-      'Preserved while the outline changes.'
-    )
+    await expect(launched.page.locator('#section-title')).toHaveValue('Introduction')
+    await moveSectionBefore(launched.page, 'Introduction', 'Conclusion')
     await launched.page
       .getByTestId(/^outline-section-/)
       .filter({ hasText: 'Background' })
@@ -141,9 +158,7 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       .filter({ hasText: 'Introduction' })
       .click()
     await expect(launched.page.locator('.bn-editor').first()).toContainText('Final flush draft')
-    await expect(launched.page.getByLabel('Objective')).toHaveValue(
-      'Preserved while the outline changes.'
-    )
+    await expect(launched.page.locator('#section-title')).toHaveValue('Introduction')
     await expect(readdir(join(projectRoot, 'manuscript', 'sections'))).resolves.toHaveLength(3)
     await closeProject(launched.page)
     await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
@@ -154,18 +169,14 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     })
     await expect(relaunched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     await relaunched.page.getByRole('button', { name: 'Open project' }).click()
-    await expect(
-      relaunched.page.getByRole('heading', { name: projectName, exact: true })
-    ).toBeVisible()
-    await expect(relaunched.page.getByText('Field Notes', { exact: true })).toBeVisible()
+    await expectActiveProject(relaunched.page, projectName)
+    await expectBriefTitle(relaunched.page, 'Field Notes')
     await relaunched.page
       .getByTestId(/^outline-section-/)
       .filter({ hasText: 'Introduction' })
       .click()
     await expect(relaunched.page.locator('.bn-editor').first()).toContainText('Final flush draft')
-    await expect(relaunched.page.getByLabel('Objective')).toHaveValue(
-      'Preserved while the outline changes.'
-    )
+    await expect(relaunched.page.locator('#section-title')).toHaveValue('Introduction')
   } finally {
     if (relaunched === undefined) await launched.app.close()
     else await relaunched.app.close()
@@ -242,14 +253,20 @@ test('creates a project snapshot and restores it into a new project folder', asy
 
     await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
     await launched.page.getByRole('menuitem', { name: 'Create snapshot', exact: true }).click()
-    await expect(readdir(snapshotRoot)).resolves.toContain('writellm.snapshot.json')
+    await expect
+      .poll(
+        async () =>
+          readdir(snapshotRoot)
+            .then((names) => names.includes('writellm.snapshot.json'))
+            .catch(() => false),
+        { timeout: 10_000 }
+      )
+      .toBe(true)
 
     await closeProject(launched.page)
     await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
     await launched.page.getByRole('menuitem', { name: 'Restore snapshot', exact: true }).click()
-    await expect(
-      launched.page.getByRole('heading', { name: 'Snapshot backup', exact: true })
-    ).toBeVisible()
+    await expectActiveProject(launched.page, 'Snapshot backup')
     await expect(readdir(restoredRoot)).resolves.toContain('writellm.project.json')
     await expect(launched.page.locator('.bn-editor').first()).toContainText('Snapshot content')
   } finally {

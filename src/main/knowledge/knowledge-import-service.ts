@@ -32,7 +32,7 @@ export class KnowledgeImportService {
   readonly #projectId: string
   readonly #database: ProjectDatabase
   readonly #log: Pick<Logger, 'info' | 'error'>
-  readonly #faults: { beforeTempOpen?(): void | Promise<void> }
+  readonly #faults: { beforeTempOpen?(): void | Promise<void>; beforeImportRowCreate?(): void }
   readonly #onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
   readonly #onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   readonly #controllers = new Map<string, AbortController>()
@@ -46,7 +46,7 @@ export class KnowledgeImportService {
     projectId: string
     database: ProjectDatabase
     log: Pick<Logger, 'info' | 'error'>
-    faults?: { beforeTempOpen?(): void | Promise<void> }
+    faults?: { beforeTempOpen?(): void | Promise<void>; beforeImportRowCreate?(): void }
     onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
     onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   }) {
@@ -112,6 +112,7 @@ export class KnowledgeImportService {
           },
           'Failed to create a knowledge import record; continuing the batch'
         )
+        this.#recordStartFailure(path, err)
       }
     }
     return this.list()
@@ -192,7 +193,46 @@ export class KnowledgeImportService {
     return row.relative_path
   }
 
+  // A row-creation failure leaves no knowledge item behind; record a failed placeholder so
+  // the batch result and the list/status surface still show the file as failed.
+  #recordStartFailure(sourcePath: string, cause: unknown): void {
+    const originalName = basename(sourcePath).normalize('NFC')
+    const knowledgeItemId = randomUUID()
+    const now = new Date().toISOString()
+    try {
+      this.#database.immediate((database) => {
+        database
+          .prepare(
+            `INSERT INTO knowledge_items (
+              knowledge_item_id, file_record_id, original_name, display_name,
+              state, error_code, created_at, updated_at
+            ) VALUES (?, NULL, ?, ?, 'failed', 'start_failed', ?, ?)`
+          )
+          .run(knowledgeItemId, originalName, sanitizeDisplayName(originalName), now, now)
+        database
+          .prepare(
+            `INSERT INTO imports (
+              import_id, knowledge_item_id, state, bytes_copied,
+              cancellation_requested, error_code, created_at, updated_at
+            ) VALUES (?, ?, 'failed', 0, 0, 'start_failed', ?, ?)`
+          )
+          .run(randomUUID(), knowledgeItemId, now, now)
+      })
+    } catch (err) {
+      this.#log.error(
+        {
+          event: 'knowledge.import.start_failure_record_failed',
+          err,
+          originalError: cause,
+          projectId: this.#projectId
+        },
+        'Failed to record the knowledge import start failure'
+      )
+    }
+  }
+
   #startImport(sourcePath: string): void {
+    this.#faults.beforeImportRowCreate?.()
     const knowledgeItemId = randomUUID()
     const importId = randomUUID()
     const originalName = basename(sourcePath).normalize('NFC')

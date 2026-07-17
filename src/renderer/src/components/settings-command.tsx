@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Bot, Braces, FileArchive, FolderOpen, KeyRound, LoaderCircle } from 'lucide-react'
+import {
+  Bot,
+  Braces,
+  Check,
+  FileArchive,
+  FolderOpen,
+  KeyRound,
+  LoaderCircle,
+  Monitor,
+  Moon,
+  Sun
+} from 'lucide-react'
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -13,22 +24,27 @@ import {
   CommandShortcut
 } from '@/components/ui/command'
 import { ProviderSettingsDialog } from '@/features/providers/provider-settings-dialog'
+import { useTheme } from '@/theme-provider'
+import type { ThemePreference } from '../../../shared/contracts/app'
 
 interface SettingsCommandProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenLogs: () => void
   onExportDiagnostics: () => void
+  onError: (message: string) => void
 }
 
 export function SettingsCommand({
   open,
   onOpenChange,
   onOpenLogs,
-  onExportDiagnostics
+  onExportDiagnostics,
+  onError
 }: SettingsCommandProps): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderSettingsSnapshot | null>(null)
   const [providerRole, setProviderRole] = useState<ProviderRole | null>(null)
+  const { preference, setPreference } = useTheme()
 
   useEffect(() => {
     if (!open) return
@@ -54,6 +70,12 @@ export function SettingsCommand({
   const selectProvider = (role: ProviderRole): void => {
     setProviderRole(role)
     onOpenChange(false)
+  }
+
+  const selectTheme = (nextPreference: ThemePreference): void => {
+    void setPreference(nextPreference)
+      .then(() => onOpenChange(false))
+      .catch(() => onError('Theme preference could not be saved.'))
   }
 
   const providerBadge = (role: ProviderRole): React.JSX.Element => {
@@ -103,6 +125,36 @@ export function SettingsCommand({
             >
               <KeyRound /> MinerU parser
               <CommandShortcut>{providerBadge('mineru')}</CommandShortcut>
+            </CommandItem>
+          </CommandGroup>
+          <CommandSeparator />
+          <CommandGroup heading='Appearance'>
+            <CommandItem
+              keywords={['theme', 'system', 'automatic', 'appearance']}
+              onSelect={() => selectTheme('system')}
+            >
+              <Monitor /> Follow system
+              <CommandShortcut>
+                <Check className={preference === 'system' ? 'opacity-100' : 'opacity-0'} />
+              </CommandShortcut>
+            </CommandItem>
+            <CommandItem
+              keywords={['theme', 'light', 'appearance']}
+              onSelect={() => selectTheme('light')}
+            >
+              <Sun /> Light
+              <CommandShortcut>
+                <Check className={preference === 'light' ? 'opacity-100' : 'opacity-0'} />
+              </CommandShortcut>
+            </CommandItem>
+            <CommandItem
+              keywords={['theme', 'dark', 'appearance']}
+              onSelect={() => selectTheme('dark')}
+            >
+              <Moon /> Dark
+              <CommandShortcut>
+                <Check className={preference === 'dark' ? 'opacity-100' : 'opacity-0'} />
+              </CommandShortcut>
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />

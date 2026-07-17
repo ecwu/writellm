@@ -1,5 +1,7 @@
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
+  appGetThemePreference: 'app:get-theme-preference',
+  appSetThemePreference: 'app:set-theme-preference',
   projectCreate: 'project:create',
   projectOpen: 'project:open',
   projectClose: 'project:close',

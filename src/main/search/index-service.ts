@@ -106,6 +106,20 @@ export class ProjectIndexService {
       context.signal
     )
     context.reportProgress({ completed: 1, total: 2, stage: 'built' })
+    const afterBuild = this.#currentGeneration()
+    if (afterBuild.generationId !== generationId) {
+      this.options.log.info(
+        {
+          event: 'index.generation.superseded_before_activation',
+          projectId: this.options.projectId,
+          builtGenerationId: generationId,
+          currentGenerationId: afterBuild.generationId
+        },
+        'Index generation was superseded while building and will not be activated'
+      )
+      this.#enqueueBuild(afterBuild.generationId, context.job.jobId)
+      return
+    }
     const activation = await this.options.client.activate(generationId, context.signal)
     context.reportProgress({ completed: 2, total: 2, stage: 'active' })
     this.options.log.info(

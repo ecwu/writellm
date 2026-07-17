@@ -496,7 +496,11 @@ async function verifyUtilityOutput(path: string, output: MineruNormalizedResult)
     !rootNames.has('blocks.jsonl') ||
     !rootNames.has('document.md') ||
     !rootNames.has('images') ||
-    [...rootNames].some((name) => !['blocks.jsonl', 'document.md', 'images'].includes(name))
+    // A published directory also contains the manifest.json written before the
+    // atomic rename; staging directories are verified before it exists.
+    [...rootNames].some(
+      (name) => !['blocks.jsonl', 'document.md', 'images', 'manifest.json'].includes(name)
+    )
   ) {
     throw new Error('Normalizer staging layout is invalid')
   }

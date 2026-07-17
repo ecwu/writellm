@@ -2,8 +2,29 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { expect, launchApp, test } from './fixtures'
+import type { Page } from '@playwright/test'
+import { expect, expectActiveProject, launchApp, test } from './fixtures'
 import { ZipFile } from 'yazl'
+
+async function configureMineruProvider(page: Page, port: number): Promise<void> {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('option', { name: /MinerU parser/ }).click()
+  const provider = page.getByRole('dialog', { name: 'MinerU parser' })
+  await provider.getByLabel('Base URL').fill(`http://127.0.0.1:${port}`)
+  await provider.getByLabel('Model ID').fill('pipeline')
+  await provider.getByLabel('API key or token').fill('e2e-mineru-token')
+  await provider.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(provider.getByText('Credential stored', { exact: true })).toBeVisible()
+  await provider.getByRole('button', { name: 'Close', exact: true }).first().click()
+}
+
+async function createProject(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
+  const create = page.getByRole('dialog', { name: 'Create project' })
+  await create.getByLabel('Project name').fill(name)
+  await create.getByRole('button', { name: 'Choose location' }).click()
+  await expectActiveProject(page, name)
+}
 
 test('parses, normalizes, and inspects a MinerU document with image provenance', async ({
   testRoot
@@ -96,23 +117,8 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
   let reopened: Awaited<ReturnType<typeof launchApp>> | undefined
   let recovered: Awaited<ReturnType<typeof launchApp>> | undefined
   try {
-    await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await launched.page.getByRole('option', { name: /MinerU parser/ }).click()
-    const provider = launched.page.getByRole('dialog', { name: 'MinerU parser' })
-    await provider.getByLabel('Base URL').fill(`http://127.0.0.1:${port}`)
-    await provider.getByLabel('Model ID').fill('pipeline')
-    await provider.getByLabel('API key or token').fill('e2e-mineru-token')
-    await provider.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(provider.getByText('Credential stored', { exact: true })).toBeVisible()
-    await provider.getByRole('button', { name: 'Close', exact: true }).first().click()
-
-    await launched.page.getByRole('button', { name: 'Create project', exact: true }).click()
-    const create = launched.page.getByRole('dialog', { name: 'Create project' })
-    await create.getByLabel('Project name').fill(projectName)
-    await create.getByRole('button', { name: 'Choose location' }).click()
-    await expect(
-      launched.page.getByRole('heading', { name: projectName, exact: true })
-    ).toBeVisible()
+    await configureMineruProvider(launched.page, port)
+    await createProject(launched.page, projectName)
 
     await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     const knowledge = launched.page.getByTestId('knowledge-workspace')
@@ -199,9 +205,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await rm(`${indexPath}-shm`, { force: true })
     reopened = await launchApp({ userData: join(testRoot, 'user-data') })
     await reopened.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
-    await expect(
-      reopened.page.getByRole('heading', { name: projectName, exact: true })
-    ).toBeVisible()
+    await expectActiveProject(reopened.page, projectName)
     await expect
       .poll(
         () =>
@@ -223,9 +227,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await writeFile(indexPath, 'corrupt derived index')
     recovered = await launchApp({ userData: join(testRoot, 'user-data') })
     await recovered.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
-    await expect(
-      recovered.page.getByRole('heading', { name: projectName, exact: true })
-    ).toBeVisible()
+    await expectActiveProject(recovered.page, projectName)
     await expect
       .poll(() => succeededBuildCount(recovered?.page), { timeout: 20_000 })
       .toBeGreaterThan(publishCountBeforeCorruption)
@@ -234,6 +236,208 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     if (!firstClosed) await launched.app.close()
     await reopened?.app.close()
     await recovered?.app.close()
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    )
+  }
+})
+
+test('imports with visible progress and supports cancel, retry, open, reveal, and delete', async ({
+  testRoot
+}) => {
+  const source = join(testRoot, 'lifecycle source.pdf')
+  await writeFile(source, '%PDF-1.7\nLifecycle knowledge source')
+  const zipBytes = await resultZip()
+  let remoteState: 'running' | 'failed' | 'done' = 'running'
+  let batchCounter = 0
+  let uploadedBytes = 0
+  const batches = new Map<string, string>()
+  const server = createServer((request, response) => {
+    const port = (server.address() as AddressInfo).port
+    if (request.method === 'POST' && request.url === '/api/v4/file-urls/batch') {
+      const chunks: Buffer[] = []
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+      request.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+          files: Array<{ data_id: string }>
+        }
+        batchCounter += 1
+        const batchId = `lifecycle-batch-${batchCounter}`
+        batches.set(batchId, body.files[0]?.data_id ?? '')
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            code: 0,
+            trace_id: 'lifecycle-submit-trace',
+            data: {
+              batch_id: batchId,
+              file_urls: [`http://127.0.0.1:${port}/upload?signature=private`]
+            }
+          })
+        )
+      })
+      return
+    }
+    if (request.method === 'PUT' && request.url?.startsWith('/upload')) {
+      request.on('data', (chunk) => {
+        uploadedBytes += Buffer.byteLength(chunk)
+      })
+      request.on('end', () => {
+        response.writeHead(200)
+        response.end()
+      })
+      return
+    }
+    const pollMatch =
+      request.method === 'GET'
+        ? request.url?.match(/^\/api\/v4\/extract-results\/batch\/(.+)$/)
+        : undefined
+    if (pollMatch) {
+      const batchId = decodeURIComponent(pollMatch[1] as string)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          code: 0,
+          trace_id: 'lifecycle-poll-trace',
+          data: {
+            batch_id: batchId,
+            extract_result: [
+              {
+                file_name: 'lifecycle source.pdf',
+                data_id: batches.get(batchId) ?? '',
+                state: remoteState,
+                ...(remoteState === 'done'
+                  ? { full_zip_url: `http://127.0.0.1:${port}/result.zip` }
+                  : {})
+              }
+            ]
+          }
+        })
+      )
+      return
+    }
+    if (request.method === 'GET' && request.url === '/result.zip') {
+      response.writeHead(200, {
+        'content-type': 'application/zip',
+        'content-length': String(zipBytes.byteLength)
+      })
+      response.end(zipBytes)
+      return
+    }
+    response.writeHead(404)
+    response.end()
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = (server.address() as AddressInfo).port
+  const projectName = 'Knowledge lifecycle'
+  const launched = await launchApp({
+    userData: join(testRoot, 'user-data'),
+    dialogPaths: [testRoot],
+    knowledgeDialogPaths: [source]
+  })
+  try {
+    await configureMineruProvider(launched.page, port)
+    await createProject(launched.page, projectName)
+
+    await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+    const knowledge = launched.page.getByTestId('knowledge-workspace')
+    await knowledge.getByTestId('knowledge-upload-button').click()
+
+    const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
+    await expect(sourceButton).toHaveCount(1)
+    await expect(knowledge.getByText('1 files in this project', { exact: true })).toBeVisible()
+    await expect(knowledge.getByText('Parse with MinerU', { exact: true }).first()).toBeVisible({
+      timeout: 20_000
+    })
+    await sourceButton.click()
+    await expect(
+      knowledge.getByRole('heading', { name: 'lifecycle source.pdf', exact: true })
+    ).toBeVisible()
+    await expect(knowledge.getByText('Parsing in progress', { exact: true })).toBeVisible({
+      timeout: 20_000
+    })
+    await expect(knowledge.getByText(/Current stage: /)).toBeVisible()
+
+    await knowledge.getByRole('button', { name: 'Stop parsing', exact: true }).click()
+    await expect(knowledge.getByText('Not parsed yet', { exact: true })).toBeVisible({
+      timeout: 20_000
+    })
+    await expect(
+      knowledge.getByRole('button', { name: 'Start parsing', exact: true })
+    ).toBeVisible()
+
+    remoteState = 'failed'
+    await knowledge.getByRole('button', { name: 'Start parsing', exact: true }).click()
+    await expect(knowledge.getByText('Parsing failed', { exact: true })).toBeVisible({
+      timeout: 30_000
+    })
+    remoteState = 'done'
+    await knowledge.getByRole('button', { name: 'Retry parsing', exact: true }).click()
+
+    await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible({
+      timeout: 30_000
+    })
+    await expect(knowledge.getByText('Page 1', { exact: true }).first()).toBeVisible()
+    await expect(knowledge.getByAltText('Parsed document image')).toBeVisible()
+    await knowledge.getByRole('button', { name: 'Markdown', exact: true }).click()
+    await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible()
+    await knowledge.getByRole('button', { name: 'Content', exact: true }).click()
+    await expect(knowledge.getByAltText('Parsed document image')).toBeVisible()
+
+    await launched.app.evaluate(({ shell }) => {
+      const recorder = { revealed: [] as string[], opened: [] as string[] }
+      ;(
+        globalThis as unknown as { __writellmShellRecorder: typeof recorder }
+      ).__writellmShellRecorder = recorder
+      shell.showItemInFolder = (path: string) => {
+        recorder.revealed.push(path)
+      }
+      shell.openPath = (path: string) => {
+        recorder.opened.push(path)
+        return Promise.resolve('')
+      }
+    })
+    const recordedShellPaths = (): Promise<{ revealed: string[]; opened: string[] }> =>
+      launched.app.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              __writellmShellRecorder: { revealed: string[]; opened: string[] }
+            }
+          ).__writellmShellRecorder
+      )
+    await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Show in Finder', exact: true }).click()
+    await expect.poll(async () => (await recordedShellPaths()).revealed.length).toBe(1)
+    await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Open file', exact: true }).click()
+    await expect.poll(async () => (await recordedShellPaths()).opened.length).toBe(1)
+    const shellPaths = await recordedShellPaths()
+    expect(shellPaths.revealed[0]?.includes(join('knowledge', 'originals'))).toBe(true)
+    expect(shellPaths.revealed[0]?.endsWith('lifecycle source.pdf')).toBe(true)
+    expect(shellPaths.opened[0]?.endsWith('lifecycle source.pdf')).toBe(true)
+    expect(uploadedBytes).toBeGreaterThan(0)
+    expect(batchCounter).toBe(3)
+
+    await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Delete source', exact: true }).click()
+    await expect(sourceButton).toHaveCount(0)
+    await expect(knowledge.getByText('No files yet.', { exact: true })).toBeVisible()
+    await expect
+      .poll(() =>
+        launched.page.evaluate(async () => {
+          const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+            ?.projectSessionId
+          if (projectSessionId === undefined) return -1
+          return (await window.desktop.knowledge.list({ projectSessionId })).length
+        })
+      )
+      .toBe(0)
+  } finally {
+    await launched.app.close()
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
     )

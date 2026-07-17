@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { expect, launchApp, test } from './fixtures'
+import { expect, expectActiveProject, launchApp, test } from './fixtures'
 
 async function clickAndExpectProject(
   page: Page,
@@ -22,8 +22,7 @@ async function clickAndExpectProject(
     await dialog.getByLabel('Project name').fill(projectName)
     await dialog.getByRole('button', { name: 'Choose location' }).click()
   }
-  await expect(page.getByRole('heading', { name: displayName, exact: true })).toBeVisible()
-  await expect(page.getByText('Open', { exact: true })).toBeVisible()
+  await expectActiveProject(page, displayName)
 }
 
 async function closeProject(page: Page): Promise<void> {
@@ -33,8 +32,7 @@ async function closeProject(page: Page): Promise<void> {
 
 async function clickRecentAndExpectProject(page: Page, displayName: string): Promise<void> {
   await page.getByRole('button', { name: `Open ${displayName}`, exact: true }).click()
-  await expect(page.getByRole('heading', { name: displayName, exact: true })).toBeVisible()
-  await expect(page.getByText('Open', { exact: true })).toBeVisible()
+  await expectActiveProject(page, displayName)
 }
 
 async function closeApp(app: ElectronApplication): Promise<void> {
@@ -180,10 +178,33 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
         }
       }, firstAlphaSession as string)
     ).resolves.toBe(true)
-    await expect(first.page.getByRole('heading', { name: 'Alpha project' })).toBeVisible()
+    await expectActiveProject(first.page, 'Alpha project')
     await expect(first.page.locator('.bn-editor').first()).toContainText('Close flush persistence')
-    await first.page.getByRole('button', { name: 'Markdown', exact: true }).click()
-    await first.page.getByRole('button', { name: 'Native JSON', exact: true }).click()
+    const exportInput = await first.page.evaluate(async () => {
+      const lifecycle = await window.desktop.projects.lifecycle()
+      const projectSessionId = lifecycle.activeProject?.projectSessionId
+      if (!projectSessionId) throw new Error('Project session missing')
+      const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+      const sectionId = workspace.sections[0]?.section.sectionId
+      if (!sectionId) throw new Error('Section missing')
+      const current = await window.desktop.editor.loadSection({ projectSessionId, sectionId })
+      return {
+        projectSessionId,
+        sectionId,
+        sectionRevisionId: current.revision.sectionRevisionId,
+        contentHash: current.revision.contentHash
+      }
+    })
+    await first.page.evaluate(async (input) => {
+      await window.desktop.editor.exportMarkdown({
+        ...input,
+        markdown: 'Close flush persistence'
+      })
+      await window.desktop.editor.exportNativeJson({
+        projectSessionId: input.projectSessionId,
+        sectionId: input.sectionId
+      })
+    }, exportInput)
     const exportsDirectory = join(alpha, 'manuscript', 'exports')
     await expect
       .poll(async () => {
@@ -322,7 +343,7 @@ test('rejects lock contention across two application processes', async ({ testRo
         'WriteLLM could not open the project'
       )
       await expect(contender.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
-      await expect(owner.page.getByRole('heading', { name: 'Contended project' })).toBeVisible()
+      await expectActiveProject(owner.page, 'Contended project')
     } finally {
       await closeApp(contender.app)
     }

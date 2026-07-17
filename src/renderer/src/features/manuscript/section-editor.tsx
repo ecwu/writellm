@@ -1,10 +1,11 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { AlertCircle, Check, Download, LoaderCircle, Upload } from 'lucide-react'
+import { AlertCircle, Check, LoaderCircle } from 'lucide-react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useTheme } from '@/theme-provider'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
@@ -21,6 +22,9 @@ export interface SectionEditorHandle {
     closingToken: string
     purpose?: 'close' | 'snapshot'
   }): Promise<void>
+  importMarkdown(): Promise<void>
+  exportNativeJson(): Promise<void>
+  exportMarkdown(): Promise<void>
 }
 
 export const SectionEditor = forwardRef<
@@ -33,6 +37,7 @@ export const SectionEditor = forwardRef<
     onSelectionContextChange?(context: EditorSelectionContext): void
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
+  const { resolvedTheme } = useTheme()
   const initialContent =
     props.revision.content.length === 0
       ? [
@@ -127,6 +132,78 @@ export const SectionEditor = forwardRef<
     }
   }
 
+  const importMarkdown = async (): Promise<void> => {
+    if (readOnly || saveState === 'conflict') return
+    const file = await new Promise<File | null>((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.md,text/markdown,text/plain'
+      input.onchange = () => resolve(input.files?.[0] ?? null)
+      input.oncancel = () => resolve(null)
+      input.click()
+    })
+    if (file === null) return
+
+    try {
+      if (runningRef.current !== null) await runningRef.current
+      const base = baseRef.current
+      const blocks = await file.text().then((markdown) => editor.tryParseMarkdownToBlocks(markdown))
+      replacingImportedDocumentRef.current = true
+      editor.replaceBlocks(editor.document, blocks)
+      setSaveState('saving')
+      const document = JSON.parse(JSON.stringify(blocks)) as BlockNoteDocument
+      const response = await window.desktop.editor.importMarkdown({
+        projectSessionId: props.projectSessionId,
+        sectionId: base.sectionId,
+        baseRevisionId: base.sectionRevisionId,
+        baseContentHash: base.contentHash,
+        document
+      })
+      if (!response.ok) throw new Error(response.error.message)
+      const result = response.result
+      baseRef.current = result.revision
+      dirtyRef.current = false
+      saveBlockedRef.current = false
+      props.onRevision(result.revision)
+      setSaveState(
+        result.disposition === 'saved_materialization_pending' ? 'mirror-pending' : 'saved'
+      )
+    } catch (error) {
+      dirtyRef.current = true
+      saveBlockedRef.current = true
+      setSaveState('failed')
+      throw error
+    }
+  }
+
+  const exportNativeJson = async (): Promise<void> => {
+    try {
+      await window.desktop.editor.exportNativeJson({
+        projectSessionId: props.projectSessionId,
+        sectionId: baseRef.current.sectionId
+      })
+    } catch (error) {
+      setSaveState('failed')
+      throw error
+    }
+  }
+
+  const exportMarkdown = async (): Promise<void> => {
+    try {
+      const revision = baseRef.current
+      await window.desktop.editor.exportMarkdown({
+        projectSessionId: props.projectSessionId,
+        sectionId: revision.sectionId,
+        sectionRevisionId: revision.sectionRevisionId,
+        contentHash: revision.contentHash,
+        markdown: editor.blocksToMarkdownLossy(revision.content as ApprovedEditorBlock[])
+      })
+    } catch (error) {
+      setSaveState('failed')
+      throw error
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (timerRef.current !== undefined) clearTimeout(timerRef.current)
@@ -158,104 +235,17 @@ export const SectionEditor = forwardRef<
         sectionId: baseRef.current.sectionId,
         sectionRevisionId: baseRef.current.sectionRevisionId
       })
-    }
+    },
+    importMarkdown,
+    exportNativeJson,
+    exportMarkdown
   }))
 
   return (
     <div className='min-h-80'>
-      <div className='flex flex-wrap items-center justify-end gap-2 border-b px-3 py-2'>
-        <Button
-          variant='ghost'
-          size='sm'
-          disabled={readOnly || saveState === 'conflict'}
-          onClick={() => {
-            const input = document.createElement('input')
-            input.type = 'file'
-            input.accept = '.md,text/markdown,text/plain'
-            input.onchange = () => {
-              const file = input.files?.[0]
-              if (file === undefined) return
-              void file
-                .text()
-                .then((markdown) => editor.tryParseMarkdownToBlocks(markdown))
-                .then(async (blocks) => {
-                  if (runningRef.current !== null) await runningRef.current
-                  const base = baseRef.current
-                  replacingImportedDocumentRef.current = true
-                  editor.replaceBlocks(editor.document, blocks)
-                  setSaveState('saving')
-                  const document = JSON.parse(JSON.stringify(blocks)) as BlockNoteDocument
-                  let conflict = false
-                  try {
-                    const response = await window.desktop.editor.importMarkdown({
-                      projectSessionId: props.projectSessionId,
-                      sectionId: base.sectionId,
-                      baseRevisionId: base.sectionRevisionId,
-                      baseContentHash: base.contentHash,
-                      document
-                    })
-                    if (!response.ok) {
-                      conflict = true
-                      throw new Error(response.error.message)
-                    }
-                    const result = response.result
-                    baseRef.current = result.revision
-                    saveBlockedRef.current = false
-                    props.onRevision(result.revision)
-                    setSaveState(
-                      result.disposition === 'saved_materialization_pending'
-                        ? 'mirror-pending'
-                        : 'saved'
-                    )
-                  } catch {
-                    dirtyRef.current = true
-                    saveBlockedRef.current = true
-                    setSaveState(conflict ? 'conflict' : 'failed')
-                  }
-                })
-                .catch(() => setSaveState('failed'))
-            }
-            input.click()
-          }}
-        >
-          <Upload /> Import Markdown
-        </Button>
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={() =>
-            void window.desktop.editor
-              .exportNativeJson({
-                projectSessionId: props.projectSessionId,
-                sectionId: baseRef.current.sectionId
-              })
-              .catch(() => setSaveState('failed'))
-          }
-        >
-          <Download /> Native JSON
-        </Button>
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={() => {
-            const revision = baseRef.current
-            void window.desktop.editor
-              .exportMarkdown({
-                projectSessionId: props.projectSessionId,
-                sectionId: revision.sectionId,
-                sectionRevisionId: revision.sectionRevisionId,
-                contentHash: revision.contentHash,
-                markdown: editor.blocksToMarkdownLossy(revision.content as ApprovedEditorBlock[])
-              })
-              .catch(() => setSaveState('failed'))
-          }}
-        >
-          <Download /> Markdown
-        </Button>
-        <SaveStatus state={saveState} />
-      </div>
       <BlockNoteView
         editor={editor}
+        theme={resolvedTheme}
         editable={!readOnly && saveState !== 'conflict'}
         onChange={() => {
           if (replacingImportedDocumentRef.current) {
@@ -276,8 +266,11 @@ export const SectionEditor = forwardRef<
             selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id]
           })
         }}
-        className='min-h-72 py-6'
+        className='writing-editor min-h-[32rem] py-6'
       />
+      <div className='flex justify-end px-1 py-2'>
+        <SaveStatus state={saveState} />
+      </div>
       {saveState === 'conflict' && (
         <div className='flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm text-destructive'>
           <p>
