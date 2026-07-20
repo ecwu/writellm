@@ -101,6 +101,174 @@ describe('IndexDatabase and deterministic chunking', () => {
     rebuiltDatabase.close()
   })
 
+  it('preserves the active index and embedding generation when the database reopens', async () => {
+    const first = await createSource(false, { heading: 'First persisted source' })
+    const second = await createSource(false, {
+      knowledgeItemId: randomUUID(),
+      parseRevisionId: randomUUID(),
+      normalizationRunId: randomUUID(),
+      heading: 'Second persisted source'
+    })
+    const databasePath = join(first.root, 'index.sqlite')
+    const sources = [second.source, first.source]
+    const generationId = generationIdFor(
+      hashSourceSet(sources, INDEX_CHUNKER_VERSION),
+      INDEX_CHUNKER_VERSION
+    )
+    const contractSha256 = 'd'.repeat(64)
+    const contract = {
+      embeddingGenerationId: 'embedding-persisted-generation',
+      indexGenerationId: generationId,
+      providerId: 'openai-compatible',
+      modelId: 'embedding-model',
+      modelRevision: 'revision-1',
+      dimension: 3,
+      metric: 'cosine' as const,
+      normalization: 'l2' as const,
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      contractSha256,
+      contentFingerprint: hashSourceSet(sources, INDEX_CHUNKER_VERSION)
+    }
+    const database = new IndexDatabase(databasePath, getLoadablePath())
+    await database.build({
+      generationId,
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      sources
+    })
+    database.activate(generationId)
+    const inputs = database.embeddingInputs(generationId).values
+    database.beginEmbedding(contract)
+    database.upsertVectors(
+      contract.embeddingGenerationId,
+      inputs.map((input, index) => ({
+        chunkId: input.chunkId,
+        contentSha256: input.contentSha256,
+        vector: [1, index + 1, 1]
+      }))
+    )
+    database.activateEmbedding(contract.embeddingGenerationId, contractSha256)
+    database.close()
+
+    const reopened = new IndexDatabase(databasePath, getLoadablePath())
+    expect(reopened.inspect()).toMatchObject({
+      activeGenerationId: generationId,
+      chunkCount: inputs.length,
+      sourceCount: sources.length
+    })
+    expect(reopened.retrievalState()).toMatchObject({
+      activeIndexGenerationId: generationId,
+      activeEmbeddingContract: contract
+    })
+    expect(reopened.beginEmbedding(contract)).toBe(true)
+    expect(
+      reopened
+        .embeddingInputs(generationId, 0, 256, contractSha256, contract.dimension)
+        .values.every((input) => input.cachedVector?.length === contract.dimension)
+    ).toBe(true)
+    expect(
+      reopened.queryVectors(contract.embeddingGenerationId, [1, 1, 1], inputs.length)
+    ).toHaveLength(inputs.length)
+    reopened.close()
+  })
+
+  it('inspects active page provenance and previews only the active embedding vectors', async () => {
+    const fixture = await createSource()
+    const database = new IndexDatabase(join(fixture.root, 'index.sqlite'), getLoadablePath())
+    const built = await database.build({
+      generationId: generationIdFor(
+        hashSourceSet([fixture.source], INDEX_CHUNKER_VERSION),
+        INDEX_CHUNKER_VERSION
+      ),
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      sources: [fixture.source]
+    })
+    database.activate(built.generationId)
+    const contractSha256 = 'f'.repeat(64)
+    const embeddingGenerationId = 'mapping-embedding-generation'
+    database.beginEmbedding({
+      embeddingGenerationId,
+      indexGenerationId: built.generationId,
+      providerId: 'test-provider',
+      modelId: 'test-embedding',
+      modelRevision: 'test-revision',
+      dimension: 4,
+      metric: 'l2',
+      normalization: 'none',
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      contractSha256,
+      contentFingerprint: built.sourceSetSha256
+    })
+    const inputs = database.embeddingInputs(built.generationId).values
+    database.upsertVectors(
+      embeddingGenerationId,
+      inputs.map((input) => ({
+        chunkId: input.chunkId,
+        contentSha256: input.contentSha256,
+        vector: [1, 2, 3, 4]
+      }))
+    )
+    database.activateEmbedding(embeddingGenerationId, contractSha256)
+
+    const page = database.inspectKnowledgeMapping({
+      knowledgeItemId: fixture.source.knowledgeItemId,
+      parseRevisionId: fixture.source.parseRevisionId,
+      pageIndex: 0
+    })
+    expect(page.state).toBe('ready')
+    expect(page.chunks).toHaveLength(1)
+    expect(page.chunks[0]?.sources).toHaveLength(2)
+    expect(page.chunks[0]?.embedding).toMatchObject({
+      embeddingGenerationId,
+      dimension: 4,
+      preview: [1, 2, 3, 4],
+      norm: Math.sqrt(30)
+    })
+    expect(
+      database.inspectKnowledgeMapping({
+        knowledgeItemId: fixture.source.knowledgeItemId,
+        parseRevisionId: randomUUID(),
+        pageIndex: 0
+      }).state
+    ).toBe('indexing')
+    database.close()
+  })
+
+  it('selects legacy null-page chunks by recovered block ordinal', async () => {
+    const fixture = await createSource(false, { omitProvenance: true })
+    const database = new IndexDatabase(join(fixture.root, 'index.sqlite'), getLoadablePath())
+    const built = await database.build({
+      generationId: generationIdFor(
+        hashSourceSet([fixture.source], INDEX_CHUNKER_VERSION),
+        INDEX_CHUNKER_VERSION
+      ),
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      sources: [fixture.source]
+    })
+    database.activate(built.generationId)
+
+    expect(
+      database.inspectKnowledgeMapping({
+        knowledgeItemId: fixture.source.knowledgeItemId,
+        parseRevisionId: fixture.source.parseRevisionId,
+        pageIndex: 0
+      }).chunks
+    ).toEqual([])
+    const recoveredPage = database.inspectKnowledgeMapping({
+      knowledgeItemId: fixture.source.knowledgeItemId,
+      parseRevisionId: fixture.source.parseRevisionId,
+      pageIndex: 0,
+      fallbackBlockOrdinals: [0, 1]
+    })
+    expect(recoveredPage.state).toBe('ready')
+    expect(recoveredPage.chunks.length).toBeGreaterThan(0)
+    expect(
+      recoveredPage.chunks.some((chunk) =>
+        chunk.sources.some((source) => source.blockOrdinal === 0 && source.page === null)
+      )
+    ).toBe(true)
+    database.close()
+  })
+
   it('never replaces an active generation when a newer source is corrupt', async () => {
     const fixture = await createSource()
     const database = new IndexDatabase(join(fixture.root, 'index.sqlite'))
@@ -145,7 +313,21 @@ describe('IndexDatabase and deterministic chunking', () => {
     })
     database.activate(generationId)
     expect(database.searchFts('Heading', 10).some((item) => item.strategy === 'trigram')).toBe(true)
-    expect(database.searchFts('人工', 10).some((item) => item.strategy === 'unicode61')).toBe(true)
+    expect(database.searchFts('人工', 10).some((item) => item.strategy === 'substring')).toBe(true)
+    expect(database.searchFts('工智', 10).some((item) => item.strategy === 'substring')).toBe(true)
+    expect(database.searchFts('工', 10).some((item) => item.strategy === 'substring')).toBe(true)
+    expect(database.searchFts('工智能', 10).some((item) => item.strategy === 'trigram')).toBe(true)
+    expect(database.searchFts('不存在', 10)).toEqual([])
+    expect(
+      database.searchFts('工智', 10, {
+        knowledgeItemIds: [fixture.source.knowledgeItemId],
+        fileExtensions: ['pdf'],
+        parseRevisionIds: [fixture.source.parseRevisionId],
+        pageFrom: 3,
+        pageTo: 3,
+        heading: '双语'
+      })
+    ).toHaveLength(1)
     expect(() => database.searchFts('" OR', 10)).not.toThrow()
 
     const inputs = database.embeddingInputs(generationId).values
@@ -251,6 +433,123 @@ describe('IndexDatabase and deterministic chunking', () => {
     ).toBe(true)
     database.deleteVectors(embeddingGenerationId)
     expect(() => database.queryVectors(embeddingGenerationId, [1, 0, 0], 3)).toThrow('missing')
+
+    const l2EmbeddingGenerationId = 'embedding-l2-test-generation'
+    const l2ContractSha256 = 'f'.repeat(64)
+    database.beginEmbedding({
+      embeddingGenerationId: l2EmbeddingGenerationId,
+      indexGenerationId: generationId,
+      providerId: 'openai-compatible',
+      modelId: 'embedding-model',
+      modelRevision: 'revision-1',
+      dimension: 3,
+      metric: 'l2',
+      normalization: 'none',
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      contractSha256: l2ContractSha256,
+      contentFingerprint
+    })
+    database.upsertVectors(
+      l2EmbeddingGenerationId,
+      inputs.map((input, index) => ({
+        chunkId: input.chunkId,
+        contentSha256: input.contentSha256,
+        vector: index === 0 ? [1, 0, 0] : [0, 1, index + 1]
+      }))
+    )
+    database.activateEmbedding(l2EmbeddingGenerationId, l2ContractSha256)
+    expect(
+      database.queryVectors(l2EmbeddingGenerationId, [1, 0, 0], 3, {
+        knowledgeItemIds: [fixture.source.knowledgeItemId],
+        fileExtensions: ['pdf'],
+        parseRevisionIds: [fixture.source.parseRevisionId],
+        pageFrom: 0,
+        pageTo: 0
+      })[0]
+    ).toMatchObject({ chunkId: inputs[0]?.chunkId, distance: 0 })
+    database.close()
+  })
+
+  it('clears cached vectors only for content referenced by the selected knowledge item', async () => {
+    const first = await createSource(false, { heading: 'First unique heading' })
+    const second = await createSource(false, {
+      knowledgeItemId: randomUUID(),
+      parseRevisionId: randomUUID(),
+      normalizationRunId: randomUUID(),
+      heading: 'Second unique heading'
+    })
+    const database = new IndexDatabase(join(first.root, 'index.sqlite'), getLoadablePath())
+    const sources = [first.source, second.source]
+    const generationId = generationIdFor(
+      hashSourceSet(sources, INDEX_CHUNKER_VERSION),
+      INDEX_CHUNKER_VERSION
+    )
+    await database.build({
+      generationId,
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      sources
+    })
+    database.activate(generationId)
+    const contractSha256 = 'e'.repeat(64)
+    const embeddingGenerationId = 'embedding-cache-refresh-fixture'
+    const inputs = database.embeddingInputs(generationId).values
+    database.beginEmbedding({
+      embeddingGenerationId,
+      indexGenerationId: generationId,
+      providerId: 'openai-compatible',
+      modelId: 'embedding-model',
+      modelRevision: 'revision-1',
+      dimension: 3,
+      metric: 'cosine',
+      normalization: 'l2',
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      contractSha256,
+      contentFingerprint: hashSourceSet(sources, INDEX_CHUNKER_VERSION)
+    })
+    database.upsertVectors(
+      embeddingGenerationId,
+      inputs.map((input, index) => ({
+        chunkId: input.chunkId,
+        contentSha256: input.contentSha256,
+        vector: [1, index + 1, 1]
+      }))
+    )
+
+    expect(
+      database.clearEmbeddingCache(generationId, contractSha256, first.source.knowledgeItemId)
+    ).toBeGreaterThan(0)
+    const refreshedInputs = database.embeddingInputs(generationId, 0, 256, contractSha256, 3).values
+    const byKnowledgeItem = new Map<string, typeof refreshedInputs>()
+    for (const input of refreshedInputs) {
+      const candidate = database.hydrateCandidates([input.chunkId], {
+        knowledgeItemIds: [],
+        fileExtensions: [],
+        parseRevisionIds: []
+      })[0]
+      if (candidate === undefined) throw new Error('Expected embedding input provenance')
+      const values = byKnowledgeItem.get(candidate.knowledgeItemId) ?? []
+      values.push(input)
+      byKnowledgeItem.set(candidate.knowledgeItemId, values)
+    }
+    expect(
+      byKnowledgeItem
+        .get(first.source.knowledgeItemId)
+        ?.every((input) => input.cachedVector === undefined)
+    ).toBe(true)
+    expect(
+      byKnowledgeItem
+        .get(second.source.knowledgeItemId)
+        ?.some((input) => input.cachedVector !== undefined)
+    ).toBe(true)
+    expect(database.clearEmbeddingCache(generationId, contractSha256)).toBeGreaterThan(0)
+    expect(
+      database
+        .embeddingInputs(generationId, 0, 256, contractSha256, 3)
+        .values.every((input) => input.cachedVector === undefined)
+    ).toBe(true)
+    expect(() => database.clearEmbeddingCache('stale-generation', contractSha256)).toThrow(
+      'active index generation'
+    )
     database.close()
   })
 
@@ -310,6 +609,72 @@ describe('IndexDatabase and deterministic chunking', () => {
     })
     database.close()
   })
+
+  it('keeps vector queries correct when an active generation exceeds sqlite-vec k limits', async () => {
+    const bulk = await createSource(false, {
+      knowledgeItemId: randomUUID(),
+      largeAtomicCount: 4_096
+    })
+    const target = await createSource(false, { knowledgeItemId: randomUUID() })
+    const sources = [bulk.source, target.source]
+    const database = new IndexDatabase(join(bulk.root, 'index.sqlite'), getLoadablePath())
+    const generationId = generationIdFor(
+      hashSourceSet(sources, INDEX_CHUNKER_VERSION),
+      INDEX_CHUNKER_VERSION
+    )
+    await database.build({
+      generationId,
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      sources
+    })
+    database.activate(generationId)
+    const inputs = database.embeddingInputs(generationId, 0, 5_000).values
+    expect(inputs.length).toBeGreaterThan(4_096)
+    const embeddingGenerationId = 'embedding-over-k-limit-generation'
+    const contractSha256 = 'a'.repeat(64)
+    database.beginEmbedding({
+      embeddingGenerationId,
+      indexGenerationId: generationId,
+      providerId: 'openai-compatible',
+      modelId: 'embedding-model',
+      modelRevision: 'revision-1',
+      dimension: 3,
+      metric: 'cosine',
+      normalization: 'l2',
+      chunkerVersion: INDEX_CHUNKER_VERSION,
+      contractSha256,
+      contentFingerprint: hashSourceSet(sources, INDEX_CHUNKER_VERSION)
+    })
+    database.upsertVectors(
+      embeddingGenerationId,
+      inputs.map((input) => ({
+        chunkId: input.chunkId,
+        contentSha256: input.contentSha256,
+        vector: [1, 0, 0]
+      }))
+    )
+    database.activateEmbedding(embeddingGenerationId, contractSha256)
+
+    expect(database.queryVectors(embeddingGenerationId, [1, 0, 0], 3)).toHaveLength(3)
+    const filtered = database.queryVectors(embeddingGenerationId, [1, 0, 0], 10, {
+      knowledgeItemIds: [target.source.knowledgeItemId],
+      fileExtensions: [],
+      parseRevisionIds: []
+    })
+    const hydrated = database.hydrateCandidates(
+      filtered.map((value) => value.chunkId),
+      {
+        knowledgeItemIds: [],
+        fileExtensions: [],
+        parseRevisionIds: []
+      }
+    )
+    expect(hydrated.length).toBeGreaterThan(0)
+    expect(hydrated.every((value) => value.knowledgeItemId === target.source.knowledgeItemId)).toBe(
+      true
+    )
+    database.close()
+  })
 })
 
 async function createSource(
@@ -321,6 +686,8 @@ async function createSource(
     displayName?: string
     extension?: string
     heading?: string
+    omitProvenance?: boolean
+    largeAtomicCount?: number
   } = {}
 ): Promise<{
   root: string
@@ -335,16 +702,33 @@ async function createSource(
   const sourceNormalizationRunId = options.normalizationRunId ?? normalizationRunId
   const heading = options.heading ?? 'Heading'
   await mkdir(join(normalizationRoot, 'images'), { recursive: true })
-  const rawBlocks = [
-    block(0, 'heading', heading, { markdown: `# ${heading}`, headingPath: [heading], page: 0 }),
-    block(1, 'paragraph', 'Short paragraph', { headingPath: [heading], page: 0 }),
-    block(2, 'table', '<table><tr><td>Cell</td></tr></table>', {
-      headingPath: [heading],
-      page: 1,
-      bbox: [0, 10, 1000, 500]
-    }),
-    block(3, 'paragraph', 'x'.repeat(2_200), { headingPath: [heading], page: 2 })
-  ]
+  const rawBlocks =
+    options.largeAtomicCount === undefined
+      ? [
+          block(0, 'heading', heading, {
+            markdown: `# ${heading}`,
+            headingPath: [heading],
+            ...(options.omitProvenance ? {} : { page: 0 })
+          }),
+          block(1, 'paragraph', 'Short paragraph', {
+            headingPath: [heading],
+            ...(options.omitProvenance ? {} : { page: 0 })
+          }),
+          block(2, 'table', '<table><tr><td>Cell</td></tr></table>', {
+            headingPath: [heading],
+            ...(options.omitProvenance ? {} : { page: 1, bbox: [0, 10, 1000, 500] as const })
+          }),
+          block(3, 'paragraph', 'x'.repeat(2_200), {
+            headingPath: [heading],
+            ...(options.omitProvenance ? {} : { page: 2 })
+          })
+        ]
+      : Array.from({ length: options.largeAtomicCount }, (_, ordinal) =>
+          block(ordinal, 'table', `<table><tr><td>Bulk ${ordinal}</td></tr></table>`, {
+            headingPath: [heading],
+            ...(options.omitProvenance ? {} : { page: ordinal })
+          })
+        )
   if (includeBilingual) {
     rawBlocks.push(
       block(4, 'paragraph', '人工智能写作与 English retrieval', {

@@ -6,6 +6,7 @@ import {
   type NormalizedKnowledgeBlock
 } from '../shared/contracts/knowledge'
 import type { MineruUtilityRequest, MineruUtilityResponse } from '../shared/contracts/mineru'
+import { chooseMineruContentListPath } from '../shared/mineru-content-list'
 
 const MAX_CONTENT_LIST_BYTES = 100 * 1024 * 1024
 const MAX_BLOCKS = 20_000
@@ -46,7 +47,7 @@ export async function runKnowledgeNormalizer(
   request: NormalizeRequest
 ): Promise<NormalizeResponse> {
   const inventory = new Map(request.files.map((file) => [file.relativePath, file]))
-  const contentList = chooseContentList(request.files.map((file) => file.relativePath))
+  const contentList = chooseMineruContentListPath(request.files.map((file) => file.relativePath))
   const assets = new Map<string, AssetRecord>()
   const blocks =
     contentList === undefined
@@ -143,7 +144,6 @@ async function normalizeContentList(
           markdown: caption,
           headingPath: [...headingPath],
           ...(page(item) === undefined ? {} : { page: page(item) }),
-          ...(bbox(item) === undefined ? {} : { bbox: bbox(item) }),
           ...(providerId === undefined ? {} : { sourceProviderBlockId: providerId }),
           assetRefs,
           contentHash: captionHash
@@ -256,10 +256,6 @@ async function rewriteMarkdownAssets(input: {
   }
   output += input.markdown.slice(lastIndex)
   return { markdown: output, assetRefs: [...new Set(assetRefs)] }
-}
-
-function chooseContentList(paths: string[]): string | undefined {
-  return paths.find((path) => /(?:^|\/)content_list\.json$/.test(path))
 }
 
 function mapType(item: RawContentBlock): NormalizedKnowledgeBlock['type'] {

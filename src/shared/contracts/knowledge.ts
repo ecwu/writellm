@@ -38,11 +38,15 @@ export const knowledgeItemSchema = z
 
 export const knowledgeListInputSchema = editorSessionInputSchema
 export const knowledgeListResultSchema = z.array(knowledgeItemSchema)
+export const knowledgeIndexStatusSchema = z.object({ indexed: z.boolean() }).strict()
 export const knowledgeImportPathsInputSchema = editorSessionInputSchema
   .extend({ paths: z.array(z.string().min(1).max(32_768)).min(1).max(50) })
   .strict()
 export const knowledgeItemActionInputSchema = editorSessionInputSchema
   .extend({ knowledgeItemId: z.string().uuid() })
+  .strict()
+export const knowledgeEmbeddingRefreshInputSchema = editorSessionInputSchema
+  .extend({ knowledgeItemId: z.string().uuid().optional() })
   .strict()
 
 export const normalizedKnowledgeBlockTypeSchema = z.enum([
@@ -148,8 +152,10 @@ export const parsedKnowledgeAssetSchema = z
   .strict()
 
 export type KnowledgeItem = z.infer<typeof knowledgeItemSchema>
+export type KnowledgeIndexStatus = z.infer<typeof knowledgeIndexStatusSchema>
 export type KnowledgeImportPathsInput = z.infer<typeof knowledgeImportPathsInputSchema>
 export type KnowledgeItemActionInput = z.infer<typeof knowledgeItemActionInputSchema>
+export type KnowledgeEmbeddingRefreshInput = z.infer<typeof knowledgeEmbeddingRefreshInputSchema>
 export type NormalizedKnowledgeBlock = z.infer<typeof normalizedKnowledgeBlockSchema>
 export type NormalizedKnowledgeManifest = z.infer<typeof normalizedKnowledgeManifestSchema>
 export type ParsedKnowledgeDocument = z.infer<typeof parsedKnowledgeDocumentSchema>

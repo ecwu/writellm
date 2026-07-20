@@ -159,6 +159,7 @@ Opening a folder requires:
 | Build and development   | electron-vite 5                                                               |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
+| PDF preview rendering   | `pdfjs-dist` 6.1.200 with a bundled Vite worker and Main-owned stream    |
 | Block editor            | BlockNote React with the shadcn-compatible UI integration                     |
 | Renderer server state   | TanStack Query                                                                |
 | Local UI state          | React state first; Zustand only when justified                                |
@@ -342,6 +343,16 @@ Additionally:
 - Validate the sender for every privileged IPC request.
 - Validate IPC inputs and outputs with schemas under `src/shared/contracts/`.
 - Prefer a custom application protocol over production `file://` loading.
+- PDF previews use a session-authorized opaque capability over the application
+  protocol. Main revalidates the active project session, PDF signature, size,
+  and single-range request before streaming the original from its content-
+  addressed project storage. The renderer receives only the capability URL and
+  bounded metadata; it never receives an absolute path, raw MinerU JSON, or a
+  complete embedding vector. Preview capabilities are revoked on component
+  cleanup, source deletion, and project close, and the packaged PDF.js worker
+  is loaded from the application bundle rather than a CDN. The privileged
+  application scheme enables CORS for development-renderer requests, while
+  preview responses allow only the configured development renderer origin.
 - Define a restrictive Content Security Policy.
 - Do not expose fallback behavior for a non-isolated preload context.
 - Never accept an arbitrary absolute project path from normal renderer feature APIs.
@@ -664,6 +675,24 @@ interface NormalizedKnowledgeBlock {
 ```
 
 The application stores MinerU Markdown and images for inspection, but chunking and citations are based on normalized blocks so provider output changes remain isolated behind the adapter.
+
+Captions emitted from a provider image or table field remain independent
+normalized blocks. They may retain the parent page, provider, and asset
+association for reading order and chunking, but they do not inherit the
+parent's `bbox`; Mapping only draws a caption overlay when the verified raw
+artifact supplies caption-level geometry and otherwise labels the extracted
+caption as unlocated.
+
+Knowledge Mapping keeps each bbox in the coordinate space declared by the
+verified MinerU artifact that supplied it. In particular, official v4 VLM
+`content_list` bboxes use a top-left `1000 × 1000` page space and must not be
+scaled against the PDF-point `page_size` from `layout.json`; pipeline geometry
+continues to use its validated page dimensions. Provider-prefixed
+`*_content_list.json` filenames are accepted, while `_content_list_v2.json`
+remains a distinct unsupported normalization shape. Legacy Markdown-fallback
+blocks may recover page/bbox provenance only from unique normalized-text or
+content-addressed asset matches against the hash-verified raw revision;
+ambiguous matches remain unlocated rather than being guessed.
 
 ## Indexing And Retrieval
 

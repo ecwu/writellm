@@ -150,7 +150,9 @@ export class RetrievalService {
     })
 
     let rerankStatus: KnowledgeSearchResult['rerankStatus'] = input.rerank
-      ? 'not-configured'
+      ? ranked.length === 0
+        ? 'skipped-no-candidates'
+        : 'not-configured'
       : 'disabled'
     if (input.rerank && ranked.length > 0) {
       try {

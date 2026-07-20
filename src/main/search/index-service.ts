@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import {
   INDEX_CHUNKER_VERSION,
@@ -79,6 +79,52 @@ export class ProjectIndexService {
       deduplicationKey: `index-delete:${knowledgeItemId}`,
       maxAttempts: 8
     })
+  }
+
+  async requestEmbeddingRefresh(knowledgeItemId?: string): Promise<void> {
+    const current = this.#currentGeneration()
+    if (current.sources.length === 0) {
+      throw new Error('No parsed knowledge sources are available for embedding')
+    }
+    if (
+      knowledgeItemId !== undefined &&
+      !current.sources.some((source) => source.knowledgeItemId === knowledgeItemId)
+    ) {
+      throw new Error('The selected knowledge source has no active parsed revision')
+    }
+    const activeEmbeddingJob = this.options.jobs
+      .list({ limit: 100, states: ['queued', 'running'] })
+      .find((job) => job.type === 'build_embedding_generation')
+    if (activeEmbeddingJob !== undefined) {
+      throw new Error('An embedding generation is already queued or running')
+    }
+    const snapshot = await this.options.client.inspect()
+    if (snapshot.activeGenerationId !== current.generationId) {
+      throw new Error('The knowledge search index is still being prepared')
+    }
+    embeddingContract(await this.options.getEmbeddingProvider(), current)
+    const embeddingGenerationId = `embedding-refresh-${randomUUID()}`
+    const refreshScope = knowledgeItemId === undefined ? 'all' : 'item'
+    this.options.jobs.enqueue({
+      type: 'build_embedding_generation',
+      payload: {
+        generationId: embeddingGenerationId,
+        refreshScope,
+        ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
+      },
+      deduplicationKey: 'embedding-refresh:active',
+      maxAttempts: 8
+    })
+    this.options.log.info(
+      {
+        event: 'embedding.refresh.queued',
+        projectId: this.options.projectId,
+        embeddingGenerationId,
+        refreshScope,
+        ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
+      },
+      'Embedding refresh queued'
+    )
   }
 
   async handleRefresh(context: JobHandlerContext): Promise<void> {
@@ -164,11 +210,41 @@ export class ProjectIndexService {
     if (typeof generationId !== 'string') throw new Error('Embedding generation payload is invalid')
     const current = this.#currentGeneration()
     const config = await this.options.getEmbeddingProvider()
-    const contract = embeddingContract(config, current)
-    if (generationId !== contract.embeddingGenerationId) {
-      this.#enqueueEmbedding(contract.embeddingGenerationId, context.job.jobId)
+    const standardContract = embeddingContract(config, current)
+    const refreshScope = context.job.payload.refreshScope
+    if (refreshScope !== undefined && refreshScope !== 'all' && refreshScope !== 'item') {
+      throw new Error('Embedding refresh scope is invalid')
+    }
+    const refreshKnowledgeItemId = context.job.payload.knowledgeItemId
+    if (refreshScope === 'item' && typeof refreshKnowledgeItemId !== 'string') {
+      throw new Error('Embedding refresh knowledge item is invalid')
+    }
+    if (
+      refreshScope === 'item' &&
+      !current.sources.some((source) => source.knowledgeItemId === refreshKnowledgeItemId)
+    ) {
+      this.options.log.info(
+        {
+          event: 'embedding.refresh.item_unavailable',
+          projectId: this.options.projectId,
+          embeddingGenerationId: generationId,
+          knowledgeItemId: refreshKnowledgeItemId
+        },
+        'Embedding refresh ended because the selected source is no longer active'
+      )
       return
     }
+    if (refreshScope !== 'item' && refreshKnowledgeItemId !== undefined) {
+      throw new Error('Embedding refresh knowledge item is invalid')
+    }
+    if (refreshScope === undefined && generationId !== standardContract.embeddingGenerationId) {
+      this.#enqueueEmbedding(standardContract.embeddingGenerationId, context.job.jobId)
+      return
+    }
+    const contract =
+      refreshScope === undefined
+        ? standardContract
+        : { ...standardContract, embeddingGenerationId: generationId }
     const alreadyActive = await this.options.client.beginVectors(contract, context.signal)
     if (alreadyActive) {
       this.options.log.info(
@@ -180,6 +256,25 @@ export class ProjectIndexService {
         'Embedding generation is already active'
       )
       return
+    }
+    if (refreshScope !== undefined) {
+      const clearedCount = await this.options.client.clearEmbeddingCache(
+        contract.indexGenerationId,
+        contract.contractSha256,
+        refreshScope === 'item' ? (refreshKnowledgeItemId as string) : undefined,
+        context.signal
+      )
+      this.options.log.info(
+        {
+          event: 'embedding.refresh.cache_cleared',
+          projectId: this.options.projectId,
+          embeddingGenerationId: contract.embeddingGenerationId,
+          refreshScope,
+          clearedCount,
+          ...(refreshScope === 'item' ? { knowledgeItemId: refreshKnowledgeItemId as string } : {})
+        },
+        'Embedding cache cleared for refresh'
+      )
     }
     let offset = 0
     let total = 0
@@ -257,6 +352,28 @@ export class ProjectIndexService {
 
   inspect(): Promise<IndexSnapshot> {
     return this.options.client.inspect()
+  }
+
+  inspectKnowledgeMapping(
+    knowledgeItemId: string,
+    parseRevisionId: string,
+    pageIndex: number,
+    fallbackBlockOrdinals: number[] = [],
+    signal = new AbortController().signal
+  ) {
+    return this.options.client.inspectKnowledgeMapping(
+      knowledgeItemId,
+      parseRevisionId,
+      pageIndex,
+      fallbackBlockOrdinals,
+      signal
+    )
+  }
+
+  async isCurrentGenerationIndexed(): Promise<boolean> {
+    const current = this.#currentGeneration()
+    const snapshot = await this.options.client.inspect()
+    return snapshot.activeGenerationId === current.generationId
   }
 
   close(): Promise<void> {

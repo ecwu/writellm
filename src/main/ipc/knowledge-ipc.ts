@@ -1,8 +1,11 @@
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMain } from 'electron'
+import { stat } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
+  knowledgeEmbeddingRefreshInputSchema,
   knowledgeImportPathsInputSchema,
+  knowledgeIndexStatusSchema,
   knowledgeItemActionInputSchema,
   knowledgeListInputSchema,
   knowledgeListResultSchema,
@@ -11,6 +14,14 @@ import {
   parsedKnowledgeDocumentSchema,
   SUPPORTED_KNOWLEDGE_EXTENSIONS
 } from '../../shared/contracts/knowledge'
+import {
+  knowledgeMappingPageInputSchema,
+  knowledgeMappingPageSchema,
+  pdfPreviewInputSchema,
+  pdfPreviewReleaseInputSchema,
+  pdfPreviewResultSchema
+} from '../../shared/contracts/knowledge-mapping'
+import type { PdfPreviewCapabilities } from '../knowledge/pdf-preview-capabilities'
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
 import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
@@ -26,6 +37,7 @@ export function registerKnowledgeIpc(options: {
   developmentUrl?: string
   ipc?: KnowledgeIpcMain
   selectFilesForTest?: () => Promise<string[]>
+  pdfPreview?: PdfPreviewCapabilities
 }): () => void {
   const ipc = options.ipc ?? ipcMain
 
@@ -35,6 +47,24 @@ export function registerKnowledgeIpc(options: {
     return knowledgeListResultSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).knowledgeImports.list()
     )
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeIndexStatus, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = knowledgeListInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (context.projectIndex === null) throw new Error('Knowledge index status is unavailable')
+    try {
+      const indexed = await context.projectIndex.isCurrentGenerationIndexed()
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return knowledgeIndexStatusSchema.parse({ indexed })
+    } catch (err) {
+      options.logger.error(
+        { event: 'knowledge.index_status.failed', err, projectSessionId: parsed.projectSessionId },
+        'Failed to inspect knowledge index status'
+      )
+      throw new Error('Knowledge index status could not be loaded', { cause: err })
+    }
   })
 
   ipc.handle(IPC_CHANNELS.knowledgeChooseAndImport, async (event, input: unknown) => {
@@ -170,6 +200,100 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
+  ipc.handle(IPC_CHANNELS.knowledgeRefreshEmbeddings, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = knowledgeEmbeddingRefreshInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    if (context.projectIndex === null) throw new Error('Knowledge embeddings are unavailable')
+    try {
+      await context.projectIndex.requestEmbeddingRefresh(parsed.knowledgeItemId)
+      options.manager.assertActiveSession(parsed.projectSessionId)
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'knowledge.embedding_refresh.failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          ...(parsed.knowledgeItemId === undefined
+            ? {}
+            : { knowledgeItemId: parsed.knowledgeItemId })
+        },
+        'Failed to queue knowledge embedding refresh'
+      )
+      throw new Error('Knowledge embeddings could not be refreshed', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeCreatePdfPreview, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = pdfPreviewInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (options.pdfPreview === undefined) throw new Error('PDF preview is unavailable')
+    const item = context.knowledgeImports
+      .list()
+      .find((candidate) => candidate.knowledgeItemId === parsed.knowledgeItemId)
+    if (item?.extension !== 'pdf' || item.mimeType !== 'application/pdf') {
+      throw new Error('PDF preview is only available for PDF sources')
+    }
+    try {
+      const relativePath = context.knowledgeImports.originalRelativePath(parsed.knowledgeItemId)
+      const absolutePath = resolveProjectPath(context.projectRoot, relativePath)
+      const file = await stat(absolutePath)
+      if (!file.isFile() || file.size !== item.byteSize || item.sha256 === null) {
+        throw new Error('Original PDF is unavailable')
+      }
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return pdfPreviewResultSchema.parse(
+        options.pdfPreview.issue({
+          projectSessionId: parsed.projectSessionId,
+          knowledgeItemId: parsed.knowledgeItemId,
+          absolutePath,
+          byteSize: file.size,
+          sourceSha256: item.sha256
+        })
+      )
+    } catch (err) {
+      options.logger.error(
+        { event: 'knowledge.pdf_preview.failed', err, knowledgeItemId: parsed.knowledgeItemId },
+        'Failed to create PDF preview capability'
+      )
+      throw new Error('PDF preview could not be created', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeReleasePdfPreview, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = pdfPreviewReleaseInputSchema.parse(input)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    options.pdfPreview?.revoke(parsed.previewId, parsed.projectSessionId)
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeMappingPage, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = knowledgeMappingPageInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (context.knowledgeMapping === null || context.knowledgeMapping === undefined) {
+      throw new Error('Knowledge mapping is unavailable')
+    }
+    try {
+      const result = await context.knowledgeMapping.page(parsed.knowledgeItemId, parsed.pageIndex)
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return knowledgeMappingPageSchema.parse(result)
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'knowledge.mapping.failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          knowledgeItemId: parsed.knowledgeItemId,
+          pageIndex: parsed.pageIndex
+        },
+        'Failed to load knowledge mapping page'
+      )
+      throw new Error('Knowledge mapping could not be loaded', { cause: err })
+    }
+  })
+
   ipc.handle(IPC_CHANNELS.knowledgeParsedDocument, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
@@ -213,6 +337,7 @@ export function registerKnowledgeIpc(options: {
   return () => {
     for (const channel of [
       IPC_CHANNELS.knowledgeList,
+      IPC_CHANNELS.knowledgeIndexStatus,
       IPC_CHANNELS.knowledgeChooseAndImport,
       IPC_CHANNELS.knowledgeImportDropped,
       IPC_CHANNELS.knowledgeCancel,
@@ -221,6 +346,10 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.knowledgeOpenOriginal,
       IPC_CHANNELS.knowledgeStartParse,
       IPC_CHANNELS.knowledgeCancelParse,
+      IPC_CHANNELS.knowledgeRefreshEmbeddings,
+      IPC_CHANNELS.knowledgeCreatePdfPreview,
+      IPC_CHANNELS.knowledgeReleasePdfPreview,
+      IPC_CHANNELS.knowledgeMappingPage,
       IPC_CHANNELS.knowledgeParsedDocument,
       IPC_CHANNELS.knowledgeParsedAsset
     ])

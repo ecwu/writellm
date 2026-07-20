@@ -75,7 +75,13 @@ export type KnowledgeSearchHit = z.infer<typeof knowledgeSearchHitSchema>
 export const knowledgeSearchResultSchema = z
   .object({
     mode: z.enum(['none', 'fts', 'hybrid']),
-    rerankStatus: z.enum(['disabled', 'not-configured', 'applied', 'unavailable']),
+    rerankStatus: z.enum([
+      'disabled',
+      'not-configured',
+      'skipped-no-candidates',
+      'applied',
+      'unavailable'
+    ]),
     hits: z.array(knowledgeSearchHitSchema).max(50)
   })
   .strict()

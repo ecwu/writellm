@@ -50,7 +50,9 @@ import {
   type ListJobsResult
 } from '../shared/contracts/jobs'
 import {
+  knowledgeEmbeddingRefreshInputSchema,
   knowledgeImportPathsInputSchema,
+  knowledgeIndexStatusSchema,
   knowledgeItemActionInputSchema,
   knowledgeListInputSchema,
   knowledgeListResultSchema,
@@ -58,8 +60,18 @@ import {
   parsedKnowledgeAssetSchema,
   parsedKnowledgeDocumentSchema,
   type ParsedKnowledgeDocument,
+  type KnowledgeIndexStatus,
   type KnowledgeItem
 } from '../shared/contracts/knowledge'
+import {
+  knowledgeMappingPageInputSchema,
+  knowledgeMappingPageSchema,
+  pdfPreviewInputSchema,
+  pdfPreviewReleaseInputSchema,
+  pdfPreviewResultSchema,
+  type KnowledgeMappingPage,
+  type PdfPreviewResult
+} from '../shared/contracts/knowledge-mapping'
 import {
   createSectionRequestSchema,
   deleteSectionRequestSchema,
@@ -203,6 +215,7 @@ export interface DesktopApi {
   }
   knowledge: {
     list(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
+    indexStatus(input: { projectSessionId: string }): Promise<KnowledgeIndexStatus>
     chooseAndImport(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
     importDropped(input: { projectSessionId: string; files: File[] }): Promise<KnowledgeItem[]>
     cancel(input: { projectSessionId: string; knowledgeItemId: string }): Promise<KnowledgeItem[]>
@@ -211,6 +224,17 @@ export interface DesktopApi {
     openOriginal(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
     startParse(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
     cancelParse(input: { projectSessionId: string; knowledgeItemId: string }): Promise<void>
+    refreshEmbeddings(input: { projectSessionId: string; knowledgeItemId?: string }): Promise<void>
+    createPdfPreview(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+    }): Promise<PdfPreviewResult>
+    releasePdfPreview(input: { projectSessionId: string; previewId: string }): Promise<void>
+    mappingPage(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+      pageIndex: number
+    }): Promise<KnowledgeMappingPage>
     parsedDocument(input: {
       projectSessionId: string
       knowledgeItemId: string
@@ -570,6 +594,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(IPC_CHANNELS.knowledgeList, knowledgeListInputSchema.parse(input))
       )
     },
+    async indexStatus(input) {
+      return knowledgeIndexStatusSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeIndexStatus,
+          knowledgeListInputSchema.parse(input)
+        )
+      )
+    },
     async chooseAndImport(input) {
       return knowledgeListResultSchema.parse(
         await ipcRenderer.invoke(
@@ -628,6 +660,34 @@ const desktopApi: DesktopApi = {
       await ipcRenderer.invoke(
         IPC_CHANNELS.knowledgeCancelParse,
         knowledgeItemActionInputSchema.parse(input)
+      )
+    },
+    async refreshEmbeddings(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeRefreshEmbeddings,
+        knowledgeEmbeddingRefreshInputSchema.parse(input)
+      )
+    },
+    async createPdfPreview(input) {
+      return pdfPreviewResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeCreatePdfPreview,
+          pdfPreviewInputSchema.parse(input)
+        )
+      )
+    },
+    async releasePdfPreview(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.knowledgeReleasePdfPreview,
+        pdfPreviewReleaseInputSchema.parse(input)
+      )
+    },
+    async mappingPage(input) {
+      return knowledgeMappingPageSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeMappingPage,
+          knowledgeMappingPageInputSchema.parse(input)
+        )
       )
     },
     async parsedDocument(input) {

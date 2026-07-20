@@ -27,6 +27,26 @@ const config: ProviderConfig = {
 }
 
 describe('ProjectIndexService embeddings', () => {
+  it('reports whether the active index matches the current parsed source generation', async () => {
+    const inspect = vi
+      .fn()
+      .mockResolvedValueOnce({ activeGenerationId: expectedIndexGeneration() })
+      .mockResolvedValueOnce({ activeGenerationId: 'generation-stale' })
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database: projectDatabaseWithSource(),
+      jobs: {} as never,
+      client: { inspect } as unknown as IndexClient,
+      getEmbeddingProvider: async () => config,
+      embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+
+    await expect(service.isCurrentGenerationIndexed()).resolves.toBe(true)
+    await expect(service.isCurrentGenerationIndexed()).resolves.toBe(false)
+  })
+
   it('coalesces a burst of item-import rebuild requests into one durable debounced build', async () => {
     vi.useFakeTimers()
     try {
@@ -226,6 +246,124 @@ describe('ProjectIndexService embeddings', () => {
     )
   })
 
+  it('queues a fresh durable generation for an item embedding refresh', async () => {
+    const queued: Array<{
+      type: string
+      payload: Record<string, unknown>
+      deduplicationKey?: string
+      maxAttempts?: number
+    }> = []
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database: projectDatabaseWithSource(),
+      jobs: {
+        list: vi.fn(() => []),
+        enqueue: (input: (typeof queued)[number]) => queued.push(input)
+      } as never,
+      client: {
+        inspect: vi.fn(async () => ({ activeGenerationId: expectedIndexGeneration() }))
+      } as unknown as IndexClient,
+      getEmbeddingProvider: async () => config,
+      embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+
+    await service.requestEmbeddingRefresh(knowledgeItemId)
+
+    expect(queued).toEqual([
+      {
+        type: 'build_embedding_generation',
+        payload: {
+          generationId: expect.stringMatching(/^embedding-refresh-[0-9a-f-]{36}$/),
+          refreshScope: 'item',
+          knowledgeItemId
+        },
+        deduplicationKey: 'embedding-refresh:active',
+        maxAttempts: 8
+      }
+    ])
+  })
+
+  it('bypasses the selected item cache and atomically activates a fresh embedding generation', async () => {
+    const embeddingGenerationId = `embedding-refresh-${randomUUID()}`
+    const beginVectors = vi.fn(async () => false)
+    const clearEmbeddingCache = vi.fn(async () => 1)
+    const upsertVectors = vi.fn(async () => undefined)
+    const activateVectors = vi.fn(async () => undefined)
+    const embedBatch = vi.fn(async () => ({
+      embeddings: [[0, 1, 0]],
+      metadata: {
+        usage: {
+          inputTokens: null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          estimatedCostUsdMicros: null
+        },
+        responseIds: [],
+        retryCount: 0,
+        providerModelId: config.model
+      }
+    }))
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database: projectDatabaseWithSource(),
+      jobs: { enqueue: vi.fn() } as never,
+      client: {
+        beginVectors,
+        clearEmbeddingCache,
+        embeddingInputs: vi.fn(async () => ({
+          type: 'embedding-inputs',
+          requestId: randomUUID(),
+          total: 1,
+          values: [
+            {
+              chunkId: 'chunk-refreshed',
+              text: 'refresh me',
+              contentSha256: 'd'.repeat(64)
+            }
+          ]
+        })),
+        upsertVectors,
+        activateVectors
+      } as unknown as IndexClient,
+      getEmbeddingProvider: async () => config,
+      embedBatch,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+
+    await service.handleEmbedding(
+      context('build_embedding_generation', {
+        generationId: embeddingGenerationId,
+        refreshScope: 'item',
+        knowledgeItemId
+      })
+    )
+
+    expect(beginVectors).toHaveBeenCalledWith(
+      expect.objectContaining({ embeddingGenerationId }),
+      expect.any(AbortSignal)
+    )
+    expect(clearEmbeddingCache).toHaveBeenCalledWith(
+      expectedIndexGeneration(),
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      knowledgeItemId,
+      expect.any(AbortSignal)
+    )
+    expect(embedBatch).toHaveBeenCalledWith(
+      ['refresh me'],
+      { operationId: embeddingGenerationId, jobId: expect.any(String) },
+      expect.any(AbortSignal)
+    )
+    expect(activateVectors).toHaveBeenCalledWith(
+      embeddingGenerationId,
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      expect.any(AbortSignal)
+    )
+  })
+
   it('does not activate a generation built from a superseded parse revision', async () => {
     const queued: Array<{
       type: string
@@ -389,6 +527,27 @@ function expectedIndexGeneration(revisionId = parseRevisionId): string {
     )
   )
   return `generation-${sha256(Buffer.from(`${INDEX_CHUNKER_VERSION}\0${sourceSet}`)).slice(0, 40)}`
+}
+
+function projectDatabaseWithSource(): ProjectDatabase {
+  return {
+    immediate: (operation: (database: { prepare: () => { all: () => unknown[] } }) => unknown) =>
+      operation({
+        prepare: () => ({
+          all: () => [
+            {
+              knowledge_item_id: knowledgeItemId,
+              display_name: 'Fixture',
+              extension: 'pdf',
+              parse_revision_id: parseRevisionId,
+              normalization_run_id: normalizationRunId,
+              relative_path: '.writellm/normalized/run',
+              manifest_sha256: manifestSha256
+            }
+          ]
+        })
+      })
+  } as unknown as ProjectDatabase
 }
 
 function context(type: string, payload: Record<string, unknown>): JobHandlerContext {

@@ -123,7 +123,9 @@ export class IndexClient {
     limit: number,
     filters: KnowledgeSearchFilters,
     signal: AbortSignal
-  ): Promise<Array<{ chunkId: string; rank: number; strategy: 'unicode61' | 'trigram' }>> {
+  ): Promise<
+    Array<{ chunkId: string; rank: number; strategy: 'unicode61' | 'trigram' | 'substring' }>
+  > {
     const response = await this.#send(
       { operation: 'fts-candidates', requestId: randomUUID(), query, limit, filters },
       signal
@@ -186,6 +188,30 @@ export class IndexClient {
     return response
   }
 
+  async inspectKnowledgeMapping(
+    knowledgeItemId: string,
+    parseRevisionId: string,
+    pageIndex: number,
+    fallbackBlockOrdinals: number[],
+    signal: AbortSignal
+  ): Promise<Extract<IndexUtilityResponse, { type: 'knowledge-mapping' }>> {
+    const response = await this.#send(
+      {
+        operation: 'inspect-knowledge-mapping',
+        requestId: randomUUID(),
+        knowledgeItemId,
+        parseRevisionId,
+        pageIndex,
+        fallbackBlockOrdinals
+      },
+      signal
+    )
+    if (response.type !== 'knowledge-mapping') {
+      throw new Error('Knowledge mapping response type mismatch')
+    }
+    return response
+  }
+
   async beginVectors(contract: VectorGenerationContract, signal: AbortSignal): Promise<boolean> {
     const response = await this.#send(
       { operation: 'begin-vectors', requestId: randomUUID(), contract },
@@ -193,6 +219,28 @@ export class IndexClient {
     )
     if (response.type !== 'vectors-begun') throw new Error('Begin vectors response type mismatch')
     return response.alreadyActive
+  }
+
+  async clearEmbeddingCache(
+    indexGenerationId: string,
+    contractSha256: string,
+    knowledgeItemId: string | undefined,
+    signal: AbortSignal
+  ): Promise<number> {
+    const response = await this.#send(
+      {
+        operation: 'clear-embedding-cache',
+        requestId: randomUUID(),
+        indexGenerationId,
+        contractSha256,
+        ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
+      },
+      signal
+    )
+    if (response.type !== 'embedding-cache-cleared') {
+      throw new Error('Clear embedding cache response type mismatch')
+    }
+    return response.count
   }
 
   async upsertVectors(

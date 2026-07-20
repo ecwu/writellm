@@ -116,11 +116,34 @@ parentPort.on('message', (event) => {
           response = { type: 'embedding-inputs', requestId, ...result }
           break
         }
+        case 'inspect-knowledge-mapping':
+          response = {
+            type: 'knowledge-mapping',
+            requestId,
+            ...database.inspectKnowledgeMapping({
+              knowledgeItemId: request.knowledgeItemId,
+              parseRevisionId: request.parseRevisionId,
+              pageIndex: request.pageIndex,
+              fallbackBlockOrdinals: request.fallbackBlockOrdinals
+            })
+          }
+          break
         case 'begin-vectors':
           response = {
             type: 'vectors-begun',
             requestId,
             alreadyActive: database.beginEmbedding(request.contract)
+          }
+          break
+        case 'clear-embedding-cache':
+          response = {
+            type: 'embedding-cache-cleared',
+            requestId,
+            count: database.clearEmbeddingCache(
+              request.indexGenerationId,
+              request.contractSha256,
+              request.knowledgeItemId
+            )
           }
           break
         case 'upsert-vectors':

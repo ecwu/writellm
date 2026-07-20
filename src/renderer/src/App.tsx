@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
+import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
@@ -328,6 +329,11 @@ function App(): React.JSX.Element {
 
   const lifecycleBusy = ['creating', 'opening', 'closing'].includes(snapshot.state)
   const isBusy = initialLoading || activeAction !== null || lifecycleBusy
+  const projectOpening =
+    snapshot.state === 'opening' ||
+    activeAction === 'open' ||
+    activeAction === 'openRecent' ||
+    activeAction === 'switch'
   const projectSelectionDisabled = snapshot.state !== 'closed'
   const activeProject = snapshot.activeProject
 
@@ -395,178 +401,187 @@ function App(): React.JSX.Element {
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
       />
 
-      {activeProject && projectSessionId ? (
-        <WritingWorkspace
-          projectSessionId={projectSessionId}
-          projectName={activeProject.displayName}
-          lifecycleState={stateLabels[snapshot.state]}
-          globalAlert={errorAlert}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onError={setErrorMessage}
-        />
-      ) : (
-        <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
-          <div className='m-auto flex w-full max-w-xl flex-col gap-4'>
-            {errorAlert}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <h1>{initialLoading ? 'Loading project' : 'Open a workspace'}</h1>
-                </CardTitle>
-                <CardDescription>
-                  {initialLoading
-                    ? 'Checking the current project state.'
-                    : 'Create a self-contained WriteLLM project or open an existing project folder.'}
-                </CardDescription>
-                <CardAction>
-                  {initialLoading ? (
-                    <LoaderCircle className='size-5 animate-spin text-muted-foreground' />
-                  ) : (
-                    <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
-                  )}
-                </CardAction>
-              </CardHeader>
-              {!initialLoading && (
-                <>
-                  <CardContent>
-                    {snapshot.state === 'recovery-required' && (
-                      <Alert variant='destructive' role='status'>
-                        <AlertCircle />
-                        <AlertTitle>Recovery required</AlertTitle>
-                        <AlertDescription>
-                          Choose a recovery action below. WriteLLM keeps the project closed until
-                          the selected transition is verified.
-                        </AlertDescription>
-                        <div className='grid gap-2 border-t pt-4 sm:grid-cols-2'>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
-                          >
-                            <RefreshCcw /> Retry open
-                          </Button>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() => void runRecovery(window.desktop.projects.retryClose)}
-                          >
-                            <RotateCcw /> Retry close
-                          </Button>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() =>
-                              void runRecovery(window.desktop.projects.discardIncompleteCreate)
-                            }
-                          >
-                            <Trash2 /> Discard incomplete create
-                          </Button>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() => void runRecovery(window.desktop.projects.locateMoved)}
-                          >
-                            <MapPin /> Locate moved project
-                          </Button>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() => void exportRecoveryDiagnostics()}
-                          >
-                            <Download /> Export diagnostics
-                          </Button>
-                          <Button
-                            variant='outline'
-                            disabled={isBusy}
-                            onClick={() => void runRecovery(window.desktop.projects.returnToClosed)}
-                          >
-                            <XCircle /> Return to closed
-                          </Button>
-                        </div>
-                      </Alert>
-                    )}
-                  </CardContent>
-                  {recentProjects.length > 0 && (
-                    <CardContent className='border-t pt-4'>
-                      <div className='mb-3 space-y-1'>
-                        <h2 className='font-medium'>Recent projects</h2>
-                        <p className='text-sm text-muted-foreground'>
-                          Open one of your five most recently opened projects.
-                        </p>
-                      </div>
-                      <div className='grid gap-2'>
-                        {recentProjects.map((recentProject) => (
-                          <Button
-                            key={recentProject.projectId}
-                            className='h-auto min-w-0 justify-start gap-3 px-3 py-3 text-left'
-                            variant='ghost'
-                            disabled={isBusy || projectSelectionDisabled}
-                            aria-label={`Open ${recentProject.displayName}`}
-                            onClick={() => void openRecentProject(recentProject.projectId)}
-                          >
-                            <FolderOpen className='size-4 shrink-0 text-muted-foreground' />
-                            <span className='min-w-0 flex-1'>
-                              <span className='block truncate font-medium'>
-                                {recentProject.displayName}
-                              </span>
-                              <span
-                                className='block truncate text-xs text-muted-foreground'
-                                title={recentProject.projectPath}
+      <div className='relative flex min-h-0 flex-1'>
+        <div
+          className='flex min-h-0 flex-1'
+          aria-hidden={projectOpening || undefined}
+          inert={projectOpening || undefined}
+        >
+          {activeProject && projectSessionId ? (
+            <WritingWorkspace
+              projectSessionId={projectSessionId}
+              projectName={activeProject.displayName}
+              lifecycleState={stateLabels[snapshot.state]}
+              globalAlert={errorAlert}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onError={setErrorMessage}
+            />
+          ) : (
+            <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
+              <div className='m-auto flex w-full max-w-xl flex-col gap-4'>
+                {errorAlert}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      <h1>{initialLoading ? 'Loading project' : 'Open a workspace'}</h1>
+                    </CardTitle>
+                    <CardDescription>
+                      {initialLoading
+                        ? 'Checking the current project state.'
+                        : 'Create a self-contained WriteLLM project or open an existing project folder.'}
+                    </CardDescription>
+                    <CardAction>
+                      {initialLoading ? (
+                        <LoaderCircle className='size-5 animate-spin text-muted-foreground' />
+                      ) : (
+                        <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
+                      )}
+                    </CardAction>
+                  </CardHeader>
+                  {!initialLoading && (
+                    <>
+                      <CardContent>
+                        {snapshot.state === 'recovery-required' && (
+                          <Alert variant='destructive' role='status'>
+                            <AlertCircle />
+                            <AlertTitle>Recovery required</AlertTitle>
+                            <AlertDescription>
+                              Choose a recovery action below. WriteLLM keeps the project closed
+                              until the selected transition is verified.
+                            </AlertDescription>
+                            <div className='grid gap-2 border-t pt-4 sm:grid-cols-2'>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
                               >
-                                {recentProject.projectPath}
-                              </span>
-                              <span className='block text-xs text-muted-foreground'>
-                                {formatRecentProjectDate(recentProject.lastOpenedAt)}
-                              </span>
-                            </span>
-                          </Button>
-                        ))}
-                      </div>
-                    </CardContent>
+                                <RefreshCcw /> Retry open
+                              </Button>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() => void runRecovery(window.desktop.projects.retryClose)}
+                              >
+                                <RotateCcw /> Retry close
+                              </Button>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() =>
+                                  void runRecovery(window.desktop.projects.discardIncompleteCreate)
+                                }
+                              >
+                                <Trash2 /> Discard incomplete create
+                              </Button>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() =>
+                                  void runRecovery(window.desktop.projects.locateMoved)
+                                }
+                              >
+                                <MapPin /> Locate moved project
+                              </Button>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() => void exportRecoveryDiagnostics()}
+                              >
+                                <Download /> Export diagnostics
+                              </Button>
+                              <Button
+                                variant='outline'
+                                disabled={isBusy}
+                                onClick={() =>
+                                  void runRecovery(window.desktop.projects.returnToClosed)
+                                }
+                              >
+                                <XCircle /> Return to closed
+                              </Button>
+                            </div>
+                          </Alert>
+                        )}
+                      </CardContent>
+                      {recentProjects.length > 0 && (
+                        <CardContent className='border-t pt-4'>
+                          <div className='mb-3 space-y-1'>
+                            <h2 className='font-medium'>Recent projects</h2>
+                            <p className='text-sm text-muted-foreground'>
+                              Open one of your five most recently opened projects.
+                            </p>
+                          </div>
+                          <div className='grid gap-2'>
+                            {recentProjects.map((recentProject) => (
+                              <Button
+                                key={recentProject.projectId}
+                                className='h-auto min-w-0 justify-start gap-3 px-3 py-3 text-left'
+                                variant='ghost'
+                                disabled={isBusy || projectSelectionDisabled}
+                                aria-label={`Open ${recentProject.displayName}`}
+                                onClick={() => void openRecentProject(recentProject.projectId)}
+                              >
+                                <FolderOpen className='size-4 shrink-0 text-muted-foreground' />
+                                <span className='min-w-0 flex-1'>
+                                  <span className='block truncate font-medium'>
+                                    {recentProject.displayName}
+                                  </span>
+                                  <span
+                                    className='block truncate text-xs text-muted-foreground'
+                                    title={recentProject.projectPath}
+                                  >
+                                    {recentProject.projectPath}
+                                  </span>
+                                  <span className='block text-xs text-muted-foreground'>
+                                    {formatRecentProjectDate(recentProject.lastOpenedAt)}
+                                  </span>
+                                </span>
+                              </Button>
+                            ))}
+                          </div>
+                        </CardContent>
+                      )}
+                      <CardFooter className='flex-col gap-2 border-t sm:flex-row'>
+                        <Button
+                          className='w-full sm:w-auto'
+                          disabled={isBusy || projectSelectionDisabled}
+                          onClick={() => {
+                            setProjectNameError(null)
+                            setCreateDialogOpen(true)
+                          }}
+                        >
+                          {activeAction === 'create' ? (
+                            <LoaderCircle className='animate-spin' />
+                          ) : (
+                            <Plus />
+                          )}
+                          {activeAction === 'create' ? 'Creating…' : 'Create project'}
+                        </Button>
+                        <Button
+                          className='w-full sm:w-auto'
+                          variant='outline'
+                          disabled={isBusy || projectSelectionDisabled}
+                          onClick={() => void openProject()}
+                        >
+                          <FolderOpen />
+                          Open project
+                        </Button>
+                        <Button
+                          className='w-full sm:ml-auto sm:w-auto'
+                          variant='ghost'
+                          onClick={() => setSettingsOpen(true)}
+                        >
+                          <Settings2 /> Settings
+                        </Button>
+                      </CardFooter>
+                    </>
                   )}
-                  <CardFooter className='flex-col gap-2 border-t sm:flex-row'>
-                    <Button
-                      className='w-full sm:w-auto'
-                      disabled={isBusy || projectSelectionDisabled}
-                      onClick={() => {
-                        setProjectNameError(null)
-                        setCreateDialogOpen(true)
-                      }}
-                    >
-                      {activeAction === 'create' ? (
-                        <LoaderCircle className='animate-spin' />
-                      ) : (
-                        <Plus />
-                      )}
-                      {activeAction === 'create' ? 'Creating…' : 'Create project'}
-                    </Button>
-                    <Button
-                      className='w-full sm:w-auto'
-                      variant='outline'
-                      disabled={isBusy || projectSelectionDisabled}
-                      onClick={() => void openProject()}
-                    >
-                      {activeAction === 'open' ? (
-                        <LoaderCircle className='animate-spin' />
-                      ) : (
-                        <FolderOpen />
-                      )}
-                      {activeAction === 'open' ? 'Opening…' : 'Open project'}
-                    </Button>
-                    <Button
-                      className='w-full sm:ml-auto sm:w-auto'
-                      variant='ghost'
-                      onClick={() => setSettingsOpen(true)}
-                    >
-                      <Settings2 /> Settings
-                    </Button>
-                  </CardFooter>
-                </>
-              )}
-            </Card>
-          </div>
-        </main>
-      )}
+                </Card>
+              </div>
+            </main>
+          )}
+        </div>
+        {projectOpening ? <ProjectOpeningIndicator /> : null}
+      </div>
 
       <SettingsCommand
         open={settingsOpen}

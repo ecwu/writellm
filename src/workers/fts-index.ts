@@ -4,7 +4,7 @@ import type { KnowledgeSearchFilters } from '../shared/contracts/search'
 export interface FtsCandidate {
   chunkId: string
   rank: number
-  strategy: 'unicode61' | 'trigram'
+  strategy: 'unicode61' | 'trigram' | 'substring'
 }
 
 export class FtsIndex {
@@ -18,6 +18,7 @@ export class FtsIndex {
   ): FtsCandidate[] {
     const query = rawQuery.normalize('NFC').trim()
     if (query.length === 0 || limit < 1 || limit > 1_000) return []
+    if (isShortHanQuery(query)) return this.searchSubstring(generationId, query, limit, filters)
     const short = Array.from(query).length < 3
     const strategies = short ? (['unicode61'] as const) : (['unicode61', 'trigram'] as const)
     const best = new Map<string, FtsCandidate>()
@@ -47,6 +48,45 @@ export class FtsIndex {
       .sort((a, b) => a.rank - b.rank || a.chunkId.localeCompare(b.chunkId))
       .slice(0, limit)
   }
+
+  private searchSubstring(
+    generationId: string,
+    query: string,
+    limit: number,
+    filters: KnowledgeSearchFilters
+  ): FtsCandidate[] {
+    const rows = this.database
+      .prepare(
+        `SELECT chunks.chunk_id AS chunk_id,
+                ROW_NUMBER() OVER (
+                  ORDER BY instr(chunks.text, ?), length(chunks.text), chunks.chunk_id
+                ) AS rank
+           FROM chunks
+          WHERE chunks.generation_id = ?
+            AND instr(chunks.text, ?) > 0
+            ${filterSql(filters)}
+          ORDER BY rank, chunks.chunk_id
+          LIMIT ?`
+      )
+      .all(query, generationId, query, ...filterParams(filters), limit) as Array<{
+      chunk_id: string
+      rank: number
+    }>
+    return rows.map((row) => ({
+      chunkId: row.chunk_id,
+      rank: row.rank,
+      strategy: 'substring' as const
+    }))
+  }
+}
+
+function isShortHanQuery(query: string): boolean {
+  const characters = Array.from(query)
+  return (
+    characters.length >= 1 &&
+    characters.length < 3 &&
+    characters.every((character) => /\p{Script=Han}/u.test(character))
+  )
 }
 
 function filterSql(filters: KnowledgeSearchFilters): string {

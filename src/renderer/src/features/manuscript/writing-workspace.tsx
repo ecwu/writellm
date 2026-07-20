@@ -448,7 +448,6 @@ export function WritingWorkspace(props: {
       <KnowledgeManager
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
-        lifecycleState={props.lifecycleState}
         globalAlert={props.globalAlert}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenSettings={props.onOpenSettings}

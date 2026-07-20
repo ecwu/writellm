@@ -54,6 +54,47 @@ const embeddingValueSchema = z
   })
   .strict()
 
+const mappingSourceSchema = z
+  .object({
+    blockId: z.string().min(1).max(100),
+    blockOrdinal: z.number().int().nonnegative(),
+    blockType: z.string().min(1).max(32),
+    page: z.number().int().nonnegative().nullable(),
+    bbox: z
+      .tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()])
+      .nullable(),
+    providerBlockId: z.string().min(1).max(256).nullable(),
+    segmentStart: z.number().int().nonnegative(),
+    segmentEnd: z.number().int().nonnegative()
+  })
+  .strict()
+
+const mappingChunkSchema = z
+  .object({
+    chunkId: identifierSchema,
+    ordinal: z.number().int().nonnegative(),
+    text: z.string().max(4_000),
+    headingPath: z.array(z.string().max(1_000)).max(20),
+    sourceBlockStart: z.number().int().nonnegative(),
+    sourceBlockEnd: z.number().int().nonnegative(),
+    sources: z.array(mappingSourceSchema).max(1_000),
+    embedding: z
+      .object({
+        embeddingGenerationId: identifierSchema,
+        providerId: z.string().min(1).max(128),
+        modelId: z.string().min(1).max(256),
+        modelRevision: z.string().min(1).max(256),
+        dimension: z.number().int().positive().max(65_536),
+        metric: z.enum(['cosine', 'l2']),
+        normalization: z.enum(['none', 'l2']),
+        norm: z.number().finite().nonnegative(),
+        preview: z.array(z.number().finite()).max(16)
+      })
+      .strict()
+      .nullable()
+  })
+  .strict()
+
 export const indexCandidateSchema = z
   .object({
     citationId: citationIdSchema,
@@ -139,9 +180,28 @@ const indexUtilityRequestBodySchema = z.discriminatedUnion('operation', [
     .strict(),
   z
     .object({
+      operation: z.literal('inspect-knowledge-mapping'),
+      requestId: z.uuid(),
+      knowledgeItemId: z.uuid(),
+      parseRevisionId: z.uuid(),
+      pageIndex: z.number().int().nonnegative().max(10_000),
+      fallbackBlockOrdinals: z.array(z.number().int().nonnegative()).max(5_000)
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal('begin-vectors'),
       requestId: z.uuid(),
       contract: vectorGenerationContractSchema
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('clear-embedding-cache'),
+      requestId: z.uuid(),
+      indexGenerationId: identifierSchema,
+      contractSha256: sha256Schema,
+      knowledgeItemId: z.uuid().optional()
     })
     .strict(),
   z
@@ -245,7 +305,7 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
             .object({
               chunkId: identifierSchema,
               rank: z.number().finite(),
-              strategy: z.enum(['unicode61', 'trigram'])
+              strategy: z.enum(['unicode61', 'trigram', 'substring'])
             })
             .strict()
         )
@@ -286,7 +346,24 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z
+    .object({
+      type: z.literal('knowledge-mapping'),
+      requestId: z.uuid(),
+      state: z.enum(['ready', 'indexing', 'unavailable', 'too_complex']),
+      activeIndexGenerationId: identifierSchema.nullable(),
+      activeEmbeddingGenerationId: identifierSchema.nullable(),
+      chunks: z.array(mappingChunkSchema).max(5_000)
+    })
+    .strict(),
+  z
     .object({ type: z.literal('vectors-begun'), requestId: z.uuid(), alreadyActive: z.boolean() })
+    .strict(),
+  z
+    .object({
+      type: z.literal('embedding-cache-cleared'),
+      requestId: z.uuid(),
+      count: z.number().int().nonnegative()
+    })
     .strict(),
   z
     .object({

@@ -36,7 +36,29 @@ export const jobPayloadRegistry = {
   mineru_parse: z.object({ parseTaskId: referenceId }).strict(),
   normalize_parse_revision: z.object({ parseRevisionId: referenceId }).strict(),
   build_index_generation: z.object({ generationId: referenceId }).strict(),
-  build_embedding_generation: z.object({ generationId: referenceId }).strict(),
+  build_embedding_generation: z
+    .object({
+      generationId: referenceId,
+      refreshScope: z.enum(['all', 'item']).optional(),
+      knowledgeItemId: referenceId.optional()
+    })
+    .strict()
+    .superRefine((payload, context) => {
+      if (payload.refreshScope === 'item' && payload.knowledgeItemId === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['knowledgeItemId'],
+          message: 'Item embedding refresh requires a knowledge item ID'
+        })
+      }
+      if (payload.refreshScope !== 'item' && payload.knowledgeItemId !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['knowledgeItemId'],
+          message: 'Knowledge item ID is only valid for an item embedding refresh'
+        })
+      }
+    }),
   remove_index_item: z.object({ knowledgeItemId: referenceId }).strict(),
   rebuild_index: z.object({ generationId: referenceId }).strict(),
   artifact_cleanup: z.object({ cleanupId: referenceId }).strict()

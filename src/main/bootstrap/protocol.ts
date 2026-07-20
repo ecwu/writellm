@@ -12,14 +12,23 @@ export function registerAppScheme(): void {
       privileges: {
         standard: true,
         secure: true,
-        supportFetchAPI: true
+        supportFetchAPI: true,
+        corsEnabled: true
       }
     }
   ])
 }
 
-export function registerAppProtocol(rendererRoot: string): void {
+export function registerAppProtocol(
+  rendererRoot: string,
+  resolvePreview?: (request: Request) => Promise<Response | null>
+): void {
   protocol.handle(APP_SCHEME, (request) => {
+    if (resolvePreview !== undefined && request.url.includes('/project-pdf/')) {
+      return resolvePreview(request).then(
+        (response) => response ?? new Response('Not found', { status: 404 })
+      )
+    }
     const assetPath = resolveRendererAsset(rendererRoot, request.url)
     if (assetPath === null) {
       return new Response('Not found', { status: 404 })

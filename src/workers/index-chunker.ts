@@ -6,6 +6,7 @@ import {
   type NormalizedKnowledgeBlock
 } from '../shared/contracts/knowledge'
 import type { IndexSource } from '../shared/contracts/indexing'
+import { searchableKnowledgeBlockText } from '../shared/knowledge-text'
 
 const MAX_MANIFEST_BYTES = 10 * 1024 * 1024
 const MAX_BLOCK_BYTES = 200 * 1024 * 1024
@@ -102,7 +103,9 @@ async function readVerifiedBlocks(source: IndexSource): Promise<NormalizedKnowle
   return blocks
 }
 
-function groupBlocks(blocks: readonly NormalizedKnowledgeBlock[]): NormalizedKnowledgeBlock[][] {
+export function groupBlocks(
+  blocks: readonly NormalizedKnowledgeBlock[]
+): NormalizedKnowledgeBlock[][] {
   const groups: NormalizedKnowledgeBlock[][] = []
   let current: NormalizedKnowledgeBlock[] = []
   const flush = (): void => {
@@ -110,21 +113,32 @@ function groupBlocks(blocks: readonly NormalizedKnowledgeBlock[]): NormalizedKno
     current = []
   }
   for (const block of blocks) {
-    const value = searchableText(block)
+    const value = searchableKnowledgeBlockText(block)
     if (value.length === 0) continue
     const atomic = ['table', 'formula', 'image', 'list'].includes(block.type)
-    const currentText = current.map(searchableText).join('\n\n')
+    const currentText = current.map(searchableKnowledgeBlockText).join('\n\n')
     const sameHeading =
       current.length === 0 ||
       JSON.stringify(current.at(-1)?.headingPath) === JSON.stringify(block.headingPath)
+    let imageIndex = -1
+    for (let index = current.length - 1; index >= 0; index -= 1) {
+      if (current[index]?.type === 'image') {
+        imageIndex = index
+        break
+      }
+    }
+    const image = imageIndex >= 0 ? current[imageIndex] : undefined
+    const trailingBlocks = imageIndex >= 0 ? current.slice(imageIndex + 1) : []
+    const imageCaptionRun =
+      image !== undefined && trailingBlocks.every((candidate) => candidate.type === 'caption')
     const captionForImage =
-      block.type === 'caption' &&
-      current.at(-1)?.type === 'image' &&
-      block.assetRefs.some((asset) => current.at(-1)?.assetRefs.includes(asset))
+      block.type === 'caption' && imageCaptionRun && image !== undefined
+        ? captionBelongsToImage(block, image)
+        : false
     if (
       current.length > 0 &&
       !captionForImage &&
-      (current.at(-1)?.type === 'image' ||
+      (imageCaptionRun ||
         atomic ||
         block.type === 'heading' ||
         !sameHeading ||
@@ -133,10 +147,22 @@ function groupBlocks(blocks: readonly NormalizedKnowledgeBlock[]): NormalizedKno
       flush()
     }
     current.push(block)
-    if (captionForImage || (atomic && block.type !== 'image')) flush()
+    if (atomic && block.type !== 'image') flush()
   }
   flush()
   return groups
+}
+
+function captionBelongsToImage(
+  caption: NormalizedKnowledgeBlock,
+  image: NormalizedKnowledgeBlock
+): boolean {
+  if (caption.type !== 'caption' || image.type !== 'image') return false
+  if (caption.assetRefs.some((asset) => image.assetRefs.includes(asset))) return true
+  return (
+    caption.sourceProviderBlockId !== undefined &&
+    caption.sourceProviderBlockId === image.sourceProviderBlockId
+  )
 }
 
 function splitGroup(
@@ -145,7 +171,7 @@ function splitGroup(
   ordinal: number,
   chunkerVersion: number
 ): DeterministicChunk[] {
-  const text = blocks.map(searchableText).join('\n\n')
+  const text = blocks.map(searchableKnowledgeBlockText).join('\n\n')
   const characters = Array.from(text)
   const segments: Array<{ text: string; start: number; end: number }> = []
   if (characters.length <= MAX_CHARS) {
@@ -193,14 +219,6 @@ function splitGroup(
       }))
     }
   })
-}
-
-function searchableText(block: NormalizedKnowledgeBlock): string {
-  if (block.markdown?.trim()) return block.markdown.trim()
-  if (block.text?.trim()) return block.text.trim()
-  if (block.assetRefs.length > 0)
-    return block.assetRefs.map((asset) => `[Image: ${asset}]`).join('\n')
-  return ''
 }
 
 async function readBounded(path: string, maxBytes: number): Promise<Buffer> {

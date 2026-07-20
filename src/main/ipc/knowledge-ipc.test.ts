@@ -62,6 +62,10 @@ function harness() {
     detail: vi.fn(async () => document),
     asset: vi.fn(async () => ({ mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=' }))
   }
+  const projectIndex = {
+    requestEmbeddingRefresh: vi.fn(async () => undefined),
+    isCurrentGenerationIndexed: vi.fn(async () => true)
+  }
   const context = {
     projectRoot: '/private/project.writellm',
     mineruWorkflow,
@@ -70,6 +74,7 @@ function harness() {
     },
     runtime: { scheduler: { cancel: vi.fn() } },
     knowledgeNormalization,
+    projectIndex,
     knowledgeImports: {
       list: vi.fn(() => []),
       importPaths: vi.fn(),
@@ -102,6 +107,7 @@ function harness() {
     manager,
     mineruWorkflow,
     knowledgeNormalization,
+    projectIndex,
     revoke: () => {
       active = false
     },
@@ -112,7 +118,7 @@ function harness() {
 
 describe('knowledge IPC', () => {
   it('starts parsing and returns validated normalized document and asset data', async () => {
-    const { invoke, mineruWorkflow, knowledgeNormalization } = harness()
+    const { invoke, mineruWorkflow, knowledgeNormalization, projectIndex } = harness()
     await invoke(IPC_CHANNELS.knowledgeStartParse, { projectSessionId, knowledgeItemId })
     expect(mineruWorkflow.start).toHaveBeenCalledWith(knowledgeItemId)
 
@@ -133,6 +139,10 @@ describe('knowledge IPC', () => {
       parseRevisionId,
       assetRef
     )
+    await expect(invoke(IPC_CHANNELS.knowledgeIndexStatus, { projectSessionId })).resolves.toEqual({
+      indexed: true
+    })
+    expect(projectIndex.isCurrentGenerationIndexed).toHaveBeenCalledOnce()
   })
 
   it('cancels parsing through a session-authorized knowledge action', async () => {
@@ -145,6 +155,26 @@ describe('knowledge IPC', () => {
       knowledgeItemId,
       expect.any(Object)
     )
+  })
+
+  it('queues session-authorized embedding refreshes for one parsed source or the whole project', async () => {
+    const { invoke, projectIndex } = harness()
+
+    await invoke(IPC_CHANNELS.knowledgeRefreshEmbeddings, {
+      projectSessionId,
+      knowledgeItemId
+    })
+    await invoke(IPC_CHANNELS.knowledgeRefreshEmbeddings, { projectSessionId })
+
+    expect(projectIndex.requestEmbeddingRefresh).toHaveBeenNthCalledWith(1, knowledgeItemId)
+    expect(projectIndex.requestEmbeddingRefresh).toHaveBeenNthCalledWith(2, undefined)
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeRefreshEmbeddings, {
+        projectSessionId,
+        knowledgeItemId,
+        force: true
+      })
+    ).rejects.toThrow()
   })
 
   it('rejects stale sessions both before and after privileged asynchronous work', async () => {
@@ -165,6 +195,15 @@ describe('knowledge IPC', () => {
     await expect(
       second.invoke(IPC_CHANNELS.knowledgeParsedDocument, { projectSessionId, knowledgeItemId })
     ).rejects.toThrow('Parsed knowledge document could not be loaded')
+
+    const third = harness()
+    third.projectIndex.isCurrentGenerationIndexed.mockImplementationOnce(async () => {
+      third.revoke()
+      return true
+    })
+    await expect(
+      third.invoke(IPC_CHANNELS.knowledgeIndexStatus, { projectSessionId })
+    ).rejects.toThrow('Knowledge index status could not be loaded')
   })
 
   it('authorizes the sender and rejects renderer-only fields at the strict asset boundary', async () => {

@@ -15,6 +15,7 @@ import { JobStore } from '../jobs/job-store'
 import { KnowledgeImportService } from '../knowledge/knowledge-import-service'
 import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
 import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
+import type { KnowledgeMappingService } from '../knowledge/knowledge-mapping-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import {
@@ -141,6 +142,7 @@ export interface ProjectManagerOptions {
   }) => {
     mineruWorkflow: MineruWorkflowService
     knowledgeNormalization: KnowledgeNormalizationService
+    knowledgeMapping?: KnowledgeMappingService
     projectIndex?: ProjectIndexService
     retrieval?: RetrievalService
     registry: ReturnType<typeof createProjectHandlerRegistry>
@@ -954,6 +956,7 @@ export class ProjectManager {
         knowledgeImports,
         mineruWorkflow: knowledgeRuntime?.mineruWorkflow ?? null,
         knowledgeNormalization: knowledgeRuntime?.knowledgeNormalization ?? null,
+        knowledgeMapping: knowledgeRuntime?.knowledgeMapping ?? null,
         projectIndex: projectIndex ?? null,
         retrieval: knowledgeRuntime?.retrieval ?? null,
         runtime,

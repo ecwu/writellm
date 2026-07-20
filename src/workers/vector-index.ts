@@ -29,12 +29,22 @@ export interface VectorIndex {
     limit: number,
     filters: KnowledgeSearchFilters
   ): Array<{ chunkId: string; distance: number }>
+  preview(
+    embeddingGenerationId: string,
+    chunkIds: string[],
+    dimensions: number
+  ): Array<{
+    chunkId: string
+    norm: number
+    preview: number[]
+  }>
   delete(embeddingGenerationId: string): void
 }
 
 interface GenerationRow {
   state: string
   dimension: number
+  metric: 'cosine' | 'l2'
   normalization: 'none' | 'l2'
   contract_sha256: string
   index_generation_id: string
@@ -192,10 +202,34 @@ export class SqliteVecVectorIndex implements VectorIndex {
     if (limit < 1 || limit > 1_000) throw new Error('Vector query limit is invalid')
     const normalized = normalizeAndValidate(vector, generation.dimension, generation.normalization)
     const table = tableName(embeddingGenerationId)
-    const generationCount = this.database
-      .prepare('SELECT count(*) FROM chunks WHERE generation_id = ?')
-      .pluck()
-      .get(generation.index_generation_id) as number
+    const queryBlob = vectorBlob(normalized)
+    if (hasFilters(filters)) {
+      const distanceFunction =
+        generation.metric === 'cosine' ? 'vec_distance_cosine' : 'vec_distance_L2'
+      return this.database
+        .prepare(
+          `SELECT chunk_vectors.chunk_id AS chunkId,
+                  ${distanceFunction}("${table}".embedding, ?) AS distance
+             FROM chunk_vectors
+             JOIN "${table}" ON "${table}".rowid = chunk_vectors.vector_rowid
+             JOIN chunks ON chunks.generation_id = ?
+                        AND chunks.chunk_id = chunk_vectors.chunk_id
+            WHERE chunk_vectors.embedding_generation_id = ?
+              ${filterSql(filters)}
+            ORDER BY distance, chunk_vectors.chunk_id
+            LIMIT ?`
+        )
+        .all(
+          queryBlob,
+          generation.index_generation_id,
+          embeddingGenerationId,
+          ...filterParams(filters),
+          limit
+        ) as Array<{
+        chunkId: string
+        distance: number
+      }>
+    }
     return this.database
       .prepare(
         `SELECT chunk_vectors.chunk_id AS chunkId, matches.distance
@@ -208,16 +242,51 @@ export class SqliteVecVectorIndex implements VectorIndex {
           LIMIT ?`
       )
       .all(
-        vectorBlob(normalized),
-        Math.max(generationCount, limit),
+        queryBlob,
+        limit,
         generation.index_generation_id,
         embeddingGenerationId,
-        ...filterParams(filters),
         limit
       ) as Array<{
       chunkId: string
       distance: number
     }>
+  }
+
+  preview(
+    embeddingGenerationId: string,
+    chunkIds: string[],
+    dimensions: number
+  ): Array<{ chunkId: string; norm: number; preview: number[] }> {
+    const generation = this.#requireGeneration(embeddingGenerationId)
+    if (generation.state !== 'active') throw new Error('Embedding generation is not active')
+    if (dimensions < 1 || dimensions > 16) throw new Error('Vector preview dimension is invalid')
+    if (chunkIds.length > 5_000) throw new Error('Vector preview chunk count is invalid')
+    if (chunkIds.length === 0) return []
+    const placeholders = chunkIds.map(() => '?').join(', ')
+    const table = tableName(embeddingGenerationId)
+    const rows = this.database
+      .prepare(
+        `SELECT chunk_vectors.chunk_id AS chunkId, "${table}".embedding AS embedding
+           FROM chunk_vectors
+           JOIN "${table}" ON "${table}".rowid = chunk_vectors.vector_rowid
+          WHERE chunk_vectors.embedding_generation_id = ?
+            AND chunk_vectors.chunk_id IN (${placeholders})`
+      )
+      .all(embeddingGenerationId, ...chunkIds) as Array<{
+      chunkId: string
+      embedding: Buffer | Uint8Array
+    }>
+    return rows.flatMap((row) => {
+      const value = row.embedding
+      if (value === undefined) return []
+      const vector = decodeVector(Buffer.from(value))
+      if (vector.length !== generation.dimension)
+        throw new Error('Stored vector dimension mismatch')
+      let norm = 0
+      for (const component of vector) norm += component * component
+      return [{ chunkId: row.chunkId, norm: Math.sqrt(norm), preview: vector.slice(0, dimensions) }]
+    })
   }
 
   delete(embeddingGenerationId: string): void {
@@ -233,12 +302,34 @@ export class SqliteVecVectorIndex implements VectorIndex {
   #requireGeneration(id: string): GenerationRow {
     const row = this.database
       .prepare(
-        'SELECT state, dimension, normalization, contract_sha256, index_generation_id FROM embedding_generations WHERE embedding_generation_id = ?'
+        'SELECT state, dimension, metric, normalization, contract_sha256, index_generation_id FROM embedding_generations WHERE embedding_generation_id = ?'
       )
       .get(id) as GenerationRow | undefined
     if (row === undefined) throw new Error('Embedding generation is missing')
     return row
   }
+}
+
+function hasFilters(filters: KnowledgeSearchFilters): boolean {
+  return (
+    filters.knowledgeItemIds.length > 0 ||
+    filters.fileExtensions.length > 0 ||
+    filters.parseRevisionIds.length > 0 ||
+    filters.pageFrom !== undefined ||
+    filters.pageTo !== undefined ||
+    filters.heading !== undefined
+  )
+}
+
+function decodeVector(bytes: Buffer): number[] {
+  if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error('Stored embedding vector is corrupt')
+  }
+  const values: number[] = []
+  for (let offset = 0; offset < bytes.byteLength; offset += Float32Array.BYTES_PER_ELEMENT) {
+    values.push(bytes.readFloatLE(offset))
+  }
+  return values
 }
 
 function filterSql(filters: KnowledgeSearchFilters): string {

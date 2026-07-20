@@ -110,6 +110,36 @@ describe('JobStore', () => {
     expect(() =>
       store.enqueue({ type: 'unknown' as never, payload: { generationId: 'generation-1' } })
     ).toThrow()
+    expect(
+      store.enqueue({
+        type: 'build_embedding_generation',
+        payload: {
+          generationId: 'embedding-refresh-1',
+          refreshScope: 'item',
+          knowledgeItemId: 'knowledge-item-1'
+        }
+      }).job.payload
+    ).toEqual({
+      generationId: 'embedding-refresh-1',
+      refreshScope: 'item',
+      knowledgeItemId: 'knowledge-item-1'
+    })
+    expect(() =>
+      store.enqueue({
+        type: 'build_embedding_generation',
+        payload: { generationId: 'embedding-refresh-2', refreshScope: 'item' }
+      })
+    ).toThrow()
+    expect(() =>
+      store.enqueue({
+        type: 'build_embedding_generation',
+        payload: {
+          generationId: 'embedding-refresh-3',
+          refreshScope: 'all',
+          knowledgeItemId: 'knowledge-item-1'
+        }
+      })
+    ).toThrow()
     database.close()
   })
 

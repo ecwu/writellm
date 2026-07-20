@@ -6,7 +6,15 @@ import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, ImageIcon, LoaderCircle, Play, Rows3, Square } from 'lucide-react'
+import {
+  FileText,
+  ImageIcon,
+  LoaderCircle,
+  Map as MapIcon,
+  Play,
+  Rows3,
+  Square
+} from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,17 +35,23 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { markdownSanitizeSchema, rehypeRenderHtmlMath } from './markdown-math'
+import { KnowledgeMappingViewer } from './knowledge-mapping-viewer'
 
 export function ParsedDocumentViewer(props: {
   projectSessionId: string
   knowledgeItemId: string | null
   displayName: string
+  extension?: string | null
   inline?: boolean
   onOpenChange(open: boolean): void
   onError(message: string): void
 }): React.JSX.Element {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<'content' | 'markdown'>('content')
+  const [view, setView] = useState<'content' | 'markdown' | 'mapping'>('content')
+  const [mappingTarget, setMappingTarget] = useState<{
+    pageIndex: number
+    blockId: string
+  } | null>(null)
   const [actionPending, setActionPending] = useState(false)
   const query = useQuery({
     queryKey: ['parsed-knowledge', props.projectSessionId, props.knowledgeItemId],
@@ -146,38 +160,67 @@ export function ParsedDocumentViewer(props: {
         >
           <FileText /> Markdown
         </Button>
+        {props.extension === 'pdf' ? (
+          <Button
+            size='sm'
+            variant='ghost'
+            className={`rounded-none border-b-2 px-3 ${view === 'mapping' ? 'border-foreground' : 'border-transparent text-muted-foreground'}`}
+            aria-pressed={view === 'mapping'}
+            onClick={() => setView('mapping')}
+          >
+            <MapIcon /> Mapping
+          </Button>
+        ) : null}
         <Badge variant='outline'>{active.modelVersion}</Badge>
         <Badge variant='outline'>Normalizer v{active.normalizerVersion}</Badge>
         <span className='ml-auto text-xs text-muted-foreground'>{active.blocks.length} blocks</span>
       </div>
-      <ScrollArea className='min-h-0 flex-1 overflow-hidden pr-4'>
-        {view === 'markdown' ? (
-          <ParsedMarkdown
-            markdown={active.documentMarkdown}
-            projectSessionId={props.projectSessionId}
-            knowledgeItemId={props.knowledgeItemId as string}
-            parseRevisionId={active.parseRevisionId}
-          />
-        ) : (
-          <div className='divide-y'>
-            {active.blocks.map((block) => (
-              <ParsedBlock
-                key={block.id}
-                block={block}
+      {view === 'mapping' && props.extension === 'pdf' ? (
+        <KnowledgeMappingViewer
+          projectSessionId={props.projectSessionId}
+          knowledgeItemId={props.knowledgeItemId as string}
+          displayName={props.displayName}
+          initialPageIndex={mappingTarget?.pageIndex ?? 0}
+          initialBlockId={mappingTarget?.blockId ?? null}
+          onError={props.onError}
+        />
+      ) : (
+        <>
+          <ScrollArea className='min-h-0 flex-1 overflow-hidden pr-4'>
+            {view === 'markdown' ? (
+              <ParsedMarkdown
+                markdown={active.documentMarkdown}
                 projectSessionId={props.projectSessionId}
                 knowledgeItemId={props.knowledgeItemId as string}
                 parseRevisionId={active.parseRevisionId}
               />
-            ))}
+            ) : (
+              <div className='divide-y'>
+                {active.blocks.map((block) => (
+                  <ParsedBlock
+                    key={block.id}
+                    block={block}
+                    isPdf={props.extension === 'pdf'}
+                    projectSessionId={props.projectSessionId}
+                    knowledgeItemId={props.knowledgeItemId as string}
+                    parseRevisionId={active.parseRevisionId}
+                    onOpenMapping={() => {
+                      setMappingTarget({ pageIndex: block.page ?? 0, blockId: block.id })
+                      setView('mapping')
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+          <div className='grid gap-1 border-t py-3 text-xs text-muted-foreground sm:grid-cols-2'>
+            <span>Source SHA-256: {active.sourceSha256}</span>
+            <span>Remote task: {active.remoteTaskId}</span>
+            <span>Parse revision: {active.parseRevisionId}</span>
+            <span>Activated: {new Date(active.activatedAt).toLocaleString()}</span>
           </div>
-        )}
-      </ScrollArea>
-      <div className='grid gap-1 border-t py-3 text-xs text-muted-foreground sm:grid-cols-2'>
-        <span>Source SHA-256: {active.sourceSha256}</span>
-        <span>Remote task: {active.remoteTaskId}</span>
-        <span>Parse revision: {active.parseRevisionId}</span>
-        <span>Activated: {new Date(active.activatedAt).toLocaleString()}</span>
-      </div>
+        </>
+      )}
     </>
   )
 
@@ -329,10 +372,35 @@ function ParsedMarkdownImage(props: {
 
 function ParsedBlock(props: {
   block: NormalizedKnowledgeBlock
+  isPdf: boolean
   projectSessionId: string
   knowledgeItemId: string
   parseRevisionId: string
+  onOpenMapping(): void
 }): React.JSX.Element {
+  const mappingQuery = useQuery({
+    queryKey: [
+      'knowledge-mapping',
+      props.projectSessionId,
+      props.knowledgeItemId,
+      props.block.page ?? 0
+    ],
+    queryFn: () =>
+      window.desktop.knowledge.mappingPage({
+        projectSessionId: props.projectSessionId,
+        knowledgeItemId: props.knowledgeItemId,
+        pageIndex: props.block.page ?? 0
+      }),
+    enabled: props.isPdf && props.block.page !== undefined,
+    retry: false,
+    staleTime: 30_000
+  })
+  const usedByCount =
+    props.block.page === undefined || mappingQuery.data?.state !== 'ready'
+      ? null
+      : mappingQuery.data.chunks.filter((chunk) =>
+          chunk.coverages.some((coverage) => coverage.normalizedBlockIds.includes(props.block.id))
+        ).length
   return (
     <article className='grid gap-2 py-5' data-block-id={props.block.id}>
       <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
@@ -342,6 +410,14 @@ function ParsedBlock(props: {
         {props.block.bbox !== undefined ? <span>bbox {props.block.bbox.join(', ')}</span> : null}
         {props.block.sourceProviderBlockId ? (
           <span>Provider block {props.block.sourceProviderBlockId}</span>
+        ) : null}
+        {usedByCount !== null ? (
+          <Badge variant='outline'>Used by {usedByCount} chunks</Badge>
+        ) : null}
+        {usedByCount !== null && usedByCount > 0 ? (
+          <Button size='xs' variant='ghost' onClick={props.onOpenMapping}>
+            View in Mapping
+          </Button>
         ) : null}
       </div>
       {props.block.headingPath.length > 0 ? (

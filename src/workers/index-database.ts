@@ -257,6 +257,242 @@ export class IndexDatabase {
     return result
   }
 
+  inspectKnowledgeMapping(input: {
+    knowledgeItemId: string
+    parseRevisionId: string
+    pageIndex: number
+    fallbackBlockOrdinals?: number[]
+  }): {
+    state: 'ready' | 'indexing' | 'unavailable' | 'too_complex'
+    activeIndexGenerationId: string | null
+    activeEmbeddingGenerationId: string | null
+    chunks: Array<{
+      chunkId: string
+      ordinal: number
+      text: string
+      headingPath: string[]
+      sourceBlockStart: number
+      sourceBlockEnd: number
+      sources: Array<{
+        blockId: string
+        blockOrdinal: number
+        blockType: string
+        page: number | null
+        bbox: [number, number, number, number] | null
+        providerBlockId: string | null
+        segmentStart: number
+        segmentEnd: number
+      }>
+      embedding: {
+        embeddingGenerationId: string
+        providerId: string
+        modelId: string
+        modelRevision: string
+        dimension: number
+        metric: 'cosine' | 'l2'
+        normalization: 'none' | 'l2'
+        norm: number
+        preview: number[]
+      } | null
+    }>
+  } {
+    const active = this.#database
+      .prepare("SELECT generation_id FROM index_generations WHERE state = 'active'")
+      .pluck()
+      .get() as string | undefined
+    if (active === undefined) {
+      return {
+        state: 'unavailable',
+        activeIndexGenerationId: null,
+        activeEmbeddingGenerationId: null,
+        chunks: []
+      }
+    }
+    const indexedRevision = this.#database
+      .prepare(
+        `SELECT parse_revision_id FROM index_sources
+          WHERE generation_id = ? AND knowledge_item_id = ?`
+      )
+      .get(active, input.knowledgeItemId) as { parse_revision_id: string } | undefined
+    if (indexedRevision?.parse_revision_id !== input.parseRevisionId) {
+      return {
+        state: 'indexing',
+        activeIndexGenerationId: active,
+        activeEmbeddingGenerationId: null,
+        chunks: []
+      }
+    }
+
+    const fallbackBlockOrdinals = [...new Set(input.fallbackBlockOrdinals ?? [])]
+    const fallbackPlaceholders = fallbackBlockOrdinals.map(() => '?').join(', ')
+    const fallbackPredicate =
+      fallbackBlockOrdinals.length === 0
+        ? ''
+        : ` OR (chunk_sources.page IS NULL
+                  AND chunk_sources.block_ordinal IN (${fallbackPlaceholders}))`
+    const pageChunkRows = this.#database
+      .prepare(
+        `SELECT DISTINCT chunks.chunk_id
+           FROM chunks
+           JOIN chunk_sources
+             ON chunk_sources.generation_id = chunks.generation_id
+            AND chunk_sources.chunk_id = chunks.chunk_id
+          WHERE chunks.generation_id = ?
+            AND chunks.knowledge_item_id = ?
+            AND chunks.parse_revision_id = ?
+            AND (chunk_sources.page = ?${fallbackPredicate})`
+      )
+      .all(
+        active,
+        input.knowledgeItemId,
+        input.parseRevisionId,
+        input.pageIndex,
+        ...fallbackBlockOrdinals
+      ) as Array<{
+      chunk_id: string
+    }>
+    if (pageChunkRows.length === 0) {
+      return {
+        state: 'ready',
+        activeIndexGenerationId: active,
+        activeEmbeddingGenerationId: this.#activeEmbeddingGenerationId(active),
+        chunks: []
+      }
+    }
+    const chunkIds = pageChunkRows.map((row) => row.chunk_id)
+    if (chunkIds.length > 5_000) {
+      return {
+        state: 'too_complex',
+        activeIndexGenerationId: active,
+        activeEmbeddingGenerationId: this.#activeEmbeddingGenerationId(active),
+        chunks: []
+      }
+    }
+    const placeholders = chunkIds.map(() => '?').join(', ')
+    const chunks = this.#database
+      .prepare(
+        `SELECT chunk_id, ordinal, text, heading_path_json, source_block_start, source_block_end
+           FROM chunks
+          WHERE generation_id = ? AND chunk_id IN (${placeholders})
+          ORDER BY ordinal, chunk_id`
+      )
+      .all(active, ...chunkIds) as Array<{
+      chunk_id: string
+      ordinal: number
+      text: string
+      heading_path_json: string
+      source_block_start: number
+      source_block_end: number
+    }>
+    const sources = this.#database
+      .prepare(
+        `SELECT chunk_id, block_id, block_ordinal, block_type, page, bbox_json,
+                provider_block_id, segment_start, segment_end
+           FROM chunk_sources
+          WHERE generation_id = ? AND chunk_id IN (${placeholders})
+          ORDER BY chunk_id, source_ordinal`
+      )
+      .all(active, ...chunkIds) as Array<{
+      chunk_id: string
+      block_id: string
+      block_ordinal: number
+      block_type: string
+      page: number | null
+      bbox_json: string
+      provider_block_id: string | null
+      segment_start: number
+      segment_end: number
+    }>
+    if (sources.length > 5_000) {
+      return {
+        state: 'too_complex',
+        activeIndexGenerationId: active,
+        activeEmbeddingGenerationId: this.#activeEmbeddingGenerationId(active),
+        chunks: []
+      }
+    }
+    const sourcesByChunk = new Map<string, typeof sources>()
+    for (const source of sources) {
+      const current = sourcesByChunk.get(source.chunk_id) ?? []
+      current.push(source)
+      sourcesByChunk.set(source.chunk_id, current)
+    }
+    const embedding = this.#database
+      .prepare(
+        `SELECT embedding_generation_id, provider_id, model_id, model_revision,
+                dimension, metric, normalization
+           FROM embedding_generations
+          WHERE index_generation_id = ? AND state = 'active'`
+      )
+      .get(active) as
+      | {
+          embedding_generation_id: string
+          provider_id: string
+          model_id: string
+          model_revision: string
+          dimension: number
+          metric: 'cosine' | 'l2'
+          normalization: 'none' | 'l2'
+        }
+      | undefined
+    const previews =
+      embedding === undefined
+        ? new Map<string, { norm: number; preview: number[] }>()
+        : new Map(
+            this.#vectors
+              .preview(embedding.embedding_generation_id, chunkIds, 16)
+              .map((value) => [value.chunkId, { norm: value.norm, preview: value.preview }])
+          )
+    return {
+      state: 'ready',
+      activeIndexGenerationId: active,
+      activeEmbeddingGenerationId: embedding?.embedding_generation_id ?? null,
+      chunks: chunks.map((chunk) => ({
+        chunkId: chunk.chunk_id,
+        ordinal: chunk.ordinal,
+        text: chunk.text,
+        headingPath: parseStringArray(chunk.heading_path_json),
+        sourceBlockStart: chunk.source_block_start,
+        sourceBlockEnd: chunk.source_block_end,
+        sources: (sourcesByChunk.get(chunk.chunk_id) ?? []).map((source) => ({
+          blockId: source.block_id,
+          blockOrdinal: source.block_ordinal,
+          blockType: source.block_type,
+          page: source.page,
+          bbox: parseNullableBbox(source.bbox_json),
+          providerBlockId: source.provider_block_id,
+          segmentStart: source.segment_start,
+          segmentEnd: source.segment_end
+        })),
+        embedding:
+          embedding === undefined
+            ? null
+            : {
+                embeddingGenerationId: embedding.embedding_generation_id,
+                providerId: embedding.provider_id,
+                modelId: embedding.model_id,
+                modelRevision: embedding.model_revision,
+                dimension: embedding.dimension,
+                metric: embedding.metric,
+                normalization: embedding.normalization,
+                norm: previews.get(chunk.chunk_id)?.norm ?? 0,
+                preview: previews.get(chunk.chunk_id)?.preview ?? []
+              }
+      }))
+    }
+  }
+
+  #activeEmbeddingGenerationId(indexGenerationId: string): string | null {
+    return (
+      (this.#database
+        .prepare(
+          "SELECT embedding_generation_id FROM embedding_generations WHERE index_generation_id = ? AND state = 'active'"
+        )
+        .pluck()
+        .get(indexGenerationId) as string | undefined) ?? null
+    )
+  }
+
   expandCitations(citationIds: string[]): IndexCandidate[] {
     return this.hydrateCandidates(
       citationIds.map((citationId) => `chunk-${citationId.slice('citation-'.length)}`),
@@ -316,6 +552,33 @@ export class IndexDatabase {
 
   beginEmbedding(contract: VectorGenerationContract): boolean {
     return this.#vectors.begin(contract)
+  }
+
+  clearEmbeddingCache(
+    indexGenerationId: string,
+    contractSha256: string,
+    knowledgeItemId?: string
+  ): number {
+    const activeGenerationId = this.inspect().activeGenerationId
+    if (activeGenerationId !== indexGenerationId) {
+      throw new Error('Embedding cache can only be refreshed for the active index generation')
+    }
+    const itemPredicate = knowledgeItemId === undefined ? '' : 'AND knowledge_item_id = ?'
+    const parameters =
+      knowledgeItemId === undefined
+        ? [contractSha256, indexGenerationId]
+        : [contractSha256, indexGenerationId, knowledgeItemId]
+    return this.#database
+      .prepare(
+        `DELETE FROM embedding_vector_cache
+          WHERE contract_sha256 = ?
+            AND content_sha256 IN (
+              SELECT content_sha256
+                FROM chunks
+               WHERE generation_id = ? ${itemPredicate}
+            )`
+      )
+      .run(...parameters).changes
   }
 
   upsertVectors(
@@ -541,11 +804,12 @@ export class IndexDatabase {
   #verifyLogicalIntegrity(): void {
     const active = this.#database
       .prepare(
-        "SELECT generation_id, source_set_sha256, chunk_set_sha256, chunk_count, source_count FROM index_generations WHERE state = 'active'"
+        "SELECT generation_id, chunker_version, source_set_sha256, chunk_set_sha256, chunk_count, source_count FROM index_generations WHERE state = 'active'"
       )
       .get() as
       | {
           generation_id: string
+          chunker_version: number
           source_set_sha256: string
           chunk_set_sha256: string | null
           chunk_count: number | null
@@ -574,7 +838,8 @@ export class IndexDatabase {
         normalizationRunId: source.normalization_run_id,
         normalizationRoot: 'derived',
         manifestSha256: source.manifest_sha256
-      }))
+      })),
+      active.chunker_version
     )
     if (sources.length !== active.source_count || sourceFingerprint !== active.source_set_sha256) {
       throw new Error('Index source fingerprint verification failed')
@@ -582,7 +847,7 @@ export class IndexDatabase {
     const chunks = this.#database
       .prepare(
         `SELECT chunk_id, content_sha256 FROM chunks
-          WHERE generation_id = ? ORDER BY ordinal, chunk_id`
+          WHERE generation_id = ? ORDER BY knowledge_item_id, ordinal, chunk_id`
       )
       .all(active.generation_id) as Array<{ chunk_id: string; content_sha256: string }>
     const sourceIds = this.#database
@@ -831,6 +1096,19 @@ function decodeVector(bytes: Buffer): number[] {
     values.push(bytes.readFloatLE(offset))
   }
   return values
+}
+
+function parseNullableBbox(value: string): [number, number, number, number] | null {
+  const parsed: unknown = JSON.parse(value)
+  if (
+    parsed === null ||
+    (Array.isArray(parsed) &&
+      parsed.length === 4 &&
+      parsed.every((item) => typeof item === 'number' && Number.isFinite(item)))
+  ) {
+    return parsed as [number, number, number, number] | null
+  }
+  throw new Error('Index provenance bbox is corrupt')
 }
 
 function parseStringArray(value: string): string[] {

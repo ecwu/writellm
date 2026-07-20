@@ -41,11 +41,13 @@ import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
 import { ModelExecutionService } from './providers/model-execution-service'
 import { MineruClient } from './knowledge/mineru-client'
 import { MineruWorkflowService, registerMineruHandlers } from './knowledge/mineru-workflow-service'
+import { PdfPreviewCapabilities } from './knowledge/pdf-preview-capabilities'
 import { JobHandlerRegistry } from './jobs/scheduler/job-handler-registry'
 import {
   KnowledgeNormalizationService,
   registerNormalizationHandler
 } from './knowledge/knowledge-normalization-service'
+import { KnowledgeMappingService } from './knowledge/knowledge-mapping-service'
 import { IndexClient } from './search/index-client'
 import {
   embeddingContractSha256,
@@ -293,11 +295,19 @@ if (!hasSingleInstanceLock) {
             normalizeInUtility: (input, signal) => mineruClient.normalize(input, signal),
             jobs
           })
+          const knowledgeMapping = new KnowledgeMappingService({
+            projectRoot,
+            database,
+            normalization: knowledgeNormalization,
+            index: projectIndex,
+            log
+          })
           registerNormalizationHandler(registry, knowledgeNormalization)
           registerIndexHandlers(registry, projectIndex)
           return {
             mineruWorkflow,
             knowledgeNormalization,
+            knowledgeMapping,
             projectIndex,
             retrieval,
             registry,
@@ -307,8 +317,20 @@ if (!hasSingleInstanceLock) {
           }
         }
       })
+      const pdfPreview = new PdfPreviewCapabilities({
+        isSessionActive: (projectSessionId) => {
+          try {
+            projectManager.assertActiveSession(projectSessionId)
+            return true
+          } catch {
+            return false
+          }
+        },
+        developmentUrl,
+        log: loggerSystem.createModuleLogger('knowledge', 'pdf-preview')
+      })
 
-      registerAppProtocol(join(__dirname, '../renderer'))
+      registerAppProtocol(join(__dirname, '../renderer'), (request) => pdfPreview.handle(request))
       const ipc = withIpcLogging(ipcMain)
       const unregisterAppIpc = registerIpcHandlers({
         appSettings,
@@ -357,7 +379,8 @@ if (!hasSingleInstanceLock) {
         ipc,
         selectFilesForTest: createKnowledgeDialogTestSelection(
           loggerSystem.createModuleLogger('ipc', 'knowledge-dialog')
-        )
+        ),
+        pdfPreview
       })
       const unregisterProviderIpc = registerProviderIpc({
         providers,
@@ -378,6 +401,7 @@ if (!hasSingleInstanceLock) {
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
+          pdfPreview.revokeSession(projectSessionId)
         }
       })
       projectManager.setSnapshotParticipants({

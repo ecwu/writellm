@@ -3,6 +3,7 @@ import type { JobStore } from '../jobs/job-store'
 import type { KnowledgeImportService } from '../knowledge/knowledge-import-service'
 import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
 import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
+import type { KnowledgeMappingService } from '../knowledge/knowledge-mapping-service'
 import type { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
@@ -29,6 +30,7 @@ export interface ProjectContext {
   readonly knowledgeImports: KnowledgeImportService
   readonly mineruWorkflow: MineruWorkflowService | null
   readonly knowledgeNormalization: KnowledgeNormalizationService | null
+  readonly knowledgeMapping?: KnowledgeMappingService | null
   readonly projectIndex: ProjectIndexService | null
   readonly retrieval: RetrievalService | null
   readonly writeLock: ProjectWriteLock

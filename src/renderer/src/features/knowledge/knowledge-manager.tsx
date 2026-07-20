@@ -5,12 +5,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Circle,
-  Clock3,
   File,
   FileCheck2,
   FileUp,
   FolderOpen,
-  LibraryBig,
   LoaderCircle,
   MoreHorizontal,
   PanelLeft,
@@ -64,7 +62,6 @@ const activeParseStates = new Set([
 export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
-  lifecycleState: string
   globalAlert: React.ReactNode
   onOpenManuscript(): void
   onOpenSettings(): void
@@ -83,6 +80,13 @@ export function KnowledgeManager(props: {
     queryFn: () =>
       window.desktop.jobs.list({ projectSessionId: props.projectSessionId, limit: 100 }),
     refetchInterval: 1_000
+  })
+  const indexStatusQuery = useQuery({
+    queryKey: ['knowledge-index-status', props.projectSessionId],
+    queryFn: () =>
+      window.desktop.knowledge.indexStatus({ projectSessionId: props.projectSessionId }),
+    refetchInterval: 1_000,
+    retry: false
   })
   const parsedQueries = useQueries({
     queries: items.map((item) => ({
@@ -121,6 +125,18 @@ export function KnowledgeManager(props: {
       : parsedQueries[items.findIndex((item) => item.knowledgeItemId === selectedItemId)]
   const jobs = jobsQuery.data?.jobs ?? []
   const stats = getStats(items, parsedById, jobs)
+  const embeddingInProgress = jobs.some(
+    (job) =>
+      job.type === 'build_embedding_generation' &&
+      (job.state === 'queued' || job.state === 'running')
+  )
+  const parsingInProgress = items.some((item) => {
+    const parsed = parsedById.get(item.knowledgeItemId)
+    return (
+      isParseInProgress(parsed?.parseState) ||
+      (parsed?.parseState === 'succeeded' && parsed.normalizationState === 'staging')
+    )
+  })
 
   const replace = (nextItems: KnowledgeItem[]): void => {
     queryClient.setQueryData(key, nextItems)
@@ -163,6 +179,61 @@ export function KnowledgeManager(props: {
       })
     } catch {
       props.onError('MinerU parsing could not be started. Check the MinerU provider settings.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refreshEmbeddings = async (knowledgeItemId?: string): Promise<void> => {
+    setBusy(true)
+    try {
+      await window.desktop.knowledge.refreshEmbeddings({
+        projectSessionId: props.projectSessionId,
+        ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['knowledge-jobs', props.projectSessionId]
+      })
+    } catch {
+      props.onError(
+        embeddingInProgress
+          ? 'Embedding is already running. Wait for the current task to finish.'
+          : 'Embedding could not be started. Check the embedding provider and search index status.'
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+  const reparseAll = async (): Promise<void> => {
+    const sources = items.filter((item) => item.state === 'stored')
+    if (sources.length === 0) return
+    setBusy(true)
+    let failedCount = 0
+    try {
+      for (const item of sources) {
+        try {
+          await window.desktop.knowledge.startParse({
+            projectSessionId: props.projectSessionId,
+            knowledgeItemId: item.knowledgeItemId
+          })
+        } catch {
+          failedCount += 1
+        }
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['parsed-knowledge', props.projectSessionId]
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-jobs', props.projectSessionId]
+        })
+      ])
+      if (failedCount > 0) {
+        props.onError(
+          `${failedCount} ${failedCount === 1 ? 'source' : 'sources'} could not be submitted to MinerU.`
+        )
+      }
+    } catch {
+      props.onError('The MinerU processing queue could not be refreshed. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -226,9 +297,40 @@ export function KnowledgeManager(props: {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <Badge className='ml-auto' variant='secondary'>
-            {props.lifecycleState}
-          </Badge>
+          <div className='ml-auto flex min-w-0 items-center gap-2'>
+            <KnowledgeHeaderStats
+              stats={stats}
+              indexed={indexStatusQuery.data?.indexed}
+              indexStatusUnavailable={indexStatusQuery.isError}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='outline' size='icon-sm' aria-label='Knowledge actions'>
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuItem
+                  data-testid='knowledge-reparse-all-action'
+                  disabled={busy || parsingInProgress || stats.stored === 0}
+                  onClick={() => void reparseAll()}
+                >
+                  {parsingInProgress ? <LoaderCircle className='animate-spin' /> : <RefreshCw />}
+                  {parsingInProgress
+                    ? 'MinerU processing in progress'
+                    : 'Reprocess all with MinerU'}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid='knowledge-reembed-all-action'
+                  disabled={busy || embeddingInProgress || stats.parsed === 0}
+                  onClick={() => void refreshEmbeddings()}
+                >
+                  {embeddingInProgress ? <LoaderCircle className='animate-spin' /> : <Zap />}
+                  {embeddingInProgress ? 'Embedding in progress' : 'Recalculate all embeddings'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </header>
         <main className='mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 md:px-8'>
           {props.globalAlert}
@@ -244,7 +346,9 @@ export function KnowledgeManager(props: {
               parsed={selectedParsed}
               parsedLoading={selectedParsedQuery?.isLoading ?? false}
               busy={busy}
+              embeddingInProgress={embeddingInProgress}
               onParse={() => void parseSelected()}
+              onRefreshEmbeddings={() => void refreshEmbeddings(selectedItem.knowledgeItemId)}
               onCancelParse={async () => {
                 if (selectedItemId === null) return
                 setBusy(true)
@@ -280,12 +384,8 @@ export function KnowledgeManager(props: {
             />
           ) : (
             <KnowledgeOverview
-              stats={stats}
-              jobs={jobs}
               items={items}
-              busy={busy}
               projectSessionId={props.projectSessionId}
-              onImport={importFiles}
               onError={props.onError}
             />
           )}
@@ -296,75 +396,33 @@ export function KnowledgeManager(props: {
 }
 
 function KnowledgeOverview(props: {
-  stats: KnowledgeStats
-  jobs: JobStatus[]
   items: KnowledgeItem[]
-  busy: boolean
   projectSessionId: string
-  onImport(): void
   onError(message: string): void
 }): React.JSX.Element {
   return (
-    <>
-      <section
-        className='flex min-h-[calc(100dvh-6.5rem)] flex-1 items-center justify-center py-12'
-        aria-labelledby='knowledge-overview-title'
-      >
-        <div className='w-full max-w-4xl'>
-          <div className='flex flex-col items-center text-center'>
-            <LibraryBig className='size-6 text-primary' />
-            <h1
-              id='knowledge-overview-title'
-              className='mt-3 text-2xl font-semibold tracking-tight'
-            >
-              Knowledge base
-            </h1>
-            <p className='mt-1 max-w-xl text-sm text-muted-foreground'>
-              Your project sources, parsed content, and search index in one place.
-            </p>
-            <Button
-              className='mt-5'
-              data-testid='knowledge-upload-button'
-              onClick={props.onImport}
-              disabled={props.busy}
-            >
-              {props.busy ? <LoaderCircle className='animate-spin' /> : <FileUp />}
-              Upload files
-            </Button>
-          </div>
-          <div className='mt-8'>
-            <StatusOverview stats={props.stats} jobs={props.jobs} />
-          </div>
-          {props.items.length === 0 ? (
-            <p className='mt-8 text-center text-sm text-muted-foreground'>
-              Upload a PDF, document, slide deck, or image to get started.
-            </p>
-          ) : null}
+    <section className='flex min-h-[calc(100dvh-6.5rem)] flex-1 justify-center py-12'>
+      <div className='w-full max-w-3xl'>
+        <div className='mb-6'>
+          <h1 className='flex items-center gap-2 text-xl font-semibold tracking-tight'>
+            <Search className='size-5' /> Search knowledge
+          </h1>
+          <p className='mt-1 text-sm text-muted-foreground'>
+            Find passages across every parsed source in this project.
+          </p>
         </div>
-      </section>
-      {props.items.length > 0 ? (
-        <section className='border-t py-10' aria-labelledby='knowledge-search-title'>
-          <div className='mx-auto max-w-2xl'>
-            <div className='mb-4 text-center'>
-              <h2
-                id='knowledge-search-title'
-                className='flex items-center justify-center gap-2 text-sm font-semibold'
-              >
-                <Search className='size-4' /> Search knowledge
-              </h2>
-              <p className='mt-1 text-xs text-muted-foreground'>
-                Find passages across every parsed source in this project.
-              </p>
-            </div>
-            <KnowledgeSearch
-              projectSessionId={props.projectSessionId}
-              items={props.items}
-              onError={props.onError}
-            />
-          </div>
-        </section>
-      ) : null}
-    </>
+        <KnowledgeSearch
+          projectSessionId={props.projectSessionId}
+          items={props.items}
+          onError={props.onError}
+        />
+        {props.items.length === 0 ? (
+          <p className='mt-8 border-y py-6 text-center text-sm text-muted-foreground'>
+            Upload and parse a source to make it searchable.
+          </p>
+        ) : null}
+      </div>
+    </section>
   )
 }
 
@@ -393,6 +451,7 @@ function KnowledgeSidebar(props: {
             </p>
           </div>
           <Button
+            data-testid='knowledge-upload-button'
             size='icon-sm'
             variant='outline'
             aria-label='Upload files'
@@ -512,72 +571,44 @@ function TaskRow(props: { job: JobStatus }): React.JSX.Element {
   )
 }
 
-function StatusOverview(props: { stats: KnowledgeStats; jobs: JobStatus[] }): React.JSX.Element {
-  const activeJobs = props.jobs.filter(
-    (job) => job.state === 'queued' || job.state === 'running'
-  ).length
+function KnowledgeHeaderStats(props: {
+  stats: KnowledgeStats
+  indexed: boolean | undefined
+  indexStatusUnavailable: boolean
+}): React.JSX.Element {
   return (
-    <section className='flex overflow-x-auto border-y' aria-label='Knowledge status'>
-      <StatusMetric
-        label='Files'
-        value={props.stats.total}
-        hint={`${props.stats.stored} stored`}
-        icon={<File />}
+    <dl
+      className='hidden items-center divide-x text-xs xl:flex'
+      data-testid='knowledge-header-stats'
+    >
+      <CompactStatus value={props.stats.total.toLocaleString()} label='Files' />
+      <CompactStatus value={props.stats.parsed.toLocaleString()} label='Parsed' />
+      <CompactStatus value={props.stats.blocks.toLocaleString()} label='Blocks' />
+      <CompactStatus
+        value={
+          props.indexStatusUnavailable
+            ? '—'
+            : props.indexed === undefined
+              ? '…'
+              : props.indexed
+                ? 'Yes'
+                : 'No'
+        }
+        label='Indexed'
       />
-      <StatusMetric
-        label='Parsed'
-        value={props.stats.parsed}
-        hint={`${props.stats.parsing} in progress`}
-        icon={<FileCheck2 />}
-      />
-      <StatusMetric
-        label='Embeddings'
-        value={props.stats.embeddingsSucceeded}
-        hint={`${props.stats.embeddingsPending} queued or running`}
-        icon={<Zap />}
-      />
-      <StatusMetric
-        label='Failed'
-        value={props.stats.failed}
-        hint='Needs attention'
-        icon={<AlertCircle />}
-        danger={props.stats.failed > 0}
-      />
-      <StatusMetric
-        label='Queue'
-        value={activeJobs}
-        hint={activeJobs === 0 ? 'Up to date' : 'Active tasks'}
-        icon={<Clock3 />}
-      />
-    </section>
+      <CompactStatus value={props.stats.queue.toLocaleString()} label='Queue' />
+    </dl>
   )
 }
 
-function StatusMetric(props: {
-  label: string
-  value: number
-  hint: string
-  icon: React.ReactNode
-  danger?: boolean
-}): React.JSX.Element {
+function CompactStatus(props: { value: string; label: string }): React.JSX.Element {
   return (
-    <div className='flex min-w-40 flex-1 items-center gap-3 border-r px-4 py-3 last:border-r-0'>
-      <div
-        className={`[&_svg]:size-4 ${props.danger ? 'text-destructive' : 'text-muted-foreground'}`}
-      >
-        {props.icon}
-      </div>
-      <div className='min-w-0'>
-        <div className='flex items-baseline gap-2'>
-          <span className='text-lg font-semibold tabular-nums'>{props.value}</span>
-          <span className='text-xs font-medium text-muted-foreground'>{props.label}</span>
-        </div>
-        <p
-          className={`truncate text-[11px] ${props.danger ? 'text-destructive' : 'text-muted-foreground'}`}
-        >
-          {props.hint}
-        </p>
-      </div>
+    <div
+      className='flex items-baseline gap-1.5 px-2.5 first:pl-0 last:pr-0'
+      data-testid={`knowledge-stat-${props.label.toLowerCase()}`}
+    >
+      <dd className='font-semibold tabular-nums'>{props.value}</dd>
+      <dt className='text-muted-foreground'>{props.label}</dt>
     </div>
   )
 }
@@ -588,7 +619,9 @@ function KnowledgeDetails(props: {
   parsed: ParsedKnowledgeDocument | undefined
   parsedLoading: boolean
   busy: boolean
+  embeddingInProgress: boolean
   onParse(): void
+  onRefreshEmbeddings(): void
   onCancelParse(): void
   onOpen(): void
   onReveal(): void
@@ -618,19 +651,6 @@ function KnowledgeDetails(props: {
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-2'>
-            <Badge variant={props.item.state === 'failed' ? 'destructive' : 'secondary'}>
-              {props.item.state}
-            </Badge>
-            {props.parsed?.active ? <Badge variant='outline'>Parsed</Badge> : null}
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={props.busy || props.item.state !== 'stored'}
-              onClick={props.onParse}
-            >
-              {parseInProgress ? <LoaderCircle className='animate-spin' /> : <RefreshCw />}
-              {parseInProgress ? 'Parsing…' : 'Reparse'}
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant='outline' size='icon-sm' aria-label='More file actions'>
@@ -638,6 +658,40 @@ function KnowledgeDetails(props: {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
+                <DropdownMenuItem
+                  data-testid='knowledge-reparse-file-action'
+                  disabled={
+                    props.busy ||
+                    parseInProgress ||
+                    normalizationInProgress ||
+                    props.item.state !== 'stored'
+                  }
+                  onClick={props.onParse}
+                >
+                  {parseInProgress || normalizationInProgress ? (
+                    <LoaderCircle className='animate-spin' />
+                  ) : (
+                    <RefreshCw />
+                  )}
+                  {parseInProgress || normalizationInProgress
+                    ? 'Processing in progress'
+                    : 'Reprocess with MinerU'}
+                </DropdownMenuItem>
+                {hasActiveRevision ? (
+                  <DropdownMenuItem
+                    data-testid='knowledge-reembed-file-action'
+                    disabled={props.busy || props.embeddingInProgress}
+                    onClick={props.onRefreshEmbeddings}
+                  >
+                    {props.embeddingInProgress ? (
+                      <LoaderCircle className='animate-spin' />
+                    ) : (
+                      <Zap />
+                    )}
+                    {props.embeddingInProgress ? 'Embedding in progress' : 'Recalculate embeddings'}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={props.item.state !== 'stored'} onClick={props.onOpen}>
                   <FolderOpen /> Open file
                 </DropdownMenuItem>
@@ -685,6 +739,7 @@ function KnowledgeDetails(props: {
             projectSessionId={props.projectSessionId}
             knowledgeItemId={props.item.knowledgeItemId}
             displayName={props.item.displayName}
+            extension={props.item.extension}
             onOpenChange={() => undefined}
             onError={props.onError}
           />
@@ -738,10 +793,8 @@ type KnowledgeStats = {
   total: number
   stored: number
   parsed: number
-  parsing: number
-  failed: number
-  embeddingsSucceeded: number
-  embeddingsPending: number
+  blocks: number
+  queue: number
 }
 
 function getStats(
@@ -750,25 +803,15 @@ function getStats(
   jobs: JobStatus[]
 ): KnowledgeStats {
   const parsed = items.filter((item) => parsedById.get(item.knowledgeItemId)?.active).length
-  const parsing = items.filter((item) =>
-    isParseInProgress(parsedById.get(item.knowledgeItemId)?.parseState)
-  ).length
-  const failed = items.filter(
-    (item) =>
-      item.state === 'failed' ||
-      parsedById.get(item.knowledgeItemId)?.parseState === 'failed' ||
-      parsedById.get(item.knowledgeItemId)?.normalizationState === 'failed'
-  ).length
-  const embeddings = jobs.filter((job) => job.type === 'build_embedding_generation')
   return {
     total: items.length,
     stored: items.filter((item) => item.state === 'stored').length,
     parsed,
-    parsing,
-    failed,
-    embeddingsSucceeded: embeddings.filter((job) => job.state === 'succeeded').length,
-    embeddingsPending: embeddings.filter((job) => job.state === 'queued' || job.state === 'running')
-      .length
+    blocks: items.reduce(
+      (total, item) => total + (parsedById.get(item.knowledgeItemId)?.active?.blocks.length ?? 0),
+      0
+    ),
+    queue: jobs.filter((job) => job.state === 'queued' || job.state === 'running').length
   }
 }
 

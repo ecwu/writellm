@@ -6,6 +6,27 @@ import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, test } from './fixtures'
 import { ZipFile } from 'yazl'
 
+function makeMinimalPdf(): string {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length 52 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Hello from PDF) Tj\nET\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf))
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+  }
+  const xrefOffset = Buffer.byteLength(pdf)
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+  return pdf
+}
+
 async function configureMineruProvider(page: Page, port: number): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('option', { name: /MinerU parser/ }).click()
@@ -30,7 +51,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
   testRoot
 }) => {
   const source = join(testRoot, 'parsed source.pdf')
-  await writeFile(source, '%PDF-1.7\nParsed knowledge E2E source')
+  await writeFile(source, makeMinimalPdf())
   const zipBytes = await resultZip()
   let parseTaskId = ''
   let uploadedBytes = 0
@@ -122,6 +143,8 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
 
     await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     const knowledge = launched.page.getByTestId('knowledge-workspace')
+    await expect(knowledge.getByRole('heading', { name: 'Search knowledge' })).toBeVisible()
+    await expect(knowledge.getByRole('heading', { name: 'Knowledge base' })).toHaveCount(0)
     await knowledge.getByTestId('knowledge-upload-button').click()
     const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
     await expect(sourceButton).toBeVisible()
@@ -135,16 +158,62 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible({
       timeout: 20_000
     })
+    const previewProbe = await launched.page.evaluate(async () => {
+      const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
+      if (session === undefined) return { error: 'no-session' }
+      const item = (await window.desktop.knowledge.list({ projectSessionId: session })).find(
+        (candidate) => candidate.extension === 'pdf'
+      )
+      if (item === undefined) return { error: 'no-item' }
+      const preview = await window.desktop.knowledge.createPdfPreview({
+        projectSessionId: session,
+        knowledgeItemId: item.knowledgeItemId
+      })
+      const response = await fetch(preview.url, { headers: { Range: 'bytes=0-32' } })
+      const body = await response.arrayBuffer()
+      await window.desktop.knowledge.releasePdfPreview({
+        projectSessionId: session,
+        previewId: preview.previewId
+      })
+      return {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        contentLength: body.byteLength
+      }
+    })
+    expect(previewProbe).toMatchObject({ status: 206, contentType: 'application/pdf' })
     await expect(knowledge.getByText('Page 1', { exact: true }).first()).toBeVisible()
     await expect(knowledge.getByAltText('Parsed document image')).toBeVisible()
+    const documentDetails = knowledge
+      .getByRole('heading', { name: 'parsed source.pdf', exact: true })
+      .locator('xpath=ancestor::section')
+    await expect(
+      documentDetails.getByRole('button', { name: 'Re-embed', exact: true })
+    ).toHaveCount(0)
+    await expect(documentDetails.getByText('stored', { exact: true })).toHaveCount(0)
+    await expect(documentDetails.getByText('Parsed', { exact: true })).toHaveCount(0)
+    await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+    await expect(launched.page.getByTestId('knowledge-reparse-file-action')).toBeEnabled()
+    await expect(launched.page.getByTestId('knowledge-reembed-file-action')).toBeVisible()
+    await launched.page.keyboard.press('Escape')
     const markdownButton = knowledge.getByRole('button', { name: 'Markdown', exact: true })
     await expect(markdownButton).toHaveCount(1)
     await markdownButton.click()
     await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible()
+    await knowledge.getByRole('button', { name: 'Mapping', exact: true }).click()
+    await expect(knowledge.locator('canvas[aria-label="parsed source.pdf, page 1"]')).toBeVisible({
+      timeout: 10_000
+    })
+    await expect(knowledge.getByText('Loading original PDF…', { exact: true })).toHaveCount(0)
     await knowledge.getByRole('button', { name: 'Close document', exact: true }).click()
     await expect(
       knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
     ).toHaveCount(0)
+    await expect(knowledge.getByText('Open', { exact: true })).toHaveCount(0)
+    await knowledge.getByRole('button', { name: 'Knowledge actions', exact: true }).click()
+    await expect(launched.page.getByTestId('knowledge-reparse-all-action')).toBeEnabled()
+    await expect(launched.page.getByTestId('knowledge-reembed-all-action')).toBeEnabled()
+    await launched.page.keyboard.press('Escape')
     expect(uploadedBytes).toBeGreaterThan(0)
     expect(parseTaskId).not.toBe('')
     await expect
@@ -174,18 +243,24 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
         { timeout: 20_000 }
       )
       .toBe(true)
+    const headerStats = knowledge.getByTestId('knowledge-header-stats')
+    await expect(headerStats.getByTestId('knowledge-stat-files')).toContainText(/1\s*Files/)
+    await expect(headerStats.getByTestId('knowledge-stat-parsed')).toContainText(/1\s*Parsed/)
+    await expect(headerStats.getByTestId('knowledge-stat-blocks')).toContainText(/3\s*Blocks/)
+    await expect(headerStats.getByTestId('knowledge-stat-indexed')).toContainText(/Yes\s*Indexed/)
+    await expect(headerStats.getByTestId('knowledge-stat-queue')).toContainText(/\d+\s*Queue/)
+    await expect(headerStats.getByText('Embeddings', { exact: true })).toHaveCount(0)
+    await expect(headerStats.getByText('Failed', { exact: true })).toHaveCount(0)
     await knowledge.getByLabel('Knowledge search query').fill('Normalized body')
     const searchButton = knowledge.getByRole('button', { name: 'Search', exact: true })
     await expect(searchButton).toHaveCount(1)
     await searchButton.click()
     const searchResults = knowledge.getByTestId('knowledge-search-results')
-    await expect(
-      searchResults.getByText('Normalized body from MinerU', { exact: true })
-    ).toBeVisible()
+    await expect(searchResults.getByText(/Normalized body from MinerU/)).toBeVisible()
     await expect(knowledge.getByText('rerank: not-configured', { exact: true })).toBeVisible()
     await searchResults.getByRole('button', { name: 'Preview source', exact: true }).click()
     const citation = launched.page.getByRole('dialog', { name: 'parsed source.pdf' })
-    await expect(citation.getByText('Normalized body from MinerU', { exact: true })).toBeVisible()
+    await expect(citation.getByText(/Normalized body from MinerU/)).toBeVisible()
     await citation.getByRole('button', { name: 'Close', exact: true }).click()
     await knowledge.getByLabel('Knowledge search query').fill('Image')
     await searchButton.click()
@@ -194,6 +269,11 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     const imageCitation = launched.page.getByRole('dialog', { name: 'parsed source.pdf' })
     await expect(imageCitation.getByAltText(/^Source asset images\/.+\.png$/)).toBeVisible()
     await imageCitation.getByRole('button', { name: 'Close', exact: true }).click()
+    await knowledge.getByLabel('Knowledge search query').fill('不存在')
+    await searchButton.click()
+    await expect(
+      knowledge.getByText('rerank: skipped-no-candidates', { exact: true })
+    ).toBeVisible()
     await expect(readFile(crashMarker)).resolves.toHaveLength(0)
     const publishCountBeforeDelete = await succeededBuildCount(launched.page)
 
@@ -468,6 +548,12 @@ async function resultZip(): Promise<Buffer> {
           text: 'Normalized body from MinerU',
           page_idx: 0,
           bbox: [10, 20, 900, 80]
+        },
+        {
+          type: 'text',
+          text: '这是中文检索测试',
+          page_idx: 0,
+          bbox: [10, 82, 900, 140]
         },
         {
           type: 'image',

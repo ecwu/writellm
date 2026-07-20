@@ -171,6 +171,50 @@ describe('RetrievalService', () => {
       ['chunk-a', 'chunk-b']
     )
   })
+
+  it('reports skipped reranking when there are no candidates', async () => {
+    const client = {
+      retrievalState: vi.fn(async () => ({
+        activeIndexGenerationId: 'generation-active',
+        activeEmbeddingContract: null
+      })),
+      ftsCandidates: vi.fn(async () => []),
+      hydrateCandidates: vi.fn(async () => []),
+      expandCitations: vi.fn(async () => [])
+    } as unknown as IndexClient
+    const getRerankProvider = vi.fn(async () => rerankConfig)
+    const rerank = vi.fn(async () => {
+      throw new Error('rerank must not run without candidates')
+    })
+    const service = new RetrievalService({
+      projectId: randomUUID(),
+      client,
+      getEmbeddingProvider: async () => embeddingConfig,
+      embedQuery: async () => [1, 0, 0],
+      getRerankProvider,
+      rerank,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+
+    await expect(
+      service.search(
+        {
+          projectSessionId: randomUUID(),
+          query: '没有结果',
+          filters: { knowledgeItemIds: [], fileExtensions: [], parseRevisionIds: [] },
+          limits: { fts: 2, vector: 2, fused: 2, results: 1 },
+          rerank: true
+        },
+        new AbortController().signal
+      )
+    ).resolves.toMatchObject({
+      mode: 'fts',
+      rerankStatus: 'skipped-no-candidates',
+      hits: []
+    })
+    expect(getRerankProvider).not.toHaveBeenCalled()
+    expect(rerank).not.toHaveBeenCalled()
+  })
 })
 
 function contract(): VectorGenerationContract {
