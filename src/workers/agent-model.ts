@@ -3,7 +3,15 @@ import {
   utilityCancelMessageSchema,
   type AgentUtilityMessage
 } from '../shared/contracts/model-runtime'
+import {
+  agentQueueCommandSchema,
+  agentRunStartSchema,
+  agentModelCallAuthorizationSchema,
+  agentRuntimeCancelSchema,
+  type AgentRuntimeMessage
+} from '../shared/contracts/agent'
 import { runAgentModelRequest } from './agent-model-request'
+import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
 
@@ -16,6 +24,16 @@ const activeRequests = new Map<
   { projectSessionId: string | null | undefined; controller: AbortController }
 >()
 let workerLog: ReturnType<typeof createPortLogger> | undefined
+const activeSessionRuns = new Map<
+  string,
+  {
+    projectSessionId: string
+    agentSessionId: string
+    agentRunId: string
+    controller: AbortController
+    control?: AgentSessionRunControl
+  }
+>()
 
 parentPort.on('message', (event) => {
   if (isLoggingPortMessage(event)) {
@@ -25,6 +43,65 @@ parentPort.on('message', (event) => {
       component: 'model'
     })
     event.ports[0].start()
+    return
+  }
+  const sessionCancel = agentRuntimeCancelSchema.safeParse(event.data)
+  if (sessionCancel.success) {
+    const active = activeSessionRuns.get(sessionCancel.data.requestId)
+    if (
+      active !== undefined &&
+      active.projectSessionId === sessionCancel.data.projectSessionId &&
+      active.agentSessionId === sessionCancel.data.agentSessionId &&
+      active.agentRunId === sessionCancel.data.agentRunId
+    ) {
+      active.controller.abort(new Error('Agent session run cancelled'))
+      active.control?.abort()
+    }
+    return
+  }
+  const queueCommand = agentQueueCommandSchema.safeParse(event.data)
+  if (queueCommand.success) {
+    const active = activeSessionRuns.get(queueCommand.data.requestId)
+    if (
+      active === undefined ||
+      active.projectSessionId !== queueCommand.data.projectSessionId ||
+      active.agentSessionId !== queueCommand.data.agentSessionId ||
+      active.agentRunId !== queueCommand.data.agentRunId
+    ) {
+      workerLog?.(
+        'warn',
+        'agent.worker.queue_rejected',
+        'Rejected an Agent queue message for an inactive run',
+        { requestId: queueCommand.data.requestId }
+      )
+      return
+    }
+    active.control?.enqueue(queueCommand.data)
+    return
+  }
+  const modelCallAuthorization = agentModelCallAuthorizationSchema.safeParse(event.data)
+  if (modelCallAuthorization.success) {
+    const active = activeSessionRuns.get(modelCallAuthorization.data.requestId)
+    if (
+      active === undefined ||
+      active.projectSessionId !== modelCallAuthorization.data.projectSessionId ||
+      active.agentSessionId !== modelCallAuthorization.data.agentSessionId ||
+      active.agentRunId !== modelCallAuthorization.data.agentRunId
+    ) {
+      workerLog?.(
+        'warn',
+        'agent.worker.model_call_authorization_rejected',
+        'Rejected an Agent model-call authorization for an inactive run',
+        { requestId: modelCallAuthorization.data.requestId }
+      )
+      return
+    }
+    active.control?.authorizeModelCall(modelCallAuthorization.data)
+    return
+  }
+  const sessionRun = agentRunStartSchema.safeParse(event.data)
+  if (sessionRun.success) {
+    void handleSessionRun(sessionRun.data, event.ports[0])
     return
   }
   const cancel = utilityCancelMessageSchema.safeParse(event.data)
@@ -96,6 +173,92 @@ parentPort.on('message', (event) => {
     }
   )
 })
+
+async function handleSessionRun(
+  request: ReturnType<typeof agentRunStartSchema.parse>,
+  toolPort: Electron.MessagePortMain | undefined
+): Promise<void> {
+  await withLogContext(
+    {
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId
+    },
+    async () => {
+      let response: AgentRuntimeMessage
+      const controller = new AbortController()
+      try {
+        if (activeSessionRuns.size > 0) throw new Error('Agent worker already has an active run')
+        if (toolPort === undefined)
+          throw new Error('Agent session run requires a dedicated tool port')
+        const active = {
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          controller,
+          control: undefined as AgentSessionRunControl | undefined
+        }
+        activeSessionRuns.set(request.requestId, active)
+        workerLog?.('info', 'agent.worker.run_started', 'Agent worker run started', {
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId
+        })
+        await runAgentSession(
+          request,
+          (runtimeEvent) => {
+            parentPort.postMessage({
+              type: 'event',
+              requestId: request.requestId,
+              projectSessionId: request.projectSessionId,
+              agentSessionId: request.agentSessionId,
+              agentRunId: request.agentRunId,
+              event: runtimeEvent
+            } satisfies AgentRuntimeMessage)
+          },
+          (control) => {
+            active.control = control
+          },
+          controller.signal,
+          toolPort
+        )
+        response = {
+          type: 'result',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          status: 'completed'
+        }
+        workerLog?.('info', 'agent.worker.run_completed', 'Agent worker run completed', {
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId
+        })
+      } catch (err) {
+        const error =
+          err instanceof Error ? err : new Error('Agent session run failed', { cause: err })
+        workerLog?.(
+          'error',
+          'agent.worker.run_failed',
+          'Agent worker run failed',
+          { agentSessionId: request.agentSessionId, agentRunId: request.agentRunId },
+          err
+        )
+        response = {
+          type: 'error',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          error: serializeError(error)
+        }
+      } finally {
+        activeSessionRuns.delete(request.requestId)
+      }
+      parentPort.postMessage(response)
+    }
+  )
+}
 
 function serializeError(error: Error): {
   name: string

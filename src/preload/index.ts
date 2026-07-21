@@ -9,6 +9,37 @@ import {
 } from '../shared/contracts/app'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
+  agentCreateSessionInputSchema,
+  agentCreateSessionResultSchema,
+  agentEventPageInputSchema,
+  agentEventPageSchema,
+  agentListProposalsResultSchema,
+  agentListRunsInputSchema,
+  agentListRunsResultSchema,
+  agentListSessionsResultSchema,
+  agentProjectInputSchema,
+  agentQueueInputSchema,
+  agentRendererEventSchema,
+  agentRunInputSchema,
+  agentStartRunInputSchema,
+  agentStartRunResultSchema,
+  agentSubscriptionInputSchema,
+  type AgentEventPage,
+  type AgentRendererEvent,
+  type AgentRunRecord,
+  type AgentSessionRecord
+} from '../shared/contracts/agent-ipc'
+import {
+  approveMutationProposalInputSchema,
+  mutationProposalActionResultSchema,
+  mutationSectionChangedSchema,
+  mutationSubscriptionInputSchema,
+  rejectMutationProposalInputSchema,
+  undoMutationProposalInputSchema,
+  type MutationProposalActionResult,
+  type MutationSectionChanged
+} from '../shared/contracts/agent-mutations'
+import {
   diagnosticExportResultSchema,
   diagnosticsLevelInputSchema,
   diagnosticsSnapshotSchema,
@@ -212,6 +243,61 @@ export interface DesktopApi {
     updateSection(input: UpdateSectionRequest): Promise<ManuscriptWorkspace>
     moveSection(input: MoveSectionRequest): Promise<ManuscriptWorkspace>
     deleteSection(input: DeleteSectionRequest): Promise<ManuscriptWorkspace>
+  }
+  agent: {
+    listSessions(input: { projectSessionId: string }): Promise<AgentSessionRecord[]>
+    createSession(input: { projectSessionId: string; title: string }): Promise<AgentSessionRecord>
+    listEvents(input: {
+      projectSessionId: string
+      agentSessionId: string
+      afterSequence?: number
+      limit?: number
+    }): Promise<AgentEventPage>
+    listRuns(input: {
+      projectSessionId: string
+      agentSessionId: string
+      limit?: number
+    }): Promise<AgentRunRecord[]>
+    listProposals(input: {
+      projectSessionId: string
+      agentSessionId: string
+    }): Promise<ReturnType<typeof mutationProposalActionResultSchema.parse>['proposal'][]>
+    startRun(input: ReturnType<typeof agentStartRunInputSchema.parse>): Promise<AgentRunRecord>
+    steerRun(input: {
+      projectSessionId: string
+      agentRunId: string
+      content: string
+    }): Promise<void>
+    followUpRun(input: {
+      projectSessionId: string
+      agentRunId: string
+      content: string
+    }): Promise<void>
+    abortRun(input: { projectSessionId: string; agentRunId: string }): Promise<void>
+    subscribeEvents(
+      input: { projectSessionId: string; agentSessionId: string; afterSequence?: number },
+      listener: (event: AgentRendererEvent) => void
+    ): Promise<() => void>
+    approveProposal(input: {
+      projectSessionId: string
+      agentSessionId: string
+      proposalId: string
+    }): Promise<MutationProposalActionResult>
+    rejectProposal(input: {
+      projectSessionId: string
+      agentSessionId: string
+      proposalId: string
+      reason: string
+    }): Promise<MutationProposalActionResult>
+    undoProposal(input: {
+      projectSessionId: string
+      agentSessionId: string
+      proposalId: string
+    }): Promise<MutationProposalActionResult>
+    subscribeSectionChanged(
+      input: { projectSessionId: string },
+      listener: (event: MutationSectionChanged) => void
+    ): Promise<() => void>
   }
   knowledge: {
     list(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
@@ -586,6 +672,166 @@ const desktopApi: DesktopApi = {
           deleteSectionRequestSchema.parse(input)
         )
       )
+    }
+  },
+  agent: {
+    async listSessions(input) {
+      return agentListSessionsResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentListSessions,
+          agentProjectInputSchema.parse(input)
+        )
+      )
+    },
+    async createSession(input) {
+      return agentCreateSessionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentCreateSession,
+          agentCreateSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async listEvents(input) {
+      return agentEventPageSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentListEvents,
+          agentEventPageInputSchema.parse(input)
+        )
+      )
+    },
+    async listRuns(input) {
+      return agentListRunsResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.agentListRuns, agentListRunsInputSchema.parse(input))
+      )
+    },
+    async listProposals(input) {
+      return agentListProposalsResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentListProposals,
+          agentListRunsInputSchema.omit({ limit: true }).parse(input)
+        )
+      )
+    },
+    async startRun(input) {
+      return agentStartRunResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.agentStartRun, agentStartRunInputSchema.parse(input))
+      ).run
+    },
+    async steerRun(input) {
+      await ipcRenderer.invoke(IPC_CHANNELS.agentSteerRun, agentQueueInputSchema.parse(input))
+    },
+    async followUpRun(input) {
+      await ipcRenderer.invoke(IPC_CHANNELS.agentFollowUpRun, agentQueueInputSchema.parse(input))
+    },
+    async abortRun(input) {
+      await ipcRenderer.invoke(IPC_CHANNELS.agentAbortRun, agentRunInputSchema.parse(input))
+    },
+    async subscribeEvents(input, listener) {
+      const subscription = agentSubscriptionInputSchema.parse({
+        ...input,
+        subscriptionId: globalThis.crypto.randomUUID(),
+        afterSequence: input.afterSequence ?? 0
+      })
+      let lastSequence = subscription.afterSequence
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const parsed = agentRendererEventSchema.parse(value)
+        if (parsed.projectSessionId !== subscription.projectSessionId) return
+        const sessionId =
+          parsed.kind === 'durable' ? parsed.event.agentSessionId : parsed.agentSessionId
+        if (sessionId !== subscription.agentSessionId) return
+        if (parsed.kind === 'durable') {
+          if (parsed.event.sequence <= lastSequence) return
+          lastSequence = parsed.event.sequence
+        }
+        listener(parsed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.agentEvent, handler)
+      try {
+        let page = agentEventPageSchema.parse(
+          await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeEvents, subscription)
+        )
+        while (true) {
+          for (const event of page.events) {
+            if (event.sequence <= lastSequence) continue
+            lastSequence = event.sequence
+            listener(
+              agentRendererEventSchema.parse({
+                kind: 'durable',
+                projectSessionId: subscription.projectSessionId,
+                event
+              })
+            )
+          }
+          if (!page.hasMore) break
+          page = agentEventPageSchema.parse(
+            await ipcRenderer.invoke(
+              IPC_CHANNELS.agentListEvents,
+              agentEventPageInputSchema.parse({
+                projectSessionId: subscription.projectSessionId,
+                agentSessionId: subscription.agentSessionId,
+                afterSequence: page.nextAfterSequence
+              })
+            )
+          )
+        }
+        await ipcRenderer.invoke(IPC_CHANNELS.agentCompleteReplay, {
+          ...subscription,
+          afterSequence: lastSequence
+        })
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentEvent, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeEvents, subscription)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentEvent, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeEvents, subscription)
+      }
+    },
+    async approveProposal(input) {
+      return mutationProposalActionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentProposalApprove,
+          approveMutationProposalInputSchema.parse(input)
+        )
+      )
+    },
+    async rejectProposal(input) {
+      return mutationProposalActionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentProposalReject,
+          rejectMutationProposalInputSchema.parse(input)
+        )
+      )
+    },
+    async undoProposal(input) {
+      return mutationProposalActionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentProposalUndo,
+          undoMutationProposalInputSchema.parse(input)
+        )
+      )
+    },
+    async subscribeSectionChanged(input, listener) {
+      const subscription = mutationSubscriptionInputSchema.parse({
+        ...input,
+        subscriptionId: globalThis.crypto.randomUUID()
+      })
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const changed = mutationSectionChangedSchema.parse(value)
+        if (changed.projectSessionId === subscription.projectSessionId) listener(changed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.agentSectionChanged, handler)
+      try {
+        await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeMutations, subscription)
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentSectionChanged, handler)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentSectionChanged, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeMutations, subscription)
+      }
     }
   },
   knowledge: {

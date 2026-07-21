@@ -50,6 +50,8 @@ import type { ProjectIndexService } from '../search/index-service'
 import type { RetrievalService } from '../search/retrieval-service'
 import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
 import { ProjectOperationRegistry } from './project-operations'
+import type { AgentSessionService } from '../agent/session-service'
+import type { MutationProposalService } from '../agent/mutation-service'
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -138,6 +140,8 @@ export interface ProjectManagerOptions {
     projectSessionId: string
     database: ProjectDatabase
     jobs: JobStore
+    manuscript: ManuscriptService
+    editorPersistence: EditorPersistenceService
     log: Pick<Logger, 'info' | 'warn' | 'error'>
   }) => {
     mineruWorkflow: MineruWorkflowService
@@ -145,6 +149,8 @@ export interface ProjectManagerOptions {
     knowledgeMapping?: KnowledgeMappingService
     projectIndex?: ProjectIndexService
     retrieval?: RetrievalService
+    agentSessions?: AgentSessionService
+    agentMutations?: MutationProposalService
     registry: ReturnType<typeof createProjectHandlerRegistry>
     terminateWorkers?: () => void | Promise<void>
   }
@@ -903,6 +909,8 @@ export class ProjectManager {
         projectSessionId,
         database,
         jobs,
+        manuscript,
+        editorPersistence,
         log: this.#logger
       })
       const projectIndex = knowledgeRuntime?.projectIndex
@@ -959,6 +967,8 @@ export class ProjectManager {
         knowledgeMapping: knowledgeRuntime?.knowledgeMapping ?? null,
         projectIndex: projectIndex ?? null,
         retrieval: knowledgeRuntime?.retrieval ?? null,
+        agentSessions: knowledgeRuntime?.agentSessions ?? null,
+        agentMutations: knowledgeRuntime?.agentMutations ?? null,
         runtime,
         writeLock
       }

@@ -1,0 +1,95 @@
+import { describe, expect, it } from 'vitest'
+import {
+  AGENT_MUTATION_OPERATION_LIMIT,
+  briefUpdateSchema,
+  outlinePatchSchema,
+  sectionPatchSchema
+} from './agent-mutations'
+
+const manuscriptId = '019c6a5c-8d34-7a8e-a602-3d37a52dc611'
+const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc612'
+const revisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc613'
+
+describe('Agent mutation contracts', () => {
+  it('defaults version and citations while rejecting untyped or capability-bearing fields', () => {
+    expect(
+      briefUpdateSchema.parse({
+        manuscriptId,
+        baseBriefVersion: 1,
+        changes: { title: 'Revised' }
+      })
+    ).toMatchObject({ schemaVersion: 1, citationIds: [] })
+    expect(
+      briefUpdateSchema.safeParse({
+        manuscriptId,
+        baseBriefVersion: 1,
+        changes: { title: 'Revised' },
+        projectSessionId: manuscriptId
+      }).success
+    ).toBe(false)
+    expect(
+      briefUpdateSchema.safeParse({ manuscriptId, baseBriefVersion: 1, changes: {} }).success
+    ).toBe(false)
+  })
+
+  it('bounds and types the frozen outline operation set', () => {
+    expect(
+      outlinePatchSchema.parse({
+        manuscriptId,
+        baseOutlineVersion: 1,
+        operations: [
+          {
+            type: 'createSection',
+            sectionId,
+            parentSectionId: null,
+            position: 0,
+            title: 'New section',
+            objective: null,
+            status: 'planned'
+          }
+        ]
+      }).operations[0]
+    ).toMatchObject({ type: 'createSection', sectionId })
+    expect(
+      outlinePatchSchema.safeParse({
+        manuscriptId,
+        baseOutlineVersion: 1,
+        operations: Array.from({ length: AGENT_MUTATION_OPERATION_LIMIT + 1 }, () => ({
+          type: 'deleteSection',
+          sectionId
+        }))
+      }).success
+    ).toBe(false)
+  })
+
+  it('enforces typed BlockNote operations, unique IDs, and anchor placement', () => {
+    expect(
+      sectionPatchSchema.parse({
+        sectionId,
+        baseRevisionId: revisionId,
+        operations: [{ type: 'removeBlocks', blockIds: ['a', 'b'] }]
+      })
+    ).toMatchObject({ schemaVersion: 1, citationIds: [] })
+    expect(
+      sectionPatchSchema.safeParse({
+        sectionId,
+        baseRevisionId: revisionId,
+        operations: [{ type: 'removeBlocks', blockIds: ['a', 'a'] }]
+      }).success
+    ).toBe(false)
+    expect(
+      sectionPatchSchema.safeParse({
+        sectionId,
+        baseRevisionId: revisionId,
+        operations: [
+          {
+            type: 'insertBlocks',
+            anchorBlockId: null,
+            placement: 'before',
+            blocks: []
+          }
+        ]
+      }).success
+    ).toBe(false)
+  })
+})

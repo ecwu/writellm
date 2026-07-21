@@ -264,11 +264,11 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  tooltip={{ children: 'Agent panel · unavailable', hidden: false }}
+                  tooltip={{ children: 'Writing agent', hidden: false }}
                   onClick={props.onToggleAgent}
                 >
                   <Bot />
-                  <span>Agent · unavailable</span>
+                  <span>Agent</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

@@ -47,7 +47,9 @@ export const logContextSchema = z
     manuscriptId: z.string().max(128).optional(),
     sectionId: z.string().max(128).optional(),
     sectionRevisionId: z.string().max(512).optional(),
-    documentId: z.string().max(128).optional()
+    documentId: z.string().max(128).optional(),
+    agentSessionId: z.string().max(128).optional(),
+    agentRunId: z.string().max(128).optional()
   })
   .strict()
 

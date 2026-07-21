@@ -38,8 +38,8 @@
     "@blocknote/core": "0.47.2",
     "@blocknote/react": "0.47.2",
     "@blocknote/shadcn": "0.47.2",
-    "@earendil-works/pi-agent-core": "0.80.7",
-    "@earendil-works/pi-ai": "0.80.7",
+    "@earendil-works/pi-agent-core": "0.80.10",
+    "@earendil-works/pi-ai": "0.80.10",
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-query": "5.90.3",
     "ai": "7.0.28",
@@ -63,6 +63,7 @@
     "remark-math": "6.0.0",
     "sqlite-vec": "0.1.9",
     "tailwind-merge": "^3.6.0",
+    "typebox": "1.1.38",
     "yauzl": "3.4.0",
     "zod": "^4.0.0"
   },

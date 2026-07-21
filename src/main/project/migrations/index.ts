@@ -13,6 +13,8 @@ import { migration0012 } from './0012-checkpoint-19-5-boundaries'
 import { migration0013 } from './0013-manuscript-revision-controls'
 import { migration0014 } from './0014-artifact-cleanup-requests'
 import { migration0015 } from './0015-job-state-schema-hardening'
+import { migration0016 } from './0016-agent-sessions'
+import { migration0017 } from './0017-mutation-proposal-results'
 
 export const projectMigrations = [
   migration0001,
@@ -29,5 +31,7 @@ export const projectMigrations = [
   migration0012,
   migration0013,
   migration0014,
-  migration0015
+  migration0015,
+  migration0016,
+  migration0017
 ] as const

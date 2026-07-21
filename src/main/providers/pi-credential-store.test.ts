@@ -61,6 +61,7 @@ describe('MainPiCredentialStore', () => {
     )
     const store = new MainPiCredentialStore(credentialService)
     expect(await store.read('openai-compatible')).toBeUndefined()
+    expect(await store.list()).toEqual([])
 
     await store.modify('openai-compatible', async () => ({ type: 'api_key', key: 'first-key' }))
     const observed: string[] = []
@@ -77,6 +78,7 @@ describe('MainPiCredentialStore', () => {
     ])
     expect(observed).toEqual(['first-key', 'second-key'])
     expect(await store.read('openai-compatible')).toEqual({ type: 'api_key', key: 'third-key' })
+    expect(await store.list()).toEqual([{ providerId: 'openai-compatible', type: 'api_key' }])
     const persisted = await appDatabase.kysely
       .selectFrom('encrypted_credentials')
       .select('ciphertext')

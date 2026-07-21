@@ -43,6 +43,10 @@ function restoreV5ManuscriptSchema(database: Database.Database): void {
     DROP TABLE parse_task_events;
     DROP TABLE parse_revisions;
     DROP TABLE parse_tasks;
+    DROP TABLE mutation_proposals;
+    DROP TABLE agent_events;
+    DROP TABLE agent_runs;
+    DROP TABLE agent_sessions;
     DROP TABLE model_requests;
     DROP TABLE imports;
     DROP TABLE knowledge_items;
@@ -243,6 +247,10 @@ describe('project database', () => {
       DROP TABLE parse_task_events;
       DROP TABLE parse_revisions;
       DROP TABLE parse_tasks;
+      DROP TABLE mutation_proposals;
+      DROP TABLE agent_events;
+      DROP TABLE agent_runs;
+      DROP TABLE agent_sessions;
       DROP TABLE model_requests;
       DROP TABLE imports;
       DROP TABLE knowledge_items;

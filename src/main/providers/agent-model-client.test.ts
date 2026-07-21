@@ -103,4 +103,216 @@ describe('AgentModelClient', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     expect(child.kill).not.toHaveBeenCalled()
   })
+
+  it('validates session capabilities and settles only after durable event handling', async () => {
+    const child = new SessionUtilityProcess()
+    const channel = createFakeMessageChannel()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      {
+        fork: () => child
+      } as never,
+      undefined,
+      () => channel as never
+    )
+    const delivered: string[] = []
+    const controller = new AbortController()
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      {
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc441',
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc442',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc443',
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc444',
+        systemPrompt: 'system',
+        history: [],
+        prompt: 'prompt',
+        maxOutputTokens: 100
+      },
+      controller.signal,
+      async (event) => {
+        await Promise.resolve()
+        delivered.push(event.type)
+      }
+    )
+    await handle.completion
+    expect(delivered).toEqual(['assistant_delta'])
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('routes a capability-bound tool request over the dedicated transferred port', async () => {
+    const child = new ToolBridgeUtilityProcess()
+    const channel = createFakeMessageChannel()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => channel as never
+    )
+    const handled: Array<Record<string, unknown>> = []
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      new AbortController().signal,
+      () => undefined,
+      async (request) => {
+        handled.push(request)
+        if (request.toolName !== 'search_knowledge') {
+          throw new Error('Expected a search_knowledge request')
+        }
+        return {
+          type: 'tool_response',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          toolCallId: request.toolCallId,
+          modelRequestId: request.modelRequestId,
+          toolName: request.toolName,
+          ok: true,
+          data: { mode: 'none', rerankStatus: 'disabled', hits: [] }
+        }
+      }
+    )
+    await handle.completion
+
+    expect(handled).toHaveLength(1)
+    expect(handled[0]).toMatchObject({
+      projectSessionId: sessionInput().projectSessionId,
+      agentSessionId: sessionInput().agentSessionId,
+      agentRunId: sessionInput().agentRunId,
+      toolName: 'search_knowledge'
+    })
+    expect(child.toolResponse).toMatchObject({ type: 'tool_response', ok: true })
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('terminates the worker when a tool-bridge message uses a stale project capability', async () => {
+    const child = new ToolBridgeUtilityProcess(true)
+    const channel = createFakeMessageChannel()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => channel as never
+    )
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      new AbortController().signal,
+      () => undefined,
+      async () => {
+        throw new Error('A stale request must not reach the handler')
+      }
+    )
+
+    await expect(handle.completion).rejects.toThrow()
+    expect(child.kill).toHaveBeenCalledOnce()
+  })
 })
+
+class SessionUtilityProcess extends EventEmitter {
+  readonly kill = vi.fn(() => true)
+  readonly postMessage = vi.fn((request: Record<string, unknown>) => {
+    if (request.operation !== 'run_start') return
+    queueMicrotask(() => {
+      const envelope = {
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId,
+        agentSessionId: request.agentSessionId,
+        agentRunId: request.agentRunId
+      }
+      this.emit('message', {
+        type: 'event',
+        ...envelope,
+        event: { type: 'assistant_delta', delta: 'draft' }
+      })
+      this.emit('message', { type: 'result', ...envelope, status: 'completed' })
+    })
+  })
+}
+
+class ToolBridgeUtilityProcess extends EventEmitter {
+  readonly kill = vi.fn(() => true)
+  toolResponse: unknown
+
+  constructor(private readonly staleProjectCapability = false) {
+    super()
+  }
+
+  readonly postMessage = vi.fn((request: Record<string, unknown>, transfer?: FakeMessagePort[]) => {
+    if (request.operation !== 'run_start') return
+    const port = transfer?.[0]
+    if (port === undefined) throw new Error('Expected a dedicated tool port')
+    port.on('message', (event: { data: unknown }) => {
+      this.toolResponse = event.data
+      this.emit('message', {
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId,
+        agentSessionId: request.agentSessionId,
+        agentRunId: request.agentRunId,
+        status: 'completed'
+      })
+    })
+    port.start()
+    queueMicrotask(() =>
+      port.postMessage({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc451',
+        projectSessionId: this.staleProjectCapability
+          ? '019c6a5c-8d34-7a8e-a602-3d37a52dc459'
+          : request.projectSessionId,
+        agentSessionId: request.agentSessionId,
+        agentRunId: request.agentRunId,
+        toolCallId: 'tool-search',
+        modelRequestId: request.modelRequestId,
+        toolName: 'search_knowledge',
+        args: {
+          query: 'evidence',
+          knowledgeItemIds: [],
+          fileExtensions: [],
+          parseRevisionIds: [],
+          limit: 10,
+          rerank: true
+        }
+      })
+    )
+  })
+}
+
+class FakeMessagePort extends EventEmitter {
+  peer: FakeMessagePort | undefined
+  readonly start = vi.fn()
+  readonly close = vi.fn(() => this.emit('close'))
+  readonly postMessage = vi.fn((data: unknown) => {
+    queueMicrotask(() => this.peer?.emit('message', { data }))
+  })
+}
+
+function createFakeMessageChannel(): { port1: FakeMessagePort; port2: FakeMessagePort } {
+  const port1 = new FakeMessagePort()
+  const port2 = new FakeMessagePort()
+  port1.peer = port2
+  port2.peer = port1
+  return { port1, port2 }
+}
+
+function sessionInput() {
+  return {
+    projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc441',
+    agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc442',
+    agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc443',
+    modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc444',
+    systemPrompt: 'system',
+    history: [],
+    prompt: 'prompt',
+    maxOutputTokens: 100
+  }
+}

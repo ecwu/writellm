@@ -4,7 +4,7 @@ import type {
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Bot, FileText, LoaderCircle } from 'lucide-react'
+import { AlertCircle, FileText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -19,24 +19,13 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel, type OutlineMove } from './outline-edit-panel'
 import { ManuscriptPreview } from './manuscript-preview'
-import {
-  SectionEditor,
-  type EditorSelectionContext,
-  type SectionEditorHandle,
-  type SaveState
-} from './section-editor'
+import { SectionEditor, type SectionEditorHandle, type SaveState } from './section-editor'
 
 export function WritingWorkspace(props: {
   projectSessionId: string
@@ -75,7 +64,7 @@ export function WritingWorkspace(props: {
   const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
   const metadataSaveRef = useRef<Promise<boolean> | null>(null)
   const metadataDraftRef = useRef({ title: '' })
-  const selectionContextRef = useRef<(EditorSelectionContext & { sectionId: string }) | null>(null)
+  const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
 
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
@@ -116,6 +105,7 @@ export function WritingWorkspace(props: {
         setMetadataError(false)
       }
       activeSectionIdRef.current = sectionId
+      setSelectionContext(null)
       setActiveSectionId(sectionId)
     },
     [props.projectSessionId, queryClient, workspaceKey]
@@ -300,6 +290,48 @@ export function WritingWorkspace(props: {
       unsubscribe?.()
     }
   }, [props.projectSessionId, queryClient, workspaceKey])
+
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void window.desktop.agent
+      .subscribeSectionChanged({ projectSessionId: props.projectSessionId }, (event) => {
+        void (async () => {
+          await queryClient.invalidateQueries({ queryKey: workspaceKey })
+          if (event.sectionId !== activeSectionIdRef.current) return
+          const current = await window.desktop.editor.loadSection({
+            projectSessionId: props.projectSessionId,
+            sectionId: event.sectionId
+          })
+          if (disposed || event.sectionId !== activeSectionIdRef.current) return
+          queryClient.setQueryData(
+            ['manuscript-section', props.projectSessionId, event.sectionId],
+            current
+          )
+        })().catch(() => {
+          props.onError('The applied Agent section change could not be reloaded.')
+        })
+      })
+      .then((release) => {
+        if (disposed) release()
+        else unsubscribe = release
+      })
+      .catch(() => {
+        props.onError('Agent section change notifications are unavailable.')
+      })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
+
+  const refreshAfterAgentMutation = useCallback(async (): Promise<void> => {
+    try {
+      await queryClient.invalidateQueries({ queryKey: workspaceKey })
+    } catch {
+      props.onError('The applied Agent change could not be refreshed.')
+    }
+  }, [props.onError, queryClient, workspaceKey])
 
   const orderedIds = workspace?.sections.map((item) => item.section.sectionId) ?? []
   const activeIndex = activeSectionId === null ? -1 : orderedIds.indexOf(activeSectionId)
@@ -522,16 +554,16 @@ export function WritingWorkspace(props: {
               ) : null}
               <SectionEditor
                 ref={editorRef}
-                key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
+                key={`${props.projectSessionId}:${activeSummary.section.sectionId}:${editorQuery.data.revision.sectionRevisionId}`}
                 projectSessionId={props.projectSessionId}
                 revision={editorQuery.data.revision}
                 onRevision={updateRevision}
                 onSaveStateChange={setEditorSaveState}
                 onSelectionContextChange={(context) => {
-                  selectionContextRef.current = {
+                  setSelectionContext({
                     sectionId: activeSummary.section.sectionId,
                     ...context
-                  }
+                  })
                 }}
               />
             </section>
@@ -604,19 +636,16 @@ export function WritingWorkspace(props: {
         onOpenChange={setPreviewOpen}
       />
 
-      <Sheet open={agentOpen} onOpenChange={setAgentOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle className='flex items-center gap-2'>
-              <Bot className='size-4' /> Writing agent
-            </SheetTitle>
-            <SheetDescription>
-              Unavailable until Phase 9. Your current section and in-memory block selection remain
-              ready for the future agent context boundary.
-            </SheetDescription>
-          </SheetHeader>
-        </SheetContent>
-      </Sheet>
+      <AgentPanel
+        open={agentOpen}
+        onOpenChange={setAgentOpen}
+        projectSessionId={props.projectSessionId}
+        activeSectionId={activeSectionId}
+        selection={selectionContext}
+        flushCurrent={flushCurrent}
+        refreshManuscript={refreshAfterAgentMutation}
+        onError={props.onError}
+      />
 
       <Dialog
         open={newSectionParent !== undefined}

@@ -1,4 +1,4 @@
-import { MessageChannelMain, type UtilityProcess } from 'electron'
+import { MessageChannelMain, type MessagePortMain, type UtilityProcess } from 'electron'
 import type { Logger } from 'pino'
 import type { ProcessRole, Subsystem } from '../../shared/observability/log-schema'
 import type { LogCollector } from '../observability/log-collector'
@@ -14,11 +14,15 @@ export type UtilityMessageDecision<T> =
   | { kind: 'reject'; error: Error; terminate?: boolean }
   | undefined
 
+type UtilityMessageHandler<T> = (
+  raw: unknown
+) => UtilityMessageDecision<T> | Promise<UtilityMessageDecision<T>>
+
 interface PendingRequest<T> {
   readonly requestId: string
   readonly signal: AbortSignal
   readonly rejectOnAbort: Error
-  readonly onMessage: (raw: unknown) => UtilityMessageDecision<T>
+  readonly onMessage: UtilityMessageHandler<T>
   readonly resolve: (value: T) => void
   readonly reject: (error: Error) => void
   readonly onAbort: () => void
@@ -37,6 +41,7 @@ export class PersistentUtilityProcess {
   #child: UtilityProcess | undefined
   #detachLogPort: (() => void) | undefined
   #closed = false
+  #messageChain: Promise<void> = Promise.resolve()
 
   constructor(options: {
     modulePath: string
@@ -64,7 +69,8 @@ export class PersistentUtilityProcess {
     signal: AbortSignal
     rejectOnAbort: Error
     cancelPayload?: unknown
-    onMessage: (raw: unknown) => UtilityMessageDecision<T>
+    transfer?: MessagePortMain[]
+    onMessage: UtilityMessageHandler<T>
   }): Promise<T> {
     if (options.signal.aborted) return Promise.reject(options.rejectOnAbort)
     if (this.#closed) return Promise.reject(new Error(`${this.#serviceName} is closed`))
@@ -108,7 +114,8 @@ export class PersistentUtilityProcess {
       this.#pending.set(options.requestId, pending as PendingRequest<unknown>)
       options.signal.addEventListener('abort', onAbort, { once: true })
       try {
-        child.postMessage(options.payload)
+        if (options.transfer === undefined) child.postMessage(options.payload)
+        else child.postMessage(options.payload, options.transfer)
       } catch (err) {
         this.#log.error(
           { event: 'worker.utility.start_failed', err, serviceName: this.#serviceName },
@@ -121,6 +128,21 @@ export class PersistentUtilityProcess {
         this.#terminate(new Error('Utility process failed while sending a request'))
       }
     })
+  }
+
+  send(payload: unknown): void {
+    if (this.#closed) throw new Error(`${this.#serviceName} is closed`)
+    const child = this.#child
+    if (child === undefined) throw new Error(`${this.#serviceName} is not running`)
+    try {
+      child.postMessage(payload)
+    } catch (err) {
+      this.#log.error(
+        { event: 'worker.utility.send_failed', err, serviceName: this.#serviceName },
+        'Failed to send a utility message'
+      )
+      throw new Error('Utility message could not be sent', { cause: err })
+    }
   }
 
   terminate(): void {
@@ -159,7 +181,21 @@ export class PersistentUtilityProcess {
         this.#detachLogPort = undefined
       }
     }
-    child.on('message', (raw: unknown) => this.#handleMessage(raw))
+    child.on('message', (raw: unknown) => {
+      this.#messageChain = this.#messageChain
+        .then(() => this.#handleMessage(raw))
+        .catch((err) => {
+          this.#log.error(
+            {
+              event: 'worker.utility.message_dispatch_failed',
+              err,
+              serviceName: this.#serviceName
+            },
+            'Persistent utility message dispatch failed'
+          )
+          this.#terminate(new Error('Persistent utility message dispatch failed', { cause: err }))
+        })
+    })
     child.once('exit', (code: number) => this.#handleExit(child, code))
     this.#child = child
     this.#log.info(
@@ -169,7 +205,7 @@ export class PersistentUtilityProcess {
     return child
   }
 
-  #handleMessage(raw: unknown): void {
+  async #handleMessage(raw: unknown): Promise<void> {
     const requestId = extractRequestId(raw)
     if (requestId === undefined) {
       this.#log.error(
@@ -193,7 +229,7 @@ export class PersistentUtilityProcess {
     }
     let decision: UtilityMessageDecision<unknown>
     try {
-      decision = pending.onMessage(raw) as UtilityMessageDecision<unknown>
+      decision = (await pending.onMessage(raw)) as UtilityMessageDecision<unknown>
     } catch (err) {
       this.#log.error(
         {

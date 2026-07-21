@@ -1,61 +1,44 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 19.5 remediation complete; Checkpoints 19.6/19.7 are implementation-complete and their final verification gate passed on 2026-07-17; Checkpoint 20 is not started.
-Recorded: 2026-07-17
+Status: Phase 9 Checkpoints 20 through 23 completed and verified; Checkpoint 24 is not started and requires explicit approval.
+Recorded: 2026-07-21
 
-## Objective
+## Completed scope
 
-Close the gaps found by the 2026-07-16 source-level implementation audit of
-Checkpoints 1–19. The audit confirmed the functional bodies match their records
-(Electron-hosted Vitest passes 65 files/292 tests) and fixed its findings into
-two new checkpoints in `docs/implementation-todo.md`:
+Phase 9 is complete. WriteLLM now has project-local durable Agent sessions, request-scoped runs, ordered events, four bounded read tools, three typed proposal tools, stale-safe approval/application, section-revision undo, and a production writing panel. The renderer receives only validated preload APIs and session-authorized replay/live events; ephemeral deltas never replace durable terminal truth, and current proposal state comes from `mutation_proposals`.
 
-- Checkpoint 19.6 wires documented-but-unimplemented product surfaces: six
-  missing `recovery-required` exits plus recovery IPC/UI, the project snapshot
-  operation's production entry point, production AsyncLocalStorage correlation,
-  and background/agent worker log aggregation.
-- Checkpoint 19.7 fixes code-level rule violations and hardening: a swallowed
-  import error, renderer-asserted revision source classes, unlogged export IPC
-  failures, the scheme-only external-URL check and dev CSP allowances, the
-  write-side outline depth cap, worker-envelope session capabilities, worker
-  abort propagation, `import`-class revision retention, checkpoint compaction,
-  and the test backfill promised by earlier remediation records.
+The panel supports session selection, streaming, generic activity without chain-of-thought, stop, retry/continue as new immutable runs, steering/follow-up, selection/section/project context snapshots, provider/model and usage/retry state, structured bounded tool cards, citations, proposal diffs, and approve/reject/undo. Accepted section edits carry model request, Agent run, tool call, proposal, revision, and cited-source lineage.
 
-Documentation overclaims found by the audit were already corrected in place
-(`docs/architecture.md`, Phase 2/6/7/8 files). Two small fixes were already
-applied: recent-project pointers are physically pruned to five on upsert, and
-the three superseded one-shot worker entry files were removed.
+Context handling uses a deterministic token estimate with CJK/adversarial coverage and a non-throwing whole-turn transform. When real historical pressure would omit a complete turn, Main can create at most one bounded raw-event summary per session through `ModelExecutionService`; the recorded `compaction_summary` is ordinary context data, while the full event history remains authoritative. Provider reasoning controls and multi-level compaction remain deferred.
 
-## Ordered work
+## Acceptance evidence
 
-1. Checkpoint 19.6 items 19.6.1–19.6.6 are implemented and verified.
-2. Checkpoint 19.7 items 19.7.1–19.7.10 are implemented and verified, including the C2 E2E/packaged backfill and the shared project-name helper correction.
-3. Ask the user whether to begin Checkpoint 20; it remains unstarted. The Phase 9 plan was realigned with the CP19.5 freeze and the verified codebase state on 2026-07-20 (`docs/implementation-todo/phase-9.md`).
+Checkpoint 23 passed its final gate on 2026-07-21:
 
-## Acceptance gate
+- Local Biome checked 312 files with only the existing generated shadcn `document.cookie` warning.
+- Node and renderer TypeScript passed.
+- The canonical Electron-hosted Vitest suite passed 91 files and 402 tests.
+- The production build emitted the Agent worker; the signed macOS arm64 unpacked application passed strict signature inspection.
+- Electron Playwright passed all 12 scenarios. The new full workflow covers project/brief/outline/section creation, PDF import, MinerU normalization, indexing, real Pi search and proposal tool calls against loopback providers, citations, preview, approval, editor reload, full lineage, panel/project reopen, undo, streamed cancellation, and durable interrupted-state replay.
+- Packaged hybrid smoke passed native search, provider-failure fallback, and stale-session scenarios. The packaged asar contains `out/main/agent-worker.js`; arm64 `better_sqlite3.node` and `vec0.dylib` are present and run under Electron ABI 148.
+- An isolated real application launch produced `app.sqlite` with application ID 1464615248, user/schema version 1, `integrity_check=ok`, no foreign-key failures, and a valid schema manifest row.
+- `git diff --check` passed.
 
-The final gate was verified on 2026-07-17: every 19.6/19.7 item has
-source-level evidence and focused tests; no new durable job types, worker roles,
-or renderer capabilities were introduced; the local Biome check passed with
-the existing shadcn `document.cookie` warning; Node/web TypeScript passed;
-Electron-hosted Vitest passed 70 files/322 tests; the production
-`electron-vite build` passed; the full Playwright Electron suite passed 11/11;
-the unpacked packaged app and hybrid smoke passed; and runtime app.sqlite
-verification captured application_id 1464615248, user_version 1, and a valid
-schema_manifest row. The `pnpm` wrapper itself could not run because Corepack
-rejected the pnpm 11 registry signature, so this record does not claim that
-`pnpm check` or `pnpm test:e2e` executed successfully; their local equivalent
-commands and the canonical Electron test runner passed. The user approved this
-remediation window on 2026-07-16; both checkpoints are complete and Checkpoint
-20 remains deferred.
+Post-completion field correction (2026-07-21): a DeepSeek V4 Flash run exposed two Checkpoint 23 integration defects. Runtime logs showed that the approved Brief proposal was durably applied but the renderer kept its cached workspace, while `propose_outline_patch` failed with `stale_base` because the Agent context did not expose the authoritative outline version. The correction now includes `outlineVersion` in the bounded writing context, directs proposal tools to use the returned Brief/Outline versions and refresh once on conflict, maps stale proposal bases to a retryable `conflict` instead of a generic internal failure, and refreshes the manuscript workspace after approve/undo. The canonical Electron Vitest suite passed 91 files/403 tests; production build and Node/web typecheck passed; local Biome passed 312 files with the existing generated shadcn cookie warning; and all 12 Electron Playwright scenarios passed. The expanded Agent E2E verifies the version in the provider request and immediate Brief/Outline UI refresh after approval.
+
+Post-completion presentation refinement (2026-07-21): Agent `search_knowledge`/`read_citations` cards now show validated knowledge-source titles and one-based pages instead of opaque citation hashes, while keeping citation IDs as metadata and backward-compatible fallbacks. Persisted and streaming assistant messages render GFM Markdown through the existing React Markdown stack with raw HTML removed, remote images suppressed, and links restricted to the application external-URL allowlist. Canonical Electron Vitest passed 92 files/407 tests; production build, Node/web typecheck, 12/12 Electron Playwright, a focused Agent E2E rerun, isolated runtime database verification, local Biome with only the existing generated shadcn warning, and `git diff --check` passed.
+
+Post-completion response-card refinement (2026-07-21): completed assistant messages no longer repeat provider and model badges already shown in the active-run header. Per-response usage, retry, and interruption metadata remains visible. Production build, Node/web typecheck, focused Biome, `git diff --check`, and the built Electron Agent E2E passed.
+
+Post-completion field correction (2026-07-21): runtime event evidence from two DeepSeek V4 Flash runs showed repeated UUID-repair messages without any intervening outline tool execution, followed by an aborted run. The model-facing outline schema had incorrectly required the model to generate internal `createSection` UUIDs. It now accepts bounded local references and uses Pi's pre-validation `prepareArguments` hook to allocate application-owned UUIDs and rewrite all same-patch references before the worker-to-Main UUID contract is checked. The canonical Electron Vitest suite passed 92 files/407 tests; production build, Node/web typecheck, Biome on 314 files (with only the existing generated shadcn warning), all 12 Electron Playwright scenarios, isolated app-database verification, and `git diff --check` passed. The Agent E2E now proves a non-UUID local create reference succeeds through the real Pi loop.
+
+Focused evidence also covers lease-before-replay ordering, sequence cursor bounds/de-duplication, renderer-delivery isolation, project capability revocation, authoritative proposal state, all three start scopes, usage aggregation, CJK token estimation, oversized-current-turn safety, one-summary-only compaction, preserved raw events, and recorded compaction model requests.
+
+## Current scope
+
+No implementation checkpoint is active. Checkpoint 24 and all Phase 10 work remain unstarted until the user explicitly approves continuation. Do not start export, packaging-product work, or later roadmap items from this record alone.
 
 ## Deferred
 
-- Agent runtime, Agent IPC, tool bridge, and proposal application remain
-  Checkpoints 20–23.
-- External editing synchronization and project-wide file watching remain
-  deferred until a product requirement exists.
-- LanceDB and other vector backends remain deferred until representative
-  sqlite-vec measurements show a need.
-- Client-side MinerU page-count enforcement and model cost estimation remain
-  deferred; see the Deferred list in `docs/implementation-todo.md`.
+- Provider reasoning controls, chain-of-thought display, additional Agent tools/tables, automatic low-risk proposal application, multiple agents/sub-agents, long-term memory, multi-level summaries, Pi harness JSONL storage, and per-project Agent worker processes.
+- External editing synchronization, project-wide file watching, alternative vector backends, client-side MinerU page-count enforcement, and model cost estimation remain deferred as recorded in `docs/implementation-todo.md`.

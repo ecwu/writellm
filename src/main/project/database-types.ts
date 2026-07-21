@@ -149,6 +149,73 @@ export interface ModelRequestTable {
   updated_at: string
 }
 
+export interface AgentSessionTable {
+  agent_session_id: string
+  title: string
+  pi_runtime_version: string
+  event_schema_version: number
+  status: 'active' | 'archived'
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+}
+
+export interface AgentRunTable {
+  agent_run_id: string
+  agent_session_id: string
+  status: 'running' | 'completed' | 'interrupted' | 'failed'
+  provider_id: string
+  model_id: string
+  provider_fingerprint: string
+  model_fingerprint: string
+  editor_context_json: string
+  error_json: string | null
+  started_at: string
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentEventTable {
+  agent_event_id: string
+  agent_session_id: string
+  agent_run_id: string | null
+  sequence: number
+  type:
+    | 'user_message'
+    | 'assistant_message'
+    | 'tool_call'
+    | 'tool_result'
+    | 'run_interrupted'
+    | 'run_completed'
+    | 'compaction_summary'
+  payload_json: string
+  model_request_id: string | null
+  created_at: string
+}
+
+export interface MutationProposalTable {
+  mutation_proposal_id: string
+  agent_session_id: string
+  agent_run_id: string
+  tool_call_event_id: string
+  agent_tool_call_id: string
+  kind: 'brief_update' | 'outline_patch' | 'section_patch'
+  payload_json: string
+  base_revision_id: string | null
+  base_brief_version: number | null
+  base_outline_version: number | null
+  status: 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'undone'
+  decision_at: string | null
+  applied_revision_id: string | null
+  applied_brief_version: number | null
+  applied_outline_version: number | null
+  undo_revision_id: string | null
+  rejected_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type ParseTaskState =
   | 'queued'
   | 'allocating'
@@ -330,6 +397,10 @@ export interface ProjectDatabaseSchema {
   knowledge_items: KnowledgeItemTable
   imports: ImportTable
   model_requests: ModelRequestTable
+  agent_sessions: AgentSessionTable
+  agent_runs: AgentRunTable
+  agent_events: AgentEventTable
+  mutation_proposals: MutationProposalTable
   parse_tasks: ParseTaskTable
   parse_revisions: ParseRevisionTable
   parse_task_events: ParseTaskEventTable

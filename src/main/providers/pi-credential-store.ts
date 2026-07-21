@@ -1,4 +1,4 @@
-import type { Credential, CredentialStore } from '@earendil-works/pi-ai'
+import type { Credential, CredentialInfo, CredentialStore } from '@earendil-works/pi-ai'
 import type { CredentialService } from './credential-service'
 
 export class MainPiCredentialStore implements CredentialStore {
@@ -17,6 +17,12 @@ export class MainPiCredentialStore implements CredentialStore {
       type: 'api_key',
       key
     }))
+  }
+
+  async list(): Promise<readonly CredentialInfo[]> {
+    return (await this.credentials.hasCredential(this.providerConfigId))
+      ? [{ providerId: this.providerId, type: 'api_key' }]
+      : []
   }
 
   async modify(

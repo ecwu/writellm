@@ -13,6 +13,8 @@ import type { ProjectDatabase } from './project-database'
 import type { ProjectManifest } from './project-manifest'
 import type { ProjectWriteLock } from './project-lock'
 import type { ProjectOperationRegistry } from './project-operations'
+import type { AgentSessionService } from '../agent/session-service'
+import type { MutationProposalService } from '../agent/mutation-service'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
@@ -33,6 +35,8 @@ export interface ProjectContext {
   readonly knowledgeMapping?: KnowledgeMappingService | null
   readonly projectIndex: ProjectIndexService | null
   readonly retrieval: RetrievalService | null
+  readonly agentSessions: AgentSessionService | null
+  readonly agentMutations: MutationProposalService | null
   readonly writeLock: ProjectWriteLock
 }
 
