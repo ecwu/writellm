@@ -5,7 +5,7 @@ Recorded: 2026-07-16
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
-The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 20 remains deferred until the user approves continuation after Checkpoint 19.5.
+The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoints 19.5–19.7 are complete; Checkpoint 20 remains deferred until the user approves continuation.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -185,7 +185,14 @@ Do not force interactive agent generation, embeddings, and reranking through one
 
 ```ts
 export interface AgentModelRuntime {
-  createSession(config: AgentSessionConfig): Promise<AgentSessionHandle>
+  run(
+    config: ProviderConfig,
+    credential: string,
+    input: AgentRunInput,
+    signal: AbortSignal,
+    onEvent: (event: AgentStreamEvent) => void,
+    projectSessionId?: string
+  ): Promise<AgentRunResult>
 }
 
 export interface EmbeddingGateway {
@@ -198,6 +205,8 @@ export interface RerankGateway {
 ```
 
 Pi owns the interactive agent loop and tool-call event model. AI SDK Core may implement embedding and reranking adapters. Provider configuration and trace metadata are normalized above both libraries.
+
+The current `AgentModelRuntime` is single-shot execution. Checkpoint 20 adds the sessionful Pi `Agent` runtime hosted in the `agent-worker`; session state is application-owned in `project.sqlite` (`agent_sessions`/`agent_runs`/`agent_events`) because the pinned Pi packages persist no session schema of their own. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage is an explicit non-choice because durable agent history must live in the project database.
 
 Pin the package manager in `package.json`. Pin exact Pi package versions and major versions for Electron, electron-vite, AI SDK, BlockNote, and native dependencies. Pi and BlockNote API changes must be reviewed rather than accepted through broad version ranges.
 
@@ -767,7 +776,7 @@ For mixed Chinese and English corpora, evaluate `unicode61` and `trigram` FTS be
 
 ### Runtime choice
 
-Use `@earendil-works/pi-agent-core`, not the Pi coding-agent CLI. The runtime lives in the Agent utility process and uses `@earendil-works/pi-ai` for tool-capable language model streaming.
+Use `@earendil-works/pi-agent-core`, not the Pi coding-agent CLI. The runtime lives in the `agent-worker` utility process and uses `@earendil-works/pi-ai` for tool-capable language model streaming.
 
 Pi is a harness, not an authorization boundary. WriteLLM supplies only application-specific tools and does not expose Pi's generic file, shell, process, or network capabilities.
 
@@ -777,7 +786,7 @@ Persist normalized project-local records for:
 
 - agent session;
 - agent run/turn;
-- ordered Agent events (`user_message`, `assistant_message`, `tool_call`, `tool_result`, `run_interrupted`, `run_completed`);
+- ordered Agent events (`user_message`, `assistant_message`, `tool_call`, `tool_result`, `run_interrupted`, `run_completed`, `compaction_summary`);
 - model request metadata and usage;
 - mutation proposals and decisions.
 

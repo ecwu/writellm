@@ -2,71 +2,94 @@
 
 ## Phase overview
 
-- Purpose: add durable Pi agent sessions, bounded read tools, typed mutation proposals, approval/application, and the assisted-writing UI.
+- Purpose: add durable Pi agent sessions, the four frozen read tools, three typed mutation proposal tools, approval/application, and the assisted-writing UI.
 - Checkpoints: 20–23.
-- Current status: Not started.
-- Implementation state: planned only; do not begin until the reopened prior phases pass and the user approves continuing.
+- Current status: Not started. Plan realigned with the CP19.5 freeze on 2026-07-20 and audited in full against the verified source and the installed Pi 0.80.7 packages on 2026-07-21; requires the user's approval before implementation.
 
-> **计划已冻结并收窄，旧清单不再是 CP20–23 的目标。** The original plan below lists nine read tools, six write tools, `agent_messages`/`agent_tool_calls`, durable Agent turns, and a persistent compaction subsystem. CP19.5 supersedes those items before implementation: use four read tools (`get_writing_context`, `read_section`, `search_knowledge`, `read_citations`), three proposal tools (`propose_brief_update`, `propose_outline_patch`, `propose_section_patch`), `agent_events` instead of message/tool-call tables, request-scoped Agent turns, and bounded summaries as ordinary events. Do not implement the old entries without first updating this Phase after CP19.5 acceptance.
+## Superseded design
 
-### Checkpoint 20: Agent Utility Process, Sessions, Events, And Durable Trace
+The pre-freeze plan (nine read tools, six write tools, `agent_messages`/`agent_tool_calls` tables, durable Agent turns, a persistent compaction subsystem) is superseded by the [CP19.5 audit](../audits/2026-07-16-complexity-reduction-and-agent-boundary.md) and [ADR 001](../adrs/001-cp19.5-boundaries.md) and survives only in git history. The frozen surface is:
 
-- [ ] Launch a dedicated Agent utility process only while a project is open or an agent run requires it.
-- [ ] Instantiate `@earendil-works/pi-agent-core` with the selected pi-ai model runtime.
-- [ ] Define project-local `agent_sessions`, `agent_runs`, `agent_messages`, `agent_tool_calls`, and model request records.
-- [ ] Persist session/run/request records before starting an external model stream.
-- [ ] Stream Pi agent, message, thinking, and tool events through a narrow MessagePort contract.
-- [ ] Persist normalized message and tool lifecycle state without relying on rotatable logs.
-- [ ] Support abort, renderer closure, worker crash, steering, and follow-up queues with explicit state.
-- [ ] Mark interrupted output as interrupted, never complete.
-- [ ] Store Pi package/runtime version with serialized session state and define compatibility handling.
-- [ ] Use a mock/faux model to test event order, tool calls, abort, retry/continue, and crash recovery.
+- Read tools: `get_writing_context`, `read_section`, `search_knowledge`, `read_citations`.
+- Proposal tools: `propose_brief_update`, `propose_outline_patch`, `propose_section_patch`.
+- Persistence: `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, plus the existing `model_requests`. No `mutation_applications`, `accepted_source_links`, or `proposal_citations` until real query pressure exists.
+- Agent turns are request-scoped: project close aborts the run; no durable-turn restart. History is durable; runs are not.
+- No persistent compaction subsystem: recent N events plus, when needed, one bounded summary stored as an ordinary `agent_events` row.
 
-Acceptance criteria: an agent conversation is project-local and durable; renderer or worker interruption cannot create a falsely complete answer; project close revokes the run and a later reopen shows accurate history.
+## Codebase starting points (verified 2026-07-20; re-verified against source and the installed Pi 0.80.7 packages on 2026-07-21)
 
-### Checkpoint 21: Context Builder And Read-Only Agent Tools
+- The `agent-worker` role exists as an app-level lazy persistent utility process: entry `src/workers/agent-model.ts` (bundle `agent-worker.js`), Main client `src/main/providers/agent-model-client.ts` over `src/main/workers/persistent-utility-process.ts`. Today it is a single-shot probe (`tools: []`, one `prompt()` + `waitForIdle()`); CP20 replaces the probe handler with a sessionful run host. Cancel broadcast and worker-side `AbortController` propagation already exist (CP19.7.6/19.7.7), as does `projectSessionId` envelope validation.
+- `model_requests` (project migration `0009`) already has a nullable indexed `agent_run_id` forward hook; `ModelExecutionService` (`src/main/providers/model-execution-service.ts`) writes rows. Provider role `agent` (`openai-compatible`, capabilities `chat`/`tool-calling`) and `CredentialService`/`MainPiCredentialStore` are in place.
+- No agent tables exist; the next project migration is `0016`.
+- `ManuscriptService.appendRevision` (`src/main/manuscript/manuscript-service.ts`) rejects agent sources and lineage IDs by design (CP19.7.2); CP22 adds the authorized application path. The Zod contracts already admit `source: 'agent'`, `sourceClass: 'agent_accepted'`, and the three lineage IDs.
+- Editor selection context (`activeSectionId`, `activeBlockId`, `selectedBlockIds`) is renderer memory only (`writing-workspace.tsx`, `SectionEditor.onSelectionContextChange`); the run-start IPC payload carries it as a validated snapshot. Main tracks the active section per session in `src/main/ipc/editor-ipc.ts`.
+- No Main→renderer section-changed push exists today; the diagnostics event channel (`src/main/observability/diagnostics-ipc.ts`, `webContents.send`) is the existing push pattern to follow.
+- Pinned `@earendil-works/pi-agent-core` / `pi-ai` 0.80.7; latest is 0.80.10. The pinned API has no `createSession` and no session-schema `version` field — session state and versioning are app-owned in `project.sqlite`.
+- Re-verified 2026-07-21 against the installed 0.80.7 type surface: the `Agent` class exposes `initialState`, `transformContext`, `beforeToolCall`, `steeringMode`/`followUpMode`, `steer`/`followUp`, `subscribe`, `abort`, and `waitForIdle` exactly as D1 assumes; the JSONL session storage lives only under the harness (`harness/session/`), which D1 rejects. The provider-neutral boundary is `AgentModelRuntime`/`EmbeddingGateway`/`RerankGateway` in `src/main/providers/gateways.ts` over the Zod contracts in `src/shared/contracts/model-runtime.ts`; `agentRunResultSchema.stopReason` already admits `'toolUse'`, so the tool-loop terminal state needs no contract change.
 
-- [ ] Implement a token-budgeted `ContextBuilder` using manuscript brief, outline, statuses, active section, selected blocks, neighboring summaries, user request, and prior compacted conversation.
-- [ ] Define read tools: manuscript brief, manuscript overview, section list, section read, block read, manuscript search, knowledge search, citation expansion, and active editor context.
-- [ ] Give every tool a strict TypeBox model-facing schema and a corresponding Main/domain validation schema.
-- [ ] Route every tool through the Agent-to-Main bridge; do not expose database/filesystem primitives.
-- [ ] Add project session, agent run, and tool call identity to every request.
-- [ ] Enforce result count, text size, image size, and pagination limits.
-- [ ] Permit parallel execution only for independent read tools.
-- [ ] Clearly delimit retrieved knowledge as untrusted source content and prevent it from changing system/tool policy.
-- [ ] Persist citation IDs and tool provenance in the agent transcript.
-- [ ] Test prompt-injection fixtures, stale project sessions, unauthorized tool names, malformed arguments, oversized results, parallel ordering, and source deletion during a run.
+## Design decisions for this phase
 
-Acceptance criteria: the agent can understand the writing brief, outline, active section, full project through bounded tools, and relevant knowledge with citations; it has no generic project or operating-system access.
+- D1. Use the low-level `Agent` class, not `AgentHarness`. The harness brings tree-based JSONL session storage and its own compaction, which would duplicate durable state outside `project.sqlite` and conflict with the freeze. CP20 uses `initialState.messages` rebuilt from `agent_events`, `transformContext` for bounded context, `beforeToolCall` for preflight blocking, `steeringMode`/`followUpMode` for steering/follow-up, and `subscribe` for the event stream.
+- D2. The agent-worker stays an app-level lazy singleton (the CP19.5.6 wiring), hosting at most one active run per open project. Runs carry the `projectSessionId` capability; project close aborts in-flight runs through the existing cancel propagation. The pre-freeze "launch a dedicated process only while a project is open" item is adjusted to this existing lifecycle — no per-project process churn.
+- D3. The tool bridge is a dedicated MessagePort, distinct from streaming and logging traffic (architecture.md "Agent tool bridge"). The worker initiates `AgentToolRequest` envelopes (`projectSessionId`, `agentSessionId`, `agentRunId`, `toolCallId`, `toolName`, `args`); Main validates the envelope and active session, validates args against the domain contract, authorizes policy, executes, persists tool lifecycle into `agent_events`, and returns a bounded structured result. Tool errors are structured errors, never successful text.
+- D4. Dual schema per tool: a TypeBox model-facing parameter schema (Pi requirement — verified 2026-07-21: 0.80.7 tools are `AgentTool<TParameters extends TSchema>` from the `typebox` v1 package) and the existing Zod domain contract as Main-side authority. A contract test asserts field/bound parity; no codegen layer. WriteLLM has no direct `typebox` dependency today (only the transitive 1.1.38 under pi-agent-core); CP21 adds an exact direct pin matching Pi's, since importing a transitive dependency directly is not allowed.
+- D5. Credentials: Main resolves the provider credential and passes the API key in the run-start envelope (worker memory only, as the current probe does). Per Pi model call, the worker reports usage/retry metadata and Main writes the `model_requests` row with `agent_run_id`. `model_requests` authority stays in Main.
+- D6. Session continuity: a new run rebuilds model messages from the session's `agent_events` (recent N within token budget, plus the latest `compaction_summary` row when present). Retry/continue after interruption is a new run on the same session, never a resumed worker process.
+- D7. Compatibility: `agent_sessions` stores the Pi runtime version and the app event-schema version. On mismatch, existing history stays readable but new runs require a new session.
+- D8. Application path (CP22): a Main-owned service mints `agent_accepted` revisions with full lineage (run, tool call, proposal, base revision, model request, cited blocks), revalidates `baseRevisionId`/base outline version inside the apply transaction, writes revisions + outline mutations atomically per proposal, materializes, then pushes a section-changed notification. The renderer flushes any pending save for the target section before sending approval; races after that are caught by the apply-time revalidation and surface through the existing conflict-preserving draft path — no silent overwrite, no blocking flush handshake.
+- D9. Undo is a user-initiated new revision restoring the pre-agent parent content (`manual_checkpoint` class, linked to the proposal); history is never rewritten.
 
-### Checkpoint 22: Typed Mutation Proposals, Preview, Approval, And Application
+## Checkpoint 20: Agent Session Runtime, Run Lifecycle, And Durable Event Trace
 
-- [ ] Define versioned domain mutation schemas for manuscript brief updates, section create/update/reorder/delete, and block insert/update/remove/replace/move.
-- [ ] Require target IDs and `baseRevisionId`/base outline revision on every proposal.
-- [ ] Configure write tools as sequential.
-- [ ] Use Pi tool preflight plus Main policy to block disallowed or oversized mutations.
-- [ ] Persist a `mutation_proposal` before returning tool success.
-- [ ] Build a pure validator/simulator that applies block operations to native BlockNote JSON without committing.
-- [ ] Validate block IDs, schema, nesting, content size, operation count, target existence, and resulting document.
-- [ ] Generate a structured preview showing affected sections/blocks, before/after text, and cited sources.
-- [ ] Default to user approval; rejection records a decision without changing manuscript state.
-- [ ] Revalidate against the current revision immediately before approval application.
-- [ ] Apply accepted mutations in Main, create new revisions, materialize files, and notify the active editor.
-- [ ] Link accepted revisions to agent session, run, tool call, proposal, prior revision, model request, and cited source blocks.
-- [ ] Implement undo as a new revision, not destructive history rewriting.
-- [ ] Test stale proposal rejection, concurrent manual edit, missing block, invalid nesting, duplicate IDs, partial multi-operation failure, approve-after-project-switch, reject, undo, and crash after proposal but before apply.
+- [ ] 20.1 Review the 0.80.7 → current Pi changelog, re-characterize the API surface used here (`Agent`, events, `transformContext`, `beforeToolCall`, steering/follow-up, abort), decide the exact pin, and record the characterization as done in Checkpoint 14.
+- [ ] 20.2 Add project migration `0016`: `agent_sessions` (Pi runtime version, event-schema version, status, timestamps), `agent_runs` (session FK, status `running|completed|interrupted|failed`, provider/model fingerprints, editor-context snapshot JSON, error JSON, timestamps), `agent_events` (session FK, monotonic `sequence`, type in `user_message|assistant_message|tool_call|tool_result|run_interrupted|run_completed|compaction_summary` — the freeze audit's six types plus `compaction_summary`, which that audit's summary-as-ordinary-event rule explicitly permits, bounded payload JSON, nullable `model_request_id` link), and `mutation_proposals` (session/run/tool-call FKs, kind, payload JSON, base revision/outline refs, status `pending|approved|rejected|applied|failed|undone`, `decision_at`, `applied_revision_id`, `rejected_reason`). STRICT tables, foreign keys, and indexes on session+sequence, run, and status.
+- [ ] 20.3 Replace the probe handler (`src/workers/agent-model.ts` entry plus `src/workers/agent-model-request.ts`) with a sessionful run host on the `Agent` class per D1 (no tools in this checkpoint), and replace the process-lifetime `globalThis.fetch` retry-counting monkey-patch with per-call attempt counting scoped inside the custom `streamFn` wrapper (safe because the worker hosts at most one active run and Pi model calls are sequential). Verified 2026-07-21: pi-ai 0.80.7 through 0.80.10 expose no retry-count hook — `onResponse` fires once with the final response after OpenAI-SDK-internal retries and there is no fetch injection point — so "Pi hook-reported retry metadata" is not available at any current pin; the 20.1 changelog review re-checks newer releases for a native hook before implementation.
+- [ ] 20.4 Define the run protocol on the existing persistent-utility channel: `run_start` (projectSessionId, session/run IDs, rebuilt messages, model config, credential), streamed normalized events, abort via existing cancel propagation, and terminal run state. Reject stale `projectSessionId`/run IDs per the CP19.7.6 envelope rules.
+- [ ] 20.5 Add a Main-owned `AgentSessionService`: session create/list, run start (persist session/run rows and the `user_message` event before starting the worker stream), worker-event → `agent_events` mapping with persist-before-render ordering (Main persists each event, then forwards it to the renderer), abort (persist partial assistant output with an interrupted flag, then `run_interrupted`; never mark interrupted output complete), and crash handling (worker exit mid-run marks the run interrupted/failed with the original `err` logged).
+- [ ] 20.6 Record one `model_requests` row per Pi model call with `agent_run_id` set, from worker-reported usage/retry metadata (D5).
+- [ ] 20.7 Support steering and follow-up queues at the runtime level (`steer`/`followUp` while running; queued while a run is active) with explicit persisted state in `agent_events`.
+- [ ] 20.8 Emit structured lifecycle logs at session/run boundaries with `operationId`/`agentRunId` correlation through the production ALS context, and aggregate agent-worker logs through the existing port-logger/log-collector path (CP19.6.6).
+- [ ] 20.9 Test with a scripted mock `streamFn`: event ordering, abort mid-stream, renderer closure, worker crash mid-run, project close revocation, reopen history accuracy, steering/follow-up state, and mock-provider streaming/retry/auth/redaction through the CP14 fixture pattern.
 
-Acceptance criteria: the agent cannot bypass user/policy approval or revision checks; accepted changes are atomic, visible, undoable, and fully traceable; stale proposals never overwrite newer manual work.
+Acceptance criteria: an agent conversation is project-local and durable in `agent_events`; renderer, worker, or project interruption cannot create a falsely complete answer; project close revokes the run and a later reopen shows accurate history; every model call is linked in `model_requests`.
 
-### Checkpoint 23: Agent Writing UI, Compaction, And End-To-End Workflow
+## Checkpoint 21: Context Builder, Tool Bridge, And The Four Read Tools
 
-- [ ] Build the agent panel with session list, message streaming, thinking visibility policy, stop, retry/continue, steering, and follow-up controls.
-- [ ] Render tool calls as structured cards with status, bounded arguments, results, errors, and citations.
-- [ ] Render mutation proposals with section/block diff, source citations, approve, reject, and undo state.
-- [ ] Show active model/provider, usage, estimated cost, interruption, and retry state without exposing secrets.
-- [ ] Implement conversation compaction through Pi context transformation while retaining durable full history.
-- [ ] Prevent compacted summaries from becoming manuscript or source authority.
-- [ ] Allow starting an agent request from current selection, active section, or project overview.
-- [ ] Add an E2E scenario: create project, write brief/outline, import source, complete MinerU/indexing, ask agent for evidence, propose a section edit, approve it, verify citations/lineage, close, reopen, and undo.
+- [ ] 21.1 Implement the Main-owned `ContextBuilder`: brief, outline with objectives/statuses/counts, active section summary, the validated renderer editor-context snapshot (architecture.md "Initial read tools" — the UI injects active editor context at run start rather than the Agent fetching high-frequency cursor state), the user request, prior events within token budget via `transformContext`, tool descriptions, and the safety policy that delimits retrieved knowledge as untrusted content. The `ContextBuilder` is real assembly logic with testable invariants inside the Main agent module area (`src/main/agent/`), not a revival of the superseded standalone `context-builder.ts` wrapper named in the CP19.5 audit's module rule.
+- [ ] 21.2 Establish the dedicated tool-bridge MessagePort and `AgentToolRequest` handling per D3, including bounded results and tool lifecycle persistence.
+- [ ] 21.3 Register the four frozen read tools in the worker with TypeBox parameter schemas, backed by Main domain validation (D4): `get_writing_context({ includeBrief, includeOutline, activeSectionId? })`, `read_section({ sectionId, blockIds?, cursor?, limit? })` (covers block reads), `search_knowledge` (bounded `RetrievalService.search`), and `read_citations` (bounded `RetrievalService.expand`).
+- [ ] 21.4 Enforce result-count, text-size, and pagination limits on every tool; permit parallel execution only among independent read tools.
+- [ ] 21.5 Delimit retrieved knowledge as untrusted source content in both context assembly and tool results; it cannot alter system or tool policy.
+- [ ] 21.6 Persist citation IDs and tool provenance in the `agent_events` payloads.
+- [ ] 21.7 Test prompt-injection fixtures, stale project sessions, unauthorized tool names, malformed arguments, oversized results, parallel read ordering, source deletion during a run, and bridge messages with revoked sessions.
+
+Acceptance criteria: the agent can ground itself in the brief, outline, active section, and relevant knowledge with citations through bounded tools only; it has no generic project, filesystem, SQL, or operating-system access.
+
+## Checkpoint 22: Typed Mutation Proposals, Preview, Approval, And Application
+
+- [ ] 22.1 Define versioned Zod mutation payload contracts in `src/shared/contracts`: `BriefUpdate`, `OutlinePatch` (section create, metadata update, move/reorder, delete), and `SectionPatch`. `SectionPatch` implements the typed BlockNote operation set sketched in architecture.md "Block mutations" (`insertBlocks`/`updateBlock`/`removeBlocks`/`replaceBlocks`/`moveBlocks`) — no block-mutation contracts exist in code today, so this checkpoint creates them; the brief and outline domain operations already exist in `ManuscriptService` (`updateBrief` with `brief_version_conflict`, `createSection`/`updateSection`/`moveSection`/`deleteSection` with outline-version checks). Every proposal requires target IDs plus `baseRevisionId`/base brief or outline version.
+- [ ] 22.2 Register the three proposal tools as sequential write tools (Pi `toolExecution` plus Main policy); block disallowed or oversized calls through `beforeToolCall` preflight and Main policy.
+- [ ] 22.3 Persist the `mutation_proposals` row before returning tool success; the tool result carries the proposal ID and a structured preview payload (affected sections/blocks, before/after text, cited sources).
+- [ ] 22.4 Build a pure validator/simulator module (no I/O) that applies block operations to native BlockNote JSON without committing; validate block IDs, schema, nesting, content size, operation count, and target existence. Main uses it for validation and preview generation.
+- [ ] 22.5 Add session-authorized approve/reject IPC. Rejection records the decision without touching manuscript state. Approval revalidates the base refs against current revisions inside the apply transaction (stale proposals fail closed).
+- [ ] 22.6 Implement the Main-owned application path per D8: atomic per-proposal application (all operations or none), `agent_accepted` revisions with lineage, materialization, and a section-changed push so the active editor reloads from Main authority; renderer flushes pending saves for the target section before sending approval.
+- [ ] 22.7 Implement undo per D9 and track `undone` proposal state.
+- [ ] 22.8 Test stale proposal rejection, concurrent manual edit during preview, missing block, invalid nesting, duplicate IDs, partial multi-operation failure atomicity, approve-after-project-switch, reject, undo, crash after proposal but before apply, and renderer-asserted `agent_accepted` source clamping (adversarial, extending CP19.7.2).
+
+Acceptance criteria: the agent cannot bypass user/policy approval or revision checks; accepted changes are atomic, visible, undoable, and fully traceable through revisions, proposals, and model requests; stale proposals never overwrite newer manual work.
+
+## Checkpoint 23: Agent Writing UI, Compaction, And End-To-End Workflow
+
+- [ ] 23.1 Replace the placeholder agent `Sheet` in the writing workspace (⌘/Ctrl+J) with the real panel composed from the established shadcn shell: session list, message streaming, thinking visibility policy, stop, retry/continue, and steering/follow-up controls.
+- [ ] 23.2 Add the Main→renderer agent event channel (following the diagnostics push pattern) with session-authorized, replayable-from-`agent_events` semantics; renderer closure never changes run truth.
+- [ ] 23.3 Render tool calls as structured cards (status, bounded arguments, results, errors, citations) and proposals with section/block diff, source citations, and approve/reject/undo state.
+- [ ] 23.4 Show active model/provider, token usage, interruption, and retry state without exposing secrets.
+- [ ] 23.5 Allow starting a run from the current selection, the active section, or the project overview; the renderer injects the editor-context snapshot at run start.
+- [ ] 23.6 Implement single-level compaction: token-budgeted `transformContext` truncation per run, and when pressure is real, one bounded summary produced through a `ModelExecutionService`-recorded call and stored as a `compaction_summary` event. Full history stays in `agent_events`; summaries never become manuscript or source authority. No multi-level summaries until measured token pressure requires them.
+- [ ] 23.7 Add the E2E scenario with the mock provider: create project, write brief/outline, import a source, complete MinerU/indexing, ask the agent for evidence, receive citations, receive a section-edit proposal, preview, approve, verify the new revision's lineage and citations, watch the editor reload, close, reopen to accurate history, and undo.
 
 Acceptance criteria: the complete assisted-writing workflow is understandable and recoverable; tool and mutation states remain accurate across cancellation, close, reopen, and compaction.
+
+## Deferred beyond this phase
+
+Manuscript full-text search as a tool (folded into `read_section` pagination until evidence requires it), automatic application of low-risk proposals, multiple agents/sub-agents, long-term memory, `proposal_citations`/`accepted_source_links` tables, multi-level summaries, Pi harness JSONL session storage, and per-project agent-worker processes.

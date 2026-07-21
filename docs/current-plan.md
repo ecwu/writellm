@@ -30,7 +30,7 @@ the three superseded one-shot worker entry files were removed.
 
 1. Checkpoint 19.6 items 19.6.1–19.6.6 are implemented and verified.
 2. Checkpoint 19.7 items 19.7.1–19.7.10 are implemented and verified, including the C2 E2E/packaged backfill and the shared project-name helper correction.
-3. Ask the user whether to begin Checkpoint 20; it remains unstarted.
+3. Ask the user whether to begin Checkpoint 20; it remains unstarted. The Phase 9 plan was realigned with the CP19.5 freeze and the verified codebase state on 2026-07-20 (`docs/implementation-todo/phase-9.md`).
 
 ## Acceptance gate
 
