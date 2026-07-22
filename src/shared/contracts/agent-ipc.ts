@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  agentApprovalModeSchema,
   agentEditorContextSchema,
   agentEventIdSchema,
   agentEventTypeSchema,
@@ -8,6 +9,7 @@ import {
   agentSessionIdSchema,
   agentSessionStatusSchema
 } from './agent'
+import { agentModelLimitsSchema } from './agent'
 import { mutationProposalRecordSchema } from './agent-mutations'
 import { projectSessionIdSchema } from './projects'
 import { providerIdSchema } from './providers'
@@ -23,6 +25,7 @@ export const agentSessionRecordSchema = strictObject({
   title: z.string().min(1).max(500),
   status: agentSessionStatusSchema,
   compatible: z.boolean(),
+  approvalMode: agentApprovalModeSchema.default('manual'),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -33,6 +36,15 @@ export const agentRunRecordSchema = strictObject({
   status: agentRunStatusSchema,
   providerId: providerIdSchema,
   modelId: z.string().min(1).max(500),
+  approvalMode: agentApprovalModeSchema.default('manual'),
+  modelLimits: agentModelLimitsSchema.default({
+    contextWindowTokens: 131_072,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: 'legacy_fallback',
+    catalogModelKey: null,
+    resolvedAt: null
+  }),
   editorContext: agentEditorContextSchema,
   errorCode: z.string().min(1).max(200).nullable(),
   startedAt: z.iso.datetime(),
@@ -65,6 +77,10 @@ export const agentCreateSessionInputSchema = strictObject({
   title: z.string().trim().min(1).max(500).default('New conversation')
 })
 export const agentCreateSessionResultSchema = agentSessionRecordSchema
+export const agentSetApprovalModeInputSchema = agentSessionInputSchema.extend({
+  mode: agentApprovalModeSchema
+})
+export const agentSetApprovalModeResultSchema = agentSessionRecordSchema
 export const agentListSessionsResultSchema = z
   .array(agentSessionRecordSchema)
   .max(AGENT_SESSION_LIMIT)
@@ -92,6 +108,7 @@ export const agentStartRunInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
   prompt: z.string().trim().min(1).max(262_144),
+  approvedProposalId: z.uuid().optional(),
   scope: agentStartScopeSchema,
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {

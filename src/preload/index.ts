@@ -1,12 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   appInfoSchema,
+  setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema,
   type AppInfo,
   type SetThemePreferenceInput,
-  type ThemePreference
+  type ThemePreference,
+  type SetDefaultAgentApprovalModeInput
 } from '../shared/contracts/app'
+import { agentApprovalModeSchema, type AgentApprovalMode } from '../shared/contracts/agent'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
   agentCreateSessionInputSchema,
@@ -21,6 +24,8 @@ import {
   agentQueueInputSchema,
   agentRendererEventSchema,
   agentRunInputSchema,
+  agentSetApprovalModeInputSchema,
+  agentSetApprovalModeResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema,
@@ -31,12 +36,16 @@ import {
 } from '../shared/contracts/agent-ipc'
 import {
   approveMutationProposalInputSchema,
+  approveMutationProposalResultSchema,
   mutationProposalActionResultSchema,
-  mutationSectionChangedSchema,
+  mutationProposalChangedSchema,
   mutationSubscriptionInputSchema,
   rejectMutationProposalInputSchema,
   undoMutationProposalInputSchema,
+  type ApproveMutationProposalResult,
   type MutationProposalActionResult,
+  type MutationProposalRecord,
+  type MutationProposalChanged,
   type MutationSectionChanged
 } from '../shared/contracts/agent-mutations'
 import {
@@ -163,6 +172,8 @@ export interface DesktopApi {
     getInfo(): Promise<AppInfo>
     getThemePreference(): Promise<ThemePreference>
     setThemePreference(input: SetThemePreferenceInput): Promise<ThemePreference>
+    getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
+    setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
   }
   projects: {
     lifecycle(): Promise<ProjectLifecycleSnapshot>
@@ -224,7 +235,7 @@ export interface DesktopApi {
       input: SaveSectionDocumentInput & {
         projectSessionId: string
         closingToken: string
-        purpose?: 'close' | 'snapshot'
+        purpose?: 'close' | 'snapshot' | 'mutation'
       }
     ): Promise<SaveSectionDocumentResponse>
     acknowledgeFlush(
@@ -247,6 +258,11 @@ export interface DesktopApi {
   agent: {
     listSessions(input: { projectSessionId: string }): Promise<AgentSessionRecord[]>
     createSession(input: { projectSessionId: string; title: string }): Promise<AgentSessionRecord>
+    setApprovalMode(input: {
+      projectSessionId: string
+      agentSessionId: string
+      mode: AgentApprovalMode
+    }): Promise<AgentSessionRecord>
     listEvents(input: {
       projectSessionId: string
       agentSessionId: string
@@ -261,7 +277,7 @@ export interface DesktopApi {
     listProposals(input: {
       projectSessionId: string
       agentSessionId: string
-    }): Promise<ReturnType<typeof mutationProposalActionResultSchema.parse>['proposal'][]>
+    }): Promise<MutationProposalRecord[]>
     startRun(input: ReturnType<typeof agentStartRunInputSchema.parse>): Promise<AgentRunRecord>
     steerRun(input: {
       projectSessionId: string
@@ -282,7 +298,7 @@ export interface DesktopApi {
       projectSessionId: string
       agentSessionId: string
       proposalId: string
-    }): Promise<MutationProposalActionResult>
+    }): Promise<ApproveMutationProposalResult>
     rejectProposal(input: {
       projectSessionId: string
       agentSessionId: string
@@ -297,6 +313,10 @@ export interface DesktopApi {
     subscribeSectionChanged(
       input: { projectSessionId: string },
       listener: (event: MutationSectionChanged) => void
+    ): Promise<() => void>
+    subscribeMutations(
+      input: { projectSessionId: string },
+      listener: (event: MutationProposalChanged) => void
     ): Promise<() => void>
   }
   knowledge: {
@@ -368,6 +388,19 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.appSetThemePreference,
           setThemePreferenceInputSchema.parse(input)
+        )
+      )
+    },
+    async getDefaultAgentApprovalMode() {
+      return agentApprovalModeSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.appGetDefaultAgentApprovalMode)
+      )
+    },
+    async setDefaultAgentApprovalMode(input) {
+      return agentApprovalModeSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.appSetDefaultAgentApprovalMode,
+          setDefaultAgentApprovalModeInputSchema.parse(input)
         )
       )
     }
@@ -691,6 +724,14 @@ const desktopApi: DesktopApi = {
         )
       )
     },
+    async setApprovalMode(input) {
+      return agentSetApprovalModeResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentSetApprovalMode,
+          agentSetApprovalModeInputSchema.parse(input)
+        )
+      )
+    },
     async listEvents(input) {
       return agentEventPageSchema.parse(
         await ipcRenderer.invoke(
@@ -789,7 +830,7 @@ const desktopApi: DesktopApi = {
       }
     },
     async approveProposal(input) {
-      return mutationProposalActionResultSchema.parse(
+      return approveMutationProposalResultSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentProposalApprove,
           approveMutationProposalInputSchema.parse(input)
@@ -818,18 +859,44 @@ const desktopApi: DesktopApi = {
         subscriptionId: globalThis.crypto.randomUUID()
       })
       const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
-        const changed = mutationSectionChangedSchema.parse(value)
-        if (changed.projectSessionId === subscription.projectSessionId) listener(changed)
+        const changed = mutationProposalChangedSchema.parse(value)
+        if (
+          changed.projectSessionId === subscription.projectSessionId &&
+          changed.sectionChanged !== null
+        ) {
+          listener(changed.sectionChanged)
+        }
       }
-      ipcRenderer.on(IPC_CHANNELS.agentSectionChanged, handler)
+      ipcRenderer.on(IPC_CHANNELS.agentMutationChanged, handler)
       try {
         await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeMutations, subscription)
       } catch (err) {
-        ipcRenderer.removeListener(IPC_CHANNELS.agentSectionChanged, handler)
+        ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
         throw err
       }
       return () => {
-        ipcRenderer.removeListener(IPC_CHANNELS.agentSectionChanged, handler)
+        ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeMutations, subscription)
+      }
+    },
+    async subscribeMutations(input, listener) {
+      const subscription = mutationSubscriptionInputSchema.parse({
+        ...input,
+        subscriptionId: globalThis.crypto.randomUUID()
+      })
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const changed = mutationProposalChangedSchema.parse(value)
+        if (changed.projectSessionId === subscription.projectSessionId) listener(changed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.agentMutationChanged, handler)
+      try {
+        await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeMutations, subscription)
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
         void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeMutations, subscription)
       }
     }

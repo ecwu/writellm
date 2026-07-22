@@ -9,12 +9,18 @@ import {
   agentHistorySchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
+  type AgentApprovalMode,
   type AgentEditorContext,
   type AgentEventType,
   type AgentHistoryMessage,
-  type AgentRuntimeEvent
+  type AgentRuntimeEvent,
+  type AgentModelLimits
 } from '../../shared/contracts/agent'
-import { agentMessageBudget, estimateAgentTokens } from '../../shared/agent-context-budget'
+import {
+  agentMessageBudget,
+  agentOutputLimit,
+  estimateAgentTokens
+} from '../../shared/agent-context-budget'
 import {
   AGENT_EVENT_PAGE_LIMIT,
   agentEventPageSchema,
@@ -27,19 +33,26 @@ import {
   type AgentSessionRecord
 } from '../../shared/contracts/agent-ipc'
 import {
+  AGENT_TOOL_DESCRIPTORS,
+  AGENT_TOOL_RESULT_SCHEMA_VERSION,
   agentToolCallPayloadSchema,
   agentToolResponseSchema,
   agentToolResultPayloadSchema,
   type AgentToolRequest,
   type AgentToolResponse
 } from '../../shared/contracts/agent-tools'
+import {
+  mutationProposalToolResultSchema,
+  submitChangeResultSchema,
+  type MutationProposalOutcome
+} from '../../shared/contracts/agent-mutations'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import { withLogContext } from '../observability/log-context'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProviderService } from '../providers/provider-service'
-import type { AgentContextBuilder } from './context'
+import type { AgentContextBuilder, WritingSnapshot } from './context'
 import { AgentToolDomainError } from './read-tools'
 import type { AgentToolExecutor } from './tools'
 
@@ -63,8 +76,12 @@ interface ActiveRun {
   readonly handle: AgentSessionRunHandle
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
+  readonly approvalMode: AgentApprovalMode
+  readonly modelLimits: AgentModelLimits
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
+  readonly snapshots: Map<string, WritingSnapshot>
+  systemPrompt: string
   partialText: string
   completion: Promise<void>
 }
@@ -95,6 +112,11 @@ export interface AgentSessionServiceOptions {
   messageTokenBudget?: number
   now?: () => Date
   createId?: () => string
+  defaultApprovalMode?: () => AgentApprovalMode
+  resolveModelLimits?: (
+    config: Extract<ProviderConfig, { role: 'agent' }>,
+    signal: AbortSignal
+  ) => Promise<AgentModelLimits>
 }
 
 export class AgentSessionService {
@@ -107,7 +129,10 @@ export class AgentSessionService {
     this.#createId = options.createId ?? randomUUID
   }
 
-  createSession(title = 'New conversation'): AgentSessionRecord {
+  createSession(
+    title = 'New conversation',
+    approvalMode = this.options.defaultApprovalMode?.() ?? 'manual'
+  ): AgentSessionRecord {
     const agentSessionId = this.#createId()
     const now = this.#now().toISOString()
     const normalizedTitle = title.trim().slice(0, 500) || 'New conversation'
@@ -116,14 +141,15 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_sessions (
              agent_session_id, title, pi_runtime_version, event_schema_version,
-             status, created_at, updated_at, archived_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, ?, NULL)`
+             status, approval_mode, created_at, updated_at, archived_at
+           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, NULL)`
         )
         .run(
           agentSessionId,
           normalizedTitle,
           AGENT_RUNTIME_VERSION,
           AGENT_EVENT_SCHEMA_VERSION,
+          approvalMode,
           now,
           now
         )
@@ -137,6 +163,7 @@ export class AgentSessionService {
       title: normalizedTitle,
       status: 'active',
       compatible: true,
+      approvalMode,
       createdAt: now,
       updatedAt: now
     })
@@ -148,7 +175,7 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
-                    status, created_at, updated_at
+                    status, approval_mode, created_at, updated_at
                FROM agent_sessions
               ORDER BY updated_at DESC, agent_session_id DESC
               LIMIT 200`
@@ -159,6 +186,7 @@ export class AgentSessionService {
           pi_runtime_version: string
           event_schema_version: number
           status: 'active' | 'archived'
+          approval_mode: AgentApprovalMode
           created_at: string
           updated_at: string
         }>
@@ -170,11 +198,34 @@ export class AgentSessionService {
           compatible:
             row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
+          approvalMode: row.approval_mode,
           createdAt: row.created_at,
           updatedAt: row.updated_at
         })
       )
     )
+  }
+
+  setApprovalMode(agentSessionId: string, mode: AgentApprovalMode): AgentSessionRecord {
+    if (this.#active?.agentSessionId === agentSessionId) {
+      throw new Error('Agent approval mode cannot change while a run is active')
+    }
+    this.#assertSessionExists(agentSessionId)
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      database
+        .prepare(
+          'UPDATE agent_sessions SET approval_mode = ?, updated_at = ? WHERE agent_session_id = ?'
+        )
+        .run(mode, now, agentSessionId)
+    })
+    const session = this.listSessions().find((item) => item.agentSessionId === agentSessionId)
+    if (session === undefined) throw new Error('Agent session does not exist')
+    this.options.log.info(
+      { event: 'agent.session.approval_mode_updated', agentSessionId, mode },
+      'Agent session approval mode updated'
+    )
+    return session
   }
 
   listEvents(agentSessionId: string): AgentEventRecord[] {
@@ -250,7 +301,8 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_run_id, agent_session_id, status, provider_id, model_id,
-                    editor_context_json, error_json, started_at, completed_at, updated_at
+                    approval_mode, model_limits_json, editor_context_json, error_json,
+                    started_at, completed_at, updated_at
                FROM agent_runs
               WHERE agent_session_id = ?
               ORDER BY started_at DESC, agent_run_id DESC
@@ -262,6 +314,8 @@ export class AgentSessionService {
           status: 'running' | 'completed' | 'interrupted' | 'failed'
           provider_id: string
           model_id: string
+          approval_mode: AgentApprovalMode
+          model_limits_json: string
           editor_context_json: string
           error_json: string | null
           started_at: string
@@ -275,6 +329,8 @@ export class AgentSessionService {
           status: row.status,
           providerId: row.provider_id,
           modelId: row.model_id,
+          approvalMode: row.approval_mode,
+          modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
           errorCode: safeErrorCode(row.error_json),
           startedAt: row.started_at,
@@ -310,13 +366,6 @@ export class AgentSessionService {
     if (this.#active !== undefined) throw new Error('An Agent run is already active')
     const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
     const editorContext = agentEditorContextSchema.parse(input.editorContext)
-    const builtContext = this.options.contextBuilder?.build({ prompt, editorContext })
-    const userRequest = builtContext?.userRequest ?? prompt
-    const systemPrompt = (
-      builtContext?.systemPrompt ??
-      input.systemPrompt ??
-      DEFAULT_SYSTEM_PROMPT
-    ).slice(0, 65_536)
     const operationId = input.operationId ?? this.#createId()
     const agentRunId = this.#createId()
     this.#assertCompatibleSession(input.agentSessionId)
@@ -330,6 +379,13 @@ export class AgentSessionService {
       },
       () =>
         this.options.providers.withConfiguredProvider('agent', async (config, credential) => {
+          const resolutionController = new AbortController()
+          const modelLimits =
+            (await this.options.resolveModelLimits?.(config, resolutionController.signal)) ??
+            legacyModelLimits()
+          const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
+          agentMessageBudget(maxOutputTokens, modelLimits)
+          const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
           const now = this.#now()
           this.#insertRunAndUserEvent({
             agentSessionId: input.agentSessionId,
@@ -337,6 +393,8 @@ export class AgentSessionService {
             config,
             editorContext,
             prompt,
+            approvalMode,
+            modelLimits,
             now
           })
           const controller = new AbortController()
@@ -345,8 +403,9 @@ export class AgentSessionService {
             history = await this.#prepareRuntimeHistory({
               agentSessionId: input.agentSessionId,
               agentRunId,
-              prompt: userRequest,
-              maxOutputTokens: input.maxOutputTokens ?? 8_192,
+              prompt,
+              maxOutputTokens,
+              modelLimits,
               signal: controller.signal
             })
           } catch (err) {
@@ -402,6 +461,17 @@ export class AgentSessionService {
             modelRequestId
           )
           await this.#publishDurable(initialEvent)
+          const builtContext = this.options.contextBuilder?.build({
+            prompt,
+            editorContext,
+            snapshotId: modelRequestId
+          })
+          const userRequest = builtContext?.userRequest ?? prompt
+          const systemPrompt = (
+            builtContext?.systemPrompt ??
+            input.systemPrompt ??
+            DEFAULT_SYSTEM_PROMPT
+          ).slice(0, 65_536)
           const handle = this.options.runtime.beginSessionRun(
             config,
             credential,
@@ -413,7 +483,8 @@ export class AgentSessionService {
               systemPrompt,
               history,
               prompt: userRequest,
-              maxOutputTokens: input.maxOutputTokens ?? 8_192,
+              maxOutputTokens,
+              modelLimits,
               ...(input.temperature === undefined ? {} : { temperature: input.temperature })
             },
             controller.signal,
@@ -428,8 +499,14 @@ export class AgentSessionService {
             handle,
             config,
             editorContext,
+            approvalMode,
+            modelLimits,
             authorizedModelRequestIds: new Set([modelRequestId]),
             pendingModelRequestIds: new Set([modelRequestId]),
+            snapshots: new Map(
+              builtContext === undefined ? [] : [[modelRequestId, builtContext.snapshot]]
+            ),
+            systemPrompt,
             partialText: '',
             completion: Promise.resolve()
           }
@@ -453,7 +530,12 @@ export class AgentSessionService {
   }
 
   async abort(agentRunId: string): Promise<void> {
-    const active = this.#requireActive(agentRunId)
+    const active = this.#active
+    if (active === undefined || active.agentRunId !== agentRunId) {
+      const run = this.requireRun(agentRunId)
+      if (run.status !== 'running') return
+      throw new Error('Agent run is not active')
+    }
     active.controller.abort(
       new AgentRunCancellationError('user_stopped', 'Agent run stopped by user')
     )
@@ -502,6 +584,33 @@ export class AgentSessionService {
     return recovered
   }
 
+  async recordApprovalDecision(input: {
+    agentSessionId: string
+    agentRunId: string
+    proposalId: string
+    decision: 'approved' | 'rejected'
+    continueRequested: boolean
+  }): Promise<void> {
+    const run = this.requireRun(input.agentRunId)
+    if (run.agentSessionId !== input.agentSessionId) {
+      throw new Error('Approval decision does not belong to the Agent run')
+    }
+    await this.#appendAndPublishEvent({
+      sessionId: input.agentSessionId,
+      runId: input.agentRunId,
+      type: 'approval_decision',
+      payload: {
+        schemaVersion: 2,
+        proposalId: input.proposalId,
+        decision: input.decision,
+        continueRequested: input.continueRequested,
+        actor: 'user',
+        timestamp: this.#now().getTime()
+      },
+      modelRequestId: null
+    })
+  }
+
   async #queue(
     agentRunId: string,
     delivery: 'steer' | 'follow_up',
@@ -541,6 +650,15 @@ export class AgentSessionService {
     })
     active.pendingModelRequestIds.add(modelRequestId)
     active.authorizedModelRequestIds.add(modelRequestId)
+    const refreshedContext = this.options.contextBuilder?.build({
+      prompt: content,
+      editorContext: active.editorContext,
+      snapshotId: modelRequestId
+    })
+    if (refreshedContext !== undefined) {
+      active.snapshots.set(modelRequestId, refreshedContext.snapshot)
+      active.systemPrompt = refreshedContext.systemPrompt
+    }
     try {
       const command = {
         projectSessionId: this.options.projectSessionId,
@@ -548,7 +666,8 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         modelRequestId,
         content,
-        timestamp
+        timestamp,
+        systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
       }
       if (delivery === 'steer') active.handle.steer(command)
       else active.handle.followUp(command)
@@ -585,6 +704,17 @@ export class AgentSessionService {
       this.#now,
       this.#createId
     )
+    if (event.type === 'tool_attempted' || event.type === 'tool_preflight_failed') {
+      const { type, modelRequestId, ...payload } = event
+      await this.#appendAndPublishEvent({
+        sessionId: active.agentSessionId,
+        runId: active.agentRunId,
+        type,
+        payload,
+        modelRequestId
+      })
+      return
+    }
     if (event.type === 'model_call_finished') {
       if (event.outcome === 'succeeded') {
         await repository.succeed(event.modelRequestId, { metadata: event.metadata, outputItems: 1 })
@@ -642,12 +772,22 @@ export class AgentSessionService {
       ).modelRequestId
       active.authorizedModelRequestIds.add(modelRequestId)
       active.pendingModelRequestIds.add(modelRequestId)
+      const refreshedContext = this.options.contextBuilder?.build({
+        prompt: 'Continue from the authoritative tool result.',
+        editorContext: active.editorContext,
+        snapshotId: modelRequestId
+      })
+      if (refreshedContext !== undefined) {
+        active.snapshots.set(modelRequestId, refreshedContext.snapshot)
+        active.systemPrompt = refreshedContext.systemPrompt
+      }
       active.handle.authorizeModelCall({
         projectSessionId: this.options.projectSessionId,
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         continuationId,
-        modelRequestId
+        modelRequestId,
+        systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
       })
       this.options.log.info(
         {
@@ -707,6 +847,7 @@ export class AgentSessionService {
     const callPayload = agentToolCallPayloadSchema.parse({
       toolCallId: request.toolCallId,
       toolName: request.toolName,
+      contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
       args: request.args,
       timestamp: this.#now().getTime()
     })
@@ -717,11 +858,13 @@ export class AgentSessionService {
       payload: callPayload,
       modelRequestId: request.modelRequestId
     })
+    const deadlineSignal = AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
+    const toolSignal = AbortSignal.any([signal, deadlineSignal])
     try {
       if (this.options.tools === undefined) {
         throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
       }
-      const data = await this.options.tools.execute({
+      let data: unknown = await this.options.tools.execute({
         toolName: request.toolName,
         args: request.args,
         editorContext: active.editorContext,
@@ -730,12 +873,69 @@ export class AgentSessionService {
         toolCallId: request.toolCallId,
         toolCallEventId: toolCallEvent.agentEventId,
         modelRequestId: request.modelRequestId,
-        signal
+        snapshot: active.snapshots.get(request.modelRequestId),
+        signal: toolSignal
       })
+      const proposal = mutationProposalToolResultSchema.safeParse(data)
+      if (proposal.success) {
+        const shouldAutoApprove =
+          this.options.tools.shouldAutoApprove?.(
+            active.agentSessionId,
+            proposal.data.proposalId,
+            active.approvalMode
+          ) ?? false
+        if (shouldAutoApprove) {
+          if (this.options.tools.approveProposalAutomatically === undefined) {
+            throw new AgentToolDomainError('unavailable', 'Automatic approval is unavailable', true)
+          }
+          this.options.log.info(
+            {
+              event: 'agent.approval.auto_started',
+              proposalId: proposal.data.proposalId,
+              kind: proposal.data.kind,
+              mode: active.approvalMode
+            },
+            'Automatic Agent proposal approval started'
+          )
+          const outcome = await this.options.tools.approveProposalAutomatically(
+            active.agentSessionId,
+            proposal.data.proposalId,
+            true
+          )
+          data = submitResultFromOutcome(
+            outcome,
+            this.options.tools.getProposal?.(active.agentSessionId, outcome.effectiveProposalId),
+            {
+              createdSectionRefs: proposal.data.createdSectionRefs,
+              createdBlockRefs: proposal.data.createdBlockRefs
+            }
+          )
+        } else {
+          data = submitChangeResultSchema.parse({
+            proposal: {
+              proposalId: proposal.data.proposalId,
+              kind: proposal.data.kind,
+              status: 'pending'
+            },
+            application: {
+              status: 'not_applied',
+              ...(proposal.data.createdSectionRefs === undefined
+                ? {}
+                : { createdSectionRefs: proposal.data.createdSectionRefs }),
+              ...(proposal.data.createdBlockRefs === undefined
+                ? {}
+                : { createdBlockRefs: proposal.data.createdBlockRefs })
+            },
+            continuation: 'pause_for_review',
+            warnings: []
+          })
+        }
+      }
       const provenance = extractToolProvenance(data)
       const resultPayload = agentToolResultPayloadSchema.parse({
         toolCallId: request.toolCallId,
         toolName: request.toolName,
+        contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
         isError: false,
         result: data,
         error: null,
@@ -751,6 +951,7 @@ export class AgentSessionService {
       })
       return agentToolResponseSchema.parse({
         ...toolResponseCapability(request),
+        schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
         ok: true,
         data
       })
@@ -765,10 +966,11 @@ export class AgentSessionService {
         },
         'Agent tool execution failed'
       )
-      const safe = safeToolError(err, signal)
+      const safe = safeToolError(err, signal, deadlineSignal)
       const resultPayload = agentToolResultPayloadSchema.parse({
         toolCallId: request.toolCallId,
         toolName: request.toolName,
+        contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
         isError: true,
         result: null,
         error: { code: safe.code, message: safe.message },
@@ -883,6 +1085,8 @@ export class AgentSessionService {
     config: Extract<ProviderConfig, { role: 'agent' }>
     editorContext: AgentEditorContext
     prompt: string
+    approvalMode: AgentApprovalMode
+    modelLimits: AgentModelLimits
     now: Date
   }): void {
     const now = input.now.toISOString()
@@ -891,9 +1095,10 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_runs (
              agent_run_id, agent_session_id, status, provider_id, model_id,
-             provider_fingerprint, model_fingerprint, editor_context_json,
+             provider_fingerprint, model_fingerprint, approval_mode, model_limits_json,
+             editor_context_json,
              error_json, started_at, completed_at, created_at, updated_at
-           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
+           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
         )
         .run(
           input.agentRunId,
@@ -906,6 +1111,8 @@ export class AgentSessionService {
             role: input.config.role
           }),
           fingerprint({ model: input.config.model, revision: input.config.modelRevision }),
+          input.approvalMode,
+          JSON.stringify(input.modelLimits),
           JSON.stringify(input.editorContext),
           now,
           now,
@@ -1081,10 +1288,13 @@ export class AgentSessionService {
     agentRunId: string
     prompt: string
     maxOutputTokens: number
+    modelLimits: AgentModelLimits
     signal: AbortSignal
   }): Promise<AgentHistoryMessage[]> {
     let history = this.#loadRuntimeHistory(input.agentSessionId, input.agentRunId)
-    const tokenBudget = this.options.messageTokenBudget ?? agentMessageBudget(input.maxOutputTokens)
+    const tokenBudget =
+      this.options.messageTokenBudget ??
+      agentMessageBudget(input.maxOutputTokens, input.modelLimits)
     const estimatedInputTokens = estimateAgentTokens(history) + estimateAgentTokens(input.prompt)
     if (estimatedInputTokens <= tokenBudget || this.#hasCompactionSummary(input.agentSessionId)) {
       return history
@@ -1276,6 +1486,30 @@ export class AgentSessionService {
     )
     if (exists !== 1) throw new Error('Agent session does not exist')
   }
+
+  #sessionApprovalMode(agentSessionId: string): AgentApprovalMode {
+    const mode = this.options.database.immediate((database) =>
+      database
+        .prepare('SELECT approval_mode FROM agent_sessions WHERE agent_session_id = ?')
+        .pluck()
+        .get(agentSessionId)
+    )
+    if (mode !== 'manual' && mode !== 'section_auto' && mode !== 'yolo') {
+      throw new Error('Agent session approval mode is invalid')
+    }
+    return mode
+  }
+}
+
+function legacyModelLimits(): AgentModelLimits {
+  return {
+    contextWindowTokens: 131_072,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: 'legacy_fallback',
+    catalogModelKey: null,
+    resolvedAt: null
+  }
 }
 
 function insertEvent(
@@ -1411,15 +1645,24 @@ function toolErrorResponse(
 ): AgentToolResponse {
   return agentToolResponseSchema.parse({
     ...toolResponseCapability(request),
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
     ok: false,
-    error: { code, message, retryable }
+    error: structuredToolError(code, message, retryable)
   })
 }
 
 function safeToolError(
   err: unknown,
-  signal: AbortSignal
-): Extract<AgentToolResponse, { ok: false }>['error'] {
+  signal: AbortSignal,
+  deadlineSignal: AbortSignal
+): {
+  code: Extract<AgentToolResponse, { ok: false }>['error']['code']
+  message: string
+  retryable: boolean
+} {
+  if (deadlineSignal.aborted && !signal.aborted) {
+    return { code: 'deadline_exceeded', message: 'Agent tool deadline exceeded', retryable: true }
+  }
   if (signal.aborted) {
     return { code: 'aborted', message: 'Agent tool request was aborted', retryable: true }
   }
@@ -1427,6 +1670,112 @@ function safeToolError(
     return { code: err.code, message: err.message.slice(0, 1_000), retryable: err.retryable }
   }
   return { code: 'internal', message: 'Agent read tool failed', retryable: false }
+}
+
+function structuredToolError(
+  code: Extract<AgentToolResponse, { ok: false }>['error']['code'],
+  message: string,
+  retryable: boolean
+): Extract<AgentToolResponse, { ok: false }>['error'] {
+  switch (code) {
+    case 'invalid_arguments':
+      return { code, category: 'validation', message, recovery: { action: 'fix_arguments' } }
+    case 'unauthorized':
+      return { code, category: 'authorization', message, recovery: { action: 'do_not_retry' } }
+    case 'not_found':
+    case 'conflict':
+      return {
+        code,
+        category: code === 'conflict' ? 'conflict' : 'precondition',
+        message,
+        recovery: { action: 'refresh_context', tool: 'get_writing_context', maxAttempts: 1 }
+      }
+    case 'stale_cursor':
+      return {
+        code,
+        category: 'conflict',
+        message,
+        recovery: { action: 'restart_pagination', maxAttempts: 1 }
+      }
+    case 'result_too_large':
+      return { code, category: 'precondition', message, recovery: { action: 'reduce_scope' } }
+    case 'deadline_exceeded':
+      return { code, category: 'transient', message, recovery: { action: 'retry', maxAttempts: 1 } }
+    case 'aborted':
+      return { code, category: 'cancelled', message, recovery: { action: 'do_not_retry' } }
+    case 'unavailable':
+      return {
+        code,
+        category: 'transient',
+        message,
+        recovery: {
+          action: retryable ? 'retry' : 'ask_user',
+          maxAttempts: retryable ? 1 : undefined
+        }
+      }
+    case 'internal':
+      return { code, category: 'internal', message, recovery: { action: 'do_not_retry' } }
+  }
+}
+
+function submitResultFromOutcome(
+  outcome: MutationProposalOutcome,
+  proposal?: {
+    appliedBriefVersion: number | null
+    appliedOutlineVersion: number | null
+    appliedRevisionId: string | null
+  },
+  idMapping?: {
+    createdSectionRefs?: Record<string, string>
+    createdBlockRefs?: Record<string, string>
+  }
+) {
+  const status =
+    outcome.outcome === 'applied'
+      ? 'applied'
+      : outcome.outcome === 'already_satisfied'
+        ? 'satisfied'
+        : outcome.outcome === 'rejected'
+          ? 'rejected'
+          : 'conflicted'
+  const applicationStatus =
+    outcome.outcome === 'applied'
+      ? 'applied'
+      : outcome.outcome === 'already_satisfied'
+        ? 'no_change'
+        : outcome.outcome === 'conflict'
+          ? 'conflict'
+          : 'not_applied'
+  return submitChangeResultSchema.parse({
+    proposal: {
+      proposalId: outcome.effectiveProposalId,
+      kind: outcome.kind,
+      status
+    },
+    application: {
+      status: applicationStatus,
+      ...(proposal?.appliedBriefVersion === null || proposal?.appliedBriefVersion === undefined
+        ? {}
+        : { resultingBriefVersion: proposal.appliedBriefVersion }),
+      ...(proposal?.appliedOutlineVersion === null || proposal?.appliedOutlineVersion === undefined
+        ? {}
+        : { resultingOutlineVersion: proposal.appliedOutlineVersion }),
+      ...(proposal?.appliedRevisionId === null || proposal?.appliedRevisionId === undefined
+        ? {}
+        : { resultingRevisionId: proposal.appliedRevisionId }),
+      ...(idMapping?.createdSectionRefs === undefined
+        ? {}
+        : { createdSectionRefs: idMapping.createdSectionRefs }),
+      ...(idMapping?.createdBlockRefs === undefined
+        ? {}
+        : { createdBlockRefs: idMapping.createdBlockRefs })
+    },
+    continuation: 'continue',
+    warnings:
+      outcome.message === null
+        ? []
+        : [{ code: `proposal_${outcome.outcome}`, message: outcome.message }]
+  })
 }
 
 function extractToolProvenance(data: unknown): {

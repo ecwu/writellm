@@ -12,6 +12,8 @@ import {
   agentProjectInputSchema,
   agentQueueInputSchema,
   agentRunInputSchema,
+  agentSetApprovalModeInputSchema,
+  agentSetApprovalModeResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema
@@ -73,6 +75,18 @@ export function registerAgentIpc(options: {
       )
     )
   })
+  ipc.handle(IPC_CHANNELS.agentSetApprovalMode, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentSetApprovalModeInputSchema.parse(raw)
+    return lifecycle('agent.session.set_approval_mode', () =>
+      agentSetApprovalModeResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.setApprovalMode(
+          input.agentSessionId,
+          input.mode
+        )
+      )
+    )
+  })
   ipc.handle(IPC_CHANNELS.agentListEvents, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentEventPageInputSchema.parse(raw)
@@ -102,11 +116,41 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentStartRunInputSchema.parse(raw)
     return lifecycle('agent.run.start', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
+      const context = mutationContext(input.projectSessionId)
+      const service = context.agentSessions
       if (service === null) throw new Error('Agent sessions are unavailable')
+      let prompt = input.prompt
+      if (input.approvedProposalId !== undefined) {
+        if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
+        const proposal = context.agentMutations
+          .list(input.agentSessionId)
+          .find((candidate) => candidate.proposalId === input.approvedProposalId)
+        if (proposal === undefined || !['applied', 'satisfied'].includes(proposal.status)) {
+          throw new Error('Approved proposal continuation is not authorized')
+        }
+        await service.recordApprovalDecision({
+          agentSessionId: input.agentSessionId,
+          agentRunId: proposal.agentRunId,
+          proposalId: proposal.proposalId,
+          decision: 'approved',
+          continueRequested: true
+        })
+        prompt = [
+          'Continue after this authoritative approval result.',
+          JSON.stringify({
+            proposalId: proposal.proposalId,
+            kind: proposal.kind,
+            status: proposal.status,
+            appliedRevisionId: proposal.appliedRevisionId,
+            appliedBriefVersion: proposal.appliedBriefVersion,
+            appliedOutlineVersion: proposal.appliedOutlineVersion
+          }),
+          input.prompt
+        ].join('\n')
+      }
       const started = await service.startRun({
         agentSessionId: input.agentSessionId,
-        prompt: input.prompt,
+        prompt,
         editorContext: input.editorContext
       })
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
@@ -170,6 +214,7 @@ export function registerAgentIpc(options: {
   const channels = [
     IPC_CHANNELS.agentListSessions,
     IPC_CHANNELS.agentCreateSession,
+    IPC_CHANNELS.agentSetApprovalMode,
     IPC_CHANNELS.agentListEvents,
     IPC_CHANNELS.agentListRuns,
     IPC_CHANNELS.agentListProposals,

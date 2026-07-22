@@ -156,6 +156,7 @@ export interface AgentSessionTable {
   pi_runtime_version: string
   event_schema_version: number
   status: 'active' | 'archived'
+  approval_mode: 'manual' | 'section_auto' | 'yolo'
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -167,6 +168,8 @@ export interface AgentRunTable {
   status: 'running' | 'completed' | 'interrupted' | 'failed'
   provider_id: string
   model_id: string
+  approval_mode: 'manual' | 'section_auto' | 'yolo'
+  model_limits_json: string
   provider_fingerprint: string
   model_fingerprint: string
   editor_context_json: string
@@ -206,12 +209,22 @@ export interface MutationProposalTable {
   base_revision_id: string | null
   base_brief_version: number | null
   base_outline_version: number | null
-  status: 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'undone'
+  status:
+    | 'pending'
+    | 'approved'
+    | 'rejected'
+    | 'applied'
+    | 'failed'
+    | 'undone'
+    | 'superseded'
+    | 'conflicted'
+    | 'satisfied'
   decision_at: string | null
   applied_revision_id: string | null
   applied_brief_version: number | null
   applied_outline_version: number | null
   undo_revision_id: string | null
+  replaces_proposal_id: string | null
   rejected_reason: string | null
   created_at: string
   updated_at: string

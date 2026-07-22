@@ -78,6 +78,7 @@ function defaultConfig(role: ProviderRole): ProviderConfig {
     baseUrl: '',
     model: '',
     modelRevision: 'unspecified',
+    contextWindowTokens: null,
     timeoutMs: 60_000,
     embeddingDimension: null,
     batchLimit: 1,
@@ -259,6 +260,30 @@ export function ProviderSettingsDialog({
                       setConfig({ ...config, modelRevision: event.target.value })
                     }
                   />
+                </Field>
+              )}
+              {config.role === 'agent' && (
+                <Field label='Context window override (tokens)'>
+                  <div className='space-y-1'>
+                    <Input
+                      type='number'
+                      min={8_192}
+                      max={10_000_000}
+                      value={config.contextWindowTokens ?? ''}
+                      placeholder='Auto-detect from models.dev'
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          contextWindowTokens:
+                            event.target.value === '' ? null : Number(event.target.value)
+                        })
+                      }
+                    />
+                    <p className='text-xs text-muted-foreground'>
+                      Leave blank to use models.dev metadata, its offline cache, or the
+                      compatibility fallback.
+                    </p>
+                  </div>
                 </Field>
               )}
               <Field label='API key or token'>

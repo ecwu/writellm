@@ -34,9 +34,9 @@ describe('MutationProposalService', () => {
       baseContentHash: opened.revision.contentHash,
       document: [paragraph('base', 'Before')]
     })
-    const context = value.toolCall('propose_section_patch')
+    const context = value.toolCall('submit_section_change')
     const proposed = value.service.propose(
-      'propose_section_patch',
+      'submit_section_change',
       {
         schemaVersion: 1,
         sectionId: opened.section.sectionId,
@@ -127,7 +127,7 @@ describe('MutationProposalService', () => {
     const opened = value.persistence.openEditor().activeSection
     if (opened === null) throw new Error('Missing section')
     const proposed = value.service.propose(
-      'propose_section_patch',
+      'submit_section_change',
       {
         schemaVersion: 1,
         sectionId: opened.section.sectionId,
@@ -142,7 +142,7 @@ describe('MutationProposalService', () => {
         ],
         citationIds: []
       },
-      value.toolCall('propose_section_patch')
+      value.toolCall('submit_section_change')
     )
     const applied = await value.service.approve({
       projectSessionId,
@@ -171,43 +171,68 @@ describe('MutationProposalService', () => {
     value.database.close()
   })
 
-  it('fails closed when a manual edit makes a proposal stale and never creates an Agent revision', async () => {
+  it('refreshes a stale edit to another block and requires a second approval', async () => {
     const value = await fixture()
     const opened = value.persistence.openEditor().activeSection
     if (opened === null) throw new Error('Missing section')
-    const context = value.toolCall('propose_section_patch')
-    const proposed = value.service.propose(
-      'propose_section_patch',
-      {
-        schemaVersion: 1,
-        sectionId: opened.section.sectionId,
-        baseRevisionId: opened.revision.sectionRevisionId,
-        operations: [
-          {
-            type: 'insertBlocks',
-            anchorBlockId: null,
-            placement: 'end',
-            blocks: [paragraph('agent', 'Agent')]
-          }
-        ],
-        citationIds: []
-      },
-      context
-    )
-    const manual = await value.persistence.save({
+    const base = await value.persistence.save({
       projectSessionId,
       sectionId: opened.section.sectionId,
       baseRevisionId: opened.revision.sectionRevisionId,
       baseContentHash: opened.revision.contentHash,
-      document: [paragraph('manual', 'Manual')]
+      document: [paragraph('first', 'First'), paragraph('second', 'Second')]
     })
-
-    await expect(
-      value.service.approve({ projectSessionId, agentSessionId, proposalId: proposed.proposalId })
-    ).rejects.toMatchObject({ code: 'stale_base' })
-    expect(value.manuscript.getSection(opened.section.sectionId).currentRevisionId).toBe(
-      manual.revision.sectionRevisionId
+    const first = value.service.propose(
+      'submit_section_change',
+      {
+        schemaVersion: 1,
+        sectionId: opened.section.sectionId,
+        baseRevisionId: base.revision.sectionRevisionId,
+        operations: [
+          {
+            type: 'updateBlock',
+            blockId: 'first',
+            update: { content: inline('First applied') }
+          }
+        ],
+        citationIds: []
+      },
+      value.toolCall('submit_section_change')
     )
+    const second = value.service.propose(
+      'submit_section_change',
+      {
+        schemaVersion: 1,
+        sectionId: opened.section.sectionId,
+        baseRevisionId: base.revision.sectionRevisionId,
+        operations: [
+          {
+            type: 'updateBlock',
+            blockId: 'second',
+            update: { content: inline('Second applied') }
+          }
+        ],
+        citationIds: []
+      },
+      value.toolCall('submit_section_change')
+    )
+    const firstApplied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: first.proposalId
+    })
+    expect(firstApplied.outcome).toBe('applied')
+
+    const refreshed = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: second.proposalId
+    })
+    expect(refreshed).toMatchObject({
+      outcome: 'refresh_required',
+      previousProposal: { status: 'superseded' },
+      proposal: { status: 'pending', replacesProposalId: second.proposalId }
+    })
     expect(
       value.database.immediate((database) =>
         database
@@ -215,25 +240,376 @@ describe('MutationProposalService', () => {
           .pluck()
           .get()
       )
+    ).toBe(1)
+    if (refreshed.outcome !== 'refresh_required') throw new Error('Expected refreshed proposal')
+    expect(() =>
+      value.database.immediate((database) =>
+        database
+          .prepare(
+            `INSERT INTO mutation_proposals (
+               mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+               agent_tool_call_id, kind, payload_json, base_revision_id,
+               base_brief_version, base_outline_version, status, decision_at,
+               applied_revision_id, applied_brief_version, applied_outline_version,
+               undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+             )
+             SELECT ?, agent_session_id, agent_run_id, tool_call_event_id,
+               agent_tool_call_id, kind, payload_json, base_revision_id,
+               base_brief_version, base_outline_version, 'pending', NULL,
+               NULL, NULL, NULL, NULL, replaces_proposal_id, NULL, created_at, updated_at
+             FROM mutation_proposals WHERE mutation_proposal_id = ?`
+          )
+          .run('019c6a5c-8d34-7a8e-a602-3d37a52dc798', refreshed.proposal.proposalId)
+      )
+    ).toThrow()
+
+    const afterFirst = value.manuscript.getRevision(firstApplied.proposal.appliedRevisionId ?? '')
+    await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: afterFirst.sectionRevisionId,
+      baseContentHash: afterFirst.contentHash,
+      document: [
+        paragraph('first', 'First applied'),
+        paragraph('second', 'Second'),
+        paragraph('manual', 'Unrelated manual edit')
+      ]
+    })
+    const refreshedAgain = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: refreshed.proposal.proposalId
+    })
+    expect(refreshedAgain).toMatchObject({
+      outcome: 'refresh_required',
+      previousProposal: { status: 'superseded' },
+      proposal: { status: 'pending', replacesProposalId: refreshed.proposal.proposalId }
+    })
+    if (refreshedAgain.outcome !== 'refresh_required') {
+      throw new Error('Expected a second refreshed proposal')
+    }
+    const applied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: refreshedAgain.proposal.proposalId
+    })
+    expect(applied.outcome).toBe('applied')
+    expect(value.manuscript.getRevision(applied.proposal.appliedRevisionId ?? '').content).toEqual([
+      paragraph('first', 'First applied'),
+      paragraph('second', 'Second applied'),
+      paragraph('manual', 'Unrelated manual edit')
+    ])
+    expect(
+      value.service.list(agentSessionId).map((proposal) => ({
+        id: proposal.proposalId,
+        replaces: proposal.replacesProposalId,
+        status: proposal.status
+      }))
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: second.proposalId, replaces: null, status: 'superseded' }),
+        expect.objectContaining({
+          id: refreshed.proposal.proposalId,
+          replaces: second.proposalId,
+          status: 'superseded'
+        }),
+        expect.objectContaining({
+          id: refreshedAgain.proposal.proposalId,
+          replaces: refreshed.proposal.proposalId,
+          status: 'applied'
+        })
+      ])
+    )
+    value.database.immediate((database) =>
+      database.prepare('DELETE FROM agent_sessions WHERE agent_session_id = ?').run(agentSessionId)
+    )
+    expect(
+      value.database.immediate((database) =>
+        database.prepare('SELECT COUNT(*) FROM mutation_proposals').pluck().get()
+      )
     ).toBe(0)
+    expect(value.database.immediate((database) => database.pragma('foreign_key_check'))).toEqual([])
+    value.database.close()
+  })
+
+  it('auto-applies one safe stale refresh without a second review', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const base = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('first', 'First'), paragraph('second', 'Second')]
+    })
+    const propose = (blockId: string, text: string) =>
+      value.service.propose(
+        'submit_section_change',
+        {
+          schemaVersion: 1,
+          sectionId: opened.section.sectionId,
+          baseRevisionId: base.revision.sectionRevisionId,
+          operations: [{ type: 'updateBlock', blockId, update: { content: inline(text) } }],
+          citationIds: []
+        },
+        value.toolCall('submit_section_change')
+      )
+    const first = propose('first', 'First applied')
+    const second = propose('second', 'Second applied')
+    await value.service.approve({ projectSessionId, agentSessionId, proposalId: first.proposalId })
+
+    const outcome = await value.service.approveAutomatically(
+      agentSessionId,
+      second.proposalId,
+      true
+    )
+
+    expect(outcome).toMatchObject({
+      outcome: 'applied',
+      proposalId: second.proposalId,
+      kind: 'section_patch'
+    })
+    expect(outcome.effectiveProposalId).not.toBe(second.proposalId)
+    const effective = value.service
+      .list(agentSessionId)
+      .find((proposal) => proposal.proposalId === outcome.effectiveProposalId)
+    expect(value.manuscript.getRevision(effective?.appliedRevisionId ?? '').content).toEqual([
+      paragraph('first', 'First applied'),
+      paragraph('second', 'Second applied')
+    ])
+    value.database.close()
+  })
+
+  it('serializes competing approvals so only an exact-base proposal can apply', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const base = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('left', 'Left'), paragraph('right', 'Right')]
+    })
+    const propose = (blockId: string, text: string) =>
+      value.service.propose(
+        'submit_section_change',
+        {
+          schemaVersion: 1,
+          sectionId: opened.section.sectionId,
+          baseRevisionId: base.revision.sectionRevisionId,
+          operations: [{ type: 'updateBlock', blockId, update: { content: inline(text) } }],
+          citationIds: []
+        },
+        value.toolCall('submit_section_change')
+      )
+    const left = propose('left', 'Left applied')
+    const right = propose('right', 'Right applied')
+
+    const [leftResult, rightResult] = await Promise.all([
+      value.service.approve({ projectSessionId, agentSessionId, proposalId: left.proposalId }),
+      value.service.approve({ projectSessionId, agentSessionId, proposalId: right.proposalId })
+    ])
+
+    expect(leftResult.outcome).toBe('applied')
+    expect(rightResult).toMatchObject({ outcome: 'refresh_required' })
     expect(
       value.database.immediate((database) =>
         database
-          .prepare('SELECT status FROM mutation_proposals WHERE mutation_proposal_id = ?')
+          .prepare("SELECT COUNT(*) FROM section_revisions WHERE source = 'agent'")
           .pluck()
-          .get(proposed.proposalId)
+          .get()
       )
-    ).toBe('failed')
+    ).toBe(1)
+    expect(
+      value.manuscript.getRevision(
+        value.manuscript.getSection(opened.section.sectionId).currentRevisionId
+      ).content
+    ).toEqual([paragraph('left', 'Left applied'), paragraph('right', 'Right')])
+    value.database.close()
+  })
+
+  it('conflicts on overlapping fields and completes an already-satisfied update without a revision', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const base = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('target', 'Before')]
+    })
+    const propose = (text: string) =>
+      value.service.propose(
+        'submit_section_change',
+        {
+          schemaVersion: 1,
+          sectionId: opened.section.sectionId,
+          baseRevisionId: base.revision.sectionRevisionId,
+          operations: [
+            { type: 'updateBlock', blockId: 'target', update: { content: inline(text) } }
+          ],
+          citationIds: []
+        },
+        value.toolCall('submit_section_change')
+      )
+    const appliedProposal = propose('Applied')
+    const conflictedProposal = propose('Different')
+    const satisfiedProposal = propose('Applied')
+    await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: appliedProposal.proposalId
+    })
+    const revisionCount = value.database.immediate((database) =>
+      database.prepare('SELECT COUNT(*) FROM section_revisions').pluck().get()
+    )
+
+    const conflict = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: conflictedProposal.proposalId
+    })
+    expect(conflict).toMatchObject({
+      outcome: 'conflict',
+      proposal: { status: 'conflicted' },
+      conflict: { code: 'target_changed' }
+    })
+    const satisfied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: satisfiedProposal.proposalId
+    })
+    expect(satisfied).toMatchObject({
+      outcome: 'already_satisfied',
+      proposal: { status: 'satisfied' }
+    })
+    expect(
+      value.database.immediate((database) =>
+        database.prepare('SELECT COUNT(*) FROM section_revisions').pluck().get()
+      )
+    ).toBe(revisionCount)
+
+    const propsBase = value.manuscript.getRevision(
+      value.manuscript.getSection(opened.section.sectionId).currentRevisionId
+    )
+    const proposeProps = (props: Record<string, string>) =>
+      value.service.propose(
+        'submit_section_change',
+        {
+          schemaVersion: 1,
+          sectionId: opened.section.sectionId,
+          baseRevisionId: propsBase.sectionRevisionId,
+          operations: [{ type: 'updateBlock', blockId: 'target', update: { props } }],
+          citationIds: []
+        },
+        value.toolCall('submit_section_change')
+      )
+    const alignment = proposeProps({ textAlignment: 'center' })
+    const background = proposeProps({ backgroundColor: 'red' })
+    await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: alignment.proposalId
+    })
+    const refreshedBackground = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: background.proposalId
+    })
+    expect(refreshedBackground.outcome).toBe('refresh_required')
+    if (refreshedBackground.outcome !== 'refresh_required') {
+      throw new Error('Expected props refresh')
+    }
+    const appliedBackground = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: refreshedBackground.proposal.proposalId
+    })
+    expect(appliedBackground.outcome).toBe('applied')
+    expect(
+      value.manuscript.getRevision(appliedBackground.proposal.appliedRevisionId ?? '').content[0]
+        ?.props
+    ).toMatchObject({ textAlignment: 'center', backgroundColor: 'red' })
+    value.database.close()
+  })
+
+  it('retains a pending section proposal base body until the proposal becomes terminal', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const protectedBase = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('protected', 'Protected proposal base')]
+    })
+    const proposal = value.service.propose(
+      'submit_section_change',
+      {
+        schemaVersion: 1,
+        sectionId: opened.section.sectionId,
+        baseRevisionId: protectedBase.revision.sectionRevisionId,
+        operations: [
+          {
+            type: 'updateBlock',
+            blockId: 'protected',
+            update: { content: inline('Agent update') }
+          }
+        ],
+        citationIds: []
+      },
+      value.toolCall('submit_section_change')
+    )
+    let current = protectedBase.revision
+    for (let revision = 0; revision < 130; revision += 1) {
+      const saved = await value.persistence.save({
+        projectSessionId,
+        sectionId: opened.section.sectionId,
+        baseRevisionId: current.sectionRevisionId,
+        baseContentHash: current.contentHash,
+        document: [paragraph(`later-${revision}`, `Later revision ${revision}`)]
+      })
+      current = saved.revision
+    }
+    const bodyRetained = () =>
+      value.database.immediate((database) =>
+        database
+          .prepare(
+            'SELECT content_body_retained FROM section_revisions WHERE section_revision_id = ?'
+          )
+          .pluck()
+          .get(protectedBase.revision.sectionRevisionId)
+      )
+    expect(bodyRetained()).toBe(1)
+
+    value.service.reject({
+      projectSessionId,
+      agentSessionId,
+      proposalId: proposal.proposalId,
+      reason: 'Retention test complete'
+    })
+    await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: current.sectionRevisionId,
+      baseContentHash: current.contentHash,
+      document: [paragraph('after-terminal', 'After proposal termination')]
+    })
+    expect(bodyRetained()).toBe(0)
     value.database.close()
   })
 
   it('keeps persisted proposals recoverable after service recreation and rejects stale project capabilities', async () => {
     const value = await fixture()
     const brief = value.manuscript.getBrief()
-    const context = value.toolCall('propose_brief_update')
+    const context = value.toolCall('submit_brief_change')
     expect(() =>
       value.service.propose(
-        'propose_brief_update',
+        'submit_brief_change',
         {
           schemaVersion: 1,
           manuscriptId: brief.manuscriptId,
@@ -244,9 +620,9 @@ describe('MutationProposalService', () => {
         context
       )
     ).toThrow('Proposal cites sources that were not read in this Agent run')
-    const recoveryContext = value.toolCall('propose_brief_update')
+    const recoveryContext = value.toolCall('submit_brief_change')
     const proposed = value.service.propose(
-      'propose_brief_update',
+      'submit_brief_change',
       {
         schemaVersion: 1,
         manuscriptId: brief.manuscriptId,
@@ -284,10 +660,10 @@ describe('MutationProposalService', () => {
   it('validates a whole outline patch before persistence and records explicit rejection without applying it', async () => {
     const value = await fixture()
     const workspace = value.manuscript.getWorkspace()
-    const context = value.toolCall('propose_outline_patch')
+    const context = value.toolCall('submit_outline_change')
     expect(() =>
       value.service.propose(
-        'propose_outline_patch',
+        'submit_outline_change',
         {
           schemaVersion: 1,
           manuscriptId: workspace.manuscriptId,
@@ -316,9 +692,9 @@ describe('MutationProposalService', () => {
       )
     ).toBe(0)
 
-    const nextContext = value.toolCall('propose_outline_patch')
+    const nextContext = value.toolCall('submit_outline_change')
     const proposed = value.service.propose(
-      'propose_outline_patch',
+      'submit_outline_change',
       {
         schemaVersion: 1,
         manuscriptId: workspace.manuscriptId,
@@ -347,9 +723,9 @@ describe('MutationProposalService', () => {
     expect(rejected.proposal).toMatchObject({ status: 'rejected', rejectedReason: 'User declined' })
     expect(value.manuscript.listSections()).toHaveLength(1)
 
-    const applyContext = value.toolCall('propose_outline_patch')
+    const applyContext = value.toolCall('submit_outline_change')
     const appliedProposal = value.service.propose(
-      'propose_outline_patch',
+      'submit_outline_change',
       {
         schemaVersion: 1,
         manuscriptId: workspace.manuscriptId,
@@ -393,7 +769,7 @@ describe('MutationProposalService', () => {
       position: 1
     })
     const sectionProposal = value.service.propose(
-      'propose_section_patch',
+      'submit_section_change',
       {
         schemaVersion: 1,
         sectionId: target.sectionId,
@@ -408,7 +784,7 @@ describe('MutationProposalService', () => {
         ],
         citationIds: []
       },
-      value.toolCall('propose_section_patch')
+      value.toolCall('submit_section_change')
     )
     const sectionApplied = await value.service.approve({
       projectSessionId,
@@ -428,7 +804,7 @@ describe('MutationProposalService', () => {
 
     const workspace = value.manuscript.getWorkspace()
     const outlineProposal = value.service.propose(
-      'propose_outline_patch',
+      'submit_outline_change',
       {
         schemaVersion: 1,
         manuscriptId: workspace.manuscriptId,
@@ -436,7 +812,7 @@ describe('MutationProposalService', () => {
         operations: [{ type: 'deleteSection', sectionId: target.sectionId }],
         citationIds: []
       },
-      value.toolCall('propose_outline_patch')
+      value.toolCall('submit_outline_change')
     )
     const outlineApplied = await value.service.approve({
       projectSessionId,
@@ -501,7 +877,7 @@ describe('MutationProposalService', () => {
     const afterDeletion = value.manuscript.getWorkspace()
     expect(() =>
       value.service.propose(
-        'propose_outline_patch',
+        'submit_outline_change',
         {
           schemaVersion: 1,
           manuscriptId: afterDeletion.manuscriptId,
@@ -519,7 +895,7 @@ describe('MutationProposalService', () => {
           ],
           citationIds: []
         },
-        value.toolCall('propose_outline_patch')
+        value.toolCall('submit_outline_change')
       )
     ).toThrowError(expect.objectContaining({ code: 'invalid_arguments' }))
     value.database.close()
@@ -528,11 +904,11 @@ describe('MutationProposalService', () => {
   it('returns a retryable conflict with refresh guidance when an outline proposal uses a stale version', async () => {
     const value = await fixture()
     const workspace = value.manuscript.getWorkspace()
-    const context = value.toolCall('propose_outline_patch')
+    const context = value.toolCall('submit_outline_change')
     let error: unknown
     try {
       value.service.propose(
-        'propose_outline_patch',
+        'submit_outline_change',
         {
           schemaVersion: 1,
           manuscriptId: workspace.manuscriptId,
@@ -608,7 +984,7 @@ async function fixture() {
     persistence,
     manifest,
     service,
-    toolCall(toolName: 'propose_brief_update' | 'propose_outline_patch' | 'propose_section_patch') {
+    toolCall(toolName: 'submit_brief_change' | 'submit_outline_change' | 'submit_section_change') {
       sequence += 1
       const eventId = `019c6a5c-8d34-7a8e-a602-3d37a52dc7${String(sequence + 9).padStart(2, '0')}`
       const toolCallId = `tool-call-${sequence}`

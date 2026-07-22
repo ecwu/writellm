@@ -15,6 +15,7 @@ import {
   type AgentRuntimeEvent
 } from '../../shared/contracts/agent'
 import {
+  AGENT_TOOL_RESULT_SCHEMA_VERSION,
   agentToolRequestSchema,
   agentToolResponseSchema,
   type AgentToolRequest,
@@ -33,6 +34,7 @@ import {
   type UtilityMessageDecision
 } from '../workers/persistent-utility-process'
 import type { LogCollector } from '../observability/log-collector'
+import type { AgentModelLimits } from '../../shared/contracts/agent'
 
 export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime {
   readonly #worker: PersistentUtilityProcess
@@ -69,7 +71,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     rawInput: Parameters<AgentModelRuntime['run']>[2],
     signal: AbortSignal,
     onEvent: Parameters<AgentModelRuntime['run']>[4],
-    projectSessionId?: string
+    projectSessionId?: string,
+    modelLimits?: Parameters<AgentModelRuntime['run']>[6]
   ): ReturnType<AgentModelRuntime['run']> {
     if (signal.aborted) return Promise.reject(abortError())
     if (config.role !== 'agent') return Promise.reject(new Error('Agent provider role is required'))
@@ -79,6 +82,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       projectSessionId: projectSessionId ?? null,
       config,
       credential,
+      modelLimits: modelLimits ?? legacyLimits(config.contextWindowTokens),
       input
     }
     return this.#worker.request({
@@ -107,13 +111,16 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     if (signal.aborted) {
       return rejectedSessionHandle(abortError())
     }
+    if (config.role !== 'agent')
+      return rejectedSessionHandle(new Error('Agent provider role is required'))
     const requestId = randomUUID()
     const request = agentRunStartSchema.parse({
       operation: 'run_start',
       requestId,
       config,
       credential,
-      ...input
+      ...input,
+      modelLimits: input.modelLimits ?? legacyLimits(config.contextWindowTokens)
     })
     const { port1, port2 } = this.createMessageChannel()
     const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
@@ -419,6 +426,17 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
   }
 }
 
+function legacyLimits(contextWindowTokens?: number | null): AgentModelLimits {
+  return {
+    contextWindowTokens: contextWindowTokens ?? 131_072,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: contextWindowTokens == null ? 'legacy_fallback' : 'manual_override',
+    catalogModelKey: null,
+    resolvedAt: null
+  }
+}
+
 function reconstructError(input: {
   name: string
   message: string
@@ -457,6 +475,7 @@ function rejectedSessionHandle(error: Error): AgentSessionRunHandle {
 function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
   return {
     type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
     requestId: request.requestId,
     projectSessionId: request.projectSessionId,
     agentSessionId: request.agentSessionId,
@@ -467,8 +486,9 @@ function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
     ok: false,
     error: {
       code: 'unavailable',
+      category: 'transient',
       message: 'Agent read tools are unavailable',
-      retryable: true
+      recovery: { action: 'retry', maxAttempts: 1 }
     }
   }
 }
@@ -476,6 +496,7 @@ function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
 function internalToolResponse(request: AgentToolRequest): AgentToolResponse {
   return {
     type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
     requestId: request.requestId,
     projectSessionId: request.projectSessionId,
     agentSessionId: request.agentSessionId,
@@ -484,6 +505,11 @@ function internalToolResponse(request: AgentToolRequest): AgentToolResponse {
     modelRequestId: request.modelRequestId,
     toolName: request.toolName,
     ok: false,
-    error: { code: 'internal', message: 'Agent read tool failed', retryable: false }
+    error: {
+      code: 'internal',
+      category: 'internal',
+      message: 'Agent read tool failed',
+      recovery: { action: 'do_not_retry' }
+    }
   }
 }

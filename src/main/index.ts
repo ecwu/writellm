@@ -47,6 +47,9 @@ import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
 import { MainAgentTools } from './agent/tools'
 import { AgentEventBroker } from './agent/event-broker'
+import { MutationEventBroker } from './agent/mutation-event-broker'
+import { ModelMetadataClient } from './providers/model-metadata-client'
+import { ModelMetadataService } from './providers/model-metadata-service'
 import { MineruClient } from './knowledge/mineru-client'
 import { MineruWorkflowService, registerMineruHandlers } from './knowledge/mineru-workflow-service'
 import { PdfPreviewCapabilities } from './knowledge/pdf-preview-capabilities'
@@ -152,6 +155,7 @@ if (!hasSingleInstanceLock) {
         appDatabase,
         loggerSystem.createModuleLogger('app', 'settings')
       )
+      await appSettings.getDefaultAgentApprovalMode()
       const recentProjects = new RecentProjectsRepository(appDatabase)
       const credentialLog = loggerSystem.createModuleLogger('security', 'credentials')
       const credentials = new CredentialService(appDatabase, safeStorage, credentialLog)
@@ -189,12 +193,21 @@ if (!hasSingleInstanceLock) {
         utilityProcess,
         backgroundWorker
       )
+      const modelMetadata = new ModelMetadataService(
+        appSettings,
+        new ModelMetadataClient(
+          backgroundWorker,
+          loggerSystem.createModuleLogger('worker', 'model-metadata')
+        ),
+        loggerSystem.createModuleLogger('agent', 'model-metadata')
+      )
       const modelExecution = new ModelExecutionService({
         providers,
         agent: agentModel,
         embeddings: auxiliaryModel,
         reranker: auxiliaryModel,
-        log: loggerSystem.createModuleLogger('embedding', 'execution')
+        log: loggerSystem.createModuleLogger('embedding', 'execution'),
+        modelMetadata
       })
       const mineruClient = new MineruClient(
         join(__dirname, 'background-worker.js'),
@@ -205,6 +218,15 @@ if (!hasSingleInstanceLock) {
       const agentEvents = new AgentEventBroker(
         loggerSystem.createModuleLogger('agent', 'event-broker')
       )
+      const mutationEvents = new MutationEventBroker(
+        loggerSystem.createModuleLogger('agent', 'mutation-event-broker')
+      )
+      let flushForAgentMutation = async (
+        _projectSessionId: string,
+        _affectedSectionIds: readonly string[]
+      ): Promise<void> => {
+        throw new Error('Agent mutation editor barrier is unavailable')
+      }
       let mainWindow: BrowserWindow | null = null
       const projectManager = new ProjectManager({
         applicationVersion: app.getVersion(),
@@ -327,7 +349,10 @@ if (!hasSingleInstanceLock) {
             database,
             manuscript,
             editorPersistence,
-            log: loggerSystem.createModuleLogger('agent', 'mutations')
+            log: loggerSystem.createModuleLogger('agent', 'mutations'),
+            publishChanged: (event) => mutationEvents.publish(event),
+            flushForMutation: (affectedSectionIds) =>
+              flushForAgentMutation(projectSessionId, affectedSectionIds)
           })
           const agentTools = new MainAgentTools(agentReadTools, agentMutations)
           const agentSessions = new AgentSessionService({
@@ -338,6 +363,8 @@ if (!hasSingleInstanceLock) {
             runtime: agentModel,
             contextBuilder: agentTools.contextBuilder(),
             tools: agentTools,
+            defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
+            resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
             summarizeHistory: async (input) => {
@@ -463,6 +490,7 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      flushForAgentMutation = editorIpc.flushForMutation
       const unregisterManuscriptIpc = registerManuscriptIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
@@ -471,6 +499,7 @@ if (!hasSingleInstanceLock) {
       })
       const agentMutationIpc = registerAgentMutationIpc({
         manager: projectManager,
+        broker: mutationEvents,
         logger: loggerSystem.createModuleLogger('ipc', 'agent-mutations'),
         developmentUrl,
         ipc

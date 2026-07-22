@@ -14,7 +14,7 @@ The following rules are now the current target. Any older section in this docume
 - Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
 - Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- The initial Agent surface is four read tools (`get_writing_context`, `read_section`, `search_knowledge`, `read_citations`) and three proposal tools (`propose_brief_update`, `propose_outline_patch`, `propose_section_patch`).
+- Agent Harness Protocol v2 uses eight bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`) and three typed submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`). ADR 005 supersedes the initial seven-tool list without adding generic authority.
 - The initial Agent persistence surface is `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
@@ -622,6 +622,15 @@ A mutation proposal includes the target section and `baseRevisionId`. Main valid
 
 Accepted operations create a new revision and retain provenance to the agent run, tool call, proposal, source revision, and cited knowledge blocks.
 
+When a pending section proposal's base is no longer current, Main does not apply it. Main performs
+operation-aware three-way checks against the retained base and current BlockNote documents. A
+non-conflicting result creates a new pending replacement proposal based on the current revision;
+the original proposal remains immutable and becomes superseded. The replacement requires a new
+user approval and must still pass the exact revision check before application. Overlapping writes
+become an explicit conflict, while field writes already present in the current document complete as
+already satisfied without creating a revision. Brief and outline proposals continue to use strict
+version-conflict behavior. See ADR 003.
+
 ## Knowledge Base Domain
 
 ### Source import
@@ -802,7 +811,7 @@ Persist normalized project-local records for:
 
 - agent session;
 - agent run/turn;
-- ordered Agent events (`user_message`, `assistant_message`, `tool_call`, `tool_result`, `run_interrupted`, `run_completed`, `compaction_summary`);
+- ordered Agent events (`user_message`, `assistant_message`, `tool_attempted`, `tool_preflight_failed`, `tool_call`, `tool_result`, `approval_decision`, `run_interrupted`, `run_completed`, `compaction_summary`);
 - model request metadata and usage;
 - mutation proposals and decisions.
 
@@ -826,41 +835,59 @@ Full manuscript and knowledge access is through tools with pagination and size l
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
-### Initial read tools
+### Agent Harness Protocol v2 tools
 
 ```text
 get_writing_context
+read_outline
 read_section
+search_manuscript
 search_knowledge
 read_citations
+inspect_change
+check_draft
 ```
 
-`get_writing_context({ includeBrief, includeOutline, activeSectionId? })` returns the brief summary, outline, section status and counts, active section, Renderer-supplied selected block IDs, and the current revision. `read_section({ sectionId, blockIds?, cursor?, limit? })` covers both section and selected-block reads. The UI injects active editor context; the Agent does not fetch high-frequency cursor state.
+`get_writing_context` is a lightweight snapshot manifest and never returns active section text.
+`read_outline`, `read_section`, and `search_manuscript` are bound to the source
+`modelRequestId` snapshot. `read_section` supports paginated block summaries with canonical hashes,
+a complete canonical block view, and bounded canonical JSON fragments. `inspect_change` reads only
+proposals from the current Agent session. `check_draft` performs bounded deterministic checks.
+The UI injects selection capture time and revision; stale block selections are not combined with a
+newer body.
 
 Read-only tools may execute in parallel when their results are independent.
 
-### Initial write tools
+### Submit tools
 
 ```text
-propose_brief_update
-propose_outline_patch
-propose_section_patch
+submit_brief_change
+submit_outline_change
+submit_section_change
 ```
 
-`propose_outline_patch` covers section create, metadata update, move/reorder, and delete. `propose_section_patch` uses the existing typed BlockNote operations.
+Model arguments do not contain schema, manuscript, version, revision, or generated domain IDs.
+Main binds those values from the source snapshot. Outline operations use `SectionRef`, `clientRef`,
+and first/last/before/after placement. Section operations use the block-hash DSL; plain text
+replacement cannot erase links, marks, tables, or child structures, and canonical replacement
+requires a matching canonical read in the current run.
 
 Outline deletion tombstones a leaf section rather than physically deleting its revision graph.
 The tombstone is absent from active writing context, assembly, editor, and Agent tools, but its
 revision and proposal lineage remains authoritative. Outline-delete undo and section restoration
 remain deferred.
 
-The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process tools, custom tool creation, plugin or skill registries, automatic application, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
+The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process tools, custom tool creation, plugin or skill registries, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
 
-Write tools are sequential and create `mutation_proposals`; they do not directly commit project state.
+Submit tools are sequential and create `mutation_proposals`; they do not directly commit project state.
 
-Main uses Pi's tool preflight hook plus its own policy engine to block disallowed calls. The renderer displays a structured preview. The user can approve or reject. Approved proposals are revalidated against the current project and revision immediately before application.
-
-An optional future auto-apply mode may be limited to explicitly selected low-risk operations. It is not the default architecture.
+Main uses Pi's tool preflight hook plus its own effect policy. Pure reads may run in parallel; a
+mixed read/write batch executes reads and blocks the mutation, and one assistant message may contain
+at most one mutation. A manual proposal returns `pause_for_review` immediately and terminates the
+run; there is no approval waiter. The renderer offers approval alone or approval followed by a new
+immutable run whose prompt includes Main's authoritative application result. Brief changes and
+complex canonical section replacements always require review. Automatic thresholds are calculated
+from canonical operations, never a Worker declaration. See ADR 005.
 
 ### Agent tool bridge
 

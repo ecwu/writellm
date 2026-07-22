@@ -40,6 +40,23 @@ export interface SectionPatchSimulation {
   readonly affectedBlockIds: string[]
 }
 
+export function applyBlockMutationOperation(
+  source: BlockNoteDocument,
+  operation: BlockMutationOperation
+): BlockNoteDocument {
+  const document = cloneDocument(blockNoteDocumentSchema.parse(source))
+  const affected = new Set<string>()
+  try {
+    applyOperation(document, operation, affected)
+    return cloneDocument(blockNoteDocumentSchema.parse(document))
+  } catch (err) {
+    if (err instanceof MutationSimulationError) throw err
+    throw new MutationSimulationError('invalid_result', 'Section patch result is invalid', {
+      cause: err
+    })
+  }
+}
+
 export function simulateSectionPatch(
   source: BlockNoteDocument,
   rawPatch: SectionPatch

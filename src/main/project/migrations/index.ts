@@ -16,6 +16,9 @@ import { migration0015 } from './0015-job-state-schema-hardening'
 import { migration0016 } from './0016-agent-sessions'
 import { migration0017 } from './0017-mutation-proposal-results'
 import { migration0018 } from './0018-section-tombstones'
+import { migration0019 } from './0019-section-proposal-refresh'
+import { migration0020 } from './0020-agent-approval-and-limits'
+import { migration0021 } from './0021-agent-harness-protocol-v2'
 
 export const projectMigrations = [
   migration0001,
@@ -35,5 +38,8 @@ export const projectMigrations = [
   migration0015,
   migration0016,
   migration0017,
-  migration0018
+  migration0018,
+  migration0019,
+  migration0020,
+  migration0021
 ] as const

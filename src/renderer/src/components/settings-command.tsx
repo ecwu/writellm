@@ -26,6 +26,7 @@ import {
 import { ProviderSettingsDialog } from '@/features/providers/provider-settings-dialog'
 import { useTheme } from '@/theme-provider'
 import type { ThemePreference } from '../../../shared/contracts/app'
+import type { AgentApprovalMode } from '../../../shared/contracts/agent'
 
 interface SettingsCommandProps {
   open: boolean
@@ -44,15 +45,22 @@ export function SettingsCommand({
 }: SettingsCommandProps): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderSettingsSnapshot | null>(null)
   const [providerRole, setProviderRole] = useState<ProviderRole | null>(null)
+  const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('manual')
   const { preference, setPreference } = useTheme()
 
   useEffect(() => {
     if (!open) return
     let current = true
-    void window.desktop.providers
-      .snapshot()
-      .then((snapshot) => {
-        if (current) setProviders(snapshot)
+    void window.desktop.providers.snapshot().then((snapshot) => {
+      if (current) setProviders(snapshot)
+    })
+    void window.desktop.app
+      .getDefaultAgentApprovalMode()
+      .then((mode) => {
+        if (current) setApprovalMode(mode)
+      })
+      .catch(() => {
+        if (current) setApprovalMode('manual')
       })
       .catch(() => {
         if (current) setProviders(null)
@@ -76,6 +84,16 @@ export function SettingsCommand({
     void setPreference(nextPreference)
       .then(() => onOpenChange(false))
       .catch(() => onError('Theme preference could not be saved.'))
+  }
+
+  const selectApprovalMode = (mode: AgentApprovalMode): void => {
+    void window.desktop.app
+      .setDefaultAgentApprovalMode({ mode })
+      .then((persisted) => {
+        setApprovalMode(persisted)
+        onOpenChange(false)
+      })
+      .catch(() => onError('Default Agent approval mode could not be saved.'))
   }
 
   const providerBadge = (role: ProviderRole): React.JSX.Element => {
@@ -126,6 +144,21 @@ export function SettingsCommand({
               <KeyRound /> MinerU parser
               <CommandShortcut>{providerBadge('mineru')}</CommandShortcut>
             </CommandItem>
+          </CommandGroup>
+          <CommandSeparator />
+          <CommandGroup heading='Agent approval default'>
+            {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
+              <CommandItem
+                key={mode}
+                keywords={['agent', 'approval', mode]}
+                onSelect={() => selectApprovalMode(mode)}
+              >
+                <Bot /> {settingsApprovalModeLabel(mode)}
+                <CommandShortcut>
+                  <Check className={approvalMode === mode ? 'opacity-100' : 'opacity-0'} />
+                </CommandShortcut>
+              </CommandItem>
+            ))}
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading='Appearance'>
@@ -192,4 +225,10 @@ export function SettingsCommand({
       />
     </>
   )
+}
+
+function settingsApprovalModeLabel(mode: AgentApprovalMode): string {
+  if (mode === 'manual') return 'Manual — review every proposal'
+  if (mode === 'section_auto') return 'Section auto — review Brief and Outline'
+  return 'YOLO — apply every proposal'
 }

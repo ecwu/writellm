@@ -165,6 +165,7 @@ describe('AgentModelClient', () => {
           throw new Error('Expected a search_knowledge request')
         }
         return {
+          schemaVersion: 2,
           type: 'tool_response',
           requestId: request.requestId,
           projectSessionId: request.projectSessionId,
@@ -242,6 +243,7 @@ describe('AgentModelClient', () => {
         })
         handlerSettled = true
         return {
+          schemaVersion: 2,
           type: 'tool_response',
           requestId: request.requestId,
           projectSessionId: request.projectSessionId,
@@ -251,7 +253,12 @@ describe('AgentModelClient', () => {
           modelRequestId: request.modelRequestId,
           toolName: request.toolName,
           ok: false,
-          error: { code: 'aborted', message: 'Agent tool request was aborted', retryable: true }
+          error: {
+            code: 'aborted',
+            category: 'cancelled',
+            message: 'Agent tool request was aborted',
+            recovery: { action: 'do_not_retry' }
+          }
         }
       }
     )

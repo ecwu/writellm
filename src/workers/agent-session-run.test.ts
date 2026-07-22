@@ -108,7 +108,8 @@ describe('runAgentSession', () => {
       agentRunId: request.agentRunId,
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
       content: 'Change direction.',
-      timestamp: 3
+      timestamp: 3,
+      systemPrompt: request.systemPrompt
     })
     control?.enqueue({
       operation: 'follow_up',
@@ -118,7 +119,8 @@ describe('runAgentSession', () => {
       agentRunId: request.agentRunId,
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc417',
       content: 'Now summarize.',
-      timestamp: 4
+      timestamp: 4,
+      systemPrompt: request.systemPrompt
     })
     resolveFirst?.(
       new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
@@ -202,7 +204,8 @@ describe('runAgentSession', () => {
             agentSessionId: request.agentSessionId,
             agentRunId: request.agentRunId,
             continuationId: event.continuationId,
-            modelRequestId: continuationModelRequestId
+            modelRequestId: continuationModelRequestId,
+            systemPrompt: request.systemPrompt
           })
         }
       },
@@ -229,7 +232,7 @@ describe('runAgentSession', () => {
         .filter((event) => event.type === 'model_call_finished')
         .map((event) => (event.type === 'model_call_finished' ? event.modelRequestId : ''))
     ).toEqual([request.modelRequestId, continuationModelRequestId])
-    expect(JSON.stringify(bodies[1])).toContain('<UNTRUSTED_KNOWLEDGE')
+    expect(JSON.stringify(bodies[1])).toContain('<UNTRUSTED_EXTERNAL')
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
@@ -277,7 +280,8 @@ describe('runAgentSession', () => {
             agentSessionId: shortRequest.agentSessionId,
             agentRunId: shortRequest.agentRunId,
             continuationId: event.continuationId,
-            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+            systemPrompt: shortRequest.systemPrompt
           })
         }
       },
@@ -515,6 +519,7 @@ function knowledgeHit() {
 
 function responseCapability(request: Record<string, unknown>) {
   return {
+    schemaVersion: 2,
     requestId: request.requestId,
     projectSessionId: request.projectSessionId,
     agentSessionId: request.agentSessionId,

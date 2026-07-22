@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { agentApprovalModeSchema } from './agent'
 
 export const appInfoSchema = z.object({
   name: z.string().min(1),
@@ -15,3 +16,10 @@ export const setThemePreferenceInputSchema = z.object({
 
 export type ThemePreference = z.infer<typeof themePreferenceSchema>
 export type SetThemePreferenceInput = z.infer<typeof setThemePreferenceInputSchema>
+
+export const setDefaultAgentApprovalModeInputSchema = z
+  .object({ mode: agentApprovalModeSchema })
+  .strict()
+export type SetDefaultAgentApprovalModeInput = z.infer<
+  typeof setDefaultAgentApprovalModeInputSchema
+>

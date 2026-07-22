@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import {
   type agentProposalToolNameSchema,
-  briefUpdateSchema,
-  mutationProposalToolResultSchema,
-  outlinePatchSchema,
-  sectionPatchSchema
+  modelSubmitBriefChangeArgsSchema,
+  modelSubmitOutlineChangeArgsSchema,
+  modelSubmitSectionChangeArgsSchema,
+  mutationProposalRecordSchema,
+  submitChangeResultSchema
 } from './agent-mutations'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import { projectSessionIdSchema } from './projects'
@@ -15,23 +16,96 @@ export const AGENT_TOOL_RESULT_BYTES = 262_144
 export const AGENT_SECTION_PAGE_LIMIT = 50
 export const AGENT_KNOWLEDGE_RESULT_LIMIT = 20
 export const AGENT_CITATION_RESULT_LIMIT = 10
+export const AGENT_TOOL_RESULT_SCHEMA_VERSION = 2
+
+export const toolResultMetaSchema = z
+  .object({
+    contractVersion: z.literal(2),
+    toolName: z.string().min(1).max(256),
+    toolCallId: z.string().min(1).max(256),
+    modelRequestId: agentModelRequestIdSchema
+  })
+  .strict()
 
 export const agentReadToolNameSchema = z.enum([
   'get_writing_context',
+  'read_outline',
   'read_section',
+  'search_manuscript',
   'search_knowledge',
-  'read_citations'
+  'read_citations',
+  'check_draft'
 ])
 
 export const agentToolNameSchema = z.enum([
   'get_writing_context',
+  'read_outline',
   'read_section',
+  'search_manuscript',
   'search_knowledge',
   'read_citations',
+  'inspect_change',
+  'check_draft',
+  'submit_brief_change',
+  'submit_outline_change',
+  'submit_section_change'
+])
+
+export const legacyAgentToolNameSchema = z.enum([
   'propose_brief_update',
   'propose_outline_patch',
   'propose_section_patch'
 ])
+
+export const persistedAgentToolNameSchema = z.union([
+  agentToolNameSchema,
+  legacyAgentToolNameSchema
+])
+
+export const AGENT_TOOL_DESCRIPTORS = {
+  get_writing_context: descriptor('parallel', 'manuscript', 5_000, false),
+  read_outline: descriptor('parallel', 'outline', 5_000, false),
+  read_section: descriptor('parallel', 'section', 5_000, false),
+  search_manuscript: descriptor('parallel', 'manuscript', 5_000, false),
+  search_knowledge: descriptor('parallel', 'knowledge', 30_000, true),
+  read_citations: descriptor('parallel', 'knowledge', 10_000, false),
+  inspect_change: descriptor('parallel', 'proposal', 5_000, false),
+  check_draft: descriptor('parallel', 'manuscript', 30_000, true),
+  submit_brief_change: descriptor('sequential', 'brief', 10_000, true),
+  submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
+  submit_section_change: descriptor('sequential', 'section', 10_000, true)
+} as const satisfies Record<
+  z.infer<typeof agentToolNameSchema>,
+  {
+    contractVersion: 2
+    effects: readonly ('read' | 'proposal' | 'mutation')[]
+    executionMode: 'parallel' | 'sequential'
+    consistency: 'snapshot'
+    lockScope: 'manuscript' | 'brief' | 'outline' | 'section' | 'knowledge' | 'proposal'
+    deadlineMs: number
+    supportsProgress: boolean
+    maxOutputBytes: number
+  }
+>
+
+function descriptor(
+  executionMode: 'parallel' | 'sequential',
+  lockScope: 'manuscript' | 'brief' | 'outline' | 'section' | 'knowledge' | 'proposal',
+  deadlineMs: number,
+  supportsProgress: boolean
+) {
+  return {
+    contractVersion: 2 as const,
+    effects:
+      executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
+    executionMode,
+    consistency: 'snapshot' as const,
+    lockScope,
+    deadlineMs,
+    supportsProgress,
+    maxOutputBytes: AGENT_TOOL_RESULT_BYTES
+  }
+}
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 
@@ -41,14 +115,29 @@ export const getWritingContextArgsSchema = strictObject({
   activeSectionId: z.uuid().optional()
 })
 
+export const readOutlineArgsSchema = strictObject({
+  rootSectionId: z.uuid().optional(),
+  maxDepth: z.number().int().min(1).max(64).default(8),
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.number().int().min(1).max(100).default(50)
+})
+
 export const readSectionArgsSchema = strictObject({
   sectionId: z.uuid(),
+  view: z.enum(['summary', 'canonical', 'fragment']).default('summary'),
+  blockId: z.string().min(1).max(256).optional(),
   blockIds: z.array(z.string().min(1).max(256)).max(100).optional(),
   cursor: z.string().min(1).max(512).optional(),
-  limit: z.number().int().min(1).max(AGENT_SECTION_PAGE_LIMIT).default(20)
-}).refine((value) => value.blockIds === undefined || value.cursor === undefined, {
-  message: 'blockIds and cursor cannot be combined'
+  limit: z.number().int().min(1).max(AGENT_SECTION_PAGE_LIMIT).default(20),
+  offset: z.number().int().nonnegative().default(0),
+  maxChars: z.number().int().min(256).max(65_536).default(16_384)
 })
+  .refine((value) => value.blockIds === undefined || value.cursor === undefined, {
+    message: 'blockIds and cursor cannot be combined'
+  })
+  .refine((value) => value.view === 'summary' || value.blockId !== undefined, {
+    message: 'Canonical and fragment views require blockId'
+  })
 
 export const searchKnowledgeArgsSchema = strictObject({
   query: z.string().trim().min(1).max(2_000),
@@ -71,6 +160,52 @@ export const readCitationsArgsSchema = strictObject({
     .array(z.string().regex(/^citation-[a-f0-9]{40}$/))
     .min(1)
     .max(AGENT_CITATION_RESULT_LIMIT)
+    .default([]),
+  requests: z
+    .array(
+      strictObject({
+        citationId: z.string().regex(/^citation-[a-f0-9]{40}$/),
+        offset: z.number().int().nonnegative().default(0),
+        maxChars: z.number().int().min(256).max(65_536).default(16_384)
+      })
+    )
+    .max(AGENT_CITATION_RESULT_LIMIT)
+    .default([])
+})
+  .refine((args) => args.citationIds.length > 0 || args.requests.length > 0, {
+    message: 'At least one citation must be requested'
+  })
+  .refine((args) => args.citationIds.length + args.requests.length <= AGENT_CITATION_RESULT_LIMIT, {
+    message: 'Citation request count exceeds its bound'
+  })
+
+export const searchManuscriptArgsSchema = strictObject({
+  query: z.string().trim().min(1).max(2_000),
+  sectionIds: z.array(z.uuid()).max(100).default([]),
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.number().int().min(1).max(50).default(20)
+})
+
+export const inspectChangeArgsSchema = strictObject({ proposalId: z.uuid() })
+
+export const draftCheckNameSchema = z.enum([
+  'document_structure',
+  'outline_integrity',
+  'revision_lineage',
+  'citation_provenance',
+  'safe_links',
+  'unresolved_placeholders',
+  'duplicate_headings',
+  'duplicate_paragraphs',
+  'length_constraints'
+])
+
+export const checkDraftArgsSchema = strictObject({
+  scope: z.discriminatedUnion('type', [
+    strictObject({ type: z.literal('manuscript') }),
+    strictObject({ type: z.literal('section'), sectionId: z.uuid() })
+  ]),
+  checks: z.array(draftCheckNameSchema).max(9).default([])
 })
 
 const sectionSummarySchema = strictObject({
@@ -84,6 +219,14 @@ const sectionSummarySchema = strictObject({
   currentRevisionId: z.uuid(),
   wordCount: z.number().int().nonnegative(),
   characterCount: z.number().int().nonnegative()
+})
+
+export const readOutlineResultSchema = strictObject({
+  snapshotId: z.uuid(),
+  outlineVersion: z.number().int().positive(),
+  sections: z.array(sectionSummarySchema).max(100),
+  nextCursor: z.string().min(1).max(512).nullable(),
+  totalSections: z.number().int().nonnegative()
 })
 
 const briefSummarySchema = strictObject({
@@ -101,15 +244,25 @@ const briefSummarySchema = strictObject({
 })
 
 export const writingContextResultSchema = strictObject({
+  snapshotId: z.uuid(),
+  observedAt: z.iso.datetime(),
   manuscriptId: z.string().min(1).max(256),
   outlineVersion: z.number().int().positive(),
   brief: briefSummarySchema.nullable(),
   outline: z.array(sectionSummarySchema).max(200),
   outlineTruncated: z.boolean(),
   activeSection: sectionSummarySchema.nullable(),
-  activeSectionText: z.string().max(32_768).nullable(),
-  selectedBlockIds: z.array(z.string().min(1).max(256)).max(256),
-  activeBlockId: z.string().min(1).max(256).nullable(),
+  editorSelection: strictObject({
+    capturedAt: z.number().int().nonnegative(),
+    capturedRevisionId: z.uuid().nullable(),
+    currentRevisionId: z.uuid().nullable(),
+    stale: z.boolean(),
+    selectedBlockIds: z.array(z.string().min(1).max(256)).max(256),
+    activeBlockId: z.string().min(1).max(256).nullable()
+  }),
+  warnings: z
+    .array(strictObject({ code: z.string().min(1).max(100), message: z.string().max(1_000) }))
+    .max(20),
   totalWordCount: z.number().int().nonnegative(),
   totalCharacterCount: z.number().int().nonnegative()
 })
@@ -117,18 +270,96 @@ export const writingContextResultSchema = strictObject({
 const sectionBlockSchema = strictObject({
   blockId: z.string().min(1).max(256),
   blockType: z.string().min(1).max(100),
+  parentBlockId: z.string().min(1).max(256).nullable(),
+  depth: z.number().int().nonnegative().max(16),
   ordinal: z.number().int().nonnegative(),
   text: z.string().max(8_192),
-  textTruncated: z.boolean()
+  textTruncated: z.boolean(),
+  blockHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  childBlockIds: z.array(z.string().min(1).max(256)).max(10_000),
+  hasRichContent: z.boolean()
 })
 
 export const readSectionResultSchema = strictObject({
   section: sectionSummarySchema,
   revisionId: z.uuid(),
   blocks: z.array(sectionBlockSchema).max(AGENT_SECTION_PAGE_LIMIT),
+  canonicalBlock: z.unknown().nullable(),
+  canonicalFragment: z.string().max(65_536).nullable(),
+  fragmentOffset: z.number().int().nonnegative().nullable(),
+  nextFragmentOffset: z.number().int().nonnegative().nullable(),
   missingBlockIds: z.array(z.string().min(1).max(256)).max(100),
   nextCursor: z.string().min(1).max(512).nullable(),
   totalBlocks: z.number().int().nonnegative()
+})
+
+export const searchManuscriptResultSchema = strictObject({
+  snapshotId: z.uuid(),
+  hits: z
+    .array(
+      strictObject({
+        sectionId: z.uuid(),
+        revisionId: z.uuid(),
+        blockId: z.string().min(1).max(256),
+        excerpt: z.string().max(1_200),
+        matchRanges: z
+          .array(z.tuple([z.number().int().nonnegative(), z.number().int().positive()]))
+          .max(100),
+        headingPath: z.array(z.string().max(500)).max(64)
+      })
+    )
+    .max(50),
+  nextCursor: z.string().min(1).max(512).nullable()
+})
+
+export const inspectChangeResultSchema = strictObject({
+  proposal: mutationProposalRecordSchema,
+  applicationStatus: z.enum(['not_applied', 'applied', 'conflict', 'no_change']),
+  base: strictObject({
+    briefVersion: z.number().int().positive().nullable(),
+    outlineVersion: z.number().int().positive().nullable(),
+    revisionId: z.uuid().nullable()
+  }),
+  result: strictObject({
+    briefVersion: z.number().int().positive().nullable(),
+    outlineVersion: z.number().int().positive().nullable(),
+    revisionId: z.uuid().nullable(),
+    undoRevisionId: z.uuid().nullable()
+  }),
+  idMapping: strictObject({
+    createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()),
+    createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256))
+  }),
+  compactDiff: strictObject({
+    summary: z.string().max(2_000),
+    beforeText: z.string().max(32_768),
+    afterText: z.string().max(32_768)
+  }),
+  warnings: z.array(z.string().max(1_000)).max(20),
+  conflict: z.string().max(4_096).nullable()
+})
+
+export const checkDraftResultSchema = strictObject({
+  snapshotId: z.uuid(),
+  findings: z
+    .array(
+      strictObject({
+        findingId: z.string().regex(/^[a-f0-9]{64}$/),
+        severity: z.enum(['error', 'warning', 'info']),
+        check: draftCheckNameSchema,
+        sectionId: z.uuid().optional(),
+        blockIds: z.array(z.string().min(1).max(256)).max(100).optional(),
+        message: z.string().min(1).max(2_000),
+        evidence: z.string().max(2_000)
+      })
+    )
+    .max(200),
+  summary: strictObject({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+    passedChecks: z.array(draftCheckNameSchema).max(9),
+    skippedChecks: z.array(draftCheckNameSchema).max(9)
+  })
 })
 
 const knowledgeHitSchema = strictObject({
@@ -162,6 +393,10 @@ const citationResultSchema = strictObject({
   chunkId: z.string().regex(/^chunk-[a-f0-9]{40}$/),
   title: z.string().min(1).max(512),
   text: z.string().max(65_536),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  offset: z.number().int().nonnegative(),
+  totalChars: z.number().int().nonnegative(),
+  nextOffset: z.number().int().nonnegative().nullable(),
   page: z.number().int().nonnegative().optional(),
   headingPath: z.array(z.string().max(1_000)).max(20),
   sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000)
@@ -171,7 +406,8 @@ export const readCitationsResultSchema = strictObject({
   citations: z.array(citationResultSchema).max(AGENT_CITATION_RESULT_LIMIT),
   missingCitationIds: z
     .array(z.string().regex(/^citation-[a-f0-9]{40}$/))
-    .max(AGENT_CITATION_RESULT_LIMIT)
+    .max(AGENT_CITATION_RESULT_LIMIT),
+  truncated: z.boolean()
 })
 
 const toolRequestBase = {
@@ -193,6 +429,11 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
+      toolName: z.literal('read_outline'),
+      args: readOutlineArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
       toolName: z.literal('read_section'),
       args: readSectionArgsSchema
     }),
@@ -203,29 +444,45 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
+      toolName: z.literal('search_manuscript'),
+      args: searchManuscriptArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
       toolName: z.literal('read_citations'),
       args: readCitationsArgsSchema
     }),
     strictObject({
       ...toolRequestBase,
-      toolName: z.literal('propose_brief_update'),
-      args: briefUpdateSchema
+      toolName: z.literal('inspect_change'),
+      args: inspectChangeArgsSchema
     }),
     strictObject({
       ...toolRequestBase,
-      toolName: z.literal('propose_outline_patch'),
-      args: outlinePatchSchema
+      toolName: z.literal('check_draft'),
+      args: checkDraftArgsSchema
     }),
     strictObject({
       ...toolRequestBase,
-      toolName: z.literal('propose_section_patch'),
-      args: sectionPatchSchema
+      toolName: z.literal('submit_brief_change'),
+      args: modelSubmitBriefChangeArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('submit_outline_change'),
+      args: modelSubmitOutlineChangeArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('submit_section_change'),
+      args: modelSubmitSectionChangeArgsSchema
     })
   ])
   .superRefine((request, context) => addByteIssue(request.args, AGENT_TOOL_ARGUMENT_BYTES, context))
 
 const toolResponseBase = {
   type: z.literal('tool_response'),
+  schemaVersion: z.literal(AGENT_TOOL_RESULT_SCHEMA_VERSION),
   requestId: z.uuid(),
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
@@ -244,6 +501,12 @@ const successResponses = z.discriminatedUnion('toolName', [
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
+    toolName: z.literal('read_outline'),
+    data: readOutlineResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
     toolName: z.literal('read_section'),
     data: readSectionResultSchema
   }),
@@ -256,26 +519,44 @@ const successResponses = z.discriminatedUnion('toolName', [
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
+    toolName: z.literal('search_manuscript'),
+    data: searchManuscriptResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
     toolName: z.literal('read_citations'),
     data: readCitationsResultSchema
   }),
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
-    toolName: z.literal('propose_brief_update'),
-    data: mutationProposalToolResultSchema
+    toolName: z.literal('inspect_change'),
+    data: inspectChangeResultSchema
   }),
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
-    toolName: z.literal('propose_outline_patch'),
-    data: mutationProposalToolResultSchema
+    toolName: z.literal('check_draft'),
+    data: checkDraftResultSchema
   }),
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
-    toolName: z.literal('propose_section_patch'),
-    data: mutationProposalToolResultSchema
+    toolName: z.literal('submit_brief_change'),
+    data: submitChangeResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('submit_outline_change'),
+    data: submitChangeResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('submit_section_change'),
+    data: submitChangeResultSchema
   })
 ])
 
@@ -292,11 +573,35 @@ const errorResponse = strictObject({
       'conflict',
       'stale_cursor',
       'result_too_large',
+      'deadline_exceeded',
       'aborted',
       'internal'
     ]),
+    category: z.enum([
+      'validation',
+      'authorization',
+      'precondition',
+      'conflict',
+      'transient',
+      'cancelled',
+      'internal'
+    ]),
     message: z.string().min(1).max(1_000),
-    retryable: z.boolean()
+    recovery: strictObject({
+      action: z.enum([
+        'fix_arguments',
+        'refresh_context',
+        'restart_pagination',
+        'reduce_scope',
+        'retry',
+        'retry_after',
+        'ask_user',
+        'do_not_retry'
+      ]),
+      tool: agentToolNameSchema.optional(),
+      maxAttempts: z.number().int().positive().max(10).optional(),
+      retryAfterMs: z.number().int().nonnegative().max(86_400_000).optional()
+    })
   })
 })
 
@@ -308,14 +613,16 @@ export const agentToolResponseSchema = z
 
 export const agentToolCallPayloadSchema = strictObject({
   toolCallId: z.string().min(1).max(256),
-  toolName: agentToolNameSchema,
+  toolName: persistedAgentToolNameSchema,
+  contractVersion: z.number().int().positive().default(1),
   args: z.record(z.string(), z.unknown()),
   timestamp: z.number().int().nonnegative()
 }).superRefine((payload, context) => addByteIssue(payload.args, AGENT_TOOL_ARGUMENT_BYTES, context))
 
 export const agentToolResultPayloadSchema = strictObject({
   toolCallId: z.string().min(1).max(256),
-  toolName: agentToolNameSchema,
+  toolName: persistedAgentToolNameSchema,
+  contractVersion: z.number().int().positive().default(1),
   isError: z.boolean(),
   result: z.record(z.string(), z.unknown()).nullable(),
   error: z
@@ -337,15 +644,24 @@ function addByteIssue(value: unknown, limit: number, context: z.RefinementCtx): 
 }
 
 export type AgentReadToolName = z.infer<typeof agentReadToolNameSchema>
+export type ToolResultMeta = z.infer<typeof toolResultMetaSchema>
 export type AgentToolName = z.infer<typeof agentToolNameSchema>
 export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>
 export type AgentToolRequest = z.infer<typeof agentToolRequestSchema>
 export type AgentToolResponse = z.infer<typeof agentToolResponseSchema>
 export type GetWritingContextArgs = z.infer<typeof getWritingContextArgsSchema>
 export type ReadSectionArgs = z.infer<typeof readSectionArgsSchema>
+export type ReadOutlineArgs = z.infer<typeof readOutlineArgsSchema>
+export type SearchManuscriptArgs = z.infer<typeof searchManuscriptArgsSchema>
+export type InspectChangeArgs = z.infer<typeof inspectChangeArgsSchema>
+export type CheckDraftArgs = z.infer<typeof checkDraftArgsSchema>
 export type SearchKnowledgeArgs = z.infer<typeof searchKnowledgeArgsSchema>
 export type ReadCitationsArgs = z.infer<typeof readCitationsArgsSchema>
 export type WritingContextResult = z.infer<typeof writingContextResultSchema>
 export type ReadSectionResult = z.infer<typeof readSectionResultSchema>
+export type ReadOutlineResult = z.infer<typeof readOutlineResultSchema>
+export type SearchManuscriptResult = z.infer<typeof searchManuscriptResultSchema>
+export type InspectChangeResult = z.infer<typeof inspectChangeResultSchema>
+export type CheckDraftResult = z.infer<typeof checkDraftResultSchema>
 export type SearchKnowledgeResult = z.infer<typeof searchKnowledgeResultSchema>
 export type ReadCitationsResult = z.infer<typeof readCitationsResultSchema>

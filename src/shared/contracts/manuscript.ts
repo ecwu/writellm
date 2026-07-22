@@ -566,14 +566,14 @@ export const saveSectionDocumentResponseSchema = z.discriminatedUnion('ok', [
 export const finalFlushSaveInputSchema = saveSectionDocumentInputSchema
   .extend({
     closingToken: z.string().uuid(),
-    purpose: z.enum(['close', 'snapshot']).optional()
+    purpose: z.enum(['close', 'snapshot', 'mutation']).optional()
   })
   .strict()
 export const editorFlushRequestSchema = z
   .object({
     projectSessionId: z.string().min(1).max(256),
     closingToken: z.string().uuid(),
-    purpose: z.enum(['close', 'snapshot']).optional(),
+    purpose: z.enum(['close', 'snapshot', 'mutation']).optional(),
     sectionId: sectionIdSchema.optional(),
     sectionRevisionId: sectionRevisionIdSchema.optional()
   })

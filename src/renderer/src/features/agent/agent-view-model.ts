@@ -75,6 +75,50 @@ export function mergeAgentEvents(
   return [...current, incoming].sort((left, right) => left.sequence - right.sequence)
 }
 
+export function protectTerminalAgentRuns(
+  current: AgentRunRecord[],
+  incoming: AgentRunRecord[],
+  terminalRunIds: ReadonlySet<string>
+): AgentRunRecord[] {
+  const currentById = new Map(current.map((run) => [run.agentRunId, run] as const))
+  return incoming.flatMap((run) => {
+    if (run.status !== 'running') return [run]
+    const previous = currentById.get(run.agentRunId)
+    if (previous !== undefined && previous.status !== 'running') return [previous]
+    return terminalRunIds.has(run.agentRunId) ? [] : [run]
+  })
+}
+
+export function applyAgentTerminalEvent(
+  runs: AgentRunRecord[],
+  event: AgentEventRecord
+): AgentRunRecord[] {
+  if (
+    event.agentRunId === null ||
+    (event.type !== 'run_completed' && event.type !== 'run_interrupted')
+  ) {
+    return runs
+  }
+  const status = event.type === 'run_completed' ? 'completed' : terminalStatus(event.payload.status)
+  const errorCode =
+    status === 'completed'
+      ? null
+      : typeof event.payload.code === 'string'
+        ? event.payload.code
+        : status
+  return runs.map((run) =>
+    run.agentRunId === event.agentRunId
+      ? {
+          ...run,
+          status,
+          errorCode,
+          completedAt: run.completedAt ?? event.createdAt,
+          updatedAt: event.createdAt
+        }
+      : run
+  )
+}
+
 export function findToolResult(
   events: AgentEventRecord[],
   toolCallId: string
@@ -143,8 +187,15 @@ export function projectAgentTimeline(
     const parsed = agentToolResultPayloadSchema.safeParse(event.payload)
     if (parsed.success) results.set(parsed.data.toolCallId, parsed.data)
   }
+  const replacedProposalIds = new Set(
+    proposals.flatMap((proposal) =>
+      proposal.replacesProposalId === null ? [] : [proposal.replacesProposalId]
+    )
+  )
   const proposalsByToolCall = new Map(
-    proposals.map((proposal) => [proposal.agentToolCallId, proposal] as const)
+    proposals
+      .filter((proposal) => !replacedProposalIds.has(proposal.proposalId))
+      .map((proposal) => [proposal.agentToolCallId, proposal] as const)
   )
 
   const items: AgentTimelineItem[] = []
@@ -202,7 +253,10 @@ export function projectAgentTimeline(
           event.agentRunId !== null &&
           terminalsByRunId.has(event.agentRunId)
       }
-      if (parsed.data.toolName.startsWith('propose_')) {
+      if (
+        parsed.data.toolName.startsWith('propose_') ||
+        parsed.data.toolName.startsWith('submit_')
+      ) {
         flushTools()
         items.push({
           type: 'proposal',
@@ -234,6 +288,15 @@ export function projectAgentTimeline(
   }
   flushTools()
   return items
+}
+
+export function isSectionProposalOutdated(
+  proposal: MutationProposalRecord,
+  currentRevisionIds: Readonly<Record<string, string>>
+): boolean {
+  if (proposal.status !== 'pending' || proposal.payload.kind !== 'section_patch') return false
+  const mutation = proposal.payload.mutation
+  return currentRevisionIds[mutation.sectionId] !== mutation.baseRevisionId
 }
 
 export function activityStatus(
@@ -410,6 +473,27 @@ export function aggregateAgentUsage(events: AgentEventRecord[]): {
     retryCount += parsed.data.metadata.retryCount
   }
   return { inputTokens, outputTokens, retryCount }
+}
+
+export function latestAgentContextUsage(events: AgentEventRecord[]): {
+  used: number
+  estimated: boolean
+} | null {
+  for (const event of [...events].reverse()) {
+    if (event.type !== 'assistant_message') continue
+    const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
+    if (!parsed.success) continue
+    const metadata = parsed.data.metadata
+    const providerUsed =
+      metadata.usage.inputTokens === null
+        ? null
+        : metadata.usage.inputTokens + (metadata.usage.cacheReadTokens ?? 0)
+    const used = metadata.contextTokensUsed ?? providerUsed
+    if (used !== null) {
+      return { used, estimated: metadata.contextTokensEstimated ?? false }
+    }
+  }
+  return null
 }
 
 export function toolCallFromEvent(event: AgentEventRecord) {

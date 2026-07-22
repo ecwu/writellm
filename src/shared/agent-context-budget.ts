@@ -1,16 +1,55 @@
 import type { UserMessage } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import type { AgentModelLimits } from './contracts/agent'
 
 export const AGENT_CONTEXT_WINDOW_TOKENS = 131_072
 export const AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS = 16_384
 export const AGENT_DEFAULT_OUTPUT_TOKENS = 8_192
 export const AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS = 4_096
 
-export function agentMessageBudget(maxOutputTokens = AGENT_DEFAULT_OUTPUT_TOKENS): number {
-  return Math.max(
-    AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS,
-    AGENT_CONTEXT_WINDOW_TOKENS - AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS - maxOutputTokens
+export function agentOutputLimit(
+  requestedTokens: number,
+  limits: AgentModelLimits = legacyLimits()
+): number {
+  const outputLimit = limits.outputLimitTokens ?? requestedTokens
+  return Math.min(requestedTokens, outputLimit)
+}
+
+export function agentMessageBudget(
+  maxOutputTokens = AGENT_DEFAULT_OUTPUT_TOKENS,
+  limits: AgentModelLimits = legacyLimits()
+): number {
+  const outputReserve = agentOutputLimit(maxOutputTokens, limits)
+  const contextInputLimit =
+    limits.contextWindowTokens - AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS - outputReserve
+  const budget = Math.floor(
+    Math.min(contextInputLimit, limits.inputLimitTokens ?? Number.POSITIVE_INFINITY)
   )
+  if (budget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
+    throw new AgentModelCapacityError(limits.contextWindowTokens, budget)
+  }
+  return budget
+}
+
+export class AgentModelCapacityError extends Error {
+  constructor(
+    readonly contextWindowTokens: number,
+    readonly availableMessageTokens: number
+  ) {
+    super('The configured model cannot fit WriteLLM’s minimum safe Agent context budget')
+    this.name = 'AgentModelCapacityError'
+  }
+}
+
+function legacyLimits(): AgentModelLimits {
+  return {
+    contextWindowTokens: AGENT_CONTEXT_WINDOW_TOKENS,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: 'legacy_fallback',
+    catalogModelKey: null,
+    resolvedAt: null
+  }
 }
 
 /** Deterministic conservative estimate: ASCII is ~4 chars/token; non-ASCII uses UTF-8 width. */

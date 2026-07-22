@@ -83,24 +83,20 @@ describe('Agent read-tool contracts', () => {
     expect(
       agentToolRequestSchema.parse({
         ...capability,
-        toolName: 'propose_brief_update',
+        toolName: 'submit_brief_change',
         args: {
-          manuscriptId: capability.agentSessionId,
-          baseBriefVersion: 1,
           changes: { title: 'Revised' }
         }
       })
     ).toMatchObject({
-      toolName: 'propose_brief_update',
-      args: { schemaVersion: 1, citationIds: [] }
+      toolName: 'submit_brief_change',
+      args: { changes: { title: 'Revised' }, citationIds: [] }
     })
     expect(
       agentToolRequestSchema.safeParse({
         ...capability,
-        toolName: 'propose_brief_update',
+        toolName: 'submit_brief_change',
         args: {
-          manuscriptId: capability.agentSessionId,
-          baseBriefVersion: 1,
           changes: { title: 'Revised' },
           projectSessionId: capability.projectSessionId
         }

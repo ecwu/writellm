@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  MutationProposalActionResult,
+  ApproveMutationProposalResult,
   MutationProposalRecord
 } from '../../../../shared/contracts/agent-mutations'
 import { approveProposalAfterEditorFlush } from './agent-proposal-actions'
@@ -123,6 +123,7 @@ function proposal(): MutationProposalRecord {
     appliedBriefVersion: null,
     appliedOutlineVersion: null,
     undoRevisionId: null,
+    replacesProposalId: null,
     rejectedReason: null,
     createdAt: now,
     updatedAt: now
@@ -161,6 +162,7 @@ function outlineDeleteProposal(targetSectionId: string): MutationProposalRecord 
 }
 
 const actionResult = {
+  outcome: 'applied',
   proposal: proposal(),
   sectionChanged: null
-} satisfies MutationProposalActionResult
+} satisfies ApproveMutationProposalResult

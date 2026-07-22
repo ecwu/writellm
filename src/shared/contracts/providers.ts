@@ -41,6 +41,7 @@ export const providerConfigSchema = z
       role: z.literal('agent'),
       providerId: z.literal('openai-compatible'),
       modelRevision: modelRevisionSchema,
+      contextWindowTokens: z.number().int().min(8_192).max(10_000_000).nullable().optional(),
       embeddingDimension: z.null(),
       fileSizeLimitMb: z.null()
     }),

@@ -20,7 +20,7 @@ export async function runAgentModelRequest(
     reasoning: false,
     input: ['text' as const],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131_072,
+    contextWindow: request.modelLimits?.contextWindowTokens ?? 131_072,
     maxTokens: request.input.maxOutputTokens,
     compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const }
   }

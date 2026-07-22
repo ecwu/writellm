@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
+import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import {
   aggregateAgentUsage,
+  applyAgentTerminalEvent,
   citationDisplaysForToolResult,
   formatAgentDuration,
   findLatestPrompt,
   findToolResult,
+  isSectionProposalOutdated,
   mergeAgentEvents,
+  protectTerminalAgentRuns,
   projectAgentTimeline
 } from './agent-view-model'
 
@@ -24,6 +28,27 @@ describe('Agent renderer view model', () => {
     expect(
       mergeAgentEvents([event], record(1, 'run_completed', {})).map((item) => item.sequence)
     ).toEqual([1, 2])
+  })
+
+  it('never lets a stale running snapshot overwrite durable terminal truth', () => {
+    const running = runRecord('running')
+    const terminalEvent = recordAt(
+      2,
+      'run_interrupted',
+      { status: 'interrupted', code: 'user_stopped' },
+      '2026-07-21T00:00:05.000Z'
+    )
+    const interrupted = applyAgentTerminalEvent([running], terminalEvent)
+
+    expect(interrupted[0]).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped',
+      completedAt: terminalEvent.createdAt
+    })
+    expect(protectTerminalAgentRuns(interrupted, [running], new Set([base.agentRunId]))[0]).toEqual(
+      interrupted[0]
+    )
+    expect(protectTerminalAgentRuns([], [running], new Set([base.agentRunId]))).toEqual([])
   })
 
   it('correlates tool results and keeps retry prompts visible', () => {
@@ -162,8 +187,8 @@ describe('Agent renderer view model', () => {
     const events = [
       assistantRecord(1, 'I will inspect the draft.'),
       toolCallRecord(2, 'read-one', 'read_section'),
-      toolCallRecord(3, 'proposal', 'propose_section_patch'),
-      toolResultRecord(4, 'proposal', 'propose_section_patch'),
+      toolCallRecord(3, 'proposal', 'submit_section_change'),
+      toolResultRecord(4, 'proposal', 'submit_section_change'),
       toolCallRecord(5, 'read-two', 'read_section'),
       toolCallRecord(6, 'search', 'search_knowledge'),
       toolResultRecord(7, 'search', 'search_knowledge', {
@@ -185,6 +210,34 @@ describe('Agent renderer view model', () => {
     expect(timeline[1]).toMatchObject({ type: 'activity', status: 'running' })
     expect(timeline[2]).toMatchObject({ type: 'proposal', proposal: null })
     expect(timeline[3]).toMatchObject({ type: 'activity', status: 'error' })
+  })
+
+  it('projects only the latest leaf of a refreshed proposal chain', () => {
+    const events = [
+      toolCallRecord(1, 'proposal-chain', 'submit_section_change'),
+      toolResultRecord(2, 'proposal-chain', 'submit_section_change')
+    ]
+    const original = proposalRecord('019c6a5c-8d34-7a8e-a602-3d37a52dc430', null, 'superseded')
+    const refreshed = proposalRecord(
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc431',
+      original.proposalId,
+      'pending'
+    )
+
+    expect(projectAgentTimeline(events, [original, refreshed])).toMatchObject([
+      { type: 'proposal', proposal: { proposalId: refreshed.proposalId } }
+    ])
+    if (refreshed.payload.kind !== 'section_patch') throw new Error('Expected section proposal')
+    expect(
+      isSectionProposalOutdated(refreshed, {
+        [refreshed.payload.mutation.sectionId]: '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+      })
+    ).toBe(true)
+    expect(
+      isSectionProposalOutdated(refreshed, {
+        [refreshed.payload.mutation.sectionId]: refreshed.payload.mutation.baseRevisionId
+      })
+    ).toBe(false)
   })
 
   it('reconstructs frozen run and tool durations and marks unresolved tools stopped', () => {
@@ -252,6 +305,15 @@ describe('Agent renderer view model', () => {
       status: 'interrupted',
       providerId: 'openai-compatible',
       modelId: 'writer',
+      approvalMode: 'manual',
+      modelLimits: {
+        contextWindowTokens: 131_072,
+        inputLimitTokens: null,
+        outputLimitTokens: null,
+        source: 'legacy_fallback',
+        catalogModelKey: null,
+        resolvedAt: null
+      },
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
       errorCode: 'user_stopped',
       startedAt: '2026-07-21T00:00:00.000Z',
@@ -345,5 +407,84 @@ function recordAt(
     type,
     payload,
     createdAt
+  }
+}
+
+function proposalRecord(
+  proposalId: string,
+  replacesProposalId: string | null,
+  status: MutationProposalRecord['status']
+): MutationProposalRecord {
+  const terminal = status !== 'pending'
+  return {
+    proposalId,
+    agentSessionId: base.agentSessionId,
+    agentRunId: base.agentRunId,
+    agentToolCallId: 'proposal-chain',
+    kind: 'section_patch',
+    payload: {
+      schemaVersion: 1,
+      kind: 'section_patch',
+      mutation: {
+        schemaVersion: 1,
+        sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc432',
+        baseRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc433',
+        operations: [
+          {
+            type: 'updateBlock',
+            blockId: 'target',
+            update: { content: [{ type: 'text', text: 'After', styles: {} }] }
+          }
+        ],
+        citationIds: []
+      },
+      preview: {
+        summary: 'Update target',
+        affectedSectionIds: ['019c6a5c-8d34-7a8e-a602-3d37a52dc432'],
+        beforeText: 'Before',
+        afterText: 'After',
+        beforeTextTruncated: false,
+        afterTextTruncated: false,
+        citedSources: []
+      },
+      provenance: {
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc434',
+        citedSources: []
+      }
+    },
+    status,
+    decisionAt: terminal ? base.createdAt : null,
+    appliedRevisionId: null,
+    appliedBriefVersion: null,
+    appliedOutlineVersion: null,
+    undoRevisionId: null,
+    replacesProposalId,
+    rejectedReason: terminal ? 'Replaced by refreshed proposal' : null,
+    createdAt: base.createdAt,
+    updatedAt: base.createdAt
+  }
+}
+
+function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
+  return {
+    agentRunId: base.agentRunId,
+    agentSessionId: base.agentSessionId,
+    status,
+    providerId: 'openai-compatible',
+    modelId: 'writer',
+    approvalMode: 'manual',
+    modelLimits: {
+      contextWindowTokens: 131_072,
+      inputLimitTokens: null,
+      outputLimitTokens: null,
+      source: 'legacy_fallback',
+      catalogModelKey: null,
+      resolvedAt: null
+    },
+    editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+    errorCode: null,
+    startedAt: base.createdAt,
+    completedAt: null,
+    updatedAt: base.createdAt
   }
 }

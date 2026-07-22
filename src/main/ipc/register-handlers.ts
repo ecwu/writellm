@@ -1,9 +1,11 @@
 import { app, ipcMain } from 'electron'
 import {
   appInfoSchema,
+  setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema
 } from '../../shared/contracts/app'
+import { agentApprovalModeSchema } from '../../shared/contracts/agent'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { Logger } from 'pino'
@@ -55,11 +57,29 @@ export function registerIpcHandlers({
     return themePreferenceSchema.parse(persisted)
   })
 
+  ipc.handle(IPC_CHANNELS.appGetDefaultAgentApprovalMode, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return agentApprovalModeSchema.parse(await appSettings.getDefaultAgentApprovalMode())
+  })
+
+  ipc.handle(IPC_CHANNELS.appSetDefaultAgentApprovalMode, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { mode } = setDefaultAgentApprovalModeInputSchema.parse(rawInput)
+    const persisted = await appSettings.setDefaultAgentApprovalMode(mode)
+    logger.info(
+      { event: 'app.settings.agent_approval_mode_updated', mode: persisted },
+      'Default Agent approval mode updated'
+    )
+    return agentApprovalModeSchema.parse(persisted)
+  })
+
   return () => {
     for (const channel of [
       IPC_CHANNELS.appGetInfo,
       IPC_CHANNELS.appGetThemePreference,
-      IPC_CHANNELS.appSetThemePreference
+      IPC_CHANNELS.appSetThemePreference,
+      IPC_CHANNELS.appGetDefaultAgentApprovalMode,
+      IPC_CHANNELS.appSetDefaultAgentApprovalMode
     ]) {
       ipc.removeHandler(channel)
     }

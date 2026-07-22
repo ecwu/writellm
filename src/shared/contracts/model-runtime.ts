@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
+import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 
 export const modelUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative().nullable(),
@@ -15,7 +16,9 @@ export const modelExecutionMetadataSchema = z.object({
   usage: modelUsageSchema,
   responseIds: z.array(z.string().min(1).max(500)).max(100),
   retryCount: z.number().int().nonnegative().max(20),
-  providerModelId: z.string().min(1).max(500)
+  providerModelId: z.string().min(1).max(500),
+  contextTokensUsed: z.number().int().nonnegative().nullable().optional(),
+  contextTokensEstimated: z.boolean().optional()
 })
 export type ModelExecutionMetadata = z.infer<typeof modelExecutionMetadataSchema>
 
@@ -119,6 +122,7 @@ export const agentUtilityRequestSchema = z.object({
   projectSessionId: projectSessionIdSchema.nullable().optional(),
   config: providerConfigSchema.refine((config) => config.role === 'agent'),
   credential: z.string().min(1).max(16_384),
+  modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
   input: agentRunInputSchema
 })
 export type AgentUtilityRequest = z.infer<typeof agentUtilityRequestSchema>

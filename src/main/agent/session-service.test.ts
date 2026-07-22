@@ -211,6 +211,7 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     await service.abort(started.agentRunId)
+    await expect(service.abort(started.agentRunId)).resolves.toBeUndefined()
 
     expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
       status: 'interrupted',
@@ -461,6 +462,67 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it.each([
+    ['manual', 'brief_update', true, false],
+    ['section_auto', 'outline_patch', true, false],
+    ['manual', 'section_patch', true, false],
+    ['section_auto', 'section_patch', false, true],
+    ['yolo', 'brief_update', true, false]
+  ] as const)('enforces approval mode %s for %s proposals', async (mode, kind, blocks, autoApproves) => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const approveProposalAutomatically = vi.fn(async () => proposalOutcome(kind, 'applied'))
+    const execute = vi.fn(async () => proposalToolResult(kind))
+    const shouldAutoApprove = vi.fn(() => autoApproves)
+    const service = createService(database, runtime, undefined, {
+      tools: { execute, shouldAutoApprove, approveProposalAutomatically } as never
+    })
+    const session = service.createSession('Approval matrix', mode)
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Propose a change.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('proposal-call')
+    })
+    const responsePromise = active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc490',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'proposal-tool-call',
+      modelRequestId: active.input.modelRequestId,
+      toolName:
+        kind === 'brief_update'
+          ? 'submit_brief_change'
+          : kind === 'outline_patch'
+            ? 'submit_outline_change'
+            : 'submit_section_change',
+      args: {}
+    } as never)
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+    expect(shouldAutoApprove).toHaveBeenCalledOnce()
+    expect(approveProposalAutomatically).toHaveBeenCalledTimes(autoApproves ? 1 : 0)
+    await expect(responsePromise).resolves.toMatchObject({
+      ok: true,
+      data: { continuation: blocks ? 'pause_for_review' : 'continue' }
+    })
+    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+      'user_message',
+      'tool_call',
+      'tool_result'
+    ])
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it('creates one recorded raw-event compaction summary only under token pressure', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -695,6 +757,36 @@ function assistant(content: string, responseId: string) {
     metadata: metadata(responseId),
     timestamp: Date.now(),
     interrupted: false
+  }
+}
+
+function proposalToolResult(kind: 'brief_update' | 'outline_patch' | 'section_patch') {
+  return {
+    proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc491',
+    kind,
+    status: 'pending' as const,
+    preview: {
+      summary: 'Proposed change',
+      affectedSectionIds: [],
+      beforeText: 'before',
+      afterText: 'after',
+      beforeTextTruncated: false,
+      afterTextTruncated: false,
+      citedSources: []
+    }
+  }
+}
+
+function proposalOutcome(
+  kind: 'brief_update' | 'outline_patch' | 'section_patch',
+  outcome: 'applied' | 'rejected'
+) {
+  return {
+    outcome,
+    proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc491',
+    effectiveProposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc491',
+    kind,
+    message: null
   }
 }
 

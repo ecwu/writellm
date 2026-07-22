@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Phase 9 Checkpoints 20 through 23 completed and verified; Agent timeout/stop and presentation corrections completed; Checkpoint 24 is not started and requires explicit approval.
+Status: Agent Harness Protocol v2 hardening is complete; Checkpoint 24 remains unstarted.
 Recorded: 2026-07-22
 
 ## Completed scope
@@ -42,15 +42,99 @@ Post-completion silent E2E maintenance (2026-07-22): the Main process now suppor
 
 Follow-up Sidebar header correction (2026-07-22): a narrow-window field screenshot showed that the first presentation pass had bounded Outline rows but not the contextual Sidebar header's intrinsic width. The composed secondary Sidebar, project/status row, and Brief/Outline grid now all opt into shrinking; the two buttons stay within their grid tracks and truncate only their labels when necessary. The production build and Node/web typecheck passed, and the complete Writing Workspace Electron scenario passed with the app resized to 900 px and direct assertions that the header has no horizontal overflow and `Edit outline` remains inside the Sidebar boundary.
 
+Post-completion Outline row refinement (2026-07-22): hidden add/delete controls no longer reserve
+flex width. Each Outline section button now fills the available row and shows its word count at rest;
+hover or keyboard focus-visible replaces the count with the two overlaid actions. Focused Biome and
+an independent production Renderer build passed in the active worktree. Because unrelated Agent
+context/approval-policy work is currently mid-edit, the complete Node/web typecheck, production
+build, and focused real Electron Writing Workspace scenario were run in a clean HEAD snapshot
+carrying only this refinement; all passed, including explicit row-boundary, count, and hover-action
+assertions.
+
 Post-completion section-deletion correction (2026-07-22): an applied section proposal protected its accepted revision through `mutation_proposals.applied_revision_id`, so a later outline hard-delete correctly failed instead of cascading away immutable Agent lineage. ADR 002 and migration 0018 now make deletion an internal tombstone: every active outline/editor/Agent query excludes `deleted_at`, active position indexes ignore tombstones, IDs cannot be reused, materialization registrations are removed, and all section revisions plus proposal/model lineage remain durable. Manual and Agent deletion share the same leaf/last-section rules; deleting the active editor target flushes before approval and falls back after refresh; prior section undo reports the tombstoned target as not undoable. Local Biome checked 324 files with only the existing generated shadcn cookie warning; Node/web typecheck and production build passed; canonical Electron Vitest passed 92 files/423 tests; all 12 silent Electron Playwright scenarios passed; isolated real-app `app.sqlite` verification passed; and an online backup of the reported schema-17 project accepted migration 0018 plus the previously blocked protected-deletion transition with two revisions and both applied proposal links intact and no foreign-key failures. The `pnpm test`/`pnpm build` wrappers hung before output, so the documented direct test runner and npm build equivalent were used.
+
+Post-completion stale section-proposal correction (2026-07-22): pending section proposals now show
+`Outdated` as soon as their base revision differs from workspace truth. Approving an outdated
+proposal performs an operation-aware three-way analysis inside the same immediate transaction:
+non-conflicting work becomes a new pending proposal and requires a second approval, conflicting
+work terminates inline with a safe reason, and reliably satisfied field updates terminate without a
+revision. Migration 0019 adds the linear replacement chain and terminal states; pending bases are
+protected from body pruning, the renderer projects only the latest leaf, and only final application
+publishes `sectionChanged`. Local Biome (329 files, with only the existing generated shadcn cookie
+warning), Node/web typecheck, canonical Electron Vitest (94 files/435 tests), production build, all
+13 built-app Electron Playwright scenarios, migration backup/foreign-key coverage, isolated
+app-database integrity verification, and `git diff --check` passed. The offline `pnpm` wrapper could
+not verify its registry signature, so the installed Biome binary, documented direct test runner,
+and npm build equivalent were used. Checkpoint 24 remains unstarted.
 
 Focused evidence also covers lease-before-replay ordering, sequence cursor bounds/de-duplication, renderer-delivery isolation, project capability revocation, authoritative proposal state, all three start scopes, usage aggregation, CJK token estimation, oversized-current-turn safety, one-summary-only compaction, preserved raw events, and recorded compaction model requests.
 
-## Current scope
+Post-completion run-state correction (2026-07-22): terminal Agent events now immediately freeze the
+renderer run state, and stale list responses or a fast terminal event racing the `startRun` IPC
+response cannot restore `running`. Stop is idempotent after durable completion; stale steer/follow-
+up failures reconcile against Main truth instead of leaving the composer wedged. Local Biome
+checked 339 files with only the existing generated shadcn cookie warning; Node/Renderer typechecks,
+production build, canonical Electron Vitest (96 files/448 tests), all 13 built-app Electron
+Playwright scenarios, isolated app-database integrity/schema verification, and `git diff --check`
+passed.
 
-No implementation checkpoint is active. Checkpoint 24 and all Phase 10 work remain unstarted until the user explicitly approves continuation. Do not start export, packaging-product work, or later roadmap items from this record alone.
+Post-completion section body correction (2026-07-22): the bounded Agent system prompt now makes
+section titles explicit outline metadata rendered outside the BlockNote body. Section writing and
+patching must begin with body content rather than an opening heading that repeats or restates the
+target title, while genuine lower-level subheadings remain allowed. The canonical Electron-hosted
+Vitest suite passed 96 files/448 tests; Biome checked 339 files with only the existing generated
+shadcn cookie warning; and `git diff --check` passed. The `pnpm check` wrapper hung without output,
+so the installed Biome binary was used and no `pnpm check` pass is claimed.
+
+## Checkpoint 23 baseline before Harness v2
+
+The earlier Checkpoint 23 baseline added model-aware Agent context budgeting and utilization, plus application-
+default/session-specific `manual`, `section_auto`, and `yolo` proposal approval policies. It keeps
+the then-frozen seven-tool surface and existing persistence tables. Its approval-waiter behavior is
+historical and superseded by ADR 005. Checkpoint 24 and all Phase 10 work remain unstarted.
+
+Completion evidence (2026-07-22): migration 0020, bounded models.dev resolution and cache fallback,
+run-snapshotted limits and approval modes, the complete approval matrix, cancellable mutation
+barriers, authoritative workspace refresh, Brief draft conflict protection, and the latest-call
+context meter are implemented. Biome checked 339 files with only the existing generated shadcn
+`document.cookie` warning; Node and Renderer typechecks and the production build passed; the
+canonical Electron-hosted Vitest suite passed 96 files/447 tests; all 13 built-app Electron
+Playwright scenarios passed; the signed macOS arm64 unpacked build and packaged hybrid smoke passed
+native search, provider-failure fallback, and stale-session scenarios; isolated real-app
+`app.sqlite` integrity/schema verification passed; and `git diff --check` passed. The documented
+direct test runner and npm build equivalent were used because the local pnpm wrapper did not start
+reliably in this environment.
+
+## Completed Harness v2 window
+
+The user approved Checkpoints 23H.1 through 23H.3 before Checkpoint 24. ADR 005 supersedes the
+initial seven-tool list and approval-waiter semantics while preserving the closed domain-tool
+surface, Main/worker trust boundary, five Agent persistence tables, typed proposals, and revision
+checks. The window delivers structured tool results, complete attempt auditing, request-scoped
+writing snapshots, non-blocking proposal review, Main-owned outline/block normalization,
+effect-based approval, manuscript search, change inspection, and deterministic draft checks.
+
+The Checkpoint 23H acceptance gate passed on 2026-07-22. The final implementation uses eleven
+bounded domain tools, request-scoped writing snapshots, Tool Result schema v2, non-blocking
+proposal review, trusted approval decisions, Main-owned SectionRef/block-hash normalization,
+effect-based approval, expanded-evidence proposal provenance, stable deterministic draft checks,
+and proposal ID mappings. Checkpoint 24 and all Phase 10 implementation remain unstarted and
+require separate user approval.
+
+Acceptance evidence: local Biome checked the worktree with only the existing generated shadcn
+`document.cookie` warning; Node and Renderer typechecks and the production build passed; the
+canonical Electron-hosted Vitest suite passed 96 files/449 tests; all 13 built-app Electron
+Playwright scenarios passed, including v2 read-citations/submit, proposal pause, approval and a
+fresh approval-continuation run; migration 0021 and compatibility readers passed the project
+database suite; a signed macOS arm64 unpacked application passed strict deep signature validation;
+packaged hybrid native search, provider-failure fallback, and stale-session smoke passed; the asar
+contains `out/main/agent-worker.js`, with arm64 `better_sqlite3.node` and `vec0.dylib`; an isolated
+real application produced `app.sqlite` with application ID 1464615248, user/schema version 1,
+`integrity_check=ok`, no foreign-key failures, and a valid schema manifest row; and
+`git diff --check` passed. The installed Biome binary and documented npm/direct test equivalents
+were used because the local pnpm wrapper could not verify its registry signature offline.
 
 ## Deferred
 
-- Provider reasoning controls, chain-of-thought display, additional Agent tools/tables, automatic low-risk proposal application, multiple agents/sub-agents, long-term memory, multi-level summaries, Pi harness JSONL storage, and per-project Agent worker processes.
+- Provider reasoning controls, chain-of-thought display, additional Agent tools/tables, multiple agents/sub-agents, long-term memory, multi-level summaries, Pi harness JSONL storage, and per-project Agent worker processes.
 - External editing synchronization, project-wide file watching, alternative vector backends, client-side MinerU page-count enforcement, and model cost estimation remain deferred as recorded in `docs/implementation-todo.md`.

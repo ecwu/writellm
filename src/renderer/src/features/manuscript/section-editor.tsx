@@ -20,8 +20,9 @@ export interface SectionEditorHandle {
   finalFlush(request: {
     projectSessionId: string
     closingToken: string
-    purpose?: 'close' | 'snapshot'
+    purpose?: 'close' | 'snapshot' | 'mutation'
   }): Promise<void>
+  releaseMutationBarrier(): void
   importMarkdown(): Promise<void>
   exportNativeJson(): Promise<void>
   exportMarkdown(): Promise<void>
@@ -71,7 +72,7 @@ export const SectionEditor = forwardRef<
   const save = async (
     closingToken?: string,
     revisionSource: 'manual_autosave' | 'manual_checkpoint' = 'manual_autosave',
-    purpose?: 'close' | 'snapshot'
+    purpose?: 'close' | 'snapshot' | 'mutation'
   ): Promise<void> => {
     if (runningRef.current !== null) {
       try {
@@ -225,16 +226,24 @@ export const SectionEditor = forwardRef<
     },
     async finalFlush(request) {
       if (request.purpose !== 'snapshot') setReadOnly(true)
-      if (timerRef.current !== undefined) {
-        clearTimeout(timerRef.current)
-        timerRef.current = undefined
+      try {
+        if (timerRef.current !== undefined) {
+          clearTimeout(timerRef.current)
+          timerRef.current = undefined
+        }
+        await save(request.closingToken, 'manual_checkpoint', request.purpose)
+        await window.desktop.editor.acknowledgeFlush({
+          ...request,
+          sectionId: baseRef.current.sectionId,
+          sectionRevisionId: baseRef.current.sectionRevisionId
+        })
+      } catch (error) {
+        if (request.purpose === 'mutation') setReadOnly(false)
+        throw error
       }
-      await save(request.closingToken, 'manual_checkpoint', request.purpose)
-      await window.desktop.editor.acknowledgeFlush({
-        ...request,
-        sectionId: baseRef.current.sectionId,
-        sectionRevisionId: baseRef.current.sectionRevisionId
-      })
+    },
+    releaseMutationBarrier() {
+      setReadOnly(false)
     },
     importMarkdown,
     exportNativeJson,

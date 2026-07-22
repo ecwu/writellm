@@ -1,4 +1,5 @@
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
@@ -50,6 +51,7 @@ export function registerEditorIpc(options: {
 }): {
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
+  flushForMutation(projectSessionId: string, affectedSectionIds: readonly string[]): Promise<void>
   revokeSession(sessionId: string): void
   unregister(): void
 } {
@@ -181,9 +183,11 @@ export function registerEditorIpc(options: {
     if (currentPending?.senderId !== event.sender.id)
       throw new Error('Final editor flush sender is not authorized')
     const context =
-      parsed.purpose === 'snapshot'
-        ? options.manager.authorizeSnapshotFlush(parsed.projectSessionId, parsed.closingToken)
-        : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
+      parsed.purpose === 'mutation'
+        ? options.manager.assertMutationSession(parsed.projectSessionId)
+        : parsed.purpose === 'snapshot'
+          ? options.manager.authorizeSnapshotFlush(parsed.projectSessionId, parsed.closingToken)
+          : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
   ipc.handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
@@ -343,9 +347,74 @@ export function registerEditorIpc(options: {
     }
   }
 
+  const flushForMutation = async (
+    projectSessionId: string,
+    affectedSectionIds: readonly string[]
+  ): Promise<void> => {
+    const context = options.manager.assertMutationSession(projectSessionId)
+    const activeSectionId = resolveActiveSection(context, activeSections)
+    if (activeSectionId === undefined || !affectedSectionIds.includes(activeSectionId)) return
+    const sender = Array.from(subscribers.get(projectSessionId)?.values() ?? []).find(
+      (candidate) => !candidate.isDestroyed()
+    )
+    if (sender === undefined)
+      throw new Error('Active editor mutation-flush subscriber is unavailable')
+    const closingToken = randomUUID()
+    const currentRevision = context.manuscript.getSection(activeSectionId).currentRevisionId
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        pending.set(closingToken, {
+          senderId: sender.id,
+          authorization: { projectSessionId, closingToken, currentRevision },
+          resolve,
+          reject,
+          acknowledgedSectionId: null,
+          acknowledgedRevision: null
+        })
+        timer = setTimeout(() => {
+          pending.delete(closingToken)
+          const err = new Error('Agent mutation editor flush timed out')
+          options.logger.error(
+            {
+              event: 'agent.mutation_barrier.timeout',
+              err,
+              projectSessionId,
+              timeoutMs: snapshotFlushTimeoutMs
+            },
+            'Agent mutation editor flush timed out'
+          )
+          reject(err)
+        }, snapshotFlushTimeoutMs)
+        sender.send(
+          IPC_CHANNELS.editorFlushRequest,
+          editorFlushRequestSchema.parse({
+            projectSessionId,
+            closingToken,
+            purpose: 'mutation',
+            sectionId: activeSectionId,
+            sectionRevisionId: currentRevision
+          })
+        )
+      })
+      const request = pending.get(closingToken)
+      if (
+        request?.acknowledgedSectionId !== activeSectionId ||
+        request.acknowledgedRevision !==
+          context.manuscript.getSection(activeSectionId).currentRevisionId
+      ) {
+        throw new Error('Agent mutation editor flush revision was not acknowledged')
+      }
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      pending.delete(closingToken)
+    }
+  }
+
   return {
     closeParticipants,
     snapshotParticipants,
+    flushForMutation,
     revokeSession(sessionId) {
       subscribers.delete(sessionId)
       for (const [token, request] of pending) {

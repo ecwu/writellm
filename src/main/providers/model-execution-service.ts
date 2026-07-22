@@ -20,6 +20,8 @@ import {
   type SafeModelRequestError
 } from './model-request-repository'
 import type { ProviderService } from './provider-service'
+import type { ModelMetadataService } from './model-metadata-service'
+import type { AgentModelLimits } from '../../shared/contracts/agent'
 
 export interface ModelExecutionServiceOptions {
   providers: ProviderService
@@ -27,6 +29,22 @@ export interface ModelExecutionServiceOptions {
   embeddings: EmbeddingGateway
   reranker: RerankGateway
   log: Pick<Logger, 'info' | 'warn' | 'error'>
+  modelMetadata?: ModelMetadataService
+}
+
+function legacyLimits(config: ProviderConfig): AgentModelLimits {
+  return {
+    contextWindowTokens:
+      config.role === 'agent' ? (config.contextWindowTokens ?? 131_072) : 131_072,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source:
+      config.role === 'agent' && config.contextWindowTokens != null
+        ? 'manual_override'
+        : 'legacy_fallback',
+    catalogModelKey: null,
+    resolvedAt: null
+  }
 }
 
 export class ModelExecutionService {
@@ -51,15 +69,20 @@ export class ModelExecutionService {
       1,
       correlation,
       signal,
-      (config, credential) =>
-        this.options.agent.run(
+      async (config, credential) => {
+        if (config.role !== 'agent') throw new Error('Agent provider role is required')
+        const limits =
+          (await this.options.modelMetadata?.resolve(config, signal)) ?? legacyLimits(config)
+        return this.options.agent.run(
           config,
           credential,
           input,
           signal,
           onEvent,
-          correlation.projectSessionId
-        ),
+          correlation.projectSessionId,
+          limits
+        )
+      },
       (result) => ({ metadata: result.metadata, outputItems: result.text.length === 0 ? 0 : 1 })
     )
   }

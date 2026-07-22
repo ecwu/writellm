@@ -157,6 +157,16 @@ export function WritingWorkspace(props: {
   const activeSummary = workspace?.sections.find(
     (item) => item.section.sectionId === activeSectionId
   )
+  const currentRevisionIds = useMemo(
+    () =>
+      Object.fromEntries(
+        (workspace?.sections ?? []).map((item) => [
+          item.section.sectionId,
+          item.section.currentRevisionId
+        ])
+      ),
+    [workspace]
+  )
 
   const outlineMoveAvailability = useMemo(() => {
     if (!workspace || !activeSummary) {
@@ -321,20 +331,34 @@ export function WritingWorkspace(props: {
     let disposed = false
     let unsubscribe: (() => void) | undefined
     void window.desktop.agent
-      .subscribeSectionChanged({ projectSessionId: props.projectSessionId }, (event) => {
+      .subscribeMutations({ projectSessionId: props.projectSessionId }, () => {
         void (async () => {
-          await queryClient.invalidateQueries({ queryKey: workspaceKey })
-          if (event.sectionId !== activeSectionIdRef.current) return
+          const nextWorkspace = await window.desktop.manuscript.workspace({
+            projectSessionId: props.projectSessionId
+          })
+          queryClient.setQueryData(workspaceKey, nextWorkspace)
+          let activeSectionId = activeSectionIdRef.current
+          if (
+            activeSectionId === null ||
+            !nextWorkspace.sections.some((item) => item.section.sectionId === activeSectionId)
+          ) {
+            const fallback = nextWorkspace.sections[0]?.section.sectionId
+            if (fallback === undefined) return
+            await activateSection(fallback)
+            activeSectionId = fallback
+          }
           const current = await window.desktop.editor.loadSection({
             projectSessionId: props.projectSessionId,
-            sectionId: event.sectionId
+            sectionId: activeSectionId
           })
-          if (disposed || event.sectionId !== activeSectionIdRef.current) return
+          if (disposed || activeSectionId !== activeSectionIdRef.current) return
           queryClient.setQueryData(
-            ['manuscript-section', props.projectSessionId, event.sectionId],
+            ['manuscript-section', props.projectSessionId, activeSectionId],
             current
           )
+          editorRef.current?.releaseMutationBarrier()
         })().catch(() => {
+          editorRef.current?.releaseMutationBarrier()
           props.onError('The applied Agent section change could not be reloaded.')
         })
       })
@@ -349,7 +373,7 @@ export function WritingWorkspace(props: {
       disposed = true
       unsubscribe?.()
     }
-  }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
+  }, [activateSection, props.onError, props.projectSessionId, queryClient, workspaceKey])
 
   const refreshAfterAgentMutation = useCallback(async (): Promise<void> => {
     try {
@@ -653,6 +677,7 @@ export function WritingWorkspace(props: {
                 onOpenChange={props.onAgentOpenChange}
                 projectSessionId={props.projectSessionId}
                 activeSectionId={activeSectionId}
+                currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
                 flushCurrent={flushCurrent}
                 refreshManuscript={refreshAfterAgentMutation}

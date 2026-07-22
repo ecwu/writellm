@@ -129,7 +129,33 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       .getByTestId(/^outline-section-/)
       .filter({ hasText: longOutlineTitle })
     await expect(longOutlineRow).toBeVisible()
+    const longOutlineItem = longOutlineRow.locator(
+      'xpath=ancestor::*[@data-slot="sidebar-menu-item"][1]'
+    )
+    const longOutlineCount = longOutlineItem.getByTestId(/^outline-word-count-/)
+    const longOutlineActions = longOutlineItem.getByTestId(/^outline-actions-/)
+    const addSubsectionAction = longOutlineItem.getByRole('button', {
+      name: `Add subsection to ${longOutlineTitle}`
+    })
+    const deleteSectionAction = longOutlineItem.getByRole('button', {
+      name: `Delete ${longOutlineTitle}`
+    })
+    await expect(longOutlineCount).toBeVisible()
+    await expect(longOutlineActions).toHaveCSS('opacity', '0')
+    const longOutlineRowBounds = await longOutlineRow.boundingBox()
+    const longOutlineItemBounds = await longOutlineItem.boundingBox()
+    if (longOutlineRowBounds === null || longOutlineItemBounds === null) {
+      throw new Error('Outline row bounds missing')
+    }
+    expect(longOutlineRowBounds.x + longOutlineRowBounds.width).toBeCloseTo(
+      longOutlineItemBounds.x + longOutlineItemBounds.width,
+      0
+    )
     await longOutlineRow.hover()
+    await expect(longOutlineCount).toBeHidden()
+    await expect(longOutlineActions).toHaveCSS('opacity', '1')
+    await expect(addSubsectionAction).toBeVisible()
+    await expect(deleteSectionAction).toBeVisible()
     const outlineContent = longOutlineRow.locator(
       'xpath=ancestor::*[@data-slot="sidebar-content"][1]'
     )

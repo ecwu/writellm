@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
   AGENT_MUTATION_PREVIEW_TEXT_LIMIT,
+  approveMutationProposalResultSchema,
   approveMutationProposalInputSchema,
   briefUpdateSchema,
   mutationCitedSourceSchema,
@@ -10,6 +11,7 @@ import {
   mutationProposalActionResultSchema,
   mutationProposalRecordSchema,
   mutationProposalToolResultSchema,
+  mutationProposalOutcomeSchema,
   outlinePatchSchema,
   persistedMutationProposalPayloadSchema,
   rejectMutationProposalInputSchema,
@@ -21,6 +23,9 @@ import {
   type MutationPreview,
   type MutationProposalRecord,
   type MutationProposalToolResult,
+  type MutationProposalOutcome,
+  type ApproveMutationProposalResult,
+  type MutationProposalChanged,
   type OutlineMutationOperation,
   type OutlinePatch,
   type SectionPatch
@@ -46,6 +51,10 @@ import type { EditorPersistenceService } from '../manuscript/editor-persistence-
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { AgentToolDomainError } from './read-tools'
 import { MutationSimulationError, simulateSectionPatch } from './mutation-simulator'
+import {
+  analyzeSectionProposalRefresh,
+  type SectionProposalRefreshConflictCode
+} from './section-proposal-refresh'
 
 const MAX_PROPOSAL_PAYLOAD_BYTES = 1_048_576
 
@@ -55,7 +64,33 @@ export interface ProposalToolExecutionContext {
   toolCallId: string
   toolCallEventId: string
   modelRequestId: string
+  createdSectionRefs?: Record<string, string>
+  createdBlockRefs?: Record<string, string>
   signal: AbortSignal
+}
+
+function outcomeFromApproval(
+  originalProposalId: string,
+  result: ApproveMutationProposalResult
+): MutationProposalOutcome {
+  const message =
+    result.outcome === 'conflict'
+      ? result.conflict.message
+      : result.outcome === 'refresh_required'
+        ? 'The section changed again and the replacement proposal requires review.'
+        : null
+  return mutationProposalOutcomeSchema.parse({
+    outcome:
+      result.outcome === 'applied'
+        ? 'applied'
+        : result.outcome === 'already_satisfied'
+          ? 'already_satisfied'
+          : 'conflict',
+    proposalId: originalProposalId,
+    effectiveProposalId: result.proposal.proposalId,
+    kind: result.proposal.kind,
+    message
+  })
 }
 
 export class MutationProposalError extends Error {
@@ -103,6 +138,20 @@ interface ApplyTransactionResult {
   } | null
 }
 
+type ApprovalTransactionResult =
+  | { outcome: 'applied'; transaction: ApplyTransactionResult }
+  | {
+      outcome: 'refresh_required'
+      previousProposal: MutationProposalRecord
+      proposal: MutationProposalRecord
+    }
+  | {
+      outcome: 'conflict'
+      proposal: MutationProposalRecord
+      conflict: { code: SectionProposalRefreshConflictCode; message: string }
+    }
+  | { outcome: 'already_satisfied'; proposal: MutationProposalRecord }
+
 export class MutationProposalService {
   readonly #now: () => Date
   readonly #createId: () => string
@@ -115,6 +164,8 @@ export class MutationProposalService {
       manuscript: ManuscriptService
       editorPersistence: EditorPersistenceService
       log: Pick<Logger, 'info' | 'warn' | 'error'>
+      publishChanged?: (event: MutationProposalChanged) => void
+      flushForMutation?: (affectedSectionIds: readonly string[]) => Promise<void>
       now?: () => Date
       createId?: () => string
     }
@@ -147,6 +198,47 @@ export class MutationProposalService {
     )
   }
 
+  assertCanonicalBlockRead(
+    agentSessionId: string,
+    agentRunId: string,
+    blockId: string,
+    expectedBlockHash: string
+  ): void {
+    const rows = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT payload_json FROM agent_events
+            WHERE agent_session_id = ? AND agent_run_id = ? AND type = 'tool_result'
+            ORDER BY sequence DESC`
+          )
+          .all(agentSessionId, agentRunId) as Array<{ payload_json: string }>
+    )
+    const found = rows.some((row) => {
+      const parsed = agentToolResultPayloadSchema.safeParse(JSON.parse(row.payload_json))
+      if (
+        !parsed.success ||
+        parsed.data.toolName !== 'read_section' ||
+        parsed.data.isError ||
+        parsed.data.result === null
+      )
+        return false
+      const canonical = parsed.data.result['canonicalBlock']
+      if (canonical === null || canonical === undefined || typeof canonical !== 'object')
+        return false
+      if (!('id' in canonical) || canonical.id !== blockId) return false
+      return (
+        createHash('sha256').update(JSON.stringify(canonical)).digest('hex') === expectedBlockHash
+      )
+    })
+    if (!found) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'replaceCanonicalBlock requires a matching canonical read from the current Agent run'
+      )
+    }
+  }
+
   propose(
     toolName: AgentProposalToolName,
     rawArgs: unknown,
@@ -170,7 +262,16 @@ export class MutationProposalService {
           kind: prepared.kind,
           mutation: prepared.mutation,
           preview: prepared.preview,
-          provenance: { modelRequestId: context.modelRequestId, citedSources }
+          provenance: {
+            modelRequestId: context.modelRequestId,
+            citedSources,
+            ...(context.createdSectionRefs === undefined
+              ? {}
+              : { createdSectionRefs: context.createdSectionRefs }),
+            ...(context.createdBlockRefs === undefined
+              ? {}
+              : { createdBlockRefs: context.createdBlockRefs })
+          }
         })
         const payloadJson = JSON.stringify(payload)
         if (Buffer.byteLength(payloadJson) > MAX_PROPOSAL_PAYLOAD_BYTES) {
@@ -206,7 +307,13 @@ export class MutationProposalService {
           proposalId,
           kind: prepared.kind,
           status: 'pending',
-          preview: prepared.preview
+          preview: prepared.preview,
+          ...(context.createdSectionRefs === undefined
+            ? {}
+            : { createdSectionRefs: context.createdSectionRefs }),
+          ...(context.createdBlockRefs === undefined
+            ? {}
+            : { createdBlockRefs: context.createdBlockRefs })
         })
       })
       this.options.log.info(
@@ -220,6 +327,14 @@ export class MutationProposalService {
         },
         'Agent mutation proposal persisted'
       )
+      this.options.publishChanged?.({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: context.agentSessionId,
+        proposalId: result.proposalId,
+        kind: result.kind,
+        status: 'pending',
+        sectionChanged: null
+      })
       return result
     } catch (err) {
       this.options.log.error(
@@ -261,7 +376,37 @@ export class MutationProposalService {
   async approve(rawInput: unknown) {
     const input = approveMutationProposalInputSchema.parse(rawInput)
     this.#assertProjectSession(input.projectSessionId)
-    return this.#applyDecision(input.agentSessionId, input.proposalId, 'apply')
+    const affectedSectionIds = this.options.database.immediate((database) => {
+      const row = requireProposal(database, input.agentSessionId, input.proposalId)
+      return persistedMutationProposalPayloadSchema.parse(JSON.parse(row.payload_json)).preview
+        .affectedSectionIds
+    })
+    if (affectedSectionIds.length > 0) {
+      try {
+        await this.options.flushForMutation?.(affectedSectionIds)
+      } catch (err) {
+        this.options.log.error(
+          { event: 'agent.mutation_barrier.failed', err, proposalId: input.proposalId },
+          'Agent mutation editor barrier failed'
+        )
+        throw new MutationProposalError(
+          'stale_base',
+          'The active editor could not be safely flushed before applying the proposal',
+          { cause: err }
+        )
+      }
+    }
+    const result = await this.#approveDecision(input.agentSessionId, input.proposalId)
+    const effectiveProposal = result.proposal
+    this.options.publishChanged?.({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      proposalId: effectiveProposal.proposalId,
+      kind: effectiveProposal.kind,
+      status: effectiveProposal.status,
+      sectionChanged: result.sectionChanged
+    })
+    return result
   }
 
   reject(rawInput: unknown) {
@@ -306,17 +451,58 @@ export class MutationProposalService {
         },
         'Agent mutation proposal rejected'
       )
-      return mutationProposalActionResultSchema.parse({ proposal, sectionChanged: null })
+      const result = mutationProposalActionResultSchema.parse({ proposal, sectionChanged: null })
+      this.options.publishChanged?.({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: input.agentSessionId,
+        proposalId: proposal.proposalId,
+        kind: proposal.kind,
+        status: proposal.status,
+        sectionChanged: null
+      })
+      return result
     } catch (err) {
       this.#logDecisionFailure('agent.mutation.reject_failed', err, input.proposalId, startedAt)
       throw err
     }
   }
 
+  async approveAutomatically(
+    agentSessionId: string,
+    proposalId: string,
+    refreshOnce: boolean
+  ): Promise<MutationProposalOutcome> {
+    let effectiveProposalId = proposalId
+    const result = await this.approve({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId,
+      proposalId
+    })
+    if (result.outcome === 'refresh_required' && refreshOnce) {
+      effectiveProposalId = result.proposal.proposalId
+      const refreshed = await this.approve({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId,
+        proposalId: effectiveProposalId
+      })
+      return outcomeFromApproval(proposalId, refreshed)
+    }
+    return outcomeFromApproval(proposalId, result)
+  }
+
   async undo(rawInput: unknown) {
     const input = undoMutationProposalInputSchema.parse(rawInput)
     this.#assertProjectSession(input.projectSessionId)
-    return this.#applyDecision(input.agentSessionId, input.proposalId, 'undo')
+    const result = await this.#undoDecision(input.agentSessionId, input.proposalId)
+    this.options.publishChanged?.({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      proposalId: result.proposal.proposalId,
+      kind: result.proposal.kind,
+      status: result.proposal.status,
+      sectionChanged: result.sectionChanged
+    })
+    return result
   }
 
   #assertProjectSession(projectSessionId: string): void {
@@ -335,7 +521,7 @@ export class MutationProposalService {
     | { kind: 'outline_patch'; mutation: OutlinePatch; preview: MutationPreview }
     | { kind: 'section_patch'; mutation: SectionPatch; preview: MutationPreview } {
     switch (toolName) {
-      case 'propose_brief_update': {
+      case 'submit_brief_change': {
         const mutation = briefUpdateSchema.parse(rawArgs)
         const current = requirePrimaryBrief(database, mutation.manuscriptId)
         if (current.version !== mutation.baseBriefVersion) throw staleBase('brief')
@@ -356,7 +542,7 @@ export class MutationProposalService {
           })
         }
       }
-      case 'propose_outline_patch': {
+      case 'submit_outline_change': {
         const mutation = outlinePatchSchema.parse(rawArgs)
         const manuscript = requirePrimaryManuscript(database, mutation.manuscriptId)
         if (manuscript.outline_version !== mutation.baseOutlineVersion) throw staleBase('outline')
@@ -377,7 +563,7 @@ export class MutationProposalService {
           })
         }
       }
-      case 'propose_section_patch': {
+      case 'submit_section_change': {
         const mutation = sectionPatchSchema.parse(rawArgs)
         const section = requireSection(database, mutation.sectionId)
         if (section.current_revision_id !== mutation.baseRevisionId) throw staleBase('section')
@@ -407,28 +593,33 @@ export class MutationProposalService {
     }
   }
 
-  async #applyDecision(agentSessionId: string, proposalId: string, decision: 'apply' | 'undo') {
+  async #undoDecision(agentSessionId: string, proposalId: string) {
     const startedAt = Date.now()
     let transactionResult: ApplyTransactionResult
     try {
       transactionResult = this.options.database.immediate((database) =>
-        decision === 'apply'
-          ? this.#applyProposal(database, agentSessionId, proposalId)
-          : this.#undoProposal(database, agentSessionId, proposalId)
+        this.#undoProposal(database, agentSessionId, proposalId)
       )
     } catch (err) {
-      this.#logDecisionFailure(
-        decision === 'apply' ? 'agent.mutation.apply_failed' : 'agent.mutation.undo_failed',
-        err,
-        proposalId,
-        startedAt
-      )
-      if (decision === 'apply' && isDeterministicApplyFailure(err)) {
-        this.#recordApplyFailure(agentSessionId, proposalId, err)
-      }
+      this.#logDecisionFailure('agent.mutation.undo_failed', err, proposalId, startedAt)
       throw err
     }
+    return this.#finalizeAppliedTransaction(
+      transactionResult,
+      agentSessionId,
+      proposalId,
+      'undo',
+      startedAt
+    )
+  }
 
+  async #finalizeAppliedTransaction(
+    transactionResult: ApplyTransactionResult,
+    agentSessionId: string,
+    proposalId: string,
+    decision: 'apply' | 'undo',
+    startedAt: number
+  ) {
     for (const revisionId of transactionResult.materializeRevisionIds) {
       try {
         await this.options.editorPersistence.materialize(
@@ -481,6 +672,273 @@ export class MutationProposalService {
       decision === 'apply' ? 'Agent mutation proposal applied' : 'Agent section mutation undone'
     )
     return result
+  }
+
+  async #approveDecision(agentSessionId: string, proposalId: string) {
+    const startedAt = Date.now()
+    let transactionResult: ApprovalTransactionResult
+    try {
+      transactionResult = this.options.database.immediate((database) =>
+        this.#approveProposal(database, agentSessionId, proposalId)
+      )
+    } catch (err) {
+      this.#logDecisionFailure('agent.mutation.apply_failed', err, proposalId, startedAt)
+      if (isDeterministicApplyFailure(err)) {
+        this.#recordApplyFailure(agentSessionId, proposalId, err)
+      }
+      throw err
+    }
+
+    if (transactionResult.outcome === 'applied') {
+      const applied = await this.#finalizeAppliedTransaction(
+        transactionResult.transaction,
+        agentSessionId,
+        proposalId,
+        'apply',
+        startedAt
+      )
+      const result = approveMutationProposalResultSchema.parse({
+        outcome: 'applied',
+        ...applied
+      })
+      return result
+    }
+
+    if (transactionResult.outcome === 'refresh_required') {
+      this.options.log.info(
+        {
+          event: 'agent.mutation.refresh_required',
+          proposalId,
+          replacementProposalId: transactionResult.proposal.proposalId,
+          agentSessionId,
+          durationMs: Date.now() - startedAt
+        },
+        'Stale Agent section proposal refreshed for review'
+      )
+      return approveMutationProposalResultSchema.parse({
+        ...transactionResult,
+        sectionChanged: null
+      })
+    }
+
+    if (transactionResult.outcome === 'conflict') {
+      this.options.log.info(
+        {
+          event: 'agent.mutation.refresh_conflict',
+          proposalId,
+          agentSessionId,
+          conflictCode: transactionResult.conflict.code,
+          durationMs: Date.now() - startedAt
+        },
+        'Stale Agent section proposal conflicts with the current revision'
+      )
+      return approveMutationProposalResultSchema.parse({
+        ...transactionResult,
+        sectionChanged: null
+      })
+    }
+
+    this.options.log.info(
+      {
+        event: 'agent.mutation.refresh_satisfied',
+        proposalId,
+        agentSessionId,
+        durationMs: Date.now() - startedAt
+      },
+      'Stale Agent section proposal was already satisfied'
+    )
+    return approveMutationProposalResultSchema.parse({
+      ...transactionResult,
+      sectionChanged: null
+    })
+  }
+
+  #approveProposal(
+    database: Database.Database,
+    agentSessionId: string,
+    proposalId: string
+  ): ApprovalTransactionResult {
+    const row = requireProposal(database, agentSessionId, proposalId)
+    if (row.status !== 'pending') {
+      throw new MutationProposalError(
+        'proposal_not_pending',
+        'Mutation proposal is no longer pending'
+      )
+    }
+    const payload = persistedMutationProposalPayloadSchema.parse(JSON.parse(row.payload_json))
+    if (payload.kind !== 'section_patch') {
+      return {
+        outcome: 'applied',
+        transaction: this.#applyProposal(database, agentSessionId, proposalId)
+      }
+    }
+    const section = database
+      .prepare('SELECT * FROM sections WHERE section_id = ?')
+      .get(payload.mutation.sectionId) as SectionTable | undefined
+    if (section === undefined || section.deleted_at !== null) {
+      return this.#recordRefreshConflict(
+        database,
+        row,
+        'target_missing',
+        'The proposal target is no longer available'
+      )
+    }
+    if (section.current_revision_id === payload.mutation.baseRevisionId) {
+      return {
+        outcome: 'applied',
+        transaction: this.#applyProposal(database, agentSessionId, proposalId)
+      }
+    }
+    return this.#refreshSectionProposal(database, row, payload, section)
+  }
+
+  #refreshSectionProposal(
+    database: Database.Database,
+    row: MutationProposalTable,
+    payload: Extract<
+      ReturnType<typeof persistedMutationProposalPayloadSchema.parse>,
+      { kind: 'section_patch' }
+    >,
+    section: SectionTable
+  ): ApprovalTransactionResult {
+    const base = database
+      .prepare('SELECT * FROM section_revisions WHERE section_revision_id = ?')
+      .get(payload.mutation.baseRevisionId) as SectionRevisionTable | undefined
+    const current = database
+      .prepare('SELECT * FROM section_revisions WHERE section_revision_id = ?')
+      .get(section.current_revision_id) as SectionRevisionTable | undefined
+    if (
+      base === undefined ||
+      current === undefined ||
+      base.section_id !== payload.mutation.sectionId ||
+      current.section_id !== payload.mutation.sectionId ||
+      Number(base.content_body_retained) !== 1 ||
+      Number(current.content_body_retained) !== 1
+    ) {
+      return this.#recordRefreshConflict(
+        database,
+        row,
+        'base_unavailable',
+        'The proposal base revision is no longer available'
+      )
+    }
+
+    let baseDocument: BlockNoteDocument
+    let currentDocument: BlockNoteDocument
+    try {
+      baseDocument = blockNoteDocumentSchema.parse(JSON.parse(base.content_json))
+      currentDocument = blockNoteDocumentSchema.parse(JSON.parse(current.content_json))
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.mutation.refresh_analysis_failed',
+          err,
+          proposalId: row.mutation_proposal_id
+        },
+        'Agent section proposal refresh could not parse a retained revision'
+      )
+      return this.#recordRefreshConflict(
+        database,
+        row,
+        'invalid_result',
+        'The proposal cannot be refreshed because a retained revision is invalid'
+      )
+    }
+
+    const analysis = analyzeSectionProposalRefresh(
+      baseDocument,
+      currentDocument,
+      payload.mutation,
+      current.section_revision_id
+    )
+    if (analysis.kind === 'conflict') {
+      return this.#recordRefreshConflict(database, row, analysis.code, analysis.message)
+    }
+    if (analysis.kind === 'satisfied') {
+      const proposal = updateTerminalProposal(
+        database,
+        row.mutation_proposal_id,
+        'satisfied',
+        'The current section already contains this proposal change',
+        this.#now().toISOString()
+      )
+      return { outcome: 'already_satisfied', proposal }
+    }
+
+    const replacementId = this.#createId()
+    const now = this.#now().toISOString()
+    const replacementPayload = persistedMutationProposalPayloadSchema.parse({
+      ...payload,
+      mutation: analysis.mutation,
+      preview: createPreview({
+        summary: payload.preview.summary,
+        affectedSectionIds: [payload.mutation.sectionId],
+        beforeText: analysis.simulation.beforeText,
+        afterText: analysis.simulation.afterText,
+        citedSources: payload.preview.citedSources
+      })
+    })
+    const payloadJson = JSON.stringify(replacementPayload)
+    if (Buffer.byteLength(payloadJson) > MAX_PROPOSAL_PAYLOAD_BYTES) {
+      return this.#recordRefreshConflict(
+        database,
+        row,
+        'invalid_result',
+        'The refreshed proposal is too large to review safely'
+      )
+    }
+    database
+      .prepare(
+        `INSERT INTO mutation_proposals (
+           mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+           agent_tool_call_id, kind, payload_json, base_revision_id,
+           base_brief_version, base_outline_version, status, decision_at,
+           applied_revision_id, applied_brief_version, applied_outline_version,
+           undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, 'section_patch', ?, ?, NULL, NULL, 'pending', NULL,
+                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?)`
+      )
+      .run(
+        replacementId,
+        row.agent_session_id,
+        row.agent_run_id,
+        row.tool_call_event_id,
+        row.agent_tool_call_id,
+        payloadJson,
+        current.section_revision_id,
+        row.mutation_proposal_id,
+        now,
+        now
+      )
+    const previousProposal = updateTerminalProposal(
+      database,
+      row.mutation_proposal_id,
+      'superseded',
+      'A refreshed proposal replaces this outdated proposal',
+      now
+    )
+    const replacement = proposalFromRow(
+      database
+        .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+        .get(replacementId) as MutationProposalTable
+    )
+    return { outcome: 'refresh_required', previousProposal, proposal: replacement }
+  }
+
+  #recordRefreshConflict(
+    database: Database.Database,
+    row: MutationProposalTable,
+    code: SectionProposalRefreshConflictCode,
+    message: string
+  ): ApprovalTransactionResult {
+    const proposal = updateTerminalProposal(
+      database,
+      row.mutation_proposal_id,
+      'conflicted',
+      message,
+      this.#now().toISOString()
+    )
+    return { outcome: 'conflict', proposal, conflict: { code, message } }
   }
 
   #applyProposal(
@@ -865,23 +1323,36 @@ function resolveCitedSources(
   }>
   for (const row of rows) {
     const parsed = agentToolResultPayloadSchema.safeParse(JSON.parse(row.payload_json))
-    if (!parsed.success || parsed.data.isError || parsed.data.result === null) continue
+    if (
+      !parsed.success ||
+      parsed.data.isError ||
+      parsed.data.result === null ||
+      parsed.data.toolName !== 'read_citations'
+    )
+      continue
     const result = parsed.data.result
-    const entries = Array.isArray(result['hits'])
-      ? result['hits']
-      : Array.isArray(result['citations'])
-        ? result['citations']
-        : []
+    const entries = Array.isArray(result['citations']) ? result['citations'] : []
     for (const entry of entries) {
       const candidate =
         entry !== null && typeof entry === 'object'
-          ? {
-              citationId: (entry as Record<string, unknown>)['citationId'],
-              knowledgeItemId: (entry as Record<string, unknown>)['knowledgeItemId'],
-              parseRevisionId: (entry as Record<string, unknown>)['parseRevisionId'],
-              chunkId: (entry as Record<string, unknown>)['chunkId'],
-              sourceBlockIds: (entry as Record<string, unknown>)['sourceBlockIds']
-            }
+          ? (() => {
+              const record = entry as Record<string, unknown>
+              const text = typeof record['text'] === 'string' ? record['text'] : ''
+              return {
+                evidenceSchemaVersion: 2,
+                citationId: (entry as Record<string, unknown>)['citationId'],
+                knowledgeItemId: (entry as Record<string, unknown>)['knowledgeItemId'],
+                parseRevisionId: (entry as Record<string, unknown>)['parseRevisionId'],
+                chunkId: (entry as Record<string, unknown>)['chunkId'],
+                sourceBlockIds: (entry as Record<string, unknown>)['sourceBlockIds'],
+                excerpt: text.slice(0, 8_192),
+                contentHash:
+                  typeof record['contentHash'] === 'string'
+                    ? record['contentHash']
+                    : createHash('sha256').update(text).digest('hex'),
+                retrievedAt: new Date(parsed.data.timestamp).toISOString()
+              }
+            })()
           : entry
       const source = mutationCitedSourceSchema.safeParse(candidate)
       if (source.success && requested.has(source.data.citationId)) {
@@ -901,11 +1372,11 @@ function resolveCitedSources(
 
 function proposalCitationIds(toolName: AgentProposalToolName, rawArgs: unknown): string[] {
   switch (toolName) {
-    case 'propose_brief_update':
+    case 'submit_brief_change':
       return briefUpdateSchema.parse(rawArgs).citationIds
-    case 'propose_outline_patch':
+    case 'submit_outline_change':
       return outlinePatchSchema.parse(rawArgs).citationIds
-    case 'propose_section_patch':
+    case 'submit_section_change':
       return sectionPatchSchema.parse(rawArgs).citationIds
   }
 }
@@ -1340,6 +1811,33 @@ function updateAppliedProposal(
   }
 }
 
+function updateTerminalProposal(
+  database: Database.Database,
+  proposalId: string,
+  status: 'superseded' | 'conflicted' | 'satisfied',
+  reason: string,
+  now: string
+): MutationProposalRecord {
+  const changed = database
+    .prepare(
+      `UPDATE mutation_proposals
+          SET status = ?, decision_at = ?, rejected_reason = ?, updated_at = ?
+        WHERE mutation_proposal_id = ? AND status = 'pending'`
+    )
+    .run(status, now, reason.slice(0, 4_096), now, proposalId)
+  if (changed.changes !== 1) {
+    throw new MutationProposalError(
+      'proposal_not_pending',
+      'Mutation proposal is no longer pending'
+    )
+  }
+  return proposalFromRow(
+    database
+      .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+      .get(proposalId) as MutationProposalTable
+  )
+}
+
 function proposalFromRow(row: MutationProposalTable): MutationProposalRecord {
   return mutationProposalRecordSchema.parse({
     proposalId: row.mutation_proposal_id,
@@ -1354,6 +1852,7 @@ function proposalFromRow(row: MutationProposalTable): MutationProposalRecord {
     appliedBriefVersion: row.applied_brief_version,
     appliedOutlineVersion: row.applied_outline_version,
     undoRevisionId: row.undo_revision_id,
+    replacesProposalId: row.replaces_proposal_id,
     rejectedReason: row.rejected_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at

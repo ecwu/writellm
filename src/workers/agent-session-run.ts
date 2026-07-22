@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   AssistantMessage,
   AssistantMessageEventStream,
@@ -18,7 +18,11 @@ import {
   type AgentRuntimeEvent
 } from '../shared/contracts/agent'
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
-import { agentMessageBudget, boundAgentContextByTokens } from '../shared/agent-context-budget'
+import {
+  agentMessageBudget,
+  boundAgentContextByTokens,
+  estimateAgentTokens
+} from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
 import { linkAbortSignal } from './shared/linked-abort-signal'
 
@@ -37,6 +41,14 @@ export async function runAgentSession(
 ): Promise<void> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
+  const modelLimits = request.modelLimits ?? {
+    contextWindowTokens: 131_072,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: 'legacy_fallback' as const,
+    catalogModelKey: null,
+    resolvedAt: null
+  }
   const [{ Agent: AgentClass }, { streamSimple }] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
     import('@earendil-works/pi-ai/api/openai-completions')
@@ -50,14 +62,18 @@ export async function runAgentSession(
     reasoning: false,
     input: ['text' as const],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131_072,
+    contextWindow: modelLimits.contextWindowTokens,
     maxTokens: request.maxOutputTokens,
     compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const }
   }
   const modelRequestIds = [request.modelRequestId]
+  const systemPromptByModelRequestId = new Map<string, string>()
   const pendingModelCallAuthorizations = new Map<
     string,
-    { resolve: (modelRequestId: string) => void; reject: (error: Error) => void }
+    {
+      resolve: (authorization: AgentModelCallAuthorization) => void
+      reject: (error: Error) => void
+    }
   >()
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
@@ -91,18 +107,81 @@ export async function runAgentSession(
       providerId === request.config.providerId ? request.credential : undefined,
     transformContext: (messages) =>
       Promise.resolve(
-        boundAgentContextByTokens(messages, agentMessageBudget(request.maxOutputTokens))
+        boundAgentContextByTokens(
+          messages,
+          agentMessageBudget(request.maxOutputTokens, modelLimits)
+        )
       ),
-    beforeToolCall: async ({ toolCall }) => {
+    prepareNextTurnWithContext: async ({ context, toolResults }) => {
+      const queuedModelRequestId = modelRequestIds[0]
+      if (queuedModelRequestId !== undefined) {
+        const systemPrompt = systemPromptByModelRequestId.get(queuedModelRequestId)
+        if (systemPrompt !== undefined) {
+          systemPromptByModelRequestId.delete(queuedModelRequestId)
+          return { context: { ...context, systemPrompt } }
+        }
+      }
+      if (toolResults.length === 0) return undefined
+      const authorization = await requestModelCallAuthorization(
+        onEvent,
+        pendingModelCallAuthorizations
+      )
+      modelRequestIds.push(authorization.modelRequestId)
+      return { context: { ...context, systemPrompt: authorization.systemPrompt } }
+    },
+    beforeToolCall: async ({ assistantMessage, toolCall }) => {
       const allowed = agentToolNameSchema.safeParse(toolCall.name)
-      return allowed.success
-        ? undefined
-        : { block: true, reason: 'Tool is not authorized by WriteLLM' }
+      if (!allowed.success) {
+        return { block: true, reason: 'Tool is not authorized by WriteLLM' }
+      }
+      const calls = assistantMessage.content
+        .filter((part) => part.type === 'toolCall')
+        .map((part) => ({ id: part.id, name: part.name }))
+      const mutationCalls = calls.filter((call) => isMutationTool(call.name))
+      if (isMutationTool(toolCall.name) && mutationCalls.length > 1) {
+        return {
+          block: true,
+          reason: 'Only one mutation may be submitted in an assistant message'
+        }
+      }
+      if (isMutationTool(toolCall.name) && calls.some((call) => !isMutationTool(call.name))) {
+        return {
+          block: true,
+          reason: 'Mutation was blocked because its assistant message also requested read tools'
+        }
+      }
+      return undefined
+    },
+    afterToolCall: async ({ result }) => {
+      const details = result.details
+      if (
+        details !== null &&
+        typeof details === 'object' &&
+        'schemaVersion' in details &&
+        details.schemaVersion === 2 &&
+        'ok' in details &&
+        details.ok === false
+      ) {
+        return { isError: true }
+      }
+      if (
+        details !== null &&
+        typeof details === 'object' &&
+        'data' in details &&
+        details.data !== null &&
+        typeof details.data === 'object' &&
+        'continuation' in details.data &&
+        details.data.continuation === 'pause_for_review'
+      ) {
+        return { terminate: true }
+      }
+      return undefined
     },
     streamFn: async (activeModel, context, options) => {
-      const modelRequestId =
-        modelRequestIds.shift() ??
-        (await requestModelCallAuthorization(onEvent, pendingModelCallAuthorizations))
+      const modelRequestId = modelRequestIds.shift()
+      if (modelRequestId === undefined) {
+        throw new Error('Agent provider call has no authorized model request')
+      }
       const callController = new AbortController()
       const unlinkAbortSignal = linkAbortSignal(options?.signal, callController)
       let timedOut = false
@@ -147,7 +226,15 @@ export async function runAgentSession(
           for (const part of message.content) {
             if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
           }
-          const payload = toAssistantPayload(message, fetchCount, timedOut)
+          const providerPromptTokens = message.usage.input + message.usage.cacheRead
+          const contextTokensEstimated = providerPromptTokens === 0
+          const payload = toAssistantPayload(
+            message,
+            fetchCount,
+            timedOut,
+            contextTokensEstimated ? estimateAgentTokens(context) : providerPromptTokens,
+            contextTokensEstimated
+          )
           onEvent({
             type: 'model_call_finished',
             modelRequestId,
@@ -178,6 +265,39 @@ export async function runAgentSession(
   })
 
   agent.subscribe((event) => {
+    if (event.type === 'tool_execution_start') {
+      const modelRequestId = modelRequestByToolCallId.get(event.toolCallId)
+      if (modelRequestId === undefined) {
+        throw new Error('Agent tool attempt has no authorized source model request')
+      }
+      onEvent({
+        type: 'tool_attempted',
+        modelRequestId,
+        toolCallId: event.toolCallId,
+        requestedToolName: event.toolName,
+        argsHash: createHash('sha256')
+          .update(JSON.stringify(event.args) ?? 'undefined')
+          .digest('hex'),
+        argumentShape: describeArgumentShape(event.args),
+        timestamp: Date.now()
+      })
+      return
+    }
+    if (event.type === 'tool_execution_end' && !toolBridge.hasDispatched(event.toolCallId)) {
+      const modelRequestId = modelRequestByToolCallId.get(event.toolCallId)
+      if (modelRequestId === undefined) {
+        throw new Error('Agent tool preflight failure has no authorized source model request')
+      }
+      onEvent({
+        type: 'tool_preflight_failed',
+        modelRequestId,
+        toolCallId: event.toolCallId,
+        requestedToolName: event.toolName,
+        phase: 'pre_dispatch',
+        timestamp: Date.now()
+      })
+      return
+    }
     if (
       event.type === 'message_update' &&
       event.assistantMessageEvent.type === 'text_delta' &&
@@ -191,6 +311,7 @@ export async function runAgentSession(
     enqueue(command) {
       const parsed = agentQueueCommandSchema.parse(command)
       modelRequestIds.push(parsed.modelRequestId)
+      systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
       const message: UserMessage = {
         role: 'user',
         content: parsed.content,
@@ -209,7 +330,7 @@ export async function runAgentSession(
       const pending = pendingModelCallAuthorizations.get(parsed.continuationId)
       if (pending === undefined) throw new Error('Agent model-call authorization is stale')
       pendingModelCallAuthorizations.delete(parsed.continuationId)
-      pending.resolve(parsed.modelRequestId)
+      pending.resolve(parsed)
     },
     abort: () => agent.abort()
   })
@@ -283,7 +404,9 @@ function toPiMessage(message: AgentHistoryMessage): UserMessage | AssistantMessa
 function toAssistantPayload(
   message: AssistantMessage,
   fetchCount: number,
-  timedOut: boolean
+  timedOut: boolean,
+  contextTokensUsed: number,
+  contextTokensEstimated: boolean
 ): AgentAssistantMessagePayload {
   return agentAssistantMessagePayloadSchema.parse({
     content: message.content
@@ -305,7 +428,9 @@ function toAssistantPayload(
       },
       responseIds: message.responseId === undefined ? [] : [message.responseId],
       retryCount: Math.max(0, fetchCount - 1),
-      providerModelId: message.responseModel ?? message.model
+      providerModelId: message.responseModel ?? message.model,
+      contextTokensUsed,
+      contextTokensEstimated
     },
     timestamp: message.timestamp,
     interrupted: !timedOut && (message.stopReason === 'aborted' || message.stopReason === 'error')
@@ -325,9 +450,12 @@ function requestModelCallAuthorization(
   onEvent: (event: AgentRuntimeEvent) => void,
   pending: Map<
     string,
-    { resolve: (modelRequestId: string) => void; reject: (error: Error) => void }
+    {
+      resolve: (authorization: AgentModelCallAuthorization) => void
+      reject: (error: Error) => void
+    }
   >
-): Promise<string> {
+): Promise<AgentModelCallAuthorization> {
   const continuationId = randomUUID()
   return new Promise((resolve, reject) => {
     pending.set(continuationId, { resolve, reject })
@@ -344,4 +472,33 @@ function abortError(message: string): Error {
   const error = new Error(message)
   error.name = 'AbortError'
   return error
+}
+
+function isMutationTool(toolName: string): boolean {
+  return (
+    toolName === 'submit_brief_change' ||
+    toolName === 'submit_outline_change' ||
+    toolName === 'submit_section_change'
+  )
+}
+
+function describeArgumentShape(value: unknown, depth = 0): string {
+  if (depth >= 4) return 'depth-limit'
+  if (value === null) return 'null'
+  if (Array.isArray(value)) {
+    const shapes = [
+      ...new Set(value.slice(0, 20).map((item) => describeArgumentShape(item, depth + 1)))
+    ]
+    return `array(${value.length})<${shapes.join('|')}>`.slice(0, 4_096)
+  }
+  if (typeof value === 'object') {
+    return (
+      Object.entries(value)
+        .slice(0, 100)
+        .map(([key, item]) => `${key}:${describeArgumentShape(item, depth + 1)}`)
+        .join(',')
+        .slice(0, 4_096) || 'object(empty)'
+    )
+  }
+  return typeof value
 }

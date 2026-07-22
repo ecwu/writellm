@@ -159,11 +159,8 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
   await writeFile(source, makeMinimalPdf())
   const zipBytes = await evidenceZip()
   let parseTaskId = ''
-  let manuscriptId = ''
-  let briefVersion = 0
   let outlineVersion = 0
   let sectionId = ''
-  let baseRevisionId = ''
   let agentCall = 0
   const requestBodies: unknown[] = []
   const server = createServer((request, response) => {
@@ -255,41 +252,42 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
         }
         if (agentCall === 2) {
           const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
-          if (citationId === undefined || sectionId === '' || baseRevisionId === '') {
+          if (citationId === undefined) {
             response.writeHead(500, { 'content-type': 'application/json' })
             response.end(JSON.stringify({ error: { message: 'Grounding context missing' } }))
             return
           }
           sendToolCall(response, {
+            responseId: 'agent-citation-response',
+            toolCallId: 'agent-citation-tool',
+            name: 'read_citations',
+            args: { citationIds: [citationId], requests: [] }
+          })
+          return
+        }
+        if (agentCall === 3) {
+          const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
+          if (citationId === undefined || sectionId === '') {
+            response.writeHead(500, { 'content-type': 'application/json' })
+            response.end(JSON.stringify({ error: { message: 'Expanded evidence missing' } }))
+            return
+          }
+          sendToolCall(response, {
             responseId: 'agent-proposal-response',
             toolCallId: 'agent-proposal-tool',
-            name: 'propose_section_patch',
+            name: 'submit_section_change',
             args: {
-              schemaVersion: 1,
               sectionId,
-              baseRevisionId,
               operations: [
                 {
-                  type: 'insertBlocks',
-                  anchorBlockId: null,
+                  type: 'insertTextBlocks',
+                  anchor: null,
                   placement: 'end',
                   blocks: [
                     {
-                      id: 'agent-e2e-block',
-                      type: 'paragraph',
-                      props: {
-                        backgroundColor: 'default',
-                        textColor: 'default',
-                        textAlignment: 'left'
-                      },
-                      content: [
-                        {
-                          type: 'text',
-                          text: 'Grounded revision from Agent.',
-                          styles: {}
-                        }
-                      ],
-                      children: []
+                      clientRef: 'grounded-paragraph',
+                      blockType: 'paragraph',
+                      text: 'Grounded revision from Agent.'
                     }
                   ]
                 }
@@ -299,44 +297,34 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
           })
           return
         }
-        if (agentCall === 3) {
+        if (agentCall === 4) {
           sendCompletion(response, 'I found **evidence** and prepared a reviewable proposal.')
           return
         }
-        if (agentCall === 4) {
+        if (agentCall === 5) {
           sendToolCall(response, {
             responseId: 'agent-brief-response',
             toolCallId: 'agent-brief-tool',
-            name: 'propose_brief_update',
+            name: 'submit_brief_change',
             args: {
-              schemaVersion: 1,
-              manuscriptId,
-              baseBriefVersion: briefVersion,
               changes: { description: 'Updated by Agent and refreshed immediately.' },
               citationIds: []
             }
           })
           return
         }
-        if (agentCall === 5) {
-          sendCompletion(response, 'I prepared the requested brief update.')
-          return
-        }
         if (agentCall === 6) {
           sendToolCall(response, {
             responseId: 'agent-outline-response',
             toolCallId: 'agent-outline-tool',
-            name: 'propose_outline_patch',
+            name: 'submit_outline_change',
             args: {
-              schemaVersion: 1,
-              manuscriptId,
-              baseOutlineVersion: outlineVersion,
               operations: [
                 {
                   type: 'createSection',
-                  sectionId: 'agent-created-outline-section',
-                  parentSectionId: null,
-                  position: 1,
+                  clientRef: 'agent-created-outline-section',
+                  parent: null,
+                  placement: { kind: 'last' },
                   title: 'Agent-created outline section',
                   objective: 'Verify outline refresh after approval.',
                   status: 'planned'
@@ -345,10 +333,6 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
               citationIds: []
             }
           })
-          return
-        }
-        if (agentCall === 7) {
-          sendCompletion(response, 'I prepared the requested outline update.')
           return
         }
         response.writeHead(200, {
@@ -449,22 +433,18 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       .toBe(true)
 
     await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-    ;({ manuscriptId, briefVersion, outlineVersion, sectionId, baseRevisionId } =
-      await launched.page.evaluate(async () => {
-        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
-          ?.projectSessionId
-        if (projectSessionId === undefined) throw new Error('Project session missing')
-        const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
-        const section = workspace.sections.find((item) => item.section.title === 'Introduction')
-        if (section === undefined) throw new Error('Introduction section missing')
-        return {
-          manuscriptId: workspace.manuscriptId,
-          briefVersion: workspace.brief.version,
-          outlineVersion: workspace.outlineVersion,
-          sectionId: section.section.sectionId,
-          baseRevisionId: section.revision.sectionRevisionId
-        }
-      }))
+    ;({ outlineVersion, sectionId } = await launched.page.evaluate(async () => {
+      const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+        ?.projectSessionId
+      if (projectSessionId === undefined) throw new Error('Project session missing')
+      const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+      const section = workspace.sections.find((item) => item.section.title === 'Introduction')
+      if (section === undefined) throw new Error('Introduction section missing')
+      return {
+        outlineVersion: workspace.outlineVersion,
+        sectionId: section.section.sectionId
+      }
+    }))
 
     const browserWindow = await launched.app.browserWindow(launched.page)
     await browserWindow.evaluate((window) => {
@@ -510,17 +490,8 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       hasText: 'Searched knowledge'
     })
     await expect(searchActivity).toBeVisible()
-    await expect(searchActivity.getByText('search_knowledge', { exact: true })).not.toBeVisible()
-    await searchActivity.getByText('Searched knowledge', { exact: true }).click()
-    await expect(searchActivity.getByText('search_knowledge', { exact: true })).toBeVisible()
     await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect(
-      panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
-    ).toBeVisible()
-    await expect(
-      panel.locator('strong').getByText('evidence', { exact: true }).first()
-    ).toBeVisible()
     await expect(panel.getByText('Idle', { exact: true })).toBeVisible()
     await expect(panel.getByText('openai-compatible', { exact: true })).toHaveCount(0)
     await expect(panel.getByText('writer-model', { exact: true })).toHaveCount(0)
@@ -534,16 +505,23 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await panel.getByRole('button', { name: 'Unified', exact: true }).click()
     await expect(proposalDiff).toHaveAttribute('data-layout', 'unified')
     const sourceAttachment = panel
-      .locator('[data-slot="attachment"]')
+      .locator('[data-testid^="agent-proposal-"] [data-slot="attachment"]')
       .filter({ hasText: 'agent evidence.pdf' })
       .first()
+    await sourceAttachment.scrollIntoViewIfNeeded()
     await expect(sourceAttachment.getByText('agent evidence.pdf', { exact: true })).toBeVisible()
     await expect(sourceAttachment.getByText('Page 1', { exact: true })).toBeVisible()
     await expect
       .poll(() => panel.evaluate((element) => element.scrollWidth <= element.clientWidth))
       .toBe(true)
-    await panel.getByRole('button', { name: 'Approve', exact: true }).click()
+    await panel.getByRole('button', { name: 'Approve & Continue', exact: true }).click()
     await expect(panel.getByText('applied', { exact: true })).toBeVisible()
+    await expect(
+      panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
+    ).toBeVisible()
+    await expect(
+      panel.locator('strong').getByText('evidence', { exact: true }).first()
+    ).toBeVisible()
     await expect(editor).toContainText('Grounded revision from Agent.')
 
     const appliedTruth = await launched.page.evaluate(async (expectedSectionId) => {
@@ -688,6 +666,10 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await expect(panel.getByText('This response will be stopped.', { exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(panel.getByText(/Stopped by user|Run interrupted/)).toBeVisible()
+    await expect(panel.getByText('Idle', { exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled()
+    await expect(panel.getByText('Agent action failed', { exact: true })).toHaveCount(0)
     await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
     await expect(panel.getByTestId('agent-session-list')).toBeVisible()
@@ -716,7 +698,7 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await expect(launched.page.locator('.bn-editor').first()).not.toBeVisible()
     await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await expect(launched.page.locator('.bn-editor').first()).toBeVisible()
-    expect(requestBodies).toHaveLength(8)
+    expect(requestBodies).toHaveLength(7)
     expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
   } finally {
     await launched.app.close()

@@ -11,6 +11,11 @@ import { mineruUtilityRequestSchema, type MineruUtilityResponse } from '../share
 import { runAuxiliaryModelRequest } from './auxiliary-model-request'
 import { MineruRequestError, runMineruRequest } from './mineru-request'
 import { runProviderProbeRequest } from './provider-probe-request'
+import {
+  modelsDevResolveRequestSchema,
+  type ModelsDevResolveResponse
+} from '../shared/contracts/model-catalog'
+import { runModelsDevRequest } from './models-dev-request'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
 
@@ -55,6 +60,31 @@ parentPort.on('message', (event) => {
 })
 
 async function dispatch(value: unknown): Promise<void> {
+  const modelsDev = modelsDevResolveRequestSchema.safeParse(value)
+  if (modelsDev.success) {
+    const controller = new AbortController()
+    activeRequests.set(modelsDev.data.requestId, { projectSessionId: null, controller })
+    try {
+      post(await runModelsDevRequest(modelsDev.data, fetch, controller.signal))
+    } catch (err) {
+      workerLog?.(
+        'error',
+        'worker.background.models_dev_failed',
+        'models.dev metadata refresh failed',
+        undefined,
+        err
+      )
+      post({
+        type: 'models-dev-error',
+        requestId: modelsDev.data.requestId,
+        error: serializeModelError(err, 'models.dev metadata refresh failed')
+      } satisfies ModelsDevResolveResponse)
+    } finally {
+      activeRequests.delete(modelsDev.data.requestId)
+    }
+    return
+  }
+
   const mineru = mineruUtilityRequestSchema.safeParse(value)
   if (mineru.success) {
     try {

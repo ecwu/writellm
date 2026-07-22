@@ -5,6 +5,7 @@ import type {
   AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
+import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
 import {
   AlertCircle,
   ArrowLeft,
@@ -48,15 +49,26 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Textarea } from '@/components/ui/textarea'
+import { Progress } from '@/components/ui/progress'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
 import {
   aggregateAgentUsage,
+  applyAgentTerminalEvent,
   citationDisplaysForToolResult,
   formatAgentDuration,
   findLatestPrompt,
+  isSectionProposalOutdated,
+  latestAgentContextUsage,
   mergeAgentEvents,
+  protectTerminalAgentRuns,
   projectAgentTimeline,
   type AgentCitationDisplay,
   type AgentTimelineItem,
@@ -76,6 +88,7 @@ export function AgentPanel(props: {
   onOpenChange(open: boolean): void
   projectSessionId: string
   activeSectionId: string | null
+  currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
   flushCurrent(): Promise<boolean>
   refreshManuscript(): Promise<void>
@@ -93,7 +106,11 @@ export function AgentPanel(props: {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [revisionTransitions, setRevisionTransitions] = useState<
+    Record<string, { from: string | undefined; to: string }>
+  >({})
   const activeSessionIdRef = useRef<string | null>(null)
+  const terminalRunIdsRef = useRef<Set<string>>(new Set())
   activeSessionIdRef.current = activeSessionId
 
   const refreshSessions = useCallback(async (): Promise<AgentSessionRecord[]> => {
@@ -110,7 +127,9 @@ export function AgentPanel(props: {
   }, [props.projectSessionId])
 
   const refreshSessionTruth = useCallback(
-    async (agentSessionId: string): Promise<void> => {
+    async (
+      agentSessionId: string
+    ): Promise<{ runs: AgentRunRecord[]; proposals: MutationProposalRecord[] }> => {
       const [nextRuns, nextProposals] = await Promise.all([
         window.desktop.agent.listRuns({
           projectSessionId: props.projectSessionId,
@@ -121,9 +140,12 @@ export function AgentPanel(props: {
           agentSessionId
         })
       ])
-      if (activeSessionIdRef.current !== agentSessionId) return
-      setRuns(nextRuns)
+      if (activeSessionIdRef.current !== agentSessionId) {
+        return { runs: nextRuns, proposals: nextProposals }
+      }
+      setRuns((current) => protectTerminalAgentRuns(current, nextRuns, terminalRunIdsRef.current))
       setProposals(nextProposals)
+      return { runs: nextRuns, proposals: nextProposals }
     },
     [props.projectSessionId]
   )
@@ -152,10 +174,12 @@ export function AgentPanel(props: {
     if (!props.open || activeSessionId === null) return
     let disposed = false
     let unsubscribe: (() => void) | undefined
+    let unsubscribeMutations: (() => void) | undefined
     setEvents([])
     setRuns([])
     setProposals([])
     setStreaming({})
+    terminalRunIdsRef.current = new Set()
     setError(null)
     void refreshSessionTruth(activeSessionId).catch((cause) => {
       if (!disposed) {
@@ -180,6 +204,20 @@ export function AgentPanel(props: {
             return
           }
           setEvents((current) => mergeAgentEvents(current, rendererEvent.event))
+          const terminalRunId = rendererEvent.event.agentRunId
+          if (
+            terminalRunId !== null &&
+            (rendererEvent.event.type === 'run_completed' ||
+              rendererEvent.event.type === 'run_interrupted')
+          ) {
+            terminalRunIdsRef.current.add(terminalRunId)
+            setRuns((current) => applyAgentTerminalEvent(current, rendererEvent.event))
+            setStreaming((current) => {
+              const next = { ...current }
+              delete next[terminalRunId]
+              return next
+            })
+          }
           if (rendererEvent.event.type === 'assistant_message') {
             const runId = rendererEvent.event.agentRunId
             if (runId !== null) {
@@ -211,9 +249,24 @@ export function AgentPanel(props: {
           props.onError(errorMessage(cause))
         }
       })
+    void window.desktop.agent
+      .subscribeMutations({ projectSessionId: props.projectSessionId }, (event) => {
+        if (disposed || event.agentSessionId !== activeSessionId) return
+        void refreshSessionTruth(activeSessionId).catch((cause) =>
+          props.onError(errorMessage(cause))
+        )
+      })
+      .then((release) => {
+        if (disposed) release()
+        else unsubscribeMutations = release
+      })
+      .catch((cause) => {
+        if (!disposed) props.onError(errorMessage(cause))
+      })
     return () => {
       disposed = true
       unsubscribe?.()
+      unsubscribeMutations?.()
     }
   }, [activeSessionId, props.onError, props.open, props.projectSessionId, refreshSessionTruth])
 
@@ -240,7 +293,26 @@ export function AgentPanel(props: {
     return () => window.clearInterval(timer)
   }, [isAgentWorking])
   const usage = useMemo(() => aggregateAgentUsage(events), [events])
+  const contextUsage = useMemo(() => latestAgentContextUsage(events), [events])
+  const latestRun = runs[0] ?? null
+  const contextLimits = activeRun?.modelLimits ?? latestRun?.modelLimits ?? null
+  const contextPercent =
+    contextUsage === null || contextLimits === null
+      ? 0
+      : Math.min(100, (contextUsage.used / contextLimits.contextWindowTokens) * 100)
+  const waitingProposal = proposals.find(
+    (proposal) =>
+      proposal.status === 'pending' &&
+      (proposal.kind === 'brief_update' || proposal.kind === 'outline_patch')
+  )
   const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
+  const effectiveRevisionIds = useMemo(() => {
+    const result = { ...props.currentRevisionIds }
+    for (const [sectionId, transition] of Object.entries(revisionTransitions)) {
+      if (result[sectionId] === transition.from) result[sectionId] = transition.to
+    }
+    return result
+  }, [props.currentRevisionIds, revisionTransitions])
 
   const createSession = async (): Promise<AgentSessionRecord> => {
     const created = await window.desktop.agent.createSession({
@@ -253,18 +325,51 @@ export function AgentPanel(props: {
     return created
   }
 
+  const setApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
+    if (activeSession === null || activeRun !== null) return
+    setBusy(true)
+    try {
+      const updated = await window.desktop.agent.setApprovalMode({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        mode
+      })
+      setSessions((current) =>
+        current.map((session) =>
+          session.agentSessionId === updated.agentSessionId ? updated : session
+        )
+      )
+    } catch (cause) {
+      const message = errorMessage(cause)
+      setError(message)
+      props.onError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
     setScreen('conversation')
   }
 
-  const startRun = async (content: string): Promise<void> => {
+  const startRun = async (
+    content: string,
+    approvedProposalId?: string,
+    allowWhileBusy = false,
+    skipEditorFlush = false
+  ): Promise<void> => {
     const trimmed = content.trim()
-    if (trimmed.length === 0 || busy || activeRun !== null) return
+    if (
+      trimmed.length === 0 ||
+      (!allowWhileBusy && busy) ||
+      (activeRun !== null && approvedProposalId === undefined)
+    )
+      return
     setBusy(true)
     setError(null)
     try {
-      if (!(await props.flushCurrent())) {
+      if (!skipEditorFlush && !(await props.flushCurrent())) {
         setError('Save the active section before starting the Agent.')
         return
       }
@@ -273,15 +378,63 @@ export function AgentPanel(props: {
         projectSessionId: props.projectSessionId,
         agentSessionId: session.agentSessionId,
         prompt: trimmed,
+        ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         scope,
-        editorContext: editorContextForScope(scope, props.activeSectionId, props.selection)
+        editorContext: editorContextForScope(
+          scope,
+          props.activeSectionId,
+          props.selection,
+          props.currentRevisionIds
+        )
       })
-      setRuns((current) => [run, ...current.filter((item) => item.agentRunId !== run.agentRunId)])
+      setRuns((current) =>
+        protectTerminalAgentRuns(
+          current,
+          [run, ...current.filter((item) => item.agentRunId !== run.agentRunId)],
+          terminalRunIdsRef.current
+        )
+      )
       setPrompt('')
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
       props.onError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reconcileInactiveRun = async (agentRunId: string): Promise<boolean> => {
+    if (activeSessionId === null) return false
+    try {
+      const truth = await refreshSessionTruth(activeSessionId)
+      return (
+        terminalRunIdsRef.current.has(agentRunId) ||
+        truth.runs.find((run) => run.agentRunId === agentRunId)?.status !== 'running'
+      )
+    } catch (cause) {
+      props.onError(errorMessage(cause))
+      return false
+    }
+  }
+
+  const stopRun = async (): Promise<void> => {
+    if (activeRun === null || busy) return
+    const agentRunId = activeRun.agentRunId
+    setBusy(true)
+    setError(null)
+    try {
+      await window.desktop.agent.abortRun({
+        projectSessionId: props.projectSessionId,
+        agentRunId
+      })
+      if (activeSessionId !== null) await refreshSessionTruth(activeSessionId)
+    } catch (cause) {
+      if (!(await reconcileInactiveRun(agentRunId))) {
+        const message = errorMessage(cause)
+        setError(message)
+        props.onError(message)
+      }
     } finally {
       setBusy(false)
     }
@@ -301,6 +454,7 @@ export function AgentPanel(props: {
       else await window.desktop.agent.followUpRun(input)
       setPrompt('')
     } catch (cause) {
+      if (await reconcileInactiveRun(activeRun.agentRunId)) return
       const message = errorMessage(cause)
       setError(message)
       props.onError(message)
@@ -309,21 +463,22 @@ export function AgentPanel(props: {
     }
   }
 
-  const updateProposal = (proposal: MutationProposalRecord): void => {
+  const updateProposals = (...updated: MutationProposalRecord[]): void => {
+    const updatedIds = new Set(updated.map((proposal) => proposal.proposalId))
     setProposals((current) => [
-      ...current.filter((item) => item.proposalId !== proposal.proposalId),
-      proposal
+      ...current.filter((item) => !updatedIds.has(item.proposalId)),
+      ...updated
     ])
   }
 
   const proposalAction = async (
     proposal: MutationProposalRecord,
-    action: 'approve' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
   ): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
-      if (action === 'approve') {
+      if (action === 'approve' || action === 'approve_continue') {
         const result = await approveProposalAfterEditorFlush({
           proposal,
           activeSectionId: props.activeSectionId,
@@ -336,8 +491,36 @@ export function AgentPanel(props: {
             })
         })
         if (result === null) throw new Error('The active editor could not be saved before approval')
-        updateProposal(result.proposal)
-        await props.refreshManuscript()
+        if (result.outcome === 'refresh_required') {
+          updateProposals(result.previousProposal, result.proposal)
+        } else {
+          updateProposals(result.proposal)
+          if (result.outcome === 'applied') {
+            const changed = result.sectionChanged
+            if (changed !== null) {
+              setRevisionTransitions((current) => ({
+                ...current,
+                [changed.sectionId]: {
+                  from: effectiveRevisionIds[changed.sectionId],
+                  to: changed.sectionRevisionId
+                }
+              }))
+            }
+            await props.refreshManuscript()
+          }
+        }
+        if (
+          action === 'approve_continue' &&
+          result.outcome !== 'refresh_required' &&
+          (result.outcome === 'applied' || result.outcome === 'already_satisfied')
+        ) {
+          await startRun(
+            'Verify the applied change, continue the requested writing task, and run check_draft when appropriate.',
+            result.proposal.proposalId,
+            true,
+            true
+          )
+        }
       } else if (action === 'reject') {
         const result = await window.desktop.agent.rejectProposal({
           projectSessionId: props.projectSessionId,
@@ -345,14 +528,24 @@ export function AgentPanel(props: {
           proposalId: proposal.proposalId,
           reason: 'Rejected by the user in the Agent panel.'
         })
-        updateProposal(result.proposal)
+        updateProposals(result.proposal)
       } else {
         const result = await window.desktop.agent.undoProposal({
           projectSessionId: props.projectSessionId,
           agentSessionId: proposal.agentSessionId,
           proposalId: proposal.proposalId
         })
-        updateProposal(result.proposal)
+        updateProposals(result.proposal)
+        if (result.sectionChanged !== null) {
+          const changed = result.sectionChanged
+          setRevisionTransitions((current) => ({
+            ...current,
+            [changed.sectionId]: {
+              from: effectiveRevisionIds[changed.sectionId],
+              to: changed.sectionRevisionId
+            }
+          }))
+        }
         await props.refreshManuscript()
       }
     } catch (cause) {
@@ -448,7 +641,11 @@ export function AgentPanel(props: {
                           {formatSessionUpdatedAt(session.updatedAt)}
                         </span>
                       </span>
-                      {isWorking ? (
+                      {session.agentSessionId === activeSessionId && waitingProposal ? (
+                        <Badge variant='secondary' className='shrink-0'>
+                          Approval needed
+                        </Badge>
+                      ) : isWorking ? (
                         <Badge variant='secondary' className='shrink-0'>
                           <LoaderCircle className='animate-spin' /> Working ·{' '}
                           {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
@@ -488,6 +685,27 @@ export function AgentPanel(props: {
                 {activeSession?.title ?? 'Conversation'}
               </h2>
             </div>
+            {activeSession ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant='outline' size='sm' disabled={busy || activeRun !== null}>
+                    {approvalModeLabel(activeSession.approvalMode)} <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
+                    <DropdownMenuItem key={mode} onSelect={() => void setApprovalMode(mode)}>
+                      {activeSession.approvalMode === mode ? (
+                        <Check />
+                      ) : (
+                        <span className='size-4' />
+                      )}
+                      {approvalModeLabel(mode)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button
               variant='ghost'
               size='icon-sm'
@@ -519,6 +737,24 @@ export function AgentPanel(props: {
               {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
               {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
             </span>
+            {contextLimits !== null ? (
+              <div
+                className='flex basis-full items-center gap-2'
+                title={`${contextUsage?.used.toLocaleString() ?? 'No usage'} / ${contextLimits.contextWindowTokens.toLocaleString()} context tokens; input limit ${contextLimits.inputLimitTokens?.toLocaleString() ?? 'context-derived'}; output limit ${contextLimits.outputLimitTokens?.toLocaleString() ?? 'provider default'}; source ${contextLimits.source}; resolved ${contextLimits.resolvedAt ?? 'legacy'}`}
+              >
+                <Progress value={contextPercent} className='h-1.5 flex-1' />
+                <span className='tabular-nums'>
+                  {contextUsage?.estimated ? '~' : ''}
+                  {contextUsage?.used.toLocaleString() ?? '—'} /{' '}
+                  {contextLimits.contextWindowTokens.toLocaleString()}
+                </span>
+              </div>
+            ) : null}
+            {activeRun !== null && waitingProposal !== undefined ? (
+              <div className='basis-full text-amber-700 dark:text-amber-400'>
+                Waiting for {waitingProposal.kind === 'brief_update' ? 'Brief' : 'Outline'} approval
+              </div>
+            ) : null}
           </div>
 
           <div className='min-h-0 flex-1'>
@@ -544,6 +780,7 @@ export function AgentPanel(props: {
                 runs={runs}
                 now={clockNow}
                 streaming={streaming}
+                currentRevisionIds={effectiveRevisionIds}
                 onProposalAction={proposalAction}
                 busy={busy}
               />
@@ -609,20 +846,7 @@ export function AgentPanel(props: {
                   >
                     <Send /> Follow up
                   </Button>
-                  <Button
-                    variant='destructive'
-                    disabled={busy}
-                    onClick={() => {
-                      setBusy(true)
-                      void window.desktop.agent
-                        .abortRun({
-                          projectSessionId: props.projectSessionId,
-                          agentRunId: activeRun.agentRunId
-                        })
-                        .catch((cause) => setError(errorMessage(cause)))
-                        .finally(() => setBusy(false))
-                    }}
-                  >
+                  <Button variant='destructive' disabled={busy} onClick={() => void stopRun()}>
                     <CircleStop /> Stop
                   </Button>
                 </>
@@ -670,10 +894,11 @@ function EventTimeline(props: {
   runs: AgentRunRecord[]
   now: number
   streaming: Record<string, string>
+  currentRevisionIds: Readonly<Record<string, string>>
   busy: boolean
   onProposalAction(
     proposal: MutationProposalRecord,
-    action: 'approve' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
   ): Promise<void>
 }): React.JSX.Element {
   const timeline = useMemo(
@@ -709,6 +934,7 @@ function EventTimeline(props: {
                   item={item}
                   citationsById={citationsById}
                   busy={props.busy}
+                  currentRevisionIds={props.currentRevisionIds}
                   onProposalAction={props.onProposalAction}
                 />
               </MessageScrollerItem>
@@ -744,9 +970,10 @@ function TimelineItem(props: {
   item: AgentTimelineItem
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
+  currentRevisionIds: Readonly<Record<string, string>>
   onProposalAction(
     proposal: MutationProposalRecord,
-    action: 'approve' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
   ): Promise<void>
 }): React.JSX.Element {
   const { item } = props
@@ -790,6 +1017,7 @@ function TimelineItem(props: {
         item={item}
         citationsById={props.citationsById}
         busy={props.busy}
+        currentRevisionIds={props.currentRevisionIds}
         onAction={props.onProposalAction}
       />
     )
@@ -909,7 +1137,11 @@ function ProposalMessage(props: {
   item: Extract<AgentTimelineItem, { type: 'proposal' }>
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
-  onAction(proposal: MutationProposalRecord, action: 'approve' | 'reject' | 'undo'): Promise<void>
+  currentRevisionIds: Readonly<Record<string, string>>
+  onAction(
+    proposal: MutationProposalRecord,
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
+  ): Promise<void>
 }): React.JSX.Element {
   const { resolvedTheme } = useTheme()
   const proposal = props.item.proposal
@@ -928,6 +1160,7 @@ function ProposalMessage(props: {
   }
   const preview = proposal.payload.preview
   const isPending = proposal.status === 'pending'
+  const isOutdated = isSectionProposalOutdated(proposal, props.currentRevisionIds)
   const canUndo = proposal.status === 'applied' && proposal.kind === 'section_patch'
   const sources = preview.citedSources.map(
     (source) =>
@@ -958,6 +1191,19 @@ function ProposalMessage(props: {
         dark={resolvedTheme === 'dark'}
       />
       {sources.length > 0 ? <CitationAttachments citations={sources} /> : null}
+      {proposal.replacesProposalId !== null ? (
+        <p className='text-xs text-muted-foreground'>Refreshed from an outdated proposal.</p>
+      ) : null}
+      {proposal.status === 'conflicted' ? (
+        <p className='text-sm text-destructive' role='alert'>
+          This proposal conflicts with the latest section. {proposal.rejectedReason}
+        </p>
+      ) : null}
+      {proposal.status === 'satisfied' ? (
+        <p className='text-sm text-muted-foreground'>
+          No update is needed because the latest section already contains this change.
+        </p>
+      ) : null}
       <div className='flex flex-wrap justify-end gap-2'>
         {isPending ? (
           <>
@@ -970,11 +1216,20 @@ function ProposalMessage(props: {
               <X /> Reject
             </Button>
             <Button
+              variant='outline'
+              size='sm'
+              disabled={props.busy || isOutdated}
+              onClick={() => void props.onAction(proposal, 'approve_continue')}
+            >
+              <Check /> Approve & Continue
+            </Button>
+            <Button
               size='sm'
               disabled={props.busy}
               onClick={() => void props.onAction(proposal, 'approve')}
             >
-              <Check /> Approve
+              {isOutdated ? <RotateCcw /> : <Check />}
+              {isOutdated ? 'Review update' : 'Approve'}
             </Button>
           </>
         ) : null}
@@ -992,7 +1247,9 @@ function ProposalMessage(props: {
           <BubbleContent className='w-full space-y-3'>
             <div className='flex min-w-0 flex-wrap items-center gap-2'>
               <span className='min-w-0 flex-1 wrap-anywhere font-medium'>{preview.summary}</span>
-              <Badge variant={isPending ? 'secondary' : 'outline'}>{proposal.status}</Badge>
+              <Badge variant={isPending ? 'secondary' : 'outline'}>
+                {isOutdated ? 'outdated' : proposal.status}
+              </Badge>
               {canUndo ? (
                 <Button
                   variant='outline'
@@ -1153,14 +1410,28 @@ function selectionAvailable(props: {
 function editorContextForScope(
   scope: AgentStartScope,
   activeSectionId: string | null,
-  selection: AgentPanelSelection | null
+  selection: AgentPanelSelection | null,
+  currentRevisionIds: Readonly<Record<string, string>>
 ) {
   if (scope === 'project') {
-    return { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    return {
+      activeSectionId: null,
+      activeBlockId: null,
+      selectedBlockIds: [],
+      capturedAt: Date.now(),
+      capturedRevisionId: null
+    }
   }
   if (activeSectionId === null) throw new Error('No active section is available')
+  const capturedRevisionId = currentRevisionIds[activeSectionId] ?? null
   if (scope === 'section') {
-    return { activeSectionId, activeBlockId: null, selectedBlockIds: [] }
+    return {
+      activeSectionId,
+      activeBlockId: null,
+      selectedBlockIds: [],
+      capturedAt: Date.now(),
+      capturedRevisionId
+    }
   }
   if (selection?.sectionId !== activeSectionId || selection.selectedBlockIds.length === 0) {
     throw new Error('No active block selection is available')
@@ -1168,7 +1439,9 @@ function editorContextForScope(
   return {
     activeSectionId,
     activeBlockId: selection.activeBlockId,
-    selectedBlockIds: selection.selectedBlockIds
+    selectedBlockIds: selection.selectedBlockIds,
+    capturedAt: Date.now(),
+    capturedRevisionId
   }
 }
 
@@ -1189,4 +1462,10 @@ function blockOperationLabels(proposal: MutationProposalRecord): string[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The Agent operation failed.'
+}
+
+function approvalModeLabel(mode: AgentApprovalMode): string {
+  if (mode === 'manual') return 'Manual'
+  if (mode === 'section_auto') return 'Section auto'
+  return 'YOLO'
 }

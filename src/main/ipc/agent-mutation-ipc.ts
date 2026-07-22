@@ -2,22 +2,25 @@ import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import {
   approveMutationProposalInputSchema,
+  approveMutationProposalResultSchema,
   mutationProposalActionResultSchema,
-  mutationSectionChangedSchema,
   mutationSubscriptionInputSchema,
   rejectMutationProposalInputSchema,
   undoMutationProposalInputSchema,
+  mutationSectionChangedSchema,
   type MutationSectionChanged
 } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
+import type { MutationEventBroker } from '../agent/mutation-event-broker'
 
 export interface AgentMutationIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
 export function registerAgentMutationIpc(options: {
   manager: ProjectManager
   logger: Pick<Logger, 'info' | 'error'>
+  broker?: MutationEventBroker
   developmentUrl?: string
   ipc?: AgentMutationIpcMain
 }): {
@@ -25,16 +28,31 @@ export function registerAgentMutationIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
-  const subscribers = new Map<string, Map<string, WebContents>>()
-
+  const legacySubscribers = new Map<string, Map<string, WebContents>>()
   const service = (projectSessionId: string) => {
     const context = options.manager.assertMutationSession(projectSessionId)
     if (context.agentMutations === null) throw new Error('Agent mutations are unavailable')
     return context.agentMutations
   }
-  const publish = (event: MutationSectionChanged): void => {
-    const parsed = mutationSectionChangedSchema.parse(event)
-    for (const sender of subscribers.get(parsed.projectSessionId)?.values() ?? []) {
+  const recordDecision = async (input: {
+    projectSessionId: string
+    agentSessionId: string
+    agentRunId: string
+    proposalId: string
+    decision: 'approved' | 'rejected'
+  }): Promise<void> => {
+    const sessions = options.manager.assertActiveSession(input.projectSessionId).agentSessions
+    await sessions?.recordApprovalDecision({
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      proposalId: input.proposalId,
+      decision: input.decision,
+      continueRequested: false
+    })
+  }
+  const publishLegacy = (changed: MutationSectionChanged): void => {
+    const parsed = mutationSectionChangedSchema.parse(changed)
+    for (const sender of legacySubscribers.get(parsed.projectSessionId)?.values() ?? []) {
       if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.agentSectionChanged, parsed)
     }
   }
@@ -64,20 +82,33 @@ export function registerAgentMutationIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = approveMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.approve', input.proposalId, async () => {
-      const result = mutationProposalActionResultSchema.parse(
+      const result = approveMutationProposalResultSchema.parse(
         await service(input.projectSessionId).approve(input)
       )
       options.manager.assertActiveSession(input.projectSessionId)
-      if (result.sectionChanged !== null) publish(result.sectionChanged)
+      if (result.sectionChanged !== null) publishLegacy(result.sectionChanged)
+      await recordDecision({
+        ...input,
+        agentRunId: result.proposal.agentRunId,
+        decision: 'approved'
+      })
       return result
     })
   })
   ipc.handle(IPC_CHANNELS.agentProposalReject, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = rejectMutationProposalInputSchema.parse(rawInput)
-    return lifecycle('agent.proposal.reject', input.proposalId, () =>
-      mutationProposalActionResultSchema.parse(service(input.projectSessionId).reject(input))
-    )
+    return lifecycle('agent.proposal.reject', input.proposalId, async () => {
+      const result = mutationProposalActionResultSchema.parse(
+        service(input.projectSessionId).reject(input)
+      )
+      await recordDecision({
+        ...input,
+        agentRunId: result.proposal.agentRunId,
+        decision: 'rejected'
+      })
+      return result
+    })
   })
   ipc.handle(IPC_CHANNELS.agentProposalUndo, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -87,7 +118,7 @@ export function registerAgentMutationIpc(options: {
         await service(input.projectSessionId).undo(input)
       )
       options.manager.assertActiveSession(input.projectSessionId)
-      if (result.sectionChanged !== null) publish(result.sectionChanged)
+      if (result.sectionChanged !== null) publishLegacy(result.sectionChanged)
       return result
     })
   })
@@ -95,26 +126,28 @@ export function registerAgentMutationIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = mutationSubscriptionInputSchema.parse(rawInput)
     options.manager.assertActiveSession(input.projectSessionId)
-    const leases = subscribers.get(input.projectSessionId) ?? new Map<string, WebContents>()
+    options.broker?.subscribe(input.projectSessionId, input.subscriptionId, event.sender)
+    const leases = legacySubscribers.get(input.projectSessionId) ?? new Map()
     leases.set(input.subscriptionId, event.sender)
-    subscribers.set(input.projectSessionId, leases)
+    legacySubscribers.set(input.projectSessionId, leases)
   })
   ipc.handle(IPC_CHANNELS.agentUnsubscribeMutations, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = mutationSubscriptionInputSchema.parse(rawInput)
-    const leases = subscribers.get(input.projectSessionId)
-    if (leases?.get(input.subscriptionId)?.id === event.sender.id) {
+    options.broker?.unsubscribe(input.projectSessionId, input.subscriptionId, event.sender.id)
+    const leases = legacySubscribers.get(input.projectSessionId)
+    if (leases?.get(input.subscriptionId)?.id === event.sender.id)
       leases.delete(input.subscriptionId)
-      if (leases.size === 0) subscribers.delete(input.projectSessionId)
-    }
   })
 
   return {
     revokeSession(projectSessionId) {
-      subscribers.delete(projectSessionId)
+      options.broker?.revokeSession(projectSessionId)
+      legacySubscribers.delete(projectSessionId)
     },
     unregister() {
-      subscribers.clear()
+      options.broker?.clear()
+      legacySubscribers.clear()
       for (const channel of [
         IPC_CHANNELS.agentProposalApprove,
         IPC_CHANNELS.agentProposalReject,

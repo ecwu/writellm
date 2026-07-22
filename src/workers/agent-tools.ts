@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
-import { type Static, Type } from 'typebox'
+import { Type } from 'typebox'
 import {
   AGENT_MUTATION_BLOCK_LIMIT,
   AGENT_MUTATION_CITATION_LIMIT,
@@ -46,14 +46,32 @@ export const getWritingContextParameters = Type.Object(
   strict
 )
 
+export const readOutlineParameters = Type.Object(
+  {
+    rootSectionId: Type.Optional(uuid()),
+    maxDepth: Type.Optional(Type.Integer({ minimum: 1, maximum: 64, default: 8 })),
+    cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 }))
+  },
+  strict
+)
+
 export const readSectionParameters = Type.Object(
   {
     sectionId: uuid(),
+    view: Type.Optional(
+      Type.Union([Type.Literal('summary'), Type.Literal('canonical'), Type.Literal('fragment')], {
+        default: 'summary'
+      })
+    ),
+    blockId: Type.Optional(blockId()),
     blockIds: Type.Optional(Type.Array(blockId(), { maxItems: 100 })),
     cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
     limit: Type.Optional(
       Type.Integer({ minimum: 1, maximum: AGENT_SECTION_PAGE_LIMIT, default: 20 })
-    )
+    ),
+    offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
+    maxChars: Type.Optional(Type.Integer({ minimum: 256, maximum: 65_536, default: 16_384 }))
   },
   strict
 )
@@ -80,12 +98,227 @@ export const searchKnowledgeParameters = Type.Object(
   strict
 )
 
+export const searchManuscriptParameters = Type.Object(
+  {
+    query: Type.String({ minLength: 1, maxLength: 2_000 }),
+    sectionIds: Type.Optional(Type.Array(uuid(), { maxItems: 100, default: [] })),
+    cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, default: 20 }))
+  },
+  strict
+)
+
+export const inspectChangeParameters = Type.Object({ proposalId: uuid() }, strict)
+
+const draftCheck = Type.Union([
+  Type.Literal('document_structure'),
+  Type.Literal('outline_integrity'),
+  Type.Literal('revision_lineage'),
+  Type.Literal('citation_provenance'),
+  Type.Literal('safe_links'),
+  Type.Literal('unresolved_placeholders'),
+  Type.Literal('duplicate_headings'),
+  Type.Literal('duplicate_paragraphs'),
+  Type.Literal('length_constraints')
+])
+
+export const checkDraftParameters = Type.Object(
+  {
+    scope: Type.Union([
+      Type.Object({ type: Type.Literal('manuscript') }, strict),
+      Type.Object({ type: Type.Literal('section'), sectionId: uuid() }, strict)
+    ]),
+    checks: Type.Optional(Type.Array(draftCheck, { maxItems: 9, default: [] }))
+  },
+  strict
+)
+
 export const readCitationsParameters = Type.Object(
   {
-    citationIds: Type.Array(Type.String({ pattern: '^citation-[a-f0-9]{40}$' }), {
-      minItems: 1,
-      maxItems: AGENT_CITATION_RESULT_LIMIT
-    })
+    citationIds: Type.Optional(
+      Type.Array(Type.String({ pattern: '^citation-[a-f0-9]{40}$' }), {
+        maxItems: AGENT_CITATION_RESULT_LIMIT
+      })
+    ),
+    requests: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            citationId: Type.String({ pattern: '^citation-[a-f0-9]{40}$' }),
+            offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
+            maxChars: Type.Optional(
+              Type.Integer({ minimum: 256, maximum: 65_536, default: 16_384 })
+            )
+          },
+          strict
+        ),
+        { maxItems: AGENT_CITATION_RESULT_LIMIT }
+      )
+    )
+  },
+  strict
+)
+
+const sectionRef = Type.Union([
+  Type.Object({ kind: Type.Literal('existing'), sectionId: uuid() }, strict),
+  Type.Object(
+    {
+      kind: Type.Literal('created'),
+      clientRef: Type.String({ minLength: 1, maxLength: 256 })
+    },
+    strict
+  )
+])
+const outlinePlacement = Type.Union([
+  Type.Object({ kind: Type.Literal('first') }, strict),
+  Type.Object({ kind: Type.Literal('last') }, strict),
+  Type.Object({ kind: Type.Literal('before'), anchor: sectionRef }, strict),
+  Type.Object({ kind: Type.Literal('after'), anchor: sectionRef }, strict)
+])
+
+export const submitOutlineChangeParameters = Type.Object(
+  {
+    operations: Type.Array(
+      Type.Union([
+        Type.Object(
+          {
+            type: Type.Literal('createSection'),
+            clientRef: Type.String({ minLength: 1, maxLength: 256 }),
+            parent: Type.Union([sectionRef, Type.Null()]),
+            placement: outlinePlacement,
+            title: Type.String({ minLength: 1, maxLength: 500 }),
+            objective: Type.Union([Type.String({ maxLength: 32_000 }), Type.Null()]),
+            status: Type.Union([
+              Type.Literal('planned'),
+              Type.Literal('drafting'),
+              Type.Literal('completed')
+            ])
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('updateSection'),
+            section: sectionRef,
+            title: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+            objective: Type.Optional(Type.Union([Type.String({ maxLength: 32_000 }), Type.Null()])),
+            status: Type.Optional(
+              Type.Union([
+                Type.Literal('planned'),
+                Type.Literal('drafting'),
+                Type.Literal('completed')
+              ])
+            )
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('moveSection'),
+            section: sectionRef,
+            parent: Type.Union([sectionRef, Type.Null()]),
+            placement: outlinePlacement
+          },
+          strict
+        ),
+        Type.Object({ type: Type.Literal('deleteSection'), section: sectionRef }, strict)
+      ]),
+      { minItems: 1, maxItems: AGENT_MUTATION_OPERATION_LIMIT }
+    ),
+    citationIds: citationIds()
+  },
+  strict
+)
+
+const blockPrecondition = Type.Object(
+  {
+    blockId: blockId(),
+    expectedBlockHash: Type.String({ pattern: '^[a-f0-9]{64}$' })
+  },
+  strict
+)
+const textBlockType = Type.Union(
+  [
+    'paragraph',
+    'heading',
+    'bulletListItem',
+    'numberedListItem',
+    'checkListItem',
+    'quote',
+    'codeBlock'
+  ].map((type) => Type.Literal(type))
+)
+export const submitSectionChangeParameters = Type.Object(
+  {
+    sectionId: uuid(),
+    operations: Type.Array(
+      Type.Union([
+        Type.Object(
+          {
+            type: Type.Literal('replaceBlockText'),
+            target: blockPrecondition,
+            text: Type.String({ maxLength: 100_000 })
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('insertTextBlocks'),
+            anchor: Type.Union([blockPrecondition, Type.Null()]),
+            placement: Type.Union([
+              Type.Literal('before'),
+              Type.Literal('after'),
+              Type.Literal('start'),
+              Type.Literal('end')
+            ]),
+            blocks: Type.Array(
+              Type.Object(
+                {
+                  clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+                  blockType: Type.Optional(textBlockType),
+                  text: Type.String({ maxLength: 100_000 })
+                },
+                strict
+              ),
+              { minItems: 1, maxItems: AGENT_MUTATION_BLOCK_LIMIT }
+            )
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('removeBlocks'),
+            targets: Type.Array(blockPrecondition, {
+              minItems: 1,
+              maxItems: AGENT_MUTATION_BLOCK_LIMIT
+            })
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('moveBlocks'),
+            targets: Type.Array(blockPrecondition, {
+              minItems: 1,
+              maxItems: AGENT_MUTATION_BLOCK_LIMIT
+            }),
+            anchor: blockPrecondition,
+            placement: Type.Union([Type.Literal('before'), Type.Literal('after')])
+          },
+          strict
+        ),
+        Type.Object(
+          {
+            type: Type.Literal('replaceCanonicalBlock'),
+            target: blockPrecondition,
+            block: Type.Unknown()
+          },
+          strict
+        )
+      ]),
+      { minItems: 1, maxItems: AGENT_MUTATION_OPERATION_LIMIT }
+    ),
+    citationIds: citationIds()
   },
   strict
 )
@@ -106,6 +339,11 @@ const briefChanges = Type.Object(
       Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.Unknown())
     )
   },
+  strict
+)
+
+export const submitBriefChangeParameters = Type.Object(
+  { changes: briefChanges, citationIds: citationIds() },
   strict
 )
 
@@ -188,75 +426,6 @@ export const proposeOutlinePatchParameters = Type.Object(
   },
   strict
 )
-
-type ModelOutlinePatch = Static<typeof proposeOutlinePatchParameters>
-
-export function prepareOutlinePatchArguments(
-  args: unknown,
-  createId: () => string = randomUUID
-): ModelOutlinePatch {
-  if (!isRecord(args) || !Array.isArray(args.operations)) return args as ModelOutlinePatch
-
-  const generatedIds = new Map<string, string>()
-  for (const operation of args.operations) {
-    if (
-      isRecord(operation) &&
-      operation.type === 'createSection' &&
-      typeof operation.sectionId === 'string' &&
-      !generatedIds.has(operation.sectionId)
-    ) {
-      generatedIds.set(operation.sectionId, createId())
-    }
-  }
-  if (generatedIds.size === 0) return args as ModelOutlinePatch
-
-  return {
-    ...args,
-    operations: args.operations.map((operation) =>
-      rewriteOutlineOperationReferences(operation, generatedIds)
-    )
-  } as ModelOutlinePatch
-}
-
-function rewriteOutlineOperationReferences(
-  operation: unknown,
-  generatedIds: ReadonlyMap<string, string>
-): unknown {
-  if (!isRecord(operation) || typeof operation.type !== 'string') return operation
-  switch (operation.type) {
-    case 'createSection':
-      return {
-        ...operation,
-        sectionId: rewriteOutlineReference(operation.sectionId, generatedIds),
-        parentSectionId: rewriteOutlineReference(operation.parentSectionId, generatedIds)
-      }
-    case 'updateSection':
-    case 'deleteSection':
-      return {
-        ...operation,
-        sectionId: rewriteOutlineReference(operation.sectionId, generatedIds)
-      }
-    case 'moveSection':
-      return {
-        ...operation,
-        sectionId: rewriteOutlineReference(operation.sectionId, generatedIds),
-        parentSectionId: rewriteOutlineReference(operation.parentSectionId, generatedIds)
-      }
-    default:
-      return operation
-  }
-}
-
-function rewriteOutlineReference(
-  reference: unknown,
-  generatedIds: ReadonlyMap<string, string>
-): unknown {
-  return typeof reference === 'string' ? (generatedIds.get(reference) ?? reference) : reference
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
 
 const textStyles = Type.Object(
   {
@@ -532,7 +701,7 @@ interface PendingToolRequest {
   readonly toolName: AgentToolName
   readonly toolCallId: string
   readonly modelRequestId: string
-  readonly resolve: (response: Extract<AgentToolResponse, { ok: true }>) => void
+  readonly resolve: (response: AgentToolResponse) => void
   readonly reject: (error: Error) => void
   readonly signal?: AbortSignal
   readonly onAbort?: () => void
@@ -540,6 +709,7 @@ interface PendingToolRequest {
 
 export class AgentToolBridge {
   readonly #pending = new Map<string, PendingToolRequest>()
+  readonly #dispatchedToolCallIds = new Set<string>()
   #closed = false
 
   constructor(
@@ -569,6 +739,15 @@ export class AgentToolBridge {
           this.#execute('get_writing_context', toolCallId, args, signal)
       },
       {
+        name: 'read_outline',
+        label: 'Read outline',
+        description: 'Read a snapshot-bound, paginated outline subtree.',
+        parameters: readOutlineParameters,
+        executionMode: 'parallel',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('read_outline', toolCallId, args, signal)
+      },
+      {
         name: 'read_section',
         label: 'Read section',
         description:
@@ -589,6 +768,15 @@ export class AgentToolBridge {
           this.#execute('search_knowledge', toolCallId, args, signal)
       },
       {
+        name: 'search_manuscript',
+        label: 'Search manuscript',
+        description: 'Search snapshot-bound manuscript blocks for existing wording and terms.',
+        parameters: searchManuscriptParameters,
+        executionMode: 'parallel',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('search_manuscript', toolCallId, args, signal)
+      },
+      {
         name: 'read_citations',
         label: 'Read citations',
         description:
@@ -599,35 +787,52 @@ export class AgentToolBridge {
           this.#execute('read_citations', toolCallId, args, signal)
       },
       {
-        name: 'propose_brief_update',
+        name: 'inspect_change',
+        label: 'Inspect change',
+        description: 'Inspect the authoritative state and result of a proposal in this session.',
+        parameters: inspectChangeParameters,
+        executionMode: 'parallel',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('inspect_change', toolCallId, args, signal)
+      },
+      {
+        name: 'check_draft',
+        label: 'Check draft',
+        description: 'Run deterministic structural and consistency checks against the snapshot.',
+        parameters: checkDraftParameters,
+        executionMode: 'parallel',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('check_draft', toolCallId, args, signal)
+      },
+      {
+        name: 'submit_brief_change',
         label: 'Propose brief update',
         description:
-          'Create a pending, reviewable manuscript brief proposal using brief.version from get_writing_context as baseBriefVersion. This never applies the change.',
-        parameters: proposeBriefUpdateParameters,
+          'Submit a manuscript brief change. The application binds the source snapshot and always pauses for user review.',
+        parameters: submitBriefChangeParameters,
         executionMode: 'sequential',
         execute: (toolCallId, args, signal) =>
-          this.#execute('propose_brief_update', toolCallId, args, signal)
+          this.#execute('submit_brief_change', toolCallId, args, signal)
       },
       {
-        name: 'propose_outline_patch',
+        name: 'submit_outline_change',
         label: 'Propose outline patch',
         description:
-          'Create a pending, reviewable atomic outline proposal using outlineVersion from get_writing_context as baseOutlineVersion. For createSection, use a unique short local sectionId rather than generating a UUID; the application assigns internal IDs and preserves references within the patch. This never applies the change.',
-        parameters: proposeOutlinePatchParameters,
-        prepareArguments: prepareOutlinePatchArguments,
+          'Submit an atomic outline change using explicit existing/created SectionRef values, clientRef identifiers, and first/last/before/after placement. The application binds versions and assigns UUIDs.',
+        parameters: submitOutlineChangeParameters,
         executionMode: 'sequential',
         execute: (toolCallId, args, signal) =>
-          this.#execute('propose_outline_patch', toolCallId, args, signal)
+          this.#execute('submit_outline_change', toolCallId, args, signal)
       },
       {
-        name: 'propose_section_patch',
+        name: 'submit_section_change',
         label: 'Propose section patch',
         description:
-          'Create a pending, reviewable typed BlockNote section proposal. This never applies the change.',
-        parameters: proposeSectionPatchParameters,
+          'Submit a block-hash-guarded section change. Read block summaries or canonical blocks first; the application binds the revision and generates inserted block IDs.',
+        parameters: submitSectionChangeParameters,
         executionMode: 'sequential',
         execute: (toolCallId, args, signal) =>
-          this.#execute('propose_section_patch', toolCallId, args, signal)
+          this.#execute('submit_section_change', toolCallId, args, signal)
       }
     ]
   }
@@ -640,17 +845,26 @@ export class AgentToolBridge {
     this.port.close()
   }
 
+  hasDispatched(toolCallId: string): boolean {
+    return this.#dispatchedToolCallIds.has(toolCallId)
+  }
+
   async #execute(toolName: AgentToolName, toolCallId: string, args: unknown, signal?: AbortSignal) {
+    this.#dispatchedToolCallIds.add(toolCallId)
     const modelRequestId = this.modelRequestIdForToolCall(toolCallId)
     const response = await this.#request(toolName, toolCallId, modelRequestId, args, signal)
-    const serialized = JSON.stringify(response.data)
+    const meta = { contractVersion: 2 as const, toolName, toolCallId, modelRequestId }
+    const result = response.ok
+      ? { schemaVersion: response.schemaVersion, ok: true as const, data: response.data, meta }
+      : { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }
+    const serialized = JSON.stringify(result)
     const content =
       toolName === 'search_knowledge' || toolName === 'read_citations'
-        ? `<UNTRUSTED_KNOWLEDGE tool="${toolName}">\n${serialized}\n</UNTRUSTED_KNOWLEDGE>`
-        : `<PROJECT_DATA tool="${toolName}">\n${serialized}\n</PROJECT_DATA>`
+        ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${serialized}\n</UNTRUSTED_EXTERNAL>`
+        : `<MANUSCRIPT_DATA tool="${toolName}">\n${serialized}\n</MANUSCRIPT_DATA>`
     return {
       content: [{ type: 'text' as const, text: content }],
-      details: response.data
+      details: result
     }
   }
 
@@ -660,7 +874,7 @@ export class AgentToolBridge {
     modelRequestId: string,
     args: unknown,
     signal?: AbortSignal
-  ): Promise<Extract<AgentToolResponse, { ok: true }>> {
+  ): Promise<AgentToolResponse> {
     if (this.#closed) return Promise.reject(new Error('Agent tool bridge is closed'))
     if (signal?.aborted) return Promise.reject(abortError())
     const requestId = randomUUID()
@@ -723,12 +937,7 @@ export class AgentToolBridge {
       return
     }
     this.#finish(response.requestId)
-    if (response.ok) pending.resolve(response)
-    else {
-      const error = new Error(response.error.message)
-      error.name = `AgentToolError:${response.error.code}`
-      pending.reject(error)
-    }
+    pending.resolve(response)
   }
 
   readonly #onClose = (): void => {

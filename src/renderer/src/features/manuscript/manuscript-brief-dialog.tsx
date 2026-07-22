@@ -1,5 +1,5 @@
 import type { ManuscriptBrief } from '../../../../shared/contracts/manuscript'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -78,9 +78,25 @@ export function ManuscriptBriefDialog(props: {
   onSave(fields: BriefFields): Promise<void>
 }): React.JSX.Element {
   const [fields, setFields] = useState<BriefFields>(() => editableFields(props.brief))
+  const canonicalFieldsRef = useRef(editableFields(props.brief))
+  const canonicalVersionRef = useRef(props.brief.version)
+  const fieldsRef = useRef(fields)
+  fieldsRef.current = fields
+  const [externalConflict, setExternalConflict] = useState(false)
 
   useEffect(() => {
-    setFields(editableFields(props.brief))
+    const next = editableFields(props.brief)
+    const locallyDirty =
+      JSON.stringify(fieldsRef.current) !== JSON.stringify(canonicalFieldsRef.current)
+    const matchesNext = JSON.stringify(fieldsRef.current) === JSON.stringify(next)
+    if (locallyDirty && !matchesNext && props.brief.version !== canonicalVersionRef.current) {
+      setExternalConflict(true)
+      return
+    }
+    canonicalFieldsRef.current = next
+    canonicalVersionRef.current = props.brief.version
+    setFields(next)
+    setExternalConflict(false)
   }, [props.brief])
 
   const dirty = useMemo(
@@ -94,8 +110,18 @@ export function ManuscriptBriefDialog(props: {
         <DialogHeader>
           <div className='flex items-center gap-2'>
             <DialogTitle>Manuscript brief</DialogTitle>
-            <Badge variant={props.error ? 'destructive' : dirty ? 'secondary' : 'outline'}>
-              {props.error ? 'Save failed' : dirty ? 'Unsaved' : 'Saved'}
+            <Badge
+              variant={
+                props.error || externalConflict ? 'destructive' : dirty ? 'secondary' : 'outline'
+              }
+            >
+              {externalConflict
+                ? 'Version conflict'
+                : props.error
+                  ? 'Save failed'
+                  : dirty
+                    ? 'Unsaved'
+                    : 'Saved'}
             </Badge>
           </div>
           <DialogDescription>
@@ -143,9 +169,26 @@ export function ManuscriptBriefDialog(props: {
           })}
         </div>
         {props.error ? <p className='text-sm text-destructive'>{props.error}</p> : null}
+        {externalConflict ? (
+          <p className='text-sm text-destructive'>
+            The Agent updated the Brief while this draft had unsaved changes. Your draft was
+            preserved.
+          </p>
+        ) : null}
         <DialogFooter>
-          {props.error ? (
-            <Button variant='outline' disabled={props.saving} onClick={props.onReload}>
+          {props.error || externalConflict ? (
+            <Button
+              variant='outline'
+              disabled={props.saving}
+              onClick={() => {
+                const next = editableFields(props.brief)
+                canonicalFieldsRef.current = next
+                canonicalVersionRef.current = props.brief.version
+                setFields(next)
+                setExternalConflict(false)
+                props.onReload()
+              }}
+            >
               Reload latest
             </Button>
           ) : null}

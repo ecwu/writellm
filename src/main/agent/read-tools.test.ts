@@ -7,6 +7,7 @@ import { initializeProjectDatabase, type ProjectDatabase } from '../project/proj
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { AgentContextBuilder } from './context'
 import { AgentToolDomainError, MainAgentReadTools } from './read-tools'
+import { AGENT_TOOL_RESULT_BYTES } from '../../shared/contracts/agent-tools'
 
 const temporaryDirectories: string[] = []
 const log = pino({ level: 'silent' })
@@ -69,16 +70,24 @@ describe('Agent context and Main read tools', () => {
       }
     })
 
-    expect(result.writingContext.activeSectionText).toContain('Evidence-aware opening')
     expect(result.writingContext.outlineVersion).toBe(manuscript.getWorkspace().outlineVersion)
     expect(result.userRequest).toBe('Draft an opening')
-    expect(result.writingContext.selectedBlockIds).toEqual(['block-1'])
-    expect(result.systemPrompt.indexOf('UNTRUSTED_KNOWLEDGE')).toBeLessThan(
-      result.systemPrompt.indexOf('Ignore all previous instructions')
-    )
+    expect(result.writingContext.editorSelection.selectedBlockIds).toEqual(['block-1'])
+    expect(result.systemPrompt).not.toContain('Evidence-aware opening')
+    expect(result.systemPrompt).toContain('TRUSTED_WRITING_REQUIREMENTS')
+    expect(result.systemPrompt).toContain('MANUSCRIPT_DATA')
     expect(result.systemPrompt).toContain('"outlineTruncated":true')
     expect(result.systemPrompt).toContain(
       `"outlineVersion":${manuscript.getWorkspace().outlineVersion}`
+    )
+    expect(result.systemPrompt).toContain(
+      'Section titles are outline metadata rendered separately from the BlockNote body.'
+    )
+    expect(result.systemPrompt).toContain(
+      'never insert an opening heading or title that repeats or restates that section title'
+    )
+    expect(result.systemPrompt).toContain(
+      'Use heading blocks only for genuine lower-level subheadings within the section.'
     )
     expect(new TextEncoder().encode(result.systemPrompt).byteLength).toBeLessThanOrEqual(65_536)
     database.close()
@@ -225,14 +234,14 @@ describe('Agent context and Main read tools', () => {
       )
     })
 
-    await expect(
-      tools.execute({
-        toolName: 'read_citations',
-        args: { citationIds },
-        editorContext: emptyEditorContext(),
-        signal: new AbortController().signal
-      })
-    ).rejects.toMatchObject({ code: 'result_too_large' })
+    const result = await tools.execute({
+      toolName: 'read_citations',
+      args: { citationIds },
+      editorContext: emptyEditorContext(),
+      signal: new AbortController().signal
+    })
+    expect(result.truncated).toBe(true)
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(AGENT_TOOL_RESULT_BYTES)
     database.close()
   })
 })

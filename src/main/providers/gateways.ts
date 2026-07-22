@@ -9,6 +9,7 @@ import type {
 } from '../../shared/contracts/model-runtime'
 import type {
   AgentHistoryMessage,
+  AgentModelLimits,
   AgentModelCallAuthorization,
   AgentQueueCommand,
   AgentRuntimeEvent
@@ -23,7 +24,8 @@ export interface AgentModelRuntime {
     input: AgentRunInput,
     signal: AbortSignal,
     onEvent: (event: AgentStreamEvent) => void,
-    projectSessionId?: string
+    projectSessionId?: string,
+    modelLimits?: AgentModelLimits
   ): Promise<AgentRunResult>
 }
 
@@ -36,6 +38,7 @@ export interface AgentSessionRunInput {
   history: AgentHistoryMessage[]
   prompt: string
   maxOutputTokens: number
+  modelLimits?: AgentModelLimits
   temperature?: number
 }
 

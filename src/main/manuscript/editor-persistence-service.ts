@@ -342,6 +342,12 @@ export class EditorPersistenceService {
                  WHERE agent_revision.source_class = 'agent_accepted'
                    AND agent_revision.prior_revision_id = section_revisions.section_revision_id
                )
+               AND NOT EXISTS (
+                 SELECT 1 FROM mutation_proposals AS pending_proposal
+                 WHERE pending_proposal.kind = 'section_patch'
+                   AND pending_proposal.status = 'pending'
+                   AND pending_proposal.base_revision_id = section_revisions.section_revision_id
+               )
              ORDER BY revision_number DESC LIMIT -1 OFFSET ?
            )`
         )
@@ -360,6 +366,12 @@ export class EditorPersistenceService {
                SELECT 1 FROM section_revisions AS agent_revision
                  WHERE agent_revision.source_class = 'agent_accepted'
                    AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM mutation_proposals AS pending_proposal
+               WHERE pending_proposal.kind = 'section_patch'
+                 AND pending_proposal.status = 'pending'
+                 AND pending_proposal.base_revision_id = section_revisions.section_revision_id
              )
              AND (
                julianday(created_at) < julianday('now', '-30 days')
@@ -402,6 +414,12 @@ export class EditorPersistenceService {
                  SELECT 1 FROM section_revisions AS agent_revision
                  WHERE agent_revision.source_class = 'agent_accepted'
                    AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM mutation_proposals AS pending_proposal
+                 WHERE pending_proposal.kind = 'section_patch'
+                   AND pending_proposal.status = 'pending'
+                   AND pending_proposal.base_revision_id = section_revisions.section_revision_id
                )
              ORDER BY revision_number DESC LIMIT -1 OFFSET ?
            )`

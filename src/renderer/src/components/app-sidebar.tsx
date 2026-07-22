@@ -157,27 +157,32 @@ export function AppSidebar({
                     className='group/outline'
                     style={{ paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px` }}
                   >
-                    <div className='flex w-full min-w-0 items-center gap-1 overflow-hidden'>
-                      <SidebarMenuButton
-                        isActive={section.sectionId === activeSectionId}
-                        className='w-auto min-w-0 flex-1'
-                        data-testid={`outline-section-${section.sectionId}`}
-                        onClick={() => onSelectSection(section.sectionId)}
+                    <SidebarMenuButton
+                      isActive={section.sectionId === activeSectionId}
+                      className='min-w-0 group-hover/outline:pr-16 group-has-[:focus-visible]/outline:pr-16'
+                      data-testid={`outline-section-${section.sectionId}`}
+                      onClick={() => onSelectSection(section.sectionId)}
+                    >
+                      {section.status === 'completed' ? (
+                        <CheckCircle2 className='text-emerald-600' />
+                      ) : (
+                        <Circle />
+                      )}
+                      <span className='min-w-0 flex-1 truncate'>{section.title}</span>
+                      <span
+                        className='shrink-0 text-[10px] text-muted-foreground tabular-nums group-hover/outline:hidden group-has-[:focus-visible]/outline:hidden'
+                        data-testid={`outline-word-count-${section.sectionId}`}
                       >
-                        {section.status === 'completed' ? (
-                          <CheckCircle2 className='text-emerald-600' />
-                        ) : (
-                          <Circle />
-                        )}
-                        <span className='min-w-0 flex-1 truncate'>{section.title}</span>
-                        <span className='shrink-0 text-[10px] text-muted-foreground tabular-nums'>
-                          {revision.wordCount}
-                        </span>
-                      </SidebarMenuButton>
+                        {revision.wordCount}
+                      </span>
+                    </SidebarMenuButton>
+                    <div
+                      className='absolute inset-y-0 right-1 flex items-center opacity-0 transition-opacity group-hover/outline:opacity-100 group-has-[:focus-visible]/outline:opacity-100'
+                      data-testid={`outline-actions-${section.sectionId}`}
+                    >
                       <Button
                         variant='ghost'
                         size='icon-sm'
-                        className='opacity-0 focus:opacity-100 group-hover/outline:opacity-100'
                         aria-label={`Add subsection to ${section.title}`}
                         onClick={() => onCreateSection(section.sectionId)}
                       >
@@ -186,7 +191,6 @@ export function AppSidebar({
                       <Button
                         variant='ghost'
                         size='icon-sm'
-                        className='opacity-0 focus:opacity-100 group-hover/outline:opacity-100'
                         aria-label={`Delete ${section.title}`}
                         onClick={() => onDeleteSection(section.sectionId)}
                       >

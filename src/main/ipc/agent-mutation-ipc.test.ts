@@ -1,7 +1,10 @@
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
-import type { MutationProposalActionResult } from '../../shared/contracts/agent-mutations'
+import type {
+  ApproveMutationProposalResult,
+  MutationProposalActionResult
+} from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { registerAgentMutationIpc, type AgentMutationIpcMain } from './agent-mutation-ipc'
 
@@ -23,11 +26,31 @@ describe('Agent mutation IPC', () => {
       agentSessionId,
       proposalId
     })
-    expect(result).toEqual(actionResult)
+    expect(result).toEqual(approvalResult)
     expect(value.service.approve).toHaveBeenCalledOnce()
     expect(value.sender.send).toHaveBeenCalledWith(
       IPC_CHANNELS.agentSectionChanged,
-      actionResult.sectionChanged
+      approvalResult.sectionChanged
+    )
+  })
+
+  it('returns a refreshed proposal without publishing sectionChanged', async () => {
+    const value = harness(refreshResult)
+    await value.invoke(IPC_CHANNELS.agentSubscribeMutations, {
+      projectSessionId,
+      subscriptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc909'
+    })
+
+    const result = await value.invoke(IPC_CHANNELS.agentProposalApprove, {
+      projectSessionId,
+      agentSessionId,
+      proposalId
+    })
+
+    expect(result).toEqual(refreshResult)
+    expect(value.sender.send).not.toHaveBeenCalledWith(
+      IPC_CHANNELS.agentSectionChanged,
+      expect.anything()
     )
   })
 
@@ -55,14 +78,14 @@ describe('Agent mutation IPC', () => {
   })
 })
 
-function harness() {
+function harness(approveResult: ApproveMutationProposalResult = approvalResult) {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   const ipc: AgentMutationIpcMain = {
     handle: vi.fn((channel, handler) => handlers.set(channel, handler as never)),
     removeHandler: vi.fn()
   }
   const service = {
-    approve: vi.fn(async () => actionResult),
+    approve: vi.fn(async () => approveResult),
     reject: vi.fn(() => actionResult),
     undo: vi.fn(async () => actionResult)
   }
@@ -153,6 +176,7 @@ const actionResult: MutationProposalActionResult = {
     appliedBriefVersion: null,
     appliedOutlineVersion: null,
     undoRevisionId: null,
+    replacesProposalId: null,
     rejectedReason: null,
     createdAt: now,
     updatedAt: now
@@ -164,4 +188,32 @@ const actionResult: MutationProposalActionResult = {
     sectionRevisionId: revisionId,
     reason: 'applied'
   }
+}
+
+const approvalResult: ApproveMutationProposalResult = {
+  outcome: 'applied',
+  ...actionResult
+}
+
+const replacementProposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc910'
+const refreshResult: ApproveMutationProposalResult = {
+  outcome: 'refresh_required',
+  previousProposal: {
+    ...actionResult.proposal,
+    status: 'superseded',
+    decisionAt: now,
+    appliedRevisionId: null,
+    replacesProposalId: null,
+    rejectedReason: 'A refreshed proposal replaces this outdated proposal'
+  },
+  proposal: {
+    ...actionResult.proposal,
+    proposalId: replacementProposalId,
+    status: 'pending',
+    decisionAt: null,
+    appliedRevisionId: null,
+    replacesProposalId: proposalId,
+    rejectedReason: null
+  },
+  sectionChanged: null
 }

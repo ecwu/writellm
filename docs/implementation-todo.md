@@ -1,7 +1,7 @@
 # WriteLLM v2 Implementation Todo
 
-Status: Phase 9 Checkpoints 20 through 23 completed and verified; Checkpoint 24 not started pending explicit approval
-Recorded: 2026-07-21
+Status: Agent Harness Protocol v2 hardening complete; Checkpoint 24 remains unstarted
+Recorded: 2026-07-22
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -18,6 +18,72 @@ Status markers:
 
 ## Current Checkpoint
 
+### Checkpoint 23H: Agent Harness Protocol v2 Hardening
+
+- [x] 23H.1 Replace approval waiters with durable submit/pause/decision/continue semantics; preserve
+  structured domain errors through Pi; persist attempted and preflight-failed tool events; add the
+  Protocol v2 event migration and compatibility readers.
+- [x] 23H.2 Bind every model request to an in-memory writing snapshot; rebuild trusted context before
+  continuations; move outline references and block-hash DSL normalization into Main; enforce
+  Main-computed effect-based approval and expanded-evidence-only proposal provenance.
+- [x] 23H.3 Deliver the final eleven-tool surface, deterministic `check_draft`, manuscript search,
+  change inspection, bounded outline/citation pagination, per-tool deadlines, progress projection,
+  renderer approval continuation, and the full migration/unit/Electron/packaged acceptance gate.
+
+Started 2026-07-22 after explicit user approval of the complete implementation plan. ADR 005 is the
+authority for this remediation window. Checkpoint 24 remains unstarted.
+
+Completed 2026-07-22. Tool Result schema v2, the 0021 event migration, attempt/preflight/decision
+auditing, non-blocking proposal review, approval continuation, request-scoped snapshots, Main-owned
+SectionRef and block-hash DSL normalization, effect policy, expanded evidence, ID mappings, all
+eleven tools, per-tool deadlines, bounded pagination, manuscript search, change inspection, and
+deterministic draft verification are implemented. Local Biome passed with only the existing
+generated shadcn cookie warning; Node/Renderer typechecks and the production build passed; canonical
+Electron Vitest passed 96 files/449 tests; all 13 Electron Playwright scenarios passed; the signed
+macOS arm64 unpacked build passed strict deep verification; packaged hybrid smoke passed native
+search, provider-failure fallback, and stale-session scenarios; isolated real-app SQLite identity,
+schema manifest, integrity, and foreign-key checks passed; arm64 native artifacts and the packaged
+Agent worker were verified; and `git diff --check` passed. The installed Biome binary and documented
+npm/direct runner equivalents were used because the local pnpm wrapper could not verify its registry
+signature offline. Checkpoint 24 remains unstarted and requires separate approval.
+
+### Maintenance: Section Body Title Deduplication (2026-07-22)
+
+- [x] Tell the Agent that section titles are outline metadata rendered separately from BlockNote
+  body content, so section proposals must not repeat or restate the target section title as the
+  opening body heading; add focused prompt regression coverage.
+
+Acceptance criteria: the bounded Agent system prompt explicitly distinguishes section metadata
+from body content, preserves legitimate lower-level subheadings, and focused Agent context tests
+plus formatting checks pass without changing proposal authority or renderer behavior.
+
+Completion evidence: the bounded system prompt now tells the model to begin with body content,
+never insert an opening heading that repeats or restates the target section title, and reserve
+heading blocks for genuine lower-level subheadings. The canonical Electron-hosted Vitest suite
+passed 96 files/448 tests; Biome checked 339 files with only the existing generated shadcn cookie
+warning; and `git diff --check` passed. The `pnpm check` wrapper hung without output, so the
+installed Biome binary was used and no `pnpm check` pass is claimed.
+
+### Maintenance: Agent Run-State Reconciliation (2026-07-22)
+
+- [x] Prevent stale renderer queries or fast terminal events from restoring a finished Agent run
+  to `running`; make Stop idempotent after durable completion; reconcile stale steer/follow-up
+  actions from authoritative run truth; and add focused regression verification.
+
+Acceptance criteria: terminal run state never regresses to running; Stop does not surface a false
+`Agent run is not active` failure; a stale action restores the idle composer; focused renderer and
+Main tests, typechecks, formatting, and the relevant Electron workflow pass.
+
+Completion evidence: terminal events immediately freeze renderer run truth, later stale snapshots
+cannot regress it, fast completion cannot be overwritten by the `startRun` response, repeated Stop
+is idempotent against a durable terminal run, and stale steer/follow-up failures refresh
+authoritative truth. Local Biome checked 339 files with only the existing generated shadcn cookie
+warning; Node/Renderer typechecks and production build passed; canonical Electron Vitest passed 96
+files/448 tests; all 13 built-app Electron Playwright scenarios passed with explicit Stop/Idle/
+Continue assertions; isolated app-database integrity/schema verification and `git diff --check`
+passed. The focused in-sandbox Electron attempt was blocked by loopback `EPERM` and passed outside
+the sandbox before the complete suite.
+
 Checkpoints 1 through 19 remain historical functional evidence. The 2026-07-16 complexity-reduction audit is recorded in [the audit record](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoint 19.5 remediation is complete and its acceptance gate passed. A follow-up source-level implementation audit of Checkpoints 1–19 on 2026-07-16 confirmed the functional bodies match their records (Electron-hosted Vitest passed 65 files/292 tests at audit time) and fixed its findings into Checkpoints 19.6 (product-surface gaps) and 19.7 (rule violations and hardening) below; documentation overclaims found by the audit were corrected in place. Checkpoints 19.6 and 19.7 were the approved current work window and their final verification gate passed on 2026-07-17. The user approved Phase 9 implementation on 2026-07-21; Checkpoints 20 through 23 passed their acceptance gates after explicit continuation approvals, completing Phase 9. Checkpoint 24 and later checkpoints remain gated. MinerU research must use only the official MinerU API documentation at https://mineru.net/apiManage/docs, never Context7.
 
 The functional completion records for CP1–19 remain useful historical evidence. Where they describe encrypted signed URLs, broad durable queues, the original Agent tool/table set, 650 ms autosave, an 8D performance benchmark, `chokidar`, or the old worker/module layout, those statements are superseded by the CP19.5 audit and must not be extended.
@@ -27,6 +93,51 @@ The functional completion records for CP1–19 remain useful historical evidence
 - [x] Add a Main-owned silent E2E window presentation that keeps the real Electron renderer and protocol active without showing or focusing the application window; default the Playwright fixture and packaged hybrid smoke to this mode, retain an explicit visible debugging command, and verify the hidden/background-throttling invariants.
 
 Acceptance criteria: normal launches remain interactive; silent E2E does not show or focus a BrowserWindow, does not throttle its renderer, does not activate the macOS Dock application, preserves existing dialog seams and test coverage, and the formatter, typechecks, Electron-hosted Vitest, E2E, packaged smoke, and diff checks pass.
+
+### Maintenance: Outline Row Hover Actions (2026-07-22)
+
+- [x] Let each Outline section button use the full available row width by replacing its trailing
+  word count with add/delete actions only while the row is hovered or keyboard-focused.
+
+Acceptance criteria: hidden actions reserve no layout width; the active/hover row surface reaches
+the Sidebar boundary; word count remains visible at rest; actions replace it on hover/focus; long
+titles remain contained; focused renderer checks and the Writing Workspace Electron scenario pass.
+
+### Post-completion correction: stale section-proposal refresh (2026-07-22)
+
+- [x] Preserve stale section proposals as immutable review history, distinguish non-conflicting
+  refresh from overlapping conflict, require a second approval for every refreshed diff, protect
+  pending bases from body pruning, and keep Brief/Outline version handling unchanged.
+
+Acceptance criteria: unrelated block edits and non-overlapping fields can be refreshed and applied;
+overlapping or structurally unsafe edits terminate as explicit conflicts; already-present field
+updates create no revision; replacement chains remain linear and auditable; Renderer, migration,
+service, IPC, retention, and Electron workflow coverage pass without starting Checkpoint 24.
+
+### Post-Phase-9 checkpoint: Agent context and approval policy (2026-07-22)
+
+- [x] Replace the fixed Agent context window with bounded models.dev/manual metadata, expose actual
+  prompt-context utilization, and add `manual`, `section_auto`, and `yolo` proposal approval modes.
+  Brief and Outline proposals must hold the tool response in every non-YOLO run until the user
+  decides; automatic decisions must pass through the same revision checks and immutable lineage as
+  manual decisions. Checkpoint 24 remains unstarted.
+
+Acceptance criteria: application and session approval preferences are durable and run-snapshotted;
+the complete approval matrix is covered; no post-Brief/Outline provider call starts before a manual
+decision; models.dev is an optional bounded background-worker metadata source with offline/manual
+fallback; Main and the Agent worker use one limits snapshot; the renderer shows latest prompt
+context against that snapshot; project migration, IPC, cancellation, conflict, renderer, E2E,
+packaged-worker, database-integrity, and repository gates pass.
+
+Completion evidence: migration 0020 and the bounded models.dev background-worker path are covered;
+the full approval matrix and provider-call blocking assertions pass; Biome checked 339 files with
+only the existing generated shadcn cookie warning; Node/Renderer typechecks and production build
+passed; canonical Electron-hosted Vitest passed 96 files/447 tests; all 13 built-app Electron
+Playwright scenarios passed; the signed macOS arm64 unpacked build and packaged hybrid smoke passed
+native search, provider-failure fallback, and stale-session scenarios; isolated app-database
+schema/integrity checks and `git diff --check` passed. The documented direct test runner and npm
+build equivalent were used because the local pnpm wrapper did not start reliably in this
+environment.
 
 ### Checkpoint 19.5: Complexity Reduction And Agent Boundary Freeze
 
@@ -255,3 +366,7 @@ The following items remain deferred until evidence requires them. See the Phase 
 - 2026-07-22: Started a user-reported outline-proposal approval correction within the completed Checkpoint 22 boundary. Scope is limited to reproducing and fixing the foreign-key failure when approving an outline patch that deletes a section, preserving proposal/revision lineage, and adding focused transaction regression coverage. Checkpoint 24 remains unstarted.
 - 2026-07-22: Completed the user-requested silent Electron E2E maintenance. Main now resolves an explicit `WRITELLM_E2E_WINDOW_MODE`, keeps silent BrowserWindows hidden and unfocused with renderer background throttling disabled, skips macOS Dock activation and silent maximization, and suppresses second-instance focus behavior. The default `test:e2e` wrapper and packaged hybrid smoke use silent mode; `test:e2e:visible` remains available for interactive debugging. The fixture asserts `visible:false`, `focused:false`, and `backgroundThrottling:false` for every silent launch. Biome, Node/web typecheck, production build, Electron-hosted Vitest (92 files/420 tests), complete silent Electron Playwright (12/12), packaged hybrid smoke (provider fallback and stale-session scenarios), and `git diff --check` passed. The initial in-sandbox E2E attempt was blocked by loopback `EPERM`/Electron SIGABRT and was rerun successfully outside the sandbox. The visible command was list-checked but not launched on the user's desktop to preserve the requested no-interruption workflow.
 - 2026-07-22: Completed the user-reported outline-proposal approval correction. ADR 002 and migration 0018 replace physical section deletion with internal tombstones, preserving accepted Agent revisions and proposal/model lineage while excluding tombstones from every active outline/editor/Agent query and position constraint. Manual and Agent deletion remove materialization registrations, retain leaf/last-section guards, prevent ID reuse, flush an active deletion target before approval, refresh to a fallback section, and reject undo against a tombstoned target explicitly. Local Biome checked 324 files with only the existing generated shadcn cookie warning; Node/web typecheck and production build passed; canonical Electron Vitest passed 92 files/423 tests; all 12 silent Electron Playwright scenarios passed; isolated real-app database verification passed; and an online backup of the reported schema-17 project verified migration plus the formerly blocked protected-deletion transition without foreign-key failures. Checkpoint 24 remains unstarted.
+- 2026-07-22: Completed the user-requested stale section-proposal correction. Migration 0019 adds `superseded`, `conflicted`, and `satisfied` terminal states plus a unique nullable replacement link. Main performs operation-aware three-way replay inside the approval transaction, preserves exact-revision final application, creates immutable replacement payloads for non-conflicting work, protects pending bases from revision-body pruning, and returns structured refresh/conflict/satisfied outcomes without generic remote-method failures. The renderer derives `Outdated` from revision truth, requires `Review update` followed by a second approval, projects only the latest chain leaf, and publishes `sectionChanged` only for final application. Local Biome checked 329 files with only the existing generated shadcn cookie warning; Node/web typecheck, canonical Electron Vitest (94 files/435 tests), production build, all 13 built-app Electron Playwright scenarios, migration backup/foreign-key coverage, isolated app-database integrity verification, and `git diff --check` passed. The offline `pnpm` wrapper could not verify its registry signature, so the installed Biome binary, documented direct test runner, and npm build equivalent were used. Checkpoint 24 remains unstarted.
+- 2026-07-22: Completed the user-requested Outline row hover refinement. Invisible add/delete controls no longer consume flex width: each section button fills its available row and shows the word count at rest, while hover or keyboard focus-visible replaces that count with the two overlaid actions. Long titles remain contained and the existing section behavior is unchanged. Local focused Biome and an independent production Renderer build passed. A clean HEAD snapshot carrying only this refinement passed Node/web typecheck, the full production build, and the focused real Electron Writing Workspace scenario with explicit row-boundary, word-count, and action-visibility assertions. The active worktree's full typecheck/build remains temporarily blocked by unrelated in-progress Agent context/approval-policy edits and is not claimed as a pass.
+- 2026-07-22: Started a user-reported section body title-deduplication correction within the completed Agent writing boundary. Scope is limited to clarifying in the bounded model prompt that section titles are outline metadata rendered outside the BlockNote body, prohibiting a repeated opening title while allowing genuine lower-level subheadings, and adding focused prompt regression coverage. Proposal authority, persistence, renderer behavior, and Checkpoint 24 remain unchanged.
+- 2026-07-22: Completed the section body title-deduplication correction. The bounded system prompt now identifies section titles as separately rendered outline metadata, requires section proposals to begin with body content instead of a repeated or restated opening title, and still permits genuine lower-level heading blocks. The canonical Electron-hosted Vitest suite passed 96 files/448 tests; Biome checked 339 files with only the existing generated shadcn cookie warning; and `git diff --check` passed. The `pnpm check` wrapper hung without output, so the installed Biome binary was used and no `pnpm check` pass is claimed. Proposal authority, persistence, renderer behavior, and Checkpoint 24 remain unchanged.

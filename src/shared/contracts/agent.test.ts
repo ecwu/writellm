@@ -31,7 +31,7 @@ const ids = {
 describe('Agent contracts', () => {
   it('pins the application-owned runtime and event schema versions', () => {
     expect(AGENT_RUNTIME_VERSION).toBe('0.80.10')
-    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(1)
+    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(2)
   })
 
   it('validates a capability-bound session run and queue command', () => {
@@ -52,7 +52,8 @@ describe('Agent contracts', () => {
         operation: 'follow_up',
         ...ids,
         content: 'continue',
-        timestamp: 1
+        timestamp: 1,
+        systemPrompt: 'refreshed system'
       })
     ).toMatchObject({ operation: 'follow_up', ...ids })
   })

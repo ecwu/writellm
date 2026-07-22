@@ -11,6 +11,7 @@ import {
 import { projectSessionIdSchema } from './projects'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
+export const AGENT_TOOL_CONTRACT_VERSION = 2
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -165,17 +166,132 @@ export const sectionPatchSchema = strictObject({
 export const mutationProposalKindSchema = z.enum(['brief_update', 'outline_patch', 'section_patch'])
 
 export const agentProposalToolNameSchema = z.enum([
-  'propose_brief_update',
-  'propose_outline_patch',
-  'propose_section_patch'
+  'submit_brief_change',
+  'submit_outline_change',
+  'submit_section_change'
 ])
 
+const sectionRefSchema = z.discriminatedUnion('kind', [
+  strictObject({ kind: z.literal('existing'), sectionId: sectionIdSchema }),
+  strictObject({ kind: z.literal('created'), clientRef: z.string().min(1).max(256) })
+])
+const outlinePlacementSchema = z.discriminatedUnion('kind', [
+  strictObject({ kind: z.literal('first') }),
+  strictObject({ kind: z.literal('last') }),
+  strictObject({ kind: z.literal('before'), anchor: sectionRefSchema }),
+  strictObject({ kind: z.literal('after'), anchor: sectionRefSchema })
+])
+
+export const modelSubmitBriefChangeArgsSchema = strictObject({
+  changes: briefChangesSchema,
+  citationIds: mutationCitationIdsSchema
+})
+
+const modelOutlineOperationSchema = z.discriminatedUnion('type', [
+  strictObject({
+    type: z.literal('createSection'),
+    clientRef: z.string().min(1).max(256),
+    parent: sectionRefSchema.nullable(),
+    placement: outlinePlacementSchema,
+    title: z.string().trim().min(1).max(500),
+    objective: z.string().max(32_000).nullable(),
+    status: sectionStatusSchema
+  }),
+  strictObject({
+    type: z.literal('updateSection'),
+    section: sectionRefSchema,
+    title: z.string().trim().min(1).max(500).optional(),
+    objective: z.string().max(32_000).nullable().optional(),
+    status: sectionStatusSchema.optional()
+  }).refine(
+    ({ title, objective, status }) =>
+      title !== undefined || objective !== undefined || status !== undefined,
+    'At least one section field must change'
+  ),
+  strictObject({
+    type: z.literal('moveSection'),
+    section: sectionRefSchema,
+    parent: sectionRefSchema.nullable(),
+    placement: outlinePlacementSchema
+  }),
+  strictObject({ type: z.literal('deleteSection'), section: sectionRefSchema })
+])
+
+export const modelSubmitOutlineChangeArgsSchema = strictObject({
+  operations: z.array(modelOutlineOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
+  citationIds: mutationCitationIdsSchema
+})
+
+const blockPreconditionSchema = strictObject({
+  blockId: z.string().min(1).max(256),
+  expectedBlockHash: z.string().regex(/^[a-f0-9]{64}$/u)
+})
+const textBlockTypeSchema = z.enum([
+  'paragraph',
+  'heading',
+  'bulletListItem',
+  'numberedListItem',
+  'checkListItem',
+  'quote',
+  'codeBlock'
+])
+const modelSectionOperationSchema = z.discriminatedUnion('type', [
+  strictObject({
+    type: z.literal('replaceBlockText'),
+    target: blockPreconditionSchema,
+    text: z.string().max(100_000)
+  }),
+  strictObject({
+    type: z.literal('insertTextBlocks'),
+    anchor: blockPreconditionSchema.nullable(),
+    placement: z.enum(['before', 'after', 'start', 'end']),
+    blocks: z
+      .array(
+        strictObject({
+          clientRef: z.string().min(1).max(256).optional(),
+          blockType: textBlockTypeSchema.default('paragraph'),
+          text: z.string().max(100_000)
+        })
+      )
+      .min(1)
+      .max(AGENT_MUTATION_BLOCK_LIMIT)
+  }),
+  strictObject({
+    type: z.literal('removeBlocks'),
+    targets: z.array(blockPreconditionSchema).min(1).max(AGENT_MUTATION_BLOCK_LIMIT)
+  }),
+  strictObject({
+    type: z.literal('moveBlocks'),
+    targets: z.array(blockPreconditionSchema).min(1).max(AGENT_MUTATION_BLOCK_LIMIT),
+    anchor: blockPreconditionSchema,
+    placement: z.enum(['before', 'after'])
+  }),
+  strictObject({
+    type: z.literal('replaceCanonicalBlock'),
+    target: blockPreconditionSchema,
+    block: blockNoteBlockSchema
+  })
+])
+
+export const modelSubmitSectionChangeArgsSchema = strictObject({
+  sectionId: sectionIdSchema,
+  operations: z.array(modelSectionOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
+  citationIds: mutationCitationIdsSchema
+})
+
 export const mutationCitedSourceSchema = strictObject({
+  evidenceSchemaVersion: z.literal(2).optional(),
   citationId: mutationCitationIdSchema,
   knowledgeItemId: z.uuid(),
   parseRevisionId: z.uuid(),
   chunkId: z.string().regex(/^chunk-[a-f0-9]{40}$/),
-  sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000)
+  sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000),
+  excerpt: z.string().max(8_192).optional(),
+  contentHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
+  retrievedAt: z.iso.datetime().optional()
 })
 
 export const mutationPreviewSchema = strictObject({
@@ -192,12 +308,54 @@ export const mutationProposalToolResultSchema = strictObject({
   proposalId: z.uuid(),
   kind: mutationProposalKindSchema,
   status: z.literal('pending'),
-  preview: mutationPreviewSchema
+  preview: mutationPreviewSchema,
+  createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()).optional(),
+  createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
+})
+
+export const mutationProposalOutcomeSchema = strictObject({
+  outcome: z.enum(['pending_review', 'applied', 'rejected', 'conflict', 'already_satisfied']),
+  proposalId: z.uuid(),
+  effectiveProposalId: z.uuid(),
+  kind: mutationProposalKindSchema,
+  message: z.string().min(1).max(4_096).nullable()
+})
+
+export const submitChangeResultSchema = strictObject({
+  proposal: strictObject({
+    proposalId: z.uuid(),
+    kind: mutationProposalKindSchema,
+    status: z.enum([
+      'pending',
+      'approved',
+      'rejected',
+      'applied',
+      'failed',
+      'undone',
+      'superseded',
+      'conflicted',
+      'satisfied'
+    ])
+  }),
+  application: strictObject({
+    status: z.enum(['not_applied', 'applied', 'conflict', 'no_change']),
+    resultingBriefVersion: z.number().int().positive().optional(),
+    resultingOutlineVersion: z.number().int().positive().optional(),
+    resultingRevisionId: z.uuid().optional(),
+    createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()).optional(),
+    createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
+  }),
+  continuation: z.enum(['continue', 'pause_for_review', 'finish']),
+  warnings: z
+    .array(strictObject({ code: z.string().min(1).max(100), message: z.string().max(1_000) }))
+    .max(20)
 })
 
 const proposalProvenanceSchema = strictObject({
   modelRequestId: agentModelRequestIdSchema,
-  citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT)
+  citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT),
+  createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()).optional(),
+  createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
 })
 
 export const persistedMutationProposalPayloadSchema = z.discriminatedUnion('kind', [
@@ -230,7 +388,10 @@ export const mutationProposalStatusSchema = z.enum([
   'rejected',
   'applied',
   'failed',
-  'undone'
+  'undone',
+  'superseded',
+  'conflicted',
+  'satisfied'
 ])
 
 export const mutationProposalRecordSchema = strictObject({
@@ -246,6 +407,7 @@ export const mutationProposalRecordSchema = strictObject({
   appliedBriefVersion: z.number().int().positive().nullable(),
   appliedOutlineVersion: z.number().int().positive().nullable(),
   undoRevisionId: sectionRevisionIdSchema.nullable(),
+  replacesProposalId: z.uuid().nullable(),
   rejectedReason: z.string().max(4_096).nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
@@ -272,10 +434,56 @@ export const mutationSectionChangedSchema = strictObject({
   reason: z.enum(['applied', 'undone'])
 })
 
+export const mutationProposalChangedSchema = strictObject({
+  projectSessionId: projectSessionIdSchema,
+  agentSessionId: agentSessionIdSchema,
+  proposalId: z.uuid(),
+  kind: mutationProposalKindSchema,
+  status: mutationProposalStatusSchema,
+  sectionChanged: mutationSectionChangedSchema.nullable()
+})
+
 export const mutationProposalActionResultSchema = strictObject({
   proposal: mutationProposalRecordSchema,
   sectionChanged: mutationSectionChangedSchema.nullable()
 })
+
+const mutationProposalConflictSchema = strictObject({
+  code: z.enum([
+    'target_missing',
+    'target_changed',
+    'structure_changed',
+    'id_collision',
+    'base_unavailable',
+    'invalid_result'
+  ]),
+  message: z.string().min(1).max(4_096)
+})
+
+export const approveMutationProposalResultSchema = z.discriminatedUnion('outcome', [
+  strictObject({
+    outcome: z.literal('applied'),
+    proposal: mutationProposalRecordSchema,
+    sectionChanged: mutationSectionChangedSchema.nullable()
+  }),
+  strictObject({
+    outcome: z.literal('refresh_required'),
+    previousProposal: mutationProposalRecordSchema,
+    proposal: mutationProposalRecordSchema,
+    sectionChanged: z.null()
+  }),
+  strictObject({
+    outcome: z.literal('conflict'),
+    proposal: mutationProposalRecordSchema,
+    conflict: mutationProposalConflictSchema,
+    sectionChanged: z.null()
+  }),
+  strictObject({
+    outcome: z.literal('already_satisfied'),
+    proposal: mutationProposalRecordSchema,
+    sectionChanged: z.null()
+  })
+])
 
 export const mutationSubscriptionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
@@ -292,9 +500,13 @@ export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>
 export type MutationCitedSource = z.infer<typeof mutationCitedSourceSchema>
 export type MutationPreview = z.infer<typeof mutationPreviewSchema>
 export type MutationProposalToolResult = z.infer<typeof mutationProposalToolResultSchema>
+export type MutationProposalOutcome = z.infer<typeof mutationProposalOutcomeSchema>
+export type SubmitChangeResult = z.infer<typeof submitChangeResultSchema>
 export type PersistedMutationProposalPayload = z.infer<
   typeof persistedMutationProposalPayloadSchema
 >
 export type MutationProposalRecord = z.infer<typeof mutationProposalRecordSchema>
 export type MutationSectionChanged = z.infer<typeof mutationSectionChangedSchema>
+export type MutationProposalChanged = z.infer<typeof mutationProposalChangedSchema>
 export type MutationProposalActionResult = z.infer<typeof mutationProposalActionResultSchema>
+export type ApproveMutationProposalResult = z.infer<typeof approveMutationProposalResultSchema>

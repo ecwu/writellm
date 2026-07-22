@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { modelExecutionMetadataSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
 import { providerConfigSchema } from './providers'
+import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 
-export const AGENT_EVENT_SCHEMA_VERSION = 1
+export const AGENT_EVENT_SCHEMA_VERSION = 2
 export const AGENT_RUNTIME_VERSION = '0.80.10'
 
 export const agentSessionIdSchema = z.uuid()
@@ -11,11 +12,16 @@ export const agentRunIdSchema = z.uuid()
 export const agentEventIdSchema = z.uuid()
 export const agentModelRequestIdSchema = z.uuid()
 
+export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
+export { agentModelLimitsSchema, type AgentModelLimits } from './agent-model-limits'
+
 export const agentEditorContextSchema = z
   .object({
     activeSectionId: z.uuid().nullable(),
     activeBlockId: z.string().min(1).max(256).nullable(),
-    selectedBlockIds: z.array(z.string().min(1).max(256)).max(256)
+    selectedBlockIds: z.array(z.string().min(1).max(256)).max(256),
+    capturedAt: z.number().int().nonnegative().optional(),
+    capturedRevisionId: z.uuid().nullable().optional()
   })
   .strict()
 
@@ -80,6 +86,7 @@ export const agentRunStartSchema = z
     systemPrompt: z.string().max(65_536),
     history: agentHistorySchema,
     prompt: z.string().min(1).max(262_144),
+    modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
     maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),
     temperature: z.number().min(0).max(2).optional()
   })
@@ -94,7 +101,8 @@ export const agentQueueCommandSchema = z
     agentRunId: agentRunIdSchema,
     modelRequestId: agentModelRequestIdSchema,
     content: z.string().min(1).max(262_144),
-    timestamp: z.number().int().nonnegative()
+    timestamp: z.number().int().nonnegative(),
+    systemPrompt: z.string().min(1).max(65_536)
   })
   .strict()
 
@@ -116,7 +124,8 @@ export const agentModelCallAuthorizationSchema = z
     agentSessionId: agentSessionIdSchema,
     agentRunId: agentRunIdSchema,
     continuationId: z.uuid(),
-    modelRequestId: agentModelRequestIdSchema
+    modelRequestId: agentModelRequestIdSchema,
+    systemPrompt: z.string().min(1).max(65_536)
   })
   .strict()
 
@@ -150,6 +159,27 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       type: z.literal('model_call_requested'),
       continuationId: z.uuid(),
       reason: z.literal('tool_continuation')
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('tool_attempted'),
+      modelRequestId: agentModelRequestIdSchema,
+      toolCallId: z.string().min(1).max(256),
+      requestedToolName: z.string().min(1).max(256),
+      argsHash: z.string().regex(/^[a-f0-9]{64}$/u),
+      argumentShape: z.string().min(1).max(4_096),
+      timestamp: z.number().int().nonnegative()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('tool_preflight_failed'),
+      modelRequestId: agentModelRequestIdSchema,
+      toolCallId: z.string().min(1).max(256),
+      requestedToolName: z.string().min(1).max(256),
+      phase: z.literal('pre_dispatch'),
+      timestamp: z.number().int().nonnegative()
     })
     .strict()
 ])
@@ -189,6 +219,9 @@ export const agentEventTypeSchema = z.enum([
   'assistant_message',
   'tool_call',
   'tool_result',
+  'tool_attempted',
+  'tool_preflight_failed',
+  'approval_decision',
   'run_interrupted',
   'run_completed',
   'compaction_summary'
@@ -211,6 +244,7 @@ export const mutationProposalStatusSchema = z.enum([
 ])
 
 export type AgentEditorContext = z.infer<typeof agentEditorContextSchema>
+export type AgentApprovalMode = z.infer<typeof agentApprovalModeSchema>
 export type AgentHistoryMessage = z.infer<typeof agentHistoryMessageSchema>
 export type AgentRunStart = z.infer<typeof agentRunStartSchema>
 export type AgentQueueCommand = z.infer<typeof agentQueueCommandSchema>

@@ -1,11 +1,26 @@
 import type { Logger } from 'pino'
 import { themePreferenceSchema, type ThemePreference } from '../../../shared/contracts/app'
+import {
+  agentApprovalModeSchema,
+  agentModelLimitsSchema,
+  type AgentApprovalMode
+} from '../../../shared/contracts/agent'
+import { z } from 'zod'
 import type { AppDatabase } from '../connection'
 
 export const THEME_PREFERENCE_KEY = 'theme.preference'
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
+export const DEFAULT_AGENT_APPROVAL_MODE: AgentApprovalMode = 'manual'
+const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
+const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
+const modelLimitsCacheSchema = z.record(
+  z.string().regex(/^[a-f0-9]{64}$/),
+  z.object({ limits: agentModelLimitsSchema, refreshedAt: z.iso.datetime() }).strict()
+)
+export type ModelLimitsCache = z.infer<typeof modelLimitsCacheSchema>
 
 export class AppSettingsRepository {
+  #defaultAgentApprovalMode: AgentApprovalMode = DEFAULT_AGENT_APPROVAL_MODE
   constructor(
     private readonly database: AppDatabase,
     private readonly log: Logger,
@@ -53,5 +68,66 @@ export class AppSettingsRepository {
       .execute()
 
     return value
+  }
+
+  async getDefaultAgentApprovalMode(): Promise<AgentApprovalMode> {
+    this.#defaultAgentApprovalMode = await this.#readSetting(
+      AGENT_APPROVAL_MODE_KEY,
+      agentApprovalModeSchema,
+      DEFAULT_AGENT_APPROVAL_MODE,
+      'app.settings.invalid_agent_approval_mode'
+    )
+    return this.#defaultAgentApprovalMode
+  }
+
+  async setDefaultAgentApprovalMode(mode: AgentApprovalMode): Promise<AgentApprovalMode> {
+    const value = agentApprovalModeSchema.parse(mode)
+    await this.#writeSetting(AGENT_APPROVAL_MODE_KEY, value)
+    this.#defaultAgentApprovalMode = value
+    return value
+  }
+
+  currentDefaultAgentApprovalMode(): AgentApprovalMode {
+    return this.#defaultAgentApprovalMode
+  }
+
+  async getModelLimitsCache(): Promise<ModelLimitsCache> {
+    return this.#readSetting(
+      AGENT_MODEL_LIMITS_CACHE_KEY,
+      modelLimitsCacheSchema,
+      {},
+      'app.settings.invalid_model_limits_cache'
+    )
+  }
+
+  async setModelLimitsCache(cache: ModelLimitsCache): Promise<void> {
+    await this.#writeSetting(AGENT_MODEL_LIMITS_CACHE_KEY, modelLimitsCacheSchema.parse(cache))
+  }
+
+  async #readSetting<T>(key: string, schema: z.ZodType<T>, fallback: T, event: string): Promise<T> {
+    const row = await this.database.kysely
+      .selectFrom('app_settings')
+      .select('value_json')
+      .where('key', '=', key)
+      .executeTakeFirst()
+    if (row === undefined) return fallback
+    try {
+      return schema.parse(JSON.parse(row.value_json))
+    } catch (err) {
+      this.log.warn({ event, key, err }, 'Stored application setting is invalid; using default')
+      return fallback
+    }
+  }
+
+  async #writeSetting(key: string, value: unknown): Promise<void> {
+    const now = this.now()
+    const valueJson = JSON.stringify(value)
+    await this.database.kysely
+      .insertInto('app_settings')
+      .values({ key, value_json: valueJson, created_at: now, updated_at: now })
+      .onConflict((conflict) =>
+        conflict.column('key').doUpdateSet({ value_json: valueJson, updated_at: now })
+      )
+      .execute()
   }
 }

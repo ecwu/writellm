@@ -1,5 +1,5 @@
 import type {
-  MutationProposalActionResult,
+  ApproveMutationProposalResult,
   MutationProposalRecord
 } from '../../../../shared/contracts/agent-mutations'
 
@@ -7,8 +7,8 @@ export async function approveProposalAfterEditorFlush(input: {
   proposal: MutationProposalRecord
   activeSectionId: string | null
   flushCurrent(): Promise<boolean>
-  approve(): Promise<MutationProposalActionResult>
-}): Promise<MutationProposalActionResult | null> {
+  approve(): Promise<ApproveMutationProposalResult>
+}): Promise<ApproveMutationProposalResult | null> {
   const targetSectionIds = new Set<string>()
   if (input.proposal.payload.kind === 'section_patch') {
     targetSectionIds.add(input.proposal.payload.mutation.sectionId)
