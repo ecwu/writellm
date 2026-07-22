@@ -153,6 +153,79 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('records provider timeout as a failed run instead of a user interruption', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Wait for the provider.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'timed_out',
+      metadata: metadata('response-timeout')
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: active.input.modelRequestId,
+      message: {
+        ...assistant('', 'response-timeout'),
+        stopReason: 'error',
+        interrupted: false
+      }
+    })
+    const timeout = new Error('Agent provider request timed out')
+    timeout.name = 'ProviderTimeoutError'
+    active.reject(timeout)
+    await started.completion
+
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'provider_timeout'
+    })
+    expect(
+      await database.kysely
+        .selectFrom('model_requests')
+        .select(['status', 'error_json'])
+        .executeTakeFirstOrThrow()
+    ).toMatchObject({
+      status: 'failed',
+      error_json: JSON.stringify({ code: 'provider_timeout', retryable: true })
+    })
+    database.close()
+  })
+
+  it('records an explicit user stop and blocks queueing after cancellation', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Stop this run.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await service.abort(started.agentRunId)
+
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped'
+    })
+    expect(service.listEvents(session.agentSessionId).at(-1)?.payload).toEqual({
+      code: 'user_stopped',
+      status: 'interrupted'
+    })
+    await expect(service.followUp(started.agentRunId, 'This must not be queued.')).rejects.toThrow(
+      'active'
+    )
+    database.close()
+  })
+
   it('recovers running rows after relaunch without claiming a false completion', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

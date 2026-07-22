@@ -20,6 +20,7 @@ import {
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
 import { agentMessageBudget, boundAgentContextByTokens } from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
+import { linkAbortSignal } from './shared/linked-abort-signal'
 
 export interface AgentSessionRunControl {
   enqueue(command: AgentQueueCommand): void
@@ -61,6 +62,7 @@ export async function runAgentSession(
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
   let lastAssistant: AssistantMessage | undefined
+  let lastAssistantTimedOut = false
   const toolBridge = new AgentToolBridge(
     toolPort,
     {
@@ -101,6 +103,13 @@ export async function runAgentSession(
       const modelRequestId =
         modelRequestIds.shift() ??
         (await requestModelCallAuthorization(onEvent, pendingModelCallAuthorizations))
+      const callController = new AbortController()
+      const unlinkAbortSignal = linkAbortSignal(options?.signal, callController)
+      let timedOut = false
+      const callTimeout = setTimeout(() => {
+        timedOut = true
+        callController.abort(new AgentProviderTimeoutError(request.config.timeoutMs))
+      }, request.config.timeoutMs)
       let fetchCount = 0
       let lastResponseStatus: number | undefined
       const originalFetch = globalThis.fetch
@@ -113,11 +122,12 @@ export async function runAgentSession(
       try {
         stream = streamSimple(activeModel, context, {
           ...options,
+          signal: callController.signal,
+          timeoutMs: undefined,
           ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
           maxTokens: request.maxOutputTokens,
           maxRetries: 2,
           maxRetryDelayMs: Math.min(request.config.timeoutMs, 30_000),
-          timeoutMs: request.config.timeoutMs,
           onResponse: async (response, responseModel) => {
             lastResponseStatus = response.status
             await options?.onResponse?.(response, responseModel)
@@ -125,21 +135,25 @@ export async function runAgentSession(
         })
       } catch (err) {
         globalThis.fetch = originalFetch
+        clearTimeout(callTimeout)
+        unlinkAbortSignal()
         throw err
       }
       const completion = stream
         .result()
         .then((message) => {
           lastAssistant = message
+          lastAssistantTimedOut = timedOut
           for (const part of message.content) {
             if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
           }
-          const payload = toAssistantPayload(message, fetchCount)
+          const payload = toAssistantPayload(message, fetchCount, timedOut)
           onEvent({
             type: 'model_call_finished',
             modelRequestId,
-            outcome:
-              message.stopReason === 'aborted'
+            outcome: timedOut
+              ? 'timed_out'
+              : message.stopReason === 'aborted'
                 ? 'aborted'
                 : message.stopReason === 'error'
                   ? 'failed'
@@ -151,6 +165,8 @@ export async function runAgentSession(
         })
         .finally(() => {
           if (globalThis.fetch === countingFetch) globalThis.fetch = originalFetch
+          clearTimeout(callTimeout)
+          unlinkAbortSignal()
         })
       callCompletions.push(completion)
       return stream
@@ -198,7 +214,6 @@ export async function runAgentSession(
     abort: () => agent.abort()
   })
 
-  const timeout = setTimeout(() => agent.abort(), request.config.timeoutMs)
   const abortExternal = (): void => agent.abort()
   if (externalSignal?.aborted) agent.abort()
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
@@ -215,13 +230,15 @@ export async function runAgentSession(
     }
     pendingModelCallAuthorizations.clear()
     toolBridge.close()
-    clearTimeout(timeout)
     externalSignal?.removeEventListener('abort', abortExternal)
   }
 
   if (runError !== undefined) throw runError
 
   if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
+  if (lastAssistantTimedOut) {
+    throw new AgentProviderTimeoutError(request.config.timeoutMs)
+  }
   if (lastAssistant.stopReason === 'error') {
     const error: Error & { status?: number } = new Error('Agent provider request failed')
     throw error
@@ -265,14 +282,15 @@ function toPiMessage(message: AgentHistoryMessage): UserMessage | AssistantMessa
 
 function toAssistantPayload(
   message: AssistantMessage,
-  fetchCount: number
+  fetchCount: number,
+  timedOut: boolean
 ): AgentAssistantMessagePayload {
   return agentAssistantMessagePayloadSchema.parse({
     content: message.content
       .filter((part) => part.type === 'text')
       .map((part) => part.text)
       .join(''),
-    stopReason: message.stopReason,
+    stopReason: timedOut ? 'error' : message.stopReason,
     provider: message.provider,
     model: message.model,
     responseModel: message.responseModel,
@@ -290,8 +308,15 @@ function toAssistantPayload(
       providerModelId: message.responseModel ?? message.model
     },
     timestamp: message.timestamp,
-    interrupted: message.stopReason === 'aborted' || message.stopReason === 'error'
+    interrupted: !timedOut && (message.stopReason === 'aborted' || message.stopReason === 'error')
   })
+}
+
+class AgentProviderTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Agent provider request timed out after ${timeoutMs}ms`)
+    this.name = 'ProviderTimeoutError'
+  }
 }
 
 export type AgentInstance = Agent

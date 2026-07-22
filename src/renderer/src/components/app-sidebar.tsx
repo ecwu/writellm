@@ -33,6 +33,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   projectName: string
   workspace: ManuscriptWorkspace | undefined
   activeWorkspace: 'manuscript' | 'knowledge'
+  agentOpen: boolean
   activeSectionId: string | null
   onSelectSection(sectionId: string): void
   onCreateSection(parentSectionId: string | null): void
@@ -50,6 +51,7 @@ export function AppSidebar({
   projectName,
   workspace,
   activeWorkspace,
+  agentOpen,
   activeSectionId,
   onSelectSection,
   onCreateSection,
@@ -91,6 +93,7 @@ export function AppSidebar({
     >
       <WorkspaceRail
         activeWorkspace={activeWorkspace}
+        agentOpen={agentOpen}
         onOpenKnowledge={onOpenKnowledge}
         onOpenManuscript={() => {
           setOpen(true)
@@ -217,6 +220,7 @@ export function AppSidebar({
 
 export function WorkspaceRail(props: {
   activeWorkspace: 'manuscript' | 'knowledge'
+  agentOpen: boolean
   onOpenKnowledge(): void
   onOpenManuscript(): void
   onToggleAgent(): void
@@ -265,6 +269,7 @@ export function WorkspaceRail(props: {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip={{ children: 'Writing agent', hidden: false }}
+                  isActive={props.agentOpen}
                   onClick={props.onToggleAgent}
                 >
                   <Bot />

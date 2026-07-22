@@ -6,6 +6,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, FileText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useGroupRef } from 'react-resizable-panels'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +20,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
@@ -50,6 +52,9 @@ export function WritingWorkspace(props: {
   const [briefError, setBriefError] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
+  const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
+  const sideChatGroupRef = useGroupRef()
+  const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<'manuscript' | 'knowledge'>('manuscript')
   const [newSectionParent, setNewSectionParent] = useState<string | null | undefined>(undefined)
   const [newSectionTitle, setNewSectionTitle] = useState('')
@@ -65,6 +70,22 @@ export function WritingWorkspace(props: {
   const metadataSaveRef = useRef<Promise<boolean> | null>(null)
   const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
+
+  useEffect(() => {
+    if (!agentOpen) return
+    const frame = window.requestAnimationFrame(() => {
+      const group = sideChatGroupRef.current
+      const width = sideChatGroupElementRef.current?.getBoundingClientRect().width ?? 0
+      if (group === null || width <= 0) return
+      if (!wideAgentLayout) {
+        group.setLayout({ manuscript: 0, agent: 100 })
+        return
+      }
+      const agentPercent = Math.min(60, Math.max(20, (480 / width) * 100))
+      group.setLayout({ manuscript: 100 - agentPercent, agent: agentPercent })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [agentOpen, sideChatGroupRef, wideAgentLayout])
 
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
@@ -497,6 +518,7 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         workspace={workspace}
         activeWorkspace={activeWorkspace}
+        agentOpen={agentOpen}
         activeSectionId={activeSectionId}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
         onCreateSection={setNewSectionParent}
@@ -511,77 +533,122 @@ export function WritingWorkspace(props: {
         onToggleAgent={() => setAgentOpen((current) => !current)}
         onOpenSettings={props.onOpenSettings}
       />
-      <SidebarInset className='min-h-0 overflow-auto'>
-        <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
-          <SidebarTrigger className='-ml-1' />
-          <Badge className='ml-auto' variant='secondary'>
-            {props.lifecycleState}
-          </Badge>
-        </header>
-        <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:px-12 md:py-10 lg:px-20'>
-          {props.globalAlert}
-          {workspaceQuery.isError ? (
-            <Alert variant='destructive'>
-              <AlertCircle />
-              <AlertTitle>Workspace unavailable</AlertTitle>
-              <AlertDescription>
-                The manuscript workspace could not be loaded. Retry before editing.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {workspaceQuery.isPending || editorQuery.isPending ? (
-            <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
-              <LoaderCircle className='size-5 animate-spin' /> Loading writing workspace…
-            </div>
-          ) : editorQuery.data && activeSummary ? (
-            <section className='flex flex-col gap-2'>
-              <Input
-                id='section-title'
-                aria-label='Section title'
-                value={metadataTitle}
-                onBlur={() => void saveMetadata()}
-                onChange={(event) => {
-                  metadataDraftRef.current.title = event.target.value
-                  setMetadataError(false)
-                  setMetadataTitle(event.target.value)
-                }}
-                className='h-auto border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
-              />
-              {metadataError ? (
-                <p className='text-sm text-destructive' role='alert'>
-                  The title could not be saved. Press ⌘/Ctrl+S to retry.
-                </p>
+      <ResizablePanelGroup
+        orientation='horizontal'
+        className='min-w-0 flex-1'
+        disabled={!wideAgentLayout}
+        groupRef={sideChatGroupRef}
+        elementRef={sideChatGroupElementRef}
+      >
+        <ResizablePanel
+          id='manuscript'
+          className={agentOpen ? 'overflow-hidden max-xl:hidden' : 'overflow-hidden'}
+          defaultSize={agentOpen && !wideAgentLayout ? '0' : undefined}
+          minSize={agentOpen && wideAgentLayout ? 520 : 0}
+          collapsible={agentOpen}
+        >
+          <SidebarInset className='size-full min-h-0 overflow-auto'>
+            <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+              <SidebarTrigger className='-ml-1' />
+              <Badge className='ml-auto' variant='secondary'>
+                {props.lifecycleState}
+              </Badge>
+            </header>
+            <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:px-12 md:py-10 lg:px-20'>
+              {props.globalAlert}
+              {workspaceQuery.isError ? (
+                <Alert variant='destructive'>
+                  <AlertCircle />
+                  <AlertTitle>Workspace unavailable</AlertTitle>
+                  <AlertDescription>
+                    The manuscript workspace could not be loaded. Retry before editing.
+                  </AlertDescription>
+                </Alert>
               ) : null}
-              <SectionEditor
-                ref={editorRef}
-                key={`${props.projectSessionId}:${activeSummary.section.sectionId}:${editorQuery.data.revision.sectionRevisionId}`}
-                projectSessionId={props.projectSessionId}
-                revision={editorQuery.data.revision}
-                onRevision={updateRevision}
-                onSaveStateChange={setEditorSaveState}
-                onSelectionContextChange={(context) => {
-                  setSelectionContext({
-                    sectionId: activeSummary.section.sectionId,
-                    ...context
-                  })
-                }}
-              />
-            </section>
-          ) : (
-            <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
-              <div className='space-y-3'>
-                <FileText className='mx-auto size-8 text-muted-foreground' />
-                <p className='font-medium'>No section is available</p>
-                <Button onClick={() => setNewSectionParent(null)}>Create a section</Button>
+              {workspaceQuery.isPending || editorQuery.isPending ? (
+                <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
+                  <LoaderCircle className='size-5 animate-spin' /> Loading writing workspace…
+                </div>
+              ) : editorQuery.data && activeSummary ? (
+                <section className='flex flex-col gap-2'>
+                  <Input
+                    id='section-title'
+                    aria-label='Section title'
+                    value={metadataTitle}
+                    onBlur={() => void saveMetadata()}
+                    onChange={(event) => {
+                      metadataDraftRef.current.title = event.target.value
+                      setMetadataError(false)
+                      setMetadataTitle(event.target.value)
+                    }}
+                    className='h-auto border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
+                  />
+                  {metadataError ? (
+                    <p className='text-sm text-destructive' role='alert'>
+                      The title could not be saved. Press ⌘/Ctrl+S to retry.
+                    </p>
+                  ) : null}
+                  <SectionEditor
+                    ref={editorRef}
+                    key={`${props.projectSessionId}:${activeSummary.section.sectionId}:${editorQuery.data.revision.sectionRevisionId}`}
+                    projectSessionId={props.projectSessionId}
+                    revision={editorQuery.data.revision}
+                    onRevision={updateRevision}
+                    onSaveStateChange={setEditorSaveState}
+                    onSelectionContextChange={(context) => {
+                      setSelectionContext({
+                        sectionId: activeSummary.section.sectionId,
+                        ...context
+                      })
+                    }}
+                  />
+                </section>
+              ) : (
+                <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
+                  <div className='space-y-3'>
+                    <FileText className='mx-auto size-8 text-muted-foreground' />
+                    <p className='font-medium'>No section is available</p>
+                    <Button onClick={() => setNewSectionParent(null)}>Create a section</Button>
+                  </div>
+                </div>
+              )}
+              <div className='flex items-center justify-between text-xs text-muted-foreground'>
+                <span>⌘/Ctrl+S save · ⌘/Ctrl+Alt+↑/↓ navigate</span>
+                <span>⌘/Ctrl+J toggles the agent panel</span>
               </div>
-            </div>
-          )}
-          <div className='flex items-center justify-between text-xs text-muted-foreground'>
-            <span>⌘/Ctrl+S save · ⌘/Ctrl+Alt+↑/↓ navigate</span>
-            <span>⌘/Ctrl+J toggles the agent panel</span>
-          </div>
-        </main>
-      </SidebarInset>
+            </main>
+          </SidebarInset>
+        </ResizablePanel>
+        {agentOpen ? (
+          <>
+            <ResizableHandle
+              withHandle
+              className={wideAgentLayout ? undefined : 'hidden'}
+              data-testid='agent-panel-resize-handle'
+            />
+            <ResizablePanel
+              id='agent'
+              className='overflow-hidden'
+              defaultSize={wideAgentLayout ? 480 : '100'}
+              minSize={wideAgentLayout ? 360 : 0}
+              maxSize={wideAgentLayout ? 640 : '100%'}
+              groupResizeBehavior='preserve-pixel-size'
+              disabled={!wideAgentLayout}
+            >
+              <AgentPanel
+                open
+                onOpenChange={setAgentOpen}
+                projectSessionId={props.projectSessionId}
+                activeSectionId={activeSectionId}
+                selection={selectionContext}
+                flushCurrent={flushCurrent}
+                refreshManuscript={refreshAfterAgentMutation}
+                onError={props.onError}
+              />
+            </ResizablePanel>
+          </>
+        ) : null}
+      </ResizablePanelGroup>
 
       <OutlineEditPanel
         open={outlineEditOpen}
@@ -634,17 +701,6 @@ export function WritingWorkspace(props: {
         loading={previewQuery.isPending || previewQuery.isFetching}
         error={previewQuery.isError}
         onOpenChange={setPreviewOpen}
-      />
-
-      <AgentPanel
-        open={agentOpen}
-        onOpenChange={setAgentOpen}
-        projectSessionId={props.projectSessionId}
-        activeSectionId={activeSectionId}
-        selection={selectionContext}
-        flushCurrent={flushCurrent}
-        refreshManuscript={refreshAfterAgentMutation}
-        onError={props.onError}
       />
 
       <Dialog
@@ -772,6 +828,18 @@ export function WritingWorkspace(props: {
       </Dialog>
     </SidebarProvider>
   )
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = (): void => setMatches(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return matches
 }
 
 declare global {

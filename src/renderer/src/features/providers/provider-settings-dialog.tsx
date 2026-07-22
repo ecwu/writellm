@@ -273,16 +273,23 @@ export function ProviderSettingsDialog({
                 />
               </Field>
               <div className='grid gap-4 sm:grid-cols-2'>
-                <Field label='Timeout (milliseconds)'>
-                  <Input
-                    type='number'
-                    min={1_000}
-                    max={300_000}
-                    value={config.timeoutMs}
-                    onChange={(event) =>
-                      setConfig({ ...config, timeoutMs: Number(event.target.value) })
-                    }
-                  />
+                <Field label='Request timeout (milliseconds)'>
+                  <div className='space-y-1'>
+                    <Input
+                      type='number'
+                      min={1_000}
+                      max={300_000}
+                      value={config.timeoutMs}
+                      onChange={(event) =>
+                        setConfig({ ...config, timeoutMs: Number(event.target.value) })
+                      }
+                    />
+                    {config.role === 'agent' ? (
+                      <p className='text-xs text-muted-foreground'>
+                        Applies to each model request, including its automatic retries.
+                      </p>
+                    ) : null}
+                  </div>
                 </Field>
                 <Field label='Batch limit'>
                   <Input

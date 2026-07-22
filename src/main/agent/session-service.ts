@@ -454,14 +454,16 @@ export class AgentSessionService {
 
   async abort(agentRunId: string): Promise<void> {
     const active = this.#requireActive(agentRunId)
-    active.controller.abort(new Error('Agent run aborted'))
+    active.controller.abort(
+      new AgentRunCancellationError('user_stopped', 'Agent run stopped by user')
+    )
     await active.completion
   }
 
   async close(): Promise<void> {
     const active = this.#active
     if (active === undefined) return
-    active.controller.abort(new Error('Project is closing'))
+    active.controller.abort(new AgentRunCancellationError('project_closed', 'Project is closing'))
     await active.completion
   }
 
@@ -506,6 +508,11 @@ export class AgentSessionService {
     rawContent: string
   ): Promise<void> {
     const active = this.#requireActive(agentRunId)
+    if (active.controller.signal.aborted) {
+      throw active.controller.signal.reason instanceof Error
+        ? active.controller.signal.reason
+        : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
+    }
     const content = agentUserMessagePayloadSchema.shape.content.parse(rawContent)
     const timestamp = this.#now().getTime()
     const modelRequests = new ModelRequestRepository(
@@ -581,6 +588,11 @@ export class AgentSessionService {
     if (event.type === 'model_call_finished') {
       if (event.outcome === 'succeeded') {
         await repository.succeed(event.modelRequestId, { metadata: event.metadata, outputItems: 1 })
+      } else if (event.outcome === 'timed_out') {
+        await repository.fail(event.modelRequestId, {
+          code: 'provider_timeout',
+          retryable: true
+        })
       } else if (event.outcome === 'aborted') {
         await repository.abort(event.modelRequestId)
       } else {
@@ -604,6 +616,11 @@ export class AgentSessionService {
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
+    if (active.controller.signal.aborted) {
+      throw active.controller.signal.reason instanceof Error
+        ? active.controller.signal.reason
+        : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
+    }
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -683,6 +700,9 @@ export class AgentSessionService {
         'Rejected an unauthorized Agent tool request'
       )
       return toolErrorResponse(request, 'unauthorized', 'Agent tool request is unauthorized', false)
+    }
+    if (signal.aborted) {
+      return toolErrorResponse(request, 'aborted', 'Agent tool request was aborted', true)
     }
     const callPayload = agentToolCallPayloadSchema.parse({
       toolCallId: request.toolCallId,
@@ -790,17 +810,27 @@ export class AgentSessionService {
         { event: 'agent.run.failed', err, agentRunId: active.agentRunId },
         'Agent run did not complete'
       )
+      const termination = classifyRunFailure(err, active.controller.signal)
+      this.options.log.warn(
+        {
+          event: 'agent.run.terminated',
+          agentRunId: active.agentRunId,
+          status: termination.status,
+          code: termination.code
+        },
+        'Agent run terminated'
+      )
       const partialModelRequestId = [...active.pendingModelRequestIds][0] ?? null
       await this.#abortPendingModelRequests(active)
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
           content: active.partialText,
-          stopReason: 'aborted',
+          stopReason: termination.code === 'provider_timeout' ? 'error' : 'aborted',
           provider: active.config.providerId,
           model: active.config.model,
           metadata: emptyMetadata(active.config.model),
           timestamp: this.#now().getTime(),
-          interrupted: true
+          interrupted: termination.code !== 'provider_timeout'
         })
         await this.#appendAndPublishEvent({
           sessionId: active.agentSessionId,
@@ -810,14 +840,12 @@ export class AgentSessionService {
           modelRequestId: partialModelRequestId
         })
       }
-      const status = isInterruption(err, active.controller.signal) ? 'interrupted' : 'failed'
-      const code = status === 'interrupted' ? 'run_interrupted' : 'run_failed'
       await this.#finishRunAndAppendEvent({
         agentRunId: active.agentRunId,
         agentSessionId: active.agentSessionId,
-        status,
-        error: { code },
-        eventPayload: { code, status }
+        status: termination.status,
+        error: { code: termination.code },
+        eventPayload: { code: termination.code, status: termination.status }
       })
     } finally {
       if (this.#active === active) this.#active = undefined
@@ -1330,13 +1358,36 @@ function emptyMetadata(model: string): AgentAssistantMessagePayload['metadata'] 
   }
 }
 
-function isInterruption(error: unknown, signal: AbortSignal): boolean {
-  if (signal.aborted) return true
-  if (!(error instanceof Error)) return false
-  return (
-    error.name === 'AbortError' ||
-    /exited before responding|terminated|project is closing|worker.*closed/i.test(error.message)
-  )
+type AgentRunTermination =
+  | { status: 'failed'; code: 'provider_timeout' | 'run_failed' }
+  | { status: 'interrupted'; code: 'user_stopped' | 'project_closed' | 'run_interrupted' }
+
+class AgentRunCancellationError extends Error {
+  constructor(
+    readonly code: 'user_stopped' | 'project_closed',
+    message: string
+  ) {
+    super(message)
+    this.name = 'AgentRunCancellationError'
+  }
+}
+
+function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermination {
+  if (signal.aborted && signal.reason instanceof AgentRunCancellationError) {
+    return { status: 'interrupted', code: signal.reason.code }
+  }
+  if (error instanceof Error && error.name === 'ProviderTimeoutError') {
+    return { status: 'failed', code: 'provider_timeout' }
+  }
+  if (signal.aborted) return { status: 'interrupted', code: 'run_interrupted' }
+  if (
+    error instanceof Error &&
+    (error.name === 'AbortError' ||
+      /exited before responding|terminated|project is closing|worker.*closed/i.test(error.message))
+  ) {
+    return { status: 'interrupted', code: 'run_interrupted' }
+  }
+  return { status: 'failed', code: 'run_failed' }
 }
 
 function toolResponseCapability(request: AgentToolRequest) {

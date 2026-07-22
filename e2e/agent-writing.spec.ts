@@ -466,15 +466,46 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
         }
       }))
 
+    const browserWindow = await launched.app.browserWindow(launched.page)
+    await browserWindow.evaluate((window) => {
+      window.unmaximize()
+      window.setContentSize(1440, 900)
+    })
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
     const panel = launched.page.getByTestId('agent-panel')
     await expect(panel).toBeVisible()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await expect(launched.page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
+    const resizeHandle = launched.page.getByRole('separator').last()
+    await expect(resizeHandle).toBeVisible()
+    const panelBeforeResize = await panel.boundingBox()
+    const handleBounds = await resizeHandle.boundingBox()
+    if (panelBeforeResize === null || handleBounds === null)
+      throw new Error('Side chat bounds missing')
+    await launched.page.mouse.move(
+      handleBounds.x + handleBounds.width / 2,
+      handleBounds.y + handleBounds.height / 2
+    )
+    await launched.page.mouse.down()
+    await launched.page.mouse.move(handleBounds.x - 60, handleBounds.y + handleBounds.height / 2)
+    await launched.page.mouse.up()
+    await expect
+      .poll(async () => (await panel.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(panelBeforeResize.width + 30)
+    await panel.getByRole('button', { name: 'New', exact: true }).click()
     await panel.getByRole('button', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByText('Working…', { exact: true })).toBeVisible()
-    await expect(panel.getByText('search_knowledge', { exact: true })).toBeVisible()
-    await expect(panel.getByText('propose_section_patch', { exact: true })).toBeVisible()
+    await expect(panel.getByText(/Working ·/).first()).toBeVisible()
+    const searchActivity = panel.getByTestId('agent-activity-group').filter({
+      hasText: 'Searched knowledge'
+    })
+    await expect(searchActivity).toBeVisible()
+    await expect(searchActivity.getByText('search_knowledge', { exact: true })).not.toBeVisible()
+    await searchActivity.getByText('Searched knowledge', { exact: true }).click()
+    await expect(searchActivity.getByText('search_knowledge', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(
       panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
@@ -487,7 +518,12 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await expect(panel.getByText('writer-model', { exact: true })).toHaveCount(0)
     await expect(panel.getByText('Before', { exact: true })).toBeVisible()
     await expect(panel.getByText('After', { exact: true })).toBeVisible()
-    await expect(panel.getByText(/^agent evidence\.pdf · Page 1$/).first()).toBeVisible()
+    const sourceAttachment = panel
+      .locator('[data-slot="attachment"]')
+      .filter({ hasText: 'agent evidence.pdf' })
+      .first()
+    await expect(sourceAttachment.getByText('agent evidence.pdf', { exact: true })).toBeVisible()
+    await expect(sourceAttachment.getByText('Page 1', { exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Approve', exact: true }).click()
     await expect(panel.getByText('applied', { exact: true })).toBeVisible()
     await expect(editor).toContainText('Grounded revision from Agent.')
@@ -540,11 +576,10 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await panel.getByRole('button', { name: 'Project', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Update the manuscript brief purpose.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByText('propose_brief_update', { exact: true })).toBeVisible()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Approve', exact: true }).click()
     await expect(panel.getByText('applied', { exact: true }).last()).toBeVisible()
-    await launched.page.keyboard.press('Escape')
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
     const refreshedBrief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
     await expect(refreshedBrief.getByLabel('Purpose')).toHaveValue(
@@ -553,28 +588,33 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await refreshedBrief.getByRole('button', { name: 'Close', exact: true }).first().click()
 
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await panel.getByRole('button', { name: /Conversation 1/ }).click()
     await panel.getByLabel('Agent message').fill('Add the requested outline section.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByText('propose_outline_patch', { exact: true })).toBeVisible()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Approve', exact: true }).click()
     await expect(panel.getByText('applied', { exact: true }).last()).toBeVisible()
-    await launched.page.keyboard.press('Escape')
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await expect(
       launched.page.getByText('Agent-created outline section', { exact: true })
     ).toBeVisible()
 
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await panel.getByRole('button', { name: /Conversation 1/ }).click()
     await expect(panel.getByText('applied', { exact: true }).first()).toBeVisible()
     await expect(
       panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
     ).toBeVisible()
-    await launched.page.keyboard.press('Escape')
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
 
     await closeProject(launched.page)
     await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
     await expectActiveProject(launched.page, projectName)
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await panel.getByRole('button', { name: /Conversation 1/ }).click()
     await expect(panel.getByText('applied', { exact: true }).first()).toBeVisible()
     const reopenedTruth = await launched.page.evaluate(async (expectedAgentSessionId) => {
       const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -626,13 +666,15 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
 
     await panel.getByLabel('Agent message').fill('Start a response that I can stop.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByText('Working…', { exact: true })).toBeVisible()
+    await expect(panel.getByText(/Working ·/).first()).toBeVisible()
     await expect(panel.getByText('This response will be stopped.', { exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(panel.getByText('Run interrupted', { exact: true })).toBeVisible()
-    await launched.page.keyboard.press('Escape')
+    await expect(panel.getByText(/Stopped by user|Run interrupted/)).toBeVisible()
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
-    await expect(panel.getByText('Run interrupted', { exact: true })).toBeVisible()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await panel.getByRole('button', { name: /Conversation 1/ }).click()
+    await expect(panel.getByText(/Stopped by user|Run interrupted/)).toBeVisible()
     const interruptedRuns = await launched.page.evaluate(async () => {
       const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
         ?.projectSessionId
@@ -645,6 +687,17 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       })
     })
     expect(interruptedRuns[0]?.status).toBe('interrupted')
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
+    await browserWindow.evaluate((window) => {
+      window.unmaximize()
+      window.setContentSize(900, 670)
+    })
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
+    await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(panel.getByTestId('agent-session-list')).toBeVisible()
+    await expect(launched.page.locator('.bn-editor').first()).not.toBeVisible()
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
+    await expect(launched.page.locator('.bn-editor').first()).toBeVisible()
     expect(requestBodies).toHaveLength(8)
     expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
   } finally {

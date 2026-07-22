@@ -1,8 +1,3 @@
-import {
-  agentAssistantMessagePayloadSchema,
-  agentCompactionSummaryPayloadSchema,
-  agentUserMessagePayloadSchema
-} from '../../../../shared/contracts/agent'
 import type {
   AgentEventRecord,
   AgentRunRecord,
@@ -10,13 +5,15 @@ import type {
   AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import { agentToolCallPayloadSchema } from '../../../../shared/contracts/agent-tools'
 import {
   AlertCircle,
+  ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleStop,
+  FileText,
   FilePenLine,
   FolderOpen,
   LoaderCircle,
@@ -29,25 +26,41 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
+  Attachment,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle
+} from '@/components/ui/attachment'
+import { Badge } from '@/components/ui/badge'
+import { Bubble, BubbleContent } from '@/components/ui/bubble'
+import { Button } from '@/components/ui/button'
+import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker'
+import { Message, MessageContent, MessageFooter, MessageHeader } from '@/components/ui/message'
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport
+} from '@/components/ui/message-scroller'
 import { Textarea } from '@/components/ui/textarea'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
 import {
   aggregateAgentUsage,
   citationDisplaysForToolResult,
+  formatAgentDuration,
   findLatestPrompt,
-  findToolResult,
-  mergeAgentEvents
+  mergeAgentEvents,
+  projectAgentTimeline,
+  type AgentCitationDisplay,
+  type AgentTimelineItem,
+  type AgentToolActivity,
+  toolWasStopped
 } from './agent-view-model'
 
 export interface AgentPanelSelection {
@@ -74,6 +87,7 @@ export function AgentPanel(props: {
   const [streaming, setStreaming] = useState<Record<string, string>>({})
   const [prompt, setPrompt] = useState('')
   const [scope, setScope] = useState<AgentStartScope>('section')
+  const [screen, setScreen] = useState<'sessions' | 'conversation'>('sessions')
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -115,6 +129,7 @@ export function AgentPanel(props: {
   useEffect(() => {
     if (!props.open) return
     let disposed = false
+    setScreen('sessions')
     setLoading(true)
     setError(null)
     void refreshSessions()
@@ -213,6 +228,15 @@ export function AgentPanel(props: {
   const activeSession =
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
   const activeRun = runs.find((run) => run.status === 'running') ?? null
+  const hasStreamingRun = Object.keys(streaming).length > 0
+  const isAgentWorking = activeRun !== null || hasStreamingRun
+  const [clockNow, setClockNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isAgentWorking) return
+    setClockNow(Date.now())
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [isAgentWorking])
   const usage = useMemo(() => aggregateAgentUsage(events), [events])
   const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
 
@@ -223,7 +247,13 @@ export function AgentPanel(props: {
     })
     setSessions((current) => [created, ...current])
     setActiveSessionId(created.agentSessionId)
+    setScreen('conversation')
     return created
+  }
+
+  const openSession = (agentSessionId: string): void => {
+    setActiveSessionId(agentSessionId)
+    setScreen('conversation')
   }
 
   const startRun = async (content: string): Promise<void> => {
@@ -333,20 +363,21 @@ export function AgentPanel(props: {
   }
 
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange}>
-      <SheetContent
-        className='flex w-full flex-col gap-0 p-0 sm:max-w-2xl'
-        data-testid='agent-panel'
-      >
-        <SheetHeader className='border-b px-5 py-4'>
-          <div className='flex items-start justify-between gap-3 pr-8'>
-            <div>
-              <SheetTitle className='flex items-center gap-2'>
+    <aside
+      className={props.open ? 'flex size-full min-h-0 flex-col bg-background' : 'hidden'}
+      data-testid='agent-panel'
+      aria-label='Writing agent side chat'
+    >
+      {screen === 'sessions' ? (
+        <>
+          <header className='flex items-start gap-3 border-b px-4 py-3'>
+            <div className='min-w-0 flex-1'>
+              <h2 className='flex items-center gap-2 font-semibold'>
                 <Bot className='size-4' /> Writing agent
-              </SheetTitle>
-              <SheetDescription>
-                Evidence-grounded assistance with reviewable manuscript proposals.
-              </SheetDescription>
+              </h2>
+              <p className='mt-0.5 text-xs text-muted-foreground'>
+                Choose a conversation or start a new one.
+              </p>
             </div>
             <Button
               variant='outline'
@@ -356,188 +387,278 @@ export function AgentPanel(props: {
             >
               <MessageSquarePlus /> New
             </Button>
-          </div>
-          <fieldset
-            className='flex gap-2 overflow-x-auto border-0 p-0 pt-2'
-            aria-label='Agent conversations'
-          >
-            {sessions.map((session) => (
-              <Button
-                key={session.agentSessionId}
-                size='sm'
-                variant={session.agentSessionId === activeSessionId ? 'secondary' : 'ghost'}
-                disabled={busy}
-                onClick={() => setActiveSessionId(session.agentSessionId)}
-              >
-                {session.title}
-                {!session.compatible ? <Badge variant='destructive'>Read only</Badge> : null}
-              </Button>
-            ))}
-          </fieldset>
-        </SheetHeader>
-
-        <div className='flex flex-wrap items-center gap-2 border-b px-5 py-2 text-xs text-muted-foreground'>
-          {activeRun ? (
-            <>
-              <LoaderCircle className='size-3 animate-spin' />
-              <span>Working…</span>
-              <Badge variant='outline'>{activeRun.providerId}</Badge>
-              <Badge variant='outline'>{activeRun.modelId}</Badge>
-            </>
-          ) : (
-            <span>Idle</span>
-          )}
-          <span className='ml-auto'>
-            {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
-            {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
-          </span>
-        </div>
-
-        <ScrollArea className='min-h-0 flex-1 px-5 py-4'>
-          {loading ? (
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-              <LoaderCircle className='size-4 animate-spin' /> Loading conversations…
-            </div>
-          ) : activeSession === null ? (
-            <div className='flex min-h-64 flex-col items-center justify-center gap-3 text-center'>
-              <Bot className='size-8 text-muted-foreground' />
-              <p className='font-medium'>Start a writing conversation</p>
-              <p className='max-w-sm text-sm text-muted-foreground'>
-                Choose project, section, or selected-block context. Agent changes always remain
-                proposals until you approve them.
-              </p>
-            </div>
-          ) : (
-            <EventTimeline
-              events={events}
-              proposals={proposals}
-              streaming={streaming}
-              onProposalAction={proposalAction}
-              busy={busy}
-            />
-          )}
-        </ScrollArea>
-
-        <div className='space-y-3 border-t px-5 py-4'>
-          {error ? (
-            <Alert variant='destructive'>
-              <AlertCircle />
-              <AlertTitle>Agent action failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-          {activeRun === null ? (
-            <fieldset
-              className='flex flex-wrap gap-2 border-0 p-0'
-              aria-label='Agent context scope'
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label='Close writing agent'
+              onClick={() => props.onOpenChange(false)}
             >
-              <ScopeButton
-                active={scope === 'selection'}
-                disabled={!selectionIsAvailable}
-                icon={<TextCursorInput />}
-                label='Selection'
-                onClick={() => setScope('selection')}
-              />
-              <ScopeButton
-                active={scope === 'section'}
-                disabled={props.activeSectionId === null}
-                icon={<FilePenLine />}
-                label='Section'
-                onClick={() => setScope('section')}
-              />
-              <ScopeButton
-                active={scope === 'project'}
-                disabled={false}
-                icon={<FolderOpen />}
-                label='Project'
-                onClick={() => setScope('project')}
-              />
-            </fieldset>
-          ) : null}
-          <Textarea
-            aria-label='Agent message'
-            value={prompt}
-            placeholder={
-              activeRun ? 'Steer the current turn or queue a follow-up…' : 'Ask the writing agent…'
-            }
-            rows={3}
-            disabled={busy || activeSession?.compatible === false}
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-          <div className='flex flex-wrap justify-end gap-2'>
-            {activeRun ? (
-              <>
+              <X />
+            </Button>
+          </header>
+          <div className='min-h-0 flex-1 overflow-y-auto p-2' data-testid='agent-session-list'>
+            {loading ? (
+              <Marker role='status' className='px-3 py-4'>
+                <MarkerIcon>
+                  <LoaderCircle className='animate-spin' />
+                </MarkerIcon>
+                <MarkerContent>Loading conversations…</MarkerContent>
+              </Marker>
+            ) : sessions.length === 0 ? (
+              <div className='flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center'>
+                <Bot className='size-8 text-muted-foreground' />
+                <p className='font-medium'>Start a writing conversation</p>
+                <p className='text-sm text-muted-foreground'>
+                  Agent edits stay reviewable proposals until you approve them.
+                </p>
                 <Button
-                  variant='outline'
-                  disabled={busy || prompt.trim().length === 0}
-                  onClick={() => void queueMessage('steer')}
-                >
-                  <ChevronRight /> Steer
-                </Button>
-                <Button
-                  variant='outline'
-                  disabled={busy || prompt.trim().length === 0}
-                  onClick={() => void queueMessage('follow_up')}
-                >
-                  <Send /> Follow up
-                </Button>
-                <Button
-                  variant='destructive'
                   disabled={busy}
-                  onClick={() => {
-                    setBusy(true)
-                    void window.desktop.agent
-                      .abortRun({
-                        projectSessionId: props.projectSessionId,
-                        agentRunId: activeRun.agentRunId
-                      })
-                      .catch((cause) => setError(errorMessage(cause)))
-                      .finally(() => setBusy(false))
-                  }}
-                >
-                  <CircleStop /> Stop
-                </Button>
-              </>
-            ) : (
-              <>
-                {latestPrompt ? (
-                  <Button
-                    variant='outline'
-                    disabled={busy}
-                    onClick={() => void startRun(latestPrompt)}
-                  >
-                    <RotateCcw /> Retry
-                  </Button>
-                ) : null}
-                {events.length > 0 ? (
-                  <Button
-                    variant='outline'
-                    disabled={busy}
-                    onClick={() => void startRun('Continue from the previous response.')}
-                  >
-                    <ChevronRight /> Continue
-                  </Button>
-                ) : null}
-                <Button
-                  disabled={
-                    busy || prompt.trim().length === 0 || activeSession?.compatible === false
+                  onClick={() =>
+                    void createSession().catch((cause) => setError(errorMessage(cause)))
                   }
-                  onClick={() => void startRun(prompt)}
                 >
-                  <Send /> Send
+                  <MessageSquarePlus /> New conversation
                 </Button>
-              </>
+              </div>
+            ) : (
+              <div className='space-y-1'>
+                {sessions.map((session) => {
+                  const isWorking = session.agentSessionId === activeSessionId && activeRun !== null
+                  return (
+                    <Button
+                      key={session.agentSessionId}
+                      variant='ghost'
+                      className='h-auto w-full justify-start gap-3 px-3 py-3 text-left'
+                      disabled={busy}
+                      data-testid={`agent-session-${session.agentSessionId}`}
+                      onClick={() => openSession(session.agentSessionId)}
+                    >
+                      <span className='flex size-8 shrink-0 items-center justify-center rounded-md bg-muted'>
+                        <Bot className='size-4' />
+                      </span>
+                      <span className='min-w-0 flex-1'>
+                        <span className='block truncate font-medium'>{session.title}</span>
+                        <span className='mt-0.5 block text-xs font-normal text-muted-foreground'>
+                          {formatSessionUpdatedAt(session.updatedAt)}
+                        </span>
+                      </span>
+                      {isWorking ? (
+                        <Badge variant='secondary' className='shrink-0'>
+                          <LoaderCircle className='animate-spin' /> Working ·{' '}
+                          {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
+                        </Badge>
+                      ) : !session.compatible ? (
+                        <Badge variant='destructive' className='shrink-0'>
+                          Read only
+                        </Badge>
+                      ) : session.status === 'archived' ? (
+                        <Badge variant='outline' className='shrink-0'>
+                          Archived
+                        </Badge>
+                      ) : (
+                        <ChevronRight className='size-4 shrink-0 text-muted-foreground' />
+                      )}
+                    </Button>
+                  )
+                })}
+              </div>
             )}
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+          {error ? <AgentErrorAlert message={error} className='m-3 mt-0' /> : null}
+        </>
+      ) : (
+        <>
+          <header className='flex items-center gap-2 border-b px-3 py-2.5'>
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label='Back to conversations'
+              onClick={() => setScreen('sessions')}
+            >
+              <ArrowLeft />
+            </Button>
+            <div className='min-w-0 flex-1'>
+              <h2 className='truncate text-sm font-semibold'>
+                {activeSession?.title ?? 'Conversation'}
+              </h2>
+            </div>
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label='Close writing agent'
+              onClick={() => props.onOpenChange(false)}
+            >
+              <X />
+            </Button>
+          </header>
+
+          <div className='flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground'>
+            {activeRun ? (
+              <>
+                <LoaderCircle className='size-3 animate-spin' />
+                <span className='shimmer'>
+                  Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
+                </span>
+                <Badge variant='outline'>{activeRun.providerId}</Badge>
+                <Badge variant='outline'>{activeRun.modelId}</Badge>
+              </>
+            ) : (
+              <span>Idle</span>
+            )}
+            <span className='ml-auto'>
+              {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
+              {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
+            </span>
+          </div>
+
+          <div className='min-h-0 flex-1'>
+            {loading ? (
+              <Marker role='status' className='p-4'>
+                <MarkerIcon>
+                  <LoaderCircle className='animate-spin' />
+                </MarkerIcon>
+                <MarkerContent>Loading conversation…</MarkerContent>
+              </Marker>
+            ) : activeSession === null ? (
+              <div className='flex min-h-64 flex-col items-center justify-center gap-3 text-center'>
+                <Bot className='size-8 text-muted-foreground' />
+                <p className='font-medium'>Conversation unavailable</p>
+                <Button variant='outline' onClick={() => setScreen('sessions')}>
+                  <ArrowLeft /> Back to conversations
+                </Button>
+              </div>
+            ) : (
+              <EventTimeline
+                events={events}
+                proposals={proposals}
+                runs={runs}
+                now={clockNow}
+                streaming={streaming}
+                onProposalAction={proposalAction}
+                busy={busy}
+              />
+            )}
+          </div>
+
+          <div className='space-y-3 border-t px-4 py-3'>
+            {error ? <AgentErrorAlert message={error} /> : null}
+            {activeRun === null ? (
+              <fieldset
+                className='flex flex-wrap gap-2 border-0 p-0'
+                aria-label='Agent context scope'
+              >
+                <ScopeButton
+                  active={scope === 'selection'}
+                  disabled={!selectionIsAvailable}
+                  icon={<TextCursorInput />}
+                  label='Selection'
+                  onClick={() => setScope('selection')}
+                />
+                <ScopeButton
+                  active={scope === 'section'}
+                  disabled={props.activeSectionId === null}
+                  icon={<FilePenLine />}
+                  label='Section'
+                  onClick={() => setScope('section')}
+                />
+                <ScopeButton
+                  active={scope === 'project'}
+                  disabled={false}
+                  icon={<FolderOpen />}
+                  label='Project'
+                  onClick={() => setScope('project')}
+                />
+              </fieldset>
+            ) : null}
+            <Textarea
+              aria-label='Agent message'
+              value={prompt}
+              placeholder={
+                activeRun
+                  ? 'Steer the current turn or queue a follow-up…'
+                  : 'Ask the writing agent…'
+              }
+              rows={3}
+              disabled={busy || activeSession?.compatible === false}
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+            <div className='flex flex-wrap justify-end gap-2'>
+              {activeRun ? (
+                <>
+                  <Button
+                    variant='outline'
+                    disabled={busy || prompt.trim().length === 0}
+                    onClick={() => void queueMessage('steer')}
+                  >
+                    <ChevronRight /> Steer
+                  </Button>
+                  <Button
+                    variant='outline'
+                    disabled={busy || prompt.trim().length === 0}
+                    onClick={() => void queueMessage('follow_up')}
+                  >
+                    <Send /> Follow up
+                  </Button>
+                  <Button
+                    variant='destructive'
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true)
+                      void window.desktop.agent
+                        .abortRun({
+                          projectSessionId: props.projectSessionId,
+                          agentRunId: activeRun.agentRunId
+                        })
+                        .catch((cause) => setError(errorMessage(cause)))
+                        .finally(() => setBusy(false))
+                    }}
+                  >
+                    <CircleStop /> Stop
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {latestPrompt ? (
+                    <Button
+                      variant='outline'
+                      disabled={busy}
+                      onClick={() => void startRun(latestPrompt)}
+                    >
+                      <RotateCcw /> Retry
+                    </Button>
+                  ) : null}
+                  {events.length > 0 ? (
+                    <Button
+                      variant='outline'
+                      disabled={busy}
+                      onClick={() => void startRun('Continue from the previous response.')}
+                    >
+                      <ChevronRight /> Continue
+                    </Button>
+                  ) : null}
+                  <Button
+                    disabled={
+                      busy || prompt.trim().length === 0 || activeSession?.compatible === false
+                    }
+                    onClick={() => void startRun(prompt)}
+                  >
+                    <Send /> Send
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </aside>
   )
 }
 
 function EventTimeline(props: {
   events: AgentEventRecord[]
   proposals: MutationProposalRecord[]
+  runs: AgentRunRecord[]
+  now: number
   streaming: Record<string, string>
   busy: boolean
   onProposalAction(
@@ -545,177 +666,271 @@ function EventTimeline(props: {
     action: 'approve' | 'reject' | 'undo'
   ): Promise<void>
 }): React.JSX.Element {
+  const timeline = useMemo(
+    () => projectAgentTimeline(props.events, props.proposals, props.runs, props.now),
+    [props.events, props.now, props.proposals, props.runs]
+  )
+  const citationsById = useMemo(() => {
+    const citations = new Map<string, AgentCitationDisplay>()
+    for (const item of timeline) {
+      if (item.type === 'activity') {
+        for (const citation of item.citations) citations.set(citation.citationId, citation)
+      } else if (item.type === 'proposal' && item.tool.result !== null) {
+        for (const citation of citationDisplaysForToolResult(item.tool.result)) {
+          citations.set(citation.citationId, citation)
+        }
+      }
+    }
+    return citations
+  }, [timeline])
+
   return (
-    <div className='space-y-4 pb-4' data-testid='agent-event-timeline'>
-      {props.events.map((event) => {
-        if (event.type === 'user_message') {
-          const payload = agentUserMessagePayloadSchema.safeParse(event.payload)
-          if (!payload.success) return null
-          return (
-            <div key={event.agentEventId} className='ml-10 rounded-lg bg-muted px-3 py-2 text-sm'>
-              <div className='mb-1 text-xs text-muted-foreground'>
-                {deliveryLabel(payload.data.delivery)}
-              </div>
-              <p className='whitespace-pre-wrap'>{payload.data.content}</p>
-            </div>
-          )
-        }
-        if (event.type === 'assistant_message') {
-          const payload = agentAssistantMessagePayloadSchema.safeParse(event.payload)
-          if (!payload.success) return null
-          if (payload.data.content.length === 0 && payload.data.stopReason === 'toolUse')
-            return null
-          return (
-            <div key={event.agentEventId} className='space-y-2 rounded-lg border px-3 py-2 text-sm'>
-              <AgentMarkdown content={payload.data.content} />
-              <div className='flex flex-wrap gap-1 text-xs text-muted-foreground'>
-                <span>{payload.data.metadata.usage.inputTokens ?? 0} in</span>
-                <span>{payload.data.metadata.usage.outputTokens ?? 0} out</span>
-                {payload.data.metadata.retryCount > 0 ? (
-                  <span>{payload.data.metadata.retryCount} retries</span>
-                ) : null}
-                {payload.data.interrupted ? <Badge variant='destructive'>Interrupted</Badge> : null}
-              </div>
-            </div>
-          )
-        }
-        if (event.type === 'tool_call') {
-          const payload = agentToolCallPayloadSchema.safeParse(event.payload)
-          if (!payload.success) return null
-          const result = findToolResult(props.events, payload.data.toolCallId)
-          const proposal = props.proposals.find(
-            (candidate) => candidate.agentToolCallId === payload.data.toolCallId
-          )
-          const citationDisplays = result ? citationDisplaysForToolResult(result) : []
-          return (
-            <div key={event.agentEventId} className='space-y-3 rounded-lg border px-3 py-3 text-sm'>
-              <div className='flex items-center gap-2'>
-                {result === null ? (
-                  <LoaderCircle className='size-4 animate-spin' />
-                ) : result.isError ? (
-                  <X className='size-4 text-destructive' />
-                ) : (
-                  <Check className='size-4 text-green-600' />
-                )}
-                <span className='font-medium'>{payload.data.toolName}</span>
-                <Badge variant='outline' className='ml-auto'>
-                  {result === null ? 'running' : result.isError ? 'error' : 'complete'}
-                </Badge>
-              </div>
-              <details>
-                <summary className='cursor-pointer text-xs text-muted-foreground'>
-                  Bounded arguments
-                </summary>
-                <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
-                  {JSON.stringify(payload.data.args, null, 2)}
-                </pre>
-              </details>
-              {result?.error ? (
-                <Alert variant='destructive'>
-                  <AlertCircle />
-                  <AlertTitle>{result.error.code}</AlertTitle>
-                  <AlertDescription>{result.error.message}</AlertDescription>
-                </Alert>
-              ) : null}
-              {citationDisplays.length > 0 ? (
-                <div className='flex flex-wrap gap-1'>
-                  {citationDisplays.map((citation) => (
-                    <Badge
-                      key={citation.citationId}
-                      variant='secondary'
-                      className='max-w-full whitespace-normal text-left'
-                      title={citation.citationId}
-                    >
-                      {citation.title}
-                      {citation.page === undefined ? '' : ` · Page ${citation.page + 1}`}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {result?.result ? (
-                <details>
-                  <summary className='cursor-pointer text-xs text-muted-foreground'>
-                    Bounded result
-                  </summary>
-                  <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
-                    {JSON.stringify(result.result, null, 2)}
-                  </pre>
-                </details>
-              ) : null}
-              {proposal ? (
-                <ProposalCard
-                  proposal={proposal}
+    <MessageScrollerProvider autoScroll>
+      <MessageScroller data-testid='agent-event-timeline'>
+        <MessageScrollerViewport>
+          <MessageScrollerContent className='gap-5 px-4 py-4 pb-6'>
+            {timeline.map((item, index) => (
+              <MessageScrollerItem
+                key={item.id}
+                messageId={item.id}
+                scrollAnchor={index === timeline.length - 1}
+              >
+                <TimelineItem
+                  item={item}
+                  citationsById={citationsById}
                   busy={props.busy}
-                  onAction={props.onProposalAction}
+                  onProposalAction={props.onProposalAction}
                 />
-              ) : null}
-            </div>
-          )
-        }
-        if (event.type === 'run_interrupted') {
-          return (
-            <Alert key={event.agentEventId} variant='destructive'>
-              <CircleStop />
-              <AlertTitle>Run interrupted</AlertTitle>
-              <AlertDescription>
-                The durable conversation remains available to retry or continue.
-              </AlertDescription>
-            </Alert>
-          )
-        }
-        if (event.type === 'compaction_summary') {
-          const payload = agentCompactionSummaryPayloadSchema.safeParse(event.payload)
-          if (!payload.success) return null
-          return (
-            <div key={event.agentEventId} className='text-center text-xs text-muted-foreground'>
-              Context summarized through event {payload.data.coveredThroughSequence}; full history
-              retained.
-            </div>
-          )
-        }
-        return null
-      })}
-      {Object.entries(props.streaming).map(([runId, content]) =>
-        content.length === 0 ? null : (
-          <div key={runId} className='rounded-lg border px-3 py-2 text-sm'>
-            <AgentMarkdown content={content} />
-            <div className='mt-2 flex items-center gap-2 text-xs text-muted-foreground'>
-              <LoaderCircle className='size-3 animate-spin' /> Streaming…
-            </div>
-          </div>
-        )
-      )}
+              </MessageScrollerItem>
+            ))}
+            {Object.entries(props.streaming).map(([runId, content]) =>
+              content.length === 0 ? null : (
+                <MessageScrollerItem key={runId} messageId={runId} scrollAnchor>
+                  <Message>
+                    <MessageContent>
+                      <Bubble variant='ghost'>
+                        <BubbleContent>
+                          <AgentMarkdown content={content} />
+                        </BubbleContent>
+                      </Bubble>
+                      <MessageFooter className='gap-2'>
+                        <LoaderCircle className='size-3 animate-spin' />
+                        <span className='shimmer'>Streaming…</span>
+                      </MessageFooter>
+                    </MessageContent>
+                  </Message>
+                </MessageScrollerItem>
+              )
+            )}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton />
+      </MessageScroller>
+    </MessageScrollerProvider>
+  )
+}
+
+function TimelineItem(props: {
+  item: AgentTimelineItem
+  citationsById: Map<string, AgentCitationDisplay>
+  busy: boolean
+  onProposalAction(
+    proposal: MutationProposalRecord,
+    action: 'approve' | 'reject' | 'undo'
+  ): Promise<void>
+}): React.JSX.Element {
+  const { item } = props
+  if (item.type === 'user') {
+    return (
+      <Message align='end'>
+        <MessageContent>
+          <MessageHeader>{deliveryLabel(item.payload.delivery)}</MessageHeader>
+          <Bubble variant='muted' align='end'>
+            <BubbleContent className='whitespace-pre-wrap'>{item.payload.content}</BubbleContent>
+          </Bubble>
+        </MessageContent>
+      </Message>
+    )
+  }
+  if (item.type === 'assistant') {
+    return (
+      <Message>
+        <MessageContent>
+          <Bubble variant='ghost'>
+            <BubbleContent>
+              <AgentMarkdown content={item.payload.content} />
+            </BubbleContent>
+          </Bubble>
+          <MessageFooter className='flex-wrap gap-x-2 gap-y-1'>
+            <span>{item.payload.metadata.usage.inputTokens ?? 0} in</span>
+            <span>{item.payload.metadata.usage.outputTokens ?? 0} out</span>
+            {item.payload.metadata.retryCount > 0 ? (
+              <span>{item.payload.metadata.retryCount} retries</span>
+            ) : null}
+            {item.payload.interrupted ? <Badge variant='destructive'>Interrupted</Badge> : null}
+          </MessageFooter>
+        </MessageContent>
+      </Message>
+    )
+  }
+  if (item.type === 'activity') return <ActivityGroup item={item} />
+  if (item.type === 'proposal') {
+    return (
+      <ProposalMessage
+        item={item}
+        citationsById={props.citationsById}
+        busy={props.busy}
+        onAction={props.onProposalAction}
+      />
+    )
+  }
+  if (item.type === 'run_interrupted') {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          {item.terminal.status === 'failed' ? (
+            <AlertCircle className='text-destructive' />
+          ) : (
+            <CircleStop className='text-destructive' />
+          )}
+        </MarkerIcon>
+        <MarkerContent>
+          {terminalLabel(item.terminal.code)} · {formatAgentDuration(item.terminal.durationMs)}
+        </MarkerContent>
+      </Marker>
+    )
+  }
+  if (item.type === 'run_completed') {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <Check className='text-emerald-600' />
+        </MarkerIcon>
+        <MarkerContent>
+          Run completed · {formatAgentDuration(item.terminal.durationMs)}
+        </MarkerContent>
+      </Marker>
+    )
+  }
+  return (
+    <Marker variant='separator'>
+      <MarkerContent>
+        Context summarized through event {item.payload.coveredThroughSequence}; full history
+        retained.
+      </MarkerContent>
+    </Marker>
+  )
+}
+
+function ActivityGroup(props: {
+  item: Extract<AgentTimelineItem, { type: 'activity' }>
+}): React.JSX.Element {
+  const { item } = props
+  return (
+    <details
+      className='group/activity'
+      open={item.status === 'error' || item.status === 'stopped' ? true : undefined}
+      data-testid='agent-activity-group'
+      data-status={item.status}
+    >
+      <summary className='cursor-pointer list-none rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+        <Marker role='status'>
+          <MarkerIcon>{activityIcon(item.status)}</MarkerIcon>
+          <MarkerContent className={item.status === 'running' ? 'shimmer' : undefined}>
+            {item.summary}
+            {item.status === 'stopped' ? ' · Stopped' : ''}
+          </MarkerContent>
+          <ChevronDown className='ml-auto size-4 transition-transform group-open/activity:rotate-180' />
+        </Marker>
+      </summary>
+      <div className='mt-3 ml-2 space-y-3 border-l pl-4'>
+        {item.tools.map((tool) => (
+          <ToolActivityRow key={tool.eventId} tool={tool} stopped={item.status === 'stopped'} />
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): React.JSX.Element {
+  const { tool } = props
+  const citations = tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
+  return (
+    <div className='space-y-2 text-sm' data-testid={`agent-tool-${tool.call.toolCallId}`}>
+      <div className='flex items-center gap-2'>
+        {toolResultIcon(tool, props.stopped)}
+        <span className='min-w-0 flex-1 truncate font-medium'>{tool.call.toolName}</span>
+        <span className='text-xs text-muted-foreground'>
+          {toolResultLabel(tool, props.stopped)} · {formatAgentDuration(tool.durationMs)}
+        </span>
+      </div>
+      <details>
+        <summary className='cursor-pointer text-xs text-muted-foreground'>
+          Bounded arguments
+        </summary>
+        <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
+          {JSON.stringify(tool.call.args, null, 2)}
+        </pre>
+      </details>
+      {tool.result?.error ? (
+        <Alert variant='destructive'>
+          <AlertCircle />
+          <AlertTitle>{tool.result.error.code}</AlertTitle>
+          <AlertDescription>{tool.result.error.message}</AlertDescription>
+        </Alert>
+      ) : null}
+      {citations.length > 0 ? <CitationAttachments citations={citations} /> : null}
+      {tool.result?.result ? (
+        <details>
+          <summary className='cursor-pointer text-xs text-muted-foreground'>Bounded result</summary>
+          <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
+            {JSON.stringify(tool.result.result, null, 2)}
+          </pre>
+        </details>
+      ) : null}
     </div>
   )
 }
 
-function ProposalCard(props: {
-  proposal: MutationProposalRecord
+function ProposalMessage(props: {
+  item: Extract<AgentTimelineItem, { type: 'proposal' }>
+  citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   onAction(proposal: MutationProposalRecord, action: 'approve' | 'reject' | 'undo'): Promise<void>
 }): React.JSX.Element {
-  const preview = props.proposal.payload.preview
-  const isPending = props.proposal.status === 'pending'
-  const canUndo = props.proposal.status === 'applied' && props.proposal.kind === 'section_patch'
-  return (
-    <section
-      className='space-y-3 rounded-md border bg-background p-3'
-      data-testid={`agent-proposal-${props.proposal.proposalId}`}
-    >
-      <div className='flex items-center gap-2'>
-        <FilePenLine className='size-4' />
-        <span className='font-medium'>{preview.summary}</span>
-        <Badge className='ml-auto' variant={isPending ? 'secondary' : 'outline'}>
-          {props.proposal.status}
-        </Badge>
-      </div>
+  const proposal = props.item.proposal
+  if (proposal === null) {
+    const failed = props.item.tool.result?.isError === true
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          {failed ? <X className='text-destructive' /> : <LoaderCircle className='animate-spin' />}
+        </MarkerIcon>
+        <MarkerContent className={failed ? 'text-destructive' : 'shimmer'}>
+          {failed ? 'Proposal could not be prepared' : 'Preparing a reviewable proposal…'}
+        </MarkerContent>
+      </Marker>
+    )
+  }
+  const preview = proposal.payload.preview
+  const isPending = proposal.status === 'pending'
+  const canUndo = proposal.status === 'applied' && proposal.kind === 'section_patch'
+  const sources = preview.citedSources.map(
+    (source) =>
+      props.citationsById.get(source.citationId) ?? {
+        citationId: source.citationId,
+        title: source.citationId
+      }
+  )
+  const detail = (
+    <div className='space-y-3'>
       <div className='flex flex-wrap gap-1 text-xs'>
         {preview.affectedSectionIds.map((sectionId) => (
           <Badge key={sectionId} variant='outline'>
             Section {sectionId.slice(0, 8)}
           </Badge>
         ))}
-        {blockOperationLabels(props.proposal).map((label) => (
+        {blockOperationLabels(proposal).map((label) => (
           <Badge key={label} variant='outline'>
             {label}
           </Badge>
@@ -735,16 +950,7 @@ function ProposalCard(props: {
           </pre>
         </div>
       </div>
-      {preview.citedSources.length > 0 ? (
-        <div className='space-y-1 text-xs'>
-          <p className='font-medium'>Sources</p>
-          {preview.citedSources.map((source) => (
-            <p key={source.citationId} className='break-all text-muted-foreground'>
-              {source.citationId} · {source.sourceBlockIds.join(', ')}
-            </p>
-          ))}
-        </div>
-      ) : null}
+      {sources.length > 0 ? <CitationAttachments citations={sources} /> : null}
       <div className='flex justify-end gap-2'>
         {isPending ? (
           <>
@@ -752,32 +958,153 @@ function ProposalCard(props: {
               variant='outline'
               size='sm'
               disabled={props.busy}
-              onClick={() => void props.onAction(props.proposal, 'reject')}
+              onClick={() => void props.onAction(proposal, 'reject')}
             >
               <X /> Reject
             </Button>
             <Button
               size='sm'
               disabled={props.busy}
-              onClick={() => void props.onAction(props.proposal, 'approve')}
+              onClick={() => void props.onAction(proposal, 'approve')}
             >
               <Check /> Approve
             </Button>
           </>
         ) : null}
-        {canUndo ? (
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={props.busy}
-            onClick={() => void props.onAction(props.proposal, 'undo')}
-          >
-            <Undo2 /> Undo
-          </Button>
-        ) : null}
       </div>
-    </section>
+    </div>
   )
+  return (
+    <Message data-testid={`agent-proposal-${proposal.proposalId}`}>
+      <MessageContent>
+        <MessageHeader className='gap-2'>
+          <FilePenLine className='size-4' />
+          {isPending ? 'Review required' : 'Proposal result'}
+        </MessageHeader>
+        <Bubble variant='outline' className='max-w-full'>
+          <BubbleContent className='w-full space-y-3'>
+            <div className='flex items-center gap-2'>
+              <span className='min-w-0 flex-1 font-medium'>{preview.summary}</span>
+              <Badge variant={isPending ? 'secondary' : 'outline'}>{proposal.status}</Badge>
+              {canUndo ? (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={props.busy}
+                  onClick={() => void props.onAction(proposal, 'undo')}
+                >
+                  <Undo2 /> Undo
+                </Button>
+              ) : null}
+            </div>
+            {isPending ? (
+              detail
+            ) : (
+              <details>
+                <summary className='cursor-pointer text-xs text-muted-foreground'>
+                  View proposal details
+                </summary>
+                <div className='mt-3'>{detail}</div>
+              </details>
+            )}
+            <MessageFooter>
+              {proposal.status === 'pending' && props.item.tool.result === null
+                ? 'Running'
+                : toolWasStopped(props.item.tool)
+                  ? 'Stopped'
+                  : props.item.tool.result?.isError
+                    ? 'Error'
+                    : 'Complete'}{' '}
+              · {formatAgentDuration(props.item.tool.durationMs)}
+            </MessageFooter>
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
+  )
+}
+
+function CitationAttachments(props: { citations: AgentCitationDisplay[] }): React.JSX.Element {
+  return (
+    <AttachmentGroup aria-label='Knowledge sources'>
+      {props.citations.map((citation) => (
+        <Attachment key={citation.citationId} size='sm' title={citation.citationId}>
+          <AttachmentMedia>
+            <FileText />
+          </AttachmentMedia>
+          <AttachmentContent>
+            <AttachmentTitle>{citation.title}</AttachmentTitle>
+            <AttachmentDescription>
+              {citation.page === undefined ? 'Knowledge source' : `Page ${citation.page + 1}`}
+            </AttachmentDescription>
+          </AttachmentContent>
+        </Attachment>
+      ))}
+    </AttachmentGroup>
+  )
+}
+
+function activityIcon(status: 'running' | 'error' | 'complete' | 'stopped'): React.JSX.Element {
+  if (status === 'running') return <LoaderCircle className='animate-spin' />
+  if (status === 'error') return <AlertCircle className='text-destructive' />
+  if (status === 'stopped') return <CircleStop className='text-destructive' />
+  return <Check className='text-emerald-600' />
+}
+
+function toolResultIcon(tool: AgentToolActivity, stopped: boolean): React.JSX.Element {
+  if ((tool.result === null && stopped) || toolWasStopped(tool))
+    return <CircleStop className='size-4 text-destructive' />
+  if (tool.result === null) return <LoaderCircle className='size-4 animate-spin' />
+  if (tool.result.isError) return <X className='size-4 text-destructive' />
+  return <Check className='size-4 text-emerald-600' />
+}
+
+function toolResultLabel(tool: AgentToolActivity, stopped: boolean): string {
+  if ((tool.result === null && stopped) || toolWasStopped(tool)) return 'Stopped'
+  if (tool.result === null) return 'Running'
+  return tool.result.isError ? 'Error' : 'Complete'
+}
+
+function elapsedRunMs(run: AgentRunRecord | null, now: number): number {
+  if (run === null) return 0
+  const start = Date.parse(run.startedAt)
+  const end = run.completedAt === null ? now : Date.parse(run.completedAt)
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.max(0, end - start)
+}
+
+function terminalLabel(code: string): string {
+  switch (code) {
+    case 'provider_timeout':
+      return 'Provider request timed out'
+    case 'user_stopped':
+      return 'Stopped by user'
+    case 'project_closed':
+      return 'Interrupted because project closed'
+    case 'run_failed':
+      return 'Run failed'
+    default:
+      return 'Run interrupted'
+  }
+}
+
+function AgentErrorAlert(props: { message: string; className?: string }): React.JSX.Element {
+  return (
+    <Alert variant='destructive' className={props.className}>
+      <AlertCircle />
+      <AlertTitle>Agent action failed</AlertTitle>
+      <AlertDescription>{props.message}</AlertDescription>
+    </Alert>
+  )
+}
+
+function formatSessionUpdatedAt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Updated recently'
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(date)
 }
 
 function ScopeButton(props: {

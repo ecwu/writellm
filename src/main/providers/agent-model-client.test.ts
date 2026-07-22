@@ -215,6 +215,51 @@ describe('AgentModelClient', () => {
     await expect(handle.completion).rejects.toThrow()
     expect(child.kill).toHaveBeenCalledOnce()
   })
+
+  it('waits for in-flight tool handling to drain after an Agent stop', async () => {
+    const child = new ToolBridgeUtilityProcess()
+    const channel = createFakeMessageChannel()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => channel as never
+    )
+    const controller = new AbortController()
+    let handlerStarted = false
+    let handlerSettled = false
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      controller.signal,
+      () => undefined,
+      async (request, signal) => {
+        handlerStarted = true
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => setTimeout(resolve, 20), { once: true })
+        })
+        handlerSettled = true
+        return {
+          type: 'tool_response',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          toolCallId: request.toolCallId,
+          modelRequestId: request.modelRequestId,
+          toolName: request.toolName,
+          ok: false,
+          error: { code: 'aborted', message: 'Agent tool request was aborted', retryable: true }
+        }
+      }
+    )
+    await vi.waitFor(() => expect(handlerStarted).toBe(true))
+    controller.abort()
+    await expect(handle.completion).rejects.toMatchObject({ name: 'AbortError' })
+    expect(handlerSettled).toBe(true)
+  })
 })
 
 class SessionUtilityProcess extends EventEmitter {

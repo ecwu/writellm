@@ -116,8 +116,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       ...input
     })
     const { port1, port2 } = this.createMessageChannel()
-    const closeToolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
-    const completion = this.#worker.request<void>({
+    const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
+    const workerCompletion = this.#worker.request<void>({
       requestId,
       payload: request,
       signal,
@@ -132,7 +132,10 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       transfer: [port2],
       onMessage: (raw) => this.#handleSessionMessage(raw, request, onEvent)
     })
-    void completion.then(closeToolBridge, closeToolBridge)
+    const completion = workerCompletion.finally(async () => {
+      toolBridge.close()
+      await toolBridge.drain()
+    })
     const queue = (
       operation: AgentQueueCommand['operation'],
       command: Omit<AgentQueueCommand, 'operation' | 'requestId'>
@@ -175,9 +178,18 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     request: ReturnType<typeof agentRunStartSchema.parse>,
     signal: AbortSignal,
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
-  ): () => void {
+  ): { close: () => void; drain: () => Promise<void> } {
     const controller = new AbortController()
+    const inFlight = new Set<Promise<void>>()
+    let resolveDrain: (() => void) | undefined
+    let drainPromise: Promise<void> | undefined
     let closed = false
+    const settleDrain = (): void => {
+      if (closed && inFlight.size === 0) {
+        resolveDrain?.()
+        resolveDrain = undefined
+      }
+    }
     const close = (): void => {
       if (closed) return
       closed = true
@@ -185,6 +197,16 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       signal.removeEventListener('abort', close)
       port.removeAllListeners()
       port.close()
+      settleDrain()
+    }
+    const drain = (): Promise<void> => {
+      if (drainPromise !== undefined) return drainPromise
+      if (inFlight.size === 0) return Promise.resolve()
+      drainPromise = new Promise<void>((resolve) => {
+        resolveDrain = resolve
+        settleDrain()
+      })
+      return drainPromise
     }
     const failProtocol = (err: unknown): void => {
       this.log.error(
@@ -195,7 +217,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       this.#worker.terminate()
     }
     port.on('message', (event) => {
-      void (async () => {
+      const task = (async () => {
         const parsed = agentToolRequestSchema.safeParse(event.data)
         if (
           !parsed.success ||
@@ -260,11 +282,22 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
           close()
         }
       })()
+      inFlight.add(task)
+      void task.then(
+        () => {
+          inFlight.delete(task)
+          settleDrain()
+        },
+        () => {
+          inFlight.delete(task)
+          settleDrain()
+        }
+      )
     })
     port.once('close', close)
     signal.addEventListener('abort', close, { once: true })
     port.start()
-    return close
+    return { close, drain }
   }
 
   #handleMessage(

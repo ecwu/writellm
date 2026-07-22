@@ -232,6 +232,185 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies[1])).toContain('<UNTRUSTED_KNOWLEDGE')
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
+
+  it('starts a fresh provider deadline after a tool continuation', async () => {
+    const shortRequest = {
+      ...request,
+      config: { ...request.config, timeoutMs: 50 }
+    }
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-slow', 'search_knowledge', { query: 'evidence' })
+          : completionResponse('Completed after the tool.', 'response-after-slow-tool')
+      })
+    )
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      setTimeout(() => {
+        port2.postMessage({
+          type: 'tool_response',
+          ...responseCapability(event.data),
+          ok: true,
+          data: {
+            mode: 'fts',
+            rerankStatus: 'disabled',
+            hits: [knowledgeHit()]
+          }
+        })
+      }, 75)
+    })
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      shortRequest,
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_call_requested') {
+          control?.authorizeModelCall({
+            operation: 'authorize_model_call',
+            requestId: shortRequest.requestId,
+            projectSessionId: shortRequest.projectSessionId,
+            agentSessionId: shortRequest.agentSessionId,
+            agentRunId: shortRequest.agentRunId,
+            continuationId: event.continuationId,
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(
+      events
+        .filter((event) => event.type === 'model_call_finished')
+        .map((event) => (event.type === 'model_call_finished' ? event.outcome : ''))
+    ).toEqual(['succeeded', 'succeeded'])
+  })
+
+  it('reports a provider timeout separately from an external user stop', async () => {
+    const shortRequest = {
+      ...request,
+      config: { ...request.config, timeoutMs: 40 }
+    }
+    const timeoutEvents: AgentRuntimeEvent[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        async (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const onAbort = () => {
+              const error = new Error('request aborted')
+              error.name = 'AbortError'
+              reject(error)
+            }
+            init?.signal?.addEventListener('abort', onAbort, { once: true })
+          })
+      )
+    )
+    await expect(
+      runAgentSession(
+        shortRequest,
+        (event) => timeoutEvents.push(event),
+        () => undefined,
+        undefined,
+        new FakeMessagePort() as never
+      )
+    ).rejects.toMatchObject({ name: 'ProviderTimeoutError' })
+    expect(timeoutEvents).toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+    )
+    expect(timeoutEvents).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        message: expect.objectContaining({ stopReason: 'error', interrupted: false })
+      })
+    )
+
+    const stopController = new AbortController()
+    const stopEvents: AgentRuntimeEvent[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        async (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const onAbort = () => {
+              const error = new Error('request aborted')
+              error.name = 'AbortError'
+              reject(error)
+            }
+            init?.signal?.addEventListener('abort', onAbort, { once: true })
+          })
+      )
+    )
+    const stopping = runAgentSession(
+      request,
+      (event) => stopEvents.push(event),
+      () => undefined,
+      stopController.signal,
+      new FakeMessagePort() as never
+    )
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    stopController.abort()
+    await expect(stopping).rejects.toMatchObject({ name: 'AbortError' })
+    expect(stopEvents).not.toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+    )
+  })
+
+  it('shares one deadline across automatic provider retries', async () => {
+    const shortRequest = {
+      ...request,
+      config: { ...request.config, timeoutMs: 50 }
+    }
+    let attempts = 0
+    const events: AgentRuntimeEvent[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        attempts += 1
+        if (attempts === 1) {
+          return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+            status: 429,
+            headers: { 'content-type': 'application/json', 'retry-after': '0' }
+          })
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('request aborted')
+              error.name = 'AbortError'
+              reject(error)
+            },
+            { once: true }
+          )
+        })
+      })
+    )
+
+    await expect(
+      runAgentSession(
+        shortRequest,
+        (event) => events.push(event),
+        () => undefined,
+        undefined,
+        new FakeMessagePort() as never
+      )
+    ).rejects.toMatchObject({ name: 'ProviderTimeoutError' })
+    expect(attempts).toBeGreaterThan(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+    )
+  })
 })
 
 class FakeMessagePort extends EventEmitter {

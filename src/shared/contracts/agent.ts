@@ -133,7 +133,7 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('model_call_finished'),
       modelRequestId: agentModelRequestIdSchema,
-      outcome: z.enum(['succeeded', 'failed', 'aborted']),
+      outcome: z.enum(['succeeded', 'failed', 'aborted', 'timed_out']),
       metadata: modelExecutionMetadataSchema,
       httpStatus: z.number().int().min(100).max(599).optional()
     })

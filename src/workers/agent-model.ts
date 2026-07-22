@@ -278,6 +278,7 @@ function serializeError(error: Error): {
 }
 
 function safeDiagnosticMessage(error: Error, httpStatus?: number): string {
+  if (error.name === 'ProviderTimeoutError') return 'Agent provider request timed out'
   if (error.name === 'AbortError') return 'Agent model request aborted'
   return httpStatus === undefined
     ? 'Agent model request failed'
