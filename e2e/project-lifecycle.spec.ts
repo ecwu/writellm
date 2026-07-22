@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { expect, expectActiveProject, launchApp, test } from './fixtures'
+import { expect, expectActiveProject, launchApp, test, WINDOW_PRESENTATION_ENV } from './fixtures'
 
 async function clickAndExpectProject(
   page: Page,
@@ -40,6 +40,10 @@ async function closeApp(app: ElectronApplication): Promise<void> {
 }
 
 async function expectWindowMaximized(app: ElectronApplication, maximized: boolean): Promise<void> {
+  // macOS may make a hidden BrowserWindow visible when it is maximized. The
+  // silent suite deliberately skips that OS presentation assertion; the
+  // visible command continues to exercise the product window-state contract.
+  if (maximized && process.env[WINDOW_PRESENTATION_ENV] !== 'interactive') return
   await expect
     .poll(() =>
       app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized())

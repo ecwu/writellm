@@ -9,13 +9,17 @@ export async function approveProposalAfterEditorFlush(input: {
   flushCurrent(): Promise<boolean>
   approve(): Promise<MutationProposalActionResult>
 }): Promise<MutationProposalActionResult | null> {
-  const targetSectionId =
-    input.proposal.payload.kind === 'section_patch'
-      ? input.proposal.payload.mutation.sectionId
-      : null
+  const targetSectionIds = new Set<string>()
+  if (input.proposal.payload.kind === 'section_patch') {
+    targetSectionIds.add(input.proposal.payload.mutation.sectionId)
+  } else if (input.proposal.payload.kind === 'outline_patch') {
+    for (const operation of input.proposal.payload.mutation.operations) {
+      if (operation.type === 'deleteSection') targetSectionIds.add(operation.sectionId)
+    }
+  }
   if (
-    targetSectionId !== null &&
-    targetSectionId === input.activeSectionId &&
+    input.activeSectionId !== null &&
+    targetSectionIds.has(input.activeSectionId) &&
     !(await input.flushCurrent())
   ) {
     return null

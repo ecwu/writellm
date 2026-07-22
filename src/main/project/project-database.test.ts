@@ -178,7 +178,8 @@ describe('project database', () => {
           'level',
           'title',
           'status',
-          'current_revision_id'
+          'current_revision_id',
+          'deleted_at'
         ])
         .executeTakeFirstOrThrow()
     ).toEqual({
@@ -188,8 +189,20 @@ describe('project database', () => {
       level: 1,
       title: 'Untitled Section',
       status: 'planned',
-      current_revision_id: expect.any(String)
+      current_revision_id: expect.any(String),
+      deleted_at: null
     })
+    expect(
+      database.immediate(
+        (current) =>
+          current
+            .prepare(
+              "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'sections_unique_root_position'"
+            )
+            .pluck()
+            .get() as string
+      )
+    ).toContain('deleted_at IS NULL')
     expect(await database.kysely.selectFrom('section_revisions').selectAll().execute()).toEqual([
       expect.objectContaining({
         section_revision_id: expect.any(String),

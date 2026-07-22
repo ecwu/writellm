@@ -34,6 +34,8 @@ export function WritingWorkspace(props: {
   projectName: string
   lifecycleState: string
   globalAlert: React.ReactNode
+  agentOpen: boolean
+  onAgentOpenChange(open: boolean): void
   onOpenSettings(): void
   onError(message: string): void
 }): React.JSX.Element {
@@ -51,7 +53,6 @@ export function WritingWorkspace(props: {
   const [briefOpen, setBriefOpen] = useState(false)
   const [briefError, setBriefError] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [agentOpen, setAgentOpen] = useState(false)
   const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
@@ -72,7 +73,7 @@ export function WritingWorkspace(props: {
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
 
   useEffect(() => {
-    if (!agentOpen) return
+    if (!props.agentOpen) return
     const frame = window.requestAnimationFrame(() => {
       const group = sideChatGroupRef.current
       const width = sideChatGroupElementRef.current?.getBoundingClientRect().width ?? 0
@@ -85,7 +86,11 @@ export function WritingWorkspace(props: {
       group.setLayout({ manuscript: 100 - agentPercent, agent: agentPercent })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [agentOpen, sideChatGroupRef, wideAgentLayout])
+  }, [props.agentOpen, sideChatGroupRef, wideAgentLayout])
+
+  useEffect(() => {
+    if (props.agentOpen) setActiveWorkspace('manuscript')
+  }, [props.agentOpen])
 
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
@@ -363,7 +368,7 @@ export function WritingWorkspace(props: {
       if (!modifier) return
       if (event.key.toLowerCase() === 'j') {
         event.preventDefault()
-        setAgentOpen((current) => !current)
+        props.onAgentOpenChange(!props.agentOpen)
       } else if (event.key.toLowerCase() === 's') {
         event.preventDefault()
         void flushCurrent()
@@ -382,7 +387,14 @@ export function WritingWorkspace(props: {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('writellm:save', handleSave)
     }
-  }, [activeIndex, flushCurrent, orderedIds, selectSection])
+  }, [
+    activeIndex,
+    flushCurrent,
+    orderedIds,
+    props.agentOpen,
+    props.onAgentOpenChange,
+    selectSection
+  ])
 
   const updateRevision = (revision: SectionRevision): void => {
     queryClient.setQueryData<ManuscriptWorkspace>(workspaceKey, (current) => {
@@ -518,7 +530,6 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         workspace={workspace}
         activeWorkspace={activeWorkspace}
-        agentOpen={agentOpen}
         activeSectionId={activeSectionId}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
         onCreateSection={setNewSectionParent}
@@ -528,9 +539,11 @@ export function WritingWorkspace(props: {
         }
         onOpenBrief={() => setBriefOpen(true)}
         onOpenOutlineEditor={() => setOutlineEditOpen(true)}
-        onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenKnowledge={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('knowledge')
+        }}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
-        onToggleAgent={() => setAgentOpen((current) => !current)}
         onOpenSettings={props.onOpenSettings}
       />
       <ResizablePanelGroup
@@ -542,10 +555,10 @@ export function WritingWorkspace(props: {
       >
         <ResizablePanel
           id='manuscript'
-          className={agentOpen ? 'overflow-hidden max-xl:hidden' : 'overflow-hidden'}
-          defaultSize={agentOpen && !wideAgentLayout ? '0' : undefined}
-          minSize={agentOpen && wideAgentLayout ? 520 : 0}
-          collapsible={agentOpen}
+          className={props.agentOpen ? 'overflow-hidden max-xl:hidden' : 'overflow-hidden'}
+          defaultSize={props.agentOpen && !wideAgentLayout ? '0' : undefined}
+          minSize={props.agentOpen && wideAgentLayout ? 520 : 0}
+          collapsible={props.agentOpen}
         >
           <SidebarInset className='size-full min-h-0 overflow-auto'>
             <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
@@ -619,7 +632,7 @@ export function WritingWorkspace(props: {
             </main>
           </SidebarInset>
         </ResizablePanel>
-        {agentOpen ? (
+        {props.agentOpen ? (
           <>
             <ResizableHandle
               withHandle
@@ -637,7 +650,7 @@ export function WritingWorkspace(props: {
             >
               <AgentPanel
                 open
-                onOpenChange={setAgentOpen}
+                onOpenChange={props.onAgentOpenChange}
                 projectSessionId={props.projectSessionId}
                 activeSectionId={activeSectionId}
                 selection={selectionContext}
@@ -781,8 +794,9 @@ export function WritingWorkspace(props: {
           <DialogHeader>
             <DialogTitle>Delete section?</DialogTitle>
             <DialogDescription>
-              This removes the section and its revision history. Sections with children and the last
-              remaining section cannot be deleted.
+              This removes the section from the outline. Its revision and Agent history remain
+              available for audit. Sections with children and the last remaining section cannot be
+              deleted.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -360,6 +360,7 @@ export class MutationProposalService {
         const mutation = outlinePatchSchema.parse(rawArgs)
         const manuscript = requirePrimaryManuscript(database, mutation.manuscriptId)
         if (manuscript.outline_version !== mutation.baseOutlineVersion) throw staleBase('outline')
+        assertOutlineCreateIdsAvailable(database, mutation)
         const simulation = simulateOutline(
           readSections(database, manuscript.manuscript_id),
           mutation
@@ -546,6 +547,7 @@ export class MutationProposalService {
         const manuscript = requirePrimaryManuscript(database, mutation.manuscriptId)
         if (manuscript.outline_version !== mutation.baseOutlineVersion) throw staleBase('outline')
         const beforeRows = readSections(database, mutation.manuscriptId)
+        assertOutlineCreateIdsAvailable(database, mutation)
         const simulation = simulateOutline(beforeRows, mutation)
         const beforeIds = new Set(beforeRows.map((section) => section.section_id))
         const afterIds = new Set(simulation.nodes.map((section) => section.sectionId))
@@ -554,7 +556,10 @@ export class MutationProposalService {
         const revisionIds = new Map(created.map((section) => [section.sectionId, this.#createId()]))
 
         database
-          .prepare('UPDATE sections SET position = position + 1000000 WHERE manuscript_id = ?')
+          .prepare(
+            `UPDATE sections SET position = position + 1000000
+              WHERE manuscript_id = ? AND deleted_at IS NULL`
+          )
           .run(mutation.manuscriptId)
         for (const node of [...created].sort((left, right) => left.level - right.level)) {
           database
@@ -584,7 +589,7 @@ export class MutationProposalService {
               `UPDATE sections
                   SET parent_section_id = ?, position = ?, level = ?, title = ?,
                       objective = ?, status = ?, updated_at = ?
-                WHERE section_id = ? AND manuscript_id = ?`
+                WHERE section_id = ? AND manuscript_id = ? AND deleted_at IS NULL`
             )
             .run(
               node.parentSectionId,
@@ -599,7 +604,18 @@ export class MutationProposalService {
             )
         }
         for (const section of [...deleted].sort((left, right) => right.level - left.level)) {
-          database.prepare('DELETE FROM sections WHERE section_id = ?').run(section.section_id)
+          const tombstoned = database
+            .prepare(
+              `UPDATE sections SET deleted_at = ?, updated_at = ?
+                WHERE section_id = ? AND deleted_at IS NULL`
+            )
+            .run(now, now, section.section_id)
+          if (tombstoned.changes !== 1) {
+            throw new MutationSimulationError('target_missing', 'Outline section does not exist')
+          }
+          database
+            .prepare('DELETE FROM section_materializations WHERE section_id = ?')
+            .run(section.section_id)
         }
         for (const node of created) {
           const revisionId = revisionIds.get(node.sectionId) as string
@@ -661,7 +677,7 @@ export class MutationProposalService {
         const sectionUpdate = database
           .prepare(
             `UPDATE sections SET current_revision_id = ?, updated_at = ?
-              WHERE section_id = ? AND current_revision_id = ?`
+              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
           )
           .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
         if (sectionUpdate.changes !== 1) throw staleBase('section')
@@ -706,7 +722,7 @@ export class MutationProposalService {
       )
     }
     const applied = requireRevision(database, row.applied_revision_id)
-    const section = requireSection(database, applied.section_id)
+    const section = requireUndoableSection(database, applied.section_id)
     if (section.current_revision_id !== applied.section_revision_id) {
       throw new MutationProposalError(
         'stale_base',
@@ -741,7 +757,7 @@ export class MutationProposalService {
     const sectionUpdate = database
       .prepare(
         `UPDATE sections SET current_revision_id = ?, updated_at = ?
-          WHERE section_id = ? AND current_revision_id = ?`
+          WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
       )
       .run(undoRevisionId, now, section.section_id, applied.section_revision_id)
     if (sectionUpdate.changes !== 1) throw staleBase('section')
@@ -920,10 +936,23 @@ function requirePrimaryBrief(
 }
 
 function requireSection(database: Database.Database, sectionId: string): SectionTable {
+  const row = database
+    .prepare('SELECT * FROM sections WHERE section_id = ? AND deleted_at IS NULL')
+    .get(sectionId) as SectionTable | undefined
+  if (row === undefined) throw new AgentToolDomainError('not_found', 'Section does not exist')
+  return row
+}
+
+function requireUndoableSection(database: Database.Database, sectionId: string): SectionTable {
   const row = database.prepare('SELECT * FROM sections WHERE section_id = ?').get(sectionId) as
     | SectionTable
     | undefined
-  if (row === undefined) throw new AgentToolDomainError('not_found', 'Section does not exist')
+  if (row === undefined || row.deleted_at !== null) {
+    throw new MutationProposalError(
+      'proposal_not_undoable',
+      'The proposal target has been removed from the outline'
+    )
+  }
   return row
 }
 
@@ -954,8 +983,28 @@ function requireProposal(
 
 function readSections(database: Database.Database, manuscriptId: string): SectionTable[] {
   return database
-    .prepare('SELECT * FROM sections WHERE manuscript_id = ? ORDER BY level, position')
+    .prepare(
+      `SELECT * FROM sections
+        WHERE manuscript_id = ? AND deleted_at IS NULL
+        ORDER BY level, position`
+    )
     .all(manuscriptId) as SectionTable[]
+}
+
+function assertOutlineCreateIdsAvailable(
+  database: Database.Database,
+  mutation: OutlinePatch
+): void {
+  for (const operation of mutation.operations) {
+    if (operation.type !== 'createSection') continue
+    const exists = database
+      .prepare('SELECT 1 FROM sections WHERE section_id = ?')
+      .pluck()
+      .get(operation.sectionId)
+    if (exists === 1) {
+      throw new MutationSimulationError('id_collision', 'Section ID already exists')
+    }
+  }
 }
 
 function briefFieldsFromRow(row: ManuscriptBriefTable) {

@@ -261,10 +261,8 @@ export function KnowledgeManager(props: {
       >
         <WorkspaceRail
           activeWorkspace='knowledge'
-          agentOpen={false}
           onOpenKnowledge={() => undefined}
           onOpenManuscript={props.onOpenManuscript}
-          onToggleAgent={() => props.onError('The writing agent is unavailable until Phase 9.')}
           onOpenSettings={props.onOpenSettings}
         />
         <KnowledgeSidebar

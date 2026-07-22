@@ -131,6 +131,7 @@ async function readInitialRecords(options: {
     .selectFrom('sections')
     .select('section_id')
     .where('manuscript_id', '=', manuscript.manuscript_id)
+    .where('deleted_at', 'is', null)
     .where('position', '=', 0)
     .executeTakeFirstOrThrow()
 

@@ -21,6 +21,7 @@ The following rules are now the current target. Any older section in this docume
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
 - BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
 - Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
+- Section deletion uses an internal tombstone: active outline reads exclude `sections.deleted_at`, while the section row, revision chain, and Agent proposal/model lineage remain durable. Tombstones are not restorable through the initial product UI and section IDs are never reused.
 
 ## Product Scope And Invariants
 
@@ -552,6 +553,7 @@ title
 objective | null
 status: planned | drafting | completed
 currentRevisionId
+deletedAt | null (Main-internal tombstone; never returned as an active section)
 createdAt
 updatedAt
 ```
@@ -846,6 +848,11 @@ propose_section_patch
 ```
 
 `propose_outline_patch` covers section create, metadata update, move/reorder, and delete. `propose_section_patch` uses the existing typed BlockNote operations.
+
+Outline deletion tombstones a leaf section rather than physically deleting its revision graph.
+The tombstone is absent from active writing context, assembly, editor, and Agent tools, but its
+revision and proposal lineage remains authoritative. Outline-delete undo and section restoration
+remain deferred.
 
 The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process tools, custom tool creation, plugin or skill registries, automatic application, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
 

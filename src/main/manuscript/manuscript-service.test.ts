@@ -376,6 +376,32 @@ describe('ManuscriptService', () => {
       sectionId: child.sectionId
     })
     expect(service.listSections()).toHaveLength(1)
+    expect(() => service.getSection(child.sectionId)).toThrowError(
+      expect.objectContaining({ code: 'section_not_found' })
+    )
+    expect(
+      database.immediate((native) =>
+        native
+          .prepare('SELECT deleted_at FROM sections WHERE section_id = ?')
+          .pluck()
+          .get(child.sectionId)
+      )
+    ).toBe('2026-07-15T01:00:00.000Z')
+    expect(
+      database.immediate((native) =>
+        native
+          .prepare('SELECT COUNT(*) FROM section_revisions WHERE section_id = ?')
+          .pluck()
+          .get(child.sectionId)
+      )
+    ).toBe(1)
+    const replacement = service.createSection({
+      baseOutlineVersion: service.assemble().outlineVersion,
+      title: 'Replacement child',
+      parentSectionId: root.sectionId,
+      position: 0
+    })
+    expect(replacement.position).toBe(0)
     database.close()
   })
 

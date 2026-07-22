@@ -70,6 +70,34 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
   try {
     await createProject(launched.page, projectName)
 
+    const browserWindow = await launched.app.browserWindow(launched.page)
+    await browserWindow.evaluate((window) => {
+      window.unmaximize()
+      window.setContentSize(900, 800)
+    })
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+    const outlineButton = launched.page.getByRole('button', {
+      name: 'Edit outline',
+      exact: true
+    })
+    const sidebarHeader = outlineButton.locator('xpath=ancestor::*[@data-slot="sidebar-header"][1]')
+    const contextualSidebar = outlineButton.locator(
+      'xpath=ancestor::*[@data-slot="sidebar-inner"][1]'
+    )
+    await expect(outlineButton).toBeVisible()
+    await expect(launched.page.getByText('Active', { exact: true }).first()).toBeVisible()
+    await expect
+      .poll(() => sidebarHeader.evaluate((element) => element.scrollWidth <= element.clientWidth))
+      .toBe(true)
+    const outlineButtonBounds = await outlineButton.boundingBox()
+    const contextualSidebarBounds = await contextualSidebar.boundingBox()
+    if (outlineButtonBounds === null || contextualSidebarBounds === null) {
+      throw new Error('Sidebar header bounds missing')
+    }
+    expect(outlineButtonBounds.x + outlineButtonBounds.width).toBeLessThanOrEqual(
+      contextualSidebarBounds.x + contextualSidebarBounds.width
+    )
+
     await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
     const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
     await brief.getByLabel('Title').fill('Field Notes')
@@ -92,6 +120,25 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
 
     await createSection(launched.page, 'Background', 'Introduction')
     await saveEditorText(launched.page, 'Supporting context')
+
+    const longOutlineTitle =
+      'Background architecture with an intentionally very long title that must stay inside the outline'
+    await launched.page.locator('#section-title').fill(longOutlineTitle)
+    await launched.page.locator('#section-title').press('Tab')
+    const longOutlineRow = launched.page
+      .getByTestId(/^outline-section-/)
+      .filter({ hasText: longOutlineTitle })
+    await expect(longOutlineRow).toBeVisible()
+    await longOutlineRow.hover()
+    const outlineContent = longOutlineRow.locator(
+      'xpath=ancestor::*[@data-slot="sidebar-content"][1]'
+    )
+    await expect
+      .poll(() => outlineContent.evaluate((element) => element.scrollWidth <= element.clientWidth))
+      .toBe(true)
+    await launched.page.locator('#section-title').fill('Background')
+    await launched.page.locator('#section-title').press('Tab')
+    await expect(launched.page.getByText('Background', { exact: true }).first()).toBeVisible()
 
     await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
     const outlinePanel = launched.page.getByRole('dialog', { name: 'Outline editor' })

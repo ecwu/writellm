@@ -35,6 +35,36 @@ describe('Agent proposal approval sequencing', () => {
     expect(result).toBeNull()
     expect(approve).not.toHaveBeenCalled()
   })
+
+  it('flushes the active section before approving an outline deletion', async () => {
+    const order: string[] = []
+    await approveProposalAfterEditorFlush({
+      proposal: outlineDeleteProposal(sectionId),
+      activeSectionId: sectionId,
+      flushCurrent: vi.fn(async () => {
+        order.push('flush')
+        return true
+      }),
+      approve: vi.fn(async () => {
+        order.push('approve')
+        return actionResult
+      })
+    })
+    expect(order).toEqual(['flush', 'approve'])
+  })
+
+  it('does not flush when an outline proposal deletes another section', async () => {
+    const flushCurrent = vi.fn(async () => true)
+    const approve = vi.fn(async () => actionResult)
+    await approveProposalAfterEditorFlush({
+      proposal: outlineDeleteProposal('019c6a5c-8d34-7a8e-a602-3d37a52dc899'),
+      activeSectionId: sectionId,
+      flushCurrent,
+      approve
+    })
+    expect(flushCurrent).not.toHaveBeenCalled()
+    expect(approve).toHaveBeenCalledOnce()
+  })
 })
 
 const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc801'
@@ -96,6 +126,37 @@ function proposal(): MutationProposalRecord {
     rejectedReason: null,
     createdAt: now,
     updatedAt: now
+  }
+}
+
+function outlineDeleteProposal(targetSectionId: string): MutationProposalRecord {
+  return {
+    ...proposal(),
+    kind: 'outline_patch',
+    payload: {
+      schemaVersion: 1,
+      kind: 'outline_patch',
+      mutation: {
+        schemaVersion: 1,
+        manuscriptId: '019c6a5c-8d34-7a8e-a602-3d37a52dc898',
+        baseOutlineVersion: 1,
+        operations: [{ type: 'deleteSection', sectionId: targetSectionId }],
+        citationIds: []
+      },
+      preview: {
+        summary: 'Delete section',
+        affectedSectionIds: [targetSectionId],
+        beforeText: 'Before',
+        afterText: 'After',
+        beforeTextTruncated: false,
+        afterTextTruncated: false,
+        citedSources: []
+      },
+      provenance: {
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc806',
+        citedSources: []
+      }
+    }
   }
 }
 

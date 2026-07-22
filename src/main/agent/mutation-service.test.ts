@@ -382,6 +382,149 @@ describe('MutationProposalService', () => {
     value.database.close()
   })
 
+  it('tombstones a section with accepted Agent lineage and preserves every revision reference', async () => {
+    const value = await fixture()
+    const root = value.manuscript.listSections()[0]
+    if (root === undefined) throw new Error('Missing root section')
+    const target = value.manuscript.createSection({
+      baseOutlineVersion: value.manuscript.getWorkspace().outlineVersion,
+      title: 'Agent-edited section',
+      parentSectionId: null,
+      position: 1
+    })
+    const sectionProposal = value.service.propose(
+      'propose_section_patch',
+      {
+        schemaVersion: 1,
+        sectionId: target.sectionId,
+        baseRevisionId: target.currentRevisionId,
+        operations: [
+          {
+            type: 'insertBlocks',
+            anchorBlockId: null,
+            placement: 'end',
+            blocks: [paragraph('agent-outline-delete', 'Accepted before outline deletion')]
+          }
+        ],
+        citationIds: []
+      },
+      value.toolCall('propose_section_patch')
+    )
+    const sectionApplied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: sectionProposal.proposalId
+    })
+    const appliedRevisionId = sectionApplied.proposal.appliedRevisionId
+    if (appliedRevisionId === null) throw new Error('Missing accepted revision')
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare('SELECT COUNT(*) FROM section_materializations WHERE section_id = ?')
+          .pluck()
+          .get(target.sectionId)
+      )
+    ).toBe(1)
+
+    const workspace = value.manuscript.getWorkspace()
+    const outlineProposal = value.service.propose(
+      'propose_outline_patch',
+      {
+        schemaVersion: 1,
+        manuscriptId: workspace.manuscriptId,
+        baseOutlineVersion: workspace.outlineVersion,
+        operations: [{ type: 'deleteSection', sectionId: target.sectionId }],
+        citationIds: []
+      },
+      value.toolCall('propose_outline_patch')
+    )
+    const outlineApplied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: outlineProposal.proposalId
+    })
+
+    expect(outlineApplied.proposal).toMatchObject({
+      status: 'applied',
+      appliedOutlineVersion: workspace.outlineVersion + 1
+    })
+    expect(value.manuscript.listSections().map((section) => section.sectionId)).toEqual([
+      root.sectionId
+    ])
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare('SELECT deleted_at FROM sections WHERE section_id = ?')
+          .pluck()
+          .get(target.sectionId)
+      )
+    ).toEqual(expect.any(String))
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare('SELECT COUNT(*) FROM section_revisions WHERE section_id = ?')
+          .pluck()
+          .get(target.sectionId)
+      )
+    ).toBe(2)
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare(
+            'SELECT applied_revision_id FROM mutation_proposals WHERE mutation_proposal_id = ?'
+          )
+          .pluck()
+          .get(sectionProposal.proposalId)
+      )
+    ).toBe(appliedRevisionId)
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare('SELECT COUNT(*) FROM section_materializations WHERE section_id = ?')
+          .pluck()
+          .get(target.sectionId)
+      )
+    ).toBe(0)
+    expect(value.database.immediate((database) => database.pragma('foreign_key_check'))).toEqual([])
+    await expect(
+      value.service.undo({
+        projectSessionId,
+        agentSessionId,
+        proposalId: sectionProposal.proposalId
+      })
+    ).rejects.toMatchObject({ code: 'proposal_not_undoable' })
+    expect(
+      value.service
+        .list(agentSessionId)
+        .find((item) => item.proposalId === sectionProposal.proposalId)?.status
+    ).toBe('applied')
+    const afterDeletion = value.manuscript.getWorkspace()
+    expect(() =>
+      value.service.propose(
+        'propose_outline_patch',
+        {
+          schemaVersion: 1,
+          manuscriptId: afterDeletion.manuscriptId,
+          baseOutlineVersion: afterDeletion.outlineVersion,
+          operations: [
+            {
+              type: 'createSection',
+              sectionId: target.sectionId,
+              parentSectionId: null,
+              position: 1,
+              title: 'Do not reuse tombstone ID',
+              objective: null,
+              status: 'planned'
+            }
+          ],
+          citationIds: []
+        },
+        value.toolCall('propose_outline_patch')
+      )
+    ).toThrowError(expect.objectContaining({ code: 'invalid_arguments' }))
+    value.database.close()
+  })
+
   it('returns a retryable conflict with refresh guidance when an outline proposal uses a stale version', async () => {
     const value = await fixture()
     const workspace = value.manuscript.getWorkspace()

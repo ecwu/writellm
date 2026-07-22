@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createProject } from './project-lifecycle'
-import { openProjectDatabase } from './project-database'
+import { openProjectDatabase, PROJECT_SCHEMA_VERSION } from './project-database'
 import {
   createProjectSnapshot,
   parseProjectSnapshotManifest,
@@ -232,13 +232,12 @@ describe('project snapshots', () => {
     await newerSource.backup(newer)
     newerSource.close()
     const newerDatabase = new Database(newer)
+    const futureSchemaVersion = PROJECT_SCHEMA_VERSION + 1
     newerDatabase
-      .prepare(
-        "INSERT INTO schema_migrations VALUES (18, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')"
-      )
-      .run()
-    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = 18').run()
-    newerDatabase.pragma('user_version = 18')
+      .prepare('INSERT INTO schema_migrations VALUES (?, ?, ?, ?)')
+      .run(futureSchemaVersion, 'future', 'future-checksum', '2026-07-15T00:00:00.000Z')
+    newerDatabase.prepare('UPDATE schema_manifest SET schema_version = ?').run(futureSchemaVersion)
+    newerDatabase.pragma(`user_version = ${futureSchemaVersion}`)
     newerDatabase.close()
     await expect(
       restoreProjectDatabase({

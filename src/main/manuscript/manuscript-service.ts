@@ -200,6 +200,7 @@ export class ManuscriptService {
           objective: parsed.objective,
           status: parsed.status,
           current_revision_id: revisionId,
+          deleted_at: null,
           created_at: now,
           updated_at: now
         })
@@ -282,7 +283,8 @@ export class ManuscriptService {
         if (!changed) return current
         const updated = database
           .prepare(
-            'UPDATE sections SET title = ?, objective = ?, status = ?, updated_at = ? WHERE section_id = ? RETURNING *'
+            `UPDATE sections SET title = ?, objective = ?, status = ?, updated_at = ?
+              WHERE section_id = ? AND deleted_at IS NULL RETURNING *`
           )
           .get(next.title, next.objective, next.status, now, parsed.sectionId) as SectionTable
         incrementOutline(database, manuscript.manuscript_id, now)
@@ -367,12 +369,16 @@ export class ManuscriptService {
         const levelDelta = (parent?.level ?? 0) + 1 - target.level
         database
           .prepare(
-            'UPDATE sections SET parent_section_id = ?, level = level + ?, updated_at = ? WHERE section_id = ?'
+            `UPDATE sections SET parent_section_id = ?, level = level + ?, updated_at = ?
+              WHERE section_id = ? AND deleted_at IS NULL`
           )
           .run(parsed.parentSectionId, levelDelta, now, target.section_id)
         for (const descendantId of descendants) {
           database
-            .prepare('UPDATE sections SET level = level + ?, updated_at = ? WHERE section_id = ?')
+            .prepare(
+              `UPDATE sections SET level = level + ?, updated_at = ?
+                WHERE section_id = ? AND deleted_at IS NULL`
+            )
             .run(levelDelta, now, descendantId)
         }
         incrementOutline(database, manuscript.manuscript_id, now)
@@ -431,13 +437,23 @@ export class ManuscriptService {
             { cause: err }
           )
         }
-        database.prepare('DELETE FROM sections WHERE section_id = ?').run(sectionId)
+        const now = this.#now().toISOString()
+        const deleted = database
+          .prepare(
+            `UPDATE sections SET deleted_at = ?, updated_at = ?
+              WHERE section_id = ? AND deleted_at IS NULL`
+          )
+          .run(now, now, sectionId)
+        if (deleted.changes !== 1) {
+          throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+        }
+        database.prepare('DELETE FROM section_materializations WHERE section_id = ?').run(sectionId)
         const siblings = siblingRows(rows, target.parent_section_id).filter(
           (item) => item.section_id !== sectionId
         )
         parkSiblings(database, manuscript.manuscript_id, target.parent_section_id)
         normalizeSiblings(database, siblings)
-        incrementOutline(database, manuscript.manuscript_id, this.#now().toISOString())
+        incrementOutline(database, manuscript.manuscript_id, now)
         return manuscript.manuscript_id
       })
       this.#log.info(
@@ -516,7 +532,8 @@ export class ManuscriptService {
         })
         const updated = database
           .prepare(
-            'UPDATE sections SET current_revision_id = ?, updated_at = ? WHERE section_id = ? AND current_revision_id = ?'
+            `UPDATE sections SET current_revision_id = ?, updated_at = ?
+              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
           )
           .run(revisionId, now, section.section_id, current.section_revision_id)
         if (updated.changes !== 1) {
@@ -761,13 +778,15 @@ function parkSiblings(
   if (parentId === null)
     database
       .prepare(
-        'UPDATE sections SET position = position + ? WHERE manuscript_id = ? AND parent_section_id IS NULL'
+        `UPDATE sections SET position = position + ?
+          WHERE manuscript_id = ? AND parent_section_id IS NULL AND deleted_at IS NULL`
       )
       .run(POSITION_OFFSET, manuscriptId)
   else
     database
       .prepare(
-        'UPDATE sections SET position = position + ? WHERE manuscript_id = ? AND parent_section_id = ?'
+        `UPDATE sections SET position = position + ?
+          WHERE manuscript_id = ? AND parent_section_id = ? AND deleted_at IS NULL`
       )
       .run(POSITION_OFFSET, manuscriptId, parentId)
 }
@@ -781,11 +800,14 @@ function normalizeSiblings(
   rows.forEach((row, position) => {
     if (row.section_id === movedId)
       database
-        .prepare('UPDATE sections SET parent_section_id = ?, position = ? WHERE section_id = ?')
+        .prepare(
+          `UPDATE sections SET parent_section_id = ?, position = ?
+            WHERE section_id = ? AND deleted_at IS NULL`
+        )
         .run(parentId ?? null, position, row.section_id)
     else
       database
-        .prepare('UPDATE sections SET position = ? WHERE section_id = ?')
+        .prepare('UPDATE sections SET position = ? WHERE section_id = ? AND deleted_at IS NULL')
         .run(position, row.section_id)
   })
 }

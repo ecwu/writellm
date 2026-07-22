@@ -1,6 +1,5 @@
 import type { ManuscriptWorkspace, Section } from '../../../shared/contracts/manuscript'
 import {
-  Bot,
   BookOpen,
   CheckCircle2,
   Circle,
@@ -33,7 +32,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   projectName: string
   workspace: ManuscriptWorkspace | undefined
   activeWorkspace: 'manuscript' | 'knowledge'
-  agentOpen: boolean
   activeSectionId: string | null
   onSelectSection(sectionId: string): void
   onCreateSection(parentSectionId: string | null): void
@@ -43,7 +41,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
   onOpenManuscript(): void
-  onToggleAgent(): void
   onOpenSettings(): void
 }
 
@@ -51,7 +48,6 @@ export function AppSidebar({
   projectName,
   workspace,
   activeWorkspace,
-  agentOpen,
   activeSectionId,
   onSelectSection,
   onCreateSection,
@@ -61,7 +57,6 @@ export function AppSidebar({
   onOpenOutlineEditor,
   onOpenKnowledge,
   onOpenManuscript,
-  onToggleAgent,
   onOpenSettings,
   ...props
 }: AppSidebarProps): React.JSX.Element {
@@ -93,28 +88,40 @@ export function AppSidebar({
     >
       <WorkspaceRail
         activeWorkspace={activeWorkspace}
-        agentOpen={agentOpen}
         onOpenKnowledge={onOpenKnowledge}
         onOpenManuscript={() => {
           setOpen(true)
           onOpenManuscript()
         }}
-        onToggleAgent={onToggleAgent}
         onOpenSettings={onOpenSettings}
       />
 
-      <Sidebar collapsible='none' className='hidden flex-1 md:flex'>
-        <SidebarHeader className='gap-3.5 border-b p-4'>
-          <div className='flex w-full items-center justify-between gap-2'>
-            <div className='truncate text-base font-medium text-foreground'>{projectName}</div>
-            <Badge variant='secondary'>Active</Badge>
+      <Sidebar collapsible='none' className='hidden min-w-0 flex-1 overflow-hidden md:flex'>
+        <SidebarHeader className='min-w-0 gap-3.5 overflow-hidden border-b p-4'>
+          <div className='flex w-full min-w-0 items-center gap-2 overflow-hidden'>
+            <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
+              {projectName}
+            </div>
+            <Badge className='shrink-0' variant='secondary'>
+              Active
+            </Badge>
           </div>
-          <div className='grid grid-cols-2 gap-2'>
-            <Button variant='outline' size='sm' onClick={onOpenBrief}>
-              Brief
+          <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
+            <Button
+              className='w-full min-w-0 overflow-hidden px-2'
+              variant='outline'
+              size='sm'
+              onClick={onOpenBrief}
+            >
+              <span className='truncate'>Brief</span>
             </Button>
-            <Button variant='outline' size='sm' onClick={onOpenOutlineEditor}>
-              <Pencil /> Edit outline
+            <Button
+              className='w-full min-w-0 overflow-hidden px-2'
+              variant='outline'
+              size='sm'
+              onClick={onOpenOutlineEditor}
+            >
+              <Pencil /> <span className='truncate'>Edit outline</span>
             </Button>
           </div>
         </SidebarHeader>
@@ -148,12 +155,12 @@ export function AppSidebar({
                       setDraggedSectionId(null)
                     }}
                     className='group/outline'
-                    style={{ paddingLeft: `${Math.max(0, section.level - 1) * 12}px` }}
+                    style={{ paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px` }}
                   >
-                    <div className='flex items-center gap-1'>
+                    <div className='flex w-full min-w-0 items-center gap-1 overflow-hidden'>
                       <SidebarMenuButton
                         isActive={section.sectionId === activeSectionId}
-                        className='min-w-0 flex-1'
+                        className='w-auto min-w-0 flex-1'
                         data-testid={`outline-section-${section.sectionId}`}
                         onClick={() => onSelectSection(section.sectionId)}
                       >
@@ -163,7 +170,7 @@ export function AppSidebar({
                           <Circle />
                         )}
                         <span className='min-w-0 flex-1 truncate'>{section.title}</span>
-                        <span className='text-[10px] text-muted-foreground'>
+                        <span className='shrink-0 text-[10px] text-muted-foreground tabular-nums'>
                           {revision.wordCount}
                         </span>
                       </SidebarMenuButton>
@@ -220,10 +227,8 @@ export function AppSidebar({
 
 export function WorkspaceRail(props: {
   activeWorkspace: 'manuscript' | 'knowledge'
-  agentOpen: boolean
   onOpenKnowledge(): void
   onOpenManuscript(): void
-  onToggleAgent(): void
   onOpenSettings(): void
 }): React.JSX.Element {
   return (
@@ -264,16 +269,6 @@ export function WorkspaceRail(props: {
                 >
                   <LibraryBig />
                   <span>Knowledge</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip={{ children: 'Writing agent', hidden: false }}
-                  isActive={props.agentOpen}
-                  onClick={props.onToggleAgent}
-                >
-                  <Bot />
-                  <span>Agent</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

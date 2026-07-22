@@ -230,7 +230,9 @@ export class EditorPersistenceService {
     }
     this.#database.immediate((database) => {
       const current = database
-        .prepare('SELECT current_revision_id FROM sections WHERE section_id = ?')
+        .prepare(
+          'SELECT current_revision_id FROM sections WHERE section_id = ? AND deleted_at IS NULL'
+        )
         .pluck()
         .get(revision.sectionId) as string | undefined
       if (current !== revision.sectionRevisionId) return
@@ -266,7 +268,9 @@ export class EditorPersistenceService {
     return this.#database.immediate(
       (database) =>
         database
-          .prepare('SELECT current_revision_id FROM sections WHERE section_id = ?')
+          .prepare(
+            'SELECT current_revision_id FROM sections WHERE section_id = ? AND deleted_at IS NULL'
+          )
           .pluck()
           .get(sectionId) as string | undefined
     )

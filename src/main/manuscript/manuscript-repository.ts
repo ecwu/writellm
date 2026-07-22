@@ -43,7 +43,9 @@ export class ManuscriptRepository {
       (current) =>
         current
           .prepare(
-            'SELECT * FROM sections WHERE manuscript_id = ? ORDER BY level, parent_section_id, position'
+            `SELECT * FROM sections
+              WHERE manuscript_id = ? AND deleted_at IS NULL
+              ORDER BY level, parent_section_id, position`
           )
           .all(manuscriptId) as SectionTable[]
     )
@@ -53,9 +55,9 @@ export class ManuscriptRepository {
     return this.#read(
       database,
       (current) =>
-        current.prepare('SELECT * FROM sections WHERE section_id = ?').get(sectionId) as
-          | SectionTable
-          | undefined
+        current
+          .prepare('SELECT * FROM sections WHERE section_id = ? AND deleted_at IS NULL')
+          .get(sectionId) as SectionTable | undefined
     )
   }
 

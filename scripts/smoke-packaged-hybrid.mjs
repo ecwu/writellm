@@ -262,6 +262,7 @@ async function runPackagedAppScenarios(resources) {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
+        WRITELLM_E2E_WINDOW_MODE: 'silent',
         WRITELLM_E2E_PROJECT_DIALOG_PATHS: JSON.stringify([projectsParent]),
         WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS: JSON.stringify([sourcePath])
       }

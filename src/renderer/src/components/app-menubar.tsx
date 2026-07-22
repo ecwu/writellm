@@ -1,5 +1,6 @@
 import {
   ArchiveRestore,
+  Bot,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -8,6 +9,7 @@ import {
   Save,
   Settings2
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import {
   Menubar,
   MenubarContent,
@@ -23,6 +25,7 @@ interface AppMenubarProps {
   busy: boolean
   projectSelectionDisabled: boolean
   hasProject: boolean
+  agentOpen: boolean
   onCreate: () => void
   onOpen: () => void
   onSwitch: () => void
@@ -33,12 +36,14 @@ interface AppMenubarProps {
   onClose: () => void
   onOpenSettings: () => void
   onOpenLogs: () => void
+  onToggleAgent: () => void
 }
 
 export function AppMenubar({
   busy,
   projectSelectionDisabled,
   hasProject,
+  agentOpen,
   onCreate,
   onOpen,
   onSwitch,
@@ -48,7 +53,8 @@ export function AppMenubar({
   canRestoreSnapshot,
   onClose,
   onOpenSettings,
-  onOpenLogs
+  onOpenLogs,
+  onToggleAgent
 }: AppMenubarProps): React.JSX.Element {
   return (
     <div className='relative z-50 flex h-10 shrink-0 items-center border-b bg-background px-2'>
@@ -99,6 +105,19 @@ export function AppMenubar({
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
+      <Button
+        className='ml-auto'
+        variant={agentOpen ? 'secondary' : 'ghost'}
+        size='icon-sm'
+        disabled={busy || !hasProject}
+        aria-label='Agent'
+        aria-pressed={agentOpen}
+        data-testid='agent-menubar-trigger'
+        title='Toggle writing agent (⌘/Ctrl+J)'
+        onClick={onToggleAgent}
+      >
+        <Bot />
+      </Button>
     </div>
   )
 }

@@ -66,8 +66,18 @@ import { RetrievalService } from './search/retrieval-service'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project/project-paths'
 import { getLoadablePath as getSqliteVecLoadablePath } from 'sqlite-vec'
 import { PersistentUtilityProcess } from './workers/persistent-utility-process'
+import {
+  isSilentWindowPresentation,
+  resolveWindowPresentation,
+  WINDOW_PRESENTATION_ENV,
+  type WindowPresentation
+} from './bootstrap/window-presentation'
 
 registerAppScheme()
+
+const windowPresentation: WindowPresentation = resolveWindowPresentation(
+  process.env[WINDOW_PRESENTATION_ENV]
+)
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -75,6 +85,7 @@ if (!hasSingleInstanceLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
+    if (isSilentWindowPresentation(windowPresentation)) return
     const existingWindow = BrowserWindow.getAllWindows()[0]
     if (existingWindow === undefined) return
     if (existingWindow.isMinimized()) existingWindow.restore()
@@ -88,6 +99,10 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
+      if (process.platform === 'darwin' && isSilentWindowPresentation(windowPresentation)) {
+        app.setActivationPolicy('accessory')
+      }
+
       // Set app user model id for windows
       electronApp.setAppUserModelId('com.electron')
 
@@ -421,7 +436,7 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
-      mainWindow = createWindow(developmentUrl, appLog)
+      mainWindow = createWindow(developmentUrl, appLog, windowPresentation)
       const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
       const projectDialogSelection = createProjectDialogTestSelection(projectIpcLog)
       const unregisterProjectIpc = registerProjectIpc({
@@ -538,7 +553,7 @@ if (!hasSingleInstanceLock) {
         // On macOS it's common to re-create a window in the app when the
         // dock icon is clicked and there are no other windows open.
         if (BrowserWindow.getAllWindows().length === 0) {
-          mainWindow = createWindow(developmentUrl, appLog)
+          mainWindow = createWindow(developmentUrl, appLog, windowPresentation)
         }
       })
 

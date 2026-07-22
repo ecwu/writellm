@@ -89,6 +89,10 @@ function App(): React.JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
+  const [agentPanelState, setAgentPanelState] = useState<{
+    projectSessionId: string | null
+    open: boolean
+  }>({ projectSessionId: null, open: false })
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -136,6 +140,14 @@ function App(): React.JSX.Element {
   }, [])
 
   const projectSessionId = snapshot.activeProject?.projectSessionId
+  const agentOpen =
+    projectSessionId !== undefined &&
+    agentPanelState.projectSessionId === projectSessionId &&
+    agentPanelState.open
+  const setAgentOpen = useCallback(
+    (open: boolean) => setAgentPanelState({ projectSessionId: projectSessionId ?? null, open }),
+    [projectSessionId]
+  )
 
   useEffect(() => {
     if (!projectSessionId) return
@@ -386,6 +398,7 @@ function App(): React.JSX.Element {
         busy={isBusy}
         projectSelectionDisabled={projectSelectionDisabled}
         hasProject={Boolean(activeProject)}
+        agentOpen={agentOpen}
         onCreate={() => {
           setProjectNameError(null)
           setCreateDialogOpen(true)
@@ -399,6 +412,7 @@ function App(): React.JSX.Element {
         onClose={() => void closeProject()}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
+        onToggleAgent={() => setAgentOpen(!agentOpen)}
       />
 
       <div className='relative flex min-h-0 flex-1'>
@@ -413,6 +427,8 @@ function App(): React.JSX.Element {
               projectName={activeProject.displayName}
               lifecycleState={stateLabels[snapshot.state]}
               globalAlert={errorAlert}
+              agentOpen={agentOpen}
+              onAgentOpenChange={setAgentOpen}
               onOpenSettings={() => setSettingsOpen(true)}
               onError={setErrorMessage}
             />

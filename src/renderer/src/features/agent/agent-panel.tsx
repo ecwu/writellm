@@ -48,6 +48,7 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Textarea } from '@/components/ui/textarea'
+import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
 import {
@@ -62,6 +63,7 @@ import {
   type AgentToolActivity,
   toolWasStopped
 } from './agent-view-model'
+import { ProposalDiff } from './proposal-diff'
 
 export interface AgentPanelSelection {
   sectionId: string
@@ -364,13 +366,17 @@ export function AgentPanel(props: {
 
   return (
     <aside
-      className={props.open ? 'flex size-full min-h-0 flex-col bg-background' : 'hidden'}
+      className={
+        props.open
+          ? 'flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
+          : 'hidden'
+      }
       data-testid='agent-panel'
       aria-label='Writing agent side chat'
     >
       {screen === 'sessions' ? (
         <>
-          <header className='flex items-start gap-3 border-b px-4 py-3'>
+          <header className='flex min-w-0 items-start gap-3 overflow-hidden border-b px-4 py-3'>
             <div className='min-w-0 flex-1'>
               <h2 className='flex items-center gap-2 font-semibold'>
                 <Bot className='size-4' /> Writing agent
@@ -428,7 +434,7 @@ export function AgentPanel(props: {
                     <Button
                       key={session.agentSessionId}
                       variant='ghost'
-                      className='h-auto w-full justify-start gap-3 px-3 py-3 text-left'
+                      className='h-auto w-full min-w-0 justify-start gap-3 overflow-hidden px-3 py-3 text-left'
                       disabled={busy}
                       data-testid={`agent-session-${session.agentSessionId}`}
                       onClick={() => openSession(session.agentSessionId)}
@@ -492,20 +498,24 @@ export function AgentPanel(props: {
             </Button>
           </header>
 
-          <div className='flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground'>
+          <div className='flex min-w-0 flex-wrap items-center gap-2 overflow-hidden border-b px-4 py-2 text-xs text-muted-foreground'>
             {activeRun ? (
               <>
                 <LoaderCircle className='size-3 animate-spin' />
                 <span className='shimmer'>
                   Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
                 </span>
-                <Badge variant='outline'>{activeRun.providerId}</Badge>
-                <Badge variant='outline'>{activeRun.modelId}</Badge>
+                <Badge className='max-w-40' variant='outline' title={activeRun.providerId}>
+                  {activeRun.providerId}
+                </Badge>
+                <Badge className='max-w-40' variant='outline' title={activeRun.modelId}>
+                  {activeRun.modelId}
+                </Badge>
               </>
             ) : (
               <span>Idle</span>
             )}
-            <span className='ml-auto'>
+            <span className='ml-auto max-w-full truncate'>
               {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
               {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
             </span>
@@ -540,7 +550,7 @@ export function AgentPanel(props: {
             )}
           </div>
 
-          <div className='space-y-3 border-t px-4 py-3'>
+          <div className='min-w-0 space-y-3 overflow-hidden border-t px-4 py-3'>
             {error ? <AgentErrorAlert message={error} /> : null}
             {activeRun === null ? (
               <fieldset
@@ -688,7 +698,7 @@ function EventTimeline(props: {
     <MessageScrollerProvider autoScroll>
       <MessageScroller data-testid='agent-event-timeline'>
         <MessageScrollerViewport>
-          <MessageScrollerContent className='gap-5 px-4 py-4 pb-6'>
+          <MessageScrollerContent className='gap-5 overflow-hidden px-4 py-4 pb-6'>
             {timeline.map((item, index) => (
               <MessageScrollerItem
                 key={item.id}
@@ -828,7 +838,7 @@ function ActivityGroup(props: {
   const { item } = props
   return (
     <details
-      className='group/activity'
+      className='group/activity min-w-0 max-w-full overflow-hidden'
       open={item.status === 'error' || item.status === 'stopped' ? true : undefined}
       data-testid='agent-activity-group'
       data-status={item.status}
@@ -843,7 +853,7 @@ function ActivityGroup(props: {
           <ChevronDown className='ml-auto size-4 transition-transform group-open/activity:rotate-180' />
         </Marker>
       </summary>
-      <div className='mt-3 ml-2 space-y-3 border-l pl-4'>
+      <div className='mt-3 ml-2 min-w-0 space-y-3 overflow-hidden border-l pl-4'>
         {item.tools.map((tool) => (
           <ToolActivityRow key={tool.eventId} tool={tool} stopped={item.status === 'stopped'} />
         ))}
@@ -856,11 +866,14 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
   const { tool } = props
   const citations = tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
   return (
-    <div className='space-y-2 text-sm' data-testid={`agent-tool-${tool.call.toolCallId}`}>
-      <div className='flex items-center gap-2'>
+    <div
+      className='min-w-0 max-w-full space-y-2 overflow-hidden text-sm'
+      data-testid={`agent-tool-${tool.call.toolCallId}`}
+    >
+      <div className='flex min-w-0 items-center gap-2'>
         {toolResultIcon(tool, props.stopped)}
         <span className='min-w-0 flex-1 truncate font-medium'>{tool.call.toolName}</span>
-        <span className='text-xs text-muted-foreground'>
+        <span className='shrink-0 whitespace-nowrap text-xs text-muted-foreground'>
           {toolResultLabel(tool, props.stopped)} · {formatAgentDuration(tool.durationMs)}
         </span>
       </div>
@@ -868,7 +881,7 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
         <summary className='cursor-pointer text-xs text-muted-foreground'>
           Bounded arguments
         </summary>
-        <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
+        <pre className='mt-2 max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted p-2 text-xs'>
           {JSON.stringify(tool.call.args, null, 2)}
         </pre>
       </details>
@@ -883,7 +896,7 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
       {tool.result?.result ? (
         <details>
           <summary className='cursor-pointer text-xs text-muted-foreground'>Bounded result</summary>
-          <pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
+          <pre className='mt-2 max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted p-2 text-xs'>
             {JSON.stringify(tool.result.result, null, 2)}
           </pre>
         </details>
@@ -898,6 +911,7 @@ function ProposalMessage(props: {
   busy: boolean
   onAction(proposal: MutationProposalRecord, action: 'approve' | 'reject' | 'undo'): Promise<void>
 }): React.JSX.Element {
+  const { resolvedTheme } = useTheme()
   const proposal = props.item.proposal
   if (proposal === null) {
     const failed = props.item.tool.result?.isError === true
@@ -923,35 +937,28 @@ function ProposalMessage(props: {
       }
   )
   const detail = (
-    <div className='space-y-3'>
+    <div className='min-w-0 space-y-3 overflow-hidden'>
       <div className='flex flex-wrap gap-1 text-xs'>
         {preview.affectedSectionIds.map((sectionId) => (
-          <Badge key={sectionId} variant='outline'>
+          <Badge key={sectionId} className='max-w-full' variant='outline' title={sectionId}>
             Section {sectionId.slice(0, 8)}
           </Badge>
         ))}
         {blockOperationLabels(proposal).map((label) => (
-          <Badge key={label} variant='outline'>
+          <Badge key={label} className='max-w-full' variant='outline' title={label}>
             {label}
           </Badge>
         ))}
       </div>
-      <div className='grid gap-2 sm:grid-cols-2'>
-        <div>
-          <p className='mb-1 text-xs font-medium text-muted-foreground'>Before</p>
-          <pre className='max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
-            {preview.beforeText || '—'}
-          </pre>
-        </div>
-        <div>
-          <p className='mb-1 text-xs font-medium text-muted-foreground'>After</p>
-          <pre className='max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs'>
-            {preview.afterText || '—'}
-          </pre>
-        </div>
-      </div>
+      <ProposalDiff
+        beforeText={preview.beforeText}
+        afterText={preview.afterText}
+        beforeTextTruncated={preview.beforeTextTruncated}
+        afterTextTruncated={preview.afterTextTruncated}
+        dark={resolvedTheme === 'dark'}
+      />
       {sources.length > 0 ? <CitationAttachments citations={sources} /> : null}
-      <div className='flex justify-end gap-2'>
+      <div className='flex flex-wrap justify-end gap-2'>
         {isPending ? (
           <>
             <Button
@@ -983,8 +990,8 @@ function ProposalMessage(props: {
         </MessageHeader>
         <Bubble variant='outline' className='max-w-full'>
           <BubbleContent className='w-full space-y-3'>
-            <div className='flex items-center gap-2'>
-              <span className='min-w-0 flex-1 font-medium'>{preview.summary}</span>
+            <div className='flex min-w-0 flex-wrap items-center gap-2'>
+              <span className='min-w-0 flex-1 wrap-anywhere font-medium'>{preview.summary}</span>
               <Badge variant={isPending ? 'secondary' : 'outline'}>{proposal.status}</Badge>
               {canUndo ? (
                 <Button
@@ -1028,7 +1035,12 @@ function CitationAttachments(props: { citations: AgentCitationDisplay[] }): Reac
   return (
     <AttachmentGroup aria-label='Knowledge sources'>
       {props.citations.map((citation) => (
-        <Attachment key={citation.citationId} size='sm' title={citation.citationId}>
+        <Attachment
+          key={citation.citationId}
+          className='w-64 max-w-full flex-nowrap overflow-hidden'
+          size='sm'
+          title={citation.citationId}
+        >
           <AttachmentMedia>
             <FileText />
           </AttachmentMedia>

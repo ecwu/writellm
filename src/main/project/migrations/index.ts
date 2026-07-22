@@ -15,6 +15,7 @@ import { migration0014 } from './0014-artifact-cleanup-requests'
 import { migration0015 } from './0015-job-state-schema-hardening'
 import { migration0016 } from './0016-agent-sessions'
 import { migration0017 } from './0017-mutation-proposal-results'
+import { migration0018 } from './0018-section-tombstones'
 
 export const projectMigrations = [
   migration0001,
@@ -33,5 +34,6 @@ export const projectMigrations = [
   migration0014,
   migration0015,
   migration0016,
-  migration0017
+  migration0017,
+  migration0018
 ] as const
