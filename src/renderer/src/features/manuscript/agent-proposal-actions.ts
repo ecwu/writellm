@@ -10,7 +10,10 @@ export async function approveProposalAfterEditorFlush(input: {
   approve(): Promise<ApproveMutationProposalResult>
 }): Promise<ApproveMutationProposalResult | null> {
   const targetSectionIds = new Set<string>()
-  if (input.proposal.payload.kind === 'section_patch') {
+  if (
+    input.proposal.payload.kind === 'section_patch' ||
+    input.proposal.payload.kind === 'generated_image_insert'
+  ) {
     targetSectionIds.add(input.proposal.payload.mutation.sectionId)
   } else if (input.proposal.payload.kind === 'outline_patch') {
     for (const operation of input.proposal.payload.mutation.operations) {

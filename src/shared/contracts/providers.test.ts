@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { getProviderCapability } from '../../main/providers/capability-registry'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
-import { providerConfigSchema } from './providers'
+import {
+  effectiveGoogleGeminiImageSize,
+  GOOGLE_GEMINI_IMAGE_MODELS,
+  providerConfigSchema
+} from './providers'
 
 describe('provider contracts', () => {
   it('accepts HTTPS and loopback HTTP but rejects embedded credentials and remote HTTP', () => {
@@ -70,6 +74,45 @@ describe('provider contracts', () => {
         fileSizeLimitMb: 200
       }).success
     ).toBe(true)
+  })
+
+  it('accepts fixed Gemini image models and strips only a legacy official URL', () => {
+    const image = {
+      role: 'image' as const,
+      providerId: 'google-gemini' as const,
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-3.1-flash-image',
+      timeoutMs: 120_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto' as const,
+      defaultImageSize: '1K' as const
+    }
+    const parsed = providerConfigSchema.parse(image)
+    const { baseUrl: _legacyBaseUrl, ...currentImage } = image
+    expect(parsed).toEqual(currentImage)
+    expect('baseUrl' in parsed).toBe(false)
+    for (const model of GOOGLE_GEMINI_IMAGE_MODELS) {
+      expect(providerConfigSchema.safeParse({ ...image, model }).success).toBe(true)
+    }
+    expect(
+      providerConfigSchema.safeParse({
+        ...image,
+        baseUrl: 'https://gemini-proxy.example.test'
+      }).success
+    ).toBe(false)
+    expect(providerConfigSchema.safeParse({ ...image, model: 'gemini-custom-image' }).success).toBe(
+      false
+    )
+    expect(
+      providerConfigSchema.safeParse({ ...image, providerId: 'openai-compatible' }).success
+    ).toBe(false)
+    expect(providerConfigSchema.safeParse({ ...image, defaultImageSize: '4K' }).success).toBe(false)
+    expect(effectiveGoogleGeminiImageSize('gemini-3.1-flash-image', '2K')).toBe('2K')
+    expect(effectiveGoogleGeminiImageSize('gemini-3-pro-image', '2K')).toBe('2K')
+    expect(effectiveGoogleGeminiImageSize('gemini-3.1-flash-lite-image', '2K')).toBe('1K')
+    expect(effectiveGoogleGeminiImageSize('gemini-2.5-flash-image', '2K')).toBe('1K')
   })
 
   it('keeps every importable format explicitly covered by the MinerU capability', () => {

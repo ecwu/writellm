@@ -19,6 +19,7 @@ import { migration0018 } from './0018-section-tombstones'
 import { migration0019 } from './0019-section-proposal-refresh'
 import { migration0020 } from './0020-agent-approval-and-limits'
 import { migration0021 } from './0021-agent-harness-protocol-v2'
+import { migration0022 } from './0022-rich-media-and-image-generation'
 
 export const projectMigrations = [
   migration0001,
@@ -41,5 +42,6 @@ export const projectMigrations = [
   migration0018,
   migration0019,
   migration0020,
-  migration0021
+  migration0021,
+  migration0022
 ] as const

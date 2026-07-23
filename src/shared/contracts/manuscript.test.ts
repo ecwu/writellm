@@ -62,6 +62,54 @@ describe('approved BlockNote document contract', () => {
     expect(blockNoteDocumentSchema.parse(document)).toEqual(document)
   })
 
+  it('accepts bounded project images, Mermaid, and block math while rejecting external images', () => {
+    const logicalUrl = 'writellm-asset:019c6a5c-8d34-4a8e-a602-3d37a52dc901'
+    const document = [
+      {
+        id: 'image',
+        type: 'image' as const,
+        props: {
+          backgroundColor: 'default',
+          textAlignment: 'center' as const,
+          name: 'Architecture illustration',
+          url: logicalUrl,
+          caption: 'A visible caption',
+          showPreview: true,
+          previewWidth: 720
+        },
+        children: []
+      },
+      {
+        id: 'diagram',
+        type: 'mermaid' as const,
+        props: {
+          textAlignment: 'center' as const,
+          source: 'flowchart LR\nA --> B',
+          caption: 'Process',
+          previewWidth: 720
+        },
+        children: []
+      },
+      {
+        id: 'formula',
+        type: 'math' as const,
+        props: {
+          textAlignment: 'center' as const,
+          source: 'E = mc^2',
+          caption: 'Energy',
+          previewWidth: 720
+        },
+        children: []
+      }
+    ]
+    expect(blockNoteDocumentSchema.parse(document)).toEqual(document)
+    expect(
+      blockNoteDocumentSchema.safeParse([
+        { ...document[0], props: { ...document[0]?.props, url: 'https://example.test/a.png' } }
+      ]).success
+    ).toBe(false)
+  })
+
   it.each([
     ['missing ID', [{ ...paragraph('remove'), id: undefined }]],
     ['duplicate ID', [paragraph('same'), paragraph('same')]],

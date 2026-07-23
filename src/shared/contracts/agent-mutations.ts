@@ -11,7 +11,7 @@ import {
 import { projectSessionIdSchema } from './projects'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 2
+export const AGENT_TOOL_CONTRACT_VERSION = 3
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -163,12 +163,18 @@ export const sectionPatchSchema = strictObject({
   citationIds: mutationCitationIdsSchema
 })
 
-export const mutationProposalKindSchema = z.enum(['brief_update', 'outline_patch', 'section_patch'])
+export const mutationProposalKindSchema = z.enum([
+  'brief_update',
+  'outline_patch',
+  'section_patch',
+  'generated_image_insert'
+])
 
 export const agentProposalToolNameSchema = z.enum([
   'submit_brief_change',
   'submit_outline_change',
-  'submit_section_change'
+  'submit_section_change',
+  'generate_image'
 ])
 
 const sectionRefSchema = z.discriminatedUnion('kind', [
@@ -226,6 +232,30 @@ const blockPreconditionSchema = strictObject({
   blockId: z.string().min(1).max(256),
   expectedBlockHash: z.string().regex(/^[a-f0-9]{64}$/u)
 })
+export const generateImageArgsSchema = strictObject({
+  sectionId: sectionIdSchema,
+  anchor: blockPreconditionSchema.nullable(),
+  placement: z.enum(['before', 'after', 'start', 'end']),
+  prompt: z
+    .string()
+    .trim()
+    .min(1)
+    .max(16_384)
+    .refine(
+      (value) => new TextEncoder().encode(value).byteLength <= 16_384,
+      'Image prompt exceeds 16 KiB'
+    ),
+  altText: z.string().trim().min(1).max(2_000),
+  caption: z.string().max(2_000),
+  aspectRatio: z.enum(['auto', '1:1', '16:9']),
+  imageSize: z.enum(['1K', '2K'])
+}).refine(
+  ({ anchor, placement }) =>
+    anchor === null
+      ? placement === 'start' || placement === 'end'
+      : placement === 'before' || placement === 'after',
+  'Placement does not match the anchor'
+)
 const textBlockTypeSchema = z.enum([
   'paragraph',
   'heading',
@@ -255,6 +285,19 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
       )
       .min(1)
       .max(AGENT_MUTATION_BLOCK_LIMIT)
+  }),
+  strictObject({
+    type: z.literal('insertRichBlock'),
+    anchor: blockPreconditionSchema.nullable(),
+    placement: z.enum(['before', 'after', 'start', 'end']),
+    block: strictObject({
+      clientRef: z.string().min(1).max(256).optional(),
+      blockType: z.enum(['mermaid', 'math']),
+      source: z.string().min(1).max(64_000),
+      caption: z.string().max(2_000).default(''),
+      textAlignment: z.enum(['left', 'center', 'right', 'justify']).default('center'),
+      previewWidth: z.number().int().min(64).max(8_192).default(720)
+    })
   }),
   strictObject({
     type: z.literal('removeBlocks'),
@@ -327,6 +370,7 @@ export const submitChangeResultSchema = strictObject({
     kind: mutationProposalKindSchema,
     status: z.enum([
       'pending',
+      'generating',
       'approved',
       'rejected',
       'applied',
@@ -358,6 +402,21 @@ const proposalProvenanceSchema = strictObject({
   createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
 })
 
+const generatedImageMutationSchema = strictObject({
+  schemaVersion: z.literal(1),
+  sectionId: sectionIdSchema,
+  baseRevisionId: sectionRevisionIdSchema,
+  anchor: blockPreconditionSchema.nullable(),
+  placement: z.enum(['before', 'after', 'start', 'end']),
+  prompt: z.string().min(1).max(16_384),
+  altText: z.string().min(1).max(2_000),
+  caption: z.string().max(2_000),
+  aspectRatio: z.enum(['auto', '1:1', '16:9']),
+  imageSize: z.enum(['1K', '2K']),
+  assetId: z.uuid().nullable(),
+  imageModelRequestId: z.uuid().nullable()
+})
+
 export const persistedMutationProposalPayloadSchema = z.discriminatedUnion('kind', [
   strictObject({
     schemaVersion: z.literal(AGENT_MUTATION_SCHEMA_VERSION),
@@ -379,11 +438,19 @@ export const persistedMutationProposalPayloadSchema = z.discriminatedUnion('kind
     mutation: sectionPatchSchema,
     preview: mutationPreviewSchema,
     provenance: proposalProvenanceSchema
+  }),
+  strictObject({
+    schemaVersion: z.literal(AGENT_MUTATION_SCHEMA_VERSION),
+    kind: z.literal('generated_image_insert'),
+    mutation: generatedImageMutationSchema,
+    preview: mutationPreviewSchema,
+    provenance: proposalProvenanceSchema
   })
 ])
 
 export const mutationProposalStatusSchema = z.enum([
   'pending',
+  'generating',
   'approved',
   'rejected',
   'applied',
@@ -425,6 +492,8 @@ export const rejectMutationProposalInputSchema = strictObject({
   reason: z.string().trim().min(1).max(4_096)
 })
 export const undoMutationProposalInputSchema = strictObject(proposalActionBase)
+export const cancelImageGenerationInputSchema = strictObject(proposalActionBase)
+export const cancelImageGenerationResultSchema = strictObject({ cancelled: z.boolean() })
 
 export const mutationSectionChangedSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
@@ -494,6 +563,7 @@ export type BriefUpdate = z.infer<typeof briefUpdateSchema>
 export type OutlinePatch = z.infer<typeof outlinePatchSchema>
 export type OutlineMutationOperation = z.infer<typeof outlineMutationOperationSchema>
 export type SectionPatch = z.infer<typeof sectionPatchSchema>
+export type GenerateImageArgs = z.infer<typeof generateImageArgsSchema>
 export type BlockMutationOperation = z.infer<typeof blockMutationOperationSchema>
 export type MutationProposalKind = z.infer<typeof mutationProposalKindSchema>
 export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>

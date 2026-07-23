@@ -40,7 +40,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
     expect(submitSectionChangeParameters.properties.operations.maxItems).toBe(50)
   })
 
-  it('exposes only the v2 bounded model-facing parameter surfaces without capabilities', () => {
+  it('exposes only the v3 bounded model-facing parameter surfaces without capabilities', () => {
     for (const schema of [
       getWritingContextParameters,
       readSectionParameters,
@@ -94,7 +94,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'check_draft',
       'submit_brief_change',
       'submit_outline_change',
-      'submit_section_change'
+      'submit_section_change',
+      'generate_image'
     ])
     expect(tools.slice(0, 8).every((tool) => tool.executionMode === 'parallel')).toBe(true)
     expect(tools.slice(8).every((tool) => tool.executionMode === 'sequential')).toBe(true)

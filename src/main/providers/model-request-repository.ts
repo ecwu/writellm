@@ -61,7 +61,7 @@ export class ModelRequestRepository {
     const now = this.now().toISOString()
     const providerFingerprint = fingerprint({
       providerId: input.provider.providerId,
-      baseUrl: input.provider.baseUrl,
+      ...(input.provider.role === 'image' ? {} : { baseUrl: input.provider.baseUrl }),
       model: input.provider.model,
       role: input.provider.role
     })

@@ -5,6 +5,7 @@ import {
   Check,
   FileArchive,
   FolderOpen,
+  ImageIcon,
   KeyRound,
   LoaderCircle,
   Monitor,
@@ -143,6 +144,13 @@ export function SettingsCommand({
             >
               <KeyRound /> MinerU parser
               <CommandShortcut>{providerBadge('mineru')}</CommandShortcut>
+            </CommandItem>
+            <CommandItem
+              keywords={['image', 'gemini', 'generation', 'api']}
+              onSelect={() => selectProvider('image')}
+            >
+              <ImageIcon /> Gemini image generation
+              <CommandShortcut>{providerBadge('image')}</CommandShortcut>
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />

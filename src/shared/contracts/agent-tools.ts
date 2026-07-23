@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import {
+  AGENT_TOOL_CONTRACT_VERSION,
   type agentProposalToolNameSchema,
+  generateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
   modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema,
@@ -20,7 +22,7 @@ export const AGENT_TOOL_RESULT_SCHEMA_VERSION = 2
 
 export const toolResultMetaSchema = z
   .object({
-    contractVersion: z.literal(2),
+    contractVersion: z.union([z.literal(2), z.literal(3)]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
     modelRequestId: agentModelRequestIdSchema
@@ -48,7 +50,8 @@ export const agentToolNameSchema = z.enum([
   'check_draft',
   'submit_brief_change',
   'submit_outline_change',
-  'submit_section_change'
+  'submit_section_change',
+  'generate_image'
 ])
 
 export const legacyAgentToolNameSchema = z.enum([
@@ -73,11 +76,21 @@ export const AGENT_TOOL_DESCRIPTORS = {
   check_draft: descriptor('parallel', 'manuscript', 30_000, true),
   submit_brief_change: descriptor('sequential', 'brief', 10_000, true),
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
-  submit_section_change: descriptor('sequential', 'section', 10_000, true)
+  submit_section_change: descriptor('sequential', 'section', 10_000, true),
+  generate_image: {
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 3,
+    effects: ['proposal', 'mutation'],
+    executionMode: 'sequential',
+    consistency: 'snapshot',
+    lockScope: 'section',
+    deadlineMs: 300_000,
+    supportsProgress: true,
+    maxOutputBytes: AGENT_TOOL_RESULT_BYTES
+  }
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2
+    contractVersion: 2 | 3
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -95,7 +108,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: 2 as const,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 3,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -476,6 +489,11 @@ export const agentToolRequestSchema = z
       ...toolRequestBase,
       toolName: z.literal('submit_section_change'),
       args: modelSubmitSectionChangeArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('generate_image'),
+      args: generateImageArgsSchema
     })
   ])
   .superRefine((request, context) => addByteIssue(request.args, AGENT_TOOL_ARGUMENT_BYTES, context))
@@ -556,6 +574,12 @@ const successResponses = z.discriminatedUnion('toolName', [
     ...toolResponseBase,
     ok: z.literal(true),
     toolName: z.literal('submit_section_change'),
+    data: submitChangeResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('generate_image'),
     data: submitChangeResultSchema
   })
 ])

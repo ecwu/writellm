@@ -93,6 +93,23 @@ test('configures provider metadata without returning a credential', async ({ tes
       await expect(dialog.getByText(/Connection succeeded\. \(\d+ ms\)/)).toBeVisible()
       expect(authorizationHeader).toBe('Bearer e2e-secret')
       await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+
+      await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await first.page.getByRole('option', { name: /Gemini image generation/ }).click()
+      const imageDialog = first.page.getByRole('dialog', { name: 'Image generation' })
+      await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
+      await expect(imageDialog.getByLabel('Request timeout (milliseconds)')).toHaveCount(0)
+      await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3.1-flash-image')
+      await imageDialog.getByLabel('Model ID').click()
+      await expect(
+        first.page.getByRole('option', { name: 'gemini-3.1-flash-lite-image' })
+      ).toBeVisible()
+      await first.page.getByRole('option', { name: 'gemini-3-pro-image' }).click()
+      await imageDialog.getByLabel('Gemini API key').fill('e2e-gemini-secret')
+      await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(imageDialog.getByText('Credential stored', { exact: true })).toBeVisible()
+      await imageDialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+
       await clickAndExpectProject(
         first.page,
         'Create project',
@@ -111,6 +128,14 @@ test('configures provider metadata without returning a credential', async ({ tes
       await expect(dialog.getByLabel('Base URL')).toHaveValue(`http://127.0.0.1:${port}/v1`)
       await expect(dialog.getByLabel('Model ID')).toHaveValue('writer-e2e')
       await expect(dialog.getByLabel('API key or token')).toHaveValue('')
+      await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+
+      await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await restarted.page.getByRole('option', { name: /Gemini image generation/ }).click()
+      const imageDialog = restarted.page.getByRole('dialog', { name: 'Image generation' })
+      await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
+      await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3-pro-image')
+      await expect(imageDialog.getByLabel('Gemini API key')).toHaveValue('')
     } finally {
       await closeApp(restarted.app)
     }
@@ -257,6 +282,63 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
   }
 })
 
+test('keeps recovery actions inside the alert layout', async ({ testRoot }) => {
+  const userData = join(testRoot, 'user-data')
+  const missingProject = join(testRoot, 'Missing project.writellm')
+  const launched = await launchApp({ userData, dialogPaths: [missingProject] })
+
+  try {
+    await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
+
+    const recoveryAlert = launched.page.getByRole('status').filter({ hasText: 'Recovery required' })
+    await expect(recoveryAlert).toBeVisible()
+
+    const actionButtons = recoveryAlert.getByRole('button')
+    await expect(actionButtons).toHaveCount(4)
+
+    const layout = await recoveryAlert.evaluate((alert) => {
+      const container = alert.getBoundingClientRect()
+      const buttons = Array.from(alert.querySelectorAll('button'), (button) => {
+        const bounds = button.getBoundingClientRect()
+        return {
+          left: bounds.left,
+          right: bounds.right,
+          top: bounds.top,
+          bottom: bounds.bottom
+        }
+      })
+      return {
+        container: {
+          left: container.left,
+          right: container.right,
+          top: container.top,
+          bottom: container.bottom
+        },
+        buttons
+      }
+    })
+
+    for (const button of layout.buttons) {
+      expect(button.left).toBeGreaterThanOrEqual(layout.container.left)
+      expect(button.right).toBeLessThanOrEqual(layout.container.right)
+      expect(button.top).toBeGreaterThanOrEqual(layout.container.top)
+      expect(button.bottom).toBeLessThanOrEqual(layout.container.bottom)
+    }
+
+    for (const [index, button] of layout.buttons.entries()) {
+      for (const other of layout.buttons.slice(index + 1)) {
+        const overlapsHorizontally =
+          Math.min(button.right, other.right) > Math.max(button.left, other.left)
+        const overlapsVertically =
+          Math.min(button.bottom, other.bottom) > Math.max(button.top, other.top)
+        expect(overlapsHorizontally && overlapsVertically).toBe(false)
+      }
+    }
+  } finally {
+    await closeApp(launched.app)
+  }
+})
+
 test('creates in a non-empty parent and retries after an existing-name conflict', async ({
   testRoot
 }) => {
@@ -322,6 +404,51 @@ test('opens a moved root with the stable manifest project ID', async ({ testRoot
   }
 })
 
+test('recovers a stale project lock and reopens the project', async ({ testRoot }) => {
+  const userData = join(testRoot, 'user-data')
+  const projectName = 'Stale lock project'
+  const projectRoot = join(testRoot, `${projectName}.writellm`)
+  const creating = await launchApp({ userData, dialogPaths: [testRoot] })
+
+  try {
+    await clickAndExpectProject(creating.page, 'Create project', projectName, projectName)
+    await closeProject(creating.page)
+    await expect(creating.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+  } finally {
+    await closeApp(creating.app)
+  }
+
+  const ownerToken = '11111111-1111-4111-8111-111111111111'
+  const lockDirectory = join(projectRoot, '.writellm', 'write.lock')
+  await mkdir(lockDirectory)
+  await writeFile(
+    join(lockDirectory, `${ownerToken}.json`),
+    JSON.stringify({
+      ownerToken,
+      pid: 1234,
+      host: 'stale-e2e-host',
+      acquiredAt: '2000-01-01T00:00:00.000Z',
+      heartbeatAt: '2000-01-01T00:00:00.000Z'
+    })
+  )
+
+  const recovering = await launchApp({ userData })
+  try {
+    await recovering.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+
+    const recoveryAlert = recovering.page
+      .getByRole('status')
+      .filter({ hasText: 'Recovery required' })
+    await expect(recoveryAlert).toContainText('Another WriteLLM process still holds')
+    await recoveryAlert.getByRole('button', { name: 'Recover stale lock', exact: true }).click()
+
+    await expectActiveProject(recovering.page, projectName)
+    await expect(recovering.page.locator('.bn-editor').first()).toBeVisible()
+  } finally {
+    await closeApp(recovering.app)
+  }
+})
+
 test('rejects lock contention across two application processes', async ({ testRoot }) => {
   const projectRoot = join(testRoot, 'Contended project.writellm')
 
@@ -347,6 +474,9 @@ test('rejects lock contention across two application processes', async ({ testRo
         'WriteLLM could not open the project'
       )
       await expect(contender.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+      await expect(
+        contender.page.getByRole('button', { name: 'Recover stale lock', exact: true })
+      ).toBeVisible()
       await expectActiveProject(owner.page, 'Contended project')
     } finally {
       await closeApp(contender.app)

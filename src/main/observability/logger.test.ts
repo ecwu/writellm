@@ -39,4 +39,27 @@ describe('logger system', () => {
     expect(JSON.stringify(parsed.err)).not.toContain('/Users/private')
     expect(system.ringBuffer.snapshot()).toHaveLength(1)
   })
+
+  it('preserves a primitive error cause from worker-boundary errors', async () => {
+    const destination = new PassThrough()
+    const output: string[] = []
+    destination.on('data', (chunk) => output.push(chunk.toString()))
+    const system = await createLoggerSystem({
+      appVersion: 'test',
+      logDirectory: '/tmp/writellm-logger-test',
+      development: true,
+      sessionId: 'session-test',
+      destination
+    })
+    const log = system.createModuleLogger('worker', 'test')
+    const err = new Error('Gemini image request failed with HTTP 400', {
+      cause: "Error: 400 The value 'image/png' is not supported for 'response_format.mime_type'."
+    })
+
+    log.error({ event: 'worker.background.image_generation_failed', err }, 'request failed')
+    await system.flush()
+
+    const parsed = JSON.parse(output.join('').trim()) as Record<string, unknown>
+    expect((parsed.err as { cause?: string }).cause).toContain('response_format.mime_type')
+  })
 })

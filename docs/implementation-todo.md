@@ -1,6 +1,6 @@
 # WriteLLM v2 Implementation Todo
 
-Status: Agent Harness Protocol v2 hardening complete; Checkpoint 24 remains unstarted
+Status: Checkpoint 23M rich media and image generation complete; Checkpoint 24 remains unstarted
 Recorded: 2026-07-22
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
@@ -17,6 +17,132 @@ Status markers:
 - `[!]` blocked; add the blocker immediately below the item
 
 ## Current Checkpoint
+
+### Checkpoint 23M: Rich Media Blocks And Gemini Image Generation
+
+- [x] Add content schema v2 with v1 compatibility, native project-asset image blocks, bounded
+  source-backed Mermaid and display-math blocks, safe preview rendering, source editing, and the
+  single-section Markdown import/export mappings.
+- [x] Add migration 0022, content-addressed project assets, transactional revision references,
+  24-hour orphan cleanup, validated upload, session-bound preview capabilities, and strict
+  sender/session-authorized preload IPC.
+- [x] Add the global Gemini image provider role, request-scoped background-worker Interactions
+  gateway, safe model-request accounting, cancellation, and the bounded `generate_image` Agent
+  proposal/application flow with stale-before-billing and conflict reuse.
+- [x] Upgrade the Agent Tool Contract to v3, support Main-normalized Mermaid/math insertion, retain
+  old event/proposal/content readers, update ADR 006 and architecture boundaries, and pass the full
+  unit, migration, production, Electron, and packaged acceptance gate.
+
+Started and completed 2026-07-22 after explicit user approval. Local Biome checked 347 files with
+only the existing generated shadcn cookie warning; Node/Renderer typechecks and the production
+build passed; canonical Electron Vitest passed 99 files/470 tests; all 14 built-app Electron
+Playwright scenarios passed; migration 0022 and project database integrity coverage passed; the
+signed macOS arm64 unpacked application passed strict deep verification; packaged hybrid native
+search, provider-failure fallback, and stale-session smoke passed; and `git diff --check` passed.
+The installed Biome binary and documented npm/direct runner equivalents were used because the
+local pnpm wrapper could not verify its registry signature offline. Checkpoint 24 remains unstarted
+and requires separate approval.
+
+### Maintenance: Rich-media image preview correction (2026-07-23)
+
+- [x] Let BlockNote resolve an empty native image placeholder without rejecting, allow the
+  session-bound `writellm://bundle/project-asset/` preview source under the development renderer
+  CSP, and add focused regression coverage for both boundaries.
+
+Completed after a field report from the Vite development renderer. BlockNote's native image
+renderer resolves the empty URL before an upload, while the development page has an HTTP origin
+that does not treat the application protocol as `'self'`; the two conditions caused an unhandled
+resolver rejection and a CSP-blocked preview. The resolver now preserves only the empty placeholder
+as a non-asset value, keeps rejecting every other non-project source, and exchanges logical asset
+IDs through the existing session-bound IPC once populated. The CSP explicitly permits only the
+`writellm://bundle` application source in addition to `'self'` and `data:` images. Focused Biome,
+Node/Renderer typechecks, the production build, canonical Electron Vitest (101 files/474 tests),
+all 14 Electron Playwright scenarios including image upload/reopen, isolated real-app SQLite
+identity/integrity/schema verification, and `git diff --check` passed. Follow-up coverage also
+asserts that an applied Gemini proposal persists the exact `writellm-asset:<assetId>` logical URL,
+so generated and uploaded images use the same renderer resolution path.
+
+### Maintenance: Gemini image error diagnostics (2026-07-23)
+
+- [x] Preserve Gemini's bounded HTTP status and machine-readable error code across the background
+  worker boundary, classify `generate_image` provider failures separately from read-tool failures,
+  and prevent the Agent from blindly retrying non-retryable HTTP 400 responses.
+
+Completed after runtime evidence showed four real Gemini Interactions requests failing with HTTP
+400 in 95–180 ms across long, short, 2K, and default 1K prompts. The request shape matches the
+current official Gemini image-generation contract, so prompt retry is not a valid recovery.
+Background-worker diagnostics now extract only a bounded uppercase provider status/reason such as
+`API_KEY_INVALID` or `INVALID_ARGUMENT`; response messages, prompts, credentials, and image bytes
+remain excluded. Main preserves the code through the utility boundary and reports
+`generate_image` provider rejection as non-retryable `unavailable` with `ask_user` recovery instead
+of the incorrect `internal / Agent read tool failed`. Canonical Electron Vitest passed 101
+files/476 tests, including the safe-response and Agent error-projection regressions; Node/Renderer
+typechecks, the production build, full-repository Biome (with only the existing generated shadcn
+cookie warning), all 14 Electron Playwright scenarios, and `git diff --check` passed.
+
+### Maintenance: Official Gemini SDK transport (2026-07-23)
+
+- [x] Pin `@google/genai@2.12.0` and replace the handwritten Interactions REST transport with
+  `GoogleGenAI.interactions.create` inside the existing background-worker image gateway, retaining
+  cancellation, timeout, no-retry, bounded response validation, and safe error projection.
+
+Started after repeated field requests continued to receive HTTP 400 and the user explicitly
+approved the official SDK transport. ADR 006 is amended without expanding Agent network, file,
+credential, or manuscript-write authority. The default auto/1K request now follows the official
+minimal `model`/`input` example. Explicit aspect ratio or size uses the SDK's typed
+`response_format`, with PNG represented by the required top-level `response_mime_type` instead of
+the old nested PNG MIME field. The worker normalizes the legacy `/v1beta` provider base URL
+for the SDK, disables SDK retries, consumes `output_image`, and retains the existing outer
+AbortController timeout/cancellation boundary. Canonical Electron Vitest passed 101 files/477
+tests; Node/Renderer typechecks and the production build passed; full Biome passed with only the
+existing generated shadcn cookie warning; isolated real-app SQLite identity, integrity,
+foreign-key, and schema-manifest checks passed; all 14 Electron Playwright scenarios passed; and
+`git diff --check` passed.
+
+### Maintenance: Fixed Gemini endpoint and image model catalog (2026-07-23)
+
+- [x] Remove editable image-provider URL and free-form model input; expose only the encrypted API
+  key and a dropdown containing the four user-approved Gemini image models.
+- [x] Enforce the official endpoint marker and model allowlist at the shared/Main boundary, while
+  normalizing the legacy official `/v1beta` value for existing installations.
+- [x] Construct `GoogleGenAI` with only the request-scoped API key, use the minimal
+  `interactions.create({ model, input })` generation request, and move image connection testing
+  from handwritten HTTP to the official SDK.
+- [x] Pass focused contract/worker/provider tests, Node and Renderer typechecks, production build,
+  Biome, canonical Electron Vitest, built Electron E2E, runtime database verification, and
+  `git diff --check`.
+
+Started after the user reported that the official SDK transport still returned HTTP 400 despite a
+valid API key and explicitly approved a fixed official endpoint plus four-model catalog. This is a
+post-completion Checkpoint 23M maintenance correction; it does not start Checkpoint 24.
+Completed with a Main-validated legacy normalization and fixed model catalog, an official shadcn
+Select settings surface, API-key-only SDK construction, minimal generation request, and SDK model
+probe. Full Biome checked 351 files with only the existing generated shadcn cookie warning;
+Node/Renderer typechecks and production build passed; canonical Electron Vitest passed 101
+files/480 tests; all 14 built Electron Playwright scenarios passed, including no-URL UI,
+four-model selection, encrypted-key storage, and restart persistence; isolated real-app SQLite
+reported application ID 1464615248, schema/user version 1, integrity `ok`, and no foreign-key
+failures; and `git diff --check` passed.
+
+### Maintenance: Correct Gemini Interactions image contract (2026-07-23)
+
+- [x] Exact-pin `@google/genai@2.13.0`, serialize the documented image `response_format`, preserve
+  Interactions default storage, and verify the actual SDK endpoint, headers, and request JSON.
+- [x] Normalize model size capabilities, accept Main-validated PNG/JPEG, and retain requested and
+  effective size in project-local asset lineage.
+- [x] Remove current Gemini `baseUrl` persistence while accepting and stripping only the legacy
+  official marker; preserve original SDK errors locally and expose only safe status/code fields.
+- [x] Pass focused and full checks, build, Electron Vitest, out-of-sandbox Electron E2E, and
+  isolated runtime database inspection.
+- [!] Complete the authorized live Gemini 1:1/1K asset/block gate. The single authorized request
+  reached Gemini but returned through the safe auxiliary-provider failure path before asset
+  publication. It was not retried because approval covered one real request, and the temporary
+  isolated runtime was removed before its safe HTTP status/code could be retained.
+
+Started after the user confirmed the Gemini API was usable and the application's HTTP 400 pointed
+to its request contract. This correction follows Google's official image-generation documentation
+and does not use Context7. Agent authority, worker roles, project-local asset publication,
+proposal/revision checks, and Checkpoint 24 remain unchanged.
 
 ### Checkpoint 23H: Agent Harness Protocol v2 Hardening
 
@@ -370,3 +496,9 @@ The following items remain deferred until evidence requires them. See the Phase 
 - 2026-07-22: Completed the user-requested Outline row hover refinement. Invisible add/delete controls no longer consume flex width: each section button fills its available row and shows the word count at rest, while hover or keyboard focus-visible replaces that count with the two overlaid actions. Long titles remain contained and the existing section behavior is unchanged. Local focused Biome and an independent production Renderer build passed. A clean HEAD snapshot carrying only this refinement passed Node/web typecheck, the full production build, and the focused real Electron Writing Workspace scenario with explicit row-boundary, word-count, and action-visibility assertions. The active worktree's full typecheck/build remains temporarily blocked by unrelated in-progress Agent context/approval-policy edits and is not claimed as a pass.
 - 2026-07-22: Started a user-reported section body title-deduplication correction within the completed Agent writing boundary. Scope is limited to clarifying in the bounded model prompt that section titles are outline metadata rendered outside the BlockNote body, prohibiting a repeated opening title while allowing genuine lower-level subheadings, and adding focused prompt regression coverage. Proposal authority, persistence, renderer behavior, and Checkpoint 24 remain unchanged.
 - 2026-07-22: Completed the section body title-deduplication correction. The bounded system prompt now identifies section titles as separately rendered outline metadata, requires section proposals to begin with body content instead of a repeated or restated opening title, and still permits genuine lower-level heading blocks. The canonical Electron-hosted Vitest suite passed 96 files/448 tests; Biome checked 339 files with only the existing generated shadcn cookie warning; and `git diff --check` passed. The `pnpm check` wrapper hung without output, so the installed Biome binary was used and no `pnpm check` pass is claimed. Proposal authority, persistence, renderer behavior, and Checkpoint 24 remain unchanged.
+- 2026-07-22: Started user-approved Checkpoint 23M before Checkpoint 24. Scope is limited to project-local BlockNote images, source-backed Mermaid and display-math blocks, safe manual image upload/preview, a global Gemini image provider, one bounded `generate_image` Agent effect/proposal tool, rich-block section insertion, asset/revision lineage, and the existing single-section import/export surfaces. ADR 006 preserves the renderer sandbox, typed proposal/revision checks, three fixed worker roles, request-scoped network work, and credential boundaries. Inline math, remote image fetching, image editing, asset galleries, whole-manuscript export, and remaining Checkpoint 24 portability work remain out of scope.
+- 2026-07-23: Completed the user-requested verification-environment maintenance. The exact package-manager pin now matches the installed pnpm 11.11.0 so pnpm no longer silently attempts a blocked version download before every command. The canonical Electron Vitest runner forwards focused file and test-name arguments. `AGENTS.md` now distinguishes pnpm version-switch hangs, direct-tool fallbacks, non-fatal macOS Electron diagnostics, and the known Codex sandbox E2E signatures from code/test failures; it requires a fresh build and approved out-of-sandbox execution for Electron Playwright. The Gemini image gateway's outer cancellation/deadline now settles independently of SDK transport abort propagation while continuing to pass the signal into the exact-pinned SDK, with in-flight cancellation and timeout coverage. pnpm startup, full Biome, Node/Renderer typechecks, production build, canonical Electron Vitest (101 files/477 tests), all 14 Electron Playwright scenarios outside the sandbox, isolated real-app SQLite identity/integrity/schema verification, and `git diff --check` passed.
+- 2026-07-23: Started the user-approved Gemini Interactions image-generation correction within completed Checkpoint 23M. Scope is limited to exact-pinning `@google/genai@2.13.0`, matching Google's current `response_format` request contract, model-aware 1K/2K normalization, accepting verified PNG/JPEG assets, removing the unused Gemini endpoint marker with legacy-read compatibility, preserving safe SDK diagnostics, and full focused/runtime verification. Agent authority, local asset publication, proposal/revision semantics, worker roles, and Checkpoint 24 remain unchanged.
+- 2026-07-23: Started the user-requested verification-gate split within the completed verification-environment maintenance boundary. Scope is limited to making static, Electron, E2E, no-identity packaged-smoke, and signed-release checks explicit; routine development and package verification must not discover or use an Apple signing identity, while strict deep signature validation remains an opt-in release gate. Product behavior, packaging contents, native-runtime coverage, notarization policy, and Checkpoint 24 remain unchanged.
+- 2026-07-23: Completed the user-reported project-recovery correction. The recovery action grid now occupies the Alert content column instead of collapsing into the icon column, and the renderer receives only a bounded recovery kind/reason so it shows actions valid for the failed transition. Lock contention explains the live-owner requirement and exposes an explicit stale-lock recovery after a conservative one-minute heartbeat window. Main alone re-reads the selected project lock, verifies the observed owner token and unchanged heartbeat, removes only a stale lock, and retries the open; no path or lock token crosses preload. Focused lock/manager/IPC/contracts coverage passed 65 tests, full Biome checked 351 files with only the existing generated shadcn cookie warning, Node/Renderer typechecks and the production build passed, canonical Electron Vitest passed 101 files/488 tests, all 16 built-app Electron Playwright scenarios passed including non-overlapping recovery controls and stale-lock reopen, isolated app-database identity/integrity/schema verification passed, and `git diff --check` passed. Checkpoint 24 remains unstarted.
+- 2026-07-23: Completed the user-requested verification-gate split. Package scripts and the repository `verify` skill now route ordinary work through static, Electron, or E2E gates; package-sensitive changes use an explicit no-identity gate, and only an explicitly requested release uses Apple identity discovery plus strict deep signature validation. The package gate verified electron-builder's `skipped macOS application code signing` result and accepted only the resulting no-Team-ID ad-hoc/linker signature before packaged native search, provider-failure fallback, and stale-session smoke passed. Full Biome and Node/Renderer typechecks passed with only the existing generated shadcn cookie warning; both gate plans and `git diff --check` passed. Notarization remains disabled and Checkpoint 24 remains unstarted.

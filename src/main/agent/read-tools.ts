@@ -26,7 +26,7 @@ import {
   type SearchManuscriptResult,
   type WritingContextResult
 } from '../../shared/contracts/agent-tools'
-import { extractSectionText } from '../manuscript/content'
+import { extractSectionAgentText } from '../manuscript/content'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import type { RetrievalService } from '../search/retrieval-service'
 import { AgentContextBuilder } from './context'
@@ -646,7 +646,7 @@ function flattenBlocks(content: readonly unknown[]): FlattenedBlock[] {
       if (value === null || typeof value !== 'object') continue
       const block = value as { id?: unknown; type?: unknown; children?: unknown }
       if (typeof block.id !== 'string' || typeof block.type !== 'string') continue
-      const fullText = extractSectionText([{ ...block, children: [] }])
+      const fullText = extractSectionAgentText([{ ...block, children: [] }])
       result.push({
         blockId: block.id,
         blockType: block.type,

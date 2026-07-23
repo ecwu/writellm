@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { countSectionText, extractSectionText, prepareSectionContent } from './content'
+import {
+  countSectionText,
+  extractSectionAgentText,
+  extractSectionText,
+  prepareSectionContent
+} from './content'
 
 describe('section content processing', () => {
   it('canonicalizes object keys without normalizing native string content', () => {
@@ -63,6 +68,30 @@ describe('section content processing', () => {
       wordCount: 7,
       characterCount: 13
     })
+  })
+
+  it('counts only rich-block captions while exposing bounded source and descriptions to Agent reads', () => {
+    const content = [
+      { type: 'image', props: { name: 'Alt description', caption: 'Image caption' }, children: [] },
+      {
+        type: 'mermaid',
+        props: { caption: 'Diagram caption', source: 'flowchart LR\nSecret --> Source' },
+        children: []
+      },
+      {
+        type: 'math',
+        props: { caption: 'Formula caption', source: 'E = mc^2' },
+        children: []
+      }
+    ]
+    const visible = extractSectionText(content)
+    expect(visible).toBe('Image caption\nDiagram caption\nFormula caption')
+    expect(visible).not.toContain('Secret')
+    expect(visible).not.toContain('mc')
+    const agent = extractSectionAgentText(content)
+    expect(agent).toContain('Alt description')
+    expect(agent).toContain('flowchart LR')
+    expect(agent).toContain('E = mc^2')
   })
 
   it('rejects values that cannot be losslessly represented as JSON', () => {

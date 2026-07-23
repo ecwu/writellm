@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { providerConfigSchema } from './providers'
+import { googleGeminiImageSizeSchema, providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 
@@ -110,11 +110,42 @@ export const rerankResultSchema = z
   .strict()
 export type RerankResult = z.infer<typeof rerankResultSchema>
 
+export const imageGenerationInputSchema = z
+  .object({
+    prompt: z
+      .string()
+      .trim()
+      .min(1)
+      .max(16_384)
+      .refine(
+        (value) => new TextEncoder().encode(value).byteLength <= 16_384,
+        'Image prompt exceeds 16 KiB'
+      ),
+    aspectRatio: z.enum(['auto', '1:1', '16:9']),
+    imageSize: googleGeminiImageSizeSchema
+  })
+  .strict()
+export type ImageGenerationInput = z.infer<typeof imageGenerationInputSchema>
+
+export const imageGenerationResultSchema = z
+  .object({
+    dataBase64: z.string().min(4).max(28_000_000),
+    mimeType: z.enum(['image/png', 'image/jpeg']),
+    effectiveImageSize: googleGeminiImageSizeSchema,
+    metadata: modelExecutionMetadataSchema
+  })
+  .strict()
+export type ImageGenerationResult = z.infer<typeof imageGenerationResultSchema>
+
 const diagnosticErrorSchema = z.object({
   name: z.string().max(200),
   message: z.string().max(4_096),
   stack: z.string().max(32_768).optional(),
-  httpStatus: z.number().int().min(100).max(599).optional()
+  httpStatus: z.number().int().min(100).max(599).optional(),
+  providerCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,127}$/)
+    .optional()
 })
 
 export const agentUtilityRequestSchema = z.object({
@@ -165,6 +196,14 @@ export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
     config: providerConfigSchema.refine((config) => config.role === 'rerank'),
     credential: z.string().min(1).max(16_384),
     input: rerankInputSchema
+  }),
+  z.object({
+    operation: z.literal('image'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    config: providerConfigSchema.refine((config) => config.role === 'image'),
+    credential: z.string().min(1).max(16_384),
+    input: imageGenerationInputSchema
   })
 ])
 export type AuxiliaryUtilityRequest = z.infer<typeof auxiliaryUtilityRequestSchema>
@@ -181,6 +220,12 @@ export const auxiliaryUtilityResponseSchema = z.discriminatedUnion('type', [
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema.nullable().optional(),
     result: rerankResultSchema
+  }),
+  z.object({
+    type: z.literal('image-result'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    result: imageGenerationResultSchema
   }),
   z.object({
     type: z.literal('error'),

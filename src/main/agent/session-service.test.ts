@@ -462,6 +462,68 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('reports a non-retryable image provider rejection instead of a read-tool failure', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const providerError = Object.assign(new Error('Safe worker error'), {
+      status: 400,
+      providerCode: 'INVALID_ARGUMENT'
+    })
+    const execute = vi.fn(async () => {
+      throw new Error('Auxiliary model request failed', { cause: providerError })
+    })
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Generate a diagram.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    const response = await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc475',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-image-1',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'generate_image',
+      args: {
+        sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
+        anchor: null,
+        placement: 'end',
+        prompt: 'A bounded diagram',
+        altText: 'Diagram',
+        caption: '',
+        aspectRatio: '16:9',
+        imageSize: '2K'
+      }
+    })
+
+    expect(response).toMatchObject({
+      ok: false,
+      error: {
+        code: 'unavailable',
+        category: 'transient',
+        message:
+          'Image provider rejected the generation request (HTTP 400 / INVALID_ARGUMENT); verify the image API key, model access, and provider settings',
+        recovery: { action: 'ask_user' }
+      }
+    })
+    expect(JSON.stringify(response)).not.toContain('read tool')
+    expect(service.listEvents(session.agentSessionId).at(-1)?.payload).toMatchObject({
+      isError: true,
+      error: {
+        code: 'unavailable',
+        message: expect.stringContaining('HTTP 400 / INVALID_ARGUMENT')
+      }
+    })
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it.each([
     ['manual', 'brief_update', true, false],
     ['section_auto', 'outline_patch', true, false],

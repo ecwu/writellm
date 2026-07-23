@@ -1,4 +1,4 @@
-import { readdir, writeFile } from 'node:fs/promises'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, test } from './fixtures'
@@ -395,6 +395,125 @@ test('imports a durable project-local knowledge original and deduplicates repeat
     await expect(
       launched.page.getByTestId('knowledge-workspace').getByText('研究 source.pdf')
     ).toBeVisible()
+  } finally {
+    await launched.app.close()
+  }
+})
+
+test('renders and reopens project images, Mermaid, and block LaTeX with Markdown export', async ({
+  testRoot
+}) => {
+  const projectName = 'Rich media workspace'
+  const projectRoot = join(testRoot, `${projectName}.writellm`)
+  const launched = await launchApp({
+    userData: join(testRoot, 'user-data'),
+    dialogPaths: [testRoot, projectRoot]
+  })
+  try {
+    await createProject(launched.page, projectName)
+    await launched.page.evaluate(async (pngBase64) => {
+      const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+        ?.projectSessionId
+      if (projectSessionId === undefined) throw new Error('Project session missing')
+      const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+      const sectionId = workspace.sections[0]?.section.sectionId
+      if (sectionId === undefined) throw new Error('Section missing')
+      const current = await window.desktop.editor.loadSection({ projectSessionId, sectionId })
+      const asset = await window.desktop.editor.uploadAsset({
+        projectSessionId,
+        originalName: 'pixel.png',
+        mimeType: 'image/png',
+        dataBase64: pngBase64
+      })
+      const saved = await window.desktop.editor.saveSectionDocument({
+        projectSessionId,
+        sectionId,
+        baseRevisionId: current.revision.sectionRevisionId,
+        baseContentHash: current.revision.contentHash,
+        document: [
+          {
+            id: 'uploaded-image',
+            type: 'image',
+            props: {
+              backgroundColor: 'default',
+              textAlignment: 'center',
+              name: 'Uploaded pixel',
+              url: asset.logicalUrl,
+              caption: 'Project asset',
+              showPreview: true,
+              previewWidth: 320
+            },
+            children: []
+          },
+          {
+            id: 'mermaid-diagram',
+            type: 'mermaid',
+            props: {
+              textAlignment: 'center',
+              source: 'flowchart LR\nA["<img src=x onerror=alert(1)>"] --> B[Finish]',
+              caption: 'Flow',
+              previewWidth: 720
+            },
+            children: []
+          },
+          {
+            id: 'display-formula',
+            type: 'math',
+            props: {
+              textAlignment: 'center',
+              source: 'E = mc^2',
+              caption: 'Energy',
+              previewWidth: 720
+            },
+            children: []
+          }
+        ]
+      })
+      if (!saved.ok) throw new Error(saved.error.message)
+    }, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+    await launched.page.reload()
+    await expectActiveProject(launched.page, projectName)
+    await expect(launched.page.getByText('Mermaid diagram', { exact: true })).toBeVisible()
+    await expect(launched.page.getByText('Display formula', { exact: true })).toBeVisible()
+    await expect(launched.page.locator('.bn-editor img')).toHaveCount(2)
+    await expect(launched.page.locator('.bn-editor .katex-display')).toBeVisible()
+    const mermaidPreview = await launched.page
+      .locator('.bn-editor img[alt="Flow"]')
+      .getAttribute('src')
+    expect(mermaidPreview).not.toBeNull()
+    expect(
+      await launched.page.evaluate((source) => {
+        if (source === null) return null
+        const svg = decodeURIComponent(source.slice(source.indexOf(',') + 1))
+        const document = new DOMParser().parseFromString(svg, 'image/svg+xml')
+        return {
+          activeElements: document.querySelectorAll('script,foreignObject,iframe,object,embed')
+            .length,
+          eventAttributes: document.querySelectorAll('[onload],[onclick],[onerror]').length,
+          remoteLinks: document.querySelectorAll('a[href^="http"],[href^="http"],[src]').length
+        }
+      }, mermaidPreview)
+    ).toEqual({ activeElements: 0, eventAttributes: 0, remoteLinks: 0 })
+
+    await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+    const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
+    await outline.getByRole('button', { name: 'Markdown', exact: true }).click()
+    await expect
+      .poll(async () => (await readdir(join(projectRoot, 'manuscript', 'exports'))).length)
+      .toBe(1)
+    const [exportName] = await readdir(join(projectRoot, 'manuscript', 'exports'))
+    if (exportName === undefined) throw new Error('Markdown export missing')
+    const markdown = await readFile(join(projectRoot, 'manuscript', 'exports', exportName), 'utf8')
+    expect(markdown).toContain('```mermaid')
+    expect(markdown).toContain('$$\nE = mc^2\n$$')
+    expect(markdown).toMatch(/\.\.\/assets\/[0-9a-f]{64}\.png/)
+    await launched.page.keyboard.press('Escape')
+
+    await closeProject(launched.page)
+    await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+    await expectActiveProject(launched.page, projectName)
+    await expect(launched.page.locator('.bn-editor img')).toHaveCount(2)
+    await expect(launched.page.locator('.bn-editor .katex-display')).toBeVisible()
   } finally {
     await launched.app.close()
   }

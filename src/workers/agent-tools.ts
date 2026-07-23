@@ -13,6 +13,7 @@ import {
   AGENT_SECTION_PAGE_LIMIT,
   agentToolRequestSchema,
   agentToolResponseSchema,
+  AGENT_TOOL_DESCRIPTORS,
   type AgentToolName,
   type AgentToolResponse
 } from '../shared/contracts/agent-tools'
@@ -287,6 +288,42 @@ export const submitSectionChangeParameters = Type.Object(
         ),
         Type.Object(
           {
+            type: Type.Literal('insertRichBlock'),
+            anchor: Type.Union([blockPrecondition, Type.Null()]),
+            placement: Type.Union([
+              Type.Literal('before'),
+              Type.Literal('after'),
+              Type.Literal('start'),
+              Type.Literal('end')
+            ]),
+            block: Type.Object(
+              {
+                clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+                blockType: Type.Union([Type.Literal('mermaid'), Type.Literal('math')]),
+                source: Type.String({ minLength: 1, maxLength: 64_000 }),
+                caption: Type.Optional(Type.String({ maxLength: 2_000, default: '' })),
+                textAlignment: Type.Optional(
+                  Type.Union(
+                    [
+                      Type.Literal('left'),
+                      Type.Literal('center'),
+                      Type.Literal('right'),
+                      Type.Literal('justify')
+                    ],
+                    { default: 'center' }
+                  )
+                ),
+                previewWidth: Type.Optional(
+                  Type.Integer({ minimum: 64, maximum: 8_192, default: 720 })
+                )
+              },
+              strict
+            )
+          },
+          strict
+        ),
+        Type.Object(
+          {
             type: Type.Literal('removeBlocks'),
             targets: Type.Array(blockPrecondition, {
               minItems: 1,
@@ -319,6 +356,25 @@ export const submitSectionChangeParameters = Type.Object(
       { minItems: 1, maxItems: AGENT_MUTATION_OPERATION_LIMIT }
     ),
     citationIds: citationIds()
+  },
+  strict
+)
+
+export const generateImageParameters = Type.Object(
+  {
+    sectionId: uuid(),
+    anchor: Type.Union([blockPrecondition, Type.Null()]),
+    placement: Type.Union([
+      Type.Literal('before'),
+      Type.Literal('after'),
+      Type.Literal('start'),
+      Type.Literal('end')
+    ]),
+    prompt: Type.String({ minLength: 1, maxLength: 16_384 }),
+    altText: Type.String({ minLength: 1, maxLength: 2_000 }),
+    caption: Type.String({ maxLength: 2_000 }),
+    aspectRatio: Type.Union([Type.Literal('auto'), Type.Literal('1:1'), Type.Literal('16:9')]),
+    imageSize: Type.Union([Type.Literal('1K'), Type.Literal('2K')])
   },
   strict
 )
@@ -833,6 +889,16 @@ export class AgentToolBridge {
         executionMode: 'sequential',
         execute: (toolCallId, args, signal) =>
           this.#execute('submit_section_change', toolCallId, args, signal)
+      },
+      {
+        name: 'generate_image',
+        label: 'Generate and insert image',
+        description:
+          'Create a reviewable request for one Gemini-generated image and insert it as a new image block. Main binds the source revision, anchor, model request, asset, and block IDs.',
+        parameters: generateImageParameters,
+        executionMode: 'sequential',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('generate_image', toolCallId, args, signal)
       }
     ]
   }
@@ -853,7 +919,12 @@ export class AgentToolBridge {
     this.#dispatchedToolCallIds.add(toolCallId)
     const modelRequestId = this.modelRequestIdForToolCall(toolCallId)
     const response = await this.#request(toolName, toolCallId, modelRequestId, args, signal)
-    const meta = { contractVersion: 2 as const, toolName, toolCallId, modelRequestId }
+    const meta = {
+      contractVersion: AGENT_TOOL_DESCRIPTORS[toolName].contractVersion,
+      toolName,
+      toolCallId,
+      modelRequestId
+    }
     const result = response.ok
       ? { schemaVersion: response.schemaVersion, ok: true as const, data: response.data, meta }
       : { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }

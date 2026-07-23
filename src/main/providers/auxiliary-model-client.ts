@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { utilityProcess } from 'electron'
 import type { Logger } from 'pino'
+import PQueueDefault from 'p-queue'
 import {
   auxiliaryUtilityResponseSchema,
   embeddingBatchInputSchema,
+  imageGenerationInputSchema,
   rerankInputSchema,
   type AuxiliaryUtilityRequest,
   type AuxiliaryUtilityResponse
 } from '../../shared/contracts/model-runtime'
 import type { ProviderConfig } from '../../shared/contracts/providers'
-import type { EmbeddingGateway, RerankGateway } from './gateways'
+import type { EmbeddingGateway, ImageGenerationGateway, RerankGateway } from './gateways'
 import type { UtilityProcessFactory } from './provider-probe-client'
 import {
   PersistentUtilityProcess,
@@ -18,8 +20,14 @@ import {
 
 type AuxiliarySuccessResponse = Exclude<AuxiliaryUtilityResponse, { type: 'error' }>
 
-export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
+const PQueue =
+  (PQueueDefault as unknown as { default?: typeof PQueueDefault }).default ?? PQueueDefault
+
+export class AuxiliaryModelClient
+  implements EmbeddingGateway, RerankGateway, ImageGenerationGateway
+{
   readonly #worker: PersistentUtilityProcess
+  readonly #imageQueue = new PQueue({ concurrency: 1 })
 
   constructor(
     modulePath: string,
@@ -81,6 +89,32 @@ export class AuxiliaryModelClient implements EmbeddingGateway, RerankGateway {
       if (response.type !== 'rerank-result') throw new Error('Rerank response type mismatch')
       return response.result
     })
+  }
+
+  generateImage(
+    config: ProviderConfig,
+    credential: string,
+    rawInput: Parameters<ImageGenerationGateway['generateImage']>[2],
+    signal: AbortSignal,
+    projectSessionId: string
+  ): ReturnType<ImageGenerationGateway['generateImage']> {
+    if (config.role !== 'image') return Promise.reject(new Error('Image role is required'))
+    const request: AuxiliaryUtilityRequest = {
+      operation: 'image',
+      requestId: randomUUID(),
+      projectSessionId,
+      config,
+      credential,
+      input: imageGenerationInputSchema.parse(rawInput)
+    }
+    return this.#imageQueue.add(
+      () =>
+        this.#run(request, signal, projectSessionId).then((response) => {
+          if (response.type !== 'image-result') throw new Error('Image response type mismatch')
+          return response.result
+        }),
+      { signal }
+    )
   }
 
   #run(
@@ -147,11 +181,13 @@ function reconstructError(input: {
   message: string
   stack?: string
   httpStatus?: number
-}): Error & { status?: number } {
-  const error: Error & { status?: number } = new Error(input.message)
+  providerCode?: string
+}): Error & { status?: number; providerCode?: string } {
+  const error: Error & { status?: number; providerCode?: string } = new Error(input.message)
   error.name = input.name
   if (input.stack !== undefined) error.stack = input.stack
   if (input.httpStatus !== undefined) error.status = input.httpStatus
+  if (input.providerCode !== undefined) error.providerCode = input.providerCode
   return error
 }
 

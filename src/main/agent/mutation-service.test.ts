@@ -1,15 +1,17 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
+import { ManuscriptAssetService } from '../manuscript/asset-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
 import { MutationProposalError, MutationProposalService } from './mutation-service'
 import { AgentToolDomainError } from './read-tools'
+import { AgentContextBuilder } from './context'
 
 const roots: string[] = []
 const log = pino({ level: 'silent' })
@@ -941,6 +943,228 @@ describe('MutationProposalService', () => {
     ).toBe(0)
     value.database.close()
   })
+
+  it('reuses one generated asset when an edit during generation requires a refreshed proposal', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const base = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('base', 'Before generation')]
+    })
+    const manuscriptAssets = new ManuscriptAssetService({
+      projectRoot: value.projectRoot,
+      projectId: value.manifest.projectId,
+      database: value.database,
+      log
+    })
+    let finishGeneration: ((result: Record<string, unknown>) => void) | undefined
+    const generatedResult = new Promise<Record<string, unknown>>((resolve) => {
+      finishGeneration = resolve
+    })
+    const generateImage = vi.fn(async () => {
+      seedImageModelRequest(value.database)
+      return generatedResult
+    })
+    const service = new MutationProposalService({
+      projectId: value.manifest.projectId,
+      projectSessionId,
+      database: value.database,
+      manuscript: value.manuscript,
+      editorPersistence: value.persistence,
+      manuscriptAssets,
+      modelExecution: { generateImage } as never,
+      flushForMutation: async () => undefined,
+      log
+    })
+    const snapshot = new AgentContextBuilder(value.manuscript).capture('image-snapshot', {
+      activeSectionId: opened.section.sectionId,
+      selectedBlockIds: [],
+      activeBlockId: null
+    })
+    const proposed = service.proposeGeneratedImage(
+      {
+        sectionId: opened.section.sectionId,
+        anchor: null,
+        placement: 'end',
+        prompt: 'A clean architecture diagram without embedded text',
+        altText: 'Architecture diagram',
+        caption: 'Generated architecture',
+        aspectRatio: '16:9',
+        imageSize: '1K'
+      },
+      snapshot,
+      value.toolCall('generate_image')
+    )
+    expect(generateImage).not.toHaveBeenCalled()
+
+    const approval = service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: proposed.proposalId
+    })
+    await vi.waitFor(() => expect(generateImage).toHaveBeenCalledTimes(1))
+    await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: base.revision.sectionRevisionId,
+      baseContentHash: base.revision.contentHash,
+      document: [paragraph('base', 'Edited while generating')]
+    })
+    finishGeneration?.({
+      dataBase64: png(64, 36).toString('base64'),
+      mimeType: 'image/png',
+      effectiveImageSize: '1K',
+      modelRequestId: imageModelRequestId,
+      metadata: {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          estimatedCostUsdMicros: null
+        },
+        responseIds: ['gemini-response'],
+        retryCount: 0,
+        providerModelId: 'gemini-3.1-flash-image'
+      }
+    })
+    const refreshed = await approval
+    expect(refreshed).toMatchObject({
+      outcome: 'refresh_required',
+      previousProposal: { status: 'superseded' },
+      proposal: { status: 'pending' }
+    })
+    if (refreshed.outcome !== 'refresh_required') throw new Error('Expected image refresh')
+    expect(refreshed.proposal.payload).toMatchObject({
+      kind: 'generated_image_insert',
+      mutation: { assetId: expect.any(String), imageModelRequestId }
+    })
+    if (
+      refreshed.proposal.payload.kind !== 'generated_image_insert' ||
+      refreshed.proposal.payload.mutation.assetId === null
+    ) {
+      throw new Error('Expected generated image asset')
+    }
+    const generatedAssetId = refreshed.proposal.payload.mutation.assetId
+
+    const applied = await service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: refreshed.proposal.proposalId
+    })
+    expect(applied).toMatchObject({ outcome: 'applied', proposal: { status: 'applied' } })
+    expect(generateImage).toHaveBeenCalledTimes(1)
+    const current = value.manuscript.getRevision(applied.proposal.appliedRevisionId ?? '')
+    expect(current.content.map((block) => block.type)).toEqual(['paragraph', 'image'])
+    expect(current.content.at(-1)).toMatchObject({
+      type: 'image',
+      props: { url: `writellm-asset:${generatedAssetId}` }
+    })
+    const assetRow = value.database.immediate(
+      (native) =>
+        native
+          .prepare(
+            `SELECT relative_path, mime_type, source_type, generation_request_json,
+                    model_request_id, agent_run_id
+               FROM manuscript_assets
+              WHERE asset_id = ?`
+          )
+          .get(generatedAssetId) as {
+          relative_path: string
+          mime_type: string
+          source_type: string
+          generation_request_json: string
+          model_request_id: string
+          agent_run_id: string
+        }
+    )
+    expect(assetRow).toMatchObject({
+      relative_path: expect.stringMatching(/^manuscript\/assets\/[0-9a-f]{64}\.png$/),
+      mime_type: 'image/png',
+      source_type: 'generated',
+      model_request_id: imageModelRequestId,
+      agent_run_id: agentRunId
+    })
+    expect(JSON.parse(assetRow.generation_request_json)).toEqual({
+      prompt: 'A clean architecture diagram without embedded text',
+      aspectRatio: '16:9',
+      requestedImageSize: '1K',
+      effectiveImageSize: '1K'
+    })
+    expect(await readFile(join(value.projectRoot, assetRow.relative_path))).toEqual(png(64, 36))
+    expect(
+      value.database.immediate((native) =>
+        native
+          .prepare(
+            `SELECT section_revision_id, asset_id
+               FROM section_revision_assets
+              WHERE asset_id = ?`
+          )
+          .get(generatedAssetId)
+      )
+    ).toEqual({
+      section_revision_id: current.sectionRevisionId,
+      asset_id: generatedAssetId
+    })
+    value.database.close()
+  })
+
+  it('rejects a stale image base before calling the billable gateway', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const snapshot = new AgentContextBuilder(value.manuscript).capture('stale-image-snapshot', {
+      activeSectionId: opened.section.sectionId,
+      selectedBlockIds: [],
+      activeBlockId: null
+    })
+    const generateImage = vi.fn()
+    const service = new MutationProposalService({
+      projectId: value.manifest.projectId,
+      projectSessionId,
+      database: value.database,
+      manuscript: value.manuscript,
+      editorPersistence: value.persistence,
+      manuscriptAssets: new ManuscriptAssetService({
+        projectRoot: value.projectRoot,
+        projectId: value.manifest.projectId,
+        database: value.database,
+        log
+      }),
+      modelExecution: { generateImage } as never,
+      log
+    })
+    const proposed = service.proposeGeneratedImage(
+      {
+        sectionId: opened.section.sectionId,
+        anchor: null,
+        placement: 'end',
+        prompt: 'An image that must not be billed after a stale edit',
+        altText: 'Stale image',
+        caption: '',
+        aspectRatio: 'auto',
+        imageSize: '1K'
+      },
+      snapshot,
+      value.toolCall('generate_image')
+    )
+    await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('new-base', 'Changed before approval')]
+    })
+    await expect(
+      service.approve({ projectSessionId, agentSessionId, proposalId: proposed.proposalId })
+    ).rejects.toMatchObject({ code: 'stale_base' })
+    expect(generateImage).not.toHaveBeenCalled()
+    value.database.close()
+  })
 })
 
 async function fixture() {
@@ -979,12 +1203,19 @@ async function fixture() {
   })
   let sequence = 0
   return {
+    projectRoot,
     database,
     manuscript,
     persistence,
     manifest,
     service,
-    toolCall(toolName: 'submit_brief_change' | 'submit_outline_change' | 'submit_section_change') {
+    toolCall(
+      toolName:
+        | 'submit_brief_change'
+        | 'submit_outline_change'
+        | 'submit_section_change'
+        | 'generate_image'
+    ) {
       sequence += 1
       const eventId = `019c6a5c-8d34-7a8e-a602-3d37a52dc7${String(sequence + 9).padStart(2, '0')}`
       const toolCallId = `tool-call-${sequence}`
@@ -1016,6 +1247,37 @@ async function fixture() {
       }
     }
   }
+}
+
+const imageModelRequestId = '019c6a5c-8d34-4a8e-a602-3d37a52dc799'
+
+function seedImageModelRequest(database: ProjectDatabase): void {
+  const now = '2026-07-21T00:00:00.000Z'
+  database.immediate((native) =>
+    native
+      .prepare(
+        `INSERT INTO model_requests (
+           model_request_id, operation_kind, provider_id, model_id, provider_fingerprint,
+           request_fingerprint, status, attempt_count, retry_count, input_tokens, output_tokens,
+           cache_read_tokens, cache_write_tokens, input_items, output_items,
+           estimated_cost_usd_micros, usage_json, response_ids_json, error_json,
+           operation_id, job_id, agent_run_id, started_at, completed_at, duration_ms,
+           created_at, updated_at
+         ) VALUES (?, 'image', 'google-gemini', 'gemini-3.1-flash-image', ?, ?, 'succeeded',
+                   1, 0, 10, 20, NULL, NULL, 1, 1, NULL, '{}', '["gemini-response"]', NULL,
+                   'image-operation', NULL, ?, ?, ?, 1, ?, ?)`
+      )
+      .run(imageModelRequestId, 'c'.repeat(64), 'd'.repeat(64), agentRunId, now, now, now, now)
+  )
+}
+
+function png(width: number, height: number): Buffer {
+  const bytes = Buffer.alloc(24)
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes)
+  bytes.write('IHDR', 12, 'ascii')
+  bytes.writeUInt32BE(width, 16)
+  bytes.writeUInt32BE(height, 20)
+  return bytes
 }
 
 function seedAgent(database: ProjectDatabase): void {

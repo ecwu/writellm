@@ -1115,7 +1115,8 @@ export class MineruWorkflowService {
 
 export function registerMineruHandlers(
   registry: JobHandlerRegistry,
-  service: MineruWorkflowService
+  service: MineruWorkflowService,
+  cleanupManuscriptAssets?: () => Promise<number>
 ): void {
   service.requeuePendingArtifactCleanups()
   registry.register('mineru_parse', (context) => audited(service, context), {
@@ -1124,12 +1125,23 @@ export function registerMineruHandlers(
     heartbeatMs: 15_000,
     closePolicy: 'abort-and-requeue'
   })
-  registry.register('artifact_cleanup', (context) => service.handleArtifactCleanup(context), {
-    timeoutMs: 10 * 60_000,
-    leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'abort-and-requeue'
-  })
+  registry.register(
+    'artifact_cleanup',
+    async (context) => {
+      const cleanupId = context.job.payload.cleanupId
+      if (typeof cleanupId === 'string' && cleanupId.startsWith('manuscript-asset:')) {
+        await cleanupManuscriptAssets?.()
+        return
+      }
+      await service.handleArtifactCleanup(context)
+    },
+    {
+      timeoutMs: 10 * 60_000,
+      leaseMs: 60_000,
+      heartbeatMs: 15_000,
+      closePolicy: 'abort-and-requeue'
+    }
+  )
 }
 
 async function audited(service: MineruWorkflowService, context: JobHandlerContext): Promise<void> {

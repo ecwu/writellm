@@ -294,7 +294,12 @@ export function isSectionProposalOutdated(
   proposal: MutationProposalRecord,
   currentRevisionIds: Readonly<Record<string, string>>
 ): boolean {
-  if (proposal.status !== 'pending' || proposal.payload.kind !== 'section_patch') return false
+  if (
+    proposal.status !== 'pending' ||
+    (proposal.payload.kind !== 'section_patch' &&
+      proposal.payload.kind !== 'generated_image_insert')
+  )
+    return false
   const mutation = proposal.payload.mutation
   return currentRevisionIds[mutation.sectionId] !== mutation.baseRevisionId
 }

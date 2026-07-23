@@ -33,6 +33,7 @@ import type {
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import { prepareSectionContent } from './content'
+import { recordRevisionAssetReferences } from './asset-service'
 import { ManuscriptRepository } from './manuscript-repository'
 
 const POSITION_OFFSET = 1_000_000_000
@@ -530,6 +531,7 @@ export class ManuscriptService {
           agentProposalId: parsed.agentProposalId,
           createdAt: now
         })
+        recordRevisionAssetReferences(database, revisionId, parsed.content, now)
         const updated = database
           .prepare(
             `UPDATE sections SET current_revision_id = ?, updated_at = ?

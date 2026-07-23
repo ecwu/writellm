@@ -266,6 +266,22 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
+  handle(IPC_CHANNELS.projectRecoveryStaleLock, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    projectRecoveryActionInputSchema.parse(input)
+    try {
+      return projectLifecycleSnapshotSchema.parse(
+        await options.manager.recoverStaleLockAndRetryOpen()
+      )
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recovery.stale_lock.failed', err },
+        'Stale project lock recovery failed'
+      )
+      throw operationError('Unable to recover the stale project lock')
+    }
+  })
+
   handle(IPC_CHANNELS.projectRecoveryRetryClose, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     projectRecoveryActionInputSchema.parse(input)
@@ -403,6 +419,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectSwitch,
       IPC_CHANNELS.projectClose,
       IPC_CHANNELS.projectRecoveryRetryOpen,
+      IPC_CHANNELS.projectRecoveryStaleLock,
       IPC_CHANNELS.projectRecoveryRetryClose,
       IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate,
       IPC_CHANNELS.projectRecoveryLocateMoved,

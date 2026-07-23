@@ -1,12 +1,18 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
-import { useCreateBlockNote } from '@blocknote/react'
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
+import {
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+  useCreateBlockNote
+} from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { AlertCircle, Check, LoaderCircle } from 'lucide-react'
+import { AlertCircle, Check, LoaderCircle, Sigma, Workflow } from 'lucide-react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/theme-provider'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
+import { logicalAssetId, resolveProjectAssetUrl } from './project-asset-url'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
@@ -55,7 +61,27 @@ export const SectionEditor = forwardRef<
           }
         ]
       : (props.revision.content as ApprovedEditorBlock[])
-  const editor = useCreateBlockNote({ schema: approvedEditorSchema, initialContent })
+  const editor = useCreateBlockNote(
+    {
+      schema: approvedEditorSchema,
+      initialContent,
+      uploadFile: async (file) => {
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+          throw new Error('Only PNG, JPEG, and WebP images are supported')
+        }
+        const result = await window.desktop.editor.uploadAsset({
+          projectSessionId: props.projectSessionId,
+          originalName: file.name,
+          mimeType: file.type as 'image/png' | 'image/jpeg' | 'image/webp',
+          dataBase64: await fileToBase64(file)
+        })
+        return result.logicalUrl
+      },
+      resolveFileUrl: (url) =>
+        resolveProjectAssetUrl(url, props.projectSessionId, window.desktop.editor.resolveAsset)
+    },
+    [props.projectSessionId]
+  )
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
   const baseRef = useRef(props.revision)
@@ -148,7 +174,13 @@ export const SectionEditor = forwardRef<
     try {
       if (runningRef.current !== null) await runningRef.current
       const base = baseRef.current
-      const blocks = await file.text().then((markdown) => editor.tryParseMarkdownToBlocks(markdown))
+      const parsedBlocks = await file
+        .text()
+        .then(preprocessRichMarkdown)
+        .then((markdown) => editor.tryParseMarkdownToBlocks(markdown))
+        .then(convertImportedRichBlocks)
+      const blocks = await resolveImportedImages(parsedBlocks, props.projectSessionId)
+      assertSafeImportedImages(blocks)
       replacingImportedDocumentRef.current = true
       editor.replaceBlocks(editor.document, blocks)
       setSaveState('saving')
@@ -197,7 +229,7 @@ export const SectionEditor = forwardRef<
         sectionId: revision.sectionId,
         sectionRevisionId: revision.sectionRevisionId,
         contentHash: revision.contentHash,
-        markdown: editor.blocksToMarkdownLossy(revision.content as ApprovedEditorBlock[])
+        markdown: exportRichMarkdown(editor, revision.content as ApprovedEditorBlock[])
       })
     } catch (error) {
       setSaveState('failed')
@@ -255,6 +287,7 @@ export const SectionEditor = forwardRef<
       <BlockNoteView
         editor={editor}
         theme={resolvedTheme}
+        slashMenu={false}
         editable={!readOnly && saveState !== 'conflict'}
         onChange={() => {
           if (replacingImportedDocumentRef.current) {
@@ -276,7 +309,43 @@ export const SectionEditor = forwardRef<
           })
         }}
         className='writing-editor min-h-[32rem] py-6'
-      />
+      >
+        <SuggestionMenuController
+          triggerCharacter='/'
+          getItems={async (query) =>
+            filterSuggestionItems(
+              [
+                ...getDefaultReactSlashMenuItems(editor),
+                {
+                  title: 'Mermaid',
+                  subtext: 'Insert an editable Mermaid diagram',
+                  aliases: ['diagram', 'figure', 'flowchart'],
+                  group: 'Rich media',
+                  icon: <Workflow className='size-4' />,
+                  onItemClick: () =>
+                    insertOrUpdateBlockForSlashMenu(editor, {
+                      type: 'mermaid',
+                      props: { source: '', caption: '', textAlignment: 'center', previewWidth: 720 }
+                    })
+                },
+                {
+                  title: 'Math',
+                  subtext: 'Insert a display LaTeX formula',
+                  aliases: ['latex', 'equation', 'formula'],
+                  group: 'Rich media',
+                  icon: <Sigma className='size-4' />,
+                  onItemClick: () =>
+                    insertOrUpdateBlockForSlashMenu(editor, {
+                      type: 'math',
+                      props: { source: '', caption: '', textAlignment: 'center', previewWidth: 720 }
+                    })
+                }
+              ],
+              query
+            )
+          }
+        />
+      </BlockNoteView>
       <div className='flex justify-end px-1 py-2'>
         <SaveStatus state={saveState} />
       </div>
@@ -354,6 +423,116 @@ export const SectionEditor = forwardRef<
     </div>
   )
 })
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('Image could not be read'))
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string') {
+        reject(new Error('Image could not be encoded'))
+        return
+      }
+      const separator = result.indexOf(',')
+      if (separator < 0) {
+        reject(new Error('Image could not be encoded'))
+        return
+      }
+      resolve(result.slice(separator + 1))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function preprocessRichMarkdown(markdown: string): string {
+  return markdown.replace(
+    /(^|\n)\$\$[ \t]*\n?([\s\S]*?)\n?[ \t]*\$\$(?=\n|$)/g,
+    (_match, prefix: string, source: string) => `${prefix}\`\`\`writellm-math\n${source}\n\`\`\``
+  )
+}
+
+function convertImportedRichBlocks(blocks: ApprovedEditorBlock[]): ApprovedEditorBlock[] {
+  return blocks.map((block) => {
+    const children = convertImportedRichBlocks(block.children)
+    if (block.type !== 'codeBlock') return { ...block, children }
+    const language = block.props.language.toLowerCase()
+    const source = inlineText(block.content)
+    if (language === 'mermaid' || language === 'writellm-math') {
+      return {
+        id: block.id,
+        type: language === 'mermaid' ? 'mermaid' : 'math',
+        props: {
+          source,
+          caption: '',
+          textAlignment: 'center',
+          previewWidth: 720
+        },
+        children
+      } as ApprovedEditorBlock
+    }
+    return { ...block, children }
+  })
+}
+
+function assertSafeImportedImages(blocks: ApprovedEditorBlock[]): void {
+  for (const block of blocks) {
+    if (block.type === 'image' && block.props.url !== '') logicalAssetId(block.props.url)
+    assertSafeImportedImages(block.children)
+  }
+}
+
+async function resolveImportedImages(
+  blocks: ApprovedEditorBlock[],
+  projectSessionId: string
+): Promise<ApprovedEditorBlock[]> {
+  return Promise.all(
+    blocks.map(async (block) => {
+      const children = await resolveImportedImages(block.children, projectSessionId)
+      if (block.type !== 'image' || block.props.url.startsWith('writellm-asset:')) {
+        return { ...block, children }
+      }
+      const result = await window.desktop.editor.resolveImportAsset({
+        projectSessionId,
+        reference: block.props.url
+      })
+      return { ...block, props: { ...block.props, url: result.logicalUrl }, children }
+    })
+  )
+}
+
+function exportRichMarkdown(
+  editor: ReturnType<typeof useCreateBlockNote<{ schema: typeof approvedEditorSchema }>>,
+  blocks: ApprovedEditorBlock[]
+): string {
+  const markdownBlocks = blocks.map(toMarkdownBlock)
+  return editor
+    .blocksToMarkdownLossy(markdownBlocks)
+    .replace(/```writellm-math\n([\s\S]*?)\n```/g, (_match, source: string) => `$$\n${source}\n$$`)
+}
+
+function toMarkdownBlock(block: ApprovedEditorBlock): ApprovedEditorBlock {
+  const children = block.children.map(toMarkdownBlock)
+  if (block.type !== 'mermaid' && block.type !== 'math') return { ...block, children }
+  return {
+    id: block.id,
+    type: 'codeBlock',
+    props: { language: block.type === 'mermaid' ? 'mermaid' : 'writellm-math' },
+    content: [{ type: 'text', text: block.props.source, styles: {} }],
+    children
+  } as ApprovedEditorBlock
+}
+
+function inlineText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((value) => {
+      if (value === null || typeof value !== 'object') return ''
+      const record = value as Record<string, unknown>
+      return typeof record.text === 'string' ? record.text : ''
+    })
+    .join('')
+}
 
 function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
   const labels: Record<SaveState, string> = {

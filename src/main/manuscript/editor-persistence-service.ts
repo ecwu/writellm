@@ -344,8 +344,8 @@ export class EditorPersistenceService {
                )
                AND NOT EXISTS (
                  SELECT 1 FROM mutation_proposals AS pending_proposal
-                 WHERE pending_proposal.kind = 'section_patch'
-                   AND pending_proposal.status = 'pending'
+                 WHERE pending_proposal.kind IN ('section_patch', 'generated_image_insert')
+                   AND pending_proposal.status IN ('pending', 'generating')
                    AND pending_proposal.base_revision_id = section_revisions.section_revision_id
                )
              ORDER BY revision_number DESC LIMIT -1 OFFSET ?
@@ -369,8 +369,8 @@ export class EditorPersistenceService {
              )
              AND NOT EXISTS (
                SELECT 1 FROM mutation_proposals AS pending_proposal
-               WHERE pending_proposal.kind = 'section_patch'
-                 AND pending_proposal.status = 'pending'
+               WHERE pending_proposal.kind IN ('section_patch', 'generated_image_insert')
+                 AND pending_proposal.status IN ('pending', 'generating')
                  AND pending_proposal.base_revision_id = section_revisions.section_revision_id
              )
              AND (
@@ -417,14 +417,24 @@ export class EditorPersistenceService {
                )
                AND NOT EXISTS (
                  SELECT 1 FROM mutation_proposals AS pending_proposal
-                 WHERE pending_proposal.kind = 'section_patch'
-                   AND pending_proposal.status = 'pending'
+                 WHERE pending_proposal.kind IN ('section_patch', 'generated_image_insert')
+                   AND pending_proposal.status IN ('pending', 'generating')
                    AND pending_proposal.base_revision_id = section_revisions.section_revision_id
                )
              ORDER BY revision_number DESC LIMIT -1 OFFSET ?
            )`
         )
         .run(sectionId, sectionId, IMPORT_BODY_LIMIT)
+
+      database
+        .prepare(
+          `DELETE FROM section_revision_assets
+           WHERE section_revision_id IN (
+             SELECT section_revision_id FROM section_revisions
+             WHERE section_id = ? AND content_body_retained = 0
+           )`
+        )
+        .run(sectionId)
     })
   }
 }

@@ -29,6 +29,14 @@ export interface LoggerSystem {
   flush(): Promise<void>
 }
 
+function serializeErrWithCause(err: Error): unknown {
+  const serialized = pino.stdSerializers.errWithCause(err) as Record<string, unknown>
+  if (serialized.cause === undefined && err.cause !== undefined) {
+    serialized.cause = String(err.cause).slice(0, 4_096)
+  }
+  return serialized
+}
+
 export async function createLoggerSystem(options: LoggerOptions): Promise<LoggerSystem> {
   await mkdir(options.logDirectory, { recursive: true })
   const ringBuffer = new LogRingBuffer(options.ringBufferCapacity)
@@ -71,7 +79,10 @@ export async function createLoggerSystem(options: LoggerOptions): Promise<Logger
       timestamp: pino.stdTimeFunctions.isoTime,
       mixin: currentLogContext,
       serializers: {
-        err: (err) => redactLogValue(pino.stdSerializers.err(err))
+        // errWithCause preserves the non-enumerable ES2022 `cause` chain for Error causes,
+        // but drops primitive causes (worker-boundary errors carry the original provider
+        // error as a string). Re-attach those, bounded, so provider diagnostics survive.
+        err: (err) => redactLogValue(serializeErrWithCause(err))
       },
       redact: {
         paths: [

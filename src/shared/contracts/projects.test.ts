@@ -5,6 +5,7 @@ import {
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
   projectLifecycleStateSchema,
+  projectRecoveryContextSchema,
   recentProjectOpenInputSchema,
   recentProjectSchema,
   recentProjectsSchema,
@@ -37,6 +38,36 @@ describe('project contracts', () => {
       project: activeProject
     })
     expect(projectSelectionResultSchema.parse({ project: null })).toEqual({ project: null })
+  })
+
+  it('accepts only bounded recovery context without paths or lock owner metadata', () => {
+    const recovery = { kind: 'open' as const, reason: 'lock-contended' as const }
+    expect(projectRecoveryContextSchema.parse(recovery)).toEqual(recovery)
+    expect(
+      projectLifecycleSnapshotSchema.parse({
+        state: 'recovery-required',
+        activeProject: null,
+        recovery
+      })
+    ).toEqual({
+      state: 'recovery-required',
+      activeProject: null,
+      recovery
+    })
+    expect(() =>
+      projectRecoveryContextSchema.parse({
+        ...recovery,
+        projectRoot: '/private/project',
+        ownerToken: activeProject.projectId
+      })
+    ).toThrow()
+    expect(() =>
+      projectLifecycleSnapshotSchema.parse({
+        state: 'closed',
+        activeProject: null,
+        recovery
+      })
+    ).toThrow()
   })
 
   it('accepts bounded recent project metadata and opaque open input', () => {

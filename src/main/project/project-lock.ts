@@ -7,6 +7,7 @@ import { PROJECT_LOCK_RELATIVE_PATH, resolveProjectPath } from './project-paths'
 
 const LOCK_METADATA_SUFFIX = '.json'
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
+export const PROJECT_LOCK_STALE_AFTER_MS = 60_000
 
 export interface ProjectLockMetadata {
   ownerToken: string

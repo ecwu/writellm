@@ -478,7 +478,8 @@ function isMutationTool(toolName: string): boolean {
   return (
     toolName === 'submit_brief_change' ||
     toolName === 'submit_outline_change' ||
-    toolName === 'submit_section_change'
+    toolName === 'submit_section_change' ||
+    toolName === 'generate_image'
   )
 }
 

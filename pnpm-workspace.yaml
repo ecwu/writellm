@@ -5,3 +5,4 @@ allowBuilds:
   electron-winstaller: false
   esbuild: true
   protobufjs: false
+verifyDepsBeforeRun: false

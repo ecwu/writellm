@@ -1,3 +1,4 @@
+import { GoogleGenAI } from '@google/genai'
 import type {
   ProviderProbeRequest,
   ProviderProbeResponse
@@ -9,6 +10,9 @@ export async function runProviderProbeRequest(
   signal?: AbortSignal
 ): Promise<ProviderProbeResponse> {
   try {
+    if (request.config.role === 'image') {
+      return await runGeminiProviderProbe(request, signal)
+    }
     const path =
       request.config.role === 'mineru' ? 'api/v4/extract/task/__writellm_probe__' : 'models'
     const response = await fetchImplementation(new URL(path, `${request.config.baseUrl}/`), {
@@ -57,4 +61,51 @@ export async function runProviderProbeRequest(
       }
     }
   }
+}
+
+async function runGeminiProviderProbe(
+  request: ProviderProbeRequest,
+  signal?: AbortSignal
+): Promise<ProviderProbeResponse> {
+  const ai = new GoogleGenAI({ apiKey: request.credential })
+  try {
+    await ai.models.get({
+      model: request.config.model,
+      ...(signal === undefined ? {} : { config: { abortSignal: signal } })
+    })
+    return {
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId ?? null,
+      status: 200
+    }
+  } catch (error) {
+    const status = sdkHttpStatus(error)
+    if (status !== undefined) {
+      return {
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId ?? null,
+        status
+      }
+    }
+    if (signal?.aborted) {
+      const aborted = new Error('Gemini provider probe aborted')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
+    throw new Error('Gemini provider probe failed')
+  }
+}
+
+function sdkHttpStatus(value: unknown): number | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  for (const key of ['status', 'statusCode']) {
+    const status = record[key]
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+      return status
+    }
+  }
+  return undefined
 }

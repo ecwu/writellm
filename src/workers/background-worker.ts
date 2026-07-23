@@ -116,6 +116,18 @@ async function dispatch(value: unknown): Promise<void> {
     try {
       post(await runAuxiliaryModelRequest(auxiliary.data, fetch, controller.signal))
     } catch (err) {
+      if (auxiliary.data.operation === 'image') {
+        workerLog?.(
+          'error',
+          'worker.background.image_generation_failed',
+          'Background image generation request failed',
+          {
+            modelId: auxiliary.data.config.model,
+            promptLength: auxiliary.data.input.prompt.length
+          },
+          err
+        )
+      }
       post({
         type: 'error',
         requestId: auxiliary.data.requestId,
@@ -201,14 +213,17 @@ function serializeModelError(
   message: string
   stack?: string
   httpStatus?: number
+  providerCode?: string
 } {
   const original = error instanceof Error ? error : new Error(fallback, { cause: error })
   const message = original.name === 'AbortError' ? `${fallback} aborted` : fallback
+  const providerCode = findProviderCode(original)
   return {
     name: original.name.slice(0, 200),
     message,
     ...(original.stack === undefined ? {} : { stack: safeStack(original.stack, message) }),
-    ...(findHttpStatus(original) === undefined ? {} : { httpStatus: findHttpStatus(original) })
+    ...(findHttpStatus(original) === undefined ? {} : { httpStatus: findHttpStatus(original) }),
+    ...(providerCode === undefined ? {} : { providerCode })
   }
 }
 
@@ -224,6 +239,18 @@ function findHttpStatus(error: unknown, depth = 0): number | undefined {
   return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
     ? status
     : findHttpStatus(candidate.cause, depth + 1)
+}
+
+function findProviderCode(error: unknown, depth = 0): string | undefined {
+  if (depth > 5 || error === null || typeof error !== 'object') return undefined
+  const candidate = error as { providerCode?: unknown; cause?: unknown }
+  if (
+    typeof candidate.providerCode === 'string' &&
+    /^[A-Z][A-Z0-9_]{1,127}$/.test(candidate.providerCode)
+  ) {
+    return candidate.providerCode
+  }
+  return findProviderCode(candidate.cause, depth + 1)
 }
 
 function extractRequestId(value: unknown): string {

@@ -19,6 +19,7 @@ import {
   undoMutationProposalInputSchema,
   type AgentProposalToolName,
   type BriefUpdate,
+  type GenerateImageArgs,
   type MutationCitedSource,
   type MutationPreview,
   type MutationProposalRecord,
@@ -47,9 +48,16 @@ import type {
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import { prepareSectionContent } from '../manuscript/content'
+import {
+  assetUrl,
+  recordRevisionAssetReferences,
+  type ManuscriptAssetService
+} from '../manuscript/asset-service'
+import type { ModelExecutionService } from '../providers/model-execution-service'
 import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { AgentToolDomainError } from './read-tools'
+import type { WritingSnapshot } from './context'
 import { MutationSimulationError, simulateSectionPatch } from './mutation-simulator'
 import {
   analyzeSectionProposalRefresh,
@@ -155,6 +163,9 @@ type ApprovalTransactionResult =
 export class MutationProposalService {
   readonly #now: () => Date
   readonly #createId: () => string
+  readonly #imageControllers = new Map<string, AbortController>()
+  readonly #imageCompletions = new Map<string, Promise<void>>()
+  readonly #settleImageCompletion = new Map<string, () => void>()
 
   constructor(
     private readonly options: {
@@ -163,6 +174,8 @@ export class MutationProposalService {
       database: ProjectDatabase
       manuscript: ManuscriptService
       editorPersistence: EditorPersistenceService
+      manuscriptAssets?: ManuscriptAssetService
+      modelExecution?: ModelExecutionService
       log: Pick<Logger, 'info' | 'warn' | 'error'>
       publishChanged?: (event: MutationProposalChanged) => void
       flushForMutation?: (affectedSectionIds: readonly string[]) => Promise<void>
@@ -172,6 +185,27 @@ export class MutationProposalService {
   ) {
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
+  }
+
+  cancelImageGeneration(agentSessionId: string, proposalId: string): boolean {
+    const row = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT status FROM mutation_proposals
+             WHERE mutation_proposal_id = ? AND agent_session_id = ?
+               AND kind = 'generated_image_insert'`
+          )
+          .get(proposalId, agentSessionId) as { status: string } | undefined
+    )
+    if (row?.status !== 'generating') return false
+    this.#imageControllers.get(proposalId)?.abort()
+    return true
+  }
+
+  async cancelAllImageGenerations(): Promise<void> {
+    for (const controller of this.#imageControllers.values()) controller.abort()
+    await Promise.allSettled([...this.#imageCompletions.values()])
   }
 
   list(agentSessionId: string): MutationProposalRecord[] {
@@ -373,9 +407,115 @@ export class MutationProposalService {
     }
   }
 
+  proposeGeneratedImage(
+    rawArgs: GenerateImageArgs,
+    snapshot: WritingSnapshot,
+    context: ProposalToolExecutionContext
+  ): MutationProposalToolResult {
+    if (context.signal.aborted) throw abortedToolError()
+    const args = rawArgs
+    const entry = snapshot.workspace.sections.find(
+      (candidate) => candidate.section.sectionId === args.sectionId
+    )
+    if (entry === undefined) throw new AgentToolDomainError('not_found', 'Section does not exist')
+    const baseRevisionId = entry.section.currentRevisionId
+    const document = snapshot.sectionContents.get(baseRevisionId)
+    if (document === undefined) {
+      throw new AgentToolDomainError('conflict', 'Mutation source snapshot expired')
+    }
+    if (args.anchor !== null) verifyBlockPrecondition(document, args.anchor)
+    const proposalId = this.#createId()
+    const result = this.options.database.immediate((database) => {
+      requireToolCall(database, context)
+      const section = requireSection(database, args.sectionId)
+      if (section.current_revision_id !== baseRevisionId) throw staleBase('section')
+      const preview = createPreview({
+        summary: 'Generate and insert one image',
+        affectedSectionIds: [args.sectionId],
+        beforeText: '',
+        afterText: `Image: ${args.altText}\nCaption: ${args.caption}\nPrompt: ${args.prompt}`,
+        citedSources: []
+      })
+      const payload = persistedMutationProposalPayloadSchema.parse({
+        schemaVersion: 1,
+        kind: 'generated_image_insert',
+        mutation: {
+          schemaVersion: 1,
+          sectionId: args.sectionId,
+          baseRevisionId,
+          anchor: args.anchor,
+          placement: args.placement,
+          prompt: args.prompt,
+          altText: args.altText,
+          caption: args.caption,
+          aspectRatio: args.aspectRatio,
+          imageSize: args.imageSize,
+          assetId: null,
+          imageModelRequestId: null
+        },
+        preview,
+        provenance: { modelRequestId: context.modelRequestId, citedSources: [] }
+      })
+      const now = this.#now().toISOString()
+      database
+        .prepare(
+          `INSERT INTO mutation_proposals (
+             mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+             agent_tool_call_id, kind, payload_json, base_revision_id,
+             base_brief_version, base_outline_version, status, decision_at,
+             applied_revision_id, applied_brief_version, applied_outline_version,
+             undo_revision_id, rejected_reason, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'generated_image_insert', ?, ?, NULL, NULL, 'pending', NULL,
+                     NULL, NULL, NULL, NULL, NULL, ?, ?)`
+        )
+        .run(
+          proposalId,
+          context.agentSessionId,
+          context.agentRunId,
+          context.toolCallEventId,
+          context.toolCallId,
+          JSON.stringify(payload),
+          baseRevisionId,
+          now,
+          now
+        )
+      return mutationProposalToolResultSchema.parse({
+        proposalId,
+        kind: 'generated_image_insert',
+        status: 'pending',
+        preview
+      })
+    })
+    this.options.publishChanged?.({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: context.agentSessionId,
+      proposalId,
+      kind: 'generated_image_insert',
+      status: 'pending',
+      sectionChanged: null
+    })
+    return result
+  }
+
   async approve(rawInput: unknown) {
     const input = approveMutationProposalInputSchema.parse(rawInput)
     this.#assertProjectSession(input.projectSessionId)
+    const initialPayload = this.options.database.immediate((database) => {
+      const row = requireProposal(database, input.agentSessionId, input.proposalId)
+      return persistedMutationProposalPayloadSchema.parse(JSON.parse(row.payload_json))
+    })
+    if (initialPayload.kind === 'generated_image_insert') {
+      const result = await this.#approveGeneratedImage(input.agentSessionId, input.proposalId)
+      this.options.publishChanged?.({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: input.agentSessionId,
+        proposalId: result.proposal.proposalId,
+        kind: result.proposal.kind,
+        status: result.proposal.status,
+        sectionChanged: result.sectionChanged
+      })
+      return result
+    }
     const affectedSectionIds = this.options.database.immediate((database) => {
       const row = requireProposal(database, input.agentSessionId, input.proposalId)
       return persistedMutationProposalPayloadSchema.parse(JSON.parse(row.payload_json)).preview
@@ -590,7 +730,349 @@ export class MutationProposalService {
           })
         }
       }
+      case 'generate_image':
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'Image generation must use the dedicated proposal path'
+        )
     }
+  }
+
+  async #approveGeneratedImage(agentSessionId: string, proposalId: string) {
+    if (this.options.manuscriptAssets === undefined || this.options.modelExecution === undefined) {
+      throw new MutationProposalError(
+        'invalid_proposal',
+        'Image generation is unavailable for this project session'
+      )
+    }
+    const assets = this.options.manuscriptAssets
+    const execution = this.options.modelExecution
+    const prepared = this.options.database.immediate((database) => {
+      const row = requireProposal(database, agentSessionId, proposalId)
+      if (row.status !== 'pending') {
+        throw new MutationProposalError(
+          'proposal_not_pending',
+          'Image proposal is no longer pending'
+        )
+      }
+      const payload = persistedMutationProposalPayloadSchema.parse(JSON.parse(row.payload_json))
+      if (payload.kind !== 'generated_image_insert') {
+        throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
+      }
+      const section = requireSection(database, payload.mutation.sectionId)
+      if (section.current_revision_id !== payload.mutation.baseRevisionId)
+        throw staleBase('section')
+      const revision = requireRevision(database, payload.mutation.baseRevisionId)
+      const document = blockNoteDocumentSchema.parse(JSON.parse(revision.content_json))
+      if (payload.mutation.anchor !== null) {
+        verifyBlockPrecondition(document, payload.mutation.anchor)
+      }
+      if (payload.mutation.assetId !== null) return { row, payload, needsGeneration: false }
+      const now = this.#now().toISOString()
+      const changed = database
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'generating', decision_at = ?, updated_at = ?
+            WHERE mutation_proposal_id = ? AND status = 'pending'`
+        )
+        .run(now, now, proposalId)
+      if (changed.changes !== 1) {
+        throw new MutationProposalError(
+          'proposal_not_pending',
+          'Image proposal is no longer pending'
+        )
+      }
+      return { row, payload, needsGeneration: true }
+    })
+
+    let payload = prepared.payload
+    if (prepared.needsGeneration) {
+      this.options.publishChanged?.({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId,
+        proposalId,
+        kind: 'generated_image_insert',
+        status: 'generating',
+        sectionChanged: null
+      })
+      const controller = new AbortController()
+      this.#imageControllers.set(proposalId, controller)
+      this.#imageCompletions.set(
+        proposalId,
+        new Promise<void>((resolve) => this.#settleImageCompletion.set(proposalId, resolve))
+      )
+      const generationStartedAt = Date.now()
+      this.options.log.info(
+        {
+          event: 'agent.image_generation.started',
+          proposalId,
+          agentSessionId,
+          promptLength: payload.mutation.prompt.length,
+          promptHash: createHash('sha256').update(payload.mutation.prompt).digest('hex'),
+          aspectRatio: payload.mutation.aspectRatio,
+          imageSize: payload.mutation.imageSize
+        },
+        'Agent image generation started'
+      )
+      try {
+        const generated = await execution.generateImage(
+          this.options.database,
+          {
+            prompt: payload.mutation.prompt,
+            aspectRatio: payload.mutation.aspectRatio,
+            imageSize: payload.mutation.imageSize
+          },
+          {
+            operationId: this.#createId(),
+            agentRunId: prepared.row.agent_run_id,
+            projectSessionId: this.options.projectSessionId
+          },
+          controller.signal
+        )
+        const asset = await assets.store({
+          bytes: Buffer.from(generated.dataBase64, 'base64'),
+          mimeType: generated.mimeType,
+          sourceType: 'generated',
+          generationRequest: {
+            prompt: payload.mutation.prompt,
+            aspectRatio: payload.mutation.aspectRatio,
+            requestedImageSize: payload.mutation.imageSize,
+            effectiveImageSize: generated.effectiveImageSize
+          },
+          modelRequestId: generated.modelRequestId,
+          agentRunId: prepared.row.agent_run_id,
+          agentToolCallId: prepared.row.agent_tool_call_id
+        })
+        const updatedPayload = persistedMutationProposalPayloadSchema.parse({
+          ...payload,
+          mutation: {
+            ...payload.mutation,
+            assetId: asset.assetId,
+            imageModelRequestId: generated.modelRequestId
+          }
+        })
+        if (updatedPayload.kind !== 'generated_image_insert') {
+          throw new MutationProposalError(
+            'invalid_proposal',
+            'Generated image payload changed kind'
+          )
+        }
+        payload = updatedPayload
+        this.options.log.info(
+          {
+            event: 'agent.image_generation.completed',
+            proposalId,
+            agentSessionId,
+            assetId: asset.assetId,
+            modelRequestId: generated.modelRequestId,
+            modelId: generated.metadata.providerModelId,
+            requestedImageSize: payload.mutation.imageSize,
+            effectiveImageSize: generated.effectiveImageSize,
+            durationMs: Date.now() - generationStartedAt
+          },
+          'Agent image generation completed'
+        )
+        this.options.database.immediate((database) => {
+          const changed = database
+            .prepare(
+              `UPDATE mutation_proposals SET payload_json = ?, updated_at = ?
+               WHERE mutation_proposal_id = ? AND status = 'generating'`
+            )
+            .run(JSON.stringify(payload), this.#now().toISOString(), proposalId)
+          if (changed.changes !== 1) {
+            throw new MutationProposalError(
+              'proposal_not_pending',
+              'Image proposal was cancelled before publication'
+            )
+          }
+        })
+      } catch (err) {
+        this.options.log.error(
+          {
+            event: 'agent.image_generation.failed',
+            err,
+            proposalId,
+            agentSessionId,
+            cancelled: controller.signal.aborted,
+            durationMs: Date.now() - generationStartedAt
+          },
+          'Agent image generation failed'
+        )
+        this.options.database.immediate((database) => {
+          const now = this.#now().toISOString()
+          database
+            .prepare(
+              `UPDATE mutation_proposals
+                  SET status = 'failed', rejected_reason = ?, updated_at = ?
+                WHERE mutation_proposal_id = ? AND status = 'generating'`
+            )
+            .run(
+              controller.signal.aborted
+                ? 'Image generation was cancelled'
+                : 'Image generation failed safely',
+              now,
+              proposalId
+            )
+        })
+        this.options.publishChanged?.({
+          projectSessionId: this.options.projectSessionId,
+          agentSessionId,
+          proposalId,
+          kind: 'generated_image_insert',
+          status: 'failed',
+          sectionChanged: null
+        })
+        throw err
+      } finally {
+        this.#imageControllers.delete(proposalId)
+        this.#settleImageCompletion.get(proposalId)?.()
+        this.#settleImageCompletion.delete(proposalId)
+        this.#imageCompletions.delete(proposalId)
+      }
+    }
+
+    try {
+      await this.options.flushForMutation?.([payload.mutation.sectionId])
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.image_mutation_barrier.failed', err, proposalId },
+        'Generated image editor barrier failed'
+      )
+      throw new MutationProposalError(
+        'stale_base',
+        'The active editor could not be safely flushed before inserting the image',
+        { cause: err }
+      )
+    }
+
+    const transactionResult = this.options.database.immediate((database) => {
+      const row = requireProposal(database, agentSessionId, proposalId)
+      const currentPayload = persistedMutationProposalPayloadSchema.parse(
+        JSON.parse(row.payload_json)
+      )
+      if (currentPayload.kind !== 'generated_image_insert') {
+        throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
+      }
+      const section = requireSection(database, currentPayload.mutation.sectionId)
+      if (section.current_revision_id !== currentPayload.mutation.baseRevisionId) {
+        return this.#refreshGeneratedImageProposal(database, row, currentPayload, section)
+      }
+      return {
+        outcome: 'applied' as const,
+        transaction: this.#applyProposal(database, agentSessionId, proposalId)
+      }
+    })
+    if (transactionResult.outcome === 'applied') {
+      const applied = await this.#finalizeAppliedTransaction(
+        transactionResult.transaction,
+        agentSessionId,
+        proposalId,
+        'apply',
+        Date.now()
+      )
+      return approveMutationProposalResultSchema.parse({ outcome: 'applied', ...applied })
+    }
+    return approveMutationProposalResultSchema.parse({
+      ...transactionResult,
+      sectionChanged: null
+    })
+  }
+
+  #refreshGeneratedImageProposal(
+    database: Database.Database,
+    row: MutationProposalTable,
+    payload: Extract<
+      ReturnType<typeof persistedMutationProposalPayloadSchema.parse>,
+      { kind: 'generated_image_insert' }
+    >,
+    section: SectionTable
+  ): ApprovalTransactionResult {
+    const current = requireRevision(database, section.current_revision_id)
+    try {
+      if (payload.mutation.anchor !== null) {
+        verifyBlockPrecondition(
+          blockNoteDocumentSchema.parse(JSON.parse(current.content_json)),
+          payload.mutation.anchor
+        )
+      }
+    } catch (err) {
+      this.options.log.warn(
+        { event: 'agent.image_refresh.anchor_conflict', err, proposalId: row.mutation_proposal_id },
+        'Generated image proposal anchor changed during generation'
+      )
+      const now = this.#now().toISOString()
+      database
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'conflicted', decision_at = COALESCE(decision_at, ?),
+                  rejected_reason = ?, updated_at = ?
+            WHERE mutation_proposal_id = ? AND status IN ('pending', 'generating')`
+        )
+        .run(
+          now,
+          'The image was generated, but its insertion anchor changed',
+          now,
+          row.mutation_proposal_id
+        )
+      const proposal = proposalFromRow(
+        database
+          .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+          .get(row.mutation_proposal_id) as MutationProposalTable
+      )
+      return {
+        outcome: 'conflict',
+        proposal,
+        conflict: { code: 'target_changed', message: 'The image insertion anchor changed' }
+      }
+    }
+    const replacementId = this.#createId()
+    const now = this.#now().toISOString()
+    const replacementPayload = persistedMutationProposalPayloadSchema.parse({
+      ...payload,
+      mutation: { ...payload.mutation, baseRevisionId: current.section_revision_id }
+    })
+    database
+      .prepare(
+        `INSERT INTO mutation_proposals (
+           mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+           agent_tool_call_id, kind, payload_json, base_revision_id,
+           base_brief_version, base_outline_version, status, decision_at,
+           applied_revision_id, applied_brief_version, applied_outline_version,
+           undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, 'generated_image_insert', ?, ?, NULL, NULL, 'pending', NULL,
+                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?)`
+      )
+      .run(
+        replacementId,
+        row.agent_session_id,
+        row.agent_run_id,
+        row.tool_call_event_id,
+        row.agent_tool_call_id,
+        JSON.stringify(replacementPayload),
+        current.section_revision_id,
+        row.mutation_proposal_id,
+        now,
+        now
+      )
+    database
+      .prepare(
+        `UPDATE mutation_proposals
+            SET status = 'superseded', decision_at = COALESCE(decision_at, ?),
+                rejected_reason = ?, updated_at = ?
+          WHERE mutation_proposal_id = ? AND status IN ('pending', 'generating')`
+      )
+      .run(now, 'A refreshed proposal reuses the generated asset', now, row.mutation_proposal_id)
+    const previousProposal = proposalFromRow(
+      database
+        .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+        .get(row.mutation_proposal_id) as MutationProposalTable
+    )
+    const proposal = proposalFromRow(
+      database
+        .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+        .get(replacementId) as MutationProposalTable
+    )
+    return { outcome: 'refresh_required', previousProposal, proposal }
   }
 
   async #undoDecision(agentSessionId: string, proposalId: string) {
@@ -759,7 +1241,7 @@ export class MutationProposalService {
     proposalId: string
   ): ApprovalTransactionResult {
     const row = requireProposal(database, agentSessionId, proposalId)
-    if (row.status !== 'pending') {
+    if (row.status !== 'pending' && row.status !== 'generating') {
       throw new MutationProposalError(
         'proposal_not_pending',
         'Mutation proposal is no longer pending'
@@ -947,7 +1429,7 @@ export class MutationProposalService {
     proposalId: string
   ): ApplyTransactionResult {
     const row = requireProposal(database, agentSessionId, proposalId)
-    if (row.status !== 'pending') {
+    if (row.status !== 'pending' && row.status !== 'generating') {
       throw new MutationProposalError(
         'proposal_not_pending',
         'Mutation proposal is no longer pending'
@@ -1148,6 +1630,83 @@ export class MutationProposalService {
         }
         break
       }
+      case 'generated_image_insert': {
+        const mutation = payload.mutation
+        if (mutation.assetId === null || mutation.imageModelRequestId === null) {
+          throw new MutationProposalError(
+            'invalid_proposal',
+            'Generated image proposal has no published asset'
+          )
+        }
+        const section = requireSection(database, mutation.sectionId)
+        if (section.current_revision_id !== mutation.baseRevisionId) throw staleBase('section')
+        const base = requireRevision(database, mutation.baseRevisionId)
+        if (base.section_id !== mutation.sectionId || Number(base.content_body_retained) !== 1) {
+          throw new MutationProposalError('stale_base', 'Section base revision is unavailable')
+        }
+        const patch = sectionPatchSchema.parse({
+          schemaVersion: 1,
+          sectionId: mutation.sectionId,
+          baseRevisionId: mutation.baseRevisionId,
+          operations: [
+            {
+              type: 'insertBlocks',
+              anchorBlockId: mutation.anchor?.blockId ?? null,
+              placement: mutation.placement,
+              blocks: [
+                {
+                  id: this.#createId(),
+                  type: 'image',
+                  props: {
+                    backgroundColor: 'default',
+                    textAlignment: 'center',
+                    name: mutation.altText,
+                    url: assetUrl(mutation.assetId),
+                    caption: mutation.caption,
+                    showPreview: true,
+                    previewWidth: 720
+                  },
+                  children: []
+                }
+              ]
+            }
+          ],
+          citationIds: []
+        })
+        const simulation = simulateSectionPatch(
+          blockNoteDocumentSchema.parse(JSON.parse(base.content_json)),
+          patch
+        )
+        const revisionId = this.#createId()
+        insertSectionRevision(database, {
+          revisionId,
+          sectionId: mutation.sectionId,
+          revisionNumber: base.revision_number + 1,
+          source: 'agent',
+          sourceClass: 'agent_accepted',
+          content: simulation.document,
+          priorRevisionId: base.section_revision_id,
+          agentRunId: row.agent_run_id,
+          agentToolCallId: row.agent_tool_call_id,
+          agentProposalId: proposalId,
+          createdAt: now
+        })
+        const sectionUpdate = database
+          .prepare(
+            `UPDATE sections SET current_revision_id = ?, updated_at = ?
+              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
+          )
+          .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
+        if (sectionUpdate.changes !== 1) throw staleBase('section')
+        updateAppliedProposal(database, proposalId, now, { appliedRevisionId: revisionId })
+        materializeRevisionIds = [revisionId]
+        sectionChanged = {
+          sectionId: mutation.sectionId,
+          sectionRevisionId: revisionId,
+          reason: 'applied'
+        }
+        break
+      }
     }
 
     const applied = database
@@ -1167,7 +1726,7 @@ export class MutationProposalService {
     proposalId: string
   ): ApplyTransactionResult {
     const row = requireProposal(database, agentSessionId, proposalId)
-    if (row.kind !== 'section_patch') {
+    if (row.kind !== 'section_patch' && row.kind !== 'generated_image_insert') {
       throw new MutationProposalError(
         'proposal_not_undoable',
         'Only applied section proposals can be undone'
@@ -1378,7 +1937,29 @@ function proposalCitationIds(toolName: AgentProposalToolName, rawArgs: unknown):
       return outlinePatchSchema.parse(rawArgs).citationIds
     case 'submit_section_change':
       return sectionPatchSchema.parse(rawArgs).citationIds
+    case 'generate_image':
+      return []
   }
+}
+
+function verifyBlockPrecondition(
+  document: BlockNoteDocument,
+  target: { blockId: string; expectedBlockHash: string }
+): void {
+  const pending = [...document]
+  while (pending.length > 0) {
+    const block = pending.shift()
+    if (block === undefined) break
+    if (block.id === target.blockId) {
+      const actual = createHash('sha256').update(JSON.stringify(block)).digest('hex')
+      if (actual !== target.expectedBlockHash) {
+        throw new AgentToolDomainError('conflict', 'Image anchor changed')
+      }
+      return
+    }
+    pending.push(...block.children)
+  }
+  throw new AgentToolDomainError('conflict', 'Image anchor no longer exists')
 }
 
 function requirePrimaryManuscript(
@@ -1780,6 +2361,7 @@ function insertSectionRevision(
       input.agentProposalId,
       input.createdAt
     )
+  recordRevisionAssetReferences(database, input.revisionId, input.content, input.createdAt)
 }
 
 function updateAppliedProposal(
@@ -1800,7 +2382,7 @@ function updateAppliedProposal(
       `UPDATE mutation_proposals
           SET status = 'applied', decision_at = ?, applied_revision_id = ?,
               applied_brief_version = ?, applied_outline_version = ?, updated_at = ?
-        WHERE mutation_proposal_id = ? AND status = 'pending'`
+        WHERE mutation_proposal_id = ? AND status IN ('pending', 'generating')`
     )
     .run(now, appliedRevisionId, appliedBriefVersion, appliedOutlineVersion, now, proposalId)
   if (changed.changes !== 1) {

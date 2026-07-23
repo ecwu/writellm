@@ -14,7 +14,7 @@ The following rules are now the current target. Any older section in this docume
 - Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
 - Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- Agent Harness Protocol v2 uses eight bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`) and three typed submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`). ADR 005 supersedes the initial seven-tool list without adding generic authority.
+- Agent Harness Protocol v3 uses eight bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`), three typed manuscript submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`), and one bounded `generate_image` effect/proposal tool. ADR 006 adds no generic network, file, or direct-write authority.
 - The initial Agent persistence surface is `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
@@ -121,6 +121,8 @@ The exact names may be adjusted before implementation, but the ownership rules a
 - `project.sqlite` is the authoritative structured project database.
 - `index.sqlite` is derived and fully rebuildable.
 - BlockNote JSON files under `manuscript/sections/` are deterministic materializations of the current manuscript revisions.
+- Content-addressed PNG/JPEG/WebP manuscript assets live under `manuscript/assets/`; SQLite owns
+  their IDs, hashes, metadata, revision references, and generation lineage.
 - Original knowledge files and parsed MinerU artifacts remain in the project folder.
 - Embeddings live in the project-local `index.sqlite`.
 - Temporary files never become visible as complete artifacts before atomic publication.
@@ -162,6 +164,7 @@ Opening a folder requires:
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
 | PDF preview rendering   | `pdfjs-dist` 6.1.200 with a bundled Vite worker and Main-owned stream    |
 | Block editor            | BlockNote React with the shadcn-compatible UI integration                     |
+| Rich media rendering    | Native BlockNote image, Mermaid 11.16.0, and KaTeX 0.16.47 custom blocks      |
 | Renderer server state   | TanStack Query                                                                |
 | Local UI state          | React state first; Zustand only when justified                                |
 | IPC                     | `contextBridge`, narrow business APIs, `ipcMain.handle`, Zod                  |
@@ -564,6 +567,12 @@ The section title and status live outside BlockNote content. A section's BlockNo
 
 BlockNote's native block JSON is the lossless manuscript representation. Each block retains its stable BlockNote block ID.
 
+Section content schema v2 admits native `image` blocks only with
+`writellm-asset:<assetId>` references, plus source-backed `mermaid` and display-only `math`
+blocks. The reader remains compatible with schema v1 revisions. Mermaid renders lazily with strict
+security and sanitized SVG-as-image output; KaTeX uses display mode with trust disabled and bounded
+expansion/size. Syntax errors stay local to the block and never prevent persistence.
+
 The canonical current and historical section JSON lives in `section_revisions.content_json` in `project.sqlite` so revision changes, accepted agent lineage, and optimistic concurrency are transactional. After a revision commits, a durable materialization step atomically writes:
 
 ```text
@@ -574,7 +583,11 @@ The materialized file contains the current native BlockNote JSON plus a small sc
 
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
-Markdown import/export is explicitly lossy. Exported Markdown is written under `manuscript/exports/` and never silently replaces native BlockNote JSON.
+Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, block math uses
+`$$...$$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
+remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
+`manuscript/exports/` and never silently replaces native BlockNote JSON; Checkpoint 24 remains
+responsible for whole-manuscript export packages and complete asset portability UX.
 
 ### Manual editing
 
@@ -835,7 +848,7 @@ Full manuscript and knowledge access is through tools with pagination and size l
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
-### Agent Harness Protocol v2 tools
+### Agent Harness Protocol v3 tools
 
 ```text
 get_writing_context
@@ -846,6 +859,7 @@ search_knowledge
 read_citations
 inspect_change
 check_draft
+generate_image
 ```
 
 `get_writing_context` is a lightweight snapshot manifest and never returns active section text.
@@ -877,7 +891,24 @@ The tombstone is absent from active writing context, assembly, editor, and Agent
 revision and proposal lineage remains authoritative. Outline-delete undo and section restoration
 remain deferred.
 
-The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process tools, custom tool creation, plugin or skill registries, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
+`generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
+the provider, source revision, block ID, and asset ID; the background worker performs only the
+typed Gemini request through exact-pinned `@google/genai@2.13.0`. The SDK is confined to that worker
+gateway and is not exposed through Main, preload, renderer, or Agent tool code. The tool produces
+one project asset and one typed insertion proposal, never a reusable network or filesystem
+capability. The image provider has no configurable or persisted endpoint: the worker constructs
+the official client with only the request-scoped API key and invokes Interactions with
+`response_format.type = "image"` and `mime_type = "image/jpeg"` (the only value the Interactions
+API accepts; `image/png` is rejected with HTTP 400). `auto` omits `aspect_ratio`;
+fixed-1K models normalize a requested 2K to 1K, while selectable-size models send 1K or 2K.
+Renderer settings expose only the encrypted key input and a Main-validated catalog of
+`gemini-3.1-flash-lite-image`,
+`gemini-3.1-flash-image`, `gemini-3-pro-image`, and `gemini-2.5-flash-image`.
+The worker accepts bounded PNG/JPEG output and reports its actual MIME; only Main validates image
+magic and atomically publishes the project asset before a `writellm-asset:<assetId>` block
+reference can be committed.
+
+The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process/network tools, custom tool creation, plugin or skill registries, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
 
 Submit tools are sequential and create `mutation_proposals`; they do not directly commit project state.
 
@@ -1005,6 +1036,12 @@ A moved or restored project must open without absolute-path repair.
 ## Native Packaging And Verification
 
 Native risks remain better-sqlite3 and sqlite-vec. electron-builder must rebuild against the target Electron ABI and unpack required runtime assets.
+
+Routine package verification disables Apple signing-identity discovery and permits only an
+unsigned bundle or the upstream no-Team-ID ad-hoc/linker signature. Developer ID signing and strict
+deep signature validation are a separate opt-in release gate. Distribution signing is not a
+prerequisite for packaged native/runtime smoke coverage. Notarization remains disabled until
+release distribution work explicitly enables it.
 
 Packaged tests must cover:
 

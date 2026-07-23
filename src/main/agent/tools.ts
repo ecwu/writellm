@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { AgentApprovalMode, AgentEditorContext } from '../../shared/contracts/agent'
 import {
   agentProposalToolNameSchema,
+  generateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
   modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema,
@@ -41,6 +42,7 @@ interface AgentToolResultMap {
   submit_brief_change: MutationProposalToolResult
   submit_outline_change: MutationProposalToolResult
   submit_section_change: MutationProposalToolResult
+  generate_image: MutationProposalToolResult
 }
 
 export interface AgentToolExecutionInput<TName extends AgentToolName = AgentToolName> {
@@ -103,6 +105,7 @@ export class MainAgentTools implements AgentToolExecutor {
         )
       )
     }
+    if (proposal.payload.kind === 'generated_image_insert') return true
     return sectionPolicyAllows(proposal.payload.mutation.operations, proposal.payload.preview, mode)
   }
 
@@ -141,7 +144,10 @@ export class MainAgentTools implements AgentToolExecutor {
           briefVersion: payload.kind === 'brief_update' ? payload.mutation.baseBriefVersion : null,
           outlineVersion:
             payload.kind === 'outline_patch' ? payload.mutation.baseOutlineVersion : null,
-          revisionId: payload.kind === 'section_patch' ? payload.mutation.baseRevisionId : null
+          revisionId:
+            payload.kind === 'section_patch' || payload.kind === 'generated_image_insert'
+              ? payload.mutation.baseRevisionId
+              : null
         },
         result: {
           briefVersion: proposal.appliedBriefVersion,
@@ -186,6 +192,17 @@ export class MainAgentTools implements AgentToolExecutor {
     if (input.snapshot === undefined) {
       throw new AgentToolDomainError('conflict', 'Mutation source snapshot expired')
     }
+    if (proposalName === 'generate_image') {
+      const args = generateImageArgsSchema.parse(input.args)
+      return this.mutations.proposeGeneratedImage(args, input.snapshot, {
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId,
+        toolCallId: input.toolCallId,
+        toolCallEventId: input.toolCallEventId,
+        modelRequestId: input.modelRequestId,
+        signal: input.signal
+      }) as AgentToolResultMap[TName]
+    }
     if (proposalName === 'submit_section_change') {
       const args = modelSubmitSectionChangeArgsSchema.parse(input.args)
       for (const operation of args.operations) {
@@ -217,7 +234,10 @@ export class MainAgentTools implements AgentToolExecutor {
     if (!result.summary.skippedChecks.includes('citation_provenance')) return result
     const findings = [...result.findings]
     for (const proposal of this.mutations.list(agentSessionId)) {
-      const citationIds = proposal.payload.mutation.citationIds
+      const citationIds =
+        proposal.payload.kind === 'generated_image_insert'
+          ? []
+          : proposal.payload.mutation.citationIds
       const sources = new Map(
         proposal.payload.provenance.citedSources.map((source) => [source.citationId, source])
       )
@@ -458,6 +478,25 @@ function normalizeSectionArguments(
         })
       }
     }
+    if (operation.type === 'insertRichBlock') {
+      if (operation.anchor !== null) verify(operation.anchor)
+      const created = createRichBlock(operation.block)
+      if (operation.block.clientRef !== undefined) {
+        if (createdBlockRefs.has(operation.block.clientRef)) {
+          throw new AgentToolDomainError(
+            'invalid_arguments',
+            'Section block clientRef values must be unique'
+          )
+        }
+        createdBlockRefs.set(operation.block.clientRef, created.id)
+      }
+      return {
+        type: 'insertBlocks',
+        anchorBlockId: operation.anchor?.blockId ?? null,
+        placement: operation.placement,
+        blocks: [created]
+      }
+    }
     if (operation.type === 'removeBlocks') {
       for (const target of operation.targets) verify(target)
       return {
@@ -530,6 +569,26 @@ function createTextBlock(type: string, text: string) {
     type,
     props,
     content: [{ type: 'text', text, styles: {} }],
+    children: []
+  }
+}
+
+function createRichBlock(input: {
+  blockType: 'mermaid' | 'math'
+  source: string
+  caption: string
+  textAlignment: 'left' | 'center' | 'right' | 'justify'
+  previewWidth: number
+}) {
+  return {
+    id: randomUUID(),
+    type: input.blockType,
+    props: {
+      source: input.source,
+      caption: input.caption,
+      textAlignment: input.textAlignment,
+      previewWidth: input.previewWidth
+    },
     children: []
   }
 }

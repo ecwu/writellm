@@ -117,7 +117,7 @@ export interface ImportTable {
   updated_at: string
 }
 
-export type ModelRequestOperationKind = 'agent' | 'embedding' | 'rerank'
+export type ModelRequestOperationKind = 'agent' | 'embedding' | 'rerank' | 'image'
 export type ModelRequestStatus = 'running' | 'succeeded' | 'failed' | 'aborted'
 
 export interface ModelRequestTable {
@@ -204,13 +204,14 @@ export interface MutationProposalTable {
   agent_run_id: string
   tool_call_event_id: string
   agent_tool_call_id: string
-  kind: 'brief_update' | 'outline_patch' | 'section_patch'
+  kind: 'brief_update' | 'outline_patch' | 'section_patch' | 'generated_image_insert'
   payload_json: string
   base_revision_id: string | null
   base_brief_version: number | null
   base_outline_version: number | null
   status:
     | 'pending'
+    | 'generating'
     | 'approved'
     | 'rejected'
     | 'applied'
@@ -228,6 +229,28 @@ export interface MutationProposalTable {
   rejected_reason: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ManuscriptAssetTable {
+  asset_id: string
+  sha256: string
+  byte_size: number
+  mime_type: 'image/png' | 'image/jpeg' | 'image/webp'
+  extension: '.png' | '.jpg' | '.webp'
+  relative_path: string
+  source_type: 'upload' | 'generated'
+  original_name: string | null
+  generation_request_json: string | null
+  model_request_id: string | null
+  agent_run_id: string | null
+  agent_tool_call_id: string | null
+  created_at: string
+  last_referenced_at: string
+}
+
+export interface SectionRevisionAssetTable {
+  section_revision_id: string
+  asset_id: string
 }
 
 export type ParseTaskState =
@@ -415,6 +438,8 @@ export interface ProjectDatabaseSchema {
   agent_runs: AgentRunTable
   agent_events: AgentEventTable
   mutation_proposals: MutationProposalTable
+  manuscript_assets: ManuscriptAssetTable
+  section_revision_assets: SectionRevisionAssetTable
   parse_tasks: ParseTaskTable
   parse_revisions: ParseRevisionTable
   parse_task_events: ParseTaskEventTable

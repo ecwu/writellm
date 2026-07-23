@@ -473,7 +473,7 @@ export function AgentPanel(props: {
 
   const proposalAction = async (
     proposal: MutationProposalRecord,
-    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void> => {
     setBusy(true)
     setError(null)
@@ -529,6 +529,13 @@ export function AgentPanel(props: {
           reason: 'Rejected by the user in the Agent panel.'
         })
         updateProposals(result.proposal)
+      } else if (action === 'cancel_image') {
+        await window.desktop.agent.cancelImageGeneration({
+          projectSessionId: props.projectSessionId,
+          agentSessionId: proposal.agentSessionId,
+          proposalId: proposal.proposalId
+        })
+        await refreshSessionTruth(proposal.agentSessionId)
       } else {
         const result = await window.desktop.agent.undoProposal({
           projectSessionId: props.projectSessionId,
@@ -1140,7 +1147,7 @@ function ProposalMessage(props: {
   currentRevisionIds: Readonly<Record<string, string>>
   onAction(
     proposal: MutationProposalRecord,
-    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
 }): React.JSX.Element {
   const { resolvedTheme } = useTheme()
@@ -1161,7 +1168,9 @@ function ProposalMessage(props: {
   const preview = proposal.payload.preview
   const isPending = proposal.status === 'pending'
   const isOutdated = isSectionProposalOutdated(proposal, props.currentRevisionIds)
-  const canUndo = proposal.status === 'applied' && proposal.kind === 'section_patch'
+  const canUndo =
+    proposal.status === 'applied' &&
+    (proposal.kind === 'section_patch' || proposal.kind === 'generated_image_insert')
   const sources = preview.citedSources.map(
     (source) =>
       props.citationsById.get(source.citationId) ?? {
@@ -1232,6 +1241,15 @@ function ProposalMessage(props: {
               {isOutdated ? 'Review update' : 'Approve'}
             </Button>
           </>
+        ) : null}
+        {proposal.status === 'generating' ? (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => void props.onAction(proposal, 'cancel_image')}
+          >
+            <X /> Cancel generation
+          </Button>
         ) : null}
       </div>
     </div>
@@ -1452,6 +1470,11 @@ function deliveryLabel(delivery: 'prompt' | 'steer' | 'follow_up'): string {
 }
 
 function blockOperationLabels(proposal: MutationProposalRecord): string[] {
+  if (proposal.payload.kind === 'generated_image_insert') {
+    return [
+      `generate ${proposal.payload.mutation.aspectRatio} ${proposal.payload.mutation.imageSize}`
+    ]
+  }
   if (proposal.payload.kind !== 'section_patch') return []
   return proposal.payload.mutation.operations.map((operation, index) => {
     if ('blockId' in operation) return `${operation.type}: ${operation.blockId}`

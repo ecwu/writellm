@@ -44,6 +44,17 @@ export const projectLifecycleStateSchema = z.enum([
   'recovery-required'
 ])
 
+export const projectRecoveryContextSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('open'),
+      reason: z.enum(['lock-contended', 'open-failed'])
+    })
+    .strict(),
+  z.object({ kind: z.literal('create') }).strict(),
+  z.object({ kind: z.literal('close') }).strict()
+])
+
 export const activeProjectSchema = z
   .object({
     projectId: projectIdSchema,
@@ -85,7 +96,8 @@ export const projectSessionInputSchema = z
 export const projectLifecycleSnapshotSchema = z
   .object({
     state: projectLifecycleStateSchema,
-    activeProject: activeProjectSchema.nullable()
+    activeProject: activeProjectSchema.nullable(),
+    recovery: projectRecoveryContextSchema.optional()
   })
   .strict()
   .superRefine((snapshot, context) => {
@@ -94,6 +106,12 @@ export const projectLifecycleSnapshotSchema = z
       context.addIssue({
         code: 'custom',
         message: `${snapshot.state} state has an invalid active project`
+      })
+    }
+    if (snapshot.recovery !== undefined && snapshot.state !== 'recovery-required') {
+      context.addIssue({
+        code: 'custom',
+        message: `${snapshot.state} state cannot expose recovery context`
       })
     }
   })
@@ -121,6 +139,7 @@ export type ProjectId = z.infer<typeof projectIdSchema>
 export type ProjectSessionId = z.infer<typeof projectSessionIdSchema>
 export type ProjectCreateInput = z.infer<typeof projectCreateInputSchema>
 export type ProjectLifecycleState = z.infer<typeof projectLifecycleStateSchema>
+export type ProjectRecoveryContext = z.infer<typeof projectRecoveryContextSchema>
 export type ActiveProject = z.infer<typeof activeProjectSchema>
 export type ProjectSelectionResult = z.infer<typeof projectSelectionResultSchema>
 export type RecentProject = z.infer<typeof recentProjectSchema>

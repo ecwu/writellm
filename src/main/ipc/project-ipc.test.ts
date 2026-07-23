@@ -30,6 +30,7 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
     snapshot: vi.fn(() => snapshot),
     create: vi.fn(async () => openSnapshot),
     open: vi.fn(async () => openSnapshot),
+    recoverStaleLockAndRetryOpen: vi.fn(async () => openSnapshot),
     close: vi.fn(async () => closedSnapshot),
     switch: vi.fn(async () => openSnapshot),
     assertActiveSession: vi.fn((value: string) => {
@@ -220,6 +221,21 @@ describe('project IPC', () => {
       'recent project'
     )
     expect(manager.open).not.toHaveBeenCalled()
+  })
+
+  it('exposes stale-lock recovery without accepting a path or owner token', async () => {
+    const { invoke, manager } = harness()
+
+    const result = await invoke(IPC_CHANNELS.projectRecoveryStaleLock, {})
+
+    expect(manager.recoverStaleLockAndRetryOpen).toHaveBeenCalledOnce()
+    expect(result).toEqual(openSnapshot)
+    await expect(
+      invoke(IPC_CHANNELS.projectRecoveryStaleLock, {
+        projectRoot: '/private/project',
+        ownerToken: projectId
+      })
+    ).rejects.toThrow()
   })
 
   it('rejects create and open before showing a dialog unless the manager is closed', async () => {

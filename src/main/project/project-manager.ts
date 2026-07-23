@@ -34,6 +34,9 @@ import {
 import { openProjectDatabase, type ProjectDatabase } from './project-database'
 import { readProjectManifest, type ProjectManifest } from './project-manifest'
 import {
+  inspectProjectWriteLock,
+  PROJECT_LOCK_STALE_AFTER_MS,
+  ProjectLockContendedError,
   ProjectWriteLock,
   recoverStaleProjectWriteLock,
   type ProjectLockOptions
@@ -52,6 +55,7 @@ import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
 import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
+import { ManuscriptAssetService } from '../manuscript/asset-service'
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -104,6 +108,7 @@ export interface ProjectManagerDependencies {
   openDatabase: typeof openProjectDatabase
   createProject: (options: CreateProjectOptions) => Promise<CreatedProject>
   recoverStaleLock: typeof recoverStaleProjectWriteLock
+  inspectLock: typeof inspectProjectWriteLock
   randomUUID: () => string
   now: () => Date
 }
@@ -115,6 +120,7 @@ const defaultDependencies: ProjectManagerDependencies = {
   openDatabase: openProjectDatabase,
   createProject,
   recoverStaleLock: recoverStaleProjectWriteLock,
+  inspectLock: inspectProjectWriteLock,
   randomUUID,
   now: () => new Date()
 }
@@ -128,6 +134,7 @@ export interface ProjectManagerOptions {
   snapshotParticipants?: Partial<ProjectSnapshotParticipants>
   exportDiagnostics?: () => Promise<{ exported: boolean }>
   finalFlushTimeoutMs?: number
+  staleLockTimeoutMs?: number
   lockOptions?: Omit<ProjectLockOptions, 'logger'>
   dependencies?: Partial<ProjectManagerDependencies>
   createRuntime?: (options: ProjectRuntimeOptions) => ProjectRuntime
@@ -142,6 +149,7 @@ export interface ProjectManagerOptions {
     jobs: JobStore
     manuscript: ManuscriptService
     editorPersistence: EditorPersistenceService
+    manuscriptAssets: ManuscriptAssetService
     log: Pick<Logger, 'info' | 'warn' | 'error'>
   }) => {
     mineruWorkflow: MineruWorkflowService
@@ -179,6 +187,7 @@ export class ProjectManager {
   readonly #lockOptions: Omit<ProjectLockOptions, 'logger'>
   readonly #dependencies: ProjectManagerDependencies
   readonly #finalFlushTimeoutMs: number
+  readonly #staleLockTimeoutMs: number
   readonly #createRuntime: (options: ProjectRuntimeOptions) => ProjectRuntime
   readonly #createManuscriptService: (
     options: ConstructorParameters<typeof ManuscriptService>[0]
@@ -192,7 +201,11 @@ export class ProjectManager {
   #snapshotFlushAuthorization: ProjectFinalFlushAuthorization | null = null
   #snapshotFlushConsumed = false
   #recovery:
-    | { kind: 'open'; selectedRoot: string }
+    | {
+        kind: 'open'
+        selectedRoot: string
+        reason: 'lock-contended' | 'open-failed'
+      }
     | { kind: 'create'; projectRoot: string }
     | {
         kind: 'close'
@@ -210,6 +223,7 @@ export class ProjectManager {
     this.#snapshotParticipants = { ...noOpSnapshotParticipants, ...options.snapshotParticipants }
     this.#exportDiagnostics = options.exportDiagnostics
     this.#finalFlushTimeoutMs = options.finalFlushTimeoutMs ?? 10_000
+    this.#staleLockTimeoutMs = options.staleLockTimeoutMs ?? PROJECT_LOCK_STALE_AFTER_MS
     this.#lockOptions = options.lockOptions ?? {}
     this.#dependencies = { ...defaultDependencies, ...options.dependencies }
     this.#createRuntime =
@@ -220,9 +234,16 @@ export class ProjectManager {
   }
 
   snapshot(): ProjectLifecycleSnapshot {
+    const recovery =
+      this.#state === 'recovery-required' && this.#recovery !== null
+        ? this.#recovery.kind === 'open'
+          ? { kind: this.#recovery.kind, reason: this.#recovery.reason }
+          : { kind: this.#recovery.kind }
+        : undefined
     return projectLifecycleSnapshotSchema.parse({
       state: this.#state,
-      activeProject: this.#context === null ? null : toActiveProject(this.#context)
+      activeProject: this.#context === null ? null : toActiveProject(this.#context),
+      ...(recovery === undefined ? {} : { recovery })
     })
   }
 
@@ -303,7 +324,7 @@ export class ProjectManager {
     return this.#serialize(async () => {
       this.#requireState('closed')
       this.#state = 'opening'
-      this.#recovery = { kind: 'open', selectedRoot }
+      this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#logger.info(
         { event: 'project_manager.open.started' },
         'Project open transition started'
@@ -318,6 +339,8 @@ export class ProjectManager {
         )
         this.#context = null
         this.#state = 'recovery-required'
+        this.#recovery.reason =
+          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         throw new Error('Failed to open project', { cause: err })
       }
       return this.snapshot()
@@ -455,7 +478,7 @@ export class ProjectManager {
       await closing
       this.#requireState('closed')
       this.#state = 'opening'
-      this.#recovery = { kind: 'open', selectedRoot }
+      this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#logger.info(
         { event: 'project_manager.open.started' },
         'Project open transition started'
@@ -470,6 +493,8 @@ export class ProjectManager {
         )
         this.#context = null
         this.#state = 'recovery-required'
+        this.#recovery.reason =
+          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         throw new Error('Failed to open project', { cause: err })
       }
       return this.snapshot()
@@ -636,7 +661,8 @@ export class ProjectManager {
       if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'open') {
         throw new Error('No failed project open is available to retry')
       }
-      const selectedRoot = this.#recovery.selectedRoot
+      const recovery = this.#recovery
+      const selectedRoot = recovery.selectedRoot
       this.#state = 'opening'
       try {
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
@@ -645,11 +671,60 @@ export class ProjectManager {
         return this.snapshot()
       } catch (err) {
         this.#state = 'recovery-required'
+        recovery.reason =
+          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         this.#logger.error(
           { event: 'project_manager.retry_open.failed', err },
           'Project open retry failed'
         )
         throw new Error('Failed to retry opening the project', { cause: err })
+      }
+    })
+  }
+
+  recoverStaleLockAndRetryOpen(): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      if (
+        this.#state !== 'recovery-required' ||
+        this.#recovery?.kind !== 'open' ||
+        this.#recovery.reason !== 'lock-contended'
+      ) {
+        throw new Error('No contended project lock is available to recover')
+      }
+      const recovery = this.#recovery
+      this.#state = 'opening'
+      try {
+        const canonicalRoot = await this.#dependencies.canonicalizeRoot(recovery.selectedRoot)
+        const metadata = await this.#dependencies.inspectLock(canonicalRoot, {
+          ...this.#lockOptions,
+          logger: this.#logger
+        })
+        if (metadata !== null) {
+          await this.#dependencies.recoverStaleLock(canonicalRoot, {
+            ...this.#lockOptions,
+            logger: this.#logger,
+            expectedOwnerToken: metadata.ownerToken,
+            staleBefore: new Date(this.#dependencies.now().getTime() - this.#staleLockTimeoutMs)
+          })
+        }
+        await this.#openCanonicalRoot(canonicalRoot)
+        this.#recovery = null
+        this.#logger.info(
+          { event: 'project_manager.stale_lock_recovery_open.completed' },
+          'Stale project lock recovery and open completed'
+        )
+        return this.snapshot()
+      } catch (err) {
+        this.#state = 'recovery-required'
+        recovery.reason =
+          err instanceof ProjectLockContendedError ? 'lock-contended' : recovery.reason
+        this.#logger.error(
+          { event: 'project_manager.stale_lock_recovery_open.failed', err },
+          'Stale project lock recovery and open failed'
+        )
+        throw new Error('Failed to recover the stale project lock and open the project', {
+          cause: err
+        })
       }
     })
   }
@@ -739,7 +814,12 @@ export class ProjectManager {
       if (this.#state !== 'recovery-required')
         throw new Error('Project location recovery is unavailable')
       this.#state = 'opening'
-      this.#recovery = { kind: 'open', selectedRoot }
+      const recovery: {
+        kind: 'open'
+        selectedRoot: string
+        reason: 'lock-contended' | 'open-failed'
+      } = { kind: 'open', selectedRoot, reason: 'open-failed' }
+      this.#recovery = recovery
       try {
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
@@ -747,6 +827,8 @@ export class ProjectManager {
         return this.snapshot()
       } catch (err) {
         this.#state = 'recovery-required'
+        recovery.reason =
+          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         this.#logger.error(
           { event: 'project_manager.locate_moved.failed', err },
           'Moved project location recovery failed'
@@ -895,6 +977,13 @@ export class ProjectManager {
         projectId: manifest.projectId,
         log: this.#logger
       })
+      const manuscriptAssets = new ManuscriptAssetService({
+        projectRoot: canonicalRoot,
+        projectId: manifest.projectId,
+        database,
+        jobs,
+        log: this.#logger
+      })
       const editorPersistence = new EditorPersistenceService({
         projectRoot: canonicalRoot,
         projectId: manifest.projectId,
@@ -911,6 +1000,7 @@ export class ProjectManager {
         jobs,
         manuscript,
         editorPersistence,
+        manuscriptAssets,
         log: this.#logger
       })
       const projectIndex = knowledgeRuntime?.projectIndex
@@ -961,6 +1051,7 @@ export class ProjectManager {
         jobs,
         manuscript,
         editorPersistence,
+        manuscriptAssets,
         knowledgeImports,
         mineruWorkflow: knowledgeRuntime?.mineruWorkflow ?? null,
         knowledgeNormalization: knowledgeRuntime?.knowledgeNormalization ?? null,

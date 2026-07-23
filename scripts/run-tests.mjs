@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import electron from 'electron'
 
 const vitestEntry = new URL('../node_modules/vitest/vitest.mjs', import.meta.url)
-const result = spawnSync(electron, [vitestEntry.pathname, 'run'], {
+const result = spawnSync(electron, [vitestEntry.pathname, 'run', ...process.argv.slice(2)], {
   env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
   stdio: 'inherit'
 })

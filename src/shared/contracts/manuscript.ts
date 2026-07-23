@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const MANUSCRIPT_BRIEF_SCHEMA_VERSION = 1
-export const SECTION_CONTENT_SCHEMA_VERSION = 1
+export const SECTION_CONTENT_SCHEMA_VERSION = 2
 export const SECTION_COUNT_ALGORITHM_VERSION = 1
 export const SECTION_MATERIALIZATION_FORMAT_VERSION = 1
 export const SECTION_MATERIALIZATION_ENVELOPE_SCHEMA_VERSION = 1
@@ -40,8 +40,29 @@ const requiredTitle = z.string().trim().min(1).max(500)
 export const contentHashSchema = z.string().regex(/^[a-f0-9]{64}$/)
 
 const blockIdSchema = z.string().min(1).max(256)
+export const manuscriptAssetIdSchema = z.uuid()
+export const manuscriptAssetUrlSchema = z
+  .string()
+  .regex(
+    /^writellm-asset:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  )
+export const manuscriptAssetMimeTypeSchema = z.enum(['image/png', 'image/jpeg', 'image/webp'])
 const blockColorSchema = z.string().min(1).max(100)
 const textAlignmentSchema = z.enum(['left', 'center', 'right', 'justify'])
+const mermaidSourceSchema = z
+  .string()
+  .max(64_000)
+  .refine(
+    (value) => new TextEncoder().encode(value).byteLength <= 64 * 1024,
+    'Mermaid source exceeds 64 KiB'
+  )
+const mathSourceSchema = z
+  .string()
+  .max(32_000)
+  .refine(
+    (value) => new TextEncoder().encode(value).byteLength <= 32 * 1024,
+    'LaTeX source exceeds 32 KiB'
+  )
 const textStylesSchema = z
   .object({
     bold: z.boolean().optional(),
@@ -133,10 +154,22 @@ type BlockNoteBlockValue = {
     | 'quote'
     | 'codeBlock'
     | 'table'
+    | 'image'
+    | 'mermaid'
+    | 'math'
   props: Record<string, unknown>
-  content: z.infer<typeof blockNoteInlineContentSchema>[] | z.infer<typeof tableContentSchema>
+  content?: z.infer<typeof blockNoteInlineContentSchema>[] | z.infer<typeof tableContentSchema>
   children: BlockNoteBlockValue[]
 }
+
+const richMediaPropsSchema = z
+  .object({
+    textAlignment: textAlignmentSchema,
+    source: mermaidSourceSchema,
+    caption: z.string().max(2_000),
+    previewWidth: z.number().int().min(64).max(8_192).optional()
+  })
+  .strict()
 
 export const blockNoteBlockSchema: z.ZodType<BlockNoteBlockValue> = z.lazy(() =>
   z.union([
@@ -218,6 +251,43 @@ export const blockNoteBlockSchema: z.ZodType<BlockNoteBlockValue> = z.lazy(() =>
         content: tableContentSchema,
         children: z.array(blockNoteBlockSchema)
       })
+      .strict(),
+    z
+      .object({
+        id: blockIdSchema,
+        type: z.literal('image'),
+        props: z
+          .object({
+            backgroundColor: blockColorSchema,
+            textAlignment: textAlignmentSchema,
+            name: z.string().max(500),
+            url: manuscriptAssetUrlSchema,
+            caption: z.string().max(2_000),
+            showPreview: z.boolean(),
+            previewWidth: z.number().int().min(64).max(8_192).optional()
+          })
+          .strict(),
+        content: z.undefined().optional(),
+        children: z.array(blockNoteBlockSchema)
+      })
+      .strict(),
+    z
+      .object({
+        id: blockIdSchema,
+        type: z.literal('mermaid'),
+        props: richMediaPropsSchema,
+        content: z.undefined().optional(),
+        children: z.array(blockNoteBlockSchema)
+      })
+      .strict(),
+    z
+      .object({
+        id: blockIdSchema,
+        type: z.literal('math'),
+        props: richMediaPropsSchema.extend({ source: mathSourceSchema }).strict(),
+        content: z.undefined().optional(),
+        children: z.array(blockNoteBlockSchema)
+      })
       .strict()
   ])
 )
@@ -246,7 +316,7 @@ export const blockNoteDocumentSchema = z
         }
         ids.add(block.id)
         if (Array.isArray(block.content)) visitInline(block.content)
-        else
+        else if (block.content !== undefined)
           for (const row of block.content.rows)
             for (const cell of row.cells) visitInline(Array.isArray(cell) ? cell : cell.content)
         visit(block.children, depth + 1)
@@ -410,7 +480,7 @@ export const sectionRevisionSchema = z
     source: sectionRevisionSourceSchema,
     sourceClass: sectionRevisionClassSchema.optional(),
     content: blockNoteDocumentSchema,
-    contentSchemaVersion: z.literal(SECTION_CONTENT_SCHEMA_VERSION),
+    contentSchemaVersion: z.union([z.literal(1), z.literal(SECTION_CONTENT_SCHEMA_VERSION)]),
     contentHash: contentHashSchema,
     priorRevisionId: sectionRevisionIdSchema.nullable(),
     wordCount: z.number().int().nonnegative(),
@@ -592,6 +662,38 @@ export const exportMarkdownInputSchema = loadSectionInputSchema
   .strict()
 export const exportResultSchema = z.object({ relativePath: z.string().min(1).max(1_024) }).strict()
 
+export const uploadManuscriptAssetInputSchema = editorSessionInputSchema
+  .extend({
+    originalName: z.string().trim().min(1).max(500),
+    mimeType: manuscriptAssetMimeTypeSchema,
+    dataBase64: z.string().min(1).max(28_000_000)
+  })
+  .strict()
+export const manuscriptAssetResultSchema = z
+  .object({
+    assetId: manuscriptAssetIdSchema,
+    logicalUrl: manuscriptAssetUrlSchema,
+    mimeType: manuscriptAssetMimeTypeSchema,
+    byteSize: z
+      .number()
+      .int()
+      .positive()
+      .max(20 * 1024 * 1024)
+  })
+  .strict()
+export const manuscriptAssetPreviewInputSchema = editorSessionInputSchema
+  .extend({ assetId: manuscriptAssetIdSchema })
+  .strict()
+export const manuscriptAssetPreviewResultSchema = z
+  .object({ url: z.string().url().max(2_048) })
+  .strict()
+export const manuscriptAssetImportReferenceInputSchema = editorSessionInputSchema
+  .extend({ reference: z.string().min(1).max(1_024) })
+  .strict()
+export const manuscriptAssetImportReferenceResultSchema = z
+  .object({ logicalUrl: manuscriptAssetUrlSchema })
+  .strict()
+
 export const manuscriptWorkspaceInputSchema = editorSessionInputSchema
 export const updateManuscriptBriefRequestSchema = editorSessionInputSchema
   .extend({ update: updateManuscriptBriefInputSchema })
@@ -635,6 +737,7 @@ export type CreateSectionInput = z.input<typeof createSectionInputSchema>
 export type UpdateSectionInput = z.infer<typeof updateSectionInputSchema>
 export type MoveSectionInput = z.infer<typeof moveSectionInputSchema>
 export type DeleteSectionInput = z.infer<typeof deleteSectionInputSchema>
+export type ManuscriptAssetResult = z.infer<typeof manuscriptAssetResultSchema>
 export type SectionRevision = z.infer<typeof sectionRevisionSchema>
 export type SectionRevisionSource = z.infer<typeof sectionRevisionSourceSchema>
 export type AppendSectionRevisionInput = z.input<typeof appendSectionRevisionInputSchema>

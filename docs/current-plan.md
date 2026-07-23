@@ -1,7 +1,15 @@
 # WriteLLM Current Plan
 
-Status: Agent Harness Protocol v2 hardening is complete; Checkpoint 24 remains unstarted.
+Status: Checkpoint 23M rich media and image generation is complete; Checkpoint 24 remains unstarted.
 Recorded: 2026-07-22
+
+## Completed checkpoint
+
+Checkpoint 23M added project-local BlockNote images, source-backed Mermaid and display-math blocks,
+manual asset upload, and one bounded Gemini `generate_image` Agent tool. ADR 006 preserves the
+proposal/revision, renderer sandbox, provider credential, worker-role, and request-scoped network
+boundaries while extending the editor content schema, provider registry, and Agent tool contract.
+Whole-manuscript export and the remaining Checkpoint 24 portability work stay unstarted.
 
 ## Completed scope
 
@@ -12,6 +20,106 @@ The panel supports session selection, streaming, generic activity without chain-
 Context handling uses a deterministic token estimate with CJK/adversarial coverage and a non-throwing whole-turn transform. When real historical pressure would omit a complete turn, Main can create at most one bounded raw-event summary per session through `ModelExecutionService`; the recorded `compaction_summary` is ordinary context data, while the full event history remains authoritative. Provider reasoning controls and multi-level compaction remain deferred.
 
 ## Acceptance evidence
+
+Checkpoint 23M passed its final gate on 2026-07-22:
+
+- Content schema v2, migration 0022, v1 compatibility readers, project-local asset publication and
+  revision references, capability-bound preview, rich Markdown conversion, Mermaid/KaTeX blocks,
+  the Gemini image role/gateway, and Agent Tool Contract v3 are implemented and covered.
+- Local Biome checked 347 files with only the existing generated shadcn `document.cookie` warning;
+  Node and Renderer typechecks and the production build passed.
+- The canonical Electron-hosted Vitest suite passed 99 files and 470 tests, including project
+  migration/integrity, image signature/dimension/hash/cleanup, capability revocation, Mermaid/KaTeX
+  safety, Gemini response/cancel/timeout validation, and generated-image proposal conflict reuse.
+- All 14 built-app Electron Playwright scenarios passed. The new scenario covers manual image
+  upload, Mermaid and block LaTeX render/save/reopen, relative-asset Markdown export, and asset
+  display after project reopen.
+- The signed macOS arm64 unpacked application passed strict deep signature validation. Packaged
+  hybrid smoke passed native search, provider-failure fallback, and stale-session scenarios.
+- `git diff --check` passed. The installed Biome binary and documented npm/direct test equivalents
+  were used because the local pnpm wrapper could not verify its registry signature offline.
+
+Post-completion image-preview correction (2026-07-23): a Vite development run exposed two
+BlockNote integration conditions hidden by the production-protocol E2E. The native image renderer
+calls `resolveFileUrl` while a newly inserted block still has an empty URL, and an HTTP development
+origin does not include `writellm://bundle` in CSP `'self'`. Empty placeholders now resolve without
+issuing a capability, arbitrary non-project sources remain rejected, and the renderer CSP
+explicitly admits the session-bound application preview source. Focused Biome, Node/Renderer
+typechecks, the production build, canonical Electron Vitest (101 files/474 tests), all 14 Electron
+Playwright scenarios including image upload/reopen, isolated real-app SQLite
+identity/integrity/schema verification, and `git diff --check` passed. The generated-image
+application regression also asserts that Gemini proposals persist the exact
+`writellm-asset:<assetId>` logical URL and therefore share this corrected renderer path.
+
+Post-completion Gemini diagnostics correction (2026-07-23): runtime logs proved that four
+`generate_image` calls reached Gemini Interactions and received HTTP 400 in 95–180 ms regardless of
+prompt length or requested size. That maintenance preserved bounded machine diagnostics such as
+`API_KEY_INVALID` or `INVALID_ARGUMENT` while excluding response messages and private content, but
+its request-shape conclusion was later superseded by the Interactions correction below. Agent tool
+results still classify non-retryable image-provider rejection as `unavailable / ask_user` instead
+of the incorrect `internal / Agent read tool failed`.
+
+Official Gemini SDK transport maintenance completed (2026-07-23): after subsequent real requests
+still received HTTP 400, the user approved replacing the handwritten request transport with
+exact-pinned `@google/genai@2.12.0`. The default request now matches Google's minimal
+`interactions.create({ model, input })` example; non-default aspect ratio/size uses the SDK's typed
+format with top-level PNG MIME instead of the old nested field. Legacy `/v1beta` provider
+URLs are normalized for the SDK, SDK retries are disabled, `output_image` is validated, and the
+existing outer cancellation/timeout boundary remains authoritative. ADR 006 keeps the SDK inside
+the existing background-worker gateway and preserves every Agent, credential, proposal, and asset
+boundary. Canonical Electron Vitest passed 101 files/477 tests; Node/Renderer typechecks,
+production build, full Biome (only the existing shadcn warning), isolated runtime SQLite checks,
+all 14 Electron Playwright scenarios, and `git diff --check` passed.
+
+Verification-environment maintenance completed (2026-07-23): the repository pnpm pin now matches
+the installed 11.11.0 CLI, preventing pnpm's automatic version switch from silently waiting on
+blocked registry access before every command. The canonical Electron Vitest runner forwards
+focused file/name arguments, and `AGENTS.md` records direct-tool fallbacks plus the exact macOS
+Codex sandbox signatures that require Electron Playwright to run outside the sandbox after a fresh
+build. The Gemini image deadline now settles independently of SDK transport abort propagation
+while continuing to pass the cancellation signal into the exact-pinned SDK. The final gate passed
+pnpm 11.11.0 startup, full-repository Biome with only the existing generated shadcn warning,
+Node/Renderer typechecks and production build, canonical Electron Vitest (101 files/477 tests),
+all 14 Electron Playwright scenarios outside the sandbox, isolated real-app SQLite
+identity/integrity/schema verification, and `git diff --check`.
+
+Verification-gate split completed (2026-07-23): `check:fast`, `check:electron`, `check:e2e`,
+`check:package`, and `check:release` now expose the audit's intended verification layers. Routine
+development never enters the release gate. The package gate sets
+`CSC_IDENTITY_AUTO_DISCOVERY=false`, accepts only an unsigned or no-Team-ID ad-hoc/linker macOS
+signature, and retains packaged native/runtime smoke; the opt-in release gate alone permits a
+configured Apple identity and runs strict deep signature validation. Notarization remains
+disabled. Full Biome and Node/Renderer typechecks passed, and the real no-identity package
+gate confirmed electron-builder skipped macOS application signing before packaged native search,
+provider-failure fallback, and stale-session smoke passed.
+
+Fixed Gemini configuration maintenance completed (2026-07-23): after the official SDK transport
+still returned HTTP 400, the user requested removal of the image provider's editable endpoint.
+The renderer now exposes only an encrypted API-key input and a four-model Select; shared/Main
+validation rejects every other model and endpoint while normalizing the legacy official `/v1beta`
+value. The worker constructs `GoogleGenAI` with only the request credential, generation sends only
+`model` and `input`, and the connection probe uses the official SDK `models.get`. Full Biome passed
+351 files with only the existing generated shadcn warning; Node/Renderer typechecks, production
+build, canonical Electron Vitest (101 files/480 tests), all 14 built Electron Playwright scenarios,
+isolated runtime SQLite identity/integrity/schema verification, and `git diff --check` passed.
+Agent authority and Checkpoint 24 remain unchanged.
+
+Gemini Interactions image-contract correction completed with one outstanding live gate
+(2026-07-23): the implementation exact-pins `@google/genai@2.13.0`, always sends the documented
+`response_format: { type: "image", mime_type: "image/jpeg", ... }` (the Interactions API rejects
+`image/png` with HTTP 400; only `image/jpeg` is supported), omits only `auto`
+`aspect_ratio`, and records requested versus effective size when Flash Lite or 2.5 Image normalize
+2K to 1K. PNG and JPEG are accepted only after Main validates their matching magic and dimensions,
+then atomically published under `manuscript/assets/` and referenced through
+`writellm-asset:<assetId>`. Current Gemini configuration no longer contains `baseUrl`; readers
+strip the legacy official marker so the next save removes it. The SDK's default server-side
+`store=true` remains unchanged, and the original SDK error is retained as a local cause before only
+safe status/code fields cross the worker boundary. The focused contract suite, full Biome,
+Node/Renderer build, canonical Electron Vitest (101 files/485 tests), all 14 Electron Playwright
+scenarios outside the sandbox, unpacked signed application build, and isolated runtime SQLite
+identity/integrity/schema checks passed. The one authorized real 1:1/1K request reached Gemini but
+ended in the safe auxiliary-provider failure path before an asset was published; no second billable
+request was made, so successful live asset/block publication remains unclaimed.
 
 Checkpoint 23 passed its final gate on 2026-07-21:
 

@@ -37,6 +37,8 @@ import {
 import {
   approveMutationProposalInputSchema,
   approveMutationProposalResultSchema,
+  cancelImageGenerationInputSchema,
+  cancelImageGenerationResultSchema,
   mutationProposalActionResultSchema,
   mutationProposalChangedSchema,
   mutationSubscriptionInputSchema,
@@ -127,12 +129,18 @@ import {
   importMarkdownInputSchema,
   loadSectionInputSchema,
   manuscriptAssemblySchema,
+  manuscriptAssetPreviewInputSchema,
+  manuscriptAssetPreviewResultSchema,
+  manuscriptAssetImportReferenceInputSchema,
+  manuscriptAssetImportReferenceResultSchema,
+  manuscriptAssetResultSchema,
   manuscriptWorkspaceInputSchema,
   manuscriptWorkspaceSchema,
   moveSectionRequestSchema,
   openEditorResultSchema,
   saveSectionDocumentInputSchema,
   saveSectionDocumentResponseSchema,
+  uploadManuscriptAssetInputSchema,
   updateManuscriptBriefRequestSchema,
   updateSectionRequestSchema,
   type CreateSectionRequest,
@@ -184,6 +192,7 @@ export interface DesktopApi {
     close(input: ProjectSessionInput): Promise<ProjectLifecycleSnapshot>
     switch(input: ProjectSessionInput): Promise<ProjectSelectionResult>
     retryOpen(): Promise<ProjectLifecycleSnapshot>
+    recoverStaleLock(): Promise<ProjectLifecycleSnapshot>
     retryClose(): Promise<ProjectLifecycleSnapshot>
     discardIncompleteCreate(): Promise<ProjectLifecycleSnapshot>
     locateMoved(): Promise<ProjectSelectionResult>
@@ -231,6 +240,17 @@ export interface DesktopApi {
       contentHash: string
       markdown: string
     }): Promise<{ relativePath: string }>
+    uploadAsset(input: {
+      projectSessionId: string
+      originalName: string
+      mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+      dataBase64: string
+    }): Promise<ReturnType<typeof manuscriptAssetResultSchema.parse>>
+    resolveAsset(input: { projectSessionId: string; assetId: string }): Promise<{ url: string }>
+    resolveImportAsset(input: {
+      projectSessionId: string
+      reference: string
+    }): Promise<{ logicalUrl: string }>
     finalFlushSave(
       input: SaveSectionDocumentInput & {
         projectSessionId: string
@@ -310,6 +330,11 @@ export interface DesktopApi {
       agentSessionId: string
       proposalId: string
     }): Promise<MutationProposalActionResult>
+    cancelImageGeneration(input: {
+      projectSessionId: string
+      agentSessionId: string
+      proposalId: string
+    }): Promise<{ cancelled: boolean }>
     subscribeSectionChanged(
       input: { projectSessionId: string },
       listener: (event: MutationSectionChanged) => void
@@ -444,6 +469,14 @@ const desktopApi: DesktopApi = {
       return projectLifecycleSnapshotSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.projectRecoveryRetryOpen,
+          projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async recoverStaleLock() {
+      return projectLifecycleSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectRecoveryStaleLock,
           projectRecoveryActionInputSchema.parse({})
         )
       )
@@ -612,6 +645,30 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.editorExportMarkdown,
           exportMarkdownInputSchema.parse(input)
+        )
+      )
+    },
+    async uploadAsset(input) {
+      return manuscriptAssetResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorUploadAsset,
+          uploadManuscriptAssetInputSchema.parse(input)
+        )
+      )
+    },
+    async resolveAsset(input) {
+      return manuscriptAssetPreviewResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorResolveAsset,
+          manuscriptAssetPreviewInputSchema.parse(input)
+        )
+      )
+    },
+    async resolveImportAsset(input) {
+      return manuscriptAssetImportReferenceResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorResolveImportAsset,
+          manuscriptAssetImportReferenceInputSchema.parse(input)
         )
       )
     },
@@ -850,6 +907,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentProposalUndo,
           undoMutationProposalInputSchema.parse(input)
+        )
+      )
+    },
+    async cancelImageGeneration(input) {
+      return cancelImageGenerationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentCancelImageGeneration,
+          cancelImageGenerationInputSchema.parse(input)
         )
       )
     },

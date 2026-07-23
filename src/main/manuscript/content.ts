@@ -74,17 +74,52 @@ function extractTableCell(value: unknown): string {
 function extractBlock(value: unknown): string {
   if (value === null || typeof value !== 'object') return ''
   const block = value as Record<string, unknown>
-  const body = Array.isArray(block.rows)
-    ? block.rows.map(extractTableRow).join('\n')
-    : block.content !== undefined
-      ? extractInline(block.content)
-      : ''
+  const props =
+    block.props !== null && typeof block.props === 'object'
+      ? (block.props as Record<string, unknown>)
+      : undefined
+  const body =
+    block.type === 'image' || block.type === 'mermaid' || block.type === 'math'
+      ? typeof props?.caption === 'string'
+        ? props.caption
+        : ''
+      : Array.isArray(block.rows)
+        ? block.rows.map(extractTableRow).join('\n')
+        : block.content !== undefined
+          ? extractInline(block.content)
+          : ''
   const children = Array.isArray(block.children) ? block.children.map(extractBlock).join('\n') : ''
   return body && children ? `${body}\n${children}` : body || children
 }
 
 export function extractSectionText(content: readonly unknown[]): string {
   return content.map(extractBlock).join('\n')
+}
+
+export function extractSectionAgentText(content: readonly unknown[]): string {
+  const extract = (value: unknown): string => {
+    if (value === null || typeof value !== 'object') return ''
+    const block = value as Record<string, unknown>
+    const props =
+      block.props !== null && typeof block.props === 'object'
+        ? (block.props as Record<string, unknown>)
+        : undefined
+    let body: string
+    if (block.type === 'image') {
+      body = [props?.name, props?.caption]
+        .filter((item): item is string => typeof item === 'string' && item.length > 0)
+        .join('\n')
+    } else if (block.type === 'mermaid' || block.type === 'math') {
+      body = [props?.caption, typeof props?.source === 'string' ? props.source.slice(0, 8_192) : '']
+        .filter((item): item is string => typeof item === 'string' && item.length > 0)
+        .join('\n')
+    } else {
+      body = extractBlock({ ...block, children: [] })
+    }
+    const children = Array.isArray(block.children) ? block.children.map(extract).join('\n') : ''
+    return body && children ? `${body}\n${children}` : body || children
+  }
+  return content.map(extract).join('\n')
 }
 
 export function countSectionText(text: string): { wordCount: number; characterCount: number } {

@@ -54,10 +54,26 @@ const capabilities: Record<ProviderRole, ProviderCapability> = {
     maxBatchSize: 200,
     maxFileSizeMb: 200,
     maxPages: 200
+  },
+  image: {
+    role: 'image',
+    providerId: 'google-gemini',
+    label: 'Image generation',
+    capabilities: ['image-generation'],
+    supportedFormats: ['png'],
+    maxBatchSize: 1,
+    maxFileSizeMb: 20,
+    maxPages: null
   }
 }
 
-export const providerRoles: readonly ProviderRole[] = ['agent', 'embedding', 'rerank', 'mineru']
+export const providerRoles: readonly ProviderRole[] = [
+  'agent',
+  'embedding',
+  'rerank',
+  'mineru',
+  'image'
+]
 
 export function getProviderCapability(role: ProviderRole): ProviderCapability {
   return capabilities[role]

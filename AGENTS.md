@@ -73,6 +73,61 @@ Biome is the repository's single formatter and style checker. Run commands from 
 
 Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
 
+## Verification Gates
+
+Use the smallest gate that covers the changed boundary:
+
+- `pnpm check:fast`: Biome plus Node/Renderer typechecks.
+- `pnpm check:electron`: the Electron-hosted Vitest suite plus a production build.
+- `pnpm check:e2e`: a fresh production build plus the silent Electron Playwright suite.
+- `pnpm check:package`: a no-identity unpacked build plus packaged hybrid smoke. It explicitly
+  disables Apple signing-identity discovery and, on macOS, fails if the resulting application has
+  an Apple Team identity signature. An upstream ad-hoc/linker signature without a Team ID is
+  allowed because it does not run the project's deep signing pass.
+- `pnpm check:release`: an opt-in signed macOS unpacked build plus strict deep signature validation
+  and packaged hybrid smoke. Run it only when the user explicitly requests release/distribution
+  verification. It does not notarize while `electron-builder.yml` keeps notarization disabled.
+
+Routine development verification must not run `check:release`. Ordinary product changes do not
+need `check:package`; require it for Electron major, native SQLite/sqlite-vec, electron-builder,
+worker entrypoint, Pino transport, packaged resource, or release-branch changes.
+
+The repository's exact `packageManager` version must match the locally
+installed pnpm used by agents. pnpm 11 tries to download and switch to the
+manifest version before it prints any command output, including for
+`pnpm --version`; in a network-restricted sandbox, a version mismatch can
+therefore look like an indefinite silent hang. Do not keep retrying a silent
+pnpm command. Diagnose it once with:
+
+```sh
+pnpm --pm-on-fail=ignore --version
+```
+
+Compare that result with `package.json#packageManager`. Align the repository
+pin only during an approved environment-maintenance task when the installed
+pnpm is the accepted project version; do not rewrite it merely to suit an
+arbitrary local installation. If pnpm itself still cannot start, run the
+installed tool directly:
+
+```sh
+./node_modules/.bin/biome check .
+```
+
+Record the fallback and do not claim that the pnpm wrapper passed.
+
+Inside a workspace-only filesystem sandbox, `pnpm list` can fail with
+`[ERR_SQLITE_ERROR] unable to open database file` because pnpm tries to open
+its store index under the user's pnpm home. This is an environment diagnostic,
+not evidence that the dependency is missing. Confirm an already-installed
+package version without touching the store index:
+
+```sh
+node -p "JSON.parse(require('fs').readFileSync('node_modules/<package>/package.json','utf8')).version"
+```
+
+Only rerun `pnpm list` outside the sandbox when its dependency-tree output is
+actually required.
+
 ## Testing And Native Runtime
 
 Run the full test suite from the repository root with:
@@ -80,6 +135,13 @@ Run the full test suite from the repository root with:
 ```sh
 pnpm test
 ```
+
+The repository disables pnpm 11's automatic `verify-deps-before-run` install.
+The forced Electron native rebuild intentionally changes a package binary and
+otherwise makes every later script try to reinstall `node_modules` (and fail
+without a TTY or registry access). Run an explicit frozen install after
+changing `package.json` or `pnpm-lock.yaml`; do not re-enable the implicit
+pre-script install.
 
 The canonical runner is `scripts/run-tests.mjs`. It launches the bundled
 Electron runtime with `ELECTRON_RUN_AS_NODE=1` and then runs Vitest. Use this
@@ -103,6 +165,18 @@ workspace, or a blocked network/GUI operation. A non-zero Vitest exit caused
 by assertion failures, migration errors, or Electron's non-fatal diagnostic
 warnings is a test/code result, not evidence of sandbox blocking.
 
+The canonical runner forwards additional Vitest arguments. Use a focused
+target before rerunning the full suite:
+
+```sh
+pnpm test src/path/to/example.test.ts
+pnpm test src/path/to/example.test.ts -t "specific test name"
+```
+
+Electron's macOS `task_name_for_pid: (os/kern) failure (5)` diagnostic is
+non-fatal when Vitest continues and reports its normal test summary. Do not
+classify that line alone as a test failure or rerun reason.
+
 Before diagnosing a native-module failure, compare the ABI of the runtime
 that will execute the test with the ABI of the installed addon:
 
@@ -120,6 +194,15 @@ installer when necessary:
 ./node_modules/.bin/electron-builder install-app-deps
 ```
 
+With Electron 43 and `better-sqlite3` 12, `install-app-deps` can report
+success while retaining a prebuilt binary for the system Node ABI. If the ABI
+check still fails after that command, force the repository's
+Electron-targeted rebuild and rerun the ABI check:
+
+```sh
+pnpm run rebuild:native
+```
+
 Do not rebuild `better-sqlite3` for system Node merely to make direct Vitest
 invocation pass; that can replace the Electron-compatible binary and make the
 canonical suite fail. If a Node-only benchmark is required, use a separate
@@ -127,6 +210,30 @@ dependency environment or explicitly rebuild for Node and restore the
 Electron dependencies before running the application test suite. Record the
 runtime, ABI, command, test counts, and failure class in the verification
 report.
+
+## Electron E2E
+
+Build immediately before the Electron Playwright suite so `out/` matches the
+current source:
+
+```sh
+pnpm build
+pnpm test:e2e
+```
+
+The default E2E wrapper is silent and should remain the normal agent path.
+Use `pnpm test:e2e:visible` only for explicitly requested interactive
+debugging.
+
+In the Codex macOS sandbox, Electron Playwright requires authority to launch
+and control Electron child processes and to listen on loopback debugging and
+fixture ports. Run `pnpm test:e2e` outside the sandbox with approval. The
+signatures `listen EPERM: operation not permitted 127.0.0.1`,
+`electron.launch: Process failed to launch`, or a cleanup `kill EPERM` are
+sandbox failures. Do not debug application code or let all scenarios repeat
+inside the sandbox after one of these signatures; rerun the same built suite
+outside the sandbox. Treat assertions, timeouts after a successful launch,
+and application log errors as test/product results instead.
 
 ## UI Design Requirements
 

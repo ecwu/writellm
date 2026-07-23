@@ -2,18 +2,26 @@ import type { Logger } from 'pino'
 import {
   agentRunInputSchema,
   embeddingBatchInputSchema,
+  imageGenerationInputSchema,
   rerankInputSchema,
   type AgentRunInput,
   type AgentRunResult,
   type AgentStreamEvent,
   type EmbeddingBatchInput,
   type EmbeddingBatchResult,
+  type ImageGenerationInput,
+  type ImageGenerationResult,
   type RerankInput,
   type RerankResult
 } from '../../shared/contracts/model-runtime'
 import type { ProjectDatabase } from '../project/project-database'
 import type { ProviderConfig } from '../../shared/contracts/providers'
-import type { AgentModelRuntime, EmbeddingGateway, RerankGateway } from './gateways'
+import type {
+  AgentModelRuntime,
+  EmbeddingGateway,
+  ImageGenerationGateway,
+  RerankGateway
+} from './gateways'
 import {
   ModelRequestRepository,
   type ModelRequestCorrelation,
@@ -28,6 +36,7 @@ export interface ModelExecutionServiceOptions {
   agent: AgentModelRuntime
   embeddings: EmbeddingGateway
   reranker: RerankGateway
+  images?: ImageGenerationGateway
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   modelMetadata?: ModelMetadataService
 }
@@ -139,6 +148,55 @@ export class ModelExecutionService {
         ),
       (result) => ({ metadata: result.metadata, outputItems: result.ranking.length })
     )
+  }
+
+  async generateImage(
+    database: ProjectDatabase,
+    rawInput: ImageGenerationInput,
+    correlation: ModelRequestCorrelation & { projectSessionId: string },
+    signal: AbortSignal
+  ): Promise<ImageGenerationResult & { modelRequestId: string }> {
+    if (this.options.images === undefined)
+      throw new Error('Image generation gateway is unavailable')
+    const images = this.options.images
+    const input = imageGenerationInputSchema.parse(rawInput)
+    const repository = new ModelRequestRepository(database, this.options.log)
+    return this.options.providers.withConfiguredProvider('image', async (config, credential) => {
+      const record = await repository.start({
+        operation: 'image',
+        provider: config,
+        request: input,
+        inputItems: 1,
+        ...correlation
+      })
+      try {
+        const result = await images.generateImage(
+          config,
+          credential,
+          input,
+          signal,
+          correlation.projectSessionId
+        )
+        await repository.succeed(record.modelRequestId, {
+          metadata: result.metadata,
+          outputItems: 1
+        })
+        return { ...result, modelRequestId: record.modelRequestId }
+      } catch (err) {
+        this.options.log.error(
+          {
+            event: 'model_execution.failed',
+            err,
+            modelRequestId: record.modelRequestId,
+            role: 'image'
+          },
+          'Image model execution failed'
+        )
+        if (signal.aborted || isAbortError(err)) await repository.abort(record.modelRequestId)
+        else await repository.fail(record.modelRequestId, classifySafeError(err))
+        throw err
+      }
+    })
   }
 
   private async execute<T>(

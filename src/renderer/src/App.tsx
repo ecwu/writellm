@@ -348,6 +348,12 @@ function App(): React.JSX.Element {
     activeAction === 'switch'
   const projectSelectionDisabled = snapshot.state !== 'closed'
   const activeProject = snapshot.activeProject
+  const recoveryKind = snapshot.recovery?.kind
+  const recoveryIsLockContended =
+    snapshot.recovery?.kind === 'open' && snapshot.recovery.reason === 'lock-contended'
+  const showOpenRecovery = recoveryKind === undefined || recoveryKind === 'open'
+  const showCloseRecovery = recoveryKind === undefined || recoveryKind === 'close'
+  const showCreateRecovery = recoveryKind === undefined || recoveryKind === 'create'
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -462,42 +468,68 @@ function App(): React.JSX.Element {
                             <AlertCircle />
                             <AlertTitle>Recovery required</AlertTitle>
                             <AlertDescription>
-                              Choose a recovery action below. WriteLLM keeps the project closed
-                              until the selected transition is verified.
+                              {recoveryIsLockContended
+                                ? 'Another WriteLLM process still holds this project lock. Close that process and retry. If it ended unexpectedly, wait one minute, then recover the stale lock.'
+                                : 'Choose a recovery action below. WriteLLM keeps the project closed until the selected transition is verified.'}
                             </AlertDescription>
-                            <div className='grid gap-2 border-t pt-4 sm:grid-cols-2'>
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
-                              >
-                                <RefreshCcw /> Retry open
-                              </Button>
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() => void runRecovery(window.desktop.projects.retryClose)}
-                              >
-                                <RotateCcw /> Retry close
-                              </Button>
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() =>
-                                  void runRecovery(window.desktop.projects.discardIncompleteCreate)
-                                }
-                              >
-                                <Trash2 /> Discard incomplete create
-                              </Button>
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() =>
-                                  void runRecovery(window.desktop.projects.locateMoved)
-                                }
-                              >
-                                <MapPin /> Locate moved project
-                              </Button>
+                            <div className='col-start-2 grid min-w-0 gap-2 border-t pt-4 sm:grid-cols-2'>
+                              {showOpenRecovery && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(window.desktop.projects.retryOpen)
+                                  }
+                                >
+                                  <RefreshCcw /> Retry open
+                                </Button>
+                              )}
+                              {recoveryIsLockContended && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(window.desktop.projects.recoverStaleLock)
+                                  }
+                                >
+                                  <RotateCcw /> Recover stale lock
+                                </Button>
+                              )}
+                              {showCloseRecovery && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(window.desktop.projects.retryClose)
+                                  }
+                                >
+                                  <RotateCcw /> Retry close
+                                </Button>
+                              )}
+                              {showCreateRecovery && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(
+                                      window.desktop.projects.discardIncompleteCreate
+                                    )
+                                  }
+                                >
+                                  <Trash2 /> Discard incomplete create
+                                </Button>
+                              )}
+                              {showOpenRecovery && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(window.desktop.projects.locateMoved)
+                                  }
+                                >
+                                  <MapPin /> Locate moved project
+                                </Button>
+                              )}
                               <Button
                                 variant='outline'
                                 disabled={isBusy}
@@ -505,15 +537,17 @@ function App(): React.JSX.Element {
                               >
                                 <Download /> Export diagnostics
                               </Button>
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() =>
-                                  void runRecovery(window.desktop.projects.returnToClosed)
-                                }
-                              >
-                                <XCircle /> Return to closed
-                              </Button>
+                              {showOpenRecovery && (
+                                <Button
+                                  variant='outline'
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void runRecovery(window.desktop.projects.returnToClosed)
+                                  }
+                                >
+                                  <XCircle /> Return to closed
+                                </Button>
+                              )}
                             </div>
                           </Alert>
                         )}

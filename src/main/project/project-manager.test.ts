@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rename, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import pino from 'pino'
@@ -12,7 +12,11 @@ import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
 import { ProjectManager, ProjectSessionError } from './project-manager'
-import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
+import {
+  INDEX_DATABASE_RELATIVE_PATH,
+  PROJECT_LOCK_RELATIVE_PATH,
+  resolveProjectPath
+} from './project-paths'
 
 const temporaryDirectories: string[] = []
 const silentLog = pino({ level: 'silent' })
@@ -123,7 +127,11 @@ describe('ProjectManager', () => {
     await expect(manager.create({ parentDirectory: '/', name: 'selected' })).rejects.toThrow(
       'Failed to create and open project'
     )
-    expect(manager.snapshot()).toEqual({ state: 'recovery-required', activeProject: null })
+    expect(manager.snapshot()).toEqual({
+      state: 'recovery-required',
+      activeProject: null,
+      recovery: { kind: 'create' }
+    })
   })
 
   it('keeps an opened project authoritative when recent metadata update fails', async () => {
@@ -492,7 +500,11 @@ describe('ProjectManager', () => {
     const opened = await manager.open(created.projectRoot)
 
     await expect(manager.close()).rejects.toMatchObject({ cause: error })
-    expect(manager.snapshot()).toEqual({ state: 'recovery-required', activeProject: null })
+    expect(manager.snapshot()).toEqual({
+      state: 'recovery-required',
+      activeProject: null,
+      recovery: { kind: 'close' }
+    })
     expect(() =>
       manager.assertActiveSession(opened.activeProject?.projectSessionId as string)
     ).toThrow()
@@ -582,6 +594,35 @@ describe('ProjectManager', () => {
       activeProject: null
     })
     await expect(realpath(incompleteRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    appDatabase.close()
+  })
+
+  it('recovers an observed stale lock and retries the failed open', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'stale-lock-recovery')
+    const ownerToken = '11111111-1111-4111-8111-111111111111'
+    const lockDirectory = resolveProjectPath(created.projectRoot, PROJECT_LOCK_RELATIVE_PATH)
+    await mkdir(lockDirectory)
+    await writeFile(
+      join(lockDirectory, `${ownerToken}.json`),
+      JSON.stringify({
+        ownerToken,
+        pid: 1234,
+        host: 'stale-host',
+        acquiredAt: '2000-01-01T00:00:00.000Z',
+        heartbeatAt: '2000-01-01T00:00:00.000Z'
+      })
+    )
+
+    await expect(manager.open(created.projectRoot)).rejects.toThrow('Failed to open project')
+    expect(manager.snapshot()).toEqual({
+      state: 'recovery-required',
+      activeProject: null,
+      recovery: { kind: 'open', reason: 'lock-contended' }
+    })
+
+    await expect(manager.recoverStaleLockAndRetryOpen()).resolves.toMatchObject({ state: 'open' })
+    await manager.close()
     appDatabase.close()
   })
 

@@ -4,7 +4,7 @@ import {
   type BlockMutationOperation,
   type SectionPatch
 } from '../../shared/contracts/agent-mutations'
-import { extractSectionText } from '../manuscript/content'
+import { extractSectionAgentText } from '../manuscript/content'
 
 type Block = BlockNoteDocument[number]
 
@@ -84,8 +84,8 @@ export function simulateSectionPatch(
 
   return {
     document,
-    beforeText: extractSectionText(original),
-    afterText: extractSectionText(document),
+    beforeText: extractSectionAgentText(original),
+    afterText: extractSectionAgentText(document),
     affectedBlockIds: [...affected]
   }
 }

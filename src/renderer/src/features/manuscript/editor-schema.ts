@@ -4,6 +4,7 @@ import {
   defaultInlineContentSpecs,
   defaultStyleSpecs
 } from '@blocknote/core'
+import { mathBlockSpec, mermaidBlockSpec } from './rich-media-blocks'
 
 export const approvedEditorSchema = BlockNoteSchema.create({
   blockSpecs: {
@@ -14,7 +15,10 @@ export const approvedEditorSchema = BlockNoteSchema.create({
     checkListItem: defaultBlockSpecs.checkListItem,
     quote: defaultBlockSpecs.quote,
     codeBlock: defaultBlockSpecs.codeBlock,
-    table: defaultBlockSpecs.table
+    table: defaultBlockSpecs.table,
+    image: defaultBlockSpecs.image,
+    mermaid: mermaidBlockSpec,
+    math: mathBlockSpec
   },
   inlineContentSpecs: defaultInlineContentSpecs,
   styleSpecs: defaultStyleSpecs

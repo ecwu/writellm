@@ -18,6 +18,34 @@ const request: ProviderProbeRequest = {
   credential: 'utility-secret'
 }
 
+const imageRequest: ProviderProbeRequest = {
+  ...request,
+  config: {
+    role: 'image',
+    providerId: 'google-gemini',
+    model: 'gemini-3.1-flash-image',
+    timeoutMs: 30_000,
+    embeddingDimension: null,
+    batchLimit: 1,
+    fileSizeLimitMb: null,
+    defaultAspectRatio: 'auto',
+    defaultImageSize: '1K'
+  },
+  credential: 'gemini-secret'
+}
+
+async function withSdkFetch<T>(fetchMock: typeof fetch, operation: () => Promise<T>): Promise<T> {
+  vi.stubGlobal('fetch', fetchMock)
+  vi.stubEnv('GOOGLE_API_KEY', '')
+  vi.stubEnv('GEMINI_API_KEY', '')
+  try {
+    return await operation()
+  } finally {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  }
+}
+
 describe('provider utility probe request', () => {
   it('preserves a versioned base path and sends the credential only as authorization', async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
@@ -65,6 +93,55 @@ describe('provider utility probe request', () => {
     expect(response).toMatchObject({ type: 'result', status: 200, providerCode: 'A0202' })
     expect(JSON.stringify(response)).not.toContain('must-not-return')
     expect(JSON.stringify(response)).not.toContain('utility-secret')
+  })
+
+  it('tests Gemini through the official API-key-only SDK client', async () => {
+    const sdkFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const sdkRequest = input instanceof Request ? input : new Request(input, init)
+      expect(sdkRequest.url).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image'
+      )
+      expect(sdkRequest.method).toBe('GET')
+      expect(sdkRequest.headers.get('x-goog-api-key')).toBe('gemini-secret')
+      return new Response(
+        JSON.stringify({ name: 'models/gemini-3.1-flash-image', displayName: 'Gemini image' }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    })
+    const injectedFetch = vi.fn<typeof fetch>()
+
+    await expect(
+      withSdkFetch(sdkFetch, () => runProviderProbeRequest(imageRequest, injectedFetch))
+    ).resolves.toEqual({
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: null,
+      status: 200
+    })
+    expect(injectedFetch).not.toHaveBeenCalled()
+  })
+
+  it('projects only the Gemini SDK HTTP status on rejection', async () => {
+    const sdkFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 401,
+              status: 'UNAUTHENTICATED',
+              message: 'PRIVATE diagnostic'
+            }
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+    )
+
+    const response = await withSdkFetch(sdkFetch, () =>
+      runProviderProbeRequest(imageRequest, vi.fn<typeof fetch>())
+    )
+    expect(response).toMatchObject({ type: 'result', status: 401 })
+    expect(JSON.stringify(response)).not.toContain('PRIVATE')
+    expect(JSON.stringify(response)).not.toContain('gemini-secret')
   })
 
   it('serializes a diagnostic error without the credential', async () => {

@@ -67,6 +67,16 @@ describe('migration 0019 section proposal refresh', () => {
     expect(
       upgraded.immediate((database) =>
         database
+          .prepare(
+            "SELECT event_schema_version FROM agent_sessions WHERE agent_session_id = 'session-0019'"
+          )
+          .pluck()
+          .get()
+      )
+    ).toBe(2)
+    expect(
+      upgraded.immediate((database) =>
+        database
           .prepare('SELECT COUNT(*) FROM mutation_proposals WHERE replaces_proposal_id IS NULL')
           .pluck()
           .get()
@@ -104,7 +114,7 @@ describe('migration 0019 section proposal refresh', () => {
     expect(upgraded.immediate((database) => database.pragma('foreign_key_check'))).toEqual([])
     expect(
       (await readdir(join(projectRoot, '.writellm', 'backups'))).some((name) =>
-        name.includes('-to-v21-')
+        name.includes('-to-v22-')
       )
     ).toBe(true)
     upgraded.close()

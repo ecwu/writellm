@@ -5,7 +5,12 @@ import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
-import type { AgentModelRuntime, EmbeddingGateway, RerankGateway } from './gateways'
+import type {
+  AgentModelRuntime,
+  EmbeddingGateway,
+  ImageGenerationGateway,
+  RerankGateway
+} from './gateways'
 import { ModelExecutionService } from './model-execution-service'
 import type { ProviderService } from './provider-service'
 
@@ -34,8 +39,11 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true })))
 })
 
-function service(options?: { agent?: AgentModelRuntime }): ModelExecutionService {
-  const configs: Record<'agent' | 'embedding' | 'rerank', ProviderConfig> = {
+function service(options?: {
+  agent?: AgentModelRuntime
+  images?: ImageGenerationGateway
+}): ModelExecutionService {
+  const configs: Record<'agent' | 'embedding' | 'rerank' | 'image', ProviderConfig> = {
     agent: {
       role: 'agent',
       providerId: 'openai-compatible',
@@ -68,11 +76,22 @@ function service(options?: { agent?: AgentModelRuntime }): ModelExecutionService
       embeddingDimension: null,
       batchLimit: 10,
       fileSizeLimitMb: null
+    },
+    image: {
+      role: 'image',
+      providerId: 'google-gemini',
+      model: 'gemini-3.1-flash-image',
+      timeoutMs: 120_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto',
+      defaultImageSize: '1K'
     }
   }
   const providers = {
     withConfiguredProvider: async <T>(
-      role: 'agent' | 'embedding' | 'rerank',
+      role: 'agent' | 'embedding' | 'rerank' | 'image',
       operation: (config: ProviderConfig, credential: string) => Promise<T>
     ) => operation(configs[role], 'runtime-secret')
   } as unknown as ProviderService
@@ -97,7 +116,17 @@ function service(options?: { agent?: AgentModelRuntime }): ModelExecutionService
       metadata: metadata('reranker')
     }))
   }
-  return new ModelExecutionService({ providers, agent, embeddings, reranker, log })
+  const images: ImageGenerationGateway =
+    options?.images ??
+    ({
+      generateImage: vi.fn(async () => ({
+        dataBase64: 'aW1hZ2U=',
+        mimeType: 'image/png',
+        effectiveImageSize: '1K',
+        metadata: metadata('gemini-3.1-flash-image')
+      }))
+    } as ImageGenerationGateway)
+  return new ModelExecutionService({ providers, agent, embeddings, reranker, images, log })
 }
 
 describe('ModelExecutionService', () => {
@@ -144,6 +173,36 @@ describe('ModelExecutionService', () => {
     await expect(
       project.kysely.selectFrom('model_requests').select('model_request_id').execute()
     ).resolves.toEqual([])
+    project.close()
+  })
+
+  it('records request-scoped image generation without persisting prompt or bytes', async () => {
+    const project = await database()
+    const result = await service().generateImage(
+      project,
+      { prompt: 'PRIVATE-IMAGE-PROMPT', aspectRatio: '16:9', imageSize: '1K' },
+      {
+        operationId: 'operation-image',
+        agentRunId: 'agent-run-image',
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc402'
+      },
+      new AbortController().signal
+    )
+    expect(result).toMatchObject({ mimeType: 'image/png', modelRequestId: expect.any(String) })
+    const row = await project.kysely
+      .selectFrom('model_requests')
+      .selectAll()
+      .executeTakeFirstOrThrow()
+    expect(row).toMatchObject({
+      operation_kind: 'image',
+      status: 'succeeded',
+      input_items: 1,
+      output_items: 1,
+      operation_id: 'operation-image',
+      agent_run_id: 'agent-run-image'
+    })
+    expect(JSON.stringify(row)).not.toContain('PRIVATE-IMAGE-PROMPT')
+    expect(JSON.stringify(row)).not.toContain('aW1hZ2U=')
     project.close()
   })
 

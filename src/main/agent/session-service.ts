@@ -966,7 +966,7 @@ export class AgentSessionService {
         },
         'Agent tool execution failed'
       )
-      const safe = safeToolError(err, signal, deadlineSignal)
+      const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
       const resultPayload = agentToolResultPayloadSchema.parse({
         toolCallId: request.toolCallId,
         toolName: request.toolName,
@@ -1653,6 +1653,7 @@ function toolErrorResponse(
 
 function safeToolError(
   err: unknown,
+  toolName: AgentToolRequest['toolName'],
   signal: AbortSignal,
   deadlineSignal: AbortSignal
 ): {
@@ -1669,7 +1670,47 @@ function safeToolError(
   if (err instanceof AgentToolDomainError) {
     return { code: err.code, message: err.message.slice(0, 1_000), retryable: err.retryable }
   }
-  return { code: 'internal', message: 'Agent read tool failed', retryable: false }
+  if (toolName === 'generate_image') {
+    const httpStatus = findToolErrorHttpStatus(err)
+    const providerCode = findToolErrorProviderCode(err)
+    const suffix = [
+      httpStatus === undefined ? undefined : `HTTP ${httpStatus}`,
+      providerCode
+    ].filter((value): value is string => value !== undefined)
+    const detail = suffix.length === 0 ? '' : ` (${suffix.join(' / ')})`
+    const retryable =
+      httpStatus === 408 || httpStatus === 429 || (httpStatus !== undefined && httpStatus >= 500)
+    return {
+      code: 'unavailable',
+      message: retryable
+        ? `Image provider is temporarily unavailable${detail}`
+        : `Image provider rejected the generation request${detail}; verify the image API key, model access, and provider settings`,
+      retryable
+    }
+  }
+  return { code: 'internal', message: 'Agent tool failed', retryable: false }
+}
+
+function findToolErrorHttpStatus(error: unknown, depth = 0): number | undefined {
+  if (depth > 6 || error === null || typeof error !== 'object') return undefined
+  const candidate = error as { status?: unknown; statusCode?: unknown; cause?: unknown }
+  const status = candidate.statusCode ?? candidate.status
+  if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+    return status
+  }
+  return findToolErrorHttpStatus(candidate.cause, depth + 1)
+}
+
+function findToolErrorProviderCode(error: unknown, depth = 0): string | undefined {
+  if (depth > 6 || error === null || typeof error !== 'object') return undefined
+  const candidate = error as { providerCode?: unknown; cause?: unknown }
+  if (
+    typeof candidate.providerCode === 'string' &&
+    /^[A-Z][A-Z0-9_]{1,127}$/.test(candidate.providerCode)
+  ) {
+    return candidate.providerCode
+  }
+  return findToolErrorProviderCode(candidate.cause, depth + 1)
 }
 
 function structuredToolError(

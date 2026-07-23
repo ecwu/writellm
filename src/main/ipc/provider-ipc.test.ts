@@ -6,10 +6,16 @@ import type { ProviderSettingsSnapshot } from '../../shared/contracts/providers'
 import { registerProviderIpc, type ProviderIpcMain } from './provider-ipc'
 
 function emptyStatus(
-  role: 'embedding' | 'rerank' | 'mineru'
+  role: 'embedding' | 'rerank' | 'mineru' | 'image'
 ): ProviderSettingsSnapshot['providers'][number] {
   const capabilities: ProviderSettingsSnapshot['providers'][number]['capability']['capabilities'] =
-    role === 'embedding' ? ['embedding'] : role === 'rerank' ? ['rerank'] : ['parse']
+    role === 'embedding'
+      ? ['embedding']
+      : role === 'rerank'
+        ? ['rerank']
+        : role === 'image'
+          ? ['image-generation']
+          : ['parse']
   return {
     role,
     capability: {
@@ -19,7 +25,9 @@ function emptyStatus(
           ? 'cohere-compatible'
           : role === 'mineru'
             ? 'mineru'
-            : 'openai-compatible',
+            : role === 'image'
+              ? 'google-gemini'
+              : 'openai-compatible',
       label: role,
       capabilities,
       supportedFormats: [],
@@ -71,7 +79,7 @@ const snapshot: ProviderSettingsSnapshot = {
       available: true,
       issues: []
     },
-    ...(['embedding', 'rerank', 'mineru'] as const).map(emptyStatus)
+    ...(['embedding', 'rerank', 'mineru', 'image'] as const).map(emptyStatus)
   ]
 }
 

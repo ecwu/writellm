@@ -24,6 +24,18 @@ const agentConfig: ProviderConfig = {
   fileSizeLimitMb: null
 }
 
+const imageConfig: ProviderConfig = {
+  role: 'image',
+  providerId: 'google-gemini',
+  model: 'gemini-3.1-flash-image',
+  timeoutMs: 120_000,
+  embeddingDimension: null,
+  batchLimit: 1,
+  fileSizeLimitMb: null,
+  defaultAspectRatio: 'auto',
+  defaultImageSize: '1K'
+}
+
 class FakeSafeStorage implements SafeStorageAdapter {
   constructor(
     private readonly available = true,
@@ -213,6 +225,67 @@ describe('ProviderService', () => {
     expect(await appDatabase.kysely.selectFrom('provider_configs').select('id').execute()).toEqual(
       []
     )
+    appDatabase.close()
+  })
+
+  it('persists Gemini without an endpoint and reads only the legacy official marker', async () => {
+    const appDatabase = await database()
+    const service = new ProviderService(
+      appDatabase,
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
+      log,
+      noProbe
+    )
+
+    let snapshot = await service.save(imageConfig, 'gemini-secret')
+    expect(snapshot.providers.find((provider) => provider.role === 'image')?.config).toEqual(
+      imageConfig
+    )
+    let stored = await appDatabase.kysely
+      .selectFrom('provider_configs')
+      .select('config_json')
+      .where('id', '=', 'image')
+      .executeTakeFirstOrThrow()
+    expect(stored.config_json).not.toContain('baseUrl')
+    await appDatabase.kysely
+      .updateTable('provider_configs')
+      .set({
+        config_json: JSON.stringify({
+          ...imageConfig,
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta'
+        })
+      })
+      .where('id', '=', 'image')
+      .execute()
+    snapshot = await service.snapshot()
+    expect(snapshot.providers.find((provider) => provider.role === 'image')?.config).toEqual(
+      imageConfig
+    )
+    await expect(
+      service.save(
+        {
+          ...imageConfig,
+          baseUrl: 'https://gemini-proxy.example.test'
+        } as ProviderConfig,
+        'gemini-secret'
+      )
+    ).rejects.toThrow()
+    await expect(
+      service.save(
+        {
+          ...imageConfig,
+          model: 'gemini-custom-image'
+        } as ProviderConfig,
+        'gemini-secret'
+      )
+    ).rejects.toThrow()
+    await service.save(imageConfig)
+    stored = await appDatabase.kysely
+      .selectFrom('provider_configs')
+      .select('config_json')
+      .where('id', '=', 'image')
+      .executeTakeFirstOrThrow()
+    expect(stored.config_json).not.toContain('baseUrl')
     appDatabase.close()
   })
 })

@@ -1,11 +1,13 @@
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, LoaderCircle, ShieldAlert, Trash2 } from 'lucide-react'
 import type {
+  GoogleGeminiImageModel,
   ProviderConfig,
   ProviderConnectionTestResult,
   ProviderRole,
   ProviderSettingsSnapshot
 } from '../../../../shared/contracts/providers'
+import { GOOGLE_GEMINI_IMAGE_MODELS } from '../../../../shared/contracts/providers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,6 +21,13 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 
 interface ProviderSettingsDialogProps {
   role: ProviderRole | null
@@ -30,10 +39,24 @@ const labels: Record<ProviderRole, string> = {
   agent: 'Agent model',
   embedding: 'Embeddings',
   rerank: 'Reranking',
-  mineru: 'MinerU parser'
+  mineru: 'MinerU parser',
+  image: 'Image generation'
 }
 
 function defaultConfig(role: ProviderRole): ProviderConfig {
+  if (role === 'image') {
+    return {
+      role,
+      providerId: 'google-gemini',
+      model: 'gemini-3.1-flash-image',
+      timeoutMs: 120_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto',
+      defaultImageSize: '1K'
+    }
+  }
   if (role === 'mineru') {
     return {
       role,
@@ -98,6 +121,7 @@ export function ProviderSettingsDialog({
   const [message, setMessage] = useState<ProviderConnectionTestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const imageModelId = useId()
 
   useEffect(() => {
     if (role === null) return
@@ -234,23 +258,50 @@ export function ProviderSettingsDialog({
                   {snapshot?.credentialBackend.backend ?? 'unknown backend'}
                 </Badge>
               </div>
-              <Field label='Base URL'>
-                <Input
-                  value={config.baseUrl}
-                  autoComplete='url'
-                  placeholder='https://api.example.com/v1'
-                  onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}
-                />
-              </Field>
-              <Field label='Model ID'>
-                <Input
-                  value={config.model}
-                  autoComplete='off'
-                  placeholder={role === 'mineru' ? 'vlm' : 'provider model ID'}
-                  onChange={(event) => setConfig({ ...config, model: event.target.value })}
-                />
-              </Field>
-              {config.role !== 'mineru' && (
+              {config.role !== 'image' && (
+                <Field label='Base URL'>
+                  <Input
+                    value={config.baseUrl}
+                    autoComplete='url'
+                    placeholder='https://api.example.com/v1'
+                    onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}
+                  />
+                </Field>
+              )}
+              {config.role === 'image' ? (
+                <div className='grid gap-2'>
+                  <label className='text-sm font-medium' htmlFor={imageModelId}>
+                    Model ID
+                  </label>
+                  <Select
+                    value={config.model}
+                    onValueChange={(model: GoogleGeminiImageModel) =>
+                      setConfig({ ...config, model })
+                    }
+                  >
+                    <SelectTrigger id={imageModelId}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GOOGLE_GEMINI_IMAGE_MODELS.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <Field label='Model ID'>
+                  <Input
+                    value={config.model}
+                    autoComplete='off'
+                    placeholder={role === 'mineru' ? 'vlm' : 'provider model ID'}
+                    onChange={(event) => setConfig({ ...config, model: event.target.value })}
+                  />
+                </Field>
+              )}
+              {config.role !== 'mineru' && config.role !== 'image' && (
                 <Field label='Model revision'>
                   <Input
                     value={config.modelRevision}
@@ -286,7 +337,7 @@ export function ProviderSettingsDialog({
                   </div>
                 </Field>
               )}
-              <Field label='API key or token'>
+              <Field label={config.role === 'image' ? 'Gemini API key' : 'API key or token'}>
                 <Input
                   type='password'
                   value={apiKey}
@@ -297,63 +348,71 @@ export function ProviderSettingsDialog({
                   onChange={(event) => setApiKey(event.target.value)}
                 />
               </Field>
-              <div className='grid gap-4 sm:grid-cols-2'>
-                <Field label='Request timeout (milliseconds)'>
-                  <div className='space-y-1'>
-                    <Input
-                      type='number'
-                      min={1_000}
-                      max={300_000}
-                      value={config.timeoutMs}
-                      onChange={(event) =>
-                        setConfig({ ...config, timeoutMs: Number(event.target.value) })
-                      }
-                    />
-                    {config.role === 'agent' ? (
-                      <p className='text-xs text-muted-foreground'>
-                        Applies to each model request, including its automatic retries.
-                      </p>
-                    ) : null}
-                  </div>
-                </Field>
-                <Field label='Batch limit'>
-                  <Input
-                    type='number'
-                    min={1}
-                    max={status?.capability.maxBatchSize ?? 2_048}
-                    value={config.batchLimit}
-                    onChange={(event) =>
-                      setConfig({ ...config, batchLimit: Number(event.target.value) })
-                    }
-                  />
-                </Field>
-                {config.role === 'embedding' && (
-                  <Field label='Embedding dimensions'>
+              {config.role === 'image' && (
+                <p className='text-sm text-muted-foreground'>
+                  Uses the fixed official Google Gemini endpoint through @google/genai. No custom
+                  URL or API version is accepted.
+                </p>
+              )}
+              {config.role !== 'image' && (
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <Field label='Request timeout (milliseconds)'>
+                    <div className='space-y-1'>
+                      <Input
+                        type='number'
+                        min={1_000}
+                        max={300_000}
+                        value={config.timeoutMs}
+                        onChange={(event) =>
+                          setConfig({ ...config, timeoutMs: Number(event.target.value) })
+                        }
+                      />
+                      {config.role === 'agent' ? (
+                        <p className='text-xs text-muted-foreground'>
+                          Applies to each model request, including its automatic retries.
+                        </p>
+                      ) : null}
+                    </div>
+                  </Field>
+                  <Field label='Batch limit'>
                     <Input
                       type='number'
                       min={1}
-                      max={65_536}
-                      value={config.embeddingDimension ?? ''}
+                      max={status?.capability.maxBatchSize ?? 2_048}
+                      value={config.batchLimit}
                       onChange={(event) =>
-                        setConfig({ ...config, embeddingDimension: Number(event.target.value) })
+                        setConfig({ ...config, batchLimit: Number(event.target.value) })
                       }
                     />
                   </Field>
-                )}
-                {config.role === 'mineru' && (
-                  <Field label='File limit (MB)'>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={200}
-                      value={config.fileSizeLimitMb ?? ''}
-                      onChange={(event) =>
-                        setConfig({ ...config, fileSizeLimitMb: Number(event.target.value) })
-                      }
-                    />
-                  </Field>
-                )}
-              </div>
+                  {config.role === 'embedding' && (
+                    <Field label='Embedding dimensions'>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={65_536}
+                        value={config.embeddingDimension ?? ''}
+                        onChange={(event) =>
+                          setConfig({ ...config, embeddingDimension: Number(event.target.value) })
+                        }
+                      />
+                    </Field>
+                  )}
+                  {config.role === 'mineru' && (
+                    <Field label='File limit (MB)'>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={200}
+                        value={config.fileSizeLimitMb ?? ''}
+                        onChange={(event) =>
+                          setConfig({ ...config, fileSizeLimitMb: Number(event.target.value) })
+                        }
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
               {status && status.capability.supportedFormats.length > 0 && (
                 <p className='text-sm text-muted-foreground'>
                   Current import slice: {status.capability.supportedFormats.join(', ')}. Registered

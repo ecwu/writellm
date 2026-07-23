@@ -53,6 +53,7 @@ import { ModelMetadataService } from './providers/model-metadata-service'
 import { MineruClient } from './knowledge/mineru-client'
 import { MineruWorkflowService, registerMineruHandlers } from './knowledge/mineru-workflow-service'
 import { PdfPreviewCapabilities } from './knowledge/pdf-preview-capabilities'
+import { ManuscriptAssetCapabilities } from './manuscript/asset-capabilities'
 import { JobHandlerRegistry } from './jobs/scheduler/job-handler-registry'
 import {
   KnowledgeNormalizationService,
@@ -206,6 +207,7 @@ if (!hasSingleInstanceLock) {
         agent: agentModel,
         embeddings: auxiliaryModel,
         reranker: auxiliaryModel,
+        images: auxiliaryModel,
         log: loggerSystem.createModuleLogger('embedding', 'execution'),
         modelMetadata
       })
@@ -251,6 +253,7 @@ if (!hasSingleInstanceLock) {
           jobs,
           manuscript,
           editorPersistence,
+          manuscriptAssets,
           log
         }) => {
           modelExecution.recoverRunning(database)
@@ -268,7 +271,7 @@ if (!hasSingleInstanceLock) {
             log
           })
           const registry = new JobHandlerRegistry()
-          registerMineruHandlers(registry, mineruWorkflow)
+          registerMineruHandlers(registry, mineruWorkflow, () => manuscriptAssets.cleanupOrphans())
           const indexClient = new IndexClient({
             modulePath: join(__dirname, 'index-worker.js'),
             indexPath: resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH),
@@ -349,6 +352,8 @@ if (!hasSingleInstanceLock) {
             database,
             manuscript,
             editorPersistence,
+            manuscriptAssets,
+            modelExecution,
             log: loggerSystem.createModuleLogger('agent', 'mutations'),
             publishChanged: (event) => mutationEvents.publish(event),
             flushForMutation: (affectedSectionIds) =>
@@ -436,6 +441,7 @@ if (!hasSingleInstanceLock) {
             agentMutations,
             registry,
             terminateWorkers: async () => {
+              await agentMutations.cancelAllImageGenerations()
               await agentSessions.close()
               projectIndex.terminate()
             }
@@ -454,8 +460,22 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         log: loggerSystem.createModuleLogger('knowledge', 'pdf-preview')
       })
+      const assetPreview = new ManuscriptAssetCapabilities({
+        isSessionActive: (projectSessionId) => {
+          try {
+            projectManager.assertActiveSession(projectSessionId)
+            return true
+          } catch {
+            return false
+          }
+        },
+        log: loggerSystem.createModuleLogger('manuscript', 'asset-preview')
+      })
 
-      registerAppProtocol(join(__dirname, '../renderer'), (request) => pdfPreview.handle(request))
+      registerAppProtocol(
+        join(__dirname, '../renderer'),
+        async (request) => (await assetPreview.handle(request)) ?? pdfPreview.handle(request)
+      )
       const ipc = withIpcLogging(ipcMain)
       const unregisterAppIpc = registerIpcHandlers({
         appSettings,
@@ -488,7 +508,8 @@ if (!hasSingleInstanceLock) {
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'editor'),
         developmentUrl,
-        ipc
+        ipc,
+        assetCapabilities: assetPreview
       })
       flushForAgentMutation = editorIpc.flushForMutation
       const unregisterManuscriptIpc = registerManuscriptIpc({
@@ -544,6 +565,7 @@ if (!hasSingleInstanceLock) {
           agentMutationIpc.revokeSession(projectSessionId)
           agentIpc.revokeSession(projectSessionId)
           pdfPreview.revokeSession(projectSessionId)
+          assetPreview.revokeSession(projectSessionId)
         }
       })
       projectManager.setSnapshotParticipants({

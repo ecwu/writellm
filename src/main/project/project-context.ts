@@ -15,6 +15,7 @@ import type { ProjectWriteLock } from './project-lock'
 import type { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
+import type { ManuscriptAssetService } from '../manuscript/asset-service'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
@@ -29,6 +30,7 @@ export interface ProjectContext {
   readonly runtime: ProjectRuntime
   readonly manuscript: ManuscriptService
   readonly editorPersistence: EditorPersistenceService
+  readonly manuscriptAssets: ManuscriptAssetService
   readonly knowledgeImports: KnowledgeImportService
   readonly mineruWorkflow: MineruWorkflowService | null
   readonly knowledgeNormalization: KnowledgeNormalizationService | null

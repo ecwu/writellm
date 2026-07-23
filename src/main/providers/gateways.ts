@@ -4,6 +4,8 @@ import type {
   AgentStreamEvent,
   EmbeddingBatchInput,
   EmbeddingBatchResult,
+  ImageGenerationInput,
+  ImageGenerationResult,
   RerankInput,
   RerankResult
 } from '../../shared/contracts/model-runtime'
@@ -79,4 +81,14 @@ export interface RerankGateway {
     signal: AbortSignal,
     projectSessionId?: string
   ): Promise<RerankResult>
+}
+
+export interface ImageGenerationGateway {
+  generateImage(
+    config: ProviderConfig,
+    credential: string,
+    input: ImageGenerationInput,
+    signal: AbortSignal,
+    projectSessionId: string
+  ): Promise<ImageGenerationResult>
 }

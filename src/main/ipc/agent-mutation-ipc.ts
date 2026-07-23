@@ -3,6 +3,8 @@ import type { Logger } from 'pino'
 import {
   approveMutationProposalInputSchema,
   approveMutationProposalResultSchema,
+  cancelImageGenerationInputSchema,
+  cancelImageGenerationResultSchema,
   mutationProposalActionResultSchema,
   mutationSubscriptionInputSchema,
   rejectMutationProposalInputSchema,
@@ -122,6 +124,16 @@ export function registerAgentMutationIpc(options: {
       return result
     })
   })
+  ipc.handle(IPC_CHANNELS.agentCancelImageGeneration, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = cancelImageGenerationInputSchema.parse(rawInput)
+    return cancelImageGenerationResultSchema.parse({
+      cancelled: service(input.projectSessionId).cancelImageGeneration(
+        input.agentSessionId,
+        input.proposalId
+      )
+    })
+  })
   ipc.handle(IPC_CHANNELS.agentSubscribeMutations, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = mutationSubscriptionInputSchema.parse(rawInput)
@@ -152,6 +164,7 @@ export function registerAgentMutationIpc(options: {
         IPC_CHANNELS.agentProposalApprove,
         IPC_CHANNELS.agentProposalReject,
         IPC_CHANNELS.agentProposalUndo,
+        IPC_CHANNELS.agentCancelImageGeneration,
         IPC_CHANNELS.agentSubscribeMutations,
         IPC_CHANNELS.agentUnsubscribeMutations
       ]) {

@@ -14,10 +14,16 @@ import {
   finalFlushSaveInputSchema,
   importMarkdownInputSchema,
   loadSectionInputSchema,
+  manuscriptAssetPreviewInputSchema,
+  manuscriptAssetPreviewResultSchema,
+  manuscriptAssetImportReferenceInputSchema,
+  manuscriptAssetImportReferenceResultSchema,
+  manuscriptAssetResultSchema,
   ManuscriptDomainError,
   openEditorResultSchema,
   saveSectionDocumentInputSchema,
   saveSectionDocumentResponseSchema,
+  uploadManuscriptAssetInputSchema,
   type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
 import type { ProjectContext } from '../project/project-context'
@@ -30,6 +36,7 @@ import type {
 import { resolveProjectPath } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
 import { authorizeSender } from './authorize-sender'
+import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
 
 export interface EditorIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -48,6 +55,7 @@ export function registerEditorIpc(options: {
   developmentUrl?: string
   ipc?: EditorIpcMain
   snapshotFlushTimeoutMs?: number
+  assetCapabilities?: ManuscriptAssetCapabilities
 }): {
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
@@ -146,9 +154,13 @@ export function registerEditorIpc(options: {
         throw new Error('Markdown export source revision is stale')
       }
       const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${parsed.sectionRevisionId}.md`
+      const markdown = parsed.markdown.replace(
+        /writellm-asset:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/gi,
+        (_match, assetId: string) => context.manuscriptAssets.markdownReference(assetId)
+      )
       await writeAtomicFile(
         resolveProjectPath(context.projectRoot, relativePath),
-        Buffer.from(parsed.markdown)
+        Buffer.from(markdown)
       )
       return exportResultSchema.parse({ relativePath })
     } catch (err) {
@@ -158,6 +170,42 @@ export function registerEditorIpc(options: {
       )
       throw new Error('Markdown export could not be completed', { cause: err })
     }
+  })
+  ipc.handle(IPC_CHANNELS.editorUploadAsset, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = uploadManuscriptAssetInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const bytes = decodeBase64(parsed.dataBase64)
+    const result = await context.manuscriptAssets.store({
+      bytes,
+      mimeType: parsed.mimeType,
+      sourceType: 'upload',
+      originalName: parsed.originalName
+    })
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    return manuscriptAssetResultSchema.parse(result)
+  })
+  ipc.handle(IPC_CHANNELS.editorResolveAsset, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptAssetPreviewInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    context.manuscriptAssets.get(parsed.assetId)
+    if (options.assetCapabilities === undefined) throw new Error('Asset previews are unavailable')
+    return manuscriptAssetPreviewResultSchema.parse(
+      options.assetCapabilities.issue({
+        projectSessionId: parsed.projectSessionId,
+        assetId: parsed.assetId,
+        assets: context.manuscriptAssets
+      })
+    )
+  })
+  ipc.handle(IPC_CHANNELS.editorResolveImportAsset, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptAssetImportReferenceInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    return manuscriptAssetImportReferenceResultSchema.parse({
+      logicalUrl: context.manuscriptAssets.resolveImportReference(parsed.reference)
+    })
   })
   ipc.handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -437,6 +485,9 @@ export function registerEditorIpc(options: {
         IPC_CHANNELS.editorImportMarkdown,
         IPC_CHANNELS.editorExportNativeJson,
         IPC_CHANNELS.editorExportMarkdown,
+        IPC_CHANNELS.editorUploadAsset,
+        IPC_CHANNELS.editorResolveAsset,
+        IPC_CHANNELS.editorResolveImportAsset,
         IPC_CHANNELS.editorSubscribeFlush,
         IPC_CHANNELS.editorUnsubscribeFlush,
         IPC_CHANNELS.editorFinalFlushSave,
@@ -445,6 +496,17 @@ export function registerEditorIpc(options: {
         ipc.removeHandler(channel)
     }
   }
+}
+
+function decodeBase64(value: string): Buffer {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error('Image payload is not canonical base64')
+  }
+  const bytes = Buffer.from(value, 'base64')
+  if (bytes.byteLength === 0 || bytes.toString('base64') !== value) {
+    throw new Error('Image payload is not canonical base64')
+  }
+  return bytes
 }
 
 async function saveWithConflictResult(
