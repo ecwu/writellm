@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 export function ProjectOpeningIndicator(): React.JSX.Element {
   return (
@@ -11,8 +11,8 @@ export function ProjectOpeningIndicator(): React.JSX.Element {
         role='status'
         aria-live='polite'
       >
-        <LoaderCircle className='size-8 animate-spin text-primary' aria-hidden='true' />
-        <div className='space-y-1'>
+        <Spinner className='size-8 text-primary' aria-hidden='true' />
+        <div className='flex flex-col gap-1'>
           <h1 className='text-lg font-semibold'>Opening project</h1>
           <p className='text-sm text-muted-foreground'>
             Larger projects may take a moment to load.

@@ -9,7 +9,6 @@ import {
   FileCheck2,
   FileUp,
   FolderOpen,
-  LoaderCircle,
   MoreHorizontal,
   PanelLeft,
   Play,
@@ -25,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
@@ -36,6 +36,7 @@ import {
   BreadcrumbPage
 } from '@/components/ui/breadcrumb'
 import { Separator } from '@/components/ui/separator'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Sidebar,
   SidebarContent,
@@ -309,24 +310,26 @@ export function KnowledgeManager(props: {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
-                <DropdownMenuItem
-                  data-testid='knowledge-reparse-all-action'
-                  disabled={busy || parsingInProgress || stats.stored === 0}
-                  onClick={() => void reparseAll()}
-                >
-                  {parsingInProgress ? <LoaderCircle className='animate-spin' /> : <RefreshCw />}
-                  {parsingInProgress
-                    ? 'MinerU processing in progress'
-                    : 'Reprocess all with MinerU'}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid='knowledge-reembed-all-action'
-                  disabled={busy || embeddingInProgress || stats.parsed === 0}
-                  onClick={() => void refreshEmbeddings()}
-                >
-                  {embeddingInProgress ? <LoaderCircle className='animate-spin' /> : <Zap />}
-                  {embeddingInProgress ? 'Embedding in progress' : 'Recalculate all embeddings'}
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    data-testid='knowledge-reparse-all-action'
+                    disabled={busy || parsingInProgress || stats.stored === 0}
+                    onClick={() => void reparseAll()}
+                  >
+                    {parsingInProgress ? <Spinner /> : <RefreshCw />}
+                    {parsingInProgress
+                      ? 'MinerU processing in progress'
+                      : 'Reprocess all with MinerU'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid='knowledge-reembed-all-action'
+                    disabled={busy || embeddingInProgress || stats.parsed === 0}
+                    onClick={() => void refreshEmbeddings()}
+                  >
+                    {embeddingInProgress ? <Spinner /> : <Zap />}
+                    {embeddingInProgress ? 'Embedding in progress' : 'Recalculate all embeddings'}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -457,7 +460,7 @@ function KnowledgeSidebar(props: {
             onClick={props.onImport}
             disabled={props.busy}
           >
-            {props.busy ? <LoaderCircle className='animate-spin' /> : <FileUp />}
+            {props.busy ? <Spinner /> : <FileUp />}
           </Button>
         </div>
         <button
@@ -502,11 +505,11 @@ function KnowledgeSidebar(props: {
                   onClick={() => props.onSelect(item.knowledgeItemId)}
                 >
                   {parsing || item.state === 'importing' ? (
-                    <LoaderCircle className='size-4 shrink-0 animate-spin text-primary' />
+                    <Spinner className='shrink-0 text-primary' />
                   ) : failed ? (
                     <AlertCircle className='size-4 shrink-0 text-destructive' />
                   ) : parsed?.active ? (
-                    <FileCheck2 className='size-4 shrink-0 text-emerald-600' />
+                    <FileCheck2 className='shrink-0 text-success' />
                   ) : (
                     <File className='size-4 shrink-0 text-muted-foreground' />
                   )}
@@ -552,11 +555,11 @@ function TaskRow(props: { job: JobStatus }): React.JSX.Element {
     <div className='grid gap-1 text-xs'>
       <div className='flex items-center gap-2'>
         {running ? (
-          <LoaderCircle className='size-3 animate-spin text-primary' />
+          <Spinner className='text-primary' />
         ) : failed ? (
           <AlertCircle className='size-3 text-destructive' />
         ) : (
-          <CheckCircle2 className='size-3 text-emerald-600' />
+          <CheckCircle2 className='text-success' />
         )}
         <span className='min-w-0 flex-1 truncate'>{jobLabel(props.job.type)}</span>
         <span className='text-muted-foreground'>{progress}</span>
@@ -657,53 +660,56 @@ function KnowledgeDetails(props: {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
-                <DropdownMenuItem
-                  data-testid='knowledge-reparse-file-action'
-                  disabled={
-                    props.busy ||
-                    parseInProgress ||
-                    normalizationInProgress ||
-                    props.item.state !== 'stored'
-                  }
-                  onClick={props.onParse}
-                >
-                  {parseInProgress || normalizationInProgress ? (
-                    <LoaderCircle className='animate-spin' />
-                  ) : (
-                    <RefreshCw />
-                  )}
-                  {parseInProgress || normalizationInProgress
-                    ? 'Processing in progress'
-                    : 'Reprocess with MinerU'}
-                </DropdownMenuItem>
-                {hasActiveRevision ? (
+                <DropdownMenuGroup>
                   <DropdownMenuItem
-                    data-testid='knowledge-reembed-file-action'
-                    disabled={props.busy || props.embeddingInProgress}
-                    onClick={props.onRefreshEmbeddings}
+                    data-testid='knowledge-reparse-file-action'
+                    disabled={
+                      props.busy ||
+                      parseInProgress ||
+                      normalizationInProgress ||
+                      props.item.state !== 'stored'
+                    }
+                    onClick={props.onParse}
                   >
-                    {props.embeddingInProgress ? (
-                      <LoaderCircle className='animate-spin' />
-                    ) : (
-                      <Zap />
-                    )}
-                    {props.embeddingInProgress ? 'Embedding in progress' : 'Recalculate embeddings'}
+                    {parseInProgress || normalizationInProgress ? <Spinner /> : <RefreshCw />}
+                    {parseInProgress || normalizationInProgress
+                      ? 'Processing in progress'
+                      : 'Reprocess with MinerU'}
                   </DropdownMenuItem>
-                ) : null}
+                  {hasActiveRevision ? (
+                    <DropdownMenuItem
+                      data-testid='knowledge-reembed-file-action'
+                      disabled={props.busy || props.embeddingInProgress}
+                      onClick={props.onRefreshEmbeddings}
+                    >
+                      {props.embeddingInProgress ? <Spinner /> : <Zap />}
+                      {props.embeddingInProgress
+                        ? 'Embedding in progress'
+                        : 'Recalculate embeddings'}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={props.item.state !== 'stored'} onClick={props.onOpen}>
-                  <FolderOpen /> Open file
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={props.item.state !== 'stored'} onClick={props.onReveal}>
-                  <PanelLeft /> Show in Finder
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem disabled={props.item.state !== 'stored'} onClick={props.onOpen}>
+                    <FolderOpen /> Open file
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={props.item.state !== 'stored'}
+                    onClick={props.onReveal}
+                  >
+                    <PanelLeft /> Show in Finder
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className='text-destructive focus:text-destructive'
-                  onClick={props.onDelete}
-                >
-                  <Trash2 /> Delete source
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    className='text-destructive focus:text-destructive'
+                    onClick={props.onDelete}
+                  >
+                    <Trash2 /> Delete source
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
             <Separator orientation='vertical' className='mx-1 data-[orientation=vertical]:h-5' />
@@ -730,7 +736,7 @@ function KnowledgeDetails(props: {
       <div className='min-h-0 flex-1 overflow-hidden'>
         {props.parsedLoading ? (
           <div className='flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground'>
-            <LoaderCircle className='animate-spin' /> Loading parse status…
+            <Spinner /> Loading parse status…
           </div>
         ) : hasActiveRevision ? (
           <ParsedDocumentViewer
@@ -745,7 +751,7 @@ function KnowledgeDetails(props: {
         ) : (
           <div className='flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center'>
             {parseInProgress || normalizationInProgress ? (
-              <LoaderCircle className='size-8 animate-spin text-primary' />
+              <Spinner className='size-8 text-primary' />
             ) : props.parsed?.parseState === 'failed' ? (
               <AlertCircle className='size-8 text-destructive' />
             ) : (

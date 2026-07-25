@@ -4,7 +4,7 @@ import ReactDiffViewer, {
   DiffMethod,
   type ReactDiffViewerStylesOverride
 } from 'react-diff-viewer-continued'
-import { Button } from '@/components/ui/button'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 const proposalDiffStyles: ReactDiffViewerStylesOverride = {
   variables: {
@@ -79,29 +79,27 @@ export function ProposalDiff(props: {
   const [splitView, setSplitView] = useState(false)
 
   return (
-    <section className='min-w-0 space-y-2' aria-label='Proposal changes'>
-      <div className='flex min-w-0 flex-wrap items-center justify-between gap-2'>
+    <section className='flex min-w-0 flex-col gap-2' aria-label='Proposal changes'>
+      <div className='grid min-w-0 gap-2 @sm/agent:grid-cols-[minmax(0,1fr)_auto] @sm/agent:items-center'>
         <p className='text-xs font-medium text-muted-foreground'>Highlighted changes</p>
-        <fieldset className='flex rounded-md border bg-muted/40 p-0.5' aria-label='Diff layout'>
-          <Button
-            type='button'
-            size='xs'
-            variant={splitView ? 'ghost' : 'secondary'}
-            aria-pressed={!splitView}
-            onClick={() => setSplitView(false)}
-          >
+        <ToggleGroup
+          type='single'
+          size='sm'
+          variant='outline'
+          value={splitView ? 'split' : 'unified'}
+          onValueChange={(value) => {
+            if (value) setSplitView(value === 'split')
+          }}
+          className='grid w-full grid-cols-2 @sm/agent:w-auto'
+          aria-label='Diff layout'
+        >
+          <ToggleGroupItem value='unified' aria-label='Unified'>
             <Rows3 /> Unified
-          </Button>
-          <Button
-            type='button'
-            size='xs'
-            variant={splitView ? 'secondary' : 'ghost'}
-            aria-pressed={splitView}
-            onClick={() => setSplitView(true)}
-          >
+          </ToggleGroupItem>
+          <ToggleGroupItem value='split' aria-label='Split'>
             <Columns2 /> Split
-          </Button>
-        </fieldset>
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
       <div
         className='max-h-80 max-w-full min-w-0 overflow-auto rounded-md border'

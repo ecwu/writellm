@@ -6,18 +6,18 @@ import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  FileText,
-  ImageIcon,
-  LoaderCircle,
-  Map as MapIcon,
-  Play,
-  Rows3,
-  Square
-} from 'lucide-react'
+import { FileText, ImageIcon, Map as MapIcon, Play, Rows3, Square } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle
+} from '@/components/ui/empty'
 import {
   Table,
   TableBody,
@@ -34,6 +34,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Spinner } from '@/components/ui/spinner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { markdownSanitizeSchema, rehypeRenderHtmlMath } from './markdown-math'
 import { KnowledgeMappingViewer } from './knowledge-mapping-viewer'
 
@@ -109,119 +111,130 @@ export function ParsedDocumentViewer(props: {
   const normalizationInProgress =
     query.data?.parseState === 'succeeded' && query.data.normalizationState === 'staging'
   const content = query.isLoading ? (
-    <div className='flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground'>
-      <LoaderCircle className='size-4 animate-spin' /> Loading parsed result…
+    <div
+      className='flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground'
+      role='status'
+    >
+      <Spinner /> Loading parsed result…
     </div>
   ) : active === null || active === undefined ? (
-    <div className='flex min-h-64 flex-1 flex-col items-center justify-center gap-3 text-center'>
-      <FileText className='size-10 text-muted-foreground' />
-      <div>
-        <p className='font-medium'>
+    <Empty className='min-h-64 border-0'>
+      <EmptyHeader>
+        <EmptyMedia variant='icon'>
+          <FileText />
+        </EmptyMedia>
+        <EmptyTitle>
           {parseInProgress
             ? 'Parsing in progress'
             : normalizationInProgress
               ? 'Preparing parsed result'
               : 'No active parsed revision'}
-        </p>
-        <p className='text-sm text-muted-foreground'>
+        </EmptyTitle>
+        <EmptyDescription>
           {normalizationInProgress
             ? 'The raw result is ready and is being normalized.'
             : `Parse status: ${query.data?.parseState ?? 'not started'}`}
-        </p>
-      </div>
-      {parseInProgress ? (
-        <Button disabled={actionPending} variant='outline' onClick={() => void cancelParse()}>
-          <Square /> {actionPending ? 'Stopping…' : 'Stop parsing'}
-        </Button>
-      ) : normalizationInProgress ? null : (
-        <Button disabled={actionPending} onClick={() => void startParse()}>
-          <Play /> {query.data?.parseState === 'failed' ? 'Retry parsing' : 'Start parsing'}
-        </Button>
-      )}
-    </div>
-  ) : (
-    <>
-      <div className='flex flex-wrap items-center gap-1 border-b'>
-        <Button
-          size='sm'
-          variant='ghost'
-          className={`rounded-none border-b-2 px-3 ${view === 'content' ? 'border-foreground' : 'border-transparent text-muted-foreground'}`}
-          aria-pressed={view === 'content'}
-          onClick={() => setView('content')}
-        >
-          <Rows3 /> Content
-        </Button>
-        <Button
-          size='sm'
-          variant='ghost'
-          className={`rounded-none border-b-2 px-3 ${view === 'markdown' ? 'border-foreground' : 'border-transparent text-muted-foreground'}`}
-          aria-pressed={view === 'markdown'}
-          onClick={() => setView('markdown')}
-        >
-          <FileText /> Markdown
-        </Button>
-        {props.extension === 'pdf' ? (
-          <Button
-            size='sm'
-            variant='ghost'
-            className={`rounded-none border-b-2 px-3 ${view === 'mapping' ? 'border-foreground' : 'border-transparent text-muted-foreground'}`}
-            aria-pressed={view === 'mapping'}
-            onClick={() => setView('mapping')}
-          >
-            <MapIcon /> Mapping
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        {parseInProgress ? (
+          <Button disabled={actionPending} variant='outline' onClick={() => void cancelParse()}>
+            {actionPending ? (
+              <Spinner data-icon='inline-start' />
+            ) : (
+              <Square data-icon='inline-start' />
+            )}
+            {actionPending ? 'Stopping…' : 'Stop parsing'}
           </Button>
-        ) : null}
-        <Badge variant='outline'>{active.modelVersion}</Badge>
-        <Badge variant='outline'>Normalizer v{active.normalizerVersion}</Badge>
-        <span className='ml-auto text-xs text-muted-foreground'>{active.blocks.length} blocks</span>
+        ) : normalizationInProgress ? null : (
+          <Button disabled={actionPending} onClick={() => void startParse()}>
+            {actionPending ? (
+              <Spinner data-icon='inline-start' />
+            ) : (
+              <Play data-icon='inline-start' />
+            )}
+            {query.data?.parseState === 'failed' ? 'Retry parsing' : 'Start parsing'}
+          </Button>
+        )}
+      </EmptyContent>
+    </Empty>
+  ) : (
+    <Tabs
+      value={view}
+      onValueChange={(value) => setView(value as typeof view)}
+      className='min-h-0 flex-1 gap-0'
+    >
+      <div className='flex min-w-0 flex-wrap items-center gap-2 border-b'>
+        <TabsList variant='line'>
+          <TabsTrigger value='content'>
+            <Rows3 /> Content
+          </TabsTrigger>
+          <TabsTrigger value='markdown'>
+            <FileText /> Markdown
+          </TabsTrigger>
+          {props.extension === 'pdf' ? (
+            <TabsTrigger value='mapping'>
+              <MapIcon /> Mapping
+            </TabsTrigger>
+          ) : null}
+        </TabsList>
+        <div className='flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1'>
+          <Badge variant='outline'>{active.modelVersion}</Badge>
+          <Badge variant='outline'>Normalizer v{active.normalizerVersion}</Badge>
+          <span className='text-xs text-muted-foreground'>{active.blocks.length} blocks</span>
+        </div>
       </div>
-      {view === 'mapping' && props.extension === 'pdf' ? (
-        <KnowledgeMappingViewer
-          projectSessionId={props.projectSessionId}
-          knowledgeItemId={props.knowledgeItemId as string}
-          displayName={props.displayName}
-          initialPageIndex={mappingTarget?.pageIndex ?? 0}
-          initialBlockId={mappingTarget?.blockId ?? null}
-          onError={props.onError}
-        />
-      ) : (
-        <>
-          <ScrollArea className='min-h-0 flex-1 overflow-hidden pr-4'>
-            {view === 'markdown' ? (
-              <ParsedMarkdown
-                markdown={active.documentMarkdown}
+      <TabsContent value='mapping' className='min-h-0'>
+        {props.extension === 'pdf' ? (
+          <KnowledgeMappingViewer
+            projectSessionId={props.projectSessionId}
+            knowledgeItemId={props.knowledgeItemId as string}
+            displayName={props.displayName}
+            initialPageIndex={mappingTarget?.pageIndex ?? 0}
+            initialBlockId={mappingTarget?.blockId ?? null}
+            onError={props.onError}
+          />
+        ) : null}
+      </TabsContent>
+      <TabsContent value='content' className='min-h-0'>
+        <ScrollArea className='h-full min-h-0 overflow-hidden pr-4'>
+          <div className='divide-y'>
+            {active.blocks.map((block) => (
+              <ParsedBlock
+                key={block.id}
+                block={block}
+                isPdf={props.extension === 'pdf'}
                 projectSessionId={props.projectSessionId}
                 knowledgeItemId={props.knowledgeItemId as string}
                 parseRevisionId={active.parseRevisionId}
+                onOpenMapping={() => {
+                  setMappingTarget({ pageIndex: block.page ?? 0, blockId: block.id })
+                  setView('mapping')
+                }}
               />
-            ) : (
-              <div className='divide-y'>
-                {active.blocks.map((block) => (
-                  <ParsedBlock
-                    key={block.id}
-                    block={block}
-                    isPdf={props.extension === 'pdf'}
-                    projectSessionId={props.projectSessionId}
-                    knowledgeItemId={props.knowledgeItemId as string}
-                    parseRevisionId={active.parseRevisionId}
-                    onOpenMapping={() => {
-                      setMappingTarget({ pageIndex: block.page ?? 0, blockId: block.id })
-                      setView('mapping')
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-          <div className='grid gap-1 border-t py-3 text-xs text-muted-foreground sm:grid-cols-2'>
-            <span>Source SHA-256: {active.sourceSha256}</span>
-            <span>Remote task: {active.remoteTaskId}</span>
-            <span>Parse revision: {active.parseRevisionId}</span>
-            <span>Activated: {new Date(active.activatedAt).toLocaleString()}</span>
+            ))}
           </div>
-        </>
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent value='markdown' className='min-h-0'>
+        <ScrollArea className='h-full min-h-0 overflow-hidden pr-4'>
+          <ParsedMarkdown
+            markdown={active.documentMarkdown}
+            projectSessionId={props.projectSessionId}
+            knowledgeItemId={props.knowledgeItemId as string}
+            parseRevisionId={active.parseRevisionId}
+          />
+        </ScrollArea>
+      </TabsContent>
+      {view === 'mapping' ? null : (
+        <div className='grid gap-1 border-t py-3 text-xs text-muted-foreground sm:grid-cols-2'>
+          <span>Source SHA-256: {active.sourceSha256}</span>
+          <span>Remote task: {active.remoteTaskId}</span>
+          <span>Parse revision: {active.parseRevisionId}</span>
+          <span>Activated: {new Date(active.activatedAt).toLocaleString()}</span>
+        </div>
       )}
-    </>
+    </Tabs>
   )
 
   if (props.inline) {
@@ -263,7 +276,7 @@ function ParsedMarkdown(props: {
   return (
     <article
       className={
-        'max-w-none space-y-4 py-4 text-sm leading-7 ' +
+        'flex max-w-none flex-col gap-4 py-4 text-sm leading-7 ' +
         '[&_h1]:scroll-m-20 [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight ' +
         '[&_h2]:mt-8 [&_h2]:scroll-m-20 [&_h2]:border-b [&_h2]:pb-2 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:tracking-tight ' +
         '[&_h3]:mt-6 [&_h3]:scroll-m-20 [&_h3]:text-xl [&_h3]:font-semibold ' +

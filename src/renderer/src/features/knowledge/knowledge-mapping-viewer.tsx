@@ -6,20 +6,12 @@ import {
 } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useQuery } from '@tanstack/react-query'
-import {
-  ChevronLeft,
-  ChevronRight,
-  LoaderCircle,
-  Minus,
-  PanelRight,
-  Plus,
-  Search,
-  Zap
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, PanelRight, Plus, Search, Zap } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KnowledgeMappingPage } from '../../../../shared/contracts/knowledge-mapping'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
@@ -261,7 +253,7 @@ export function KnowledgeMappingViewer(props: {
           <div ref={canvasContainerRef} className='flex min-h-full min-w-full justify-center p-4'>
             {preview === null || pdf === null ? (
               <div className='flex min-h-64 items-center gap-2 text-sm text-muted-foreground'>
-                <LoaderCircle className='size-4 animate-spin' /> Loading original PDF…
+                <Spinner /> Loading original PDF…
               </div>
             ) : (
               <div className='relative h-fit w-fit border bg-background shadow-sm'>

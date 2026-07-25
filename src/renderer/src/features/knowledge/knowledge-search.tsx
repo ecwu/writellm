@@ -4,7 +4,7 @@ import {
 } from '../../../../shared/contracts/knowledge'
 import type { KnowledgeSearchInput } from '../../../../shared/contracts/search'
 import { useQuery } from '@tanstack/react-query'
-import { Bug, FileSearch, ImageIcon, LoaderCircle, Search, SlidersHorizontal } from 'lucide-react'
+import { Bug, FileSearch, ImageIcon, Search, SlidersHorizontal } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 
 export function KnowledgeSearch(props: {
   projectSessionId: string
@@ -97,7 +98,7 @@ export function KnowledgeSearch(props: {
             aria-label='Knowledge search query'
           />
           <Button type='submit' disabled={queryText.trim().length === 0 || searchQuery.isFetching}>
-            {searchQuery.isFetching ? <LoaderCircle className='animate-spin' /> : <Search />}
+            {searchQuery.isFetching ? <Spinner data-icon='inline-start' /> : <Search />}
             Search
           </Button>
         </div>
@@ -212,7 +213,7 @@ export function KnowledgeSearch(props: {
           </DialogHeader>
           {citationQuery.isLoading ? (
             <div className='flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground'>
-              <LoaderCircle className='size-4 animate-spin' /> Loading citation…
+              <Spinner /> Loading citation…
             </div>
           ) : citation ? (
             <div className='grid gap-4'>

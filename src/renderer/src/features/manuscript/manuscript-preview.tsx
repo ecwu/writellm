@@ -1,7 +1,7 @@
 import type { BlockNoteDocument, ManuscriptAssembly } from '../../../../shared/contracts/manuscript'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { FileText, LoaderCircle } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
 import { useTheme } from '@/theme-provider'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 
@@ -53,15 +54,15 @@ export function ManuscriptPreview(props: {
         </DialogHeader>
         {props.loading ? (
           <div className='flex min-h-64 items-center justify-center gap-2 text-muted-foreground'>
-            <LoaderCircle className='size-5 animate-spin' /> Assembling manuscript…
+            <Spinner /> Assembling manuscript…
           </div>
         ) : props.error ? (
           <p className='py-12 text-center text-sm text-destructive'>
             The manuscript preview could not be assembled.
           </p>
         ) : props.assembly ? (
-          <article className='space-y-8' data-testid='whole-manuscript-preview'>
-            <header className='space-y-2 border-b pb-6'>
+          <article className='flex flex-col gap-8' data-testid='whole-manuscript-preview'>
+            <header className='flex flex-col gap-2 border-b pb-6'>
               <h1 className='text-3xl font-semibold tracking-tight'>
                 {props.assembly.brief.title}
               </h1>

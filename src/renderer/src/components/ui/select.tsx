@@ -14,6 +14,10 @@ function SelectValue({ ...props }: React.ComponentProps<typeof SelectPrimitive.V
   return <SelectPrimitive.Value data-slot='select-value' {...props} />
 }
 
+function SelectGroup({ ...props }: React.ComponentProps<typeof SelectPrimitive.Group>) {
+  return <SelectPrimitive.Group data-slot='select-group' {...props} />
+}
+
 function SelectTrigger({
   className,
   size = 'default',
@@ -103,4 +107,4 @@ function SelectItem({
   )
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
+export { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue }

@@ -220,7 +220,7 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     await launched.page.getByTestId('agent-menubar-trigger').click()
     const panel = launched.page.getByTestId('agent-panel')
     await panel.getByRole('button', { name: 'New', exact: true }).click()
-    await panel.getByRole('button', { name: 'Section', exact: true }).click()
+    await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Prepare the first update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
@@ -228,7 +228,7 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     await expect(panel.getByLabel('Agent message')).toBeDisabled()
     await panel.getByRole('button', { name: 'Back to conversations' }).click()
     await panel.getByRole('button', { name: 'New', exact: true }).click()
-    await panel.getByRole('button', { name: 'Section', exact: true }).click()
+    await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Prepare the second update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect

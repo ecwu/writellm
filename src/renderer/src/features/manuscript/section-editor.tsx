@@ -6,9 +6,10 @@ import {
   useCreateBlockNote
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { AlertCircle, Check, LoaderCircle, Sigma, Workflow } from 'lucide-react'
+import { AlertCircle, Check, Sigma, Workflow } from 'lucide-react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/theme-provider'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
@@ -545,7 +546,7 @@ function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
   }
   return (
     <Badge variant={state === 'conflict' || state === 'failed' ? 'destructive' : 'outline'}>
-      {state === 'saving' ? <LoaderCircle className='animate-spin' /> : null}
+      {state === 'saving' ? <Spinner /> : null}
       {state === 'saved' ? <Check /> : null}
       {state === 'conflict' || state === 'failed' ? <AlertCircle /> : null}
       {labels[state]}

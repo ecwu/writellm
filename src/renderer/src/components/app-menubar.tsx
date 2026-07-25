@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import {
   Menubar,
   MenubarContent,
+  MenubarGroup,
   MenubarItem,
   MenubarLabel,
   MenubarMenu,
@@ -63,45 +64,53 @@ export function AppMenubar({
         <MenubarMenu>
           <MenubarTrigger>Project</MenubarTrigger>
           <MenubarContent>
-            <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onCreate}>
-              <FilePlus2 /> New project
-              <MenubarShortcut>⌘N</MenubarShortcut>
-            </MenubarItem>
-            <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onOpen}>
-              <FolderOpen /> Open project
-              <MenubarShortcut>⌘O</MenubarShortcut>
-            </MenubarItem>
-            <MenubarItem disabled={busy || !hasProject} onSelect={onSwitch}>
-              <FolderSync /> Switch project
-            </MenubarItem>
+            <MenubarGroup>
+              <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onCreate}>
+                <FilePlus2 /> New project
+                <MenubarShortcut>⌘N</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onOpen}>
+                <FolderOpen /> Open project
+                <MenubarShortcut>⌘O</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onSwitch}>
+                <FolderSync /> Switch project
+              </MenubarItem>
+            </MenubarGroup>
             <MenubarSeparator />
-            <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
-              <Save /> Save
-              <MenubarShortcut>⌘S</MenubarShortcut>
-            </MenubarItem>
-            <MenubarItem disabled={busy || !hasProject} onSelect={onCreateSnapshot}>
-              <Save /> Create snapshot
-            </MenubarItem>
-            <MenubarItem disabled={busy || !canRestoreSnapshot} onSelect={onRestoreSnapshot}>
-              <ArchiveRestore /> Restore snapshot
-            </MenubarItem>
-            <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
-              <FileText /> Close project
-            </MenubarItem>
+            <MenubarGroup>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
+                <Save /> Save
+                <MenubarShortcut>⌘S</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onCreateSnapshot}>
+                <Save /> Create snapshot
+              </MenubarItem>
+              <MenubarItem disabled={busy || !canRestoreSnapshot} onSelect={onRestoreSnapshot}>
+                <ArchiveRestore /> Restore snapshot
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
+                <FileText /> Close project
+              </MenubarItem>
+            </MenubarGroup>
           </MenubarContent>
         </MenubarMenu>
         <MenubarMenu>
           <MenubarTrigger>Tools</MenubarTrigger>
           <MenubarContent>
-            <MenubarItem onSelect={onOpenSettings}>
-              <Settings2 /> Settings
-              <MenubarShortcut>⌘,</MenubarShortcut>
-            </MenubarItem>
+            <MenubarGroup>
+              <MenubarItem onSelect={onOpenSettings}>
+                <Settings2 /> Settings
+                <MenubarShortcut>⌘,</MenubarShortcut>
+              </MenubarItem>
+            </MenubarGroup>
             <MenubarSeparator />
             <MenubarLabel>Diagnostics</MenubarLabel>
-            <MenubarItem onSelect={onOpenLogs}>
-              <Logs /> Open logs folder
-            </MenubarItem>
+            <MenubarGroup>
+              <MenubarItem onSelect={onOpenLogs}>
+                <Logs /> Open logs folder
+              </MenubarItem>
+            </MenubarGroup>
           </MenubarContent>
         </MenubarMenu>
       </Menubar>

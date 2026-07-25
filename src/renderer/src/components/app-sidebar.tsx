@@ -14,6 +14,7 @@ import {
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import {
   Sidebar,
   SidebarContent,
@@ -102,7 +103,7 @@ export function AppSidebar({
             <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
               {projectName}
             </div>
-            <Badge className='shrink-0' variant='secondary'>
+            <Badge className='shrink-0' variant='success'>
               Active
             </Badge>
           </div>
@@ -164,7 +165,7 @@ export function AppSidebar({
                       onClick={() => onSelectSection(section.sectionId)}
                     >
                       {section.status === 'completed' ? (
-                        <CheckCircle2 className='text-emerald-600' />
+                        <CheckCircle2 className='text-success' />
                       ) : (
                         <Circle />
                       )}
@@ -201,16 +202,22 @@ export function AppSidebar({
                 ))}
               </SidebarMenu>
               {!workspace?.sections.length ? (
-                <div className='p-4 text-center text-sm text-muted-foreground'>
-                  <FileText className='mx-auto mb-2 size-5' /> No sections yet
-                </div>
+                <Empty className='gap-2 border-0 p-4'>
+                  <EmptyHeader>
+                    <EmptyMedia variant='icon'>
+                      <FileText />
+                    </EmptyMedia>
+                    <EmptyTitle className='text-sm'>No sections yet</EmptyTitle>
+                    <EmptyDescription>Create a section to start the outline.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : null}
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className='shrink-0 border-t p-4'>
           <section
-            className='space-y-1 text-xs text-muted-foreground'
+            className='flex flex-col gap-1 text-xs text-muted-foreground'
             aria-label='Manuscript statistics'
           >
             <p>

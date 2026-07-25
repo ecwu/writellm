@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Download,
   FolderOpen,
-  LoaderCircle,
   MapPin,
   Plus,
   RefreshCcw,
@@ -42,7 +41,22 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText
+} from '@/components/ui/input-group'
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle
+} from '@/components/ui/item'
+import { Spinner } from '@/components/ui/spinner'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
 
@@ -454,7 +468,7 @@ function App(): React.JSX.Element {
                     </CardDescription>
                     <CardAction>
                       {initialLoading ? (
-                        <LoaderCircle className='size-5 animate-spin text-muted-foreground' />
+                        <Spinner className='text-muted-foreground' />
                       ) : (
                         <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
                       )}
@@ -554,40 +568,42 @@ function App(): React.JSX.Element {
                       </CardContent>
                       {recentProjects.length > 0 && (
                         <CardContent className='border-t pt-4'>
-                          <div className='mb-3 space-y-1'>
+                          <div className='mb-3 flex flex-col gap-1'>
                             <h2 className='font-medium'>Recent projects</h2>
                             <p className='text-sm text-muted-foreground'>
                               Open one of your five most recently opened projects.
                             </p>
                           </div>
-                          <div className='grid gap-2'>
+                          <ItemGroup className='gap-2'>
                             {recentProjects.map((recentProject) => (
-                              <Button
-                                key={recentProject.projectId}
-                                className='h-auto min-w-0 justify-start gap-3 px-3 py-3 text-left'
-                                variant='ghost'
-                                disabled={isBusy || projectSelectionDisabled}
-                                aria-label={`Open ${recentProject.displayName}`}
-                                onClick={() => void openRecentProject(recentProject.projectId)}
-                              >
-                                <FolderOpen className='size-4 shrink-0 text-muted-foreground' />
-                                <span className='min-w-0 flex-1'>
-                                  <span className='block truncate font-medium'>
-                                    {recentProject.displayName}
-                                  </span>
-                                  <span
-                                    className='block truncate text-xs text-muted-foreground'
-                                    title={recentProject.projectPath}
-                                  >
-                                    {recentProject.projectPath}
-                                  </span>
-                                  <span className='block text-xs text-muted-foreground'>
-                                    {formatRecentProjectDate(recentProject.lastOpenedAt)}
-                                  </span>
-                                </span>
-                              </Button>
+                              <Item key={recentProject.projectId} size='sm' className='p-0'>
+                                <Button
+                                  className='h-auto w-full min-w-0 justify-start gap-3 px-3 py-3 text-left'
+                                  variant='ghost'
+                                  disabled={isBusy || projectSelectionDisabled}
+                                  aria-label={`Open ${recentProject.displayName}`}
+                                  onClick={() => void openRecentProject(recentProject.projectId)}
+                                >
+                                  <ItemMedia variant='icon'>
+                                    <FolderOpen />
+                                  </ItemMedia>
+                                  <ItemContent className='min-w-0'>
+                                    <ItemTitle className='block w-full truncate'>
+                                      {recentProject.displayName}
+                                    </ItemTitle>
+                                    <ItemDescription className='block truncate text-left'>
+                                      <span title={recentProject.projectPath}>
+                                        {recentProject.projectPath}
+                                      </span>
+                                      <span className='block'>
+                                        {formatRecentProjectDate(recentProject.lastOpenedAt)}
+                                      </span>
+                                    </ItemDescription>
+                                  </ItemContent>
+                                </Button>
+                              </Item>
                             ))}
-                          </div>
+                          </ItemGroup>
                         </CardContent>
                       )}
                       <CardFooter className='flex-col gap-2 border-t sm:flex-row'>
@@ -600,9 +616,9 @@ function App(): React.JSX.Element {
                           }}
                         >
                           {activeAction === 'create' ? (
-                            <LoaderCircle className='animate-spin' />
+                            <Spinner data-icon='inline-start' />
                           ) : (
-                            <Plus />
+                            <Plus data-icon='inline-start' />
                           )}
                           {activeAction === 'create' ? 'Creating…' : 'Create project'}
                         </Button>
@@ -661,12 +677,10 @@ function App(): React.JSX.Element {
                 Choose a name first, then select where to create the project folder.
               </DialogDescription>
             </DialogHeader>
-            <div className='grid gap-2'>
-              <label className='text-sm font-medium' htmlFor='project-name'>
-                Project name
-              </label>
-              <div className='flex items-center gap-2'>
-                <Input
+            <Field data-invalid={projectNameError !== null}>
+              <FieldLabel htmlFor='project-name'>Project name</FieldLabel>
+              <InputGroup>
+                <InputGroupInput
                   id='project-name'
                   autoFocus
                   autoComplete='off'
@@ -679,17 +693,17 @@ function App(): React.JSX.Element {
                   }}
                   placeholder='My project'
                 />
-                <span className='shrink-0 text-sm text-muted-foreground'>.writellm</span>
-              </div>
-              <p
+                <InputGroupAddon align='inline-end'>
+                  <InputGroupText>.writellm</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
+              <FieldDescription
                 id={projectNameError ? 'project-name-error' : 'project-name-hint'}
-                className={
-                  projectNameError ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'
-                }
+                className={projectNameError ? 'text-destructive' : undefined}
               >
                 {projectNameError ?? 'WriteLLM creates a new folder with this name.'}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
             <DialogFooter>
               <DialogClose asChild>
                 <Button type='button' variant='outline'>

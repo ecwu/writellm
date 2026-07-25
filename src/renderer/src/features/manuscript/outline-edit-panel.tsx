@@ -57,8 +57,8 @@ export function OutlineEditPanel(props: {
             Adjust hierarchy, move section content, and preview or exchange the current section.
           </SheetDescription>
         </SheetHeader>
-        <div className='flex-1 space-y-6 overflow-y-auto px-4 pb-6'>
-          <section className='space-y-3' aria-labelledby='outline-editor-current-section'>
+        <div className='flex flex-1 flex-col gap-6 overflow-y-auto px-4 pb-6'>
+          <section className='flex flex-col gap-3' aria-labelledby='outline-editor-current-section'>
             <div className='flex items-center justify-between gap-3'>
               <h2 id='outline-editor-current-section' className='text-sm font-medium'>
                 Current section
@@ -66,7 +66,7 @@ export function OutlineEditPanel(props: {
               <Badge variant='outline'>{saveStateLabels[props.saveState]}</Badge>
             </div>
             {props.activeSection ? (
-              <div className='space-y-1 rounded-md border px-3 py-2'>
+              <div className='flex flex-col gap-1 rounded-md border px-3 py-2'>
                 <p className='font-medium'>{props.activeSection.title}</p>
                 <p className='text-xs text-muted-foreground'>
                   Outline level {props.activeSection.level}
@@ -81,7 +81,7 @@ export function OutlineEditPanel(props: {
 
           <Separator />
 
-          <section className='space-y-3' aria-labelledby='outline-editor-hierarchy'>
+          <section className='flex flex-col gap-3' aria-labelledby='outline-editor-hierarchy'>
             <div>
               <h2 id='outline-editor-hierarchy' className='text-sm font-medium'>
                 Hierarchy
@@ -128,7 +128,7 @@ export function OutlineEditPanel(props: {
 
           <Separator />
 
-          <section className='space-y-3' aria-labelledby='outline-editor-interchange'>
+          <section className='flex flex-col gap-3' aria-labelledby='outline-editor-interchange'>
             <div>
               <h2 id='outline-editor-interchange' className='text-sm font-medium'>
                 Interchange
@@ -168,7 +168,7 @@ export function OutlineEditPanel(props: {
 
           <Separator />
 
-          <section className='space-y-3' aria-labelledby='outline-editor-preview'>
+          <section className='flex flex-col gap-3' aria-labelledby='outline-editor-preview'>
             <div>
               <h2 id='outline-editor-preview' className='text-sm font-medium'>
                 Preview

@@ -4,11 +4,21 @@ import type {
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, FileText, LoaderCircle } from 'lucide-react'
+import { AlertCircle, FileText } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGroupRef } from 'react-resizable-panels'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +32,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { Spinner } from '@/components/ui/spinner'
 import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
@@ -604,7 +615,7 @@ export function WritingWorkspace(props: {
               ) : null}
               {workspaceQuery.isPending || editorQuery.isPending ? (
                 <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
-                  <LoaderCircle className='size-5 animate-spin' /> Loading writing workspace…
+                  <Spinner /> Loading writing workspace…
                 </div>
               ) : editorQuery.data && activeSummary ? (
                 <section className='flex flex-col gap-2'>
@@ -642,7 +653,7 @@ export function WritingWorkspace(props: {
                 </section>
               ) : (
                 <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
-                  <div className='space-y-3'>
+                  <div className='flex flex-col gap-3'>
                     <FileText className='mx-auto size-8 text-muted-foreground' />
                     <p className='font-medium'>No section is available</p>
                     <Button onClick={() => setNewSectionParent(null)}>Create a section</Button>
@@ -811,27 +822,26 @@ export function WritingWorkspace(props: {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <AlertDialog
         open={deleteSectionId !== null}
         onOpenChange={(open) => !open && setDeleteSectionId(null)}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete section?</DialogTitle>
-            <DialogDescription>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete section?</AlertDialogTitle>
+            <AlertDialogDescription>
               This removes the section from the outline. Its revision and Agent history remain
               available for audit. Sections with children and the last remaining section cannot be
               deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant='outline' onClick={() => setDeleteSectionId(null)}>
-              Cancel
-            </Button>
-            <Button
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
               variant='destructive'
               disabled={!workspace || mutation.isPending}
-              onClick={() => {
+              onClick={(event) => {
+                event.preventDefault()
                 if (deleteSectionId === null) return
                 const target = deleteSectionId
                 void (async () => {
@@ -861,10 +871,10 @@ export function WritingWorkspace(props: {
               }}
             >
               Delete section
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarProvider>
   )
 }

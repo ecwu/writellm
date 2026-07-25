@@ -7,7 +7,6 @@ import {
   FolderOpen,
   ImageIcon,
   KeyRound,
-  LoaderCircle,
   Monitor,
   Moon,
   Sun
@@ -24,6 +23,7 @@ import {
   CommandSeparator,
   CommandShortcut
 } from '@/components/ui/command'
+import { Spinner } from '@/components/ui/spinner'
 import { ProviderSettingsDialog } from '@/features/providers/provider-settings-dialog'
 import { useTheme } from '@/theme-provider'
 import type { ThemePreference } from '../../../shared/contracts/app'
@@ -99,7 +99,7 @@ export function SettingsCommand({
 
   const providerBadge = (role: ProviderRole): React.JSX.Element => {
     const status = providers?.providers.find((provider) => provider.role === role)
-    if (providers === null) return <LoaderCircle className='size-3 animate-spin' />
+    if (providers === null) return <Spinner />
     return (
       <Badge variant={status?.available ? 'default' : 'secondary'}>
         {status?.available ? 'Ready' : status?.configured ? 'Unavailable' : 'Not configured'}

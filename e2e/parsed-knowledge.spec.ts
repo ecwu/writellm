@@ -196,11 +196,11 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(launched.page.getByTestId('knowledge-reparse-file-action')).toBeEnabled()
     await expect(launched.page.getByTestId('knowledge-reembed-file-action')).toBeVisible()
     await launched.page.keyboard.press('Escape')
-    const markdownButton = knowledge.getByRole('button', { name: 'Markdown', exact: true })
+    const markdownButton = knowledge.getByRole('tab', { name: 'Markdown', exact: true })
     await expect(markdownButton).toHaveCount(1)
     await markdownButton.click()
     await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible()
-    await knowledge.getByRole('button', { name: 'Mapping', exact: true }).click()
+    await knowledge.getByRole('tab', { name: 'Mapping', exact: true }).click()
     await expect(knowledge.locator('canvas[aria-label="parsed source.pdf, page 1"]')).toBeVisible({
       timeout: 10_000
     })
@@ -462,9 +462,9 @@ test('imports with visible progress and supports cancel, retry, open, reveal, an
     })
     await expect(knowledge.getByText('Page 1', { exact: true }).first()).toBeVisible()
     await expect(knowledge.getByAltText('Parsed document image')).toBeVisible()
-    await knowledge.getByRole('button', { name: 'Markdown', exact: true }).click()
+    await knowledge.getByRole('tab', { name: 'Markdown', exact: true }).click()
     await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible()
-    await knowledge.getByRole('button', { name: 'Content', exact: true }).click()
+    await knowledge.getByRole('tab', { name: 'Content', exact: true }).click()
     await expect(knowledge.getByAltText('Parsed document image')).toBeVisible()
 
     await launched.app.evaluate(({ shell }) => {

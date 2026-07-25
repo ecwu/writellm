@@ -17,7 +17,6 @@ import {
   FileText,
   FilePenLine,
   FolderOpen,
-  LoaderCircle,
   MessageSquarePlus,
   RotateCcw,
   Send,
@@ -38,6 +37,38 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle
+} from '@/components/ui/empty'
+import { Field, FieldLabel } from '@/components/ui/field'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea
+} from '@/components/ui/input-group'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle
+} from '@/components/ui/item'
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker'
 import { Message, MessageContent, MessageFooter, MessageHeader } from '@/components/ui/message'
 import {
@@ -48,14 +79,10 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
-import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
+import { Spinner } from '@/components/ui/spinner'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
@@ -591,7 +618,7 @@ export function AgentPanel(props: {
     <aside
       className={
         props.open
-          ? 'flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
+          ? '@container/agent flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
           : 'hidden'
       }
       data-testid='agent-panel'
@@ -629,85 +656,91 @@ export function AgentPanel(props: {
             {loading ? (
               <Marker role='status' className='px-3 py-4'>
                 <MarkerIcon>
-                  <LoaderCircle className='animate-spin' />
+                  <Spinner />
                 </MarkerIcon>
                 <MarkerContent>Loading conversations…</MarkerContent>
               </Marker>
             ) : sessions.length === 0 ? (
-              <div className='flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center'>
-                <Bot className='size-8 text-muted-foreground' />
-                <p className='font-medium'>Start a writing conversation</p>
-                <p className='text-sm text-muted-foreground'>
-                  Agent edits stay reviewable proposals until you approve them.
-                </p>
-                <Button
-                  disabled={busy}
-                  onClick={() =>
-                    void createSession().catch((cause) => setError(errorMessage(cause)))
-                  }
-                >
-                  <MessageSquarePlus /> New conversation
-                </Button>
-              </div>
+              <Empty className='min-h-64 border-0'>
+                <EmptyHeader>
+                  <EmptyMedia variant='icon'>
+                    <Bot />
+                  </EmptyMedia>
+                  <EmptyTitle>Start a writing conversation</EmptyTitle>
+                  <EmptyDescription>
+                    Agent edits stay reviewable proposals until you approve them.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void createSession().catch((cause) => setError(errorMessage(cause)))
+                    }
+                  >
+                    <MessageSquarePlus data-icon='inline-start' /> New conversation
+                  </Button>
+                </EmptyContent>
+              </Empty>
             ) : (
-              <div className='space-y-1'>
+              <ItemGroup className='gap-1'>
                 {sessions.map((session) => {
                   const sessionWorkflowState =
                     session.agentSessionId === activeSessionId && activeRun !== null
                       ? 'running'
                       : session.workflowState
                   return (
-                    <Button
-                      key={session.agentSessionId}
-                      variant='ghost'
-                      className='h-auto w-full min-w-0 justify-start gap-3 overflow-hidden px-3 py-3 text-left'
-                      disabled={busy}
-                      data-testid={`agent-session-${session.agentSessionId}`}
-                      onClick={() => openSession(session.agentSessionId)}
-                    >
-                      <span className='flex size-8 shrink-0 items-center justify-center rounded-md bg-muted'>
-                        <Bot className='size-4' />
-                      </span>
-                      <span className='min-w-0 flex-1'>
-                        <span className='block truncate font-medium'>{session.title}</span>
-                        <span className='mt-0.5 block text-xs font-normal text-muted-foreground'>
-                          {formatSessionUpdatedAt(session.updatedAt)}
-                        </span>
-                      </span>
-                      {sessionWorkflowState === 'awaiting_review' ? (
-                        <Badge variant='secondary' className='shrink-0'>
-                          Approval needed
-                        </Badge>
-                      ) : sessionWorkflowState === 'generating' ? (
-                        <Badge variant='secondary' className='shrink-0'>
-                          <LoaderCircle className='animate-spin' /> Generating
-                        </Badge>
-                      ) : sessionWorkflowState === 'running' ? (
-                        <Badge variant='secondary' className='shrink-0'>
-                          <LoaderCircle className='animate-spin' /> Working
-                        </Badge>
-                      ) : !session.compatible ? (
-                        <Badge variant='destructive' className='shrink-0'>
-                          Read only
-                        </Badge>
-                      ) : session.status === 'archived' ? (
-                        <Badge variant='outline' className='shrink-0'>
-                          Archived
-                        </Badge>
-                      ) : (
-                        <ChevronRight className='size-4 shrink-0 text-muted-foreground' />
-                      )}
-                    </Button>
+                    <Item key={session.agentSessionId} size='sm' className='min-w-0 p-0'>
+                      <Button
+                        variant='ghost'
+                        className='grid h-auto w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] justify-start gap-3 overflow-hidden px-3 py-3 text-left @sm/agent:grid-cols-[auto_minmax(0,1fr)_auto]'
+                        disabled={busy}
+                        data-testid={`agent-session-${session.agentSessionId}`}
+                        onClick={() => openSession(session.agentSessionId)}
+                      >
+                        <ItemMedia variant='icon'>
+                          <Bot />
+                        </ItemMedia>
+                        <ItemContent className='min-w-0'>
+                          <ItemTitle className='block w-full truncate'>{session.title}</ItemTitle>
+                          <ItemDescription className='line-clamp-1'>
+                            {formatSessionUpdatedAt(session.updatedAt)}
+                          </ItemDescription>
+                        </ItemContent>
+                        <ItemActions className='col-span-2 min-w-0 justify-between @sm/agent:col-span-1 @sm/agent:justify-end'>
+                          {sessionWorkflowState === 'awaiting_review' ? (
+                            <Badge variant='warning'>Approval needed</Badge>
+                          ) : sessionWorkflowState === 'generating' ? (
+                            <Badge variant='secondary'>
+                              <Spinner /> Generating
+                            </Badge>
+                          ) : sessionWorkflowState === 'running' ? (
+                            <Badge variant='secondary'>
+                              <Spinner /> Working
+                            </Badge>
+                          ) : !session.compatible ? (
+                            <Badge variant='destructive'>Read only</Badge>
+                          ) : session.status === 'archived' ? (
+                            <Badge variant='outline'>Archived</Badge>
+                          ) : (
+                            <ChevronRight className='text-muted-foreground' />
+                          )}
+                        </ItemActions>
+                      </Button>
+                    </Item>
                   )
                 })}
-              </div>
+              </ItemGroup>
             )}
           </div>
           {error ? <AgentErrorAlert message={error} className='m-3 mt-0' /> : null}
         </>
       ) : (
         <>
-          <header className='flex items-center gap-2 border-b px-3 py-2.5'>
+          <header
+            className='grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden border-b px-3 py-2.5'
+            data-testid='agent-conversation-header'
+          >
             <Button
               variant='ghost'
               size='icon-sm'
@@ -727,22 +760,28 @@ export function AgentPanel(props: {
                   <Button
                     variant='outline'
                     size='sm'
+                    aria-label={`Approval mode: ${approvalModeLabel(activeSession.approvalMode)}`}
                     disabled={busy || activeRun !== null || conversationLocked}
                   >
-                    {approvalModeLabel(activeSession.approvalMode)} <ChevronDown />
+                    <span className='hidden @sm/agent:inline'>
+                      {approvalModeLabel(activeSession.approvalMode)}
+                    </span>
+                    <ChevronDown data-icon='inline-end' />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align='end'>
-                  {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
-                    <DropdownMenuItem key={mode} onSelect={() => void setApprovalMode(mode)}>
-                      {activeSession.approvalMode === mode ? (
-                        <Check />
-                      ) : (
-                        <span className='size-4' />
-                      )}
-                      {approvalModeLabel(mode)}
-                    </DropdownMenuItem>
-                  ))}
+                  <DropdownMenuGroup>
+                    {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
+                      <DropdownMenuItem key={mode} onSelect={() => void setApprovalMode(mode)}>
+                        {activeSession.approvalMode === mode ? (
+                          <Check />
+                        ) : (
+                          <span className='size-4' />
+                        )}
+                        {approvalModeLabel(mode)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
@@ -756,37 +795,38 @@ export function AgentPanel(props: {
             </Button>
           </header>
 
-          <div className='flex min-w-0 flex-wrap items-center gap-2 overflow-hidden border-b px-4 py-2 text-xs text-muted-foreground'>
-            {workflowState === 'running' && activeRun ? (
-              <>
-                <LoaderCircle className='size-3 animate-spin' />
-                <span className='shimmer'>
-                  Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
-                </span>
-                <Badge className='max-w-40' variant='outline' title={activeRun.providerId}>
-                  {activeRun.providerId}
-                </Badge>
-                <Badge className='max-w-40' variant='outline' title={activeRun.modelId}>
-                  {activeRun.modelId}
-                </Badge>
-              </>
-            ) : workflowState === 'generating' ? (
-              <>
-                <LoaderCircle className='size-3 animate-spin' />
-                <span>Generating image</span>
-              </>
-            ) : workflowState === 'awaiting_review' ? (
-              <span className='text-amber-700 dark:text-amber-400'>Waiting for review</span>
-            ) : (
-              <span>Idle</span>
-            )}
-            <span className='ml-auto max-w-full truncate'>
+          <div
+            className='grid min-w-0 grid-cols-1 gap-2 overflow-hidden border-b px-4 py-2 text-xs text-muted-foreground @sm/agent:grid-cols-[minmax(0,1fr)_auto]'
+            data-testid='agent-status'
+          >
+            <div className='flex min-w-0 flex-wrap items-center gap-2 overflow-hidden'>
+              {workflowState === 'running' && activeRun ? (
+                <>
+                  <Spinner />
+                  <span className='shimmer'>
+                    Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
+                  </span>
+                  <TruncatedBadge value={activeRun.providerId} />
+                  <TruncatedBadge value={activeRun.modelId} />
+                </>
+              ) : workflowState === 'generating' ? (
+                <>
+                  <Spinner />
+                  <span>Generating image</span>
+                </>
+              ) : workflowState === 'awaiting_review' ? (
+                <Badge variant='warning'>Waiting for review</Badge>
+              ) : (
+                <Badge variant='outline'>Idle</Badge>
+              )}
+            </div>
+            <span className='min-w-0 truncate tabular-nums @sm/agent:text-right'>
               {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
               {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
             </span>
             {contextLimits !== null ? (
               <div
-                className='flex basis-full items-center gap-2'
+                className='flex min-w-0 items-center gap-2 @sm/agent:col-span-2'
                 title={`${contextUsage?.used.toLocaleString() ?? 'No usage'} / ${contextLimits.contextWindowTokens.toLocaleString()} context tokens; input limit ${contextLimits.inputLimitTokens?.toLocaleString() ?? 'context-derived'}; output limit ${contextLimits.outputLimitTokens?.toLocaleString() ?? 'provider default'}; source ${contextLimits.source}; resolved ${contextLimits.resolvedAt ?? 'legacy'}`}
               >
                 <Progress value={contextPercent} className='h-1.5 flex-1' />
@@ -798,11 +838,16 @@ export function AgentPanel(props: {
               </div>
             ) : null}
             {workflowState === 'awaiting_review' && waitingProposal !== undefined ? (
-              <div className='basis-full text-amber-700 dark:text-amber-400'>
-                Waiting for {proposalKindLabel(waitingProposal.kind)} approval
-              </div>
+              <Marker role='status' className='min-w-0 @sm/agent:col-span-2'>
+                <MarkerIcon>
+                  <AlertCircle className='text-warning' />
+                </MarkerIcon>
+                <MarkerContent>
+                  Waiting for {proposalKindLabel(waitingProposal.kind)} approval
+                </MarkerContent>
+              </Marker>
             ) : workflowState === 'generating' ? (
-              <div className='basis-full text-muted-foreground'>
+              <div className='min-w-0 @sm/agent:col-span-2'>
                 This conversation will resume after image generation finishes.
               </div>
             ) : null}
@@ -812,18 +857,24 @@ export function AgentPanel(props: {
             {loading ? (
               <Marker role='status' className='p-4'>
                 <MarkerIcon>
-                  <LoaderCircle className='animate-spin' />
+                  <Spinner />
                 </MarkerIcon>
                 <MarkerContent>Loading conversation…</MarkerContent>
               </Marker>
             ) : activeSession === null ? (
-              <div className='flex min-h-64 flex-col items-center justify-center gap-3 text-center'>
-                <Bot className='size-8 text-muted-foreground' />
-                <p className='font-medium'>Conversation unavailable</p>
-                <Button variant='outline' onClick={() => setScreen('sessions')}>
-                  <ArrowLeft /> Back to conversations
-                </Button>
-              </div>
+              <Empty className='min-h-64 border-0'>
+                <EmptyHeader>
+                  <EmptyMedia variant='icon'>
+                    <Bot />
+                  </EmptyMedia>
+                  <EmptyTitle>Conversation unavailable</EmptyTitle>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button variant='outline' onClick={() => setScreen('sessions')}>
+                    <ArrowLeft data-icon='inline-start' /> Back to conversations
+                  </Button>
+                </EmptyContent>
+              </Empty>
             ) : (
               <EventTimeline
                 events={events}
@@ -838,108 +889,141 @@ export function AgentPanel(props: {
             )}
           </div>
 
-          <div className='min-w-0 space-y-3 overflow-hidden border-t px-4 py-3'>
+          <div
+            className='flex min-w-0 flex-col gap-3 overflow-hidden border-t px-4 py-3'
+            data-testid='agent-composer'
+          >
             {error ? <AgentErrorAlert message={error} /> : null}
             {activeRun === null && !conversationLocked ? (
-              <fieldset
-                className='flex flex-wrap gap-2 border-0 p-0'
+              <ToggleGroup
+                type='single'
+                value={scope}
+                variant='outline'
+                size='sm'
+                className='grid w-full grid-cols-3'
                 aria-label='Agent context scope'
+                onValueChange={(value) => {
+                  if (value) setScope(value as AgentStartScope)
+                }}
               >
-                <ScopeButton
-                  active={scope === 'selection'}
+                <ToggleGroupItem
+                  value='selection'
                   disabled={!selectionIsAvailable}
-                  icon={<TextCursorInput />}
-                  label='Selection'
-                  onClick={() => setScope('selection')}
-                />
-                <ScopeButton
-                  active={scope === 'section'}
+                  aria-label='Selection'
+                >
+                  <TextCursorInput /> Selection
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value='section'
                   disabled={props.activeSectionId === null}
-                  icon={<FilePenLine />}
-                  label='Section'
-                  onClick={() => setScope('section')}
-                />
-                <ScopeButton
-                  active={scope === 'project'}
-                  disabled={false}
-                  icon={<FolderOpen />}
-                  label='Project'
-                  onClick={() => setScope('project')}
-                />
-              </fieldset>
+                  aria-label='Section'
+                >
+                  <FilePenLine /> Section
+                </ToggleGroupItem>
+                <ToggleGroupItem value='project' aria-label='Project'>
+                  <FolderOpen /> Project
+                </ToggleGroupItem>
+              </ToggleGroup>
             ) : null}
-            <Textarea
-              aria-label='Agent message'
-              value={prompt}
-              placeholder={
-                activeRun
-                  ? 'Steer the current turn or queue a follow-up…'
-                  : workflowState === 'generating'
-                    ? 'Image generation is in progress…'
-                    : workflowState === 'awaiting_review'
-                      ? 'Review the pending proposal before continuing…'
-                      : 'Ask the writing agent…'
-              }
-              rows={3}
-              disabled={busy || conversationLocked || activeSession?.compatible === false}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-            <div className='flex flex-wrap justify-end gap-2'>
-              {activeRun ? (
-                <>
-                  <Button
-                    variant='outline'
-                    disabled={busy || prompt.trim().length === 0}
-                    onClick={() => void queueMessage('steer')}
-                  >
-                    <ChevronRight /> Steer
-                  </Button>
-                  <Button
-                    variant='outline'
-                    disabled={busy || prompt.trim().length === 0}
-                    onClick={() => void queueMessage('follow_up')}
-                  >
-                    <Send /> Follow up
-                  </Button>
-                  <Button variant='destructive' disabled={busy} onClick={() => void stopRun()}>
-                    <CircleStop /> Stop
-                  </Button>
-                </>
-              ) : conversationLocked ? (
-                <Badge variant='secondary'>
-                  {workflowState === 'generating' ? 'Generating image' : 'Approval required'}
-                </Badge>
-              ) : (
-                <>
-                  {latestPrompt ? (
-                    <Button
-                      variant='outline'
-                      disabled={busy}
-                      onClick={() => void startRun(latestPrompt)}
-                    >
-                      <RotateCcw /> Retry
-                    </Button>
-                  ) : null}
-                  {events.length > 0 ? (
-                    <Button
-                      variant='outline'
-                      disabled={busy}
-                      onClick={() => void startRun('Continue from the previous response.')}
-                    >
-                      <ChevronRight /> Continue
-                    </Button>
-                  ) : null}
-                  <Button
-                    disabled={
-                      busy || prompt.trim().length === 0 || activeSession?.compatible === false
-                    }
-                    onClick={() => void startRun(prompt)}
-                  >
-                    <Send /> Send
-                  </Button>
-                </>
-              )}
-            </div>
+            <Field data-disabled={busy || conversationLocked}>
+              <FieldLabel htmlFor='agent-message' className='sr-only'>
+                Agent message
+              </FieldLabel>
+              <InputGroup
+                data-disabled={busy || conversationLocked || activeSession?.compatible === false}
+              >
+                <InputGroupTextarea
+                  id='agent-message'
+                  value={prompt}
+                  placeholder={
+                    activeRun
+                      ? 'Steer the current turn or queue a follow-up…'
+                      : workflowState === 'generating'
+                        ? 'Image generation is in progress…'
+                        : workflowState === 'awaiting_review'
+                          ? 'Review the pending proposal before continuing…'
+                          : 'Ask the writing agent…'
+                  }
+                  rows={3}
+                  disabled={busy || conversationLocked || activeSession?.compatible === false}
+                  onChange={(event) => setPrompt(event.target.value)}
+                />
+                <InputGroupAddon align='block-end' className='flex-wrap justify-end'>
+                  {activeRun ? (
+                    <>
+                      <ComposerAction
+                        size='icon-sm'
+                        variant='outline'
+                        label='Steer'
+                        disabled={busy || prompt.trim().length === 0}
+                        onClick={() => void queueMessage('steer')}
+                      >
+                        <ChevronRight data-icon='inline-start' />
+                      </ComposerAction>
+                      <ComposerAction
+                        size='icon-sm'
+                        variant='outline'
+                        label='Follow up'
+                        disabled={busy || prompt.trim().length === 0}
+                        onClick={() => void queueMessage('follow_up')}
+                      >
+                        <Send data-icon='inline-start' />
+                      </ComposerAction>
+                      <ComposerAction
+                        size='icon-sm'
+                        variant='destructive'
+                        label='Stop'
+                        disabled={busy}
+                        onClick={() => void stopRun()}
+                      >
+                        <CircleStop data-icon='inline-start' />
+                      </ComposerAction>
+                    </>
+                  ) : conversationLocked ? (
+                    <Badge variant={workflowState === 'awaiting_review' ? 'warning' : 'secondary'}>
+                      {workflowState === 'generating' ? <Spinner /> : <AlertCircle />}
+                      {workflowState === 'generating' ? 'Generating image' : 'Approval required'}
+                    </Badge>
+                  ) : (
+                    <>
+                      {latestPrompt ? (
+                        <ComposerAction
+                          size='icon-sm'
+                          variant='outline'
+                          label='Retry'
+                          disabled={busy}
+                          onClick={() => void startRun(latestPrompt)}
+                        >
+                          <RotateCcw data-icon='inline-start' />
+                        </ComposerAction>
+                      ) : null}
+                      {events.length > 0 ? (
+                        <ComposerAction
+                          size='icon-sm'
+                          variant='outline'
+                          label='Continue'
+                          disabled={busy}
+                          onClick={() => void startRun('Continue from the previous response.')}
+                        >
+                          <ChevronRight data-icon='inline-start' />
+                        </ComposerAction>
+                      ) : null}
+                      <InputGroupButton
+                        size='sm'
+                        aria-label='Send'
+                        disabled={
+                          busy || prompt.trim().length === 0 || activeSession?.compatible === false
+                        }
+                        onClick={() => void startRun(prompt)}
+                      >
+                        <Send data-icon='inline-start' />
+                        <span className='hidden @sm/agent:inline'>Send</span>
+                      </InputGroupButton>
+                    </>
+                  )}
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
           </div>
         </>
       )}
@@ -1009,7 +1093,7 @@ function EventTimeline(props: {
                         </BubbleContent>
                       </Bubble>
                       <MessageFooter className='gap-2'>
-                        <LoaderCircle className='size-3 animate-spin' />
+                        <Spinner />
                         <span className='shimmer'>Streaming…</span>
                       </MessageFooter>
                     </MessageContent>
@@ -1086,7 +1170,7 @@ function TimelineItem(props: {
       return (
         <Marker role='status'>
           <MarkerIcon>
-            <AlertCircle className='text-amber-600' />
+            <AlertCircle className='text-warning' />
           </MarkerIcon>
           <MarkerContent>
             Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
@@ -1114,7 +1198,7 @@ function TimelineItem(props: {
       return (
         <Marker role='status'>
           <MarkerIcon>
-            <AlertCircle className='text-amber-600' />
+            <AlertCircle className='text-warning' />
           </MarkerIcon>
           <MarkerContent>
             Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
@@ -1125,7 +1209,7 @@ function TimelineItem(props: {
     return (
       <Marker role='status'>
         <MarkerIcon>
-          <Check className='text-emerald-600' />
+          <Check className='text-success' />
         </MarkerIcon>
         <MarkerContent>
           Run completed · {formatAgentDuration(item.terminal.durationMs)}
@@ -1148,28 +1232,30 @@ function ActivityGroup(props: {
 }): React.JSX.Element {
   const { item } = props
   return (
-    <details
+    <Collapsible
       className='group/activity min-w-0 max-w-full overflow-hidden'
-      open={item.status === 'error' || item.status === 'stopped' ? true : undefined}
+      defaultOpen={item.status === 'error' || item.status === 'stopped'}
       data-testid='agent-activity-group'
       data-status={item.status}
     >
-      <summary className='cursor-pointer list-none rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+      <CollapsibleTrigger className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
         <Marker role='status'>
           <MarkerIcon>{activityIcon(item.status)}</MarkerIcon>
           <MarkerContent className={item.status === 'running' ? 'shimmer' : undefined}>
             {item.summary}
             {item.status === 'stopped' ? ' · Stopped' : ''}
           </MarkerContent>
-          <ChevronDown className='ml-auto size-4 transition-transform group-open/activity:rotate-180' />
+          <ChevronDown className='ml-auto transition-transform group-data-[state=open]/activity:rotate-180' />
         </Marker>
-      </summary>
-      <div className='mt-3 ml-2 min-w-0 space-y-3 overflow-hidden border-l pl-4'>
-        {item.tools.map((tool) => (
-          <ToolActivityRow key={tool.eventId} tool={tool} stopped={item.status === 'stopped'} />
-        ))}
-      </div>
-    </details>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className='mt-3 ml-2 flex min-w-0 flex-col gap-3 overflow-hidden border-l pl-4'>
+          {item.tools.map((tool) => (
+            <ToolActivityRow key={tool.eventId} tool={tool} stopped={item.status === 'stopped'} />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -1178,7 +1264,7 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
   const citations = tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
   return (
     <div
-      className='min-w-0 max-w-full space-y-2 overflow-hidden text-sm'
+      className='flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm'
       data-testid={`agent-tool-${tool.call.toolCallId}`}
     >
       <div className='flex min-w-0 items-center gap-2'>
@@ -1188,14 +1274,7 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
           {toolResultLabel(tool, props.stopped)} · {formatAgentDuration(tool.durationMs)}
         </span>
       </div>
-      <details>
-        <summary className='cursor-pointer text-xs text-muted-foreground'>
-          Bounded arguments
-        </summary>
-        <pre className='mt-2 max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted p-2 text-xs'>
-          {JSON.stringify(tool.call.args, null, 2)}
-        </pre>
-      </details>
+      <BoundedJsonDetails label='Bounded arguments' value={tool.call.args} />
       {tool.result?.error ? (
         <Alert variant='destructive'>
           <AlertCircle />
@@ -1205,14 +1284,24 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
       ) : null}
       {citations.length > 0 ? <CitationAttachments citations={citations} /> : null}
       {tool.result?.result ? (
-        <details>
-          <summary className='cursor-pointer text-xs text-muted-foreground'>Bounded result</summary>
-          <pre className='mt-2 max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted p-2 text-xs'>
-            {JSON.stringify(tool.result.result, null, 2)}
-          </pre>
-        </details>
+        <BoundedJsonDetails label='Bounded result' value={tool.result.result} />
       ) : null}
     </div>
+  )
+}
+
+function BoundedJsonDetails(props: { label: string; value: unknown }): React.JSX.Element {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className='text-xs text-muted-foreground hover:text-foreground'>
+        {props.label}
+      </CollapsibleTrigger>
+      <CollapsibleContent className='pt-2'>
+        <pre className='max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted p-2 text-xs'>
+          {JSON.stringify(props.value, null, 2)}
+        </pre>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -1232,9 +1321,7 @@ function ProposalMessage(props: {
     const failed = props.item.tool.result?.isError === true
     return (
       <Marker role='status'>
-        <MarkerIcon>
-          {failed ? <X className='text-destructive' /> : <LoaderCircle className='animate-spin' />}
-        </MarkerIcon>
+        <MarkerIcon>{failed ? <X className='text-destructive' /> : <Spinner />}</MarkerIcon>
         <MarkerContent className={failed ? 'text-destructive' : 'shimmer'}>
           {failed ? 'Proposal could not be prepared' : 'Preparing a reviewable proposal…'}
         </MarkerContent>
@@ -1255,16 +1342,16 @@ function ProposalMessage(props: {
       }
   )
   const detail = (
-    <div className='min-w-0 space-y-3 overflow-hidden'>
+    <div className='flex min-w-0 flex-col gap-3 overflow-hidden'>
       <div className='flex flex-wrap gap-1 text-xs'>
         {preview.affectedSectionIds.map((sectionId) => (
           <Badge key={sectionId} className='max-w-full' variant='outline' title={sectionId}>
             Section {sectionId.slice(0, 8)}
           </Badge>
         ))}
-        {blockOperationLabels(proposal).map((label) => (
-          <Badge key={label} className='max-w-full' variant='outline' title={label}>
-            {label}
+        {blockOperationDisplays(proposal).map((operation) => (
+          <Badge key={operation.raw} className='max-w-full' variant='outline' title={operation.raw}>
+            {operation.label}
           </Badge>
         ))}
       </div>
@@ -1289,31 +1376,38 @@ function ProposalMessage(props: {
           No update is needed because the latest section already contains this change.
         </p>
       ) : null}
-      <div className='flex flex-wrap justify-end gap-2'>
+      <div className='grid w-full min-w-0 gap-2 @md/agent:flex @md/agent:flex-wrap @md/agent:justify-end'>
         {isPending ? (
           <>
             <Button
               variant='outline'
               size='sm'
+              className='w-full @md/agent:w-auto'
               disabled={props.busy}
               onClick={() => void props.onAction(proposal, 'reject')}
             >
-              <X /> Reject
+              <X data-icon='inline-start' /> Reject
             </Button>
             <Button
               variant='outline'
               size='sm'
+              className='w-full @md/agent:w-auto'
               disabled={props.busy || isOutdated}
               onClick={() => void props.onAction(proposal, 'approve_continue')}
             >
-              <Check /> Approve & Continue
+              <Check data-icon='inline-start' /> Approve & Continue
             </Button>
             <Button
               size='sm'
+              className='w-full @md/agent:w-auto'
               disabled={props.busy}
               onClick={() => void props.onAction(proposal, 'approve')}
             >
-              {isOutdated ? <RotateCcw /> : <Check />}
+              {isOutdated ? (
+                <RotateCcw data-icon='inline-start' />
+              ) : (
+                <Check data-icon='inline-start' />
+              )}
               {isOutdated ? 'Review update' : 'Approve'}
             </Button>
           </>
@@ -1322,9 +1416,10 @@ function ProposalMessage(props: {
           <Button
             variant='outline'
             size='sm'
+            className='w-full @md/agent:w-auto'
             onClick={() => void props.onAction(proposal, 'cancel_image')}
           >
-            <X /> Cancel generation
+            <X data-icon='inline-start' /> Cancel generation
           </Button>
         ) : null}
       </div>
@@ -1337,33 +1432,35 @@ function ProposalMessage(props: {
           <FilePenLine className='size-4' />
           {isPending ? 'Review required' : 'Proposal result'}
         </MessageHeader>
-        <Bubble variant='outline' className='max-w-full'>
-          <BubbleContent className='w-full space-y-3'>
-            <div className='flex min-w-0 flex-wrap items-center gap-2'>
+        <Bubble variant='outline' className='w-full max-w-full' data-testid='agent-proposal-bubble'>
+          <BubbleContent className='flex w-full min-w-0 flex-col gap-3'>
+            <div className='grid min-w-0 gap-2 @sm/agent:grid-cols-[minmax(0,1fr)_auto] @sm/agent:items-center'>
               <span className='min-w-0 flex-1 wrap-anywhere font-medium'>{preview.summary}</span>
-              <Badge variant={isPending ? 'secondary' : 'outline'}>
-                {isOutdated ? 'outdated' : proposal.status}
-              </Badge>
-              {canUndo ? (
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={props.busy}
-                  onClick={() => void props.onAction(proposal, 'undo')}
-                >
-                  <Undo2 /> Undo
-                </Button>
-              ) : null}
+              <div className='flex min-w-0 flex-wrap items-center gap-2 @sm/agent:justify-end'>
+                <Badge variant={isPending ? 'warning' : 'outline'}>
+                  {isOutdated ? 'outdated' : proposal.status}
+                </Badge>
+                {canUndo ? (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={props.busy}
+                    onClick={() => void props.onAction(proposal, 'undo')}
+                  >
+                    <Undo2 data-icon='inline-start' /> Undo
+                  </Button>
+                ) : null}
+              </div>
             </div>
             {isPending ? (
               detail
             ) : (
-              <details>
-                <summary className='cursor-pointer text-xs text-muted-foreground'>
+              <Collapsible>
+                <CollapsibleTrigger className='text-xs text-muted-foreground hover:text-foreground'>
                   View proposal details
-                </summary>
-                <div className='mt-3'>{detail}</div>
-              </details>
+                </CollapsibleTrigger>
+                <CollapsibleContent className='pt-3'>{detail}</CollapsibleContent>
+              </Collapsible>
             )}
             <MessageFooter>
               {proposal.status === 'pending' && props.item.tool.result === null
@@ -1408,18 +1505,18 @@ function CitationAttachments(props: { citations: AgentCitationDisplay[] }): Reac
 }
 
 function activityIcon(status: 'running' | 'error' | 'complete' | 'stopped'): React.JSX.Element {
-  if (status === 'running') return <LoaderCircle className='animate-spin' />
+  if (status === 'running') return <Spinner />
   if (status === 'error') return <AlertCircle className='text-destructive' />
   if (status === 'stopped') return <CircleStop className='text-destructive' />
-  return <Check className='text-emerald-600' />
+  return <Check className='text-success' />
 }
 
 function toolResultIcon(tool: AgentToolActivity, stopped: boolean): React.JSX.Element {
   if ((tool.result === null && stopped) || toolWasStopped(tool))
-    return <CircleStop className='size-4 text-destructive' />
-  if (tool.result === null) return <LoaderCircle className='size-4 animate-spin' />
-  if (tool.result.isError) return <X className='size-4 text-destructive' />
-  return <Check className='size-4 text-emerald-600' />
+    return <CircleStop className='text-destructive' />
+  if (tool.result === null) return <Spinner />
+  if (tool.result.isError) return <X className='text-destructive' />
+  return <Check className='text-success' />
 }
 
 function toolResultLabel(tool: AgentToolActivity, stopped: boolean): string {
@@ -1461,6 +1558,37 @@ function AgentErrorAlert(props: { message: string; className?: string }): React.
   )
 }
 
+function TruncatedBadge(props: { value: string }): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className='max-w-40 truncate' variant='outline'>
+          {props.value}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className='max-w-80 wrap-anywhere'>{props.value}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ComposerAction({
+  label,
+  ...props
+}: Omit<React.ComponentProps<typeof InputGroupButton>, 'aria-label'> & {
+  label: string
+}): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className='inline-flex'>
+          <InputGroupButton aria-label={label} {...props} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function formatSessionUpdatedAt(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Updated recently'
@@ -1468,26 +1596,6 @@ function formatSessionUpdatedAt(value: string): string {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(date)
-}
-
-function ScopeButton(props: {
-  active: boolean
-  disabled: boolean
-  icon: React.ReactNode
-  label: string
-  onClick(): void
-}): React.JSX.Element {
-  return (
-    <Button
-      type='button'
-      size='sm'
-      variant={props.active ? 'secondary' : 'outline'}
-      disabled={props.disabled}
-      onClick={props.onClick}
-    >
-      {props.icon} {props.label}
-    </Button>
-  )
 }
 
 function selectionAvailable(props: {
@@ -1545,18 +1653,43 @@ function deliveryLabel(delivery: 'prompt' | 'steer' | 'follow_up'): string {
   return 'You'
 }
 
-function blockOperationLabels(proposal: MutationProposalRecord): string[] {
+function blockOperationDisplays(
+  proposal: MutationProposalRecord
+): Array<{ label: string; raw: string }> {
   if (proposal.payload.kind === 'generated_image_insert') {
     return [
-      `generate ${proposal.payload.mutation.aspectRatio} ${proposal.payload.mutation.imageSize}`
+      {
+        label: `Generate ${proposal.payload.mutation.imageSize} image`,
+        raw: JSON.stringify(proposal.payload.mutation)
+      }
     ]
   }
   if (proposal.payload.kind !== 'section_patch') return []
-  return proposal.payload.mutation.operations.map((operation, index) => {
-    if ('blockId' in operation) return `${operation.type}: ${operation.blockId}`
-    if ('blockIds' in operation) return `${operation.type}: ${operation.blockIds.join(', ')}`
-    return `${operation.type} ${index + 1}`
+  return proposal.payload.mutation.operations.map((operation) => {
+    let label: string
+    switch (operation.type) {
+      case 'insertBlocks':
+        label = `Insert ${blockCountLabel(operation.blocks.length)}`
+        break
+      case 'updateBlock':
+        label = 'Update 1 block'
+        break
+      case 'removeBlocks':
+        label = `Remove ${blockCountLabel(operation.blockIds.length)}`
+        break
+      case 'replaceBlocks':
+        label = `Replace ${blockCountLabel(operation.blockIds.length)}`
+        break
+      case 'moveBlocks':
+        label = `Move ${blockCountLabel(operation.blockIds.length)}`
+        break
+    }
+    return { label, raw: JSON.stringify(operation) }
   })
+}
+
+function blockCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'block' : 'blocks'}`
 }
 
 function errorMessage(error: unknown): string {

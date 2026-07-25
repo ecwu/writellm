@@ -467,7 +467,7 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     const browserWindow = await launched.app.browserWindow(launched.page)
     await browserWindow.evaluate((window) => {
       window.unmaximize()
-      window.setContentSize(1440, 900)
+      window.setContentSize(1680, 900)
     })
     await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
     const agentTrigger = launched.page.getByTestId('agent-menubar-trigger')
@@ -500,7 +500,7 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       .poll(async () => (await panel.boundingBox())?.width ?? 0)
       .toBeGreaterThan(panelBeforeResize.width + 30)
     await panel.getByRole('button', { name: 'New', exact: true }).click()
-    await panel.getByRole('button', { name: 'Section', exact: true }).click()
+    await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     const searchActivity = panel.getByTestId('agent-activity-group').filter({
@@ -533,11 +533,63 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await expect(panel.getByText('Before → After', { exact: true })).toBeVisible()
     const proposalDiff = panel.getByTestId('agent-proposal-diff')
     await expect(proposalDiff).toHaveAttribute('data-layout', 'unified')
-    await panel.getByRole('button', { name: 'Split', exact: true }).click()
+    await panel.getByRole('radio', { name: 'Split', exact: true }).click()
     await expect(proposalDiff).toHaveAttribute('data-layout', 'split')
     await expect(panel.getByText('Before', { exact: true })).toBeVisible()
     await expect(panel.getByText('After', { exact: true })).toBeVisible()
-    await panel.getByRole('button', { name: 'Unified', exact: true }).click()
+    for (const targetWidth of [360, 384, 448, 480, 640, 360]) {
+      const currentPanelBounds = await panel.boundingBox()
+      const currentHandleBounds = await resizeHandle.boundingBox()
+      if (currentPanelBounds === null || currentHandleBounds === null)
+        throw new Error('Resizable Agent bounds missing')
+      await launched.page.mouse.move(
+        currentHandleBounds.x + currentHandleBounds.width / 2,
+        currentHandleBounds.y + currentHandleBounds.height / 2
+      )
+      await launched.page.mouse.down()
+      await launched.page.mouse.move(
+        currentHandleBounds.x + currentPanelBounds.width - targetWidth,
+        currentHandleBounds.y + currentHandleBounds.height / 2
+      )
+      await launched.page.mouse.up()
+      await expect
+        .poll(async () => Math.abs(((await panel.boundingBox())?.width ?? 0) - targetWidth))
+        .toBeLessThan(12)
+      for (const region of [
+        panel,
+        panel.getByTestId('agent-conversation-header'),
+        panel.getByTestId('agent-status'),
+        panel.getByTestId('agent-proposal-bubble'),
+        panel.getByTestId('agent-composer')
+      ]) {
+        await expect
+          .poll(() => region.evaluate((element) => element.scrollWidth <= element.clientWidth))
+          .toBe(true)
+      }
+      if (targetWidth === 384) {
+        await launched.page.evaluate(() => document.documentElement.classList.add('dark'))
+        await expect(panel).toBeVisible()
+        await expect
+          .poll(() => panel.evaluate((element) => element.scrollWidth <= element.clientWidth))
+          .toBe(true)
+        await launched.page.evaluate(() => document.documentElement.classList.remove('dark'))
+      }
+    }
+    for (const name of ['Reject', 'Approve & Continue', 'Approve']) {
+      const action = panel.getByRole('button', { name, exact: true })
+      await expect(action).toBeVisible()
+      await expect(action).toBeEnabled()
+    }
+    const rejectAction = panel.getByRole('button', { name: 'Reject', exact: true })
+    await rejectAction.focus()
+    await expect(rejectAction).toBeFocused()
+    await launched.page.keyboard.press('Tab')
+    await expect(
+      panel.getByRole('button', { name: 'Approve & Continue', exact: true })
+    ).toBeFocused()
+    await launched.page.keyboard.press('Tab')
+    await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeFocused()
+    await panel.getByRole('radio', { name: 'Unified', exact: true }).click()
     await expect(proposalDiff).toHaveAttribute('data-layout', 'unified')
     const sourceAttachment = panel
       .locator('[data-testid^="agent-proposal-"] [data-slot="attachment"]')
@@ -604,7 +656,7 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       )
     ).toBe(true)
 
-    await panel.getByRole('button', { name: 'Project', exact: true }).click()
+    await panel.getByRole('radio', { name: 'Project', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Update the manuscript brief purpose.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible()
@@ -755,6 +807,31 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       })
     })
     expect(interruptedRuns[0]?.status).toBe('interrupted')
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
+    await browserWindow.evaluate((window) => {
+      window.unmaximize()
+      window.setContentSize(1280, 700)
+    })
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBe(1280)
+    await expect
+      .poll(() => launched.page.evaluate(() => window.matchMedia('(min-width: 1280px)').matches))
+      .toBe(true)
+    await expect(agentTrigger).toHaveAttribute('aria-pressed', 'false')
+    await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(agentTrigger).toHaveAttribute('aria-pressed', 'true')
+    await expect(panel).toBeVisible()
+    await expect(launched.page.getByRole('separator').last()).toBeVisible()
+    await expect(launched.page.locator('.bn-editor').first()).toBeVisible()
+    await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
+    await browserWindow.evaluate((window) => window.setContentSize(1279, 700))
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
+    await expect
+      .poll(() => launched.page.evaluate(() => window.matchMedia('(min-width: 1280px)').matches))
+      .toBe(false)
+    await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(panel).toBeVisible()
+    await expect(launched.page.getByTestId('agent-panel-resize-handle')).toBeHidden()
+    await expect(launched.page.locator('.bn-editor').first()).not.toBeVisible()
     await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await browserWindow.evaluate((window) => {
       window.unmaximize()

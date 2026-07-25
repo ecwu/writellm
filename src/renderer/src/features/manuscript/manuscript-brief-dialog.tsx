@@ -10,7 +10,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 
 type BriefFields = Omit<
@@ -128,20 +130,21 @@ export function ManuscriptBriefDialog(props: {
             Keep the purpose, audience, constraints, and writing direction explicit.
           </DialogDescription>
         </DialogHeader>
-        <div className='grid gap-4 sm:grid-cols-2'>
+        <FieldGroup className='grid gap-4 sm:grid-cols-2'>
           {textFields.map((field) => {
             const value = fields[field.key]
             if (field.key === 'extensible') return null
             return (
-              <label
+              <Field
                 key={field.key}
-                htmlFor={`brief-${field.key}`}
-                className={field.multiline ? 'grid gap-2 sm:col-span-2' : 'grid gap-2'}
+                data-invalid={props.error ? true : undefined}
+                className={field.multiline ? 'sm:col-span-2' : undefined}
               >
-                <span className='text-sm font-medium'>{field.label}</span>
+                <FieldLabel htmlFor={`brief-${field.key}`}>{field.label}</FieldLabel>
                 {field.multiline ? (
                   <Textarea
                     id={`brief-${field.key}`}
+                    aria-invalid={props.error ? true : undefined}
                     value={String(value)}
                     placeholder={field.placeholder}
                     onChange={(event) =>
@@ -154,6 +157,7 @@ export function ManuscriptBriefDialog(props: {
                 ) : (
                   <Input
                     id={`brief-${field.key}`}
+                    aria-invalid={props.error ? true : undefined}
                     value={String(value)}
                     placeholder={field.placeholder}
                     onChange={(event) =>
@@ -164,10 +168,10 @@ export function ManuscriptBriefDialog(props: {
                     }
                   />
                 )}
-              </label>
+              </Field>
             )
           })}
-        </div>
+        </FieldGroup>
         {props.error ? <p className='text-sm text-destructive'>{props.error}</p> : null}
         {externalConflict ? (
           <p className='text-sm text-destructive'>
@@ -199,6 +203,7 @@ export function ManuscriptBriefDialog(props: {
             disabled={!dirty || props.saving || fields.title.trim().length === 0}
             onClick={() => void props.onSave(fields)}
           >
+            {props.saving ? <Spinner data-icon='inline-start' /> : null}
             {props.saving ? 'Saving…' : 'Save brief'}
           </Button>
         </DialogFooter>

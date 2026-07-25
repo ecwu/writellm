@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, LoaderCircle, ShieldAlert, Trash2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react'
 import type {
   GoogleGeminiImageModel,
   ProviderConfig,
@@ -9,6 +9,16 @@ import type {
 } from '../../../../shared/contracts/providers'
 import { GOOGLE_GEMINI_IMAGE_MODELS } from '../../../../shared/contracts/providers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,14 +30,17 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
 
 interface ProviderSettingsDialogProps {
   role: ProviderRole | null
@@ -244,11 +257,14 @@ export function ProviderSettingsDialog({
           )}
 
           {busy === 'load' || config === null || role === null ? (
-            <div className='flex min-h-48 items-center justify-center text-muted-foreground'>
-              <LoaderCircle className='mr-2 animate-spin' /> Loading provider settings…
+            <div
+              className='flex min-h-48 items-center justify-center gap-2 text-muted-foreground'
+              role='status'
+            >
+              <Spinner /> Loading provider settings…
             </div>
           ) : (
-            <div className='grid gap-4'>
+            <FieldGroup className='grid gap-4'>
               <div className='flex flex-wrap items-center gap-2'>
                 <Badge variant={status?.configured ? 'default' : 'secondary'}>
                   {status?.configured ? 'Credential stored' : 'Credential missing'}
@@ -259,20 +275,18 @@ export function ProviderSettingsDialog({
                 </Badge>
               </div>
               {config.role !== 'image' && (
-                <Field label='Base URL'>
+                <ConfigField label='Base URL'>
                   <Input
                     value={config.baseUrl}
                     autoComplete='url'
                     placeholder='https://api.example.com/v1'
                     onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}
                   />
-                </Field>
+                </ConfigField>
               )}
               {config.role === 'image' ? (
-                <div className='grid gap-2'>
-                  <label className='text-sm font-medium' htmlFor={imageModelId}>
-                    Model ID
-                  </label>
+                <Field>
+                  <FieldLabel htmlFor={imageModelId}>Model ID</FieldLabel>
                   <Select
                     value={config.model}
                     onValueChange={(model: GoogleGeminiImageModel) =>
@@ -283,26 +297,28 @@ export function ProviderSettingsDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {GOOGLE_GEMINI_IMAGE_MODELS.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        {GOOGLE_GEMINI_IMAGE_MODELS.map((model) => (
+                          <SelectItem key={model} value={model}>
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
-                </div>
+                </Field>
               ) : (
-                <Field label='Model ID'>
+                <ConfigField label='Model ID'>
                   <Input
                     value={config.model}
                     autoComplete='off'
                     placeholder={role === 'mineru' ? 'vlm' : 'provider model ID'}
                     onChange={(event) => setConfig({ ...config, model: event.target.value })}
                   />
-                </Field>
+                </ConfigField>
               )}
               {config.role !== 'mineru' && config.role !== 'image' && (
-                <Field label='Model revision'>
+                <ConfigField label='Model revision'>
                   <Input
                     value={config.modelRevision}
                     autoComplete='off'
@@ -311,33 +327,30 @@ export function ProviderSettingsDialog({
                       setConfig({ ...config, modelRevision: event.target.value })
                     }
                   />
-                </Field>
+                </ConfigField>
               )}
               {config.role === 'agent' && (
-                <Field label='Context window override (tokens)'>
-                  <div className='space-y-1'>
-                    <Input
-                      type='number'
-                      min={8_192}
-                      max={10_000_000}
-                      value={config.contextWindowTokens ?? ''}
-                      placeholder='Auto-detect from models.dev'
-                      onChange={(event) =>
-                        setConfig({
-                          ...config,
-                          contextWindowTokens:
-                            event.target.value === '' ? null : Number(event.target.value)
-                        })
-                      }
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      Leave blank to use models.dev metadata, its offline cache, or the
-                      compatibility fallback.
-                    </p>
-                  </div>
-                </Field>
+                <ConfigField
+                  label='Context window override (tokens)'
+                  description='Leave blank to use models.dev metadata, its offline cache, or the compatibility fallback.'
+                >
+                  <Input
+                    type='number'
+                    min={8_192}
+                    max={10_000_000}
+                    value={config.contextWindowTokens ?? ''}
+                    placeholder='Auto-detect from models.dev'
+                    onChange={(event) =>
+                      setConfig({
+                        ...config,
+                        contextWindowTokens:
+                          event.target.value === '' ? null : Number(event.target.value)
+                      })
+                    }
+                  />
+                </ConfigField>
               )}
-              <Field label={config.role === 'image' ? 'Gemini API key' : 'API key or token'}>
+              <ConfigField label={config.role === 'image' ? 'Gemini API key' : 'API key or token'}>
                 <Input
                   type='password'
                   value={apiKey}
@@ -347,7 +360,7 @@ export function ProviderSettingsDialog({
                   }
                   onChange={(event) => setApiKey(event.target.value)}
                 />
-              </Field>
+              </ConfigField>
               {config.role === 'image' && (
                 <p className='text-sm text-muted-foreground'>
                   Uses the fixed official Google Gemini endpoint through @google/genai. No custom
@@ -356,25 +369,25 @@ export function ProviderSettingsDialog({
               )}
               {config.role !== 'image' && (
                 <div className='grid gap-4 sm:grid-cols-2'>
-                  <Field label='Request timeout (milliseconds)'>
-                    <div className='space-y-1'>
-                      <Input
-                        type='number'
-                        min={1_000}
-                        max={300_000}
-                        value={config.timeoutMs}
-                        onChange={(event) =>
-                          setConfig({ ...config, timeoutMs: Number(event.target.value) })
-                        }
-                      />
-                      {config.role === 'agent' ? (
-                        <p className='text-xs text-muted-foreground'>
-                          Applies to each model request, including its automatic retries.
-                        </p>
-                      ) : null}
-                    </div>
-                  </Field>
-                  <Field label='Batch limit'>
+                  <ConfigField
+                    label='Request timeout (milliseconds)'
+                    description={
+                      config.role === 'agent'
+                        ? 'Applies to each model request, including its automatic retries.'
+                        : undefined
+                    }
+                  >
+                    <Input
+                      type='number'
+                      min={1_000}
+                      max={300_000}
+                      value={config.timeoutMs}
+                      onChange={(event) =>
+                        setConfig({ ...config, timeoutMs: Number(event.target.value) })
+                      }
+                    />
+                  </ConfigField>
+                  <ConfigField label='Batch limit'>
                     <Input
                       type='number'
                       min={1}
@@ -384,9 +397,9 @@ export function ProviderSettingsDialog({
                         setConfig({ ...config, batchLimit: Number(event.target.value) })
                       }
                     />
-                  </Field>
+                  </ConfigField>
                   {config.role === 'embedding' && (
-                    <Field label='Embedding dimensions'>
+                    <ConfigField label='Embedding dimensions'>
                       <Input
                         type='number'
                         min={1}
@@ -396,10 +409,10 @@ export function ProviderSettingsDialog({
                           setConfig({ ...config, embeddingDimension: Number(event.target.value) })
                         }
                       />
-                    </Field>
+                    </ConfigField>
                   )}
                   {config.role === 'mineru' && (
-                    <Field label='File limit (MB)'>
+                    <ConfigField label='File limit (MB)'>
                       <Input
                         type='number'
                         min={1}
@@ -409,7 +422,7 @@ export function ProviderSettingsDialog({
                           setConfig({ ...config, fileSizeLimitMb: Number(event.target.value) })
                         }
                       />
-                    </Field>
+                    </ConfigField>
                   )}
                 </div>
               )}
@@ -421,13 +434,13 @@ export function ProviderSettingsDialog({
                 </p>
               )}
               {status && status.issues.length > 0 && (
-                <ul className='list-disc space-y-1 pl-5 text-sm text-destructive'>
+                <ul className='flex list-disc flex-col gap-1 pl-5 text-sm text-destructive'>
                   {status.issues.map((issue) => (
                     <li key={issue}>{issue}</li>
                   ))}
                 </ul>
               )}
-            </div>
+            </FieldGroup>
           )}
 
           <DialogFooter className='gap-2 sm:justify-between'>
@@ -437,7 +450,7 @@ export function ProviderSettingsDialog({
               disabled={!status?.config || busy !== null}
               onClick={() => setConfirmRemove(true)}
             >
-              <Trash2 /> Remove
+              <Trash2 data-icon='inline-start' /> Remove
             </Button>
             <div className='flex flex-col-reverse gap-2 sm:flex-row'>
               <DialogClose asChild>
@@ -451,64 +464,60 @@ export function ProviderSettingsDialog({
                 disabled={!status?.config || busy !== null}
                 onClick={() => void testConnection()}
               >
-                {busy === 'test' && <LoaderCircle className='animate-spin' />} Test connection
+                {busy === 'test' && <Spinner data-icon='inline-start' />} Test connection
               </Button>
               <Button
                 type='button'
                 disabled={config === null || busy !== null}
                 onClick={() => void save()}
               >
-                {busy === 'save' && <LoaderCircle className='animate-spin' />} Save
+                {busy === 'save' && <Spinner data-icon='inline-start' />} Save
               </Button>
             </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove provider configuration?</DialogTitle>
-            <DialogDescription>
+      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove provider configuration?</AlertDialogTitle>
+            <AlertDialogDescription>
               This removes its encrypted credential and application-global metadata. Project files
               remain portable and unchanged.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type='button' variant='outline'>
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button
-              type='button'
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
               variant='destructive'
               disabled={busy !== null}
               onClick={() => void remove()}
             >
-              {busy === 'remove' && <LoaderCircle className='animate-spin' />} Remove provider
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {busy === 'remove' && <Spinner data-icon='inline-start' />} Remove provider
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
 
-function Field({
+function ConfigField({
   label,
+  description,
   children
 }: {
   label: string
+  description?: string
   children: React.ReactElement<{ id?: string }>
 }): React.JSX.Element {
   const id = useId()
   return (
-    <div className='grid gap-2'>
-      <label className='text-sm font-medium' htmlFor={id}>
-        {label}
-      </label>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {isValidElement(children) ? cloneElement(children, { id }) : children}
-    </div>
+      {description ? <FieldDescription>{description}</FieldDescription> : null}
+    </Field>
   )
 }
