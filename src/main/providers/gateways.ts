@@ -14,7 +14,8 @@ import type {
   AgentModelLimits,
   AgentModelCallAuthorization,
   AgentQueueCommand,
-  AgentRuntimeEvent
+  AgentRuntimeEvent,
+  AgentSessionRunResult
 } from '../../shared/contracts/agent'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
@@ -46,7 +47,7 @@ export interface AgentSessionRunInput {
 
 export interface AgentSessionRunHandle {
   readonly requestId: string
-  readonly completion: Promise<void>
+  readonly completion: Promise<AgentSessionRunResult>
   steer(command: Omit<AgentQueueCommand, 'operation' | 'requestId'>): void
   followUp(command: Omit<AgentQueueCommand, 'operation' | 'requestId'>): void
   authorizeModelCall(command: Omit<AgentModelCallAuthorization, 'operation' | 'requestId'>): void

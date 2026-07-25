@@ -333,6 +333,48 @@ describe('Agent renderer view model', () => {
     })
     expect(formatAgentDuration(68_000)).toBe('1m 08s')
   })
+
+  it('renders current and historical manual-review pauses without hiding genuine failures', () => {
+    const current = projectAgentTimeline([
+      record(1, 'run_completed', {
+        status: 'completed',
+        outcome: 'awaiting_review',
+        proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc430'
+      })
+    ])
+    expect(current[0]).toMatchObject({
+      type: 'run_completed',
+      terminal: { status: 'completed', outcome: 'awaiting_review', code: 'awaiting_review' }
+    })
+
+    const historical = projectAgentTimeline([
+      toolResultRecord(1, 'proposal', 'submit_brief_change', {
+        result: {
+          proposal: {
+            proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc430',
+            kind: 'brief_update',
+            status: 'pending'
+          },
+          application: { status: 'not_applied' },
+          continuation: 'pause_for_review',
+          warnings: []
+        }
+      }),
+      record(2, 'run_interrupted', { status: 'failed', code: 'agent_run_failed' })
+    ])
+    expect(historical.at(-1)).toMatchObject({
+      type: 'run_interrupted',
+      terminal: { status: 'completed', outcome: 'awaiting_review', code: 'awaiting_review' }
+    })
+
+    const failed = projectAgentTimeline([
+      record(1, 'run_interrupted', { status: 'failed', code: 'provider_timeout' })
+    ])
+    expect(failed[0]).toMatchObject({
+      type: 'run_interrupted',
+      terminal: { status: 'failed', outcome: 'finished', code: 'provider_timeout' }
+    })
+  })
 })
 
 function assistantRecord(

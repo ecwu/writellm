@@ -524,6 +524,139 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('persists manual review as a completed wait state and locks only that conversation', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc491'
+    const execute = vi.fn(async (input: { toolCallEventId: string }) => {
+      const now = new Date().toISOString()
+      database.immediate((native) => {
+        native
+          .prepare(
+            `INSERT INTO mutation_proposals (
+               mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+               agent_tool_call_id, kind, payload_json, base_revision_id,
+               base_brief_version, base_outline_version, status, decision_at,
+               applied_revision_id, applied_brief_version, applied_outline_version,
+               undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, 'brief_update', ?, NULL, 1, NULL, 'pending', NULL,
+                       NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`
+          )
+          .run(
+            proposalId,
+            session.agentSessionId,
+            started.agentRunId,
+            input.toolCallEventId,
+            'proposal-tool-call',
+            JSON.stringify({ schemaVersion: 1, kind: 'brief_update' }),
+            now,
+            now
+          )
+      })
+      return proposalToolResult('brief_update')
+    })
+    const service = createService(database, runtime, undefined, {
+      tools: { execute, shouldAutoApprove: () => false } as never
+    })
+    const session = service.createSession('Manual review', 'manual')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Propose a brief change.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('proposal-call')
+    })
+    await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc490',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'proposal-tool-call',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'submit_brief_change',
+      args: { changes: { title: 'Revised title' }, citationIds: [] }
+    })
+
+    await expect(service.followUp(started.agentRunId, 'Keep going.')).rejects.toThrow(
+      'waiting for review'
+    )
+    active.resolve('awaiting_review')
+    await started.completion
+
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'completed',
+      errorCode: null
+    })
+    expect(service.listEvents(session.agentSessionId).at(-1)).toMatchObject({
+      type: 'run_completed',
+      payload: {
+        status: 'completed',
+        outcome: 'awaiting_review',
+        proposalId,
+        proposalKind: 'brief_update'
+      }
+    })
+    expect(service.listSessions()).toContainEqual(
+      expect.objectContaining({
+        agentSessionId: session.agentSessionId,
+        workflowState: 'awaiting_review'
+      })
+    )
+    await expect(
+      service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Bypass review.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).rejects.toThrow('waiting for review')
+
+    database.immediate((native) => {
+      native
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'generating', decision_at = ?, updated_at = ?
+            WHERE mutation_proposal_id = ?`
+        )
+        .run(new Date().toISOString(), new Date().toISOString(), proposalId)
+    })
+    expect(service.listSessions()).toContainEqual(
+      expect.objectContaining({
+        agentSessionId: session.agentSessionId,
+        workflowState: 'generating'
+      })
+    )
+    await expect(
+      service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Bypass generation.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).rejects.toThrow('waiting for image generation')
+
+    database.immediate((native) => {
+      native
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'rejected', rejected_reason = 'test rejection', updated_at = ?
+            WHERE mutation_proposal_id = ?`
+        )
+        .run(new Date().toISOString(), proposalId)
+    })
+    expect(service.listSessions()).toContainEqual(
+      expect.objectContaining({
+        agentSessionId: session.agentSessionId,
+        workflowState: 'idle'
+      })
+    )
+    database.close()
+  })
+
   it.each([
     ['manual', 'brief_update', true, false],
     ['section_auto', 'outline_patch', true, false],
@@ -580,8 +713,18 @@ describe('AgentSessionService', () => {
       'tool_call',
       'tool_result'
     ])
-    active.resolve()
+    active.resolve(blocks ? 'awaiting_review' : 'finished')
     await started.completion
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'completed',
+      errorCode: null
+    })
+    expect(service.listEvents(session.agentSessionId).at(-1)).toMatchObject({
+      type: 'run_completed',
+      payload: {
+        outcome: blocks ? 'awaiting_review' : 'finished'
+      }
+    })
     database.close()
   })
 
@@ -683,7 +826,7 @@ interface FakeActiveRun {
   authorizations: Array<{ continuationId: string; modelRequestId: string }>
   requestTool: (request: AgentToolRequest) => Promise<AgentToolResponse>
   emit: (event: AgentRuntimeEvent) => Promise<void>
-  resolve: () => void
+  resolve: (outcome?: 'finished' | 'awaiting_review') => void
   reject: (error: Error) => void
 }
 
@@ -699,12 +842,14 @@ class FakeAgentRuntime implements AgentSessionRuntime {
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
   ): AgentSessionRunHandle {
     expect(credential).toBe('agent-secret')
-    let resolve: () => void = () => undefined
+    let resolve: (outcome?: 'finished' | 'awaiting_review') => void = () => undefined
     let reject: (error: Error) => void = () => undefined
-    const completion = new Promise<void>((resolvePromise, rejectPromise) => {
-      resolve = resolvePromise
-      reject = rejectPromise
-    })
+    const completion = new Promise<{ outcome: 'finished' | 'awaiting_review' }>(
+      (resolvePromise, rejectPromise) => {
+        resolve = (outcome = 'finished') => resolvePromise({ outcome })
+        reject = rejectPromise
+      }
+    )
     signal.addEventListener(
       'abort',
       () => {

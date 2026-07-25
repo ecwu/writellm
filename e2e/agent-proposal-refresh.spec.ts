@@ -224,7 +224,11 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     await panel.getByLabel('Agent message').fill('Prepare the first update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
-    await expect(panel.getByText('Idle', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Waiting for review', { exact: true }).first()).toBeVisible()
+    await expect(panel.getByLabel('Agent message')).toBeDisabled()
+    await panel.getByRole('button', { name: 'Back to conversations' }).click()
+    await panel.getByRole('button', { name: 'New', exact: true }).click()
+    await panel.getByRole('button', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Prepare the second update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect
@@ -233,14 +237,16 @@ test('refreshes a non-conflicting outdated section proposal before final approva
           const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
             ?.projectSessionId
           if (projectSessionId === undefined) return 0
-          const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-          if (session === undefined) return 0
-          return (
-            await window.desktop.agent.listProposals({
-              projectSessionId,
-              agentSessionId: session.agentSessionId
-            })
-          ).length
+          const sessions = await window.desktop.agent.listSessions({ projectSessionId })
+          const proposals = await Promise.all(
+            sessions.map((session) =>
+              window.desktop.agent.listProposals({
+                projectSessionId,
+                agentSessionId: session.agentSessionId
+              })
+            )
+          )
+          return proposals.flat().length
         })
       })
       .toBe(2)
@@ -249,12 +255,17 @@ test('refreshes a non-conflicting outdated section proposal before final approva
       const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
         ?.projectSessionId
       if (projectSessionId === undefined) throw new Error('Project session missing')
-      const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-      if (session === undefined) throw new Error('Agent session missing')
-      return window.desktop.agent.listProposals({
-        projectSessionId,
-        agentSessionId: session.agentSessionId
-      })
+      const sessions = await window.desktop.agent.listSessions({ projectSessionId })
+      return (
+        await Promise.all(
+          sessions.map((session) =>
+            window.desktop.agent.listProposals({
+              projectSessionId,
+              agentSessionId: session.agentSessionId
+            })
+          )
+        )
+      ).flat()
     })
     expect(originalProposals).toHaveLength(2)
     const firstProposal = originalProposals.find(
@@ -266,27 +277,29 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     if (firstProposal === undefined || secondProposal === undefined) {
       throw new Error('Expected two proposals')
     }
+    await panel.getByRole('button', { name: 'Back to conversations' }).click()
+    await panel.getByRole('button', { name: /Conversation 1/ }).click()
     const firstCard = panel.getByTestId(`agent-proposal-${firstProposal.proposalId}`)
-    const secondCard = panel.getByTestId(`agent-proposal-${secondProposal.proposalId}`)
     await firstCard.getByRole('button', { name: 'Approve', exact: true }).click()
     await expect(firstCard.getByText('applied', { exact: true })).toBeVisible()
     await expect(launched.page.locator('.bn-editor').first()).toContainText('First update applied')
 
+    await panel.getByRole('button', { name: 'Back to conversations' }).click()
+    await panel.getByRole('button', { name: /Conversation 2/ }).click()
+    const secondCard = panel.getByTestId(`agent-proposal-${secondProposal.proposalId}`)
     await expect(secondCard.getByText('outdated', { exact: true })).toBeVisible()
     await secondCard.getByRole('button', { name: 'Review update', exact: true }).click()
     await expect
       .poll(async () => {
-        const proposals = await launched.page.evaluate(async () => {
+        const proposals = await launched.page.evaluate(async (agentSessionId) => {
           const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
             ?.projectSessionId
           if (projectSessionId === undefined) return []
-          const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-          if (session === undefined) return []
           return window.desktop.agent.listProposals({
             projectSessionId,
-            agentSessionId: session.agentSessionId
+            agentSessionId
           })
-        })
+        }, secondProposal.agentSessionId)
         return proposals.find(
           (proposal) =>
             proposal.status === 'pending' &&
@@ -294,17 +307,15 @@ test('refreshes a non-conflicting outdated section proposal before final approva
         )
       })
       .not.toBeUndefined()
-    const refreshedProposals = await launched.page.evaluate(async () => {
+    const refreshedProposals = await launched.page.evaluate(async (agentSessionId) => {
       const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
         ?.projectSessionId
       if (projectSessionId === undefined) throw new Error('Project session missing')
-      const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-      if (session === undefined) throw new Error('Agent session missing')
       return window.desktop.agent.listProposals({
         projectSessionId,
-        agentSessionId: session.agentSessionId
+        agentSessionId
       })
-    })
+    }, secondProposal.agentSessionId)
     const replacement = refreshedProposals.find(
       (proposal) => proposal.replacesProposalId === secondProposal.proposalId
     )
@@ -321,7 +332,7 @@ test('refreshes a non-conflicting outdated section proposal before final approva
         return testIds.filter((testId) => /^agent-proposal-[0-9a-f-]{36}$/.test(testId ?? ''))
           .length
       })
-      .toBe(2)
+      .toBe(1)
     await expect(launched.page.getByText('Agent action failed', { exact: true })).toHaveCount(0)
     await expect(launched.page.locator('.bn-editor').first()).toContainText('Second original')
 
@@ -334,12 +345,17 @@ test('refreshes a non-conflicting outdated section proposal before final approva
       const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
         ?.projectSessionId
       if (projectSessionId === undefined) throw new Error('Project session missing')
-      const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-      if (session === undefined) throw new Error('Agent session missing')
-      const proposals = await window.desktop.agent.listProposals({
-        projectSessionId,
-        agentSessionId: session.agentSessionId
-      })
+      const sessions = await window.desktop.agent.listSessions({ projectSessionId })
+      const proposals = (
+        await Promise.all(
+          sessions.map((session) =>
+            window.desktop.agent.listProposals({
+              projectSessionId,
+              agentSessionId: session.agentSessionId
+            })
+          )
+        )
+      ).flat()
       const loaded = await window.desktop.editor.loadSection({
         projectSessionId,
         sectionId: expectedSectionId

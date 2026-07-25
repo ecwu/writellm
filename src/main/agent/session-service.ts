@@ -83,6 +83,7 @@ interface ActiveRun {
   readonly snapshots: Map<string, WritingSnapshot>
   systemPrompt: string
   partialText: string
+  reviewPause: { proposalId: string; kind: string } | null
   completion: Promise<void>
 }
 
@@ -164,6 +165,7 @@ export class AgentSessionService {
       status: 'active',
       compatible: true,
       approvalMode,
+      workflowState: 'idle',
       createdAt: now,
       updatedAt: now
     })
@@ -175,7 +177,25 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
-                    status, approval_mode, created_at, updated_at
+                    status, approval_mode, created_at, updated_at,
+                    CASE
+                      WHEN EXISTS (
+                        SELECT 1 FROM agent_runs
+                         WHERE agent_runs.agent_session_id = agent_sessions.agent_session_id
+                           AND agent_runs.status = 'running'
+                      ) THEN 'running'
+                      WHEN EXISTS (
+                        SELECT 1 FROM mutation_proposals
+                         WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                           AND mutation_proposals.status = 'generating'
+                      ) THEN 'generating'
+                      WHEN EXISTS (
+                        SELECT 1 FROM mutation_proposals
+                         WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                           AND mutation_proposals.status = 'pending'
+                      ) THEN 'awaiting_review'
+                      ELSE 'idle'
+                    END AS workflow_state
                FROM agent_sessions
               ORDER BY updated_at DESC, agent_session_id DESC
               LIMIT 200`
@@ -187,6 +207,7 @@ export class AgentSessionService {
           event_schema_version: number
           status: 'active' | 'archived'
           approval_mode: AgentApprovalMode
+          workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
           created_at: string
           updated_at: string
         }>
@@ -199,6 +220,7 @@ export class AgentSessionService {
             row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
+          workflowState: row.workflow_state,
           createdAt: row.created_at,
           updatedAt: row.updated_at
         })
@@ -369,6 +391,7 @@ export class AgentSessionService {
     const operationId = input.operationId ?? this.#createId()
     const agentRunId = this.#createId()
     this.#assertCompatibleSession(input.agentSessionId)
+    this.#assertConversationReady(input.agentSessionId)
     return withLogContext(
       {
         operationId,
@@ -508,6 +531,7 @@ export class AgentSessionService {
             ),
             systemPrompt,
             partialText: '',
+            reviewPause: null,
             completion: Promise.resolve()
           }
           this.#active = active
@@ -617,6 +641,9 @@ export class AgentSessionService {
     rawContent: string
   ): Promise<void> {
     const active = this.#requireActive(agentRunId)
+    if (active.reviewPause !== null) {
+      throw new Error('Agent conversation is waiting for review')
+    }
     if (active.controller.signal.aborted) {
       throw active.controller.signal.reason instanceof Error
         ? active.controller.signal.reason
@@ -746,6 +773,9 @@ export class AgentSessionService {
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
+    if (active.reviewPause !== null) {
+      throw new Error('Agent continuation is blocked while review is pending')
+    }
     if (active.controller.signal.aborted) {
       throw active.controller.signal.reason instanceof Error
         ? active.controller.signal.reason
@@ -929,6 +959,10 @@ export class AgentSessionService {
             continuation: 'pause_for_review',
             warnings: []
           })
+          active.reviewPause = {
+            proposalId: proposal.data.proposalId,
+            kind: proposal.data.kind
+          }
         }
       }
       const provenance = extractToolProvenance(data)
@@ -992,7 +1026,36 @@ export class AgentSessionService {
 
   async #settleRun(active: ActiveRun): Promise<void> {
     try {
-      await active.handle.completion
+      const result = await active.handle.completion
+      if (result.outcome === 'awaiting_review') {
+        if (active.reviewPause === null) {
+          throw new Error('Agent review pause completed without a pending proposal')
+        }
+        await this.#abortPendingModelRequests(active, 'review_pause')
+        const event = await this.#finishRunAndAppendEvent({
+          agentRunId: active.agentRunId,
+          agentSessionId: active.agentSessionId,
+          status: 'completed',
+          error: null,
+          eventPayload: {
+            status: 'completed',
+            outcome: 'awaiting_review',
+            proposalId: active.reviewPause.proposalId,
+            proposalKind: active.reviewPause.kind
+          }
+        })
+        this.options.log.info(
+          {
+            event: 'agent.run.review_wait_started',
+            agentRunId: active.agentRunId,
+            proposalId: active.reviewPause.proposalId,
+            proposalKind: active.reviewPause.kind,
+            sequence: event.sequence
+          },
+          'Agent run is waiting for proposal review'
+        )
+        return
+      }
       if (active.pendingModelRequestIds.size > 0) {
         throw new Error('Agent run completed with unfinished model requests')
       }
@@ -1001,7 +1064,7 @@ export class AgentSessionService {
         agentSessionId: active.agentSessionId,
         status: 'completed',
         error: null,
-        eventPayload: { status: 'completed' }
+        eventPayload: { status: 'completed', outcome: 'finished' }
       })
       this.options.log.info(
         { event: 'agent.run.completed', agentRunId: active.agentRunId, sequence: event.sequence },
@@ -1023,7 +1086,7 @@ export class AgentSessionService {
         'Agent run terminated'
       )
       const partialModelRequestId = [...active.pendingModelRequestIds][0] ?? null
-      await this.#abortPendingModelRequests(active)
+      await this.#abortPendingModelRequests(active, 'agent_run_ended')
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
           content: active.partialText,
@@ -1054,7 +1117,7 @@ export class AgentSessionService {
     }
   }
 
-  async #abortPendingModelRequests(active: ActiveRun): Promise<void> {
+  async #abortPendingModelRequests(active: ActiveRun, reason: string): Promise<void> {
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -1063,7 +1126,7 @@ export class AgentSessionService {
     )
     for (const modelRequestId of [...active.pendingModelRequestIds]) {
       try {
-        await repository.abort(modelRequestId, 'agent_run_ended')
+        await repository.abort(modelRequestId, reason)
       } catch (err) {
         this.options.log.error(
           {
@@ -1280,6 +1343,28 @@ export class AgentSessionService {
       row.event_schema_version !== AGENT_EVENT_SCHEMA_VERSION
     ) {
       throw new Error('Agent session is incompatible with the current runtime')
+    }
+  }
+
+  #assertConversationReady(agentSessionId: string): void {
+    const blocker = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT status
+               FROM mutation_proposals
+              WHERE agent_session_id = ?
+                AND status IN ('pending', 'generating')
+              ORDER BY CASE status WHEN 'generating' THEN 0 ELSE 1 END, created_at
+              LIMIT 1`
+          )
+          .get(agentSessionId) as { status: 'pending' | 'generating' } | undefined
+    )
+    if (blocker?.status === 'generating') {
+      throw new Error('Agent conversation is waiting for image generation')
+    }
+    if (blocker?.status === 'pending') {
+      throw new Error('Agent conversation is waiting for review')
     }
   }
 

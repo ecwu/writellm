@@ -128,6 +128,16 @@ export function registerAgentIpc(options: {
         if (proposal === undefined || !['applied', 'satisfied'].includes(proposal.status)) {
           throw new Error('Approved proposal continuation is not authorized')
         }
+        const blocker = context.agentMutations
+          .list(input.agentSessionId)
+          .find((candidate) => ['pending', 'generating'].includes(candidate.status))
+        if (blocker !== undefined) {
+          throw new Error(
+            blocker.status === 'generating'
+              ? 'Agent conversation is waiting for image generation'
+              : 'Agent conversation is waiting for review'
+          )
+        }
         await service.recordApprovalDecision({
           agentSessionId: input.agentSessionId,
           agentRunId: proposal.agentRunId,

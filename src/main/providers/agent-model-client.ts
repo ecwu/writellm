@@ -11,8 +11,10 @@ import {
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
   agentRuntimeMessageSchema,
+  agentSessionRunResultSchema,
   type AgentQueueCommand,
-  type AgentRuntimeEvent
+  type AgentRuntimeEvent,
+  type AgentSessionRunResult
 } from '../../shared/contracts/agent'
 import {
   AGENT_TOOL_RESULT_SCHEMA_VERSION,
@@ -124,7 +126,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     })
     const { port1, port2 } = this.createMessageChannel()
     const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
-    const workerCompletion = this.#worker.request<void>({
+    const workerCompletion = this.#worker.request<AgentSessionRunResult>({
       requestId,
       payload: request,
       signal,
@@ -360,7 +362,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     raw: unknown,
     request: ReturnType<typeof agentRunStartSchema.parse>,
     onEvent: (event: AgentRuntimeEvent) => void | Promise<void>
-  ): Promise<UtilityMessageDecision<void>> {
+  ): Promise<UtilityMessageDecision<AgentSessionRunResult>> {
     const parsed = agentRuntimeMessageSchema.safeParse(raw)
     if (
       !parsed.success ||
@@ -422,7 +424,10 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       )
       return { kind: 'reject', error: err }
     }
-    return { kind: 'resolve', value: undefined }
+    return {
+      kind: 'resolve',
+      value: agentSessionRunResultSchema.parse({ outcome: message.outcome })
+    }
   }
 }
 

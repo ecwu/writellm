@@ -236,6 +236,51 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
+  it('ends at a manual-review barrier without requesting a continuation model call', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return toolCallResponse('tool-proposal', 'submit_brief_change', {
+          changes: { title: 'Revised title' },
+          citationIds: []
+        })
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: {
+          proposal: {
+            proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
+            kind: 'brief_update',
+            status: 'pending'
+          },
+          application: { status: 'not_applied' },
+          continuation: 'pause_for_review',
+          warnings: []
+        }
+      })
+    })
+
+    const result = await runAgentSession(
+      request,
+      (event) => events.push(event),
+      () => undefined,
+      undefined,
+      port1 as never
+    )
+
+    expect(result).toEqual({ outcome: 'awaiting_review' })
+    expect(fetchAttempt).toBe(1)
+    expect(events.filter((event) => event.type === 'model_call_requested')).toEqual([])
+  })
+
   it('starts a fresh provider deadline after a tool continuation', async () => {
     const shortRequest = {
       ...request,

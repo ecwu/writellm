@@ -130,7 +130,7 @@ export function AgentPanel(props: {
     async (
       agentSessionId: string
     ): Promise<{ runs: AgentRunRecord[]; proposals: MutationProposalRecord[] }> => {
-      const [nextRuns, nextProposals] = await Promise.all([
+      const [nextRuns, nextProposals, nextSessions] = await Promise.all([
         window.desktop.agent.listRuns({
           projectSessionId: props.projectSessionId,
           agentSessionId
@@ -138,8 +138,12 @@ export function AgentPanel(props: {
         window.desktop.agent.listProposals({
           projectSessionId: props.projectSessionId,
           agentSessionId
+        }),
+        window.desktop.agent.listSessions({
+          projectSessionId: props.projectSessionId
         })
       ])
+      setSessions(nextSessions)
       if (activeSessionIdRef.current !== agentSessionId) {
         return { runs: nextRuns, proposals: nextProposals }
       }
@@ -251,10 +255,14 @@ export function AgentPanel(props: {
       })
     void window.desktop.agent
       .subscribeMutations({ projectSessionId: props.projectSessionId }, (event) => {
-        if (disposed || event.agentSessionId !== activeSessionId) return
-        void refreshSessionTruth(activeSessionId).catch((cause) =>
-          props.onError(errorMessage(cause))
-        )
+        if (disposed) return
+        if (event.agentSessionId === activeSessionId) {
+          void refreshSessionTruth(activeSessionId).catch((cause) =>
+            props.onError(errorMessage(cause))
+          )
+        } else {
+          void refreshSessions().catch((cause) => props.onError(errorMessage(cause)))
+        }
       })
       .then((release) => {
         if (disposed) release()
@@ -268,7 +276,14 @@ export function AgentPanel(props: {
       unsubscribe?.()
       unsubscribeMutations?.()
     }
-  }, [activeSessionId, props.onError, props.open, props.projectSessionId, refreshSessionTruth])
+  }, [
+    activeSessionId,
+    props.onError,
+    props.open,
+    props.projectSessionId,
+    refreshSessions,
+    refreshSessionTruth
+  ])
 
   const selectionIsAvailable = selectionAvailable({
     activeSectionId: props.activeSectionId,
@@ -300,11 +315,17 @@ export function AgentPanel(props: {
     contextUsage === null || contextLimits === null
       ? 0
       : Math.min(100, (contextUsage.used / contextLimits.contextWindowTokens) * 100)
-  const waitingProposal = proposals.find(
-    (proposal) =>
-      proposal.status === 'pending' &&
-      (proposal.kind === 'brief_update' || proposal.kind === 'outline_patch')
-  )
+  const waitingProposal = proposals.find((proposal) => proposal.status === 'pending')
+  const generatingProposal = proposals.find((proposal) => proposal.status === 'generating')
+  const workflowState =
+    activeRun !== null
+      ? 'running'
+      : generatingProposal !== undefined
+        ? 'generating'
+        : waitingProposal !== undefined
+          ? 'awaiting_review'
+          : (activeSession?.workflowState ?? 'idle')
+  const conversationLocked = workflowState === 'awaiting_review' || workflowState === 'generating'
   const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
   const effectiveRevisionIds = useMemo(() => {
     const result = { ...props.currentRevisionIds }
@@ -363,7 +384,7 @@ export function AgentPanel(props: {
     if (
       trimmed.length === 0 ||
       (!allowWhileBusy && busy) ||
-      (activeRun !== null && approvedProposalId === undefined)
+      ((activeRun !== null || conversationLocked) && approvedProposalId === undefined)
     )
       return
     setBusy(true)
@@ -514,6 +535,7 @@ export function AgentPanel(props: {
           result.outcome !== 'refresh_required' &&
           (result.outcome === 'applied' || result.outcome === 'already_satisfied')
         ) {
+          await refreshSessionTruth(proposal.agentSessionId)
           await startRun(
             'Verify the applied change, continue the requested writing task, and run check_draft when appropriate.',
             result.proposal.proposalId,
@@ -529,6 +551,7 @@ export function AgentPanel(props: {
           reason: 'Rejected by the user in the Agent panel.'
         })
         updateProposals(result.proposal)
+        await refreshSessionTruth(proposal.agentSessionId)
       } else if (action === 'cancel_image') {
         await window.desktop.agent.cancelImageGeneration({
           projectSessionId: props.projectSessionId,
@@ -629,7 +652,10 @@ export function AgentPanel(props: {
             ) : (
               <div className='space-y-1'>
                 {sessions.map((session) => {
-                  const isWorking = session.agentSessionId === activeSessionId && activeRun !== null
+                  const sessionWorkflowState =
+                    session.agentSessionId === activeSessionId && activeRun !== null
+                      ? 'running'
+                      : session.workflowState
                   return (
                     <Button
                       key={session.agentSessionId}
@@ -648,14 +674,17 @@ export function AgentPanel(props: {
                           {formatSessionUpdatedAt(session.updatedAt)}
                         </span>
                       </span>
-                      {session.agentSessionId === activeSessionId && waitingProposal ? (
+                      {sessionWorkflowState === 'awaiting_review' ? (
                         <Badge variant='secondary' className='shrink-0'>
                           Approval needed
                         </Badge>
-                      ) : isWorking ? (
+                      ) : sessionWorkflowState === 'generating' ? (
                         <Badge variant='secondary' className='shrink-0'>
-                          <LoaderCircle className='animate-spin' /> Working ·{' '}
-                          {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
+                          <LoaderCircle className='animate-spin' /> Generating
+                        </Badge>
+                      ) : sessionWorkflowState === 'running' ? (
+                        <Badge variant='secondary' className='shrink-0'>
+                          <LoaderCircle className='animate-spin' /> Working
                         </Badge>
                       ) : !session.compatible ? (
                         <Badge variant='destructive' className='shrink-0'>
@@ -695,7 +724,11 @@ export function AgentPanel(props: {
             {activeSession ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant='outline' size='sm' disabled={busy || activeRun !== null}>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={busy || activeRun !== null || conversationLocked}
+                  >
                     {approvalModeLabel(activeSession.approvalMode)} <ChevronDown />
                   </Button>
                 </DropdownMenuTrigger>
@@ -724,7 +757,7 @@ export function AgentPanel(props: {
           </header>
 
           <div className='flex min-w-0 flex-wrap items-center gap-2 overflow-hidden border-b px-4 py-2 text-xs text-muted-foreground'>
-            {activeRun ? (
+            {workflowState === 'running' && activeRun ? (
               <>
                 <LoaderCircle className='size-3 animate-spin' />
                 <span className='shimmer'>
@@ -737,6 +770,13 @@ export function AgentPanel(props: {
                   {activeRun.modelId}
                 </Badge>
               </>
+            ) : workflowState === 'generating' ? (
+              <>
+                <LoaderCircle className='size-3 animate-spin' />
+                <span>Generating image</span>
+              </>
+            ) : workflowState === 'awaiting_review' ? (
+              <span className='text-amber-700 dark:text-amber-400'>Waiting for review</span>
             ) : (
               <span>Idle</span>
             )}
@@ -757,9 +797,13 @@ export function AgentPanel(props: {
                 </span>
               </div>
             ) : null}
-            {activeRun !== null && waitingProposal !== undefined ? (
+            {workflowState === 'awaiting_review' && waitingProposal !== undefined ? (
               <div className='basis-full text-amber-700 dark:text-amber-400'>
-                Waiting for {waitingProposal.kind === 'brief_update' ? 'Brief' : 'Outline'} approval
+                Waiting for {proposalKindLabel(waitingProposal.kind)} approval
+              </div>
+            ) : workflowState === 'generating' ? (
+              <div className='basis-full text-muted-foreground'>
+                This conversation will resume after image generation finishes.
               </div>
             ) : null}
           </div>
@@ -796,7 +840,7 @@ export function AgentPanel(props: {
 
           <div className='min-w-0 space-y-3 overflow-hidden border-t px-4 py-3'>
             {error ? <AgentErrorAlert message={error} /> : null}
-            {activeRun === null ? (
+            {activeRun === null && !conversationLocked ? (
               <fieldset
                 className='flex flex-wrap gap-2 border-0 p-0'
                 aria-label='Agent context scope'
@@ -830,10 +874,14 @@ export function AgentPanel(props: {
               placeholder={
                 activeRun
                   ? 'Steer the current turn or queue a follow-up…'
-                  : 'Ask the writing agent…'
+                  : workflowState === 'generating'
+                    ? 'Image generation is in progress…'
+                    : workflowState === 'awaiting_review'
+                      ? 'Review the pending proposal before continuing…'
+                      : 'Ask the writing agent…'
               }
               rows={3}
-              disabled={busy || activeSession?.compatible === false}
+              disabled={busy || conversationLocked || activeSession?.compatible === false}
               onChange={(event) => setPrompt(event.target.value)}
             />
             <div className='flex flex-wrap justify-end gap-2'>
@@ -857,6 +905,10 @@ export function AgentPanel(props: {
                     <CircleStop /> Stop
                   </Button>
                 </>
+              ) : conversationLocked ? (
+                <Badge variant='secondary'>
+                  {workflowState === 'generating' ? 'Generating image' : 'Approval required'}
+                </Badge>
               ) : (
                 <>
                   {latestPrompt ? (
@@ -1030,6 +1082,18 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'run_interrupted') {
+    if (item.terminal.outcome === 'awaiting_review') {
+      return (
+        <Marker role='status'>
+          <MarkerIcon>
+            <AlertCircle className='text-amber-600' />
+          </MarkerIcon>
+          <MarkerContent>
+            Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
+          </MarkerContent>
+        </Marker>
+      )
+    }
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -1046,6 +1110,18 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'run_completed') {
+    if (item.terminal.outcome === 'awaiting_review') {
+      return (
+        <Marker role='status'>
+          <MarkerIcon>
+            <AlertCircle className='text-amber-600' />
+          </MarkerIcon>
+          <MarkerContent>
+            Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
+          </MarkerContent>
+        </Marker>
+      )
+    }
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -1491,4 +1567,11 @@ function approvalModeLabel(mode: AgentApprovalMode): string {
   if (mode === 'manual') return 'Manual'
   if (mode === 'section_auto') return 'Section auto'
   return 'YOLO'
+}
+
+function proposalKindLabel(kind: MutationProposalRecord['kind']): string {
+  if (kind === 'brief_update') return 'Brief'
+  if (kind === 'outline_patch') return 'Outline'
+  if (kind === 'generated_image_insert') return 'Image'
+  return 'Section'
 }

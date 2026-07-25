@@ -200,12 +200,23 @@ const agentRuntimeEnvelopeSchema = z.object({
   agentRunId: agentRunIdSchema
 })
 
+export const agentSessionRunOutcomeSchema = z.enum(['finished', 'awaiting_review'])
+export const agentSessionRunResultSchema = z
+  .object({
+    outcome: agentSessionRunOutcomeSchema
+  })
+  .strict()
+
 export const agentRuntimeMessageSchema = z.discriminatedUnion('type', [
   agentRuntimeEnvelopeSchema
     .extend({ type: z.literal('event'), event: agentRuntimeEventSchema })
     .strict(),
   agentRuntimeEnvelopeSchema
-    .extend({ type: z.literal('result'), status: z.literal('completed') })
+    .extend({
+      type: z.literal('result'),
+      status: z.literal('completed'),
+      outcome: agentSessionRunOutcomeSchema.default('finished')
+    })
     .strict(),
   agentRuntimeEnvelopeSchema
     .extend({ type: z.literal('error'), error: agentRuntimeDiagnosticErrorSchema })
@@ -252,6 +263,7 @@ export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>
 export type AgentModelCallAuthorization = z.infer<typeof agentModelCallAuthorizationSchema>
 export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>
 export type AgentRuntimeMessage = z.infer<typeof agentRuntimeMessageSchema>
+export type AgentSessionRunResult = z.infer<typeof agentSessionRunResultSchema>
 export type AgentAssistantMessagePayload = z.infer<typeof agentAssistantMessagePayloadSchema>
 export type AgentSessionStatus = z.infer<typeof agentSessionStatusSchema>
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>

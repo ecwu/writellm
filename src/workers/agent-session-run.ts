@@ -15,7 +15,8 @@ import {
   type AgentModelCallAuthorization,
   type AgentQueueCommand,
   type AgentRunStart,
-  type AgentRuntimeEvent
+  type AgentRuntimeEvent,
+  type AgentSessionRunResult
 } from '../shared/contracts/agent'
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
 import {
@@ -38,7 +39,7 @@ export async function runAgentSession(
   registerControl: (control: AgentSessionRunControl) => void,
   externalSignal: AbortSignal | undefined,
   toolPort: MessagePortMain
-): Promise<void> {
+): Promise<AgentSessionRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
   const modelLimits = request.modelLimits ?? {
@@ -79,6 +80,7 @@ export async function runAgentSession(
   const modelRequestByToolCallId = new Map<string, string>()
   let lastAssistant: AssistantMessage | undefined
   let lastAssistantTimedOut = false
+  let awaitingReview = false
   const toolBridge = new AgentToolBridge(
     toolPort,
     {
@@ -113,6 +115,7 @@ export async function runAgentSession(
         )
       ),
     prepareNextTurnWithContext: async ({ context, toolResults }) => {
+      if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
       if (queuedModelRequestId !== undefined) {
         const systemPrompt = systemPromptByModelRequestId.get(queuedModelRequestId)
@@ -164,15 +167,9 @@ export async function runAgentSession(
       ) {
         return { isError: true }
       }
-      if (
-        details !== null &&
-        typeof details === 'object' &&
-        'data' in details &&
-        details.data !== null &&
-        typeof details.data === 'object' &&
-        'continuation' in details.data &&
-        details.data.continuation === 'pause_for_review'
-      ) {
+      if (pausesForReview(details)) {
+        awaitingReview = true
+        agent.clearAllQueues()
         return { terminate: true }
       }
       return undefined
@@ -310,6 +307,9 @@ export async function runAgentSession(
   registerControl({
     enqueue(command) {
       const parsed = agentQueueCommandSchema.parse(command)
+      if (awaitingReview) {
+        throw new Error('Agent conversation is waiting for review')
+      }
       modelRequestIds.push(parsed.modelRequestId)
       systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
       const message: UserMessage = {
@@ -369,6 +369,19 @@ export async function runAgentSession(
     error.name = 'AbortError'
     throw error
   }
+  return { outcome: awaitingReview ? 'awaiting_review' : 'finished' }
+}
+
+function pausesForReview(details: unknown): boolean {
+  return (
+    details !== null &&
+    typeof details === 'object' &&
+    'data' in details &&
+    details.data !== null &&
+    typeof details.data === 'object' &&
+    'continuation' in details.data &&
+    details.data.continuation === 'pause_for_review'
+  )
 }
 
 function toPiMessage(message: AgentHistoryMessage): UserMessage | AssistantMessage {

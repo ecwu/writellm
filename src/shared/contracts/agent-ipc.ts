@@ -20,12 +20,20 @@ export const AGENT_RUN_LIMIT = 200
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 
+export const agentSessionWorkflowStateSchema = z.enum([
+  'idle',
+  'running',
+  'awaiting_review',
+  'generating'
+])
+
 export const agentSessionRecordSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   title: z.string().min(1).max(500),
   status: agentSessionStatusSchema,
   compatible: z.boolean(),
   approvalMode: agentApprovalModeSchema.default('manual'),
+  workflowState: agentSessionWorkflowStateSchema.default('idle'),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -186,6 +194,7 @@ export const agentRendererEventSchema = z.discriminatedUnion('kind', [
 ])
 
 export type AgentSessionRecord = z.infer<typeof agentSessionRecordSchema>
+export type AgentSessionWorkflowState = z.infer<typeof agentSessionWorkflowStateSchema>
 export type AgentRunRecord = z.infer<typeof agentRunRecordSchema>
 export type AgentEventRecord = z.infer<typeof agentEventRecordSchema>
 export type AgentEventPage = z.infer<typeof agentEventPageSchema>

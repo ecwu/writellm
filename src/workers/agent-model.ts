@@ -204,7 +204,7 @@ async function handleSessionRun(
           agentSessionId: request.agentSessionId,
           agentRunId: request.agentRunId
         })
-        await runAgentSession(
+        const result = await runAgentSession(
           request,
           (runtimeEvent) => {
             parentPort.postMessage({
@@ -228,7 +228,8 @@ async function handleSessionRun(
           projectSessionId: request.projectSessionId,
           agentSessionId: request.agentSessionId,
           agentRunId: request.agentRunId,
-          status: 'completed'
+          status: 'completed',
+          outcome: result.outcome
         }
         workerLog?.('info', 'agent.worker.run_completed', 'Agent worker run completed', {
           agentSessionId: request.agentSessionId,

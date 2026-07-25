@@ -335,6 +335,24 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
           })
           return
         }
+        if (agentCall === 7) {
+          sendToolCall(response, {
+            responseId: 'agent-image-response',
+            toolCallId: 'agent-image-tool',
+            name: 'generate_image',
+            args: {
+              sectionId,
+              anchor: null,
+              placement: 'end',
+              prompt: 'A restrained technical diagram about durable writing systems.',
+              altText: 'Durable writing systems diagram',
+              caption: 'Generated diagram',
+              aspectRatio: '16:9',
+              imageSize: '2K'
+            }
+          })
+          return
+        }
         response.writeHead(200, {
           'content-type': 'text/event-stream',
           'cache-control': 'no-cache',
@@ -485,14 +503,31 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await panel.getByRole('button', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByText(/Working ·/).first()).toBeVisible()
     const searchActivity = panel.getByTestId('agent-activity-group').filter({
       hasText: 'Searched knowledge'
     })
     await expect(searchActivity).toBeVisible()
     await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
     await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect(panel.getByText('Idle', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Waiting for review', { exact: true }).first()).toBeVisible()
+    await expect(panel.getByText('Run failed', { exact: true })).toHaveCount(0)
+    await expect(panel.getByLabel('Agent message')).toBeDisabled()
+    await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
+    await expect.poll(() => requestBodies.length).toBe(3)
+    const waitingTruth = await launched.page.evaluate(async () => {
+      const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+        ?.projectSessionId
+      if (projectSessionId === undefined) throw new Error('Project session missing')
+      const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
+      if (session === undefined) throw new Error('Agent session missing')
+      const runs = await window.desktop.agent.listRuns({
+        projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      return { workflowState: session.workflowState, run: runs[0] }
+    })
+    expect(waitingTruth.workflowState).toBe('awaiting_review')
+    expect(waitingTruth.run).toMatchObject({ status: 'completed', errorCode: null })
     await expect(panel.getByText('openai-compatible', { exact: true })).toHaveCount(0)
     await expect(panel.getByText('writer-model', { exact: true })).toHaveCount(0)
     await expect(panel.getByText('Before → After', { exact: true })).toBeVisible()
@@ -660,6 +695,39 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       agentProposalId: null
     })
 
+    await panel.getByLabel('Agent message').fill('Prepare a reviewable image for this section.')
+    await panel.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(panel.getByText('pending', { exact: true }).last()).toBeVisible()
+    await expect(panel.getByText('Waiting for review', { exact: true }).first()).toBeVisible()
+    await expect(panel.getByLabel('Agent message')).toBeDisabled()
+    await expect.poll(() => requestBodies.length).toBe(7)
+    const imageWaitingTruth = await launched.page.evaluate(async () => {
+      const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+        ?.projectSessionId
+      if (projectSessionId === undefined) throw new Error('Project session missing')
+      const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
+      if (session === undefined) throw new Error('Agent session missing')
+      const proposals = await window.desktop.agent.listProposals({
+        projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      const runs = await window.desktop.agent.listRuns({
+        projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      return {
+        workflowState: session.workflowState,
+        image: proposals.find((proposal) => proposal.kind === 'generated_image_insert'),
+        run: runs[0]
+      }
+    })
+    expect(imageWaitingTruth.workflowState).toBe('awaiting_review')
+    expect(imageWaitingTruth.image?.status).toBe('pending')
+    expect(imageWaitingTruth.run).toMatchObject({ status: 'completed', errorCode: null })
+    await panel.getByRole('button', { name: 'Reject', exact: true }).last().click()
+    await expect(panel.getByText('rejected', { exact: true })).toBeVisible()
+    await expect(panel.getByLabel('Agent message')).toBeEnabled()
+
     await panel.getByLabel('Agent message').fill('Start a response that I can stop.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(panel.getByText(/Working ·/).first()).toBeVisible()
@@ -698,7 +766,7 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
     await expect(launched.page.locator('.bn-editor').first()).not.toBeVisible()
     await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
     await expect(launched.page.locator('.bn-editor').first()).toBeVisible()
-    expect(requestBodies).toHaveLength(7)
+    expect(requestBodies).toHaveLength(8)
     expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
   } finally {
     await launched.app.close()

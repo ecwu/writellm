@@ -41,6 +41,7 @@ export type AgentActivityStatus = 'running' | 'error' | 'complete' | 'stopped'
 export type AgentRunTerminal = {
   runId: string | null
   status: 'completed' | 'interrupted' | 'failed'
+  outcome: 'finished' | 'awaiting_review'
   code: string
   durationMs: number
 }
@@ -255,7 +256,8 @@ export function projectAgentTimeline(
       }
       if (
         parsed.data.toolName.startsWith('propose_') ||
-        parsed.data.toolName.startsWith('submit_')
+        parsed.data.toolName.startsWith('submit_') ||
+        parsed.data.toolName === 'generate_image'
       ) {
         flushTools()
         items.push({
@@ -344,8 +346,23 @@ function terminalFromEvent(
   events: AgentEventRecord[],
   now: number
 ): AgentRunTerminal {
-  const status = event.type === 'run_completed' ? 'completed' : terminalStatus(event.payload.status)
-  const code = typeof event.payload.code === 'string' ? event.payload.code : status
+  const outcome =
+    event.payload.outcome === 'awaiting_review' ||
+    (event.type === 'run_interrupted' && hasHistoricalReviewPause(event.agentRunId, events))
+      ? 'awaiting_review'
+      : 'finished'
+  const status =
+    outcome === 'awaiting_review'
+      ? 'completed'
+      : event.type === 'run_completed'
+        ? 'completed'
+        : terminalStatus(event.payload.status)
+  const code =
+    outcome === 'awaiting_review'
+      ? 'awaiting_review'
+      : typeof event.payload.code === 'string'
+        ? event.payload.code
+        : status
   const completedAt = run?.completedAt === null ? undefined : run?.completedAt
   const endTimestamp =
     completedAt === undefined ? Date.parse(event.createdAt) : Date.parse(completedAt)
@@ -353,12 +370,27 @@ function terminalFromEvent(
   return {
     runId: event.agentRunId,
     status,
+    outcome,
     code,
     durationMs: toolDurationMs(
       Date.parse(startedAt),
       Number.isNaN(endTimestamp) ? now : endTimestamp
     )
   }
+}
+
+function hasHistoricalReviewPause(runId: string | null, events: AgentEventRecord[]): boolean {
+  return events.some((event) => {
+    if (event.agentRunId !== runId || event.type !== 'tool_result') return false
+    const parsed = agentToolResultPayloadSchema.safeParse(event.payload)
+    if (!parsed.success || parsed.data.isError || parsed.data.result === null) return false
+    const result = parsed.data.result
+    return (
+      typeof result === 'object' &&
+      'continuation' in result &&
+      result.continuation === 'pause_for_review'
+    )
+  })
 }
 
 function terminalStatus(value: unknown): 'interrupted' | 'failed' {
