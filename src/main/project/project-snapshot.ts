@@ -25,6 +25,7 @@ import {
 import {
   PROJECT_BACKUPS_DIRECTORY,
   PROJECT_DATABASE_RELATIVE_PATH,
+  PROJECT_HISTORY_RELATIVE_PATH,
   PROJECT_MANIFEST_FILE,
   PROJECT_RECOVERY_DIRECTORY,
   resolveProjectPath,
@@ -38,7 +39,8 @@ import {
 import { writeAtomicFile } from '../storage/atomic-file'
 
 export const PROJECT_SNAPSHOT_FORMAT = 'writellm-project-snapshot'
-export const PROJECT_SNAPSHOT_FORMAT_VERSION = 1
+export const PROJECT_SNAPSHOT_FORMAT_VERSION = 2
+export const PROJECT_SNAPSHOT_FORMAT_VERSION_V1 = 1
 export const PROJECT_SNAPSHOT_MANIFEST_FILE = 'writellm.snapshot.json'
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
@@ -51,10 +53,9 @@ const snapshotFileSchema = z
   })
   .strict()
 
-const snapshotManifestSchema = z
+const snapshotManifestBaseSchema = z
   .object({
     snapshotFormat: z.literal(PROJECT_SNAPSHOT_FORMAT),
-    snapshotFormatVersion: z.literal(PROJECT_SNAPSHOT_FORMAT_VERSION),
     projectId: projectIdSchema,
     projectFormatVersion: z.number().int().positive(),
     projectDatabaseSchemaVersion: z.number().int().nonnegative(),
@@ -73,6 +74,22 @@ const snapshotManifestSchema = z
     files: z.array(snapshotFileSchema)
   })
   .strict()
+
+const snapshotManifestV1Schema = snapshotManifestBaseSchema.extend({
+  snapshotFormatVersion: z.literal(PROJECT_SNAPSHOT_FORMAT_VERSION_V1)
+})
+
+const snapshotManifestV2Schema = snapshotManifestBaseSchema.extend({
+  snapshotFormatVersion: z.literal(PROJECT_SNAPSHOT_FORMAT_VERSION),
+  versionHistory: z
+    .object({
+      included: z.boolean(),
+      files: z.array(snapshotFileSchema)
+    })
+    .strict()
+})
+
+const snapshotManifestSchema = z.union([snapshotManifestV1Schema, snapshotManifestV2Schema])
 
 export type ProjectSnapshotManifest = z.infer<typeof snapshotManifestSchema>
 export type ProjectSnapshotFile = z.infer<typeof snapshotFileSchema>
@@ -122,10 +139,73 @@ function snapshotRole(relativePath: string): string {
 export function parseProjectSnapshotManifest(value: unknown): ProjectSnapshotManifest {
   const manifest = snapshotManifestSchema.parse(value)
   validateSnapshotFilePaths(manifest.files)
+  if (manifest.snapshotFormatVersion === PROJECT_SNAPSHOT_FORMAT_VERSION) {
+    validateVersionHistoryFilePaths(manifest.versionHistory.files)
+    if (manifest.versionHistory.included !== manifest.versionHistory.files.length > 0) {
+      throw new Error('Snapshot version history flags are inconsistent')
+    }
+  }
   if (manifest.indexIncluded === manifest.indexRebuildRequired) {
     throw new Error('Snapshot index flags are inconsistent')
   }
   return manifest
+}
+
+function validateVersionHistoryFilePaths(files: readonly ProjectSnapshotFile[]): void {
+  const seen = new Set<string>()
+  for (const file of files) {
+    const normalized = normalizeProjectRelativePath(file.relativePath)
+    if (
+      normalized !== file.relativePath ||
+      !normalized.startsWith(`${PROJECT_HISTORY_RELATIVE_PATH}/`)
+    ) {
+      throw new Error('Snapshot version history path is invalid')
+    }
+    const caseFolded = normalized.toLocaleLowerCase('en-US')
+    if (seen.has(caseFolded)) {
+      throw new Error('Snapshot version history contains duplicate or case-colliding paths')
+    }
+    seen.add(caseFolded)
+  }
+}
+
+async function inventoryVersionHistory(
+  projectRoot: string
+): Promise<readonly ProjectSnapshotFile[]> {
+  const historyRoot = resolveProjectPath(projectRoot, PROJECT_HISTORY_RELATIVE_PATH)
+  try {
+    const rootMetadata = await lstat(historyRoot)
+    if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+      throw new Error('Project version history is not a regular directory')
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw err
+  }
+  const files: ProjectSnapshotFile[] = []
+  const visit = async (relativeDirectory: string): Promise<void> => {
+    const absoluteDirectory = resolveProjectPath(projectRoot, relativeDirectory)
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true })
+    for (const entry of entries) {
+      const relativePath = `${relativeDirectory}/${entry.name}`
+      if (entry.isSymbolicLink()) {
+        throw new Error('Project version history contains a symbolic link')
+      }
+      if (entry.isDirectory()) {
+        await visit(relativePath)
+      } else if (entry.isFile()) {
+        files.push({
+          relativePath,
+          role: 'version-history',
+          ...(await sha256File(resolveProjectPath(projectRoot, relativePath)))
+        })
+      } else {
+        throw new Error('Project version history contains an unsupported entry')
+      }
+    }
+  }
+  await visit(PROJECT_HISTORY_RELATIVE_PATH)
+  return files
 }
 
 export async function readProjectSnapshotManifest(
@@ -229,6 +309,7 @@ export async function createProjectSnapshot(options: {
   ) => Promise<readonly ProjectSnapshotFile[]> | readonly ProjectSnapshotFile[]
   barrier: SnapshotBarrier
   indexIncluded?: false
+  includeVersionHistory?: boolean
   log: Pick<Logger, 'info' | 'error'>
 }): Promise<ProjectSnapshotManifest> {
   const barrier = options.barrier
@@ -274,6 +355,10 @@ export async function createProjectSnapshot(options: {
     }
     const files = inventory.map((file) => snapshotFileSchema.parse(file))
     validateSnapshotFilePaths(files)
+    const versionHistoryFiles = options.includeVersionHistory
+      ? await inventoryVersionHistory(options.sourceRoot)
+      : []
+    validateVersionHistoryFilePaths(versionHistoryFiles)
 
     for (const file of files) {
       const source = await assertExistingFileContained(options.sourceRoot, file.relativePath)
@@ -281,6 +366,15 @@ export async function createProjectSnapshot(options: {
       await copyVerifiedFile({
         source,
         destination,
+        expectedSha256: file.sha256,
+        expectedSize: file.size
+      })
+    }
+    for (const file of versionHistoryFiles) {
+      const source = await assertExistingFileContained(options.sourceRoot, file.relativePath)
+      await copyVerifiedFile({
+        source,
+        destination: resolveProjectPath(stage, file.relativePath),
         expectedSha256: file.sha256,
         expectedSize: file.size
       })
@@ -311,7 +405,11 @@ export async function createProjectSnapshot(options: {
       indexIncluded: options.indexIncluded ?? false,
       indexRebuildRequired: !(options.indexIncluded ?? false),
       database: { path: PROJECT_DATABASE_RELATIVE_PATH, ...databaseDigest },
-      files
+      files,
+      versionHistory: {
+        included: versionHistoryFiles.length > 0,
+        files: versionHistoryFiles
+      }
     })
     try {
       await writeAtomicFile(
@@ -439,6 +537,17 @@ export async function restoreProjectSnapshot(options: {
         expectedSha256: file.sha256,
         expectedSize: file.size
       })
+    }
+    if (snapshot.snapshotFormatVersion === PROJECT_SNAPSHOT_FORMAT_VERSION) {
+      for (const file of snapshot.versionHistory.files) {
+        const source = await assertExistingFileContained(options.snapshotRoot, file.relativePath)
+        await copyVerifiedFile({
+          source,
+          destination: resolveProjectPath(stage, file.relativePath),
+          expectedSha256: file.sha256,
+          expectedSize: file.size
+        })
+      }
     }
     await ensureDestinationAbsent(options.destination)
     await rename(stage, options.destination)

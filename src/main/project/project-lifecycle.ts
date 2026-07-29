@@ -17,11 +17,14 @@ import {
   MANUSCRIPT_EXPORTS_DIRECTORY,
   MANUSCRIPT_SECTIONS_DIRECTORY,
   PROJECT_BACKUPS_DIRECTORY,
+  PROJECT_HISTORY_IGNORE_CONTENT,
+  PROJECT_HISTORY_IGNORE_RELATIVE_PATH,
   PROJECT_RECOVERY_DIRECTORY,
   PROJECT_TEMP_DIRECTORY,
   resolveProjectPath,
   WRITELLM_INTERNAL_DIRECTORY
 } from './project-paths'
+import { writeAtomicFile } from '../storage/atomic-file'
 
 const PROJECT_DIRECTORIES = [
   MANUSCRIPT_SECTIONS_DIRECTORY,
@@ -169,6 +172,11 @@ export async function createProject(options: CreateProjectOptions): Promise<Crea
     await mkdir(resolveProjectPath(destination, WRITELLM_INTERNAL_DIRECTORY), {
       recursive: true
     })
+    await writeAtomicFile(
+      resolveProjectPath(destination, PROJECT_HISTORY_IGNORE_RELATIVE_PATH),
+      PROJECT_HISTORY_IGNORE_CONTENT,
+      { mode: 0o600 }
+    )
     writeLock = await ProjectWriteLock.acquire(destination, {
       ...options.lockOptions,
       logger: options.log

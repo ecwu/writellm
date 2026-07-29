@@ -126,6 +126,22 @@ describe('project snapshots', () => {
     await expect(readFile(join(restoredRoot, 'writellm.snapshot.json'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
+
+    const manifestPath = join(snapshotRoot, 'writellm.snapshot.json')
+    const legacyManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    legacyManifest.snapshotFormatVersion = 1
+    delete legacyManifest.versionHistory
+    await writeFile(manifestPath, `${JSON.stringify(legacyManifest)}\n`)
+    const legacyRoot = join(parent, 'legacy-v1.writellm')
+    await expect(
+      restoreProjectSnapshot({ snapshotRoot, destination: legacyRoot, log })
+    ).resolves.toMatchObject({ projectId: created.manifest.projectId })
+    await expect(
+      access(resolveProjectPath(legacyRoot, '.writellm/history.git'))
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('restores a database only after a verified pre-restore backup', async () => {

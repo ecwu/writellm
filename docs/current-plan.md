@@ -1,9 +1,30 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 23M rich media and image generation is complete; Checkpoint 24 remains unstarted.
-Recorded: 2026-07-22
+Status: Checkpoint 23V project Git version history is complete; Checkpoint 24 remains unstarted.
+Recorded: 2026-07-29
+
+## Current checkpoint
+
+No implementation checkpoint is active. Checkpoint 24 remains unstarted and requires separate
+user approval.
 
 ## Completed checkpoint
+
+Checkpoint 23V added application-managed, project-local Git history. ADR 007 fixes an exact-pinned
+`isomorphic-git` boundary, a bare `.writellm/history.git` repository with one linear `main`
+history, user-created checkpoints, exact current-state comparison, crash-safe restore, and
+Snapshot v2 transport of the repository. Autosave revisions remain independent and never create
+commits. New projects receive an initial checkpoint; existing projects opt in. History damage does
+not block project opening or editing.
+
+The final gate passed exact pnpm 11.17.0 `check:fast`, canonical Electron Vitest (103 files and 504
+tests, with the opt-in benchmark skipped), production build, all 17 Electron E2E scenarios, the
+no-identity package gate and packaged hybrid smoke, and `git diff --check`. The opt-in
+Electron-runtime benchmark completed 100 checkpoints with one unchanged 1 MiB knowledge file and
+a growing database without GC: cumulative elapsed time was 237/1,001/1,954 ms and repository size
+was 12,117/55,447/111,855 bytes at 10/50/100 checkpoints.
+
+## Previous completed checkpoint
 
 Checkpoint 23M added project-local BlockNote images, source-backed Mermaid and display-math blocks,
 manual asset upload, and one bounded Gemini `generate_image` Agent tool. ADR 006 preserves the

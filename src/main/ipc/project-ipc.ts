@@ -3,17 +3,30 @@ import { basename, join } from 'node:path'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
+  checkpointOperationResultSchema,
+  compareCheckpointStateInputSchema,
+  compareCheckpointStateResultSchema,
+  createCheckpointInputSchema,
+  dismissVersionHistoryPromptInputSchema,
+  enableVersionHistoryInputSchema,
+  listCheckpointsInputSchema,
+  listCheckpointsResultSchema,
   projectCreateInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
   projectRecoveryActionInputSchema,
   recentProjectOpenInputSchema,
   recentProjectsSchema,
+  reinitializeVersionHistoryInputSchema,
+  restoreCheckpointInputSchema,
+  restoreCheckpointResultSchema,
   projectSelectionResultSchema,
   projectSessionInputSchema,
+  versionHistoryStatusSchema,
   type ProjectSessionId
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
+import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 import { withIpcLogContext } from '../observability/ipc-context'
@@ -36,6 +49,10 @@ export interface ProjectDialog {
 export interface RegisterProjectIpcOptions {
   manager: ProjectManager
   recentProjects: Pick<RecentProjectsRepository, 'find' | 'list'>
+  appSettings?: Pick<
+    AppSettingsRepository,
+    'getVersionHistoryPromptDismissed' | 'setVersionHistoryPromptDismissed'
+  >
   getWindow: () => BrowserWindow | null
   logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
@@ -57,6 +74,10 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     { sender: WebContents; projectSessionId: ProjectSessionId }
   >()
   let projectDialogOpen = false
+  const historyPromptSettings = options.appSettings ?? {
+    getVersionHistoryPromptDismissed: async () => false,
+    setVersionHistoryPromptDismissed: async () => undefined
+  }
   const handle = (
     channel: string,
     handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
@@ -393,6 +414,160 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
+  handle(IPC_CHANNELS.projectHistoryStatus, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = projectSessionInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(projectSessionId)
+    try {
+      const [state, promptDismissed] = await Promise.all([
+        options.manager.versionHistoryState(projectSessionId),
+        historyPromptSettings.getVersionHistoryPromptDismissed(context.manifest.projectId)
+      ])
+      options.manager.assertActiveSession(projectSessionId)
+      return versionHistoryStatusSchema.parse({ state, promptDismissed })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_history.status_failed', err, projectSessionId },
+        'Project version history status failed'
+      )
+      throw operationError('Unable to inspect project version history')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryDismissPrompt, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = dismissVersionHistoryPromptInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(projectSessionId)
+    try {
+      await historyPromptSettings.setVersionHistoryPromptDismissed(context.manifest.projectId, true)
+      options.manager.assertActiveSession(projectSessionId)
+      return versionHistoryStatusSchema.parse({ state: 'uninitialized', promptDismissed: true })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_history.dismiss_prompt_failed', err, projectSessionId },
+        'Project version history prompt dismissal failed'
+      )
+      throw operationError('Unable to dismiss the version history prompt')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryEnable, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = enableVersionHistoryInputSchema.parse(input)
+    try {
+      const checkpoint = await options.manager.enableVersionHistory(projectSessionId)
+      return checkpointOperationResultSchema.parse({ checkpoint })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_history.enable_failed', err, projectSessionId },
+        'Project version history enable failed'
+      )
+      throw operationError('Unable to enable project version history')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryCreateCheckpoint, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = createCheckpointInputSchema.parse(input)
+    try {
+      const checkpoint = await options.manager.createCheckpoint(parsed.projectSessionId, {
+        name: parsed.name,
+        ...(parsed.note === undefined ? {} : { note: parsed.note })
+      })
+      return checkpointOperationResultSchema.parse({ checkpoint })
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'ipc.project_history.create_checkpoint_failed',
+          err,
+          projectSessionId: parsed.projectSessionId
+        },
+        'Project checkpoint creation failed'
+      )
+      throw operationError('Unable to create the checkpoint')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryListCheckpoints, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = listCheckpointsInputSchema.parse(input)
+    try {
+      return listCheckpointsResultSchema.parse(
+        await options.manager.listCheckpoints(parsed.projectSessionId, {
+          ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
+          limit: parsed.limit
+        })
+      )
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'ipc.project_history.list_checkpoints_failed',
+          err,
+          projectSessionId: parsed.projectSessionId
+        },
+        'Project checkpoint listing failed'
+      )
+      throw operationError('Unable to load version history')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryCompareState, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = compareCheckpointStateInputSchema.parse(input)
+    try {
+      return compareCheckpointStateResultSchema.parse(
+        await options.manager.compareCheckpointState(projectSessionId)
+      )
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_history.compare_state_failed', err, projectSessionId },
+        'Project checkpoint state comparison failed'
+      )
+      throw operationError('Unable to compare the current project state')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryRestoreCheckpoint, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = restoreCheckpointInputSchema.parse(input)
+    try {
+      const restored = await options.manager.restoreCheckpoint(parsed.projectSessionId, parsed.oid)
+      if (restored.snapshot.activeProject === null) {
+        throw new Error('Restored project did not become active')
+      }
+      return restoreCheckpointResultSchema.parse({
+        checkpoint: restored.checkpoint,
+        project: restored.snapshot.activeProject
+      })
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'ipc.project_history.restore_checkpoint_failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          checkpointOid: parsed.oid
+        },
+        'Project checkpoint restore failed'
+      )
+      throw operationError('Unable to restore the checkpoint')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectHistoryReinitialize, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = reinitializeVersionHistoryInputSchema.parse(input)
+    try {
+      const checkpoint = await options.manager.reinitializeVersionHistory(projectSessionId)
+      return checkpointOperationResultSchema.parse({ checkpoint })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_history.reinitialize_failed', err, projectSessionId },
+        'Project version history reinitialization failed'
+      )
+      throw operationError('Unable to reinitialize project version history')
+    }
+  })
+
   handle(IPC_CHANNELS.projectSubscribeLifecycle, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
@@ -427,6 +602,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectRecoveryReturnToClosed,
       IPC_CHANNELS.projectSnapshotCreate,
       IPC_CHANNELS.projectSnapshotRestore,
+      IPC_CHANNELS.projectHistoryStatus,
+      IPC_CHANNELS.projectHistoryEnable,
+      IPC_CHANNELS.projectHistoryDismissPrompt,
+      IPC_CHANNELS.projectHistoryCreateCheckpoint,
+      IPC_CHANNELS.projectHistoryListCheckpoints,
+      IPC_CHANNELS.projectHistoryCompareState,
+      IPC_CHANNELS.projectHistoryRestoreCheckpoint,
+      IPC_CHANNELS.projectHistoryReinitialize,
       IPC_CHANNELS.projectSubscribeLifecycle,
       IPC_CHANNELS.projectUnsubscribeLifecycle
     ]) {

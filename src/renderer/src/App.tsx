@@ -15,7 +15,8 @@ import type {
   ProjectLifecycleSnapshot,
   ProjectLifecycleState,
   ProjectSelectionResult,
-  RecentProjects
+  RecentProjects,
+  VersionHistoryState
 } from '../../shared/contracts/projects'
 import { projectNameSchema } from '../../shared/contracts/projects'
 import { AppMenubar } from '@/components/app-menubar'
@@ -59,13 +60,25 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
+import {
+  ProjectVersionHistory,
+  type VersionHistoryView
+} from '@/features/project/project-version-history'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
   activeProject: null
 }
 
-type ProjectAction = 'create' | 'open' | 'openRecent' | 'close' | 'switch' | 'recovery' | 'snapshot'
+type ProjectAction =
+  | 'create'
+  | 'open'
+  | 'openRecent'
+  | 'close'
+  | 'switch'
+  | 'recovery'
+  | 'snapshot'
+  | 'history'
 
 const actionErrorMessages: Record<
   ProjectAction | 'load' | 'recent' | 'subscribe' | 'diagnostics',
@@ -81,7 +94,8 @@ const actionErrorMessages: Record<
   switch: 'WriteLLM could not switch projects. Check the project state and try again.',
   diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
   recovery: 'WriteLLM could not complete that recovery action. Check diagnostics and try again.',
-  snapshot: 'WriteLLM could not complete the snapshot action. Please try again.'
+  snapshot: 'WriteLLM could not complete the snapshot action. Please try again.',
+  history: 'WriteLLM could not complete the version history action. Please try again.'
 }
 
 const stateLabels: Record<ProjectLifecycleState, string> = {
@@ -107,6 +121,8 @@ function App(): React.JSX.Element {
     projectSessionId: string | null
     open: boolean
   }>({ projectSessionId: null, open: false })
+  const [versionHistoryState, setVersionHistoryState] = useState<VersionHistoryState | null>(null)
+  const [versionHistoryView, setVersionHistoryView] = useState<VersionHistoryView>(null)
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -162,6 +178,20 @@ function App(): React.JSX.Element {
     (open: boolean) => setAgentPanelState({ projectSessionId: projectSessionId ?? null, open }),
     [projectSessionId]
   )
+
+  const enableVersionHistory = useCallback(async (): Promise<void> => {
+    if (!projectSessionId) return
+    setActiveAction('history')
+    setErrorMessage(null)
+    try {
+      await window.desktop.projects.enableVersionHistory({ projectSessionId })
+      setVersionHistoryState('ready')
+    } catch {
+      setErrorMessage(actionErrorMessages.history)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [projectSessionId])
 
   useEffect(() => {
     if (!projectSessionId) return
@@ -428,12 +458,27 @@ function App(): React.JSX.Element {
         onSave={() => window.dispatchEvent(new Event('writellm:save'))}
         onCreateSnapshot={() => void createSnapshot()}
         onRestoreSnapshot={() => void restoreSnapshot()}
+        versionHistoryState={versionHistoryState}
+        onEnableVersionHistory={() => void enableVersionHistory()}
+        onCreateCheckpoint={() => setVersionHistoryView('create')}
+        onOpenVersionHistory={() => setVersionHistoryView('history')}
         canRestoreSnapshot={snapshot.state === 'closed' || snapshot.state === 'recovery-required'}
         onClose={() => void closeProject()}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onToggleAgent={() => setAgentOpen(!agentOpen)}
       />
+      {projectSessionId ? (
+        <ProjectVersionHistory
+          key={projectSessionId}
+          projectSessionId={projectSessionId}
+          view={versionHistoryView}
+          onViewChange={setVersionHistoryView}
+          onStateChange={setVersionHistoryState}
+          onProjectRestored={(project) => setSnapshot({ state: 'open', activeProject: project })}
+          onError={setErrorMessage}
+        />
+      ) : null}
 
       <div className='relative flex min-h-0 flex-1'>
         <div

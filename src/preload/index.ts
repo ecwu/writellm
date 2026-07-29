@@ -61,6 +61,14 @@ import {
   type RendererErrorReport
 } from '../shared/contracts/diagnostics'
 import {
+  checkpointOperationResultSchema,
+  compareCheckpointStateInputSchema,
+  compareCheckpointStateResultSchema,
+  createCheckpointInputSchema,
+  dismissVersionHistoryPromptInputSchema,
+  enableVersionHistoryInputSchema,
+  listCheckpointsInputSchema,
+  listCheckpointsResultSchema,
   projectCreateInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
@@ -70,13 +78,22 @@ import {
   recentProjectsSchema,
   projectSelectionResultSchema,
   projectSessionInputSchema,
+  reinitializeVersionHistoryInputSchema,
+  restoreCheckpointInputSchema,
+  restoreCheckpointResultSchema,
+  versionHistoryStatusSchema,
+  type CheckpointEntry,
+  type ActiveProject,
+  type CreateCheckpointInput,
+  type ListCheckpointsInput,
   type ProjectCreateInput,
   type ProjectLifecycleEvent,
   type ProjectLifecycleSnapshot,
   type ProjectSelectionResult,
   type RecentProjectOpenInput,
   type RecentProjects,
-  type ProjectSessionInput
+  type ProjectSessionInput,
+  type VersionHistoryStatus
 } from '../shared/contracts/projects'
 import { diagnosticLogSchema, type DiagnosticLog } from '../shared/observability/log-schema'
 import {
@@ -200,6 +217,22 @@ export interface DesktopApi {
     returnToClosed(): Promise<ProjectLifecycleSnapshot>
     createSnapshot(input: ProjectSessionInput): Promise<{ created: boolean }>
     restoreSnapshot(): Promise<ProjectSelectionResult>
+    versionHistoryStatus(input: ProjectSessionInput): Promise<VersionHistoryStatus>
+    enableVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
+    reinitializeVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
+    dismissVersionHistoryPrompt(input: ProjectSessionInput): Promise<VersionHistoryStatus>
+    createCheckpoint(input: CreateCheckpointInput): Promise<CheckpointEntry>
+    listCheckpoints(
+      input: ListCheckpointsInput
+    ): Promise<{ checkpoints: CheckpointEntry[]; nextCursor: string | null }>
+    compareCheckpointState(input: ProjectSessionInput): Promise<{
+      status: 'up-to-date' | 'uncheckpointed-changes'
+      headOid: string
+    }>
+    restoreCheckpoint(input: {
+      projectSessionId: string
+      oid: string
+    }): Promise<{ checkpoint: CheckpointEntry; project: ActiveProject }>
     subscribe(
       input: ProjectSessionInput,
       listener: (event: ProjectLifecycleEvent) => void
@@ -534,6 +567,70 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.projectSnapshotRestore,
           projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async versionHistoryStatus(input) {
+      return versionHistoryStatusSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryStatus,
+          projectSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async enableVersionHistory(input) {
+      return checkpointOperationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryEnable,
+          enableVersionHistoryInputSchema.parse(input)
+        )
+      ).checkpoint
+    },
+    async reinitializeVersionHistory(input) {
+      return checkpointOperationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryReinitialize,
+          reinitializeVersionHistoryInputSchema.parse(input)
+        )
+      ).checkpoint
+    },
+    async dismissVersionHistoryPrompt(input) {
+      return versionHistoryStatusSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryDismissPrompt,
+          dismissVersionHistoryPromptInputSchema.parse(input)
+        )
+      )
+    },
+    async createCheckpoint(input) {
+      return checkpointOperationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryCreateCheckpoint,
+          createCheckpointInputSchema.parse(input)
+        )
+      ).checkpoint
+    },
+    async listCheckpoints(input) {
+      return listCheckpointsResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryListCheckpoints,
+          listCheckpointsInputSchema.parse(input)
+        )
+      )
+    },
+    async compareCheckpointState(input) {
+      return compareCheckpointStateResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryCompareState,
+          compareCheckpointStateInputSchema.parse(input)
+        )
+      )
+    },
+    async restoreCheckpoint(input) {
+      return restoreCheckpointResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectHistoryRestoreCheckpoint,
+          restoreCheckpointInputSchema.parse(input)
         )
       )
     },

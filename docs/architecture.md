@@ -5,7 +5,7 @@ Recorded: 2026-07-16
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
-The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Checkpoints 20–22 are complete; Checkpoint 23 remains unstarted pending explicit continuation approval.
+The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Phase 9, Checkpoint 23M, and Checkpoint 23V are complete; Checkpoint 24 remains unstarted.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -108,8 +108,10 @@ Each project folder contains all project business data:
         raw/
 
   .writellm/
+    .gitignore
     project.sqlite
     index.sqlite
+    history.git/
     temp/
     backups/
     recovery/
@@ -120,6 +122,9 @@ The exact names may be adjusted before implementation, but the ownership rules a
 - `writellm.project.json` identifies the folder as a WriteLLM project.
 - `project.sqlite` is the authoritative structured project database.
 - `index.sqlite` is derived and fully rebuildable.
+- `history.git` is an application-managed bare repository for the single linear checkpoint
+  history. It is never discovered from the project root and never imports or modifies an outer
+  repository.
 - BlockNote JSON files under `manuscript/sections/` are deterministic materializations of the current manuscript revisions.
 - Content-addressed PNG/JPEG/WebP manuscript assets live under `manuscript/assets/`; SQLite owns
   their IDs, hashes, metadata, revision references, and generation lineage.
@@ -178,6 +183,7 @@ Opening a folder requires:
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
 | Hybrid retrieval        | FTS5, sqlite-vec, RRF, optional API reranking                                 |
 | Files                   | `node:fs/promises` plus one tested atomic-publication implementation            |
+| Project version history | exact-pinned `isomorphic-git@1.40.0` behind a Main-only adapter                 |
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
@@ -1028,6 +1034,16 @@ A raw folder copy while the project is open is not treated as a verified backup.
 7. atomically publishes the completed snapshot directory in the destination parent.
 
 The snapshot manifest contains `snapshotFormat`, `snapshotFormatVersion`, `projectId`, independent project and database schema versions, creation/source-app metadata, `indexIncluded`, `indexRebuildRequired`, a hashed database record, and hashed relative file records. Snapshot contents exclude locks, temp/backups/recovery directories, all SQLite `-wal`/`-shm` sidecars, `index.sqlite`, app databases, logs, credentials, caches, partial files, and the snapshot itself. Relative paths must be normalized, contained, non-symbolic, unique, and free of case-collisions.
+
+Checkpoint capture uses this same barrier and validation path, then writes a complete validated
+project state into the managed bare repository at `.writellm/history.git`. Autosave never creates
+a Git commit. Initial, manual, safety, and restore checkpoints are linear commits on `main`; Git
+objects are written before the ref advances. Missing or damaged history never prevents project
+opening or editing. The exact boundary, ownership marker, state hashing, opt-in rules, and recovery
+semantics are fixed by ADR 007.
+
+Verified external Snapshot v2 may include a separately inventoried and validated
+`.writellm/history.git` tree. Snapshot v1 remains readable and restores as history-uninitialized.
 
 Restore preserves the existing `projectId` and is intended to replace or relocate the same project. Clone/Save As is a separate future operation that creates a new `projectId`; two independently located folders with the same ID must not be silently treated as separate projects. Restore stages and fully validates the candidate, creates a pre-restore backup, quarantines the current database, atomically renames the candidate into place, removes old `-wal`/`-shm` sidecars, and only then reopens. CP6 does not hot-replace `app.sqlite`; any future app-database restore must record intent and apply it during early startup after the app database is closed.
 

@@ -1,7 +1,7 @@
 # WriteLLM v2 Implementation Todo
 
-Status: Checkpoint 23M rich media and image generation complete; Checkpoint 24 remains unstarted
-Recorded: 2026-07-22
+Status: Checkpoint 23V project Git version history complete; Checkpoint 24 remains unstarted
+Recorded: 2026-07-29
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -17,6 +17,40 @@ Status markers:
 - `[!]` blocked; add the blocker immediately below the item
 
 ## Current Checkpoint
+
+### Checkpoint 23V: Project Git Version History
+
+- [x] Add ADR 007, exact-pinned `isomorphic-git@1.40.0`, the Main-only
+  `ProjectVersionStore`, strict repository ownership, explicit bare `gitdir`, linear `main`
+  commits, atomic ref advancement, and non-blocking `uninitialized | ready | damaged` state.
+  Dependency blocker resolved 2026-07-29 by upgrading the repository package-manager pin to
+  pnpm 11.17.0; `isomorphic-git@1.40.0` is exact-pinned in the manifest and lockfile.
+- [x] Reuse the production Snapshot barrier to create consistent checkpoint trees and exact state
+  hashes; exclude derived, secret, transient, backup, recovery, and repository content; initialize
+  new projects automatically and let existing projects opt in with a durable dismissal.
+- [x] Add session-authorized enable, create, list, compare, reinitialize, and restore contracts,
+  IPC, preload, structured lifecycle logs, and shadcn Menubar/Dialog/Sheet/AlertDialog surfaces
+  without exposing paths or raw Git errors to the Renderer.
+- [x] Implement fail-closed restore with a pre-restore safety checkpoint, validated materialization,
+  a recovery journal and rollback at every rename/ref boundary, a history-preserving restore
+  commit, and index rebuild.
+- [x] Upgrade verified external snapshots to v2 with validated version-history inventory while
+  retaining v1 restore compatibility.
+- [x] Pass focused fault/adversarial/performance coverage, `pnpm check:fast`, canonical Electron
+  Vitest, production build, complete Electron E2E, `pnpm check:package`, and `git diff --check`.
+
+Started 2026-07-29 after explicit user approval of the complete recommended plan. Checkpoint 24
+remains unstarted. Completed 2026-07-29. Exact pnpm 11.17.0 `check:fast` passed with Biome checking
+368 files and reporting only the existing generated shadcn cookie warning. Canonical
+Electron-hosted Vitest passed 103 files and 504 tests (the opt-in benchmark file was skipped);
+production build and all 17 Electron Playwright scenarios passed. The no-identity package gate
+confirmed no Apple Team identity and packaged native search, provider-failure fallback, and
+stale-session smoke passed. Focused coverage includes independent outer repositories, strict
+ownership, symlinks, simulated ref-advance disk failure, linear pagination/state comparison,
+Snapshot v1/v2, recovery-journal rename boundaries, safety checkpoints, and history-preserving
+restore. With one unchanged 1 MiB knowledge file, a growing database, 100 checkpoints, and no GC,
+the Electron benchmark recorded 237/1,001/1,954 ms cumulative time and
+12,117/55,447/111,855 bytes at 10/50/100 checkpoints. `git diff --check` passed.
 
 ### Checkpoint 23M: Rich Media Blocks And Gemini Image Generation
 

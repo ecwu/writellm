@@ -16,6 +16,7 @@ import type { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
 import type { ManuscriptAssetService } from '../manuscript/asset-service'
+import type { ProjectVersionStore } from './project-version-store'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
@@ -40,6 +41,7 @@ export interface ProjectContext {
   readonly agentSessions: AgentSessionService | null
   readonly agentMutations: MutationProposalService | null
   readonly writeLock: ProjectWriteLock
+  readonly versionHistory?: ProjectVersionStore
 }
 
 export function toActiveProject(context: ProjectContext): ActiveProject {

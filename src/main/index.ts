@@ -489,6 +489,7 @@ if (!hasSingleInstanceLock) {
       const unregisterProjectIpc = registerProjectIpc({
         manager: projectManager,
         recentProjects,
+        appSettings,
         getWindow: () => mainWindow,
         logger: projectIpcLog,
         developmentUrl,

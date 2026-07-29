@@ -7,6 +7,7 @@ import {
 } from '../../../shared/contracts/agent'
 import { z } from 'zod'
 import type { AppDatabase } from '../connection'
+import { projectIdSchema } from '../../../shared/contracts/projects'
 
 export const THEME_PREFERENCE_KEY = 'theme.preference'
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
@@ -102,6 +103,24 @@ export class AppSettingsRepository {
 
   async setModelLimitsCache(cache: ModelLimitsCache): Promise<void> {
     await this.#writeSetting(AGENT_MODEL_LIMITS_CACHE_KEY, modelLimitsCacheSchema.parse(cache))
+  }
+
+  async getVersionHistoryPromptDismissed(projectId: string): Promise<boolean> {
+    const validProjectId = projectIdSchema.parse(projectId)
+    return this.#readSetting(
+      `project.version-history-prompt-dismissed.${validProjectId}`,
+      z.boolean(),
+      false,
+      'app.settings.invalid_version_history_prompt'
+    )
+  }
+
+  async setVersionHistoryPromptDismissed(projectId: string, dismissed: boolean): Promise<void> {
+    const validProjectId = projectIdSchema.parse(projectId)
+    await this.#writeSetting(
+      `project.version-history-prompt-dismissed.${validProjectId}`,
+      z.boolean().parse(dismissed)
+    )
   }
 
   async #readSetting<T>(key: string, schema: z.ZodType<T>, fallback: T, event: string): Promise<T> {

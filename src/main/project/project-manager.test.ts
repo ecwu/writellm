@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import pino from 'pino'
@@ -11,7 +11,11 @@ import { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
-import { ProjectManager, ProjectSessionError } from './project-manager'
+import {
+  ProjectManager,
+  ProjectSessionError,
+  recoverIncompleteHistoryRestore
+} from './project-manager'
 import {
   INDEX_DATABASE_RELATIVE_PATH,
   PROJECT_LOCK_RELATIVE_PATH,
@@ -77,6 +81,15 @@ describe('ProjectManager', () => {
         displayName: '新项目'
       })
     ])
+    const projectSessionId = snapshot.activeProject?.projectSessionId
+    expect(projectSessionId).toBeDefined()
+    await expect(manager.versionHistoryState(projectSessionId as string)).resolves.toBe('ready')
+    await expect(
+      manager.listCheckpoints(projectSessionId as string, { limit: 50 })
+    ).resolves.toMatchObject({
+      checkpoints: [{ name: 'Initial checkpoint', parentOid: null }],
+      nextCursor: null
+    })
 
     await manager.close()
     appDatabase.close()
@@ -110,6 +123,107 @@ describe('ProjectManager', () => {
     expect(retried.state).toBe('open')
     await manager.close()
     appDatabase.close()
+  })
+
+  it('restores an older checkpoint and appends a history-preserving restore commit', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const opened = await manager.create({ parentDirectory: parent, name: 'restore-history' })
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const initial = (await manager.listCheckpoints(sessionId, { limit: 50 })).checkpoints[0]
+    if (initial === undefined) throw new Error('Missing initial checkpoint')
+    const context = manager.assertActiveSession(sessionId)
+    const originalUpdatedAt = await context.database.kysely
+      .selectFrom('project_meta')
+      .select('updated_at')
+      .where('singleton_id', '=', 1)
+      .executeTakeFirstOrThrow()
+    await context.database.kysely
+      .updateTable('project_meta')
+      .set({ updated_at: '2099-01-01T00:00:00.000Z' })
+      .where('singleton_id', '=', 1)
+      .execute()
+    const changed = await manager.createCheckpoint(sessionId, { name: 'Changed state' })
+
+    const restored = await manager.restoreCheckpoint(sessionId, initial.oid)
+    const restoredSessionId = restored.snapshot.activeProject?.projectSessionId
+    expect(restoredSessionId).toBeDefined()
+    expect(restoredSessionId).not.toBe(sessionId)
+    expect(restored.checkpoint.parentOid).toBe(changed.oid)
+    expect(restored.checkpoint.name).toBe('Restored Initial checkpoint')
+    const restoredContext = manager.assertActiveSession(restoredSessionId as string)
+    await expect(
+      restoredContext.database.kysely
+        .selectFrom('project_meta')
+        .select('updated_at')
+        .where('singleton_id', '=', 1)
+        .executeTakeFirstOrThrow()
+    ).resolves.toEqual(originalUpdatedAt)
+    expect(
+      (await manager.listCheckpoints(restoredSessionId as string, { limit: 50 })).checkpoints
+    ).toHaveLength(3)
+
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('recovers interrupted restore rename boundaries from the durable journal', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'writellm-restore-journal-'))
+    temporaryDirectories.push(parent)
+    const projectRootName = 'journal.writellm'
+    const projectRoot = join(parent, projectRootName)
+    const projectId = '11111111-1111-4111-8111-111111111111'
+    const token = '22222222-2222-4222-8222-222222222222'
+    const prefix = `.${projectRootName}.${token}`
+    const rollback = join(parent, `${prefix}.rollback`)
+    const candidate = join(parent, `${prefix}.candidate`)
+    const materialized = join(parent, `${prefix}.git-restore`)
+    const journal = join(parent, `.writellm-restore-${projectId}.json`)
+    await mkdir(join(rollback, '.writellm', 'history.git'), { recursive: true })
+    await writeFile(join(rollback, 'original.txt'), 'original')
+    await mkdir(candidate)
+    await mkdir(materialized)
+    await writeFile(
+      journal,
+      JSON.stringify({
+        format: 'writellm-history-restore',
+        formatVersion: 1,
+        projectId,
+        projectRootName,
+        token,
+        phase: 'original-moved',
+        targetOid: 'a'.repeat(40)
+      })
+    )
+
+    await recoverIncompleteHistoryRestore(projectRoot, silentLog)
+    expect(await readFile(join(projectRoot, 'original.txt'), 'utf8')).toBe('original')
+    await expect(access(candidate)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(access(materialized)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(access(journal)).rejects.toMatchObject({ code: 'ENOENT' })
+
+    await rename(projectRoot, rollback)
+    await rm(join(rollback, '.writellm', 'history.git'), { recursive: true })
+    await mkdir(join(projectRoot, '.writellm', 'history.git'), { recursive: true })
+    await writeFile(join(projectRoot, '.writellm', 'history.git', 'HEAD'), 'restored-history')
+    await writeFile(
+      journal,
+      JSON.stringify({
+        format: 'writellm-history-restore',
+        formatVersion: 1,
+        projectId,
+        projectRootName,
+        token,
+        phase: 'history-moved',
+        targetOid: 'b'.repeat(40)
+      })
+    )
+
+    await recoverIncompleteHistoryRestore(projectRoot, silentLog)
+    expect(await readFile(join(projectRoot, 'original.txt'), 'utf8')).toBe('original')
+    expect(await readFile(join(projectRoot, '.writellm', 'history.git', 'HEAD'), 'utf8')).toBe(
+      'restored-history'
+    )
   })
 
   it('keeps ambiguous create failures in recovery-required', async () => {
@@ -308,9 +422,11 @@ describe('ProjectManager', () => {
     const opened = await manager.open(created.projectRoot)
     const sessionId = opened.activeProject?.projectSessionId
     if (sessionId === undefined) throw new Error('Missing project session')
+    await manager.enableVersionHistory(sessionId)
     const snapshotRoot = join(parent, 'snapshot.writellm-snapshot')
     const manifest = await manager.createSnapshot(sessionId, snapshotRoot)
     expect(manifest.projectId).toBe(created.manifest.projectId)
+    expect(manifest.snapshotFormatVersion === 2 && manifest.versionHistory.included).toBe(true)
     await manager.close()
 
     const restored = await manager.restoreSnapshot({
@@ -320,6 +436,9 @@ describe('ProjectManager', () => {
     expect(restored.state).toBe('open')
     expect(restored.activeProject?.projectId).toBe(created.manifest.projectId)
     expect(restored.activeProject?.projectSessionId).not.toBe(sessionId)
+    await expect(
+      manager.versionHistoryState(restored.activeProject?.projectSessionId as string)
+    ).resolves.toBe('ready')
     await manager.close()
     appDatabase.close()
   })

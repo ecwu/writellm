@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { access, realpath, rm } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { access, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
+import { z } from 'zod'
 import {
   projectLifecycleSnapshotSchema,
   projectNameSchema,
+  type CheckpointEntry,
   type ProjectLifecycleSnapshot,
   type ProjectLifecycleState,
   type ProjectSessionId
@@ -41,7 +43,13 @@ import {
   recoverStaleProjectWriteLock,
   type ProjectLockOptions
 } from './project-lock'
-import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
+import {
+  INDEX_DATABASE_RELATIVE_PATH,
+  PROJECT_TEMP_DIRECTORY,
+  PROJECT_HISTORY_IGNORE_RELATIVE_PATH,
+  PROJECT_HISTORY_RELATIVE_PATH,
+  resolveProjectPath
+} from './project-paths'
 import {
   createProjectSnapshot,
   inventoryProjectFiles,
@@ -56,6 +64,135 @@ import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
+import { IsomorphicGitProjectVersionStore, type ProjectVersionStore } from './project-version-store'
+import { writeAtomicFile } from '../storage/atomic-file'
+
+const historyRestoreJournalSchema = z
+  .object({
+    format: z.literal('writellm-history-restore'),
+    formatVersion: z.literal(1),
+    projectId: z.uuid(),
+    projectRootName: z.string().min(1).max(255),
+    token: z.uuid(),
+    phase: z.enum([
+      'prepared',
+      'original-moved',
+      'candidate-installed',
+      'history-moved',
+      'committed'
+    ]),
+    targetOid: z.string().regex(/^[a-f0-9]{40}$/)
+  })
+  .strict()
+
+type HistoryRestoreJournal = z.infer<typeof historyRestoreJournalSchema>
+
+function historyRestorePaths(parent: string, journal: HistoryRestoreJournal) {
+  const prefix = `.${journal.projectRootName}.${journal.token}`
+  return {
+    projectRoot: join(parent, journal.projectRootName),
+    materialized: join(parent, `${prefix}.git-restore`),
+    candidate: join(parent, `${prefix}.candidate`),
+    rollback: join(parent, `${prefix}.rollback`),
+    failed: join(parent, `${prefix}.failed`),
+    journal: join(parent, `.writellm-restore-${journal.projectId}.json`)
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return false
+      throw err
+    }
+  )
+}
+
+export async function recoverIncompleteHistoryRestore(
+  selectedRoot: string,
+  log: Pick<Logger, 'info' | 'error'>
+): Promise<void> {
+  const resolvedRoot = resolve(selectedRoot)
+  const parent = dirname(resolvedRoot)
+  const rootName = basename(resolvedRoot)
+  let candidates: string[]
+  try {
+    candidates = (await readdir(parent)).filter(
+      (name) => name.startsWith('.writellm-restore-') && name.endsWith('.json')
+    )
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw err
+  }
+  const matching: Array<{ journal: HistoryRestoreJournal; path: string }> = []
+  for (const name of candidates) {
+    const path = join(parent, name)
+    try {
+      const journal = historyRestoreJournalSchema.parse(JSON.parse(await readFile(path, 'utf8')))
+      if (journal.projectRootName === rootName) matching.push({ journal, path })
+    } catch (err) {
+      log.error(
+        { event: 'project_history.restore_journal_invalid', err },
+        'Invalid project history restore journal'
+      )
+    }
+  }
+  if (matching.length === 0) return
+  if (matching.length > 1) throw new Error('Multiple project history restore journals were found')
+  const record = matching[0]
+  if (record === undefined) return
+  const paths = historyRestorePaths(parent, record.journal)
+  try {
+    const rollbackExists = await pathExists(paths.rollback)
+    if (record.journal.phase === 'committed') {
+      if (!(await pathExists(paths.projectRoot))) {
+        throw new Error('Committed history restore is missing the project root')
+      }
+      await rm(paths.rollback, { recursive: true, force: true })
+    } else if (rollbackExists) {
+      if (await pathExists(paths.projectRoot)) {
+        await rename(paths.projectRoot, paths.failed)
+        const failedHistory = resolveProjectPath(paths.failed, PROJECT_HISTORY_RELATIVE_PATH)
+        const rollbackHistory = resolveProjectPath(paths.rollback, PROJECT_HISTORY_RELATIVE_PATH)
+        const failedHistoryExists = await pathExists(failedHistory)
+        const rollbackHistoryExists = await pathExists(rollbackHistory)
+        if (failedHistoryExists && rollbackHistoryExists) {
+          throw new Error('History restore recovery found two repository copies')
+        }
+        if (failedHistoryExists) {
+          await rename(failedHistory, rollbackHistory)
+        }
+      }
+      await rename(paths.rollback, paths.projectRoot)
+      await rm(paths.failed, { recursive: true, force: true })
+    } else if (!(await pathExists(paths.projectRoot))) {
+      throw new Error('History restore journal cannot recover the missing project')
+    }
+    await rm(paths.candidate, { recursive: true, force: true })
+    await rm(paths.materialized, { recursive: true, force: true })
+    await rm(record.path, { force: true })
+    log.info(
+      {
+        event: 'project_history.restore_journal_recovered',
+        projectId: record.journal.projectId,
+        phase: record.journal.phase
+      },
+      'Recovered an interrupted project history restore'
+    )
+  } catch (err) {
+    log.error(
+      {
+        event: 'project_history.restore_journal_recovery_failed',
+        err,
+        projectId: record.journal.projectId,
+        phase: record.journal.phase
+      },
+      'Interrupted project history restore recovery failed'
+    )
+    throw new Error('Failed to recover an interrupted project history restore', { cause: err })
+  }
+}
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -200,6 +337,7 @@ export class ProjectManager {
   #finalFlushConsumed = false
   #snapshotFlushAuthorization: ProjectFinalFlushAuthorization | null = null
   #snapshotFlushConsumed = false
+  #historyRestoreRecoverySuppressed = false
   #recovery:
     | {
         kind: 'open'
@@ -284,6 +422,24 @@ export class ProjectManager {
           throw new Error('Created project root identity changed before open')
         }
         await this.#openCanonicalRoot(canonicalRoot, created.writeLock)
+        try {
+          const context = this.#context
+          if (context === null) throw new Error('Created project did not become active')
+          await this.#withVersionSnapshot(
+            context,
+            (snapshotRoot, history) => history.enable(snapshotRoot),
+            { skipEditorFlush: true }
+          )
+        } catch (err) {
+          this.#logger.error(
+            {
+              event: 'project_manager.history_initialization_failed',
+              err,
+              projectId: created.manifest.projectId
+            },
+            'New project opened without version history'
+          )
+        }
         this.#recovery = null
         this.#logger.info(
           { event: 'project_manager.create.completed', projectId: created.manifest.projectId },
@@ -330,6 +486,9 @@ export class ProjectManager {
         'Project open transition started'
       )
       try {
+        if (!this.#historyRestoreRecoverySuppressed) {
+          await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
+        }
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
       } catch (err) {
@@ -345,6 +504,15 @@ export class ProjectManager {
       }
       return this.snapshot()
     })
+  }
+
+  async #openDuringHistoryRestore(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
+    this.#historyRestoreRecoverySuppressed = true
+    try {
+      return await this.open(selectedRoot)
+    } finally {
+      this.#historyRestoreRecoverySuppressed = false
+    }
   }
 
   close(): Promise<ProjectLifecycleSnapshot> {
@@ -484,6 +652,7 @@ export class ProjectManager {
         'Project open transition started'
       )
       try {
+        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
       } catch (err) {
@@ -665,6 +834,7 @@ export class ProjectManager {
       const selectedRoot = recovery.selectedRoot
       this.#state = 'opening'
       try {
+        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
         this.#recovery = null
@@ -694,6 +864,7 @@ export class ProjectManager {
       const recovery = this.#recovery
       this.#state = 'opening'
       try {
+        await recoverIncompleteHistoryRestore(recovery.selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(recovery.selectedRoot)
         const metadata = await this.#dependencies.inspectLock(canonicalRoot, {
           ...this.#lockOptions,
@@ -821,6 +992,7 @@ export class ProjectManager {
       } = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#recovery = recovery
       try {
+        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
         this.#recovery = null
@@ -902,6 +1074,7 @@ export class ProjectManager {
           sourceAppVersion: this.#applicationVersion,
           inventoryFromBackup: () => inventoryProjectFiles(context.projectRoot),
           barrier,
+          includeVersionHistory: true,
           log: this.#logger
         })
       } catch (err) {
@@ -916,6 +1089,230 @@ export class ProjectManager {
         throw new Error('Failed to create project snapshot', { cause: err })
       }
     })
+  }
+
+  versionHistoryState(projectSessionId: string): Promise<'uninitialized' | 'ready' | 'damaged'> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#requireVersionHistory(context).inspect()
+    })
+  }
+
+  enableVersionHistory(projectSessionId: string): Promise<CheckpointEntry> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#withVersionSnapshot(context, (snapshotRoot, history) =>
+        history.enable(snapshotRoot)
+      )
+    })
+  }
+
+  reinitializeVersionHistory(projectSessionId: string): Promise<CheckpointEntry> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#withVersionSnapshot(context, (snapshotRoot, history) =>
+        history.reinitialize(snapshotRoot)
+      )
+    })
+  }
+
+  createCheckpoint(
+    projectSessionId: string,
+    input: { name: string; note?: string }
+  ): Promise<CheckpointEntry> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#withVersionSnapshot(context, (snapshotRoot, history) =>
+        history.createCheckpoint(snapshotRoot, input)
+      )
+    })
+  }
+
+  listCheckpoints(
+    projectSessionId: string,
+    input: { cursor?: string; limit?: number }
+  ): Promise<{ checkpoints: CheckpointEntry[]; nextCursor: string | null }> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#requireVersionHistory(context).list(input)
+    })
+  }
+
+  compareCheckpointState(projectSessionId: string): Promise<{
+    status: 'up-to-date' | 'uncheckpointed-changes'
+    headOid: string
+  }> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      return this.#withVersionSnapshot(context, (snapshotRoot, history) =>
+        history.compareSnapshot(snapshotRoot)
+      )
+    })
+  }
+
+  async restoreCheckpoint(
+    projectSessionId: string,
+    oid: string
+  ): Promise<{ snapshot: ProjectLifecycleSnapshot; checkpoint: CheckpointEntry }> {
+    const prepared = await this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      const history = this.#requireVersionHistory(context)
+      const target = (await history.list({ cursor: oid, limit: 1 })).checkpoints[0]
+      if (target?.oid !== oid) throw new Error('Restore checkpoint is not reachable')
+      const comparison = await this.#withVersionSnapshot(context, (snapshotRoot) =>
+        history.compareSnapshot(snapshotRoot)
+      )
+      let parentOid = comparison.headOid
+      if (comparison.status === 'uncheckpointed-changes') {
+        const safety = await this.#withVersionSnapshot(context, (snapshotRoot) =>
+          history.createCheckpoint(snapshotRoot, {
+            name: `Before restoring ${target.name}`.slice(0, 100)
+          })
+        )
+        parentOid = safety.oid
+      }
+      const parent = dirname(context.projectRoot)
+      const token = this.#dependencies.randomUUID()
+      const materialized = join(parent, `.${basename(context.projectRoot)}.${token}.git-restore`)
+      const candidate = join(parent, `.${basename(context.projectRoot)}.${token}.candidate`)
+      await history.materializeCheckpoint(target.oid, materialized)
+      await restoreProjectSnapshot({
+        snapshotRoot: materialized,
+        destination: candidate,
+        log: this.#logger
+      })
+      return {
+        projectRoot: context.projectRoot,
+        projectRootName: basename(context.projectRoot),
+        projectId: context.manifest.projectId,
+        token,
+        target,
+        parentOid,
+        materialized,
+        candidate,
+        rollback: join(parent, `.${basename(context.projectRoot)}.${token}.rollback`),
+        failed: join(parent, `.${basename(context.projectRoot)}.${token}.failed`),
+        journal: join(parent, `.writellm-restore-${context.manifest.projectId}.json`)
+      }
+    })
+
+    try {
+      await this.close()
+    } catch (err) {
+      await rm(prepared.materialized, { recursive: true, force: true })
+      await rm(prepared.candidate, { recursive: true, force: true })
+      this.#logger.error(
+        {
+          event: 'project_manager.history_restore_close_failed',
+          err,
+          projectId: prepared.projectId
+        },
+        'Project checkpoint restore could not close the active project'
+      )
+      throw new Error('Failed to close the project before checkpoint restore', { cause: err })
+    }
+    const writeJournal = async (phase: HistoryRestoreJournal['phase']): Promise<void> => {
+      await writeAtomicFile(
+        prepared.journal,
+        `${JSON.stringify({
+          format: 'writellm-history-restore',
+          formatVersion: 1,
+          projectId: prepared.projectId,
+          projectRootName: prepared.projectRootName,
+          token: prepared.token,
+          phase,
+          targetOid: prepared.target.oid
+        })}\n`
+      )
+    }
+    await writeJournal('prepared')
+    let swapped = false
+    try {
+      await rename(prepared.projectRoot, prepared.rollback)
+      await writeJournal('original-moved')
+      await rename(prepared.candidate, prepared.projectRoot)
+      await writeJournal('candidate-installed')
+      swapped = true
+      await mkdir(resolveProjectPath(prepared.projectRoot, '.writellm'), {
+        recursive: true,
+        mode: 0o700
+      })
+      await rename(
+        resolveProjectPath(prepared.rollback, PROJECT_HISTORY_RELATIVE_PATH),
+        resolveProjectPath(prepared.projectRoot, PROJECT_HISTORY_RELATIVE_PATH)
+      )
+      await rename(
+        resolveProjectPath(prepared.rollback, PROJECT_HISTORY_IGNORE_RELATIVE_PATH),
+        resolveProjectPath(prepared.projectRoot, PROJECT_HISTORY_IGNORE_RELATIVE_PATH)
+      )
+      await writeJournal('history-moved')
+      const opened = await this.#openDuringHistoryRestore(prepared.projectRoot)
+      const activeSession = opened.activeProject?.projectSessionId
+      if (activeSession === undefined) throw new Error('Restored project did not reopen')
+      const checkpoint = await this.#serialize(async () => {
+        const context = this.assertActiveSession(activeSession)
+        return this.#requireVersionHistory(context).createRestoreCommit(
+          prepared.target.oid,
+          prepared.parentOid
+        )
+      })
+      await writeJournal('committed')
+      await rm(prepared.rollback, { recursive: true, force: true })
+      await rm(prepared.materialized, { recursive: true, force: true })
+      await rm(prepared.journal, { force: true })
+      this.#logger.info(
+        {
+          event: 'project_manager.history_restore_completed',
+          projectId: prepared.projectId,
+          checkpointOid: prepared.target.oid,
+          restoreCommitOid: checkpoint.oid
+        },
+        'Project checkpoint restore completed'
+      )
+      return { snapshot: this.snapshot(), checkpoint }
+    } catch (err) {
+      this.#logger.error(
+        {
+          event: 'project_manager.history_restore_failed',
+          err,
+          projectId: prepared.projectId,
+          checkpointOid: prepared.target.oid
+        },
+        'Project checkpoint restore failed'
+      )
+      try {
+        if (this.#state === 'open') await this.close()
+        if (this.#state === 'recovery-required') await this.returnToClosed()
+        if (swapped) {
+          await rename(prepared.projectRoot, prepared.failed)
+          const failedHistory = resolveProjectPath(prepared.failed, PROJECT_HISTORY_RELATIVE_PATH)
+          try {
+            await rename(
+              failedHistory,
+              resolveProjectPath(prepared.rollback, PROJECT_HISTORY_RELATIVE_PATH)
+            )
+          } catch (moveErr) {
+            if ((moveErr as NodeJS.ErrnoException).code !== 'ENOENT') throw moveErr
+          }
+          await rename(prepared.rollback, prepared.projectRoot)
+          await rm(prepared.failed, { recursive: true, force: true })
+        }
+        await this.#openDuringHistoryRestore(prepared.projectRoot)
+        await rm(prepared.journal, { force: true })
+      } catch (rollbackErr) {
+        this.#logger.error(
+          {
+            event: 'project_manager.history_restore_rollback_failed',
+            err: rollbackErr,
+            projectId: prepared.projectId
+          },
+          'Project checkpoint restore rollback failed'
+        )
+      }
+      await rm(prepared.materialized, { recursive: true, force: true })
+      await rm(prepared.candidate, { recursive: true, force: true })
+      throw new Error('Failed to restore the project checkpoint', { cause: err })
+    }
   }
 
   restoreSnapshot(options: {
@@ -1061,7 +1458,13 @@ export class ProjectManager {
         agentSessions: knowledgeRuntime?.agentSessions ?? null,
         agentMutations: knowledgeRuntime?.agentMutations ?? null,
         runtime,
-        writeLock
+        writeLock,
+        versionHistory: new IsomorphicGitProjectVersionStore({
+          projectRoot: canonicalRoot,
+          projectId: manifest.projectId,
+          applicationVersion: this.#applicationVersion,
+          log: this.#logger
+        })
       }
       await projectIndex?.initialize()
       runtime.start()
@@ -1142,6 +1545,59 @@ export class ProjectManager {
   #requireState(expected: ProjectLifecycleState): void {
     if (this.#state !== expected) {
       throw new Error(`Project manager must be ${expected}; current state is ${this.#state}`)
+    }
+  }
+
+  #requireVersionHistory(context: ProjectContext): ProjectVersionStore {
+    if (context.versionHistory === undefined) {
+      throw new Error('Project version history service is unavailable')
+    }
+    return context.versionHistory
+  }
+
+  async #withVersionSnapshot<T>(
+    context: ProjectContext,
+    operation: (snapshotRoot: string, history: ProjectVersionStore) => Promise<T>,
+    options: { skipEditorFlush?: boolean } = {}
+  ): Promise<T> {
+    const snapshotRoot = resolveProjectPath(
+      context.projectRoot,
+      `${PROJECT_TEMP_DIRECTORY}/checkpoint-${this.#dependencies.randomUUID()}`
+    )
+    const operations = context.operations
+    const barrier = {
+      pauseMutations: async () => operations?.pauseMutations(),
+      finalEditorFlush: () =>
+        options.skipEditorFlush
+          ? Promise.resolve()
+          : this.#snapshotParticipants.finalEditorFlush(context),
+      pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
+      resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
+      resumeMutations: async () => operations?.resumeMutations()
+    }
+    try {
+      await createProjectSnapshot({
+        sourceRoot: context.projectRoot,
+        manifest: context.manifest,
+        sourceDatabase: context.database,
+        destination: snapshotRoot,
+        sourceAppVersion: this.#applicationVersion,
+        inventoryFromBackup: () => inventoryProjectFiles(context.projectRoot),
+        barrier,
+        log: this.#logger
+      })
+      return await operation(snapshotRoot, this.#requireVersionHistory(context))
+    } finally {
+      await rm(snapshotRoot, { recursive: true, force: true }).catch((err) =>
+        this.#logger.error(
+          {
+            event: 'project_manager.history_snapshot_cleanup_failed',
+            err,
+            projectId: context.manifest.projectId
+          },
+          'Failed to clean project history snapshot'
+        )
+      )
     }
   }
 

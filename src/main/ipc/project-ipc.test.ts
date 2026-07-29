@@ -35,7 +35,26 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
     switch: vi.fn(async () => openSnapshot),
     assertActiveSession: vi.fn((value: string) => {
       if (value !== sessionId || snapshot.state !== 'open') throw new Error('stale')
-    })
+      return { manifest: { projectId } }
+    }),
+    versionHistoryState: vi.fn(async () => 'ready' as const),
+    enableVersionHistory: vi.fn(),
+    reinitializeVersionHistory: vi.fn(),
+    createCheckpoint: vi.fn(async () => ({
+      oid: 'a'.repeat(40),
+      name: 'Milestone',
+      createdAt: '2026-07-29T00:00:00.000Z',
+      parentOid: null,
+      stateSha256: 'b'.repeat(64),
+      fileCount: 2,
+      totalBytes: 10
+    })),
+    listCheckpoints: vi.fn(async () => ({ checkpoints: [], nextCursor: null })),
+    compareCheckpointState: vi.fn(async () => ({
+      status: 'up-to-date' as const,
+      headOid: 'a'.repeat(40)
+    })),
+    restoreCheckpoint: vi.fn()
   }
   const recentProjects = {
     list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
@@ -74,6 +93,24 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
 }
 
 describe('project IPC', () => {
+  it('validates checkpoint input and never accepts renderer paths', async () => {
+    const { invoke, manager } = harness(openSnapshot)
+    await expect(
+      invoke(IPC_CHANNELS.projectHistoryCreateCheckpoint, {
+        projectSessionId: sessionId,
+        name: ' Milestone '
+      })
+    ).resolves.toMatchObject({ checkpoint: { name: 'Milestone' } })
+    expect(manager.createCheckpoint).toHaveBeenCalledWith(sessionId, { name: 'Milestone' })
+    await expect(
+      invoke(IPC_CHANNELS.projectHistoryCreateCheckpoint, {
+        projectSessionId: sessionId,
+        name: 'Bad',
+        gitdir: '/private/history.git'
+      })
+    ).rejects.toThrow()
+  })
+
   it('authorizes before opening a native dialog', async () => {
     const { invoke, projectDialog } = harness()
     const unauthorized = {

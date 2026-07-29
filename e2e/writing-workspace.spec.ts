@@ -347,6 +347,56 @@ test('creates a project snapshot and restores it into a new project folder', asy
   }
 })
 
+test('creates and restores named project checkpoints without losing later history', async ({
+  testRoot
+}) => {
+  const projectName = 'Version history'
+  const projectRoot = join(testRoot, `${projectName}.writellm`)
+  const launched = await launchApp({
+    userData: join(testRoot, 'user-data'),
+    dialogPaths: [testRoot]
+  })
+  try {
+    await createProject(launched.page, projectName)
+    await saveEditorText(launched.page, 'Checkpoint one')
+
+    await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Create checkpoint…' }).click()
+    const create = launched.page.getByRole('dialog', { name: 'Create checkpoint' })
+    await create.getByLabel('Name').fill('First draft')
+    await create.getByLabel('Note (optional)').fill('E2E checkpoint')
+    await create.getByRole('button', { name: 'Create checkpoint', exact: true }).click()
+    await expect(create).not.toBeVisible()
+
+    await saveEditorText(launched.page, ' after checkpoint')
+    await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
+    const history = launched.page.getByRole('dialog', { name: 'Version history' })
+    await expect(history.getByText('Uncheckpointed changes', { exact: true })).toBeVisible()
+    const firstDraft = history.locator('[data-slot=item]').filter({ hasText: 'First draft' })
+    await firstDraft.getByRole('button', { name: 'Restore', exact: true }).click()
+
+    const confirmation = launched.page.getByRole('alertdialog', {
+      name: 'Restore this checkpoint?'
+    })
+    await confirmation.getByRole('button', { name: 'Restore checkpoint', exact: true }).click()
+    await expect(confirmation).not.toBeVisible({ timeout: 15_000 })
+    await expect(launched.page.locator('.bn-editor').first()).toContainText('Checkpoint one')
+    await expect(launched.page.locator('.bn-editor').first()).not.toContainText('after checkpoint')
+
+    await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
+    const restoredHistory = launched.page.getByRole('dialog', { name: 'Version history' })
+    await expect(restoredHistory.getByText('Restored First draft', { exact: true })).toBeVisible()
+    await expect(
+      restoredHistory.getByText('Before restoring First draft', { exact: true })
+    ).toBeVisible()
+    await expect(readdir(join(projectRoot, '.writellm', 'history.git'))).resolves.toContain('HEAD')
+  } finally {
+    await launched.app.close()
+  }
+})
+
 test('imports a durable project-local knowledge original and deduplicates repeated bytes', async ({
   testRoot
 }) => {

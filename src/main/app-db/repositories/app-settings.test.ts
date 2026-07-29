@@ -31,6 +31,19 @@ afterEach(async () => {
 })
 
 describe('AppSettingsRepository', () => {
+  it('persists version-history prompt dismissal independently per project', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+    const first = '11111111-1111-4111-8111-111111111111'
+    const second = '22222222-2222-4222-8222-222222222222'
+
+    await expect(repository.getVersionHistoryPromptDismissed(first)).resolves.toBe(false)
+    await repository.setVersionHistoryPromptDismissed(first, true)
+    await expect(repository.getVersionHistoryPromptDismissed(first)).resolves.toBe(true)
+    await expect(repository.getVersionHistoryPromptDismissed(second)).resolves.toBe(false)
+    database.close()
+  })
+
   it('defaults to following the system and persists the selected theme', async () => {
     const database = await openTestDatabase()
     const repository = new AppSettingsRepository(database, log, () => '2026-07-16T12:00:00.000Z')

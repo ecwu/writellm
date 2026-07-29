@@ -5,9 +5,12 @@ import {
   FileText,
   FolderOpen,
   FolderSync,
+  GitCommitHorizontal,
+  History,
   Logs,
   Save,
-  Settings2
+  Settings2,
+  TriangleAlert
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,6 +36,10 @@ interface AppMenubarProps {
   onSave: () => void
   onCreateSnapshot: () => void
   onRestoreSnapshot: () => void
+  versionHistoryState: 'uninitialized' | 'ready' | 'damaged' | null
+  onEnableVersionHistory: () => void
+  onCreateCheckpoint: () => void
+  onOpenVersionHistory: () => void
   canRestoreSnapshot: boolean
   onClose: () => void
   onOpenSettings: () => void
@@ -51,6 +58,10 @@ export function AppMenubar({
   onSave,
   onCreateSnapshot,
   onRestoreSnapshot,
+  versionHistoryState,
+  onEnableVersionHistory,
+  onCreateCheckpoint,
+  onOpenVersionHistory,
   canRestoreSnapshot,
   onClose,
   onOpenSettings,
@@ -89,6 +100,24 @@ export function AppMenubar({
               <MenubarItem disabled={busy || !canRestoreSnapshot} onSelect={onRestoreSnapshot}>
                 <ArchiveRestore /> Restore snapshot
               </MenubarItem>
+              {versionHistoryState === 'uninitialized' ? (
+                <MenubarItem disabled={busy || !hasProject} onSelect={onEnableVersionHistory}>
+                  <History /> Enable version history…
+                </MenubarItem>
+              ) : versionHistoryState === 'ready' ? (
+                <>
+                  <MenubarItem disabled={busy || !hasProject} onSelect={onCreateCheckpoint}>
+                    <GitCommitHorizontal /> Create checkpoint…
+                  </MenubarItem>
+                  <MenubarItem disabled={busy || !hasProject} onSelect={onOpenVersionHistory}>
+                    <History /> Version history…
+                  </MenubarItem>
+                </>
+              ) : versionHistoryState === 'damaged' ? (
+                <MenubarItem disabled={busy || !hasProject} onSelect={onOpenVersionHistory}>
+                  <TriangleAlert /> Version history unavailable…
+                </MenubarItem>
+              ) : null}
               <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
                 <FileText /> Close project
               </MenubarItem>

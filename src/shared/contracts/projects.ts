@@ -120,6 +120,72 @@ export const projectRecoveryActionInputSchema = z.object({}).strict()
 export const projectSnapshotSessionInputSchema = projectSessionInputSchema
 export const projectSnapshotResultSchema = z.object({ created: z.boolean() }).strict()
 
+export const versionHistoryStateSchema = z.enum(['uninitialized', 'ready', 'damaged'])
+export const checkpointOidSchema = z.string().regex(/^[a-f0-9]{40}$/)
+export const checkpointNameSchema = z.string().trim().min(1).max(100)
+export const checkpointNoteSchema = z.string().trim().max(2_000)
+
+export const checkpointEntrySchema = z
+  .object({
+    oid: checkpointOidSchema,
+    name: checkpointNameSchema,
+    note: checkpointNoteSchema.optional(),
+    createdAt: z.iso.datetime(),
+    parentOid: checkpointOidSchema.nullable(),
+    stateSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    fileCount: z.number().int().nonnegative(),
+    totalBytes: z.number().int().nonnegative()
+  })
+  .strict()
+
+export const versionHistoryStatusSchema = z
+  .object({
+    state: versionHistoryStateSchema,
+    promptDismissed: z.boolean()
+  })
+  .strict()
+
+export const enableVersionHistoryInputSchema = projectSessionInputSchema
+export const dismissVersionHistoryPromptInputSchema = projectSessionInputSchema
+export const createCheckpointInputSchema = projectSessionInputSchema
+  .extend({
+    name: checkpointNameSchema,
+    note: checkpointNoteSchema.optional()
+  })
+  .strict()
+export const listCheckpointsInputSchema = projectSessionInputSchema
+  .extend({
+    cursor: checkpointOidSchema.optional(),
+    limit: z.number().int().min(1).max(50).default(50)
+  })
+  .strict()
+export const listCheckpointsResultSchema = z
+  .object({
+    checkpoints: z.array(checkpointEntrySchema).max(50),
+    nextCursor: checkpointOidSchema.nullable()
+  })
+  .strict()
+export const compareCheckpointStateInputSchema = projectSessionInputSchema
+export const compareCheckpointStateResultSchema = z
+  .object({
+    status: z.enum(['up-to-date', 'uncheckpointed-changes']),
+    headOid: checkpointOidSchema
+  })
+  .strict()
+export const restoreCheckpointInputSchema = projectSessionInputSchema
+  .extend({ oid: checkpointOidSchema })
+  .strict()
+export const reinitializeVersionHistoryInputSchema = projectSessionInputSchema
+export const checkpointOperationResultSchema = z
+  .object({ checkpoint: checkpointEntrySchema })
+  .strict()
+export const restoreCheckpointResultSchema = z
+  .object({
+    checkpoint: checkpointEntrySchema,
+    project: activeProjectSchema
+  })
+  .strict()
+
 export const projectLifecycleEventSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,
@@ -148,3 +214,8 @@ export type RecentProjectOpenInput = z.infer<typeof recentProjectOpenInputSchema
 export type ProjectSessionInput = z.infer<typeof projectSessionInputSchema>
 export type ProjectLifecycleSnapshot = z.infer<typeof projectLifecycleSnapshotSchema>
 export type ProjectLifecycleEvent = z.infer<typeof projectLifecycleEventSchema>
+export type VersionHistoryState = z.infer<typeof versionHistoryStateSchema>
+export type VersionHistoryStatus = z.infer<typeof versionHistoryStatusSchema>
+export type CheckpointEntry = z.infer<typeof checkpointEntrySchema>
+export type CreateCheckpointInput = z.infer<typeof createCheckpointInputSchema>
+export type ListCheckpointsInput = z.infer<typeof listCheckpointsInputSchema>
