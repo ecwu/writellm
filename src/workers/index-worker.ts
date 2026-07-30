@@ -33,7 +33,15 @@ parentPort.on('message', (event) => {
     utilityLog = log
     try {
       database = new IndexDatabase(input.indexPath, input.extensionPath)
-      log('info', 'index.utility.ready', 'Index utility initialized')
+      log('info', 'index.utility.ready', 'Index utility initialized', {
+        integrityMode: database.startupReport.integrityMode,
+        integrityDurationMs: database.startupReport.integrityDurationMs,
+        removedIndexGenerationCount: database.startupReport.cleanup.indexGenerations,
+        removedEmbeddingGenerationCount: database.startupReport.cleanup.embeddingGenerations,
+        removedOrphanFtsRowCount: database.startupReport.cleanup.orphanFtsRows,
+        removedOrphanVectorTableCount: database.startupReport.cleanup.orphanVectorTables,
+        removedEmbeddingCacheRowCount: database.startupReport.cleanup.embeddingCacheRows
+      })
       parentPort.postMessage(
         indexUtilityResponseSchema.parse({
           type: 'ready',

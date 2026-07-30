@@ -29,14 +29,14 @@ function makeMinimalPdf(): string {
 
 async function configureMineruProvider(page: Page, port: number): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('option', { name: /MinerU parser/ }).click()
-  const provider = page.getByRole('dialog', { name: 'MinerU parser' })
+  const provider = page.getByRole('dialog', { name: 'Settings' })
+  await provider.getByRole('option', { name: /^MinerU API/ }).click()
   await provider.getByLabel('Base URL').fill(`http://127.0.0.1:${port}`)
   await provider.getByLabel('Model ID').fill('pipeline')
   await provider.getByLabel('API key or token').fill('e2e-mineru-token')
   await provider.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(provider.getByText('Credential stored', { exact: true })).toBeVisible()
-  await provider.getByRole('button', { name: 'Close', exact: true }).first().click()
+  await expect(provider.getByLabel('API key or token')).toHaveAttribute('placeholder', /Stored/)
+  await page.keyboard.press('Escape')
 }
 
 async function createProject(page: Page, name: string): Promise<void> {
@@ -45,6 +45,15 @@ async function createProject(page: Page, name: string): Promise<void> {
   await create.getByLabel('Project name').fill(name)
   await create.getByRole('button', { name: 'Choose location' }).click()
   await expectActiveProject(page, name)
+}
+
+async function diagnosticEventCount(page: Page, event: string): Promise<number> {
+  return page.evaluate(
+    async (eventName) =>
+      (await window.desktop.diagnostics.snapshot()).filter((entry) => entry['event'] === eventName)
+        .length,
+    event
+  )
 }
 
 test('parses, normalizes, and inspects a MinerU document with image provenance', async ({
@@ -145,12 +154,17 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     const knowledge = launched.page.getByTestId('knowledge-workspace')
     await expect(knowledge.getByRole('heading', { name: 'Search knowledge' })).toBeVisible()
     await expect(knowledge.getByRole('heading', { name: 'Knowledge base' })).toHaveCount(0)
+    await expect.poll(() => diagnosticEventCount(launched.page, 'knowledge.summary.loaded')).toBe(1)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(0)
+    await launched.page.waitForTimeout(1_200)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.summary.loaded')).toBe(1)
     await knowledge.getByTestId('knowledge-upload-button').click()
     const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
     await expect(sourceButton).toBeVisible()
     await expect(
       knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
     ).toHaveCount(0)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(0)
     await sourceButton.click()
     await expect(
       knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
@@ -158,6 +172,15 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(knowledge.getByText('Normalized body from MinerU', { exact: true })).toBeVisible({
       timeout: 20_000
     })
+    const detailCountAfterSelection = await diagnosticEventCount(
+      launched.page,
+      'knowledge.detail.loaded'
+    )
+    expect(detailCountAfterSelection).toBeGreaterThan(0)
+    await launched.page.waitForTimeout(1_200)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(
+      detailCountAfterSelection
+    )
     const previewProbe = await launched.page.evaluate(async () => {
       const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
       if (session === undefined) return { error: 'no-session' }

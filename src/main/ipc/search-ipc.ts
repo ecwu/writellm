@@ -22,6 +22,9 @@ export function registerSearchIpc(options: {
     const input = knowledgeSearchInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     if (context.retrieval === null) throw new Error('Knowledge search is unavailable')
+    if (!context.projectIndex?.isRetrievalAvailable()) {
+      throw new Error('Knowledge search is still preparing')
+    }
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     try {
@@ -47,6 +50,9 @@ export function registerSearchIpc(options: {
     const input = citationExpansionInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     if (context.retrieval === null) throw new Error('Citation expansion is unavailable')
+    if (!context.projectIndex?.isRetrievalAvailable()) {
+      throw new Error('Knowledge citations are still preparing')
+    }
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     try {

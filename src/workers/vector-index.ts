@@ -83,7 +83,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
       return false
     }
     if (existing !== undefined) throw new Error('Embedding generation ID contract collision')
-    const table = tableName(contract.embeddingGenerationId)
+    const table = vectorTableName(contract.embeddingGenerationId)
     const metric = contract.metric === 'cosine' ? 'cosine' : 'L2'
     this.database.transaction(() => {
       this.database
@@ -121,7 +121,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
   ): void {
     const generation = this.#requireGeneration(embeddingGenerationId)
     if (generation.state !== 'building') throw new Error('Embedding generation is not writable')
-    const table = tableName(embeddingGenerationId)
+    const table = vectorTableName(embeddingGenerationId)
     this.database.transaction(() => {
       const insertVector = this.database.prepare(
         `INSERT OR REPLACE INTO "${table}" (rowid, embedding) VALUES (?, ?)`
@@ -201,7 +201,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
     if (generation.state !== 'active') throw new Error('Embedding generation is not active')
     if (limit < 1 || limit > 1_000) throw new Error('Vector query limit is invalid')
     const normalized = normalizeAndValidate(vector, generation.dimension, generation.normalization)
-    const table = tableName(embeddingGenerationId)
+    const table = vectorTableName(embeddingGenerationId)
     const queryBlob = vectorBlob(normalized)
     if (hasFilters(filters)) {
       const distanceFunction =
@@ -264,7 +264,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
     if (chunkIds.length > 5_000) throw new Error('Vector preview chunk count is invalid')
     if (chunkIds.length === 0) return []
     const placeholders = chunkIds.map(() => '?').join(', ')
-    const table = tableName(embeddingGenerationId)
+    const table = vectorTableName(embeddingGenerationId)
     const rows = this.database
       .prepare(
         `SELECT chunk_vectors.chunk_id AS chunkId, "${table}".embedding AS embedding
@@ -290,7 +290,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
   }
 
   delete(embeddingGenerationId: string): void {
-    const table = tableName(embeddingGenerationId)
+    const table = vectorTableName(embeddingGenerationId)
     this.database.transaction(() => {
       this.database.exec(`DROP TABLE IF EXISTS "${table}"`)
       this.database
@@ -376,7 +376,7 @@ function filterParams(filters: KnowledgeSearchFilters): unknown[] {
   ]
 }
 
-function tableName(id: string): string {
+export function vectorTableName(id: string): string {
   return `vec_${createHash('sha256').update(id).digest('hex').slice(0, 24)}`
 }
 

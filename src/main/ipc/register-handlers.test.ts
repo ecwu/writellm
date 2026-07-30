@@ -1,7 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
-import type { ThemePreference } from '../../shared/contracts/app'
+import type { AccentPreference, ThemePreference } from '../../shared/contracts/app'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   registerIpcHandlers,
@@ -16,10 +16,16 @@ function harness() {
     removeHandler: vi.fn()
   }
   let preference: ThemePreference = 'system'
+  let accent: AccentPreference = 'neutral'
   const appSettings = {
     getThemePreference: vi.fn(async () => preference),
     setThemePreference: vi.fn(async (next: ThemePreference) => {
       preference = next
+      return next
+    }),
+    getAccentPreference: vi.fn(async () => accent),
+    setAccentPreference: vi.fn(async (next: AccentPreference) => {
+      accent = next
       return next
     })
   }
@@ -69,5 +75,15 @@ describe('application IPC', () => {
     ).rejects.toThrow()
     expect(appSettings.getThemePreference).not.toHaveBeenCalled()
     expect(appSettings.setThemePreference).not.toHaveBeenCalled()
+  })
+
+  it('reads and validates the persisted accent preference', async () => {
+    const { appSettings, invoke } = harness()
+
+    await expect(invoke(IPC_CHANNELS.appGetAccentPreference)).resolves.toBe('neutral')
+    await expect(
+      invoke(IPC_CHANNELS.appSetAccentPreference, { preference: 'green' })
+    ).resolves.toBe('green')
+    expect(appSettings.setAccentPreference).toHaveBeenCalledWith('green')
   })
 })

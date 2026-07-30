@@ -1,9 +1,116 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 23P Pi provider catalog is complete; Checkpoint 24 remains unstarted.
+Status: Checkpoint 23Q settings workspace and model availability is complete; Checkpoint 24 remains unstarted.
 Recorded: 2026-07-30
 
-## Completed checkpoint
+## Most recently completed checkpoint
+
+Checkpoint 23Q implements ADR 009: a responsive Cherry Studio-style global Settings workspace,
+application-global Agent provider/model availability, manual Agent models, editable custom
+presets, and semantic appearance accents. It preserves Main-owned credentials, explicit model
+refresh, immutable active runs, per-conversation selection, and every Checkpoint 24 boundary.
+
+The completed workspace uses the official shadcn Command/Dialog/Field/Select/Switch/AlertDialog
+surfaces with category/provider/detail drill-down at narrow widths. Agent provider and model
+preferences remain application-global, manual models overlay discovered models without mutating
+the remote cache, and both the Renderer and Main reject disabled or unauthenticated future
+selections without changing active run snapshots.
+
+The Checkpoint 23Q Provider-identity refinement packages a validated models.dev Provider-logo
+snapshot as theme-adaptive local assets, with deterministic built-in/custom matching and an
+optional custom override. Settings and the Agent picker use the same Renderer-safe logo
+projection. The sidebar now uses one official shadcn Popover/Command that drills sequentially from
+Provider to Model, retaining the existing conversation selection and Main resolution authority.
+Logo synchronization is an explicit developer command; application runtime performs no models.dev
+logo request and requires no CSP expansion.
+
+Full Biome checked 374 files; Node/Renderer typechecks, the canonical Electron Vitest suite (104
+files passed with one opt-in benchmark skipped; 512 tests passed), production build, and all 17
+silent Electron Playwright scenarios passed. An isolated real-app `app.sqlite` reported
+application ID 1464615248, user/schema version 3, integrity `ok`, no foreign-key failures, and both
+new preference tables. The documented npm/direct equivalents were used because installed pnpm
+11.11.0 does not match the repository's exact 11.17.0 pin; no pnpm-wrapper pass is claimed.
+
+Provider-identity refinement evidence (2026-07-30): the explicit models.dev synchronization
+accepted 149 validated Provider logos and committed their SHA-256 manifest; no runtime URL or CSP
+exception was added. Full Biome checked 382 source files, Node/Renderer typechecks and production
+build passed, and canonical Electron Vitest passed 105 files/517 tests with one opt-in benchmark
+skipped. All 17 Electron Playwright scenarios passed, including Settings override/restart,
+Renderer-safe catalog persistence, the single Provider-to-Model popover, search, back, narrow
+layout, and keyboard selection. The no-identity package gate passed its macOS signature check,
+packaged hybrid/vector search, provider-failure fallback, and stale-session smoke. `git diff
+--check` passed. The documented npm/direct equivalents were used because installed pnpm 11.11.0
+does not match the repository's exact 11.17.0 pin; no pnpm-wrapper pass is claimed.
+
+Post-completion Provider-logo rendering correction (2026-07-30): Vite-inlined SVG data URLs
+contain quote characters, so the original unquoted CSS `url(...)` value was rejected by Chromium
+and exposed the foreground square beneath the missing mask. ProviderLogo now emits a quoted,
+escaped CSS URL and an explicit block glyph. Missing or unresolved assets take the Avatar's
+single-initial fallback without creating a mask layer. The focused Electron workflow asserts a
+non-`none` computed mask for an inlined Together logo and an initial-only fallback for an unmatched
+Provider; direct visual inspection shows the intended four-dot glyph. Biome, Node/Renderer
+typechecks, production build, the focused provider E2E, and `git diff --check` pass.
+
+Post-completion Agent Settings ordering refinement (2026-07-30): enabled Agent providers now
+precede disabled providers in Settings while retaining the Main catalog's order inside each group.
+Search, initial selection, and post-removal fallback use the same non-mutating derived order;
+switching availability keeps the current Provider detail selected. Model ordering, Main catalog
+order, shared contracts, persistence, and the Agent picker remain unchanged. Full Biome checked
+384 files; the focused canonical Electron unit test passed 2 tests; Node/Renderer typechecks,
+production build, the focused real Electron Provider workflow, and `git diff --check` passed. The
+documented npm/direct equivalents were used because installed pnpm 11.11.0 does not match the
+repository's exact 11.17.0 pin; no pnpm-wrapper pass is claimed.
+
+Post-completion legacy Agent removal correction (2026-07-30): removing the migrated
+`custom:legacy-agent` preset now atomically deletes both its catalog record and the retained
+singleton `agent` migration source. Their encrypted credentials, model catalog, and availability
+preferences cascade away, so the snapshot migration hook cannot recreate the explicitly removed
+Provider. Initial upgrade migration still preserves the singleton source until removal, and no
+Renderer, IPC, schema, project history, or Checkpoint 24 boundary changed. Full Biome checked 384
+files; the focused canonical Electron catalog suite passed 5 tests; Node/Renderer typechecks and
+canonical Electron Vitest passed 106 files/520 tests with one opt-in benchmark skipped; and `git
+diff --check` passed. The documented npm/direct equivalents were used because installed pnpm
+11.11.0 does not match the repository's exact 11.17.0 pin; no pnpm-wrapper pass is claimed.
+
+Post-completion Settings-header correction (2026-07-30): the Settings close action now uses an
+official shadcn Button/DialogClose composition inside each workspace header instead of the
+Dialog's absolute overlay control. Agent Provider availability and close actions share one
+centered layout row with separate click targets and an explicit gap; narrow Provider-list and
+empty states retain an accessible close action. Full Biome checked 384 files; Node/Renderer
+typechecks and the production build passed; the focused real Electron Provider workflow passed
+with direct non-overlap, minimum-gap, and center-alignment assertions; and `git diff --check`
+passed. The installed pnpm 11.9.0 does not match the repository's exact 11.17.0 pin, so documented
+npm/local-binary equivalents were used and no pnpm-wrapper pass is claimed. Checkpoint 24 remains
+unstarted.
+
+Post-completion Agent OAuth bundle correction (2026-07-30): Pi's five Node-only OAuth
+implementations are now registered statically before Electron Main exposes Provider login. The
+production bundle no longer tries to resolve missing `out/main/anthropic.js`,
+`github-copilot.js`, `openai-codex.js`, `radius.js`, or `xai.js` files at login time. A focused
+canonical Electron test exercises the real xAI device-code flow, and the built Provider E2E proves
+OpenAI Codex reaches its login-method prompt instead of immediately closing with
+`ERR_MODULE_NOT_FOUND`. Exact pnpm 11.17.0 `check:fast` passed; canonical Electron Vitest passed
+106 files/521 tests with one opt-in benchmark skipped; production build and all 17 Electron
+Playwright scenarios passed. The no-identity package gate verified the macOS app has no Team ID
+and passed packaged hybrid/vector, Provider-failure fallback, and stale-session smoke.
+`git diff --check` passed. The first sandboxed package attempt could not resolve GitHub; the same
+gate passed outside the restricted network sandbox. Provider credentials, IPC, system-browser
+authorization, worker roles, and Checkpoint 24 remain unchanged.
+
+Post-completion global error-notification correction (2026-07-30): transient Renderer action
+failures now use one application-root shadcn Sonner toaster instead of an Alert mounted above the
+editor. Error toasts stay at the bottom right for eight seconds, expose a close action and
+Notifications live-region label, show at most three entries, follow the resolved application
+theme, and reuse a message-derived ID so repeated failures update one entry. The toaster is a
+Radix dismissable-layer branch so it remains interactive above Settings without dismissing the
+modal. Persistent Settings/workspace/recovery/Agent Alerts, editor save errors, provider results,
+credential warnings, and field validation remain local; Agent failures with a local error surface
+no longer emit a duplicate toast. No Main, IPC, database, shared-contract, or Checkpoint 24
+boundary changed. Exact pnpm 11.17.0 `check:fast` passed; canonical Electron Vitest passed 107
+files/523 tests with one opt-in benchmark skipped; production build, the focused seven-scenario
+project/provider workflow, all 17 Electron Playwright scenarios, and `git diff --check` passed.
+
+## Prior completed checkpoint
 
 Checkpoint 23P implemented ADR 008: an application-global Pi provider/preset catalog, encrypted Pi
 credentials, explicit cached model discovery, per-conversation Agent model selection, and
@@ -34,6 +141,37 @@ fallbacks from the existing package gate. Checkpoint 26 remains the cross-platfo
 release-promotion checkpoint; the repository currently has no GitHub Actions workflow. The full
 updated scope and gates are recorded in
 [`docs/implementation-todo/phase-10.md`](implementation-todo/phase-10.md).
+
+## Completed maintenance
+
+The Outline editor workspace refinement is complete. The former current-section Sheet is now a
+responsive large Dialog with a complete accessible tree, a desktop inspector and narrow-screen
+drill-in flow, manual metadata/status editing, explicit hierarchy controls, guarded
+creation/deletion, serial outline-version writes, and draft-preserving metadata conflict
+recovery. Selecting a tree row no longer changes the manuscript editor until Open in editor is
+used; the sidebar is read-only, and current-section import/export actions now live beside the
+editor title. The existing IPC contracts, persistence model, renderer authority, and Checkpoint
+24 boundary are unchanged.
+
+Exact pnpm 11.17.0 `check:fast` passed; canonical Electron Vitest passed 108 files and 535 tests
+with one opt-in benchmark file/test skipped; the production build and all 18 Electron Playwright
+scenarios passed; and `git diff --check` passed.
+
+Large-Knowledge project loading completed under ADR 010. The authoritative project database and
+manuscript remain the blocking open gate, while the rebuildable index now initializes behind
+explicit background readiness with clean-shutdown fast reopen and bounded generation/orphan
+cleanup. The Knowledge workspace uses a lightweight lifecycle/count summary and loads full
+normalized artifacts only for the selected source.
+
+On an isolated SQLite-online-backup copy of the reported 29-source, 1.0 GiB, 19-generation
+project, Manuscript became visible in 260 ms while conservative background index validation
+completed in 22,348 ms. After clean close, Manuscript became visible in 201 ms and index
+initialization completed in 171 ms. Cleanup retained one active plus three inactive generations
+and one vector root table; `integrity_check` passed. Exact pnpm 11.17.0 `check:fast`, canonical
+Electron Vitest (107 files/531 tests, one opt-in benchmark skipped), production build, all 17
+Electron Playwright scenarios, and the no-identity packaged hybrid/vector, Provider-fallback, and
+stale-session smoke passed. The original project was not modified, no `VACUUM` was run, and
+Checkpoint 24 remains unstarted.
 
 ## Prior completed checkpoint
 

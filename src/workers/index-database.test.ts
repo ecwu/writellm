@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   normalizedKnowledgeBlockSchema,
@@ -23,6 +24,105 @@ afterEach(async () => {
 })
 
 describe('IndexDatabase and deterministic chunking', () => {
+  it('uses the clean-shutdown fast path and falls back to a full check after an unclean close', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'writellm-index-startup-'))
+    roots.push(root)
+    const databasePath = join(root, 'index.sqlite')
+    const created = new IndexDatabase(databasePath)
+    expect(created.startupReport.integrityMode).toBe('new')
+    created.close()
+
+    const cleanReopen = new IndexDatabase(databasePath)
+    expect(cleanReopen.startupReport.integrityMode).toBe('clean-shutdown-fast-path')
+    cleanReopen.close()
+
+    const raw = new Database(databasePath)
+    raw
+      .prepare(
+        'UPDATE index_runtime_state SET clean_shutdown = 0, updated_at = ? WHERE singleton = 1'
+      )
+      .run(new Date().toISOString())
+    raw.close()
+
+    const uncleanReopen = new IndexDatabase(databasePath)
+    expect(uncleanReopen.startupReport.integrityMode).toBe('full')
+    uncleanReopen.close()
+  })
+
+  it('retains the active and three recent generations and removes orphan search storage', async () => {
+    const fixtures = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        createSource(false, {
+          knowledgeItemId,
+          parseRevisionId: randomUUID(),
+          normalizationRunId: randomUUID(),
+          heading: `Generation ${index}`
+        })
+      )
+    )
+    const databasePath = join(fixtures[0]?.root as string, 'index.sqlite')
+    const database = new IndexDatabase(databasePath, getLoadablePath())
+    let activeGenerationId = ''
+    for (const fixture of fixtures) {
+      activeGenerationId = generationIdFor(
+        hashSourceSet([fixture.source], INDEX_CHUNKER_VERSION),
+        INDEX_CHUNKER_VERSION
+      )
+      await database.build({
+        generationId: activeGenerationId,
+        chunkerVersion: INDEX_CHUNKER_VERSION,
+        sources: [fixture.source]
+      })
+      database.activate(activeGenerationId)
+    }
+    expect(database.inspect()).toMatchObject({
+      activeGenerationId,
+      generationCount: 4
+    })
+    database.close()
+
+    const raw = new Database(databasePath)
+    raw.loadExtension(getLoadablePath())
+    raw
+      .prepare('INSERT INTO chunk_fts_unicode61 (generation_id, chunk_id, text) VALUES (?, ?, ?)')
+      .run('orphan-generation', 'orphan-chunk', 'orphan')
+    raw
+      .prepare('INSERT INTO chunk_fts_trigram (generation_id, chunk_id, text) VALUES (?, ?, ?)')
+      .run('orphan-generation', 'orphan-chunk', 'orphan')
+    raw.exec(
+      'CREATE VIRTUAL TABLE "vec_orphan_fixture" USING vec0(embedding float[3] distance_metric=cosine)'
+    )
+    raw.close()
+
+    const cleaned = new IndexDatabase(databasePath, getLoadablePath())
+    expect(cleaned.startupReport.cleanup).toMatchObject({
+      orphanFtsRows: 2,
+      orphanVectorTables: 1
+    })
+    expect(cleaned.inspect()).toMatchObject({
+      activeGenerationId,
+      generationCount: 4
+    })
+    cleaned.close()
+
+    const verified = new Database(databasePath)
+    expect(
+      verified
+        .prepare(
+          "SELECT count(*) FROM chunk_fts_unicode61 WHERE generation_id = 'orphan-generation'"
+        )
+        .pluck()
+        .get()
+    ).toBe(0)
+    expect(
+      verified
+        .prepare("SELECT count(*) FROM sqlite_master WHERE name = 'vec_orphan_fixture'")
+        .pluck()
+        .get()
+    ).toBe(0)
+    verified.close()
+  })
+
   it('creates stable golden chunks from normalized blocks with complete provenance', async () => {
     const fixture = await createSource()
     const first = await buildDeterministicChunks([fixture.source], INDEX_CHUNKER_VERSION)

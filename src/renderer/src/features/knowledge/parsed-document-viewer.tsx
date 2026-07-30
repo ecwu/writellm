@@ -42,6 +42,7 @@ import { KnowledgeMappingViewer } from './knowledge-mapping-viewer'
 export function ParsedDocumentViewer(props: {
   projectSessionId: string
   knowledgeItemId: string | null
+  activeRevisionId?: string | null
   displayName: string
   extension?: string | null
   inline?: boolean
@@ -56,7 +57,12 @@ export function ParsedDocumentViewer(props: {
   } | null>(null)
   const [actionPending, setActionPending] = useState(false)
   const query = useQuery({
-    queryKey: ['parsed-knowledge', props.projectSessionId, props.knowledgeItemId],
+    queryKey: [
+      'parsed-knowledge',
+      props.projectSessionId,
+      props.knowledgeItemId,
+      props.activeRevisionId
+    ],
     queryFn: () =>
       window.desktop.knowledge.parsedDocument({
         projectSessionId: props.projectSessionId,

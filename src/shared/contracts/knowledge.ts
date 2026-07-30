@@ -31,6 +31,13 @@ export const knowledgeItemSchema = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .nullable(),
+    parseState: z.string().min(1).max(100).nullable(),
+    normalizationState: z.enum(['staging', 'published', 'failed']).nullable(),
+    activeParseRevisionId: z.uuid().nullable(),
+    activeNormalizationRunId: z.uuid().nullable(),
+    blockCount: z.number().int().nonnegative(),
+    assetCount: z.number().int().nonnegative(),
+    activatedAt: z.iso.datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime()
   })
@@ -38,7 +45,12 @@ export const knowledgeItemSchema = z
 
 export const knowledgeListInputSchema = editorSessionInputSchema
 export const knowledgeListResultSchema = z.array(knowledgeItemSchema)
-export const knowledgeIndexStatusSchema = z.object({ indexed: z.boolean() }).strict()
+export const knowledgeIndexStatusSchema = z
+  .object({
+    readiness: z.enum(['preparing', 'available', 'unavailable']),
+    indexed: z.boolean()
+  })
+  .strict()
 export const knowledgeImportPathsInputSchema = editorSessionInputSchema
   .extend({ paths: z.array(z.string().min(1).max(32_768)).min(1).max(50) })
   .strict()

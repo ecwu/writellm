@@ -1,17 +1,15 @@
-import type { ManuscriptWorkspace, Section } from '../../../shared/contracts/manuscript'
+import type { ManuscriptWorkspace, SectionStatus } from '../../../shared/contracts/manuscript'
 import {
   BookOpen,
   CheckCircle2,
   Circle,
+  CircleDot,
   FileText,
   LibraryBig,
   ListTree,
   Pencil,
-  Plus,
-  Settings2,
-  Trash2
+  Settings2
 } from 'lucide-react'
-import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -35,9 +33,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   activeWorkspace: 'manuscript' | 'knowledge'
   activeSectionId: string | null
   onSelectSection(sectionId: string): void
-  onCreateSection(parentSectionId: string | null): void
-  onDeleteSection(sectionId: string): void
-  onMoveSection(sectionId: string, parentSectionId: string | null, position: number): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
@@ -51,9 +46,6 @@ export function AppSidebar({
   activeWorkspace,
   activeSectionId,
   onSelectSection,
-  onCreateSection,
-  onDeleteSection,
-  onMoveSection,
   onOpenBrief,
   onOpenOutlineEditor,
   onOpenKnowledge,
@@ -62,24 +54,6 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps): React.JSX.Element {
   const { setOpen } = useSidebar()
-  const [draggedSectionId, setDraggedSectionId] = useState<string | null>(null)
-
-  const dropBefore = (target: Section): void => {
-    if (draggedSectionId === null || draggedSectionId === target.sectionId || !workspace) return
-    const dragged = workspace.sections.find(
-      (item) => item.section.sectionId === draggedSectionId
-    )?.section
-    if (!dragged || dragged.parentSectionId !== target.parentSectionId) return
-    const destination = workspace.sections
-      .map((item) => item.section)
-      .filter(
-        (section) =>
-          section.parentSectionId === target.parentSectionId &&
-          section.sectionId !== draggedSectionId
-      )
-    const position = destination.findIndex((section) => section.sectionId === target.sectionId)
-    if (position >= 0) onMoveSection(draggedSectionId, target.parentSectionId, position)
-  }
 
   return (
     <Sidebar
@@ -128,76 +102,29 @@ export function AppSidebar({
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel className='flex items-center justify-between'>
-              <span>Outline</span>
-              <Button
-                variant='ghost'
-                size='icon-sm'
-                aria-label='Create top-level section'
-                onClick={() => onCreateSection(null)}
-              >
-                <Plus />
-              </Button>
-            </SidebarGroupLabel>
+            <SidebarGroupLabel>Outline</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {workspace?.sections.map(({ section, revision }) => (
                   <SidebarMenuItem
                     key={section.sectionId}
-                    draggable
-                    onDragStart={() => setDraggedSectionId(section.sectionId)}
-                    onDragEnd={() => setDraggedSectionId(null)}
-                    onDragOver={(event) => {
-                      if (draggedSectionId !== null) event.preventDefault()
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      dropBefore(section)
-                      setDraggedSectionId(null)
-                    }}
-                    className='group/outline'
                     style={{ paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px` }}
                   >
                     <SidebarMenuButton
                       isActive={section.sectionId === activeSectionId}
-                      className='min-w-0 group-hover/outline:pr-16 group-has-[:focus-visible]/outline:pr-16'
+                      className='min-w-0'
                       data-testid={`outline-section-${section.sectionId}`}
                       onClick={() => onSelectSection(section.sectionId)}
                     >
-                      {section.status === 'completed' ? (
-                        <CheckCircle2 className='text-success' />
-                      ) : (
-                        <Circle />
-                      )}
+                      <SidebarStatusIcon status={section.status} />
                       <span className='min-w-0 flex-1 truncate'>{section.title}</span>
                       <span
-                        className='shrink-0 text-[10px] text-muted-foreground tabular-nums group-hover/outline:hidden group-has-[:focus-visible]/outline:hidden'
+                        className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
                         data-testid={`outline-word-count-${section.sectionId}`}
                       >
                         {revision.wordCount}
                       </span>
                     </SidebarMenuButton>
-                    <div
-                      className='absolute inset-y-0 right-1 flex items-center opacity-0 transition-opacity group-hover/outline:opacity-100 group-has-[:focus-visible]/outline:opacity-100'
-                      data-testid={`outline-actions-${section.sectionId}`}
-                    >
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        aria-label={`Add subsection to ${section.title}`}
-                        onClick={() => onCreateSection(section.sectionId)}
-                      >
-                        <Plus />
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        aria-label={`Delete ${section.title}`}
-                        onClick={() => onDeleteSection(section.sectionId)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -233,6 +160,23 @@ export function AppSidebar({
         </SidebarFooter>
       </Sidebar>
     </Sidebar>
+  )
+}
+
+function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Element {
+  const label =
+    status === 'completed' ? 'Completed' : status === 'drafting' ? 'Drafting' : 'Planned'
+  return (
+    <>
+      {status === 'completed' ? (
+        <CheckCircle2 className='text-success' aria-hidden='true' />
+      ) : status === 'drafting' ? (
+        <CircleDot aria-hidden='true' />
+      ) : (
+        <Circle aria-hidden='true' />
+      )}
+      <span className='sr-only'>{label}</span>
+    </>
   )
 }
 

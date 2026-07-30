@@ -20,15 +20,27 @@ async function expectBriefTitle(page: Page, title: string): Promise<void> {
 }
 
 async function createSection(page: Page, title: string, parentTitle?: string): Promise<void> {
+  await page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+  const outline = page.getByRole('dialog', { name: 'Outline editor' })
   if (parentTitle === undefined) {
-    await page.getByRole('button', { name: 'Create top-level section' }).click()
+    await outline.getByRole('button', { name: 'New section', exact: true }).click()
   } else {
-    await page.getByRole('button', { name: `Add subsection to ${parentTitle}` }).click()
+    await outline
+      .getByTestId(/^outline-editor-section-/)
+      .filter({ hasText: parentTitle })
+      .locator('button[id^="outline-tree-item-"]')
+      .click()
+    await outline.getByRole('button', { name: 'Add subsection', exact: true }).click()
   }
   const dialog = page.getByRole('dialog', { name: 'Create section' })
   await dialog.getByLabel('Section title').fill(title)
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(dialog).not.toBeVisible()
+  await expect(
+    outline.getByTestId(/^outline-editor-section-/).filter({ hasText: title })
+  ).toHaveAttribute('aria-selected', 'true')
+  await outline.getByRole('button', { name: 'Open in editor', exact: true }).click()
+  await expect(outline).not.toBeVisible()
   await expect(page.locator('#section-title')).toHaveValue(title)
 }
 
@@ -41,14 +53,17 @@ async function saveEditorText(page: Page, text: string): Promise<void> {
   await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
 }
 
-async function moveSectionBefore(
-  page: Page,
-  sourceTitle: string,
-  targetTitle: string
-): Promise<void> {
-  const source = page.getByTestId(/^outline-section-/).filter({ hasText: sourceTitle })
-  const target = page.getByTestId(/^outline-section-/).filter({ hasText: targetTitle })
-  await source.dragTo(target)
+async function moveSectionUp(page: Page, sourceTitle: string): Promise<void> {
+  await page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+  const outline = page.getByRole('dialog', { name: 'Outline editor' })
+  await outline
+    .getByTestId(/^outline-editor-section-/)
+    .filter({ hasText: sourceTitle })
+    .locator('button[id^="outline-tree-item-"]')
+    .click()
+  await outline.getByRole('button', { name: 'Up', exact: true }).click()
+  await outline.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(outline).not.toBeVisible()
 }
 
 async function closeProject(page: Page): Promise<void> {
@@ -116,7 +131,7 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
 
     await createSection(launched.page, 'Conclusion')
     await saveEditorText(launched.page, 'Final synthesis')
-    await moveSectionBefore(launched.page, 'Conclusion', 'Introduction')
+    await moveSectionUp(launched.page, 'Conclusion')
 
     await createSection(launched.page, 'Background', 'Introduction')
     await saveEditorText(launched.page, 'Supporting context')
@@ -133,15 +148,7 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       'xpath=ancestor::*[@data-slot="sidebar-menu-item"][1]'
     )
     const longOutlineCount = longOutlineItem.getByTestId(/^outline-word-count-/)
-    const longOutlineActions = longOutlineItem.getByTestId(/^outline-actions-/)
-    const addSubsectionAction = longOutlineItem.getByRole('button', {
-      name: `Add subsection to ${longOutlineTitle}`
-    })
-    const deleteSectionAction = longOutlineItem.getByRole('button', {
-      name: `Delete ${longOutlineTitle}`
-    })
     await expect(longOutlineCount).toBeVisible()
-    await expect(longOutlineActions).toHaveCSS('opacity', '0')
     const longOutlineRowBounds = await longOutlineRow.boundingBox()
     const longOutlineItemBounds = await longOutlineItem.boundingBox()
     if (longOutlineRowBounds === null || longOutlineItemBounds === null) {
@@ -151,11 +158,8 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       longOutlineItemBounds.x + longOutlineItemBounds.width,
       0
     )
-    await longOutlineRow.hover()
-    await expect(longOutlineCount).toBeHidden()
-    await expect(longOutlineActions).toHaveCSS('opacity', '1')
-    await expect(addSubsectionAction).toBeVisible()
-    await expect(deleteSectionAction).toBeVisible()
+    await expect(longOutlineItem.getByRole('button')).toHaveCount(1)
+    await expect(longOutlineItem).not.toHaveAttribute('draggable')
     const outlineContent = longOutlineRow.locator(
       'xpath=ancestor::*[@data-slot="sidebar-content"][1]'
     )
@@ -169,6 +173,44 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
     const outlinePanel = launched.page.getByRole('dialog', { name: 'Outline editor' })
     await expect(outlinePanel).toBeVisible()
+    await expect(outlinePanel.getByRole('treeitem')).toHaveCount(3)
+    const introductionTreeItem = outlinePanel
+      .getByTestId(/^outline-editor-section-/)
+      .filter({ hasText: 'Introduction' })
+    const introductionTreeButton = introductionTreeItem.locator('button[id^="outline-tree-item-"]')
+    await introductionTreeButton.click()
+    await introductionTreeButton.press('ArrowUp')
+    await expect(outlinePanel.getByRole('treeitem').first()).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await launched.page.keyboard.press('ArrowDown')
+    await expect(introductionTreeItem).toHaveAttribute('aria-selected', 'true')
+    await expect(launched.page.locator('#section-title')).toHaveValue('Background')
+    await outlinePanel.getByLabel('Section objective').fill('Frame the opening evidence.')
+    await outlinePanel.getByRole('radio', { name: 'Drafting', exact: true }).click()
+    await expect(outlinePanel.getByTestId('outline-save-state')).toHaveText('Saved')
+    await outlinePanel.getByLabel('Section objective').press('Tab')
+    await expect(outlinePanel.getByTestId('outline-save-state')).toHaveText('Saved')
+    await expect(introductionTreeItem).toContainText('Drafting')
+    await expect(outlinePanel.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+
+    const conclusionTreeItem = outlinePanel
+      .getByTestId(/^outline-editor-section-/)
+      .filter({ hasText: 'Conclusion' })
+    await conclusionTreeItem.locator('button[id^="outline-tree-item-"]').click()
+    await outlinePanel.getByRole('radio', { name: 'Completed', exact: true }).click()
+    await expect(outlinePanel.getByTestId('outline-save-state')).toHaveText('Saved')
+
+    await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+    await outlinePanel.getByRole('button', { name: 'Back to outline' }).click()
+    await expect(outlinePanel.getByRole('tree', { name: 'Manuscript sections' })).toBeVisible()
+    await conclusionTreeItem.locator('button[id^="outline-tree-item-"]').click()
+    await expect(outlinePanel.getByLabel('Section objective')).toBeVisible()
+    await browserWindow.evaluate((window) => window.setContentSize(900, 800))
+    await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+
     await outlinePanel.getByRole('button', { name: 'Preview all', exact: true }).click()
     const preview = launched.page.getByTestId('whole-manuscript-preview')
     await expect(preview).toBeVisible()
@@ -182,8 +224,14 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     expect(previewText).toContain('Supporting context')
     await launched.page.keyboard.press('Escape')
     await expect(preview).not.toBeVisible()
-    await launched.page.keyboard.press('Escape')
+    await outlinePanel.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(outlinePanel).not.toBeVisible()
+    await expect(
+      launched.page.getByTestId(/^outline-section-/).filter({ hasText: 'Introduction' })
+    ).toContainText('Drafting')
+    await expect(
+      launched.page.getByTestId(/^outline-section-/).filter({ hasText: 'Conclusion' })
+    ).toContainText('Completed')
 
     await closeProject(launched.page)
     await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
@@ -194,6 +242,23 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
     await expect(outlineSections.filter({ hasText: 'Conclusion' })).toBeVisible()
     await expect(outlineSections.filter({ hasText: 'Introduction' })).toBeVisible()
     await expect(outlineSections.filter({ hasText: 'Background' })).toBeVisible()
+    await expect(outlineSections.filter({ hasText: 'Introduction' })).toContainText('Drafting')
+    await expect(outlineSections.filter({ hasText: 'Conclusion' })).toContainText('Completed')
+
+    await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+    const reopenedOutline = launched.page.getByRole('dialog', { name: 'Outline editor' })
+    await reopenedOutline
+      .getByTestId(/^outline-editor-section-/)
+      .filter({ hasText: 'Introduction' })
+      .locator('button[id^="outline-tree-item-"]')
+      .click()
+    await expect(reopenedOutline.getByLabel('Section objective')).toHaveValue(
+      'Frame the opening evidence.'
+    )
+    await expect(
+      reopenedOutline.getByRole('radio', { name: 'Drafting', exact: true })
+    ).toHaveAttribute('data-state', 'on')
+    await reopenedOutline.getByRole('button', { name: 'Done', exact: true }).click()
 
     await launched.page
       .getByTestId(/^outline-section-/)
@@ -211,7 +276,7 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
       .filter({ hasText: 'Introduction' })
       .click()
     await expect(launched.page.locator('#section-title')).toHaveValue('Introduction')
-    await moveSectionBefore(launched.page, 'Introduction', 'Conclusion')
+    await moveSectionUp(launched.page, 'Introduction')
     await launched.page
       .getByTestId(/^outline-section-/)
       .filter({ hasText: 'Background' })
@@ -253,6 +318,65 @@ test('edits a brief and nested outline, reorders sections, previews, and reopens
   } finally {
     if (relaunched === undefined) await launched.app.close()
     else await relaunched.app.close()
+  }
+})
+
+test('keeps outline metadata drafts through conflicts and enforces deletion guards', async ({
+  testRoot
+}) => {
+  const launched = await launchApp({
+    userData: join(testRoot, 'user-data'),
+    dialogPaths: [testRoot]
+  })
+  try {
+    await createProject(launched.page, 'Outline conflict')
+    await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+    const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
+    await expect(outline.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+
+    await outline.getByRole('button', { name: 'New section', exact: true }).click()
+    const create = launched.page.getByRole('dialog', { name: 'Create section' })
+    await create.getByLabel('Section title').fill('Temporary leaf')
+    await create.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(create).not.toBeVisible()
+    await expect(outline.getByRole('treeitem')).toHaveCount(2)
+    await outline.getByRole('button', { name: 'Delete', exact: true }).click()
+    const confirmation = launched.page.getByRole('alertdialog', { name: 'Delete section?' })
+    await confirmation.getByRole('button', { name: 'Delete section', exact: true }).click()
+    await expect(confirmation).not.toBeVisible()
+    await expect(outline.getByRole('treeitem')).toHaveCount(1)
+    await expect(outline.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+
+    const title = outline.getByLabel('Title', { exact: true })
+    await launched.page.evaluate(async () => {
+      const lifecycle = await window.desktop.projects.lifecycle()
+      const projectSessionId = lifecycle.activeProject?.projectSessionId
+      if (!projectSessionId) throw new Error('Project session missing')
+      const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+      const sectionId = workspace.sections[0]?.section.sectionId
+      if (!sectionId) throw new Error('Section missing')
+      await window.desktop.manuscript.updateSection({
+        projectSessionId,
+        update: {
+          baseOutlineVersion: workspace.outlineVersion,
+          sectionId,
+          title: 'External outline title'
+        }
+      })
+    })
+    await title.fill('Local outline draft')
+    await title.press('Tab')
+    await expect(outline.getByText(/Outline changed elsewhere|Changes not saved/)).toBeVisible()
+    await expect(title).toHaveValue('Local outline draft')
+    await outline.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(outline.getByTestId('outline-save-state')).toHaveText('Saved')
+    await expect(
+      outline.getByTestId(/^outline-editor-section-/).filter({ hasText: 'Local outline draft' })
+    ).toBeVisible()
+    await outline.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(launched.page.locator('#section-title')).toHaveValue('Local outline draft')
+  } finally {
+    await launched.app.close()
   }
 })
 
@@ -545,9 +669,8 @@ test('renders and reopens project images, Mermaid, and block LaTeX with Markdown
       }, mermaidPreview)
     ).toEqual({ activeElements: 0, eventAttributes: 0, remoteLinks: 0 })
 
-    await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
-    const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
-    await outline.getByRole('button', { name: 'Markdown', exact: true }).click()
+    await launched.page.getByRole('button', { name: 'Section actions', exact: true }).click()
+    await launched.page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()
     await expect
       .poll(async () => (await readdir(join(projectRoot, 'manuscript', 'exports'))).length)
       .toBe(1)
@@ -557,7 +680,6 @@ test('renders and reopens project images, Mermaid, and block LaTeX with Markdown
     expect(markdown).toContain('```mermaid')
     expect(markdown).toContain('$$\nE = mc^2\n$$')
     expect(markdown).toMatch(/\.\.\/assets\/[0-9a-f]{64}\.png/)
-    await launched.page.keyboard.press('Escape')
 
     await closeProject(launched.page)
     await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()

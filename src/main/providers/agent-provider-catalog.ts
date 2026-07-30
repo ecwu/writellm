@@ -17,18 +17,22 @@ import {
 import type { Logger } from 'pino'
 import { z } from 'zod'
 import {
+  agentManualModelSchema,
   agentModelSelectionSchema,
   agentModelSummarySchema,
   agentProviderCatalogSchema,
   agentPresetIdSchema,
   customAgentPiApiSchema,
+  modelsDevProviderLogoIdSchema,
   piApiSchema,
   providerConfigSchema,
   type AgentCustomPresetInput,
+  type AgentManualModel,
   type AgentModelSelection,
   type AgentProviderCatalog,
   type AgentProviderPresetSummary
 } from '../../shared/contracts/providers'
+import { resolveModelsDevProviderLogoId } from '../../shared/models-dev-provider-logos'
 import type { AppDatabase } from '../app-db/connection'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { CredentialService } from './credential-service'
@@ -36,6 +40,9 @@ import { MainPiCredentialStore } from './pi-credential-store'
 
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024
 const MAX_MODELS = 2_000
+const LEGACY_AGENT_PRESET_ID = 'custom:legacy-agent'
+const LEGACY_AGENT_PROVIDER_CONFIG_ID = 'agent'
+const MIGRATED_LEGACY_AGENT_PROVIDER_CONFIG_ID = `agent:${LEGACY_AGENT_PRESET_ID}`
 
 const customPresetSchema = z
   .object({
@@ -45,6 +52,7 @@ const customPresetSchema = z
     presetId: agentPresetIdSchema,
     providerId: z.string().min(1).max(200),
     name: z.string().min(1).max(200),
+    logoOverrideId: modelsDevProviderLogoIdSchema.nullable().optional(),
     baseUrl: z.url().max(2_048),
     api: customAgentPiApiSchema,
     authMode: z.enum(['api_key', 'none']),
@@ -136,6 +144,7 @@ export class AgentProviderCatalogService {
     const presetId = agentPresetIdSchema.parse(input.presetId ?? `custom:${randomUUID()}`)
     if (presetId.startsWith('builtin:')) throw new Error('Built-in preset IDs are reserved')
     const providerId = `writellm-${presetId}`
+    const previous = await this.#customPreset(presetId)
     const config = customPresetSchema.parse({
       schemaVersion: 1,
       role: 'agent-preset',
@@ -143,11 +152,19 @@ export class AgentProviderCatalogService {
       presetId,
       providerId,
       name: input.name,
+      logoOverrideId:
+        input.logoOverrideId === undefined
+          ? (previous?.logoOverrideId ?? null)
+          : input.logoOverrideId,
       baseUrl: input.baseUrl,
       api: input.api,
       authMode: input.authMode,
       timeoutMs: input.timeoutMs
     })
+    if (previous !== null && previous.api !== config.api) {
+      throw new Error('Custom Agent preset transport cannot be changed')
+    }
+    const endpointChanged = previous !== null && previous.baseUrl !== config.baseUrl
     const now = this.now().toISOString()
     await this.database.kysely.transaction().execute(async (transaction) => {
       await transaction
@@ -167,6 +184,17 @@ export class AgentProviderCatalogService {
           })
         )
         .execute()
+      if (previous === null) {
+        await transaction
+          .insertInto('agent_provider_preferences')
+          .values({
+            provider_config_id: `agent:${presetId}`,
+            enabled: 1,
+            created_at: now,
+            updated_at: now
+          })
+          .execute()
+      }
       if (input.apiKey !== undefined) {
         const serialized = JSON.stringify({ type: 'api_key', key: input.apiKey })
         await this.credentials.persistEncrypted(
@@ -175,11 +203,14 @@ export class AgentProviderCatalogService {
           transaction
         )
       }
-      await transaction
-        .deleteFrom('agent_model_catalogs')
-        .where('provider_config_id', '=', `agent:${presetId}`)
-        .execute()
+      if (previous === null || endpointChanged) {
+        await transaction
+          .deleteFrom('agent_model_catalogs')
+          .where('provider_config_id', '=', `agent:${presetId}`)
+          .execute()
+      }
     })
+    if (input.authMode === 'none') await this.#credentialStore.delete(providerId)
     this.log.info(
       {
         event: 'agent.provider_preset.saved',
@@ -198,10 +229,18 @@ export class AgentProviderCatalogService {
     if (parsed.startsWith('builtin:')) {
       await this.#credentialStore.delete(parsed.slice('builtin:'.length))
     } else {
-      await this.database.kysely
-        .deleteFrom('provider_configs')
-        .where('id', '=', `agent:${parsed}`)
-        .execute()
+      await this.database.kysely.transaction().execute(async (transaction) => {
+        await transaction
+          .deleteFrom('provider_configs')
+          .where('id', '=', `agent:${parsed}`)
+          .execute()
+        if (parsed === LEGACY_AGENT_PRESET_ID) {
+          await transaction
+            .deleteFrom('provider_configs')
+            .where('id', '=', LEGACY_AGENT_PROVIDER_CONFIG_ID)
+            .execute()
+        }
+      })
     }
     const defaultSelection = await this.settings.getDefaultAgentModelSelection()
     if (defaultSelection?.presetId === parsed) {
@@ -254,6 +293,131 @@ export class AgentProviderCatalogService {
     return this.settings.setDefaultAgentModelSelection(selection)
   }
 
+  async setProviderEnabled(presetId: string, enabled: boolean): Promise<AgentProviderCatalog> {
+    const parsed = agentPresetIdSchema.parse(presetId)
+    const provider = await this.#provider(parsed)
+    await this.#ensureProviderRecord(provider, parsed)
+    const now = this.now().toISOString()
+    await this.database.kysely
+      .insertInto('agent_provider_preferences')
+      .values({
+        provider_config_id: `agent:${parsed}`,
+        enabled: enabled ? 1 : 0,
+        created_at: now,
+        updated_at: now
+      })
+      .onConflict((conflict) =>
+        conflict.column('provider_config_id').doUpdateSet({
+          enabled: enabled ? 1 : 0,
+          updated_at: now
+        })
+      )
+      .execute()
+    if (!enabled) await this.#clearDefaultForPreset(parsed)
+    this.log.info(
+      { event: 'agent.provider_availability.updated', presetId: parsed, enabled },
+      'Updated Agent provider availability'
+    )
+    return this.snapshot()
+  }
+
+  async setModelEnabled(
+    presetId: string,
+    modelId: string,
+    enabled: boolean
+  ): Promise<AgentProviderCatalog> {
+    const parsed = agentPresetIdSchema.parse(presetId)
+    const models = await this.#buildModels()
+    await models.refresh({ allowNetwork: false })
+    const provider = models.getProvider(await this.#runtimeProviderId(parsed))
+    if (provider === undefined) throw new Error('Agent provider preset does not exist')
+    const manual = await this.#manualModelRecord(parsed, modelId)
+    if (manual === null && !provider.getModels().some((candidate) => candidate.id === modelId)) {
+      throw new Error('Agent model does not exist')
+    }
+    await this.#ensureProviderRecord(provider, parsed)
+    const now = this.now().toISOString()
+    await this.database.kysely
+      .insertInto('agent_model_preferences')
+      .values({
+        provider_config_id: `agent:${parsed}`,
+        model_id: modelId,
+        enabled: enabled ? 1 : 0,
+        manual_model_json: manual?.manual_model_json ?? null,
+        created_at: now,
+        updated_at: now
+      })
+      .onConflict((conflict) =>
+        conflict.columns(['provider_config_id', 'model_id']).doUpdateSet({
+          enabled: enabled ? 1 : 0,
+          updated_at: now
+        })
+      )
+      .execute()
+    if (!enabled) await this.#clearDefaultForModel(parsed, modelId)
+    this.log.info(
+      { event: 'agent.model_availability.updated', presetId: parsed, modelId, enabled },
+      'Updated Agent model availability'
+    )
+    return this.snapshot()
+  }
+
+  async saveManualModel(presetId: string, input: AgentManualModel): Promise<AgentProviderCatalog> {
+    const parsed = agentPresetIdSchema.parse(presetId)
+    const model = agentManualModelSchema.parse(input)
+    const provider = await this.#provider(parsed)
+    const supportedApis = new Set(provider.getModels().map((candidate) => candidate.api))
+    const custom = await this.#customPreset(parsed)
+    if (custom !== null) supportedApis.add(custom.api)
+    if (!supportedApis.has(model.api)) {
+      throw new Error('Manual model API is not supported by this provider')
+    }
+    await this.#ensureProviderRecord(provider, parsed)
+    const now = this.now().toISOString()
+    await this.database.kysely
+      .insertInto('agent_model_preferences')
+      .values({
+        provider_config_id: `agent:${parsed}`,
+        model_id: model.id,
+        enabled: 1,
+        manual_model_json: JSON.stringify(model),
+        created_at: now,
+        updated_at: now
+      })
+      .onConflict((conflict) =>
+        conflict.columns(['provider_config_id', 'model_id']).doUpdateSet({
+          enabled: 1,
+          manual_model_json: JSON.stringify(model),
+          updated_at: now
+        })
+      )
+      .execute()
+    this.log.info(
+      { event: 'agent.manual_model.saved', presetId: parsed, modelId: model.id, api: model.api },
+      'Saved manual Agent model'
+    )
+    return this.snapshot()
+  }
+
+  async removeManualModel(presetId: string, modelId: string): Promise<AgentProviderCatalog> {
+    const parsed = agentPresetIdSchema.parse(presetId)
+    const record = await this.#manualModelRecord(parsed, modelId)
+    if (record === null || record.manual_model_json === null) {
+      throw new Error('Manual Agent model does not exist')
+    }
+    await this.database.kysely
+      .deleteFrom('agent_model_preferences')
+      .where('provider_config_id', '=', `agent:${parsed}`)
+      .where('model_id', '=', modelId)
+      .execute()
+    await this.#clearDefaultForModel(parsed, modelId)
+    this.log.info(
+      { event: 'agent.manual_model.removed', presetId: parsed, modelId },
+      'Removed manual Agent model'
+    )
+    return this.snapshot()
+  }
+
   async setApiKey(presetId: string, apiKey: string): Promise<AgentProviderCatalog> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
@@ -268,6 +432,18 @@ export class AgentProviderCatalogService {
     this.log.info(
       { event: 'agent.provider_credential.saved', presetId: parsed, providerId },
       'Saved Agent provider credential'
+    )
+    return this.snapshot()
+  }
+
+  async clearCredential(presetId: string): Promise<AgentProviderCatalog> {
+    const parsed = agentPresetIdSchema.parse(presetId)
+    const providerId = await this.#runtimeProviderId(parsed)
+    await this.#credentialStore.delete(providerId)
+    await this.#clearDefaultForPreset(parsed)
+    this.log.info(
+      { event: 'agent.provider_credential.cleared', presetId: parsed, providerId },
+      'Cleared Agent provider credential'
     )
     return this.snapshot()
   }
@@ -308,6 +484,12 @@ export class AgentProviderCatalogService {
     }
     const auth = await models.getAuth(model)
     if (auth === undefined) throw new Error('Selected Agent provider is not authenticated')
+    if (!(await this.#providerEnabled(parsed.presetId, true))) {
+      throw new Error('Selected Agent provider is disabled')
+    }
+    if (!(await this.#modelEnabled(parsed.presetId, parsed.modelId))) {
+      throw new Error('Selected Agent model is disabled')
+    }
     const custom = await this.#customPreset(parsed.presetId)
     return {
       presetId: parsed.presetId,
@@ -324,9 +506,13 @@ export class AgentProviderCatalogService {
       credentials: this.#credentialStore,
       modelsStore: this.#modelsStore
     })
-    for (const provider of builtinProviders()) models.setProvider(provider)
+    for (const provider of builtinProviders()) {
+      models.setProvider(await this.#withManualModels(provider, `builtin:${provider.id}`))
+    }
     for (const preset of await this.#customPresets()) {
-      models.setProvider(createCustomProvider(preset))
+      models.setProvider(
+        await this.#withManualModels(createCustomProvider(preset), preset.presetId)
+      )
     }
     return models
   }
@@ -351,11 +537,50 @@ export class AgentProviderCatalogService {
     }
     const catalog = await this.#modelsStore.status(provider.id)
     const isDynamic = provider.refreshModels !== undefined
+    const enabled = await this.#providerEnabled(presetId, authConfigured)
+    const manualIds = new Set((await this.#manualModels(presetId)).map((model) => model.id))
+    const modelSummaries = (
+      await Promise.all(
+        provider
+          .getModels()
+          .slice(0, MAX_MODELS)
+          .map(async (model) => {
+            const parsed = piApiSchema.safeParse(model.api)
+            if (!parsed.success) return null
+            return agentModelSummarySchema.parse({
+              id: model.id,
+              name: model.name,
+              api: parsed.data,
+              enabled: await this.#modelEnabled(presetId, model.id),
+              source: manualIds.has(model.id)
+                ? 'manual'
+                : custom === null && !isDynamic
+                  ? 'packaged'
+                  : 'discovered',
+              reasoning: model.reasoning,
+              input: model.input,
+              contextWindow: model.contextWindow,
+              maxTokens: model.maxTokens,
+              metadataVerified: custom === null && !manualIds.has(model.id)
+            })
+          })
+      )
+    ).filter((model): model is NonNullable<typeof model> => model !== null)
     return {
       presetId,
       kind: custom === null ? 'builtin' : 'custom',
       providerId: provider.id,
       name: custom?.name ?? provider.name,
+      logoId: resolveModelsDevProviderLogoId({
+        providerId: provider.id,
+        name: custom?.name ?? provider.name,
+        ...(custom?.baseUrl === undefined ? {} : { baseUrl: custom.baseUrl }),
+        logoOverrideId: custom?.logoOverrideId ?? null
+      }),
+      logoOverrideId: custom?.logoOverrideId ?? null,
+      enabled,
+      canRefresh: isDynamic,
+      endpointEditable: custom !== null,
       ...(custom === null ? {} : { baseUrl: custom.baseUrl, api: custom.api }),
       authMethods:
         custom === null
@@ -378,25 +603,133 @@ export class AgentProviderCatalogService {
               : 'empty',
       checkedAt: catalog.checkedAt,
       lastErrorCode: catalog.lastErrorCode,
-      models: provider
-        .getModels()
-        .slice(0, MAX_MODELS)
-        .flatMap((model) => {
-          const parsed = piApiSchema.safeParse(model.api)
-          if (!parsed.success) return []
-          return [
-            agentModelSummarySchema.parse({
-              id: model.id,
-              name: model.name,
-              api: parsed.data,
-              reasoning: model.reasoning,
-              input: model.input,
-              contextWindow: model.contextWindow,
-              maxTokens: model.maxTokens,
-              metadataVerified: custom === null
-            })
-          ]
+      models: modelSummaries
+    }
+  }
+
+  async #withManualModels(provider: Provider, presetId: string): Promise<Provider> {
+    const manualModels = await this.#manualModels(presetId)
+    if (manualModels.length === 0) return provider
+    const getModels = (): readonly Model<Api>[] => {
+      const current = provider.getModels()
+      const merged = new Map(current.map((model) => [model.id, model]))
+      for (const manual of manualModels) {
+        const template = current.find((model) => model.api === manual.api)
+        const baseUrl = template?.baseUrl ?? provider.baseUrl
+        if (baseUrl === undefined) continue
+        merged.set(manual.id, {
+          id: manual.id,
+          name: manual.name,
+          api: manual.api,
+          provider: provider.id,
+          baseUrl,
+          reasoning: manual.reasoning,
+          input: manual.input,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: manual.contextWindow,
+          maxTokens: manual.maxTokens,
+          ...(template?.compat === undefined ? {} : { compat: template.compat })
         })
+      }
+      return [...merged.values()]
+    }
+    return {
+      id: provider.id,
+      name: provider.name,
+      ...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
+      ...(provider.headers === undefined ? {} : { headers: provider.headers }),
+      auth: provider.auth,
+      getModels,
+      ...(provider.refreshModels === undefined
+        ? {}
+        : { refreshModels: (context) => provider.refreshModels?.(context) ?? Promise.resolve() }),
+      ...(provider.filterModels === undefined
+        ? {}
+        : {
+            filterModels: (models, credential) =>
+              provider.filterModels?.(models, credential) ?? models
+          }),
+      stream: (model, context, options) => provider.stream(model, context, options),
+      streamSimple: (model, context, options) => provider.streamSimple(model, context, options)
+    }
+  }
+
+  async #provider(presetId: string): Promise<Provider> {
+    if (presetId.startsWith('builtin:')) {
+      const providerId = presetId.slice('builtin:'.length)
+      const provider = builtinProviders().find((candidate) => candidate.id === providerId)
+      if (provider === undefined) throw new Error('Agent provider preset does not exist')
+      return provider
+    }
+    const custom = await this.#customPreset(presetId)
+    if (custom === null) throw new Error('Agent provider preset does not exist')
+    return createCustomProvider(custom)
+  }
+
+  async #providerEnabled(presetId: string, fallback: boolean): Promise<boolean> {
+    const row = await this.database.kysely
+      .selectFrom('agent_provider_preferences')
+      .select('enabled')
+      .where('provider_config_id', '=', `agent:${presetId}`)
+      .executeTakeFirst()
+    return row === undefined ? fallback : row.enabled === 1
+  }
+
+  async #modelEnabled(presetId: string, modelId: string): Promise<boolean> {
+    const row = await this.database.kysely
+      .selectFrom('agent_model_preferences')
+      .select('enabled')
+      .where('provider_config_id', '=', `agent:${presetId}`)
+      .where('model_id', '=', modelId)
+      .executeTakeFirst()
+    return row?.enabled !== 0
+  }
+
+  async #manualModels(presetId: string): Promise<AgentManualModel[]> {
+    const rows = await this.database.kysely
+      .selectFrom('agent_model_preferences')
+      .select(['model_id', 'manual_model_json'])
+      .where('provider_config_id', '=', `agent:${presetId}`)
+      .where('manual_model_json', 'is not', null)
+      .execute()
+    return rows.flatMap((row) => {
+      try {
+        return [agentManualModelSchema.parse(JSON.parse(row.manual_model_json ?? 'null'))]
+      } catch (err) {
+        this.log.error(
+          { event: 'agent.manual_model.invalid', err, presetId, modelId: row.model_id },
+          'Stored manual Agent model is invalid'
+        )
+        return []
+      }
+    })
+  }
+
+  async #manualModelRecord(
+    presetId: string,
+    modelId: string
+  ): Promise<{ manual_model_json: string | null } | null> {
+    return (
+      (await this.database.kysely
+        .selectFrom('agent_model_preferences')
+        .select('manual_model_json')
+        .where('provider_config_id', '=', `agent:${presetId}`)
+        .where('model_id', '=', modelId)
+        .executeTakeFirst()) ?? null
+    )
+  }
+
+  async #clearDefaultForPreset(presetId: string): Promise<void> {
+    const selection = await this.settings.getDefaultAgentModelSelection()
+    if (selection?.presetId === presetId) {
+      await this.settings.setDefaultAgentModelSelection(null)
+    }
+  }
+
+  async #clearDefaultForModel(presetId: string, modelId: string): Promise<void> {
+    const selection = await this.settings.getDefaultAgentModelSelection()
+    if (selection?.presetId === presetId && selection.modelId === modelId) {
+      await this.settings.setDefaultAgentModelSelection(null)
     }
   }
 
@@ -480,7 +813,7 @@ export class AgentProviderCatalogService {
   }
 
   async #migrateLegacyAgentConfig(): Promise<void> {
-    const providerConfigId = 'agent:custom:legacy-agent'
+    const providerConfigId = MIGRATED_LEGACY_AGENT_PROVIDER_CONFIG_ID
     const alreadyMigrated = await this.database.kysely
       .selectFrom('provider_configs')
       .select('id')
@@ -490,7 +823,7 @@ export class AgentProviderCatalogService {
     const legacy = await this.database.kysely
       .selectFrom('provider_configs')
       .select(['provider', 'config_json', 'created_at'])
-      .where('id', '=', 'agent')
+      .where('id', '=', LEGACY_AGENT_PROVIDER_CONFIG_ID)
       .executeTakeFirst()
     if (legacy === undefined) return
     let config: ReturnType<typeof providerConfigSchema.parse>
@@ -506,7 +839,7 @@ export class AgentProviderCatalogService {
     if (config.role !== 'agent' || config.baseUrl === undefined) return
     const api = customAgentPiApiSchema.safeParse(config.api ?? 'openai-completions')
     if (!api.success) return
-    const presetId = 'custom:legacy-agent'
+    const presetId = LEGACY_AGENT_PRESET_ID
     const providerId = `writellm-${presetId}`
     const now = this.now().toISOString()
     const migrated = customPresetSchema.parse({
@@ -553,7 +886,7 @@ export class AgentProviderCatalogService {
       const credential = await transaction
         .selectFrom('encrypted_credentials')
         .select('ciphertext')
-        .where('provider_config_id', '=', 'agent')
+        .where('provider_config_id', '=', LEGACY_AGENT_PROVIDER_CONFIG_ID)
         .executeTakeFirst()
       if (credential !== undefined) {
         await transaction

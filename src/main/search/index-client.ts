@@ -312,6 +312,11 @@ export class IndexClient {
 
   async close(): Promise<void> {
     if (this.#closed) return
+    if (this.#resolveReady !== undefined) {
+      this.#closed = true
+      this.#terminate(abortError())
+      return
+    }
     if (this.#child === undefined) {
       this.#closed = true
       return
@@ -338,6 +343,7 @@ export class IndexClient {
   }
 
   terminate(): void {
+    this.#closed = true
     this.#terminate(new Error('Index utility terminated'))
   }
 

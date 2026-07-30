@@ -1,15 +1,36 @@
-import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Plus, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
+import { cloneElement, isValidElement, type ReactNode, useEffect, useId, useState } from 'react'
+import {
+  AlertCircle,
+  ArrowLeft,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Star,
+  Trash2
+} from 'lucide-react'
 import type {
   AgentAuthInteractionEvent,
+  AgentManualModel,
+  AgentProviderPresetSummary,
   CustomAgentPiApi,
   GoogleGeminiImageModel,
+  PiApi,
   ProviderConfig,
   ProviderConnectionTestResult,
   ProviderRole,
   ProviderSettingsSnapshot
 } from '../../../../shared/contracts/providers'
 import { GOOGLE_GEMINI_IMAGE_MODELS } from '../../../../shared/contracts/providers'
+import { resolveModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
+import type { ModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
+import { ProviderLogo, ProviderLogoPicker } from '@/components/provider-logo'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -23,6 +44,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogClose,
@@ -32,8 +54,18 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle
+} from '@/components/ui/empty'
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -42,31 +74,48 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
+import { orderEnabledAgentProvidersFirst } from './agent-provider-order'
 
-interface ProviderSettingsDialogProps {
-  role: ProviderRole | null
-  onOpenChange: (open: boolean) => void
+interface ProviderSettingsWorkspaceProps {
+  role: ProviderRole
+  snapshot: ProviderSettingsSnapshot
+  closeAction: ReactNode
   onSnapshotChange: (snapshot: ProviderSettingsSnapshot) => void
+  onError: (message: string) => void
 }
 
-export function ProviderSettingsDialog(props: ProviderSettingsDialogProps): React.JSX.Element {
+const roleLabels: Record<ProviderRole, string> = {
+  agent: 'Agent API',
+  embedding: 'Embedding API',
+  rerank: 'Reranking API',
+  mineru: 'MinerU API',
+  image: 'Image API'
+}
+
+const customTransports: Array<{ value: CustomAgentPiApi; label: string }> = [
+  { value: 'openai-completions', label: 'OpenAI Chat Completions' },
+  { value: 'openai-responses', label: 'OpenAI Responses' },
+  { value: 'anthropic-messages', label: 'Anthropic Messages' },
+  { value: 'google-generative-ai', label: 'Google Generative AI' },
+  { value: 'mistral-conversations', label: 'Mistral Conversations' },
+  { value: 'azure-openai-responses', label: 'Azure OpenAI Responses' }
+]
+
+export function ProviderSettingsWorkspace(
+  props: ProviderSettingsWorkspaceProps
+): React.JSX.Element {
   return props.role === 'agent' ? (
-    <AgentProviderCatalogDialog {...props} />
+    <AgentProviderWorkspace {...props} />
   ) : (
-    <SingletonProviderSettingsDialog {...props} />
+    <SingletonProviderWorkspace {...props} />
   )
 }
 
-const labels: Record<ProviderRole, string> = {
-  agent: 'Agent model',
-  embedding: 'Embeddings',
-  rerank: 'Reranking',
-  mineru: 'MinerU parser',
-  image: 'Image generation'
-}
-
-function defaultConfig(role: ProviderRole): ProviderConfig {
+function defaultConfig(role: Exclude<ProviderRole, 'agent'>): ProviderConfig {
   if (role === 'image') {
     return {
       role,
@@ -105,126 +154,76 @@ function defaultConfig(role: ProviderRole): ProviderConfig {
       fileSizeLimitMb: null
     }
   }
-  if (role === 'rerank') {
-    return {
-      role,
-      providerId: 'cohere-compatible',
-      baseUrl: '',
-      model: '',
-      modelRevision: 'unspecified',
-      timeoutMs: 60_000,
-      embeddingDimension: null,
-      batchLimit: 100,
-      fileSizeLimitMb: null
-    }
-  }
   return {
     role,
-    providerId: 'openai-compatible',
+    providerId: 'cohere-compatible',
     baseUrl: '',
     model: '',
     modelRevision: 'unspecified',
-    contextWindowTokens: null,
     timeoutMs: 60_000,
     embeddingDimension: null,
-    batchLimit: 1,
+    batchLimit: 100,
     fileSizeLimitMb: null
   }
 }
 
-function SingletonProviderSettingsDialog({
+function SingletonProviderWorkspace({
   role,
-  onOpenChange,
-  onSnapshotChange
-}: ProviderSettingsDialogProps): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
+  snapshot,
+  closeAction,
+  onSnapshotChange,
+  onError
+}: ProviderSettingsWorkspaceProps): React.JSX.Element {
+  const status = snapshot.providers.find((provider) => provider.role === role)
   const [config, setConfig] = useState<ProviderConfig | null>(null)
   const [apiKey, setApiKey] = useState('')
-  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'remove' | null>(null)
+  const [busy, setBusy] = useState<'save' | 'test' | 'remove' | null>(null)
   const [message, setMessage] = useState<ProviderConnectionTestResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const imageModelId = useId()
 
   useEffect(() => {
-    if (role === null) return
-    let current = true
-    setBusy('load')
-    setError(null)
-    setMessage(null)
+    if (role === 'agent') return
+    setConfig(status?.config ?? defaultConfig(role))
     setApiKey('')
-    void window.desktop.providers
-      .snapshot()
-      .then((next) => {
-        if (!current) return
-        const status = next.providers.find((provider) => provider.role === role)
-        setSnapshot(next)
-        setConfig(status?.config ?? defaultConfig(role))
-      })
-      .catch(() => {
-        if (current) setError('Provider settings could not be loaded.')
-      })
-      .finally(() => {
-        if (current) setBusy(null)
-      })
-    return () => {
-      current = false
-    }
-  }, [role])
-
-  const status = useMemo(
-    () => snapshot?.providers.find((provider) => provider.role === role),
-    [role, snapshot]
-  )
-
-  const updateSnapshot = (next: ProviderSettingsSnapshot): void => {
-    setSnapshot(next)
-    onSnapshotChange(next)
-  }
+    setMessage(null)
+  }, [role, status?.config])
 
   const save = async (): Promise<void> => {
     if (config === null) return
     setBusy('save')
-    setError(null)
-    setMessage(null)
     try {
       const next = await window.desktop.providers.save({
         config,
         ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
       })
-      updateSnapshot(next)
-      setConfig(next.providers.find((provider) => provider.role === role)?.config ?? config)
+      onSnapshotChange(next)
       setApiKey('')
     } catch {
-      setError('Configuration was not saved. Check every value and credential storage status.')
+      onError('Configuration was not saved. Check every value and credential storage status.')
     } finally {
       setBusy(null)
     }
   }
 
   const testConnection = async (): Promise<void> => {
-    if (role === null) return
     setBusy('test')
-    setError(null)
     try {
       setMessage(await window.desktop.providers.testConnection({ role }))
     } catch {
-      setError('The connection test could not be completed.')
+      onError('The connection test could not be completed.')
     } finally {
       setBusy(null)
     }
   }
 
   const remove = async (): Promise<void> => {
-    if (role === null) return
     setBusy('remove')
-    setError(null)
     try {
-      updateSnapshot(await window.desktop.providers.remove({ role }))
+      onSnapshotChange(await window.desktop.providers.remove({ role }))
       setConfirmRemove(false)
-      onOpenChange(false)
+      if (role !== 'agent') setConfig(defaultConfig(role))
     } catch {
-      setError('The provider configuration could not be removed.')
+      onError('The provider configuration could not be removed.')
     } finally {
       setBusy(null)
     }
@@ -232,31 +231,35 @@ function SingletonProviderSettingsDialog({
 
   return (
     <>
-      <Dialog open={role !== null} onOpenChange={onOpenChange}>
-        <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
-          <DialogHeader>
-            <DialogTitle>{role === null ? 'Provider' : labels[role]}</DialogTitle>
-            <DialogDescription>
-              Provider metadata is application-global. Credentials are encrypted by Electron Main
-              and are never returned to this window.
-            </DialogDescription>
-          </DialogHeader>
+      <ScrollArea className='h-full'>
+        <div className='mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 lg:p-8'>
+          <header className='flex flex-wrap items-start justify-between gap-3'>
+            <div>
+              <h2 className='text-xl font-semibold'>{roleLabels[role]}</h2>
+              <p className='text-sm text-muted-foreground'>
+                Application-global configuration. Credentials stay encrypted in Electron Main.
+              </p>
+            </div>
+            <div className='flex shrink-0 items-center gap-2'>
+              <Badge variant={status?.available ? 'default' : 'secondary'}>
+                {status?.available
+                  ? 'Ready'
+                  : status?.configured
+                    ? 'Unavailable'
+                    : 'Not configured'}
+              </Badge>
+              {closeAction}
+            </div>
+          </header>
 
-          {snapshot?.credentialBackend.warning && (
+          {snapshot.credentialBackend.warning ? (
             <Alert variant='destructive'>
               <ShieldAlert />
               <AlertTitle>Secure credential storage unavailable</AlertTitle>
               <AlertDescription>{snapshot.credentialBackend.warning}</AlertDescription>
             </Alert>
-          )}
-          {error && (
-            <Alert variant='destructive'>
-              <AlertCircle />
-              <AlertTitle>Action failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          {message && (
+          ) : null}
+          {message ? (
             <Alert variant={message.ok ? 'default' : 'destructive'}>
               {message.ok ? <CheckCircle2 /> : <AlertCircle />}
               <AlertTitle>{message.ok ? 'Connected' : 'Connection failed'}</AlertTitle>
@@ -264,237 +267,56 @@ function SingletonProviderSettingsDialog({
                 {message.message} ({message.durationMs} ms)
               </AlertDescription>
             </Alert>
-          )}
+          ) : null}
 
-          {busy === 'load' || config === null || role === null ? (
-            <div
-              className='flex min-h-48 items-center justify-center gap-2 text-muted-foreground'
-              role='status'
-            >
-              <Spinner /> Loading provider settings…
+          {config === null ? (
+            <div className='flex min-h-48 items-center justify-center'>
+              <Spinner />
             </div>
           ) : (
-            <FieldGroup className='grid gap-4'>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Badge variant={status?.configured ? 'default' : 'secondary'}>
-                  {status?.configured ? 'Credential stored' : 'Credential missing'}
-                </Badge>
-                <Badge variant='outline'>{config.providerId}</Badge>
-                <Badge variant='outline'>
-                  {snapshot?.credentialBackend.backend ?? 'unknown backend'}
-                </Badge>
-              </div>
-              {config.role !== 'image' && (
-                <ConfigField label='Base URL'>
-                  <Input
-                    value={config.baseUrl}
-                    autoComplete='url'
-                    placeholder='https://api.example.com/v1'
-                    onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}
-                  />
-                </ConfigField>
-              )}
-              {config.role === 'image' ? (
-                <Field>
-                  <FieldLabel htmlFor={imageModelId}>Model ID</FieldLabel>
-                  <Select
-                    value={config.model}
-                    onValueChange={(model: GoogleGeminiImageModel) =>
-                      setConfig({ ...config, model })
-                    }
-                  >
-                    <SelectTrigger id={imageModelId}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {GOOGLE_GEMINI_IMAGE_MODELS.map((model) => (
-                          <SelectItem key={model} value={model}>
-                            {model}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              ) : (
-                <ConfigField label='Model ID'>
-                  <Input
-                    value={config.model}
-                    autoComplete='off'
-                    placeholder={role === 'mineru' ? 'vlm' : 'provider model ID'}
-                    onChange={(event) => setConfig({ ...config, model: event.target.value })}
-                  />
-                </ConfigField>
-              )}
-              {config.role !== 'mineru' && config.role !== 'image' && (
-                <ConfigField label='Model revision'>
-                  <Input
-                    value={config.modelRevision}
-                    autoComplete='off'
-                    placeholder='Provider snapshot or revision'
-                    onChange={(event) =>
-                      setConfig({ ...config, modelRevision: event.target.value })
-                    }
-                  />
-                </ConfigField>
-              )}
-              {config.role === 'agent' && (
-                <ConfigField
-                  label='Context window override (tokens)'
-                  description='Leave blank to use models.dev metadata, its offline cache, or the compatibility fallback.'
-                >
-                  <Input
-                    type='number'
-                    min={8_192}
-                    max={10_000_000}
-                    value={config.contextWindowTokens ?? ''}
-                    placeholder='Auto-detect from models.dev'
-                    onChange={(event) =>
-                      setConfig({
-                        ...config,
-                        contextWindowTokens:
-                          event.target.value === '' ? null : Number(event.target.value)
-                      })
-                    }
-                  />
-                </ConfigField>
-              )}
-              <ConfigField label={config.role === 'image' ? 'Gemini API key' : 'API key or token'}>
-                <Input
-                  type='password'
-                  value={apiKey}
-                  autoComplete='new-password'
-                  placeholder={
-                    status?.configured ? 'Leave blank to keep the stored value' : 'Required'
-                  }
-                  onChange={(event) => setApiKey(event.target.value)}
-                />
-              </ConfigField>
-              {config.role === 'image' && (
-                <p className='text-sm text-muted-foreground'>
-                  Uses the fixed official Google Gemini endpoint through @google/genai. No custom
-                  URL or API version is accepted.
-                </p>
-              )}
-              {config.role !== 'image' && (
-                <div className='grid gap-4 sm:grid-cols-2'>
-                  <ConfigField
-                    label='Request timeout (milliseconds)'
-                    description={
-                      config.role === 'agent'
-                        ? 'Applies to each model request, including its automatic retries.'
-                        : undefined
-                    }
-                  >
-                    <Input
-                      type='number'
-                      min={1_000}
-                      max={300_000}
-                      value={config.timeoutMs}
-                      onChange={(event) =>
-                        setConfig({ ...config, timeoutMs: Number(event.target.value) })
-                      }
-                    />
-                  </ConfigField>
-                  <ConfigField label='Batch limit'>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={status?.capability.maxBatchSize ?? 2_048}
-                      value={config.batchLimit}
-                      onChange={(event) =>
-                        setConfig({ ...config, batchLimit: Number(event.target.value) })
-                      }
-                    />
-                  </ConfigField>
-                  {config.role === 'embedding' && (
-                    <ConfigField label='Embedding dimensions'>
-                      <Input
-                        type='number'
-                        min={1}
-                        max={65_536}
-                        value={config.embeddingDimension ?? ''}
-                        onChange={(event) =>
-                          setConfig({ ...config, embeddingDimension: Number(event.target.value) })
-                        }
-                      />
-                    </ConfigField>
-                  )}
-                  {config.role === 'mineru' && (
-                    <ConfigField label='File limit (MB)'>
-                      <Input
-                        type='number'
-                        min={1}
-                        max={200}
-                        value={config.fileSizeLimitMb ?? ''}
-                        onChange={(event) =>
-                          setConfig({ ...config, fileSizeLimitMb: Number(event.target.value) })
-                        }
-                      />
-                    </ConfigField>
-                  )}
-                </div>
-              )}
-              {status && status.capability.supportedFormats.length > 0 && (
-                <p className='text-sm text-muted-foreground'>
-                  Current import slice: {status.capability.supportedFormats.join(', ')}. Registered
-                  maximum: {status.capability.maxFileSizeMb} MB and {status.capability.maxPages}{' '}
-                  pages.
-                </p>
-              )}
-              {status && status.issues.length > 0 && (
-                <ul className='flex list-disc flex-col gap-1 pl-5 text-sm text-destructive'>
-                  {status.issues.map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              )}
-            </FieldGroup>
+            <SingletonConfigFields
+              role={role}
+              config={config}
+              setConfig={setConfig}
+              statusConfigured={status?.configured === true}
+              apiKey={apiKey}
+              setApiKey={setApiKey}
+            />
           )}
 
-          <DialogFooter className='gap-2 sm:justify-between'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
             <Button
-              type='button'
               variant='destructive'
               disabled={!status?.config || busy !== null}
               onClick={() => setConfirmRemove(true)}
             >
               <Trash2 data-icon='inline-start' /> Remove
             </Button>
-            <div className='flex flex-col-reverse gap-2 sm:flex-row'>
-              <DialogClose asChild>
-                <Button type='button' variant='outline'>
-                  Close
-                </Button>
-              </DialogClose>
+            <div className='flex flex-wrap gap-2'>
               <Button
-                type='button'
                 variant='outline'
                 disabled={!status?.config || busy !== null}
                 onClick={() => void testConnection()}
               >
-                {busy === 'test' && <Spinner data-icon='inline-start' />} Test connection
+                {busy === 'test' ? <Spinner data-icon='inline-start' /> : null}
+                Test connection
               </Button>
-              <Button
-                type='button'
-                disabled={config === null || busy !== null}
-                onClick={() => void save()}
-              >
-                {busy === 'save' && <Spinner data-icon='inline-start' />} Save
+              <Button disabled={config === null || busy !== null} onClick={() => void save()}>
+                {busy === 'save' ? <Spinner data-icon='inline-start' /> : null}
+                Save
               </Button>
             </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </ScrollArea>
 
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove provider configuration?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes its encrypted credential and application-global metadata. Project files
-              remain portable and unchanged.
+              This removes encrypted credentials and application-global metadata. Project files
+              remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -504,7 +326,8 @@ function SingletonProviderSettingsDialog({
               disabled={busy !== null}
               onClick={() => void remove()}
             >
-              {busy === 'remove' && <Spinner data-icon='inline-start' />} Remove provider
+              {busy === 'remove' ? <Spinner data-icon='inline-start' /> : null}
+              Remove provider
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -513,364 +336,1148 @@ function SingletonProviderSettingsDialog({
   )
 }
 
-function AgentProviderCatalogDialog({
+function SingletonConfigFields({
   role,
-  onOpenChange,
-  onSnapshotChange
-}: ProviderSettingsDialogProps): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [api, setApi] = useState<CustomAgentPiApi>('openai-completions')
+  config,
+  setConfig,
+  statusConfigured,
+  apiKey,
+  setApiKey
+}: {
+  role: ProviderRole
+  config: ProviderConfig
+  setConfig: (config: ProviderConfig) => void
+  statusConfigured: boolean
+  apiKey: string
+  setApiKey: (value: string) => void
+}): React.JSX.Element {
+  const imageModelId = useId()
+  return (
+    <FieldGroup>
+      {config.role !== 'image' ? (
+        <ConfigField label='Base URL'>
+          <Input
+            value={config.baseUrl}
+            autoComplete='url'
+            placeholder='https://api.example.com/v1'
+            onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })}
+          />
+        </ConfigField>
+      ) : null}
+      {config.role === 'image' ? (
+        <Field>
+          <FieldLabel htmlFor={imageModelId}>Model ID</FieldLabel>
+          <Select
+            value={config.model}
+            onValueChange={(model: GoogleGeminiImageModel) => setConfig({ ...config, model })}
+          >
+            <SelectTrigger id={imageModelId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {GOOGLE_GEMINI_IMAGE_MODELS.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+      ) : (
+        <ConfigField label='Model ID'>
+          <Input
+            value={config.model}
+            autoComplete='off'
+            placeholder={role === 'mineru' ? 'vlm' : 'provider model ID'}
+            onChange={(event) => setConfig({ ...config, model: event.target.value })}
+          />
+        </ConfigField>
+      )}
+      {config.role !== 'mineru' && config.role !== 'image' ? (
+        <ConfigField label='Model revision'>
+          <Input
+            value={config.modelRevision}
+            onChange={(event) => setConfig({ ...config, modelRevision: event.target.value })}
+          />
+        </ConfigField>
+      ) : null}
+      <ConfigField label={config.role === 'image' ? 'Gemini API key' : 'API key or token'}>
+        <Input
+          type='password'
+          value={apiKey}
+          autoComplete='new-password'
+          placeholder={statusConfigured ? 'Stored — enter a new value to replace' : 'Required'}
+          onChange={(event) => setApiKey(event.target.value)}
+        />
+      </ConfigField>
+      {config.role !== 'image' ? (
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <ConfigField label='Request timeout (milliseconds)'>
+            <Input
+              type='number'
+              min={1_000}
+              max={300_000}
+              value={config.timeoutMs}
+              onChange={(event) => setConfig({ ...config, timeoutMs: Number(event.target.value) })}
+            />
+          </ConfigField>
+          <ConfigField label='Batch limit'>
+            <Input
+              type='number'
+              min={1}
+              value={config.batchLimit}
+              onChange={(event) => setConfig({ ...config, batchLimit: Number(event.target.value) })}
+            />
+          </ConfigField>
+          {config.role === 'embedding' ? (
+            <ConfigField label='Embedding dimensions'>
+              <Input
+                type='number'
+                min={1}
+                value={config.embeddingDimension}
+                onChange={(event) =>
+                  setConfig({ ...config, embeddingDimension: Number(event.target.value) })
+                }
+              />
+            </ConfigField>
+          ) : null}
+          {config.role === 'mineru' ? (
+            <ConfigField label='File limit (MB)'>
+              <Input
+                type='number'
+                min={1}
+                max={200}
+                value={config.fileSizeLimitMb ?? ''}
+                onChange={(event) =>
+                  setConfig({ ...config, fileSizeLimitMb: Number(event.target.value) })
+                }
+              />
+            </ConfigField>
+          ) : null}
+        </div>
+      ) : (
+        <p className='text-sm text-muted-foreground'>
+          Uses the fixed official Google Gemini endpoint through @google/genai.
+        </p>
+      )}
+    </FieldGroup>
+  )
+}
+
+interface AgentDraft {
+  presetId?: string
+  name: string
+  logoOverrideId: ModelsDevProviderLogoId | null
+  baseUrl: string
+  api: CustomAgentPiApi
+  authMode: 'api_key' | 'none'
+  timeoutMs: number
+}
+
+function AgentProviderWorkspace({
+  snapshot,
+  closeAction,
+  onSnapshotChange,
+  onError
+}: ProviderSettingsWorkspaceProps): React.JSX.Element {
+  const orderedPresets = orderEnabledAgentProvidersFirst(snapshot.agentCatalog.presets)
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
+    orderedPresets[0]?.presetId ?? null
+  )
+  const [providerSearch, setProviderSearch] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
+  const [draft, setDraft] = useState<AgentDraft | null>(null)
   const [apiKey, setApiKey] = useState('')
-  const [credentialPresetId, setCredentialPresetId] = useState<string | null>(null)
-  const [credential, setCredential] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [addProviderOpen, setAddProviderOpen] = useState(false)
+  const [newProviderName, setNewProviderName] = useState('')
+  const [newProviderApi, setNewProviderApi] = useState<CustomAgentPiApi>('openai-completions')
+  const [manualModel, setManualModel] = useState<AgentManualModel | null>(null)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [mobileDetail, setMobileDetail] = useState(false)
   const [authFlowId, setAuthFlowId] = useState<string | null>(null)
   const [authEvent, setAuthEvent] = useState<AgentAuthInteractionEvent | null>(null)
   const [authValue, setAuthValue] = useState('')
 
+  const selectedPreset =
+    snapshot.agentCatalog.presets.find((preset) => preset.presetId === selectedPresetId) ?? null
+  const savedAuthMode = selectedPreset?.authMethods.includes('none') ? 'none' : 'api_key'
+  const providerHasUnsavedChanges =
+    draft !== null &&
+    (selectedPreset === null ||
+      draft.name.trim() !== selectedPreset.name ||
+      draft.logoOverrideId !== selectedPreset.logoOverrideId ||
+      draft.baseUrl.trim() !== (selectedPreset.baseUrl ?? '') ||
+      draft.authMode !== savedAuthMode ||
+      apiKey.trim() !== '')
+  const providerCanSave =
+    draft !== null &&
+    draft.name.trim() !== '' &&
+    draft.baseUrl.trim() !== '' &&
+    busy === null &&
+    providerHasUnsavedChanges
+
   useEffect(() => {
-    if (role !== 'agent') return
-    let current = true
-    setBusy(true)
-    setError(null)
-    void window.desktop.providers
-      .snapshot()
-      .then((next) => {
-        if (current) setSnapshot(next)
+    if (selectedPreset !== null) {
+      setDraft({
+        presetId: selectedPreset.presetId,
+        name: selectedPreset.name,
+        logoOverrideId: selectedPreset.logoOverrideId,
+        baseUrl: selectedPreset.baseUrl ?? '',
+        api: selectedPreset.api ?? 'openai-completions',
+        authMode: selectedPreset.authMethods.includes('none') ? 'none' : 'api_key',
+        timeoutMs: 60_000
       })
-      .catch(() => {
-        if (current) setError('Agent provider catalog could not be loaded.')
-      })
-      .finally(() => {
-        if (current) setBusy(false)
-      })
-    return () => {
-      current = false
+      setApiKey('')
+      setModelSearch('')
     }
-  }, [role])
+  }, [selectedPreset])
+
+  const providerDisplayName = (preset: AgentProviderPresetSummary): string =>
+    preset.presetId === selectedPresetId && draft?.presetId === preset.presetId
+      ? draft.name.trim() || preset.name
+      : preset.name
+  const draftAutomaticLogoId =
+    draft === null
+      ? null
+      : resolveModelsDevProviderLogoId({
+          providerId: selectedPreset?.providerId ?? 'writellm-custom:draft',
+          name: draft.name,
+          baseUrl: draft.baseUrl,
+          logoOverrideId: null
+        })
+  const draftLogoId = draft?.logoOverrideId ?? draftAutomaticLogoId
+  const providerDisplayLogoId = (preset: AgentProviderPresetSummary): string | null =>
+    preset.presetId === selectedPresetId && draft?.presetId === preset.presetId
+      ? draftLogoId
+      : preset.logoId
+  const presets = orderedPresets.filter((preset) =>
+    `${providerDisplayName(preset)} ${preset.providerId}`
+      .toLowerCase()
+      .includes(providerSearch.toLowerCase())
+  )
+  const visibleModels = (selectedPreset?.models ?? []).filter((model) =>
+    `${model.name} ${model.id} ${model.api}`.toLowerCase().includes(modelSearch.toLowerCase())
+  )
 
   const updateSnapshot = (next: ProviderSettingsSnapshot): void => {
-    setSnapshot(next)
     onSnapshotChange(next)
   }
 
-  const createPreset = async (): Promise<void> => {
-    setBusy(true)
-    setError(null)
+  const choosePreset = (presetId: string): void => {
+    setSelectedPresetId(presetId)
+    setMobileDetail(true)
+  }
+
+  const beginAddProvider = (): void => {
+    if (newProviderName.trim() === '') return
+    setSelectedPresetId(null)
+    setDraft({
+      name: newProviderName.trim(),
+      logoOverrideId: null,
+      baseUrl: '',
+      api: newProviderApi,
+      authMode: 'api_key',
+      timeoutMs: 60_000
+    })
+    setApiKey('')
+    setAddProviderOpen(false)
+    setNewProviderName('')
+    setMobileDetail(true)
+  }
+
+  const savePreset = async (): Promise<void> => {
+    if (draft === null || draft.baseUrl.trim() === '') return
+    setBusy('save-preset')
     try {
       const next = await window.desktop.providers.saveAgentPreset({
-        name,
-        baseUrl,
-        api,
-        authMode: apiKey.trim() === '' ? 'none' : 'api_key',
-        timeoutMs: 60_000,
+        ...(draft.presetId === undefined ? {} : { presetId: draft.presetId }),
+        name: draft.name,
+        logoOverrideId: draft.logoOverrideId,
+        baseUrl: draft.baseUrl,
+        api: draft.api,
+        authMode: draft.authMode,
+        timeoutMs: draft.timeoutMs,
         ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
       })
       updateSnapshot(next)
-      setName('')
-      setBaseUrl('')
+      const persisted =
+        draft.presetId === undefined
+          ? next.agentCatalog.presets.find(
+              (preset) =>
+                preset.kind === 'custom' &&
+                preset.name === draft.name &&
+                preset.baseUrl === draft.baseUrl
+            )
+          : next.agentCatalog.presets.find((preset) => preset.presetId === draft.presetId)
+      setSelectedPresetId(persisted?.presetId ?? null)
       setApiKey('')
     } catch {
-      setError('Custom Agent preset was not saved. Check its URL and credential.')
+      onError('Custom Agent provider was not saved. Check its name, URL, and credential.')
     } finally {
-      setBusy(false)
-    }
-  }
-
-  const refresh = async (presetId: string): Promise<void> => {
-    setBusy(true)
-    setError(null)
-    try {
-      updateSnapshot(await window.desktop.providers.refreshAgentPreset({ presetId }))
-    } catch {
-      setError('Model discovery failed. The last successful catalog was retained.')
-      setSnapshot(await window.desktop.providers.snapshot())
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = async (presetId: string): Promise<void> => {
-    setBusy(true)
-    setError(null)
-    try {
-      updateSnapshot(await window.desktop.providers.removeAgentPreset({ presetId }))
-    } catch {
-      setError('The Agent provider preset could not be removed.')
-    } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   const saveCredential = async (): Promise<void> => {
-    if (credentialPresetId === null || credential.trim() === '') return
-    setBusy(true)
-    setError(null)
+    if (selectedPreset === null || apiKey.trim() === '') return
+    setBusy('credential')
     try {
       updateSnapshot(
         await window.desktop.providers.setAgentCredential({
-          presetId: credentialPresetId,
-          apiKey: credential.trim()
+          presetId: selectedPreset.presetId,
+          apiKey: apiKey.trim()
         })
       )
-      setCredential('')
-      setCredentialPresetId(null)
+      setApiKey('')
     } catch {
-      setError('The Agent provider credential could not be saved.')
+      onError('The Agent provider credential could not be saved.')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const login = async (presetId: string): Promise<void> => {
+  const clearCredential = async (): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy('credential')
+    try {
+      updateSnapshot(
+        await window.desktop.providers.clearAgentCredential({
+          presetId: selectedPreset.presetId
+        })
+      )
+    } catch {
+      onError('The Agent provider credential could not be cleared.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const refresh = async (): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy('refresh')
+    try {
+      updateSnapshot(
+        await window.desktop.providers.refreshAgentPreset({
+          presetId: selectedPreset.presetId
+        })
+      )
+    } catch {
+      onError('Model discovery failed. The last successful catalog was retained.')
+      updateSnapshot(await window.desktop.providers.snapshot())
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const toggleProvider = async (enabled: boolean): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy('provider-toggle')
+    try {
+      updateSnapshot(
+        await window.desktop.providers.setAgentProviderEnabled({
+          presetId: selectedPreset.presetId,
+          enabled
+        })
+      )
+    } catch {
+      onError('Provider availability could not be changed.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const toggleModel = async (modelId: string, enabled: boolean): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy(`model:${modelId}`)
+    try {
+      updateSnapshot(
+        await window.desktop.providers.setAgentModelEnabled({
+          presetId: selectedPreset.presetId,
+          modelId,
+          enabled
+        })
+      )
+    } catch {
+      onError('Model availability could not be changed.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const setDefaultModel = async (modelId: string): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy(`default:${modelId}`)
+    try {
+      updateSnapshot(
+        await window.desktop.providers.setAgentDefault({
+          presetId: selectedPreset.presetId,
+          modelId
+        })
+      )
+    } catch {
+      onError('Only an enabled, authenticated model can be the default.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const saveManualModel = async (model: AgentManualModel): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy('manual-model')
+    try {
+      updateSnapshot(
+        await window.desktop.providers.saveAgentManualModel({
+          presetId: selectedPreset.presetId,
+          model
+        })
+      )
+      setManualOpen(false)
+      setManualModel(null)
+    } catch {
+      onError('The manual model could not be saved.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const removeManualModel = async (modelId: string): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy(`model:${modelId}`)
+    try {
+      updateSnapshot(
+        await window.desktop.providers.removeAgentManualModel({
+          presetId: selectedPreset.presetId,
+          modelId
+        })
+      )
+    } catch {
+      onError('The manual model could not be removed.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const removeProvider = async (): Promise<void> => {
+    if (selectedPreset === null) return
+    setBusy('remove')
+    try {
+      const next = await window.desktop.providers.removeAgentPreset({
+        presetId: selectedPreset.presetId
+      })
+      updateSnapshot(next)
+      setSelectedPresetId(
+        orderEnabledAgentProvidersFirst(next.agentCatalog.presets)[0]?.presetId ?? null
+      )
+      setConfirmRemove(false)
+      setMobileDetail(false)
+    } catch {
+      onError('The Agent provider could not be removed.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const login = async (): Promise<void> => {
+    if (selectedPreset === null) return
     const flowId = globalThis.crypto.randomUUID()
-    setBusy(true)
-    setError(null)
     setAuthFlowId(flowId)
     setAuthEvent(null)
     setAuthValue('')
+    setBusy('login')
     try {
-      const next = await window.desktop.providers.loginAgentPreset(
-        { flowId, presetId, type: 'oauth' },
-        (event) => {
-          setAuthEvent(event)
-          if (event.kind === 'prompt') setAuthValue('')
-        }
+      updateSnapshot(
+        await window.desktop.providers.loginAgentPreset(
+          { flowId, presetId: selectedPreset.presetId, type: 'oauth' },
+          (event) => {
+            setAuthEvent(event)
+            if (event.kind === 'prompt') setAuthValue('')
+          }
+        )
       )
-      updateSnapshot(next)
     } catch {
-      setError('Provider sign-in did not complete.')
+      onError('Provider sign-in did not complete.')
     } finally {
-      setBusy(false)
+      setBusy(null)
       setAuthFlowId(null)
       setAuthEvent(null)
       setAuthValue('')
     }
   }
 
-  const respondToAuthPrompt = async (): Promise<void> => {
-    if (authEvent?.kind !== 'prompt') return
-    await window.desktop.providers.respondAgentAuth({
-      flowId: authEvent.flowId,
-      promptId: authEvent.promptId,
-      value: authValue
-    })
-    setAuthEvent(null)
-    setAuthValue('')
-  }
-
-  const cancelAuth = async (): Promise<void> => {
-    if (authFlowId === null) return
-    await window.desktop.providers.cancelAgentAuth({ flowId: authFlowId })
-  }
-
   return (
-    <Dialog open={role === 'agent'} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
-        <DialogHeader>
-          <DialogTitle>Agent models</DialogTitle>
-          <DialogDescription>
-            Pi providers and custom endpoint presets are application-global. Credentials stay
-            encrypted in Electron Main.
-          </DialogDescription>
-        </DialogHeader>
-        {snapshot?.credentialBackend.warning ? (
-          <Alert variant='destructive'>
-            <ShieldAlert />
-            <AlertTitle>Secure credential storage unavailable</AlertTitle>
-            <AlertDescription>{snapshot.credentialBackend.warning}</AlertDescription>
-          </Alert>
-        ) : null}
-        {error ? (
-          <Alert variant='destructive'>
-            <AlertCircle />
-            <AlertTitle>Action failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <section className='grid gap-3'>
-          <div>
-            <h3 className='text-sm font-medium'>Provider catalog</h3>
-            <p className='text-xs text-muted-foreground'>
-              Static providers use the pinned Pi catalog. Dynamic providers refresh only when you
-              request it.
-            </p>
-          </div>
-          <div className='max-h-72 space-y-1 overflow-y-auto rounded-md border p-2'>
-            {busy && snapshot === null ? (
-              <div className='flex min-h-24 items-center justify-center gap-2 text-muted-foreground'>
-                <Spinner /> Loading providers…
+    <>
+      <div className='grid h-full min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]'>
+        <section
+          className={cn('min-h-0 flex-col border-r', mobileDetail ? 'hidden lg:flex' : 'flex')}
+        >
+          <div className='flex flex-col gap-3 border-b p-4'>
+            <div className='flex items-start gap-3'>
+              <div className='min-w-0 flex-1'>
+                <h2 className='font-semibold'>Agent providers</h2>
+                <p className='text-xs text-muted-foreground'>Pi built-ins and custom endpoints.</p>
               </div>
-            ) : (
-              snapshot?.agentCatalog.presets.map((preset) => (
-                <div
+              <div className='lg:hidden'>{closeAction}</div>
+            </div>
+            <InputGroup>
+              <InputGroupAddon>
+                <Search />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label='Search Agent providers'
+                value={providerSearch}
+                placeholder='Search providers…'
+                onChange={(event) => setProviderSearch(event.target.value)}
+              />
+            </InputGroup>
+          </div>
+          <ScrollArea className='min-h-0 flex-1'>
+            <div className='flex flex-col gap-1 p-2' data-testid='agent-provider-list'>
+              {presets.map((preset) => (
+                <Button
                   key={preset.presetId}
-                  className='flex min-w-0 flex-wrap items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50'
+                  data-agent-provider-preset-id={preset.presetId}
+                  variant={preset.presetId === selectedPresetId ? 'secondary' : 'ghost'}
+                  className='h-auto min-w-0 justify-start px-3 py-2'
+                  onClick={() => choosePreset(preset.presetId)}
                 >
-                  <div className='min-w-0 flex-1'>
-                    <div className='truncate text-sm font-medium'>{preset.name}</div>
-                    <div className='truncate text-xs text-muted-foreground'>
-                      {preset.models.length} models · {preset.catalogStatus}
-                      {preset.authSource ? ` · ${preset.authSource}` : ''}
-                    </div>
-                  </div>
-                  <Badge variant={preset.authConfigured ? 'default' : 'secondary'}>
-                    {preset.authConfigured ? 'Connected' : 'Not connected'}
+                  <ProviderLogo
+                    logoId={providerDisplayLogoId(preset)}
+                    name={providerDisplayName(preset)}
+                  />
+                  <span className='min-w-0 flex-1 text-left'>
+                    <span className='block truncate'>{providerDisplayName(preset)}</span>
+                    <span className='block truncate text-xs text-muted-foreground'>
+                      {preset.models.filter((model) => model.enabled).length} enabled
+                    </span>
+                  </span>
+                  <Badge variant={preset.enabled ? 'default' : 'secondary'}>
+                    {preset.enabled ? 'On' : 'Off'}
                   </Badge>
-                  {preset.authMethods.includes('api_key') ? (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      disabled={busy}
-                      onClick={() => setCredentialPresetId(preset.presetId)}
-                    >
-                      API key
-                    </Button>
-                  ) : null}
-                  {preset.authMethods.includes('oauth') ? (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      disabled={busy}
-                      onClick={() => void login(preset.presetId)}
-                    >
-                      Sign in
-                    </Button>
-                  ) : null}
+                </Button>
+              ))}
+            </div>
+          </ScrollArea>
+          <div className='border-t p-3'>
+            <Button className='w-full' variant='outline' onClick={() => setAddProviderOpen(true)}>
+              <Plus data-icon='inline-start' /> Add provider
+            </Button>
+          </div>
+        </section>
+
+        <section
+          className={cn('min-h-0 min-w-0 flex-col', mobileDetail ? 'flex' : 'hidden lg:flex')}
+        >
+          {draft === null ? (
+            <>
+              <div className='flex justify-end p-5 pb-0 lg:p-7 lg:pb-0'>{closeAction}</div>
+              <Empty className='h-full flex-1 border-0'>
+                <EmptyHeader>
+                  <EmptyMedia variant='icon'>
+                    <Bot />
+                  </EmptyMedia>
+                  <EmptyTitle>Select a provider</EmptyTitle>
+                  <EmptyDescription>
+                    Choose a Pi provider or add a custom endpoint to manage its models.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button variant='outline' onClick={() => setAddProviderOpen(true)}>
+                    <Plus data-icon='inline-start' /> Add provider
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            </>
+          ) : (
+            <ScrollArea className='h-full'>
+              <div className='flex min-w-0 flex-col gap-6 p-5 lg:p-7'>
+                <header className='flex flex-wrap items-center gap-3'>
                   <Button
                     size='icon-sm'
                     variant='ghost'
-                    aria-label={`Refresh ${preset.name} models`}
-                    disabled={busy || preset.catalogStatus === 'packaged'}
-                    onClick={() => void refresh(preset.presetId)}
+                    className='lg:hidden'
+                    aria-label='Back to providers'
+                    onClick={() => setMobileDetail(false)}
                   >
-                    <RefreshCw />
+                    <ArrowLeft />
                   </Button>
-                  {preset.kind === 'custom' || preset.authConfigured ? (
-                    <Button
-                      size='icon-sm'
-                      variant='ghost'
-                      aria-label={`${preset.kind === 'custom' ? 'Remove' : 'Disconnect'} ${preset.name}`}
-                      disabled={busy}
-                      onClick={() => void remove(preset.presetId)}
-                    >
-                      <Trash2 />
-                    </Button>
+                  <ProviderLogo
+                    logoId={
+                      selectedPreset?.kind === 'custom'
+                        ? draftLogoId
+                        : (selectedPreset?.logoId ?? null)
+                    }
+                    name={draft.name}
+                    size='lg'
+                  />
+                  <div className='min-w-0 flex-1'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <h2 className='truncate text-xl font-semibold'>{draft.name}</h2>
+                      <Badge variant='outline'>
+                        {selectedPreset?.kind ?? 'custom'} · {draft.api}
+                      </Badge>
+                    </div>
+                    <p className='text-sm text-muted-foreground'>
+                      {selectedPreset?.authConfigured
+                        ? `Connected${selectedPreset.authSource ? ` through ${selectedPreset.authSource}` : ''}`
+                        : 'Not connected'}
+                    </p>
+                  </div>
+                  {selectedPreset ? (
+                    <Field orientation='horizontal' className='w-auto shrink-0'>
+                      <FieldLabel htmlFor='agent-provider-enabled'>Enabled</FieldLabel>
+                      <Switch
+                        id='agent-provider-enabled'
+                        checked={selectedPreset.enabled}
+                        disabled={busy !== null}
+                        onCheckedChange={(checked) => void toggleProvider(checked)}
+                      />
+                    </Field>
                   ) : null}
+                  {selectedPreset?.kind === 'custom' || selectedPreset === null ? (
+                    <div className='flex shrink-0 items-center gap-2'>
+                      {providerHasUnsavedChanges ? (
+                        <Badge variant='secondary'>Unsaved changes</Badge>
+                      ) : null}
+                      <Button disabled={!providerCanSave} onClick={() => void savePreset()}>
+                        {busy === 'save-preset' ? <Spinner data-icon='inline-start' /> : null}
+                        {selectedPreset === null ? 'Save provider' : 'Save changes'}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {closeAction}
+                </header>
+
+                {snapshot.credentialBackend.warning ? (
+                  <Alert variant='destructive'>
+                    <ShieldAlert />
+                    <AlertTitle>Secure credential storage unavailable</AlertTitle>
+                    <AlertDescription>{snapshot.credentialBackend.warning}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                <FieldGroup>
+                  {selectedPreset?.kind === 'custom' || selectedPreset === null ? (
+                    <>
+                      <ConfigField label='Provider name'>
+                        <Input
+                          value={draft.name}
+                          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                        />
+                      </ConfigField>
+                      <ConfigField
+                        label='Provider logo'
+                        description='Uses a packaged models.dev logo. Automatic matching checks the endpoint and Provider name.'
+                      >
+                        <ProviderLogoPicker
+                          value={draft.logoOverrideId}
+                          automaticLogoId={draftAutomaticLogoId}
+                          disabled={busy !== null}
+                          onValueChange={(logoOverrideId) => setDraft({ ...draft, logoOverrideId })}
+                        />
+                      </ConfigField>
+                      <ConfigField
+                        label='Base URL'
+                        description='Use HTTPS, or HTTP only for a loopback endpoint.'
+                      >
+                        <Input
+                          value={draft.baseUrl}
+                          autoComplete='url'
+                          placeholder='https://api.example.com/v1'
+                          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+                        />
+                      </ConfigField>
+                      <Field>
+                        <FieldLabel>Authentication</FieldLabel>
+                        <Select
+                          value={draft.authMode}
+                          onValueChange={(value) =>
+                            setDraft({ ...draft, authMode: value as 'api_key' | 'none' })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value='api_key'>API key</SelectItem>
+                              <SelectItem value='none'>Keyless</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </>
+                  ) : (
+                    <Field>
+                      <FieldTitle>Endpoint</FieldTitle>
+                      <FieldDescription>
+                        Managed by the pinned Pi provider. Add a custom provider to use another
+                        endpoint.
+                      </FieldDescription>
+                    </Field>
+                  )}
+
+                  {draft.authMode === 'api_key' &&
+                  (selectedPreset === null || selectedPreset.authMethods.includes('api_key')) ? (
+                    <ConfigField label='API key'>
+                      <Input
+                        type='password'
+                        value={apiKey}
+                        autoComplete='new-password'
+                        placeholder={
+                          selectedPreset?.authConfigured
+                            ? 'Stored — enter a new value to replace'
+                            : 'Enter provider API key'
+                        }
+                        onChange={(event) => setApiKey(event.target.value)}
+                      />
+                    </ConfigField>
+                  ) : null}
+                </FieldGroup>
+
+                <div className='flex flex-wrap items-center gap-2'>
+                  <div className='flex flex-wrap gap-2'>
+                    {selectedPreset?.authMethods.includes('oauth') ? (
+                      <Button
+                        variant='outline'
+                        disabled={busy !== null}
+                        onClick={() => void login()}
+                      >
+                        {busy === 'login' ? <Spinner data-icon='inline-start' /> : <KeyRound />}
+                        Sign in
+                      </Button>
+                    ) : null}
+                    {selectedPreset?.authConfigured && draft.authMode !== 'none' ? (
+                      <Button
+                        variant='outline'
+                        disabled={busy !== null}
+                        onClick={() => void clearCredential()}
+                      >
+                        Disconnect
+                      </Button>
+                    ) : null}
+                    {selectedPreset !== null &&
+                    draft.authMode === 'api_key' &&
+                    selectedPreset.authMethods.includes('api_key') ? (
+                      <Button
+                        variant='outline'
+                        disabled={busy !== null || apiKey.trim() === ''}
+                        onClick={() => void saveCredential()}
+                      >
+                        Save credential
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
+
+                {selectedPreset ? (
+                  <>
+                    <Separator />
+                    <section className='flex min-w-0 flex-col gap-4'>
+                      <div className='flex flex-wrap items-end gap-3'>
+                        <div className='min-w-0 flex-1'>
+                          <h3 className='font-semibold'>Models</h3>
+                          <p className='text-sm text-muted-foreground'>
+                            {selectedPreset.models.length} models · {selectedPreset.catalogStatus}
+                            {selectedPreset.checkedAt
+                              ? ` · checked ${new Date(selectedPreset.checkedAt).toLocaleString()}`
+                              : ''}
+                          </p>
+                        </div>
+                        <Button
+                          variant='outline'
+                          disabled={busy !== null || !selectedPreset.canRefresh}
+                          aria-label={`Fetch ${selectedPreset.name} models`}
+                          onClick={() => void refresh()}
+                        >
+                          {busy === 'refresh' ? (
+                            <Spinner data-icon='inline-start' />
+                          ) : (
+                            <RefreshCw data-icon='inline-start' />
+                          )}
+                          Fetch models
+                        </Button>
+                        <Button
+                          variant='outline'
+                          disabled={availableApis(selectedPreset).length === 0}
+                          onClick={() => {
+                            setManualModel(null)
+                            setManualOpen(true)
+                          }}
+                        >
+                          <Plus data-icon='inline-start' /> Add model
+                        </Button>
+                      </div>
+                      <InputGroup>
+                        <InputGroupAddon>
+                          <Search />
+                        </InputGroupAddon>
+                        <InputGroupInput
+                          aria-label='Search Agent models'
+                          value={modelSearch}
+                          placeholder='Search models…'
+                          onChange={(event) => setModelSearch(event.target.value)}
+                        />
+                      </InputGroup>
+
+                      {visibleModels.length === 0 ? (
+                        <Empty className='min-h-52'>
+                          <EmptyHeader>
+                            <EmptyMedia variant='icon'>
+                              <Bot />
+                            </EmptyMedia>
+                            <EmptyTitle>No models</EmptyTitle>
+                            <EmptyDescription>
+                              Fetch the provider catalog or add a manual model ID.
+                            </EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
+                      ) : (
+                        <div className='flex min-w-0 flex-col divide-y rounded-md border'>
+                          {visibleModels.map((model) => {
+                            const isDefault =
+                              snapshot.agentCatalog.defaultSelection?.presetId ===
+                                selectedPreset.presetId &&
+                              snapshot.agentCatalog.defaultSelection.modelId === model.id
+                            return (
+                              <div
+                                key={model.id}
+                                className='flex min-w-0 flex-wrap items-center gap-3 px-3 py-3'
+                              >
+                                <Switch
+                                  checked={model.enabled}
+                                  disabled={busy !== null}
+                                  aria-label={`Enable ${model.name}`}
+                                  onCheckedChange={(checked) => void toggleModel(model.id, checked)}
+                                />
+                                <div className='min-w-48 flex-1'>
+                                  <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                                    <span className='truncate text-sm font-medium'>
+                                      {model.name}
+                                    </span>
+                                    <Badge variant='outline'>{model.source}</Badge>
+                                    {model.reasoning ? (
+                                      <Badge variant='secondary'>Reasoning</Badge>
+                                    ) : null}
+                                    {model.input.includes('image') ? (
+                                      <Badge variant='secondary'>Vision</Badge>
+                                    ) : null}
+                                  </div>
+                                  <div className='truncate text-xs text-muted-foreground'>
+                                    {model.id} · {model.api} ·{' '}
+                                    {model.contextWindow.toLocaleString()} context ·{' '}
+                                    {model.maxTokens.toLocaleString()} output
+                                  </div>
+                                </div>
+                                <Button
+                                  size='icon-sm'
+                                  variant={isDefault ? 'secondary' : 'ghost'}
+                                  aria-label={`Set ${model.name} as default`}
+                                  disabled={
+                                    busy !== null ||
+                                    !model.enabled ||
+                                    !selectedPreset.enabled ||
+                                    !selectedPreset.authConfigured
+                                  }
+                                  onClick={() => void setDefaultModel(model.id)}
+                                >
+                                  {isDefault ? <Check /> : <Star />}
+                                </Button>
+                                {model.source === 'manual' ? (
+                                  <>
+                                    <Button
+                                      size='icon-sm'
+                                      variant='ghost'
+                                      aria-label={`Edit ${model.name}`}
+                                      onClick={() => {
+                                        setManualModel({
+                                          id: model.id,
+                                          name: model.name,
+                                          api: model.api,
+                                          reasoning: model.reasoning,
+                                          input: model.input,
+                                          contextWindow: model.contextWindow,
+                                          maxTokens: model.maxTokens
+                                        })
+                                        setManualOpen(true)
+                                      }}
+                                    >
+                                      <ChevronRight />
+                                    </Button>
+                                    <Button
+                                      size='icon-sm'
+                                      variant='ghost'
+                                      aria-label={`Remove ${model.name}`}
+                                      disabled={busy !== null}
+                                      onClick={() => void removeManualModel(model.id)}
+                                    >
+                                      <Trash2 />
+                                    </Button>
+                                  </>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </section>
+
+                    {selectedPreset.kind === 'custom' ? (
+                      <>
+                        <Separator />
+                        <div className='flex justify-end'>
+                          <Button
+                            variant='destructive'
+                            disabled={busy !== null}
+                            onClick={() => setConfirmRemove(true)}
+                          >
+                            <Trash2 data-icon='inline-start' /> Remove provider
+                          </Button>
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            </ScrollArea>
+          )}
         </section>
-        {credentialPresetId !== null ? (
-          <FieldGroup className='grid gap-3 rounded-md border p-3'>
-            <ConfigField label='Provider API key'>
+      </div>
+
+      <Dialog open={addProviderOpen} onOpenChange={setAddProviderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add provider</DialogTitle>
+            <DialogDescription>
+              Choose a transport and a display name. Endpoint and authentication are configured
+              next.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <ConfigField label='Provider name'>
               <Input
-                type='password'
-                value={credential}
-                autoComplete='new-password'
-                onChange={(event) => setCredential(event.target.value)}
+                value={newProviderName}
+                placeholder='My writing provider'
+                onChange={(event) => setNewProviderName(event.target.value)}
               />
             </ConfigField>
-            <div className='flex justify-end gap-2'>
-              <Button variant='outline' onClick={() => setCredentialPresetId(null)}>
-                Cancel
-              </Button>
-              <Button
-                disabled={busy || credential.trim() === ''}
-                onClick={() => void saveCredential()}
+            <Field>
+              <FieldLabel>Provider type</FieldLabel>
+              <Select
+                value={newProviderApi}
+                onValueChange={(value) => setNewProviderApi(value as CustomAgentPiApi)}
               >
-                Save credential
-              </Button>
-            </div>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {customTransports.map((transport) => (
+                      <SelectItem key={transport.value} value={transport.value}>
+                        {transport.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
           </FieldGroup>
-        ) : null}
-        {authFlowId !== null ? (
-          <FieldGroup className='grid gap-3 rounded-md border p-3'>
-            <div>
-              <h3 className='text-sm font-medium'>Provider sign-in</h3>
-              <p className='text-xs text-muted-foreground'>
-                {authEvent?.kind === 'notice'
-                  ? authNoticeText(authEvent)
-                  : authEvent?.kind === 'prompt'
-                    ? authEvent.prompt.message
-                    : 'Waiting for the provider…'}
-              </p>
-            </div>
-            {authEvent?.kind === 'prompt' ? (
-              authEvent.prompt.type === 'select' ? (
-                <Select value={authValue} onValueChange={setAuthValue}>
-                  <SelectTrigger>
-                    <SelectValue placeholder='Choose an account or login method' />
-                  </SelectTrigger>
-                  <SelectContent>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant='outline'>Cancel</Button>
+            </DialogClose>
+            <Button disabled={newProviderName.trim() === ''} onClick={beginAddProvider}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ManualModelDialog
+        open={manualOpen}
+        initial={manualModel}
+        apis={selectedPreset ? availableApis(selectedPreset) : []}
+        busy={busy !== null}
+        onOpenChange={setManualOpen}
+        onSave={saveManualModel}
+      />
+
+      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove custom provider?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its encrypted credential, discovered catalog, manual models, and preferences will be
+              removed. Existing Agent run history remains unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant='destructive'
+              disabled={busy !== null}
+              onClick={() => void removeProvider()}
+            >
+              {busy === 'remove' ? <Spinner data-icon='inline-start' /> : null}
+              Remove provider
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={authFlowId !== null}
+        onOpenChange={(open) => {
+          if (!open && authFlowId !== null) {
+            void window.desktop.providers.cancelAgentAuth({ flowId: authFlowId })
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Provider sign-in</DialogTitle>
+            <DialogDescription>
+              {authEvent?.kind === 'notice'
+                ? authNoticeText(authEvent)
+                : authEvent?.kind === 'prompt'
+                  ? authEvent.prompt.message
+                  : 'Waiting for the provider…'}
+            </DialogDescription>
+          </DialogHeader>
+          {authEvent?.kind === 'prompt' ? (
+            authEvent.prompt.type === 'select' ? (
+              <Select value={authValue} onValueChange={setAuthValue}>
+                <SelectTrigger>
+                  <SelectValue placeholder='Choose an account or login method' />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
                     {authEvent.prompt.options.map((option) => (
                       <SelectItem key={option.id} value={option.id}>
                         {option.label}
                       </SelectItem>
                     ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  type={authEvent.prompt.type === 'secret' ? 'password' : 'text'}
-                  value={authValue}
-                  placeholder={authEvent.prompt.placeholder}
-                  autoComplete={authEvent.prompt.type === 'secret' ? 'new-password' : 'off'}
-                  onChange={(event) => setAuthValue(event.target.value)}
-                />
-              )
-            ) : null}
-            <div className='flex justify-end gap-2'>
-              <Button variant='outline' onClick={() => void cancelAuth()}>
-                Cancel
-              </Button>
-              {authEvent?.kind === 'prompt' ? (
-                <Button disabled={authValue === ''} onClick={() => void respondToAuthPrompt()}>
-                  Continue
-                </Button>
-              ) : null}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                type={authEvent.prompt.type === 'secret' ? 'password' : 'text'}
+                value={authValue}
+                placeholder={authEvent.prompt.placeholder}
+                onChange={(event) => setAuthValue(event.target.value)}
+              />
+            )
+          ) : (
+            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
+              <Spinner /> Waiting for authorization…
             </div>
-          </FieldGroup>
-        ) : null}
-        <FieldGroup className='grid gap-3 rounded-md border p-3'>
-          <div>
-            <h3 className='text-sm font-medium'>Add custom endpoint</h3>
-            <p className='text-xs text-muted-foreground'>
-              Custom endpoints support API-key or keyless authentication and explicit model
-              discovery.
-            </p>
-          </div>
-          <ConfigField label='Preset name'>
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
-          </ConfigField>
-          <ConfigField label='Base URL'>
+          )}
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                if (authFlowId !== null) {
+                  void window.desktop.providers.cancelAgentAuth({ flowId: authFlowId })
+                }
+              }}
+            >
+              Cancel
+            </Button>
+            {authEvent?.kind === 'prompt' ? (
+              <Button
+                disabled={authValue === ''}
+                onClick={() => {
+                  void window.desktop.providers.respondAgentAuth({
+                    flowId: authEvent.flowId,
+                    promptId: authEvent.promptId,
+                    value: authValue
+                  })
+                  setAuthEvent(null)
+                  setAuthValue('')
+                }}
+              >
+                Continue
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function ManualModelDialog({
+  open,
+  initial,
+  apis,
+  busy,
+  onOpenChange,
+  onSave
+}: {
+  open: boolean
+  initial: AgentManualModel | null
+  apis: PiApi[]
+  busy: boolean
+  onOpenChange: (open: boolean) => void
+  onSave: (model: AgentManualModel) => Promise<void>
+}): React.JSX.Element {
+  const [id, setId] = useState('')
+  const [name, setName] = useState('')
+  const [api, setApi] = useState<PiApi>('openai-completions')
+  const [contextWindow, setContextWindow] = useState(131_072)
+  const [maxTokens, setMaxTokens] = useState(8_192)
+  const [reasoning, setReasoning] = useState(false)
+  const [imageInput, setImageInput] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setId(initial?.id ?? '')
+    setName(initial?.name ?? '')
+    setApi(initial?.api ?? apis[0] ?? 'openai-completions')
+    setContextWindow(initial?.contextWindow ?? 131_072)
+    setMaxTokens(initial?.maxTokens ?? 8_192)
+    setReasoning(initial?.reasoning ?? false)
+    setImageInput(initial?.input.includes('image') ?? false)
+  }, [apis, initial, open])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{initial ? 'Edit model' : 'Add model'}</DialogTitle>
+          <DialogDescription>
+            Manual metadata overlays a discovered model with the same ID and survives refreshes.
+          </DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          <ConfigField label='Model ID'>
             <Input
-              value={baseUrl}
-              autoComplete='url'
-              placeholder='https://api.example.com/v1'
-              onChange={(event) => setBaseUrl(event.target.value)}
+              value={id}
+              disabled={initial !== null}
+              placeholder='writer-model'
+              onChange={(event) => setId(event.target.value)}
+            />
+          </ConfigField>
+          <ConfigField label='Display name'>
+            <Input
+              value={name}
+              placeholder='Defaults to the model ID'
+              onChange={(event) => setName(event.target.value)}
             />
           </ConfigField>
           <Field>
-            <FieldLabel>Pi transport</FieldLabel>
-            <Select value={api} onValueChange={(value) => setApi(value as CustomAgentPiApi)}>
+            <FieldLabel>Pi API</FieldLabel>
+            <Select value={api} onValueChange={(value) => setApi(value as PiApi)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {[
-                    'openai-completions',
-                    'openai-responses',
-                    'anthropic-messages',
-                    'google-generative-ai',
-                    'mistral-conversations',
-                    'azure-openai-responses'
-                  ].map((value) => (
+                  {apis.map((value) => (
                     <SelectItem key={value} value={value}>
                       {value}
                     </SelectItem>
@@ -879,29 +1486,90 @@ function AgentProviderCatalogDialog({
               </SelectContent>
             </Select>
           </Field>
-          <ConfigField label='API key (optional for local/keyless endpoints)'>
-            <Input
-              type='password'
-              value={apiKey}
-              autoComplete='new-password'
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </ConfigField>
-          <Button
-            disabled={busy || name.trim() === '' || baseUrl.trim() === ''}
-            onClick={() => void createPreset()}
-          >
-            <Plus data-icon='inline-start' /> Add preset
-          </Button>
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant='ghost' className='w-full justify-between'>
+                Advanced model metadata <ChevronDown data-icon='inline-end' />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <FieldGroup className='pt-3'>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <ConfigField label='Context window'>
+                    <Input
+                      type='number'
+                      min={8_192}
+                      max={10_000_000}
+                      value={contextWindow}
+                      onChange={(event) => setContextWindow(Number(event.target.value))}
+                    />
+                  </ConfigField>
+                  <ConfigField label='Maximum output'>
+                    <Input
+                      type='number'
+                      min={1}
+                      max={10_000_000}
+                      value={maxTokens}
+                      onChange={(event) => setMaxTokens(Number(event.target.value))}
+                    />
+                  </ConfigField>
+                </div>
+                <Field orientation='horizontal'>
+                  <div className='min-w-0 flex-1'>
+                    <FieldTitle>Reasoning model</FieldTitle>
+                    <FieldDescription>Advertise reasoning controls to the Agent.</FieldDescription>
+                  </div>
+                  <Switch
+                    checked={reasoning}
+                    aria-label='Reasoning model'
+                    onCheckedChange={setReasoning}
+                  />
+                </Field>
+                <Field orientation='horizontal'>
+                  <div className='min-w-0 flex-1'>
+                    <FieldTitle>Image input</FieldTitle>
+                    <FieldDescription>Allow the model to receive image context.</FieldDescription>
+                  </div>
+                  <Switch
+                    checked={imageInput}
+                    aria-label='Image input'
+                    onCheckedChange={setImageInput}
+                  />
+                </Field>
+              </FieldGroup>
+            </CollapsibleContent>
+          </Collapsible>
         </FieldGroup>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant='outline'>Close</Button>
+            <Button variant='outline'>Cancel</Button>
           </DialogClose>
+          <Button
+            disabled={busy || id.trim() === '' || apis.length === 0}
+            onClick={() =>
+              void onSave({
+                id: id.trim(),
+                name: name.trim() || id.trim(),
+                api,
+                reasoning,
+                input: imageInput ? ['text', 'image'] : ['text'],
+                contextWindow,
+                maxTokens
+              })
+            }
+          >
+            Save model
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
+}
+
+function availableApis(preset: AgentProviderPresetSummary): PiApi[] {
+  return [
+    ...new Set([...(preset.api ? [preset.api] : []), ...preset.models.map((model) => model.api)])
+  ]
 }
 
 function authNoticeText(event: Extract<AgentAuthInteractionEvent, { kind: 'notice' }>): string {

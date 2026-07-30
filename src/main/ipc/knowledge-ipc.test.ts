@@ -63,6 +63,7 @@ function harness() {
     asset: vi.fn(async () => ({ mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=' }))
   }
   const projectIndex = {
+    readiness: vi.fn<() => 'preparing' | 'available' | 'unavailable'>(() => 'available'),
     requestEmbeddingRefresh: vi.fn(async () => undefined),
     isCurrentGenerationIndexed: vi.fn(async () => true)
   }
@@ -140,9 +141,21 @@ describe('knowledge IPC', () => {
       assetRef
     )
     await expect(invoke(IPC_CHANNELS.knowledgeIndexStatus, { projectSessionId })).resolves.toEqual({
+      readiness: 'available',
       indexed: true
     })
     expect(projectIndex.isCurrentGenerationIndexed).toHaveBeenCalledOnce()
+  })
+
+  it('reports index preparation without waiting for the index utility', async () => {
+    const { invoke, projectIndex } = harness()
+    projectIndex.readiness.mockReturnValue('preparing')
+
+    await expect(invoke(IPC_CHANNELS.knowledgeIndexStatus, { projectSessionId })).resolves.toEqual({
+      readiness: 'preparing',
+      indexed: false
+    })
+    expect(projectIndex.isCurrentGenerationIndexed).not.toHaveBeenCalled()
   })
 
   it('cancels parsing through a session-authorized knowledge action', async () => {

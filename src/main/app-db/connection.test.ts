@@ -44,6 +44,8 @@ describe('application database', () => {
 
     expect(tables.rows.map((row) => row.name)).toEqual([
       'agent_model_catalogs',
+      'agent_model_preferences',
+      'agent_provider_preferences',
       'app_settings',
       'encrypted_credentials',
       'provider_configs',

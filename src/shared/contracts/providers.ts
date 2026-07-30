@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isModelsDevProviderLogoId } from '../models-dev-provider-logos'
 
 export const providerRoleSchema = z.enum(['agent', 'embedding', 'rerank', 'mineru', 'image'])
 export type ProviderRole = z.infer<typeof providerRoleSchema>
@@ -52,6 +53,8 @@ export const agentModelSummarySchema = z.object({
   id: z.string().trim().min(1).max(500),
   name: z.string().trim().min(1).max(500),
   api: piApiSchema,
+  enabled: z.boolean(),
+  source: z.enum(['packaged', 'discovered', 'manual']),
   reasoning: z.boolean(),
   input: z
     .array(z.enum(['text', 'image']))
@@ -62,6 +65,13 @@ export const agentModelSummarySchema = z.object({
   metadataVerified: z.boolean()
 })
 export type AgentModelSummary = z.infer<typeof agentModelSummarySchema>
+
+export const modelsDevProviderLogoIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .refine(isModelsDevProviderLogoId, 'Unknown packaged Provider logo')
 
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
 
@@ -112,6 +122,11 @@ export const agentProviderPresetSummarySchema = z.object({
   kind: z.enum(['builtin', 'custom']),
   providerId: z.string().trim().min(1).max(200),
   name: z.string().trim().min(1).max(200),
+  logoId: modelsDevProviderLogoIdSchema.nullable(),
+  logoOverrideId: modelsDevProviderLogoIdSchema.nullable(),
+  enabled: z.boolean(),
+  canRefresh: z.boolean(),
+  endpointEditable: z.boolean(),
   baseUrl: providerBaseUrlSchema.optional(),
   api: customAgentPiApiSchema.optional(),
   authMethods: z.array(z.enum(['api_key', 'oauth', 'ambient', 'none'])).max(4),
@@ -133,6 +148,7 @@ export type AgentProviderCatalog = z.infer<typeof agentProviderCatalogSchema>
 export const agentCustomPresetInputSchema = z.object({
   presetId: agentPresetIdSchema.optional(),
   name: z.string().trim().min(1).max(200),
+  logoOverrideId: modelsDevProviderLogoIdSchema.nullable().optional(),
   baseUrl: providerBaseUrlSchema,
   api: customAgentPiApiSchema,
   authMode: z.enum(['api_key', 'none']),
@@ -148,6 +164,55 @@ export const agentPresetCredentialInputSchema = z.object({
   apiKey: z.string().trim().min(1).max(16_384)
 })
 export type AgentPresetCredentialInput = z.infer<typeof agentPresetCredentialInputSchema>
+
+export const agentProviderEnabledInputSchema = z
+  .object({
+    presetId: agentPresetIdSchema,
+    enabled: z.boolean()
+  })
+  .strict()
+export type AgentProviderEnabledInput = z.infer<typeof agentProviderEnabledInputSchema>
+
+export const agentModelEnabledInputSchema = z
+  .object({
+    presetId: agentPresetIdSchema,
+    modelId: z.string().trim().min(1).max(500),
+    enabled: z.boolean()
+  })
+  .strict()
+export type AgentModelEnabledInput = z.infer<typeof agentModelEnabledInputSchema>
+
+export const agentManualModelSchema = z
+  .object({
+    id: z.string().trim().min(1).max(500),
+    name: z.string().trim().min(1).max(500),
+    api: piApiSchema,
+    reasoning: z.boolean(),
+    input: z
+      .array(z.enum(['text', 'image']))
+      .min(1)
+      .max(2),
+    contextWindow: z.number().int().min(8_192).max(10_000_000),
+    maxTokens: z.number().int().min(1).max(10_000_000)
+  })
+  .strict()
+export type AgentManualModel = z.infer<typeof agentManualModelSchema>
+
+export const agentManualModelInputSchema = z
+  .object({
+    presetId: agentPresetIdSchema,
+    model: agentManualModelSchema
+  })
+  .strict()
+export type AgentManualModelInput = z.infer<typeof agentManualModelInputSchema>
+
+export const agentManualModelRemoveInputSchema = z
+  .object({
+    presetId: agentPresetIdSchema,
+    modelId: z.string().trim().min(1).max(500)
+  })
+  .strict()
+export type AgentManualModelRemoveInput = z.infer<typeof agentManualModelRemoveInputSchema>
 
 const providerCommonFields = {
   model: z.string().trim().min(1).max(200),

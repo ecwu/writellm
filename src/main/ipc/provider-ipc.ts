@@ -8,6 +8,10 @@ import {
   agentAuthInteractionEventSchema,
   agentAuthPromptResponseSchema,
   agentModelSelectionSchema,
+  agentModelEnabledInputSchema,
+  agentManualModelInputSchema,
+  agentManualModelRemoveInputSchema,
+  agentProviderEnabledInputSchema,
   agentPresetLoginInputSchema,
   agentPresetInputSchema,
   agentPresetCredentialInputSchema,
@@ -105,6 +109,39 @@ export function registerProviderIpc({
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, apiKey } = agentPresetCredentialInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.setAgentApiKey(presetId, apiKey))
+  })
+  ipc.handle(IPC_CHANNELS.providersClearAgentCredential, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId } = agentPresetInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(await providers.clearAgentCredential(presetId))
+  })
+  ipc.handle(IPC_CHANNELS.providersSetAgentProviderEnabled, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId, enabled } = agentProviderEnabledInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.setAgentProviderEnabled(presetId, enabled)
+    )
+  })
+  ipc.handle(IPC_CHANNELS.providersSetAgentModelEnabled, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId, modelId, enabled } = agentModelEnabledInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.setAgentModelEnabled(presetId, modelId, enabled)
+    )
+  })
+  ipc.handle(IPC_CHANNELS.providersSaveAgentManualModel, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId, model } = agentManualModelInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.saveAgentManualModel(presetId, model)
+    )
+  })
+  ipc.handle(IPC_CHANNELS.providersRemoveAgentManualModel, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId, modelId } = agentManualModelRemoveInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.removeAgentManualModel(presetId, modelId)
+    )
   })
   ipc.handle(IPC_CHANNELS.providersLoginAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
@@ -211,6 +248,11 @@ export function registerProviderIpc({
       IPC_CHANNELS.providersRefreshAgentPreset,
       IPC_CHANNELS.providersSetAgentDefault,
       IPC_CHANNELS.providersSetAgentCredential,
+      IPC_CHANNELS.providersClearAgentCredential,
+      IPC_CHANNELS.providersSetAgentProviderEnabled,
+      IPC_CHANNELS.providersSetAgentModelEnabled,
+      IPC_CHANNELS.providersSaveAgentManualModel,
+      IPC_CHANNELS.providersRemoveAgentManualModel,
       IPC_CHANNELS.providersLoginAgentPreset,
       IPC_CHANNELS.providersRespondAgentAuth,
       IPC_CHANNELS.providersCancelAgentAuth

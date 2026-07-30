@@ -1,5 +1,10 @@
 import type { Logger } from 'pino'
-import { themePreferenceSchema, type ThemePreference } from '../../../shared/contracts/app'
+import {
+  accentPreferenceSchema,
+  themePreferenceSchema,
+  type AccentPreference,
+  type ThemePreference
+} from '../../../shared/contracts/app'
 import {
   agentApprovalModeSchema,
   agentModelLimitsSchema,
@@ -15,10 +20,12 @@ import {
 
 export const THEME_PREFERENCE_KEY = 'theme.preference'
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
+export const DEFAULT_ACCENT_PREFERENCE: AccentPreference = 'neutral'
 export const DEFAULT_AGENT_APPROVAL_MODE: AgentApprovalMode = 'manual'
 const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
 const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
+const ACCENT_PREFERENCE_KEY = 'theme.accent'
 const modelLimitsCacheSchema = z.record(
   z.string().regex(/^[a-f0-9]{64}$/),
   z.object({ limits: agentModelLimitsSchema, refreshedAt: z.iso.datetime() }).strict()
@@ -73,6 +80,21 @@ export class AppSettingsRepository {
       )
       .execute()
 
+    return value
+  }
+
+  async getAccentPreference(): Promise<AccentPreference> {
+    return this.#readSetting(
+      ACCENT_PREFERENCE_KEY,
+      accentPreferenceSchema,
+      DEFAULT_ACCENT_PREFERENCE,
+      'app.settings.invalid_accent_preference'
+    )
+  }
+
+  async setAccentPreference(preference: AccentPreference): Promise<AccentPreference> {
+    const value = accentPreferenceSchema.parse(preference)
+    await this.#writeSetting(ACCENT_PREFERENCE_KEY, value)
     return value
   }
 

@@ -40,6 +40,22 @@ export interface AgentModelCatalogTable {
   updated_at: string
 }
 
+export interface AgentProviderPreferenceTable {
+  provider_config_id: string
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentModelPreferenceTable {
+  provider_config_id: string
+  model_id: string
+  enabled: number
+  manual_model_json: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface SchemaManifestTable {
   id: number
   application_version: string
@@ -60,6 +76,8 @@ export interface AppDatabaseSchema {
   provider_configs: ProviderConfigTable
   encrypted_credentials: EncryptedCredentialTable
   agent_model_catalogs: AgentModelCatalogTable
+  agent_provider_preferences: AgentProviderPreferenceTable
+  agent_model_preferences: AgentModelPreferenceTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
 }

@@ -7,14 +7,16 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import type { ThemePreference } from '../../shared/contracts/app'
+import type { AccentPreference, ThemePreference } from '../../shared/contracts/app'
 
 export type ResolvedTheme = 'light' | 'dark'
 
 interface ThemeContextValue {
   preference: ThemePreference
+  accent: AccentPreference
   resolvedTheme: ResolvedTheme
   setPreference(preference: ThemePreference): Promise<void>
+  setAccent(preference: AccentPreference): Promise<void>
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -37,6 +39,7 @@ function reportThemeError(event: string, error: unknown): void {
 
 export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [preference, setPreferenceState] = useState<ThemePreference>('system')
+  const [accent, setAccentState] = useState<AccentPreference>('neutral')
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(systemTheme)
 
   useEffect(() => {
@@ -48,6 +51,14 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
       })
       .catch((error) => {
         reportThemeError('renderer.theme_preference_load_failed', error)
+      })
+    void window.desktop.app
+      .getAccentPreference()
+      .then((storedPreference) => {
+        if (current) setAccentState(storedPreference)
+      })
+      .catch((error) => {
+        reportThemeError('renderer.accent_preference_load_failed', error)
       })
 
     return () => {
@@ -79,6 +90,10 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
     document.documentElement.style.colorScheme = resolvedTheme
   }, [resolvedTheme])
 
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent
+  }, [accent])
+
   const setPreference = useCallback(async (nextPreference: ThemePreference): Promise<void> => {
     try {
       const persistedPreference = await window.desktop.app.setThemePreference({
@@ -91,9 +106,21 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }, [])
 
+  const setAccent = useCallback(async (nextPreference: AccentPreference): Promise<void> => {
+    try {
+      const persistedPreference = await window.desktop.app.setAccentPreference({
+        preference: nextPreference
+      })
+      setAccentState(persistedPreference)
+    } catch (error) {
+      reportThemeError('renderer.accent_preference_save_failed', error)
+      throw error
+    }
+  }, [])
+
   const value = useMemo(
-    () => ({ preference, resolvedTheme, setPreference }),
-    [preference, resolvedTheme, setPreference]
+    () => ({ preference, accent, resolvedTheme, setPreference, setAccent }),
+    [preference, accent, resolvedTheme, setPreference, setAccent]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

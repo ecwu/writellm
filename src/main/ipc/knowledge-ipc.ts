@@ -54,10 +54,14 @@ export function registerKnowledgeIpc(options: {
     const parsed = knowledgeListInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     if (context.projectIndex === null) throw new Error('Knowledge index status is unavailable')
+    const readiness = context.projectIndex.readiness()
+    if (readiness !== 'available') {
+      return knowledgeIndexStatusSchema.parse({ readiness, indexed: false })
+    }
     try {
       const indexed = await context.projectIndex.isCurrentGenerationIndexed()
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return knowledgeIndexStatusSchema.parse({ indexed })
+      return knowledgeIndexStatusSchema.parse({ readiness, indexed })
     } catch (err) {
       options.logger.error(
         { event: 'knowledge.index_status.failed', err, projectSessionId: parsed.projectSessionId },

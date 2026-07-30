@@ -82,6 +82,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       projectSessionId: string
       manuscript: ManuscriptService
       retrieval: RetrievalService | null
+      isRetrievalAvailable?: () => boolean
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }
   ) {
@@ -630,7 +631,10 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
   }
 
   #requireRetrieval(): RetrievalService {
-    if (this.options.retrieval === null) {
+    if (
+      this.options.retrieval === null ||
+      (this.options.isRetrievalAvailable !== undefined && !this.options.isRetrievalAvailable())
+    ) {
       throw new AgentToolDomainError('unavailable', 'Knowledge retrieval is unavailable', true)
     }
     return this.options.retrieval

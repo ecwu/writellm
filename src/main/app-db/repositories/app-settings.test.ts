@@ -5,6 +5,7 @@ import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openAppDatabase } from '../connection'
 import {
+  DEFAULT_ACCENT_PREFERENCE,
   DEFAULT_THEME_PREFERENCE,
   THEME_PREFERENCE_KEY,
   AppSettingsRepository
@@ -65,6 +66,16 @@ describe('AppSettingsRepository', () => {
       created_at: '2026-07-16T12:00:00.000Z',
       updated_at: '2026-07-16T12:00:00.000Z'
     })
+    database.close()
+  })
+
+  it('defaults to neutral and persists a bounded accent preference', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await expect(repository.getAccentPreference()).resolves.toBe(DEFAULT_ACCENT_PREFERENCE)
+    await expect(repository.setAccentPreference('violet')).resolves.toBe('violet')
+    await expect(repository.getAccentPreference()).resolves.toBe('violet')
     database.close()
   })
 

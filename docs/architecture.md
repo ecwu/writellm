@@ -156,8 +156,16 @@ Opening a folder requires:
 - a supported format version or an explicit migration path;
 - a project ID matching the singleton project row in `project.sqlite`;
 - successful project lock acquisition;
-- successful database backup, migration, and integrity checks;
+- successful authoritative `project.sqlite` backup, migration, and integrity checks;
 - containment validation for every referenced file record.
+
+The rebuildable `index.sqlite` is not part of the authoritative open gate. Main may publish the
+project session and manuscript workspace after the checks above, then initialize and validate the
+Index worker in the background. Knowledge search remains explicitly `preparing` or `unavailable`
+until that validation finishes; a missing, incompatible, or corrupt derived index is rebuilt
+without closing the manuscript workspace. A clean Index-worker shutdown may take a fast reopen
+path, while an unknown or unclean shutdown still requires the full derived-database check before
+search becomes available.
 
 ## Fixed Technology Stack
 
@@ -278,10 +286,13 @@ Opening performs:
 7. Run `quick_check` and `foreign_key_check`.
 8. Validate the manifest/database project ID pair.
 9. Validate or rebuild BlockNote materializations.
-10. If `index.sqlite` is absent or incompatible, keep the project open and mark `indexRebuildRequired`; the later index checkpoint owns the rebuild.
-11. Recover expired project jobs.
-12. Start project-bound utility processes and the scheduler.
-13. Publish a new opaque `projectSessionId` to project-scoped renderer APIs.
+10. Recover expired project jobs.
+11. Publish a new opaque `projectSessionId` and the manuscript workspace to project-scoped
+    renderer APIs.
+12. Start the scheduler and initialize the project-bound Index worker in the background.
+13. Keep Knowledge search in an explicit preparing state until the derived index passes its
+    structural/logical checks; rebuild a missing, incompatible, or corrupt index without closing
+    the manuscript workspace.
 
 ### Close project
 
@@ -1009,6 +1020,10 @@ Provider configuration is application-global because credentials are device/user
 - Dynamic model discovery is explicit. Main stores one bounded last-successful catalog per preset
   in `app.sqlite`; a failed refresh records a safe status and retains the prior catalog. Renderer
   receives only bounded model/status metadata.
+- Application-global provider/model availability and bounded manual Agent model metadata remain
+  separate from Pi's packaged and last-successful discovered catalogs. Manual models may overlay
+  one provider/model ID, but never carry credentials or mutate immutable run history. Built-in Pi
+  endpoints remain fixed; custom preset endpoints are editable without changing their transport.
 - Each project-local Agent conversation stores a preset/model reference. Switching is authorized
   only while that conversation is idle and applies to its next run. Every run snapshots the
   resolved provider, API, model names/IDs, limits, and fingerprints so later application-global

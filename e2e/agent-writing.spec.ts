@@ -54,29 +54,31 @@ async function evidenceZip(): Promise<Buffer> {
 
 async function configureProvider(
   page: Page,
-  input: { commandName: RegExp; dialogName: string; baseUrl: string; model: string }
+  input: { sectionName: RegExp; role: 'agent' | 'mineru'; baseUrl: string; model: string }
 ): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('option', { name: input.commandName }).click()
-  if (input.dialogName === 'Agent model') {
-    const dialog = page.getByRole('dialog', { name: 'Agent models' })
-    await dialog.getByLabel('Preset name').fill('E2E Agent')
-    await dialog.getByLabel('Base URL').fill(input.baseUrl)
-    await dialog.getByLabel('API key (optional for local/keyless endpoints)').fill('e2e-secret')
-    await dialog.getByRole('button', { name: 'Add preset' }).click()
-    await expect(dialog.getByText('E2E Agent', { exact: true })).toBeVisible()
-    await dialog.getByRole('button', { name: 'Refresh E2E Agent models' }).click()
-    await expect(dialog.getByText(/1 models · current/)).toBeVisible()
-    await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('option', { name: input.sectionName }).click()
+  if (input.role === 'agent') {
+    await settings.getByRole('button', { name: 'Add provider' }).click()
+    const addProvider = page.getByRole('dialog', { name: 'Add provider' })
+    await addProvider.getByLabel('Provider name').fill('E2E Agent')
+    await addProvider.getByRole('button', { name: 'Continue' }).click()
+    await settings.getByLabel('Base URL').fill(input.baseUrl)
+    await settings.getByLabel('API key').fill('e2e-secret')
+    await settings.getByRole('button', { name: 'Save provider' }).click()
+    await expect(settings.getByRole('heading', { name: 'E2E Agent' })).toBeVisible()
+    await settings.getByRole('button', { name: 'Fetch E2E Agent models' }).click()
+    await expect(settings.getByText(/1 models · current/)).toBeVisible()
+    await page.keyboard.press('Escape')
     return
   }
-  const dialog = page.getByRole('dialog', { name: input.dialogName })
-  await dialog.getByLabel('Base URL').fill(input.baseUrl)
-  await dialog.getByLabel('Model ID').fill(input.model)
-  await dialog.getByLabel('API key or token').fill('e2e-secret')
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(dialog.getByText('Credential stored', { exact: true })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+  await settings.getByLabel('Base URL').fill(input.baseUrl)
+  await settings.getByLabel('Model ID').fill(input.model)
+  await settings.getByLabel('API key or token').fill('e2e-secret')
+  await settings.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(settings.getByLabel('API key or token')).toHaveAttribute('placeholder', /Stored/)
+  await page.keyboard.press('Escape')
 }
 
 async function createProject(page: Page, name: string): Promise<void> {
@@ -406,14 +408,14 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
   })
   try {
     await configureProvider(launched.page, {
-      commandName: /MinerU parser/,
-      dialogName: 'MinerU parser',
+      sectionName: /^MinerU API/,
+      role: 'mineru',
       baseUrl: `http://127.0.0.1:${port}`,
       model: 'pipeline'
     })
     await configureProvider(launched.page, {
-      commandName: /Agent model provider/,
-      dialogName: 'Agent model',
+      sectionName: /^Agent API/,
+      role: 'agent',
       baseUrl: `http://127.0.0.1:${port}/v1`,
       model: 'writer-model'
     })
@@ -515,7 +517,9 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       .toBeGreaterThan(panelBeforeResize.width + 30)
     await panel.getByRole('button', { name: 'New', exact: true }).click()
     await panel.getByLabel('Agent model').click()
-    await launched.page.getByRole('option', { name: 'E2E Agent · Writer model' }).click()
+    const modelPicker = launched.page.getByTestId('agent-model-picker')
+    await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
+    await modelPicker.getByRole('option', { name: /Writer model/ }).click()
     await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()

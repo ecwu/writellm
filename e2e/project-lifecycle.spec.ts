@@ -39,6 +39,10 @@ async function closeApp(app: ElectronApplication): Promise<void> {
   await app.close()
 }
 
+function errorToast(page: Page, message: string) {
+  return page.locator('[data-sonner-toast][data-type="error"]').filter({ hasText: message })
+}
+
 async function expectWindowMaximized(app: ElectronApplication, maximized: boolean): Promise<void> {
   // macOS may make a hidden BrowserWindow visible when it is maximized. The
   // silent suite deliberately skips that OS presentation assertion; the
@@ -80,21 +84,180 @@ test('configures provider metadata without returning a credential', async ({ tes
     const first = await launchApp({ userData, dialogPaths: [testRoot] })
     try {
       await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
-      await first.page.getByRole('option', { name: /Agent model provider/ }).click()
-      const dialog = first.page.getByRole('dialog', { name: 'Agent models' })
+      const dialog = first.page.getByRole('dialog', { name: 'Settings' })
+      await dialog.getByRole('option', { name: /^Agent API/ }).click()
+      const initialAgentCatalog = (
+        await first.page.evaluate(() => window.desktop.providers.snapshot())
+      ).agentCatalog
+      const providerToDisable = initialAgentCatalog.presets.find((preset) => preset.enabled)
+      if (providerToDisable === undefined) throw new Error('Expected an enabled Agent provider')
+      const providerList = dialog.getByTestId('agent-provider-list')
+      await providerList
+        .locator(`[data-agent-provider-preset-id="${providerToDisable.presetId}"]`)
+        .click()
+      const providerEnabledSwitch = dialog.getByRole('switch', {
+        name: 'Enabled',
+        exact: true
+      })
+      const settingsClose = dialog.getByRole('button', { name: 'Close settings', exact: true })
+      await expect(providerEnabledSwitch).toBeChecked()
+      await expect(settingsClose).toBeVisible()
+      const [enabledBounds, closeBounds] = await Promise.all([
+        providerEnabledSwitch.boundingBox(),
+        settingsClose.boundingBox()
+      ])
+      expect(enabledBounds).not.toBeNull()
+      expect(closeBounds).not.toBeNull()
+      expect(
+        (closeBounds?.x ?? 0) - ((enabledBounds?.x ?? 0) + (enabledBounds?.width ?? 0))
+      ).toBeGreaterThanOrEqual(8)
+      expect(
+        Math.abs(
+          (closeBounds?.y ?? 0) +
+            (closeBounds?.height ?? 0) / 2 -
+            ((enabledBounds?.y ?? 0) + (enabledBounds?.height ?? 0) / 2)
+        )
+      ).toBeLessThanOrEqual(2)
+      await providerEnabledSwitch.click()
+      await expect(providerEnabledSwitch).not.toBeChecked()
+      await expect(
+        dialog.getByRole('heading', { name: providerToDisable.name, exact: true })
+      ).toBeVisible()
+      const backToProviders = dialog.getByRole('button', { name: 'Back to providers' })
+      if (await backToProviders.isVisible()) await backToProviders.click()
+      const expectedProviderOrder = await first.page.evaluate(async () => {
+        const presets = (await window.desktop.providers.snapshot()).agentCatalog.presets
+        return [...presets]
+          .sort((left, right) => Number(right.enabled) - Number(left.enabled))
+          .map((preset) => preset.presetId)
+      })
+      await expect
+        .poll(() =>
+          providerList
+            .getByRole('button')
+            .evaluateAll((buttons) =>
+              buttons.map((button) => button.getAttribute('data-agent-provider-preset-id'))
+            )
+        )
+        .toEqual(expectedProviderOrder)
+      const settingsProviderSearch = dialog.getByLabel('Search Agent providers')
+      await settingsProviderSearch.fill(providerToDisable.name)
+      await expect(providerList.getByRole('button')).toHaveCount(1)
+      await expect(providerList.getByRole('button')).toHaveAttribute(
+        'data-agent-provider-preset-id',
+        providerToDisable.presetId
+      )
+      await settingsProviderSearch.clear()
+      const packagedLogoGlyph = dialog
+        .getByRole('button', { name: /Together/ })
+        .locator('[data-slot="provider-logo-glyph"]')
+      await expect(packagedLogoGlyph).toBeVisible()
+      expect(
+        await packagedLogoGlyph.evaluate((element) => getComputedStyle(element).maskImage)
+      ).not.toBe('none')
+      const initialFallback = dialog
+        .locator('[data-provider-logo-state="initial"]')
+        .filter({ visible: true })
+        .first()
+      await expect(initialFallback).toHaveText(/^\S$/)
+      await expect(initialFallback.locator('[data-slot="provider-logo-glyph"]')).toHaveCount(0)
+      await providerList.locator('[data-agent-provider-preset-id="builtin:openai-codex"]').click()
+      await dialog.getByRole('button', { name: 'Sign in', exact: true }).click()
+      const providerSignIn = first.page.getByRole('dialog', { name: 'Provider sign-in' })
+      await expect(providerSignIn).toContainText('Select OpenAI Codex login method:')
+      await expect(providerSignIn.getByRole('combobox')).toContainText(
+        'Choose an account or login method'
+      )
+      await providerSignIn.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(providerSignIn).toHaveCount(0)
+      const signInErrorToast = errorToast(first.page, 'Provider sign-in did not complete.')
+      await expect(signInErrorToast).toContainText('Action failed')
       await expect(dialog).toBeVisible()
-      await dialog.getByLabel('Preset name').fill('Loopback Agent')
+      const toaster = first.page.locator('[data-sonner-toaster]')
+      await expect(toaster).toHaveAttribute('data-y-position', 'bottom')
+      await expect(toaster).toHaveAttribute('data-x-position', 'right')
+      await expect(first.page.locator('section[aria-label^="Notifications"]')).toHaveCount(1)
+      await expect(toaster).toHaveAttribute(
+        'data-sonner-theme',
+        await first.page.evaluate(() => document.documentElement.dataset.theme ?? 'light')
+      )
+      await dialog.getByRole('option', { name: 'General', exact: true }).click()
+      await dialog.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await expect(toaster).toHaveAttribute('data-sonner-theme', 'dark')
+      await dialog.getByRole('option', { name: /^Agent API/ }).click()
+      await providerList.locator('[data-agent-provider-preset-id="builtin:openai-codex"]').click()
+      await expect(dialog.getByRole('heading', { name: 'OpenAI Codex', exact: true })).toBeVisible()
+      await dialog.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await expect(providerSignIn).toContainText('Select OpenAI Codex login method:')
+      await providerSignIn.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(providerSignIn).toHaveCount(0)
+      await expect(signInErrorToast).toHaveCount(1)
+      await signInErrorToast.getByRole('button', { name: 'Close toast' }).click()
+      await expect(signInErrorToast).toHaveCount(0)
+      await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: 'Back to providers' }).click()
+      await dialog.getByRole('button', { name: 'Add provider' }).click()
+      const addProvider = first.page.getByRole('dialog', { name: 'Add provider' })
+      await addProvider.getByLabel('Provider name').fill('Loopback Agent')
+      await addProvider.getByRole('button', { name: 'Continue' }).click()
       await dialog.getByLabel('Base URL').fill(`http://127.0.0.1:${port}/v1`)
-      await dialog.getByLabel('API key (optional for local/keyless endpoints)').fill('e2e-secret')
-      await dialog.getByRole('button', { name: 'Add preset' }).click()
-      await dialog.getByRole('button', { name: 'Refresh Loopback Agent models' }).click()
+      await dialog.getByRole('button', { name: 'Provider logo' }).click()
+      await first.page.getByPlaceholder('Search Provider logos…').fill('DeepSeek')
+      await first.page.getByRole('option', { name: /DeepSeek deepseek/ }).click()
+      await dialog.getByLabel('API key').fill('e2e-secret')
+      await dialog.getByRole('button', { name: 'Save provider' }).click()
+      await dialog.getByRole('button', { name: 'Fetch Loopback Agent models' }).click()
       await expect(dialog.getByText(/1 models · current/)).toBeVisible()
+      await dialog.getByRole('button', { name: 'Add model' }).click()
+      const addModel = first.page.getByRole('dialog', { name: 'Add model' })
+      await addModel.getByLabel('Model ID').fill('manual-writer')
+      await addModel.getByLabel('Display name').fill('Manual Writer')
+      await addModel.getByRole('button', { name: 'Advanced model metadata' }).click()
+      await addModel.getByLabel('Context window').fill('65536')
+      await addModel.getByLabel('Maximum output').fill('4096')
+      await addModel.getByRole('switch', { name: 'Reasoning model' }).click()
+      await addModel.getByRole('switch', { name: 'Image input' }).click()
+      await addModel.getByRole('button', { name: 'Save model' }).click()
+      await dialog.getByRole('button', { name: 'Set Manual Writer as default' }).click()
+      const discoveredModelSwitch = dialog.getByRole('switch', { name: 'Enable Writer E2E' })
+      await discoveredModelSwitch.click()
+      await expect(discoveredModelSwitch).not.toBeChecked()
+      await expect
+        .poll(async () => {
+          const catalog = (await first.page.evaluate(() => window.desktop.providers.snapshot()))
+            .agentCatalog
+          return {
+            defaultModel: catalog.defaultSelection?.modelId,
+            discoveredEnabled: catalog.presets
+              .find((preset) => preset.name === 'Loopback Agent')
+              ?.models.find((model) => model.id === 'writer-e2e')?.enabled
+          }
+        })
+        .toEqual({ defaultModel: 'manual-writer', discoveredEnabled: false })
+      await expect(dialog.getByText(/2 models · current/)).toBeVisible()
+      await dialog.getByLabel('Provider name').fill('Loopback Agent Renamed')
+      await expect(
+        dialog.getByRole('heading', { name: 'Loopback Agent Renamed', exact: true })
+      ).toBeVisible()
+      await dialog.getByRole('button', { name: 'Back to providers' }).click()
+      await expect(dialog.getByRole('button', { name: /Loopback Agent Renamed/ })).toBeVisible()
+      await dialog.getByRole('button', { name: /Loopback Agent Renamed/ }).click()
+      await expect(dialog.getByText('Unsaved changes', { exact: true })).toBeVisible()
+      await dialog.getByRole('button', { name: 'Save changes' }).click()
+      await expect
+        .poll(async () => {
+          const catalog = (await first.page.evaluate(() => window.desktop.providers.snapshot()))
+            .agentCatalog
+          return catalog.presets.find((preset) => preset.name === 'Loopback Agent Renamed')
+            ?.catalogStatus
+        })
+        .toBe('current')
       expect(authorizationHeader).toBe('Bearer e2e-secret')
-      await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+      await first.page.keyboard.press('Escape')
 
       await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
-      await first.page.getByRole('option', { name: /Gemini image generation/ }).click()
-      const imageDialog = first.page.getByRole('dialog', { name: 'Image generation' })
+      const imageDialog = first.page.getByRole('dialog', { name: 'Settings' })
+      await imageDialog.getByRole('option', { name: /^Image API/ }).click()
       await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
       await expect(imageDialog.getByLabel('Request timeout (milliseconds)')).toHaveCount(0)
       await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3.1-flash-image')
@@ -105,8 +268,11 @@ test('configures provider metadata without returning a credential', async ({ tes
       await first.page.getByRole('option', { name: 'gemini-3-pro-image' }).click()
       await imageDialog.getByLabel('Gemini API key').fill('e2e-gemini-secret')
       await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-      await expect(imageDialog.getByText('Credential stored', { exact: true })).toBeVisible()
-      await imageDialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+      await expect(imageDialog.getByLabel('Gemini API key')).toHaveAttribute(
+        'placeholder',
+        /Stored/
+      )
+      await first.page.keyboard.press('Escape')
 
       await clickAndExpectProject(
         first.page,
@@ -114,6 +280,26 @@ test('configures provider metadata without returning a credential', async ({ tes
         'Portable no key',
         'Portable no key'
       )
+      await first.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      const panel = first.page.getByTestId('agent-panel')
+      await panel.getByRole('button', { name: 'New', exact: true }).click()
+      await expect(panel.getByLabel('Agent model')).toContainText('Manual Writer')
+      await expect(
+        panel.getByLabel('Agent model').locator('[data-provider-logo-id="deepseek"]')
+      ).toBeVisible()
+      await panel.getByLabel('Agent model').click()
+      const modelPicker = first.page.getByTestId('agent-model-picker')
+      await modelPicker.getByRole('button', { name: 'Back to Providers' }).click()
+      const providerSearch = modelPicker.getByPlaceholder('Search Providers…')
+      await providerSearch.fill('Loopback')
+      await providerSearch.press('ArrowDown')
+      await providerSearch.press('Enter')
+      const modelSearch = modelPicker.getByPlaceholder('Search Loopback Agent Renamed models…')
+      await modelSearch.fill('Manual')
+      await modelSearch.press('ArrowDown')
+      await modelSearch.press('Enter')
+      await expect(modelPicker).toHaveCount(0)
+      await panel.getByLabel('Close writing agent').click()
     } finally {
       await closeApp(first.app)
     }
@@ -121,26 +307,49 @@ test('configures provider metadata without returning a credential', async ({ tes
     const restarted = await launchApp({ userData })
     try {
       await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
-      await restarted.page.getByRole('option', { name: /Agent model provider/ }).click()
-      const dialog = restarted.page.getByRole('dialog', { name: 'Agent models' })
-      await expect(dialog.getByText('Loopback Agent', { exact: true })).toBeVisible()
-      await expect(dialog.getByText(/1 models · current/)).toBeVisible()
-      await expect(dialog.getByText('Connected', { exact: true }).last()).toBeVisible()
+      const dialog = restarted.page.getByRole('dialog', { name: 'Settings' })
+      await dialog.getByRole('option', { name: /^Agent API/ }).click()
+      await dialog.getByRole('button', { name: /Loopback Agent Renamed/ }).click()
+      const providerHeading = dialog.getByRole('heading', { name: 'Loopback Agent Renamed' })
+      await expect(providerHeading).toBeVisible()
+      await expect(
+        dialog.locator('[data-provider-logo-id="deepseek"]').filter({ visible: true }).first()
+      ).toBeVisible()
+      await expect(dialog.getByText(/2 models · current/)).toBeVisible()
+      await expect(dialog.getByText(/^Connected/)).toBeVisible()
       const publicCatalog = await restarted.page.evaluate(
         async () => (await window.desktop.providers.snapshot()).agentCatalog
       )
       expect(
-        publicCatalog.presets.find((preset) => preset.name === 'Loopback Agent')
+        publicCatalog.presets.find((preset) => preset.name === 'Loopback Agent Renamed')
       ).toMatchObject({
         baseUrl: `http://127.0.0.1:${port}/v1`,
-        models: [{ id: 'writer-e2e' }]
+        logoId: 'deepseek',
+        logoOverrideId: 'deepseek',
+        models: expect.arrayContaining([
+          expect.objectContaining({ id: 'writer-e2e', enabled: false, source: 'discovered' }),
+          expect.objectContaining({
+            id: 'manual-writer',
+            enabled: true,
+            source: 'manual',
+            contextWindow: 65_536,
+            maxTokens: 4_096,
+            reasoning: true,
+            input: ['text', 'image']
+          })
+        ])
+      })
+      expect(publicCatalog.defaultSelection).toEqual({
+        presetId: publicCatalog.presets.find((preset) => preset.name === 'Loopback Agent Renamed')
+          ?.presetId,
+        modelId: 'manual-writer'
       })
       expect(JSON.stringify(publicCatalog)).not.toContain('e2e-secret')
-      await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+      await restarted.page.keyboard.press('Escape')
 
       await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
-      await restarted.page.getByRole('option', { name: /Gemini image generation/ }).click()
-      const imageDialog = restarted.page.getByRole('dialog', { name: 'Image generation' })
+      const imageDialog = restarted.page.getByRole('dialog', { name: 'Settings' })
+      await imageDialog.getByRole('option', { name: /^Image API/ }).click()
       await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
       await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3-pro-image')
       await expect(imageDialog.getByLabel('Gemini API key')).toHaveValue('')
@@ -174,7 +383,7 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     await expect(first.page.getByRole('menubar')).toBeVisible()
     await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(first.page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-    await expect(first.page.getByText('API configuration', { exact: true })).toBeVisible()
+    await expect(first.page.getByRole('heading', { name: 'General' })).toBeVisible()
     await first.page.keyboard.press('Escape')
 
     await expectWindowMaximized(first.app, true)
@@ -367,8 +576,8 @@ test('creates in a non-empty parent and retries after an existing-name conflict'
     await launched.page.getByRole('button', { name: 'Create project' }).click()
     await launched.page.getByRole('dialog').getByLabel('Project name').fill('Existing')
     await launched.page.getByRole('dialog').getByRole('button', { name: 'Choose location' }).click()
-    await expect(launched.page.getByRole('alert')).toContainText(
-      'WriteLLM could not create the project'
+    await expect(errorToast(launched.page, 'WriteLLM could not create the project')).toContainText(
+      'Action failed'
     )
     await expect(launched.page.getByText('Closed', { exact: true })).toBeVisible()
     await expect(readFile(join(conflict, 'existing.txt'), 'utf8')).resolves.toBe(existingContent)
@@ -478,10 +687,13 @@ test('rejects lock contention across two application processes', async ({ testRo
     })
     try {
       await contender.page.getByRole('button', { name: 'Open project' }).click()
-      await expect(contender.page.getByRole('alert')).toContainText(
-        'WriteLLM could not open the project'
+      await expect(errorToast(contender.page, 'WriteLLM could not open the project')).toContainText(
+        'Action failed'
       )
       await expect(contender.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+      await expect(
+        contender.page.getByRole('status').filter({ hasText: 'Recovery required' })
+      ).toBeVisible()
       await expect(
         contender.page.getByRole('button', { name: 'Recover stale lock', exact: true })
       ).toBeVisible()

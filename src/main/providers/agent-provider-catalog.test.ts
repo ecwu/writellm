@@ -1,6 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth'
+import type { AuthEvent } from '@earendil-works/pi-ai'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openAppDatabase, type AppDatabase } from '../app-db/connection'
@@ -10,6 +12,8 @@ import { CredentialService, type SafeStorageAdapter } from './credential-service
 
 const directories: string[] = []
 const log = pino({ level: 'silent' })
+
+registerBunOAuthFlows()
 
 class FakeSafeStorage implements SafeStorageAdapter {
   isEncryptionAvailable(): boolean {
@@ -55,12 +59,162 @@ async function createHarness(): Promise<{
   }
 }
 
+async function seedLegacyAgentConfig(
+  database: AppDatabase,
+  credentials: CredentialService
+): Promise<string> {
+  const now = '2026-07-01T12:00:00.000Z'
+  await database.kysely
+    .insertInto('provider_configs')
+    .values({
+      id: 'agent',
+      provider: 'openai-compatible',
+      config_json: JSON.stringify({
+        role: 'agent',
+        providerId: 'openai-compatible',
+        baseUrl: 'https://legacy.example.test/v1',
+        model: 'legacy-writer',
+        modelRevision: 'legacy-r1',
+        timeoutMs: 60_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null
+      }),
+      created_at: now,
+      updated_at: now
+    })
+    .execute()
+  const ciphertext = credentials.encryptForPersistence('legacy-secret')
+  await credentials.persistEncrypted('agent', ciphertext)
+  return ciphertext
+}
+
 afterEach(async () => {
   vi.unstubAllGlobals()
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })))
 })
 
 describe('AgentProviderCatalogService', () => {
+  it('loads the statically registered xAI OAuth device flow', async () => {
+    const { database, catalog } = await createHarness()
+    const controller = new AbortController()
+    const notices: AuthEvent[] = []
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      expect(String(input)).toBe('https://auth.x.ai/oauth2/device/code')
+      return new Response(
+        JSON.stringify({
+          device_code: 'device-code',
+          user_code: 'ABCD-EFGH',
+          verification_uri: 'https://auth.x.ai/activate',
+          expires_in: 900,
+          interval: 1
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      catalog.login('builtin:xai', 'oauth', {
+        signal: controller.signal,
+        prompt: async () => '',
+        notify: (event) => {
+          notices.push(event)
+          controller.abort()
+        }
+      })
+    ).rejects.toThrow('Login cancelled')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(notices).toEqual([
+      expect.objectContaining({
+        type: 'device_code',
+        userCode: 'ABCD-EFGH',
+        verificationUri: 'https://auth.x.ai/activate'
+      })
+    ])
+    database.close()
+  })
+
+  it('resolves and persists bounded custom Provider logo overrides', async () => {
+    const { database, catalog } = await createHarness()
+    const automatic = await catalog.saveCustomPreset({
+      presetId: 'custom:deepseek',
+      name: 'Legacy Agent - DeepSeek',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+      authMode: 'none',
+      timeoutMs: 30_000
+    })
+    expect(automatic.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject(
+      { logoId: 'deepseek', logoOverrideId: null }
+    )
+
+    const overridden = await catalog.saveCustomPreset({
+      presetId: 'custom:deepseek',
+      name: 'Legacy Agent - DeepSeek',
+      logoOverrideId: 'openai',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+      authMode: 'none',
+      timeoutMs: 30_000
+    })
+    expect(
+      overridden.presets.find((preset) => preset.presetId === 'custom:deepseek')
+    ).toMatchObject({ logoId: 'openai', logoOverrideId: 'openai' })
+
+    const preserved = await catalog.saveCustomPreset({
+      presetId: 'custom:deepseek',
+      name: 'DeepSeek renamed',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+      authMode: 'none',
+      timeoutMs: 30_000
+    })
+    expect(preserved.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject(
+      { logoId: 'openai', logoOverrideId: 'openai' }
+    )
+
+    const reset = await catalog.saveCustomPreset({
+      presetId: 'custom:deepseek',
+      name: 'DeepSeek renamed',
+      logoOverrideId: null,
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+      authMode: 'none',
+      timeoutMs: 30_000
+    })
+    expect(reset.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject({
+      logoId: 'deepseek',
+      logoOverrideId: null
+    })
+
+    await database.kysely
+      .insertInto('provider_configs')
+      .values({
+        id: 'agent:custom:legacy-json',
+        provider: 'writellm-custom:legacy-json',
+        config_json: JSON.stringify({
+          schemaVersion: 1,
+          role: 'agent-preset',
+          kind: 'custom',
+          presetId: 'custom:legacy-json',
+          providerId: 'writellm-custom:legacy-json',
+          name: 'Legacy DeepSeek JSON',
+          baseUrl: 'https://api.deepseek.com',
+          api: 'openai-completions',
+          authMode: 'none',
+          timeoutMs: 30_000
+        }),
+        created_at: '2026-07-30T12:00:00.000Z',
+        updated_at: '2026-07-30T12:00:00.000Z'
+      })
+      .execute()
+    expect(
+      (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:legacy-json')
+    ).toMatchObject({ logoId: 'deepseek', logoOverrideId: null })
+    database.close()
+  })
+
   it('discovers and caches a custom endpoint only on explicit refresh', async () => {
     const { database, catalog } = await createHarness()
     const saved = await catalog.saveCustomPreset({
@@ -97,6 +251,19 @@ describe('AgentProviderCatalogService', () => {
         ]
       }
     )
+    const renamed = await catalog.saveCustomPreset({
+      presetId: 'custom:loopback',
+      name: 'Loopback Renamed',
+      baseUrl: 'https://models.example.test/v1',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 30_000
+    })
+    expect(renamed.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject({
+      name: 'Loopback Renamed',
+      catalogStatus: 'current',
+      models: [{ id: 'writer-1' }, { id: 'writer-2' }]
+    })
 
     await catalog.setDefaultSelection({ presetId: 'custom:loopback', modelId: 'writer-2' })
     const resolved = await catalog.resolve({
@@ -109,6 +276,11 @@ describe('AgentProviderCatalogService', () => {
       auth: { auth: { apiKey: 'catalog-secret' } }
     })
     expect(JSON.stringify(await catalog.snapshot())).not.toContain('catalog-secret')
+    const disabled = await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
+    expect(disabled.defaultSelection).toBeNull()
+    await expect(
+      catalog.resolve({ presetId: 'custom:loopback', modelId: 'writer-2' })
+    ).rejects.toThrow('Agent model is disabled')
 
     fetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
     await expect(
@@ -120,31 +292,75 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
+  it('keeps manual model overlays and rejects disabled selections', async () => {
+    const { database, catalog } = await createHarness()
+    await catalog.saveCustomPreset({
+      presetId: 'custom:overlay',
+      name: 'Overlay',
+      baseUrl: 'https://models.example.test/v1',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 30_000,
+      apiKey: 'overlay-secret'
+    })
+    await catalog.saveManualModel('custom:overlay', {
+      id: 'writer-1',
+      name: 'Manual Writer',
+      api: 'openai-responses',
+      contextWindow: 32_768,
+      maxTokens: 4_096,
+      reasoning: true,
+      input: ['text', 'image']
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ data: [{ id: 'writer-1' }, { id: 'writer-2' }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        )
+      )
+    )
+    const refreshed = await catalog.refreshPreset('custom:overlay', new AbortController().signal)
+    expect(
+      refreshed.presets.find((preset) => preset.presetId === 'custom:overlay')?.models
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'writer-1',
+          name: 'Manual Writer',
+          source: 'manual',
+          enabled: true,
+          reasoning: true,
+          input: ['text', 'image']
+        }),
+        expect.objectContaining({ id: 'writer-2', source: 'discovered', enabled: true })
+      ])
+    )
+
+    await catalog.setDefaultSelection({ presetId: 'custom:overlay', modelId: 'writer-1' })
+    const disabled = await catalog.setModelEnabled('custom:overlay', 'writer-1', false)
+    expect(disabled.defaultSelection).toBeNull()
+    await expect(
+      catalog.resolve({ presetId: 'custom:overlay', modelId: 'writer-1' })
+    ).rejects.toThrow('Agent model is disabled')
+
+    await catalog.setModelEnabled('custom:overlay', 'writer-1', true)
+    const withoutManual = await catalog.removeManualModel('custom:overlay', 'writer-1')
+    expect(
+      withoutManual.presets
+        .find((preset) => preset.presetId === 'custom:overlay')
+        ?.models.find((model) => model.id === 'writer-1')
+    ).toMatchObject({ name: 'writer-1', source: 'discovered', enabled: true })
+    database.close()
+  })
+
   it('migrates a singleton Agent configuration without decrypting or removing it', async () => {
     const { database, credentials, catalog } = await createHarness()
-    const now = '2026-07-01T12:00:00.000Z'
-    await database.kysely
-      .insertInto('provider_configs')
-      .values({
-        id: 'agent',
-        provider: 'openai-compatible',
-        config_json: JSON.stringify({
-          role: 'agent',
-          providerId: 'openai-compatible',
-          baseUrl: 'https://legacy.example.test/v1',
-          model: 'legacy-writer',
-          modelRevision: 'legacy-r1',
-          timeoutMs: 60_000,
-          embeddingDimension: null,
-          batchLimit: 1,
-          fileSizeLimitMb: null
-        }),
-        created_at: now,
-        updated_at: now
-      })
-      .execute()
-    const ciphertext = credentials.encryptForPersistence('legacy-secret')
-    await credentials.persistEncrypted('agent', ciphertext)
+    const ciphertext = await seedLegacyAgentConfig(database, credentials)
 
     const snapshot = await catalog.snapshot()
     expect(snapshot.defaultSelection).toEqual({
@@ -171,6 +387,62 @@ describe('AgentProviderCatalogService', () => {
         .where('id', '=', 'agent')
         .executeTakeFirst()
     ).toBeDefined()
+    database.close()
+  })
+
+  it('permanently removes a disabled migrated legacy Agent configuration', async () => {
+    const { database, credentials, catalog } = await createHarness()
+    await seedLegacyAgentConfig(database, credentials)
+    await catalog.snapshot()
+    await catalog.setProviderEnabled('custom:legacy-agent', false)
+
+    const removed = await catalog.removePreset('custom:legacy-agent')
+    expect(removed.defaultSelection).toBeNull()
+    expect(
+      removed.presets.find((preset) => preset.presetId === 'custom:legacy-agent')
+    ).toBeUndefined()
+
+    const providerConfigIds = ['agent', 'agent:custom:legacy-agent']
+    expect(
+      await database.kysely
+        .selectFrom('provider_configs')
+        .select('id')
+        .where('id', 'in', providerConfigIds)
+        .execute()
+    ).toEqual([])
+    expect(
+      await database.kysely
+        .selectFrom('encrypted_credentials')
+        .select('id')
+        .where('provider_config_id', 'in', providerConfigIds)
+        .execute()
+    ).toEqual([])
+    expect(
+      await database.kysely
+        .selectFrom('agent_model_catalogs')
+        .select('provider_config_id')
+        .where('provider_config_id', 'in', providerConfigIds)
+        .execute()
+    ).toEqual([])
+    expect(
+      await database.kysely
+        .selectFrom('agent_provider_preferences')
+        .select('provider_config_id')
+        .where('provider_config_id', 'in', providerConfigIds)
+        .execute()
+    ).toEqual([])
+    expect(
+      await database.kysely
+        .selectFrom('agent_model_preferences')
+        .select('provider_config_id')
+        .where('provider_config_id', 'in', providerConfigIds)
+        .execute()
+    ).toEqual([])
+
+    const nextSnapshot = await catalog.snapshot()
+    expect(
+      nextSnapshot.presets.find((preset) => preset.presetId === 'custom:legacy-agent')
+    ).toBeUndefined()
     database.close()
   })
 })

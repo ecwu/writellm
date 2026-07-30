@@ -10,6 +10,7 @@ const citationId = `citation-${'a'.repeat(40)}`
 function harness() {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   let active = true
+  let retrievalAvailable = true
   const retrieval = {
     search: vi.fn(async () => ({ mode: 'none', rerankStatus: 'disabled', hits: [] })),
     expand: vi.fn(async () => [
@@ -42,7 +43,7 @@ function harness() {
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (!active || value !== projectSessionId) throw new Error('stale project session')
-      return { retrieval }
+      return { retrieval, projectIndex: { isRetrievalAvailable: () => retrievalAvailable } }
     })
   }
   registerSearchIpc({
@@ -59,9 +60,13 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   return {
     handlers,
+    manager,
     retrieval,
     revoke: () => {
       active = false
+    },
+    setRetrievalAvailable: (value: boolean) => {
+      retrievalAvailable = value
     },
     invoke: (channel: string, input: unknown) =>
       handlers.get(channel)?.(event as never, input as never)
@@ -119,5 +124,15 @@ describe('search IPC', () => {
     await expect(
       second.invoke(IPC_CHANNELS.knowledgeSearch, { projectSessionId, query: 'evidence' })
     ).rejects.toThrow('Knowledge search could not be completed')
+  })
+
+  it('rejects search explicitly while the project index is preparing', async () => {
+    const fixture = harness()
+    fixture.setRetrievalAvailable(false)
+
+    await expect(
+      fixture.invoke(IPC_CHANNELS.knowledgeSearch, { projectSessionId, query: 'evidence' })
+    ).rejects.toThrow('still preparing')
+    expect(fixture.retrieval.search).not.toHaveBeenCalled()
   })
 })

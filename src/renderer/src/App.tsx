@@ -64,6 +64,7 @@ import {
   ProjectVersionHistory,
   type VersionHistoryView
 } from '@/features/project/project-version-history'
+import { notifyActionError } from '@/lib/notifications'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
@@ -112,7 +113,6 @@ function App(): React.JSX.Element {
   const [recentProjects, setRecentProjects] = useState<RecentProjects>([])
   const [initialLoading, setInitialLoading] = useState(true)
   const [activeAction, setActiveAction] = useState<ProjectAction | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -129,7 +129,7 @@ function App(): React.JSX.Element {
       const nextSnapshot = await window.desktop.projects.lifecycle()
       setSnapshot(nextSnapshot)
     } catch {
-      setErrorMessage(actionErrorMessages.load)
+      notifyActionError(actionErrorMessages.load)
     }
   }, [])
 
@@ -137,7 +137,7 @@ function App(): React.JSX.Element {
     try {
       setRecentProjects(await window.desktop.projects.recent())
     } catch {
-      setErrorMessage(actionErrorMessages.recent)
+      notifyActionError(actionErrorMessages.recent)
     }
   }, [])
 
@@ -154,12 +154,12 @@ function App(): React.JSX.Element {
       if (lifecycleResult.status === 'fulfilled') {
         setSnapshot(lifecycleResult.value)
       } else {
-        setErrorMessage(actionErrorMessages.load)
+        notifyActionError(actionErrorMessages.load)
       }
       if (recentResult.status === 'fulfilled') {
         setRecentProjects(recentResult.value)
       } else {
-        setErrorMessage(actionErrorMessages.recent)
+        notifyActionError(actionErrorMessages.recent)
       }
       setInitialLoading(false)
     })()
@@ -182,12 +182,11 @@ function App(): React.JSX.Element {
   const enableVersionHistory = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
     setActiveAction('history')
-    setErrorMessage(null)
     try {
       await window.desktop.projects.enableVersionHistory({ projectSessionId })
       setVersionHistoryState('ready')
     } catch {
-      setErrorMessage(actionErrorMessages.history)
+      notifyActionError(actionErrorMessages.history)
     } finally {
       setActiveAction(null)
     }
@@ -209,7 +208,7 @@ function App(): React.JSX.Element {
       })
       .catch(() => {
         if (!disposed) {
-          setErrorMessage(actionErrorMessages.subscribe)
+          notifyActionError(actionErrorMessages.subscribe)
           void refreshLifecycle()
         }
       })
@@ -222,13 +221,12 @@ function App(): React.JSX.Element {
 
   const openProject = useCallback(async (): Promise<void> => {
     setActiveAction('open')
-    setErrorMessage(null)
     try {
       const result = await window.desktop.projects.open()
       if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
       else await refreshLifecycle()
     } catch {
-      setErrorMessage(actionErrorMessages.open)
+      notifyActionError(actionErrorMessages.open)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
@@ -238,13 +236,12 @@ function App(): React.JSX.Element {
   const openRecentProject = useCallback(
     async (projectId: string): Promise<void> => {
       setActiveAction('openRecent')
-      setErrorMessage(null)
       try {
         const result = await window.desktop.projects.openRecent({ projectId })
         if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
         else await refreshLifecycle()
       } catch {
-        setErrorMessage(actionErrorMessages.openRecent)
+        notifyActionError(actionErrorMessages.openRecent)
         await refreshLifecycle()
       } finally {
         setActiveAction(null)
@@ -262,7 +259,6 @@ function App(): React.JSX.Element {
 
     setCreateDialogOpen(false)
     setActiveAction('create')
-    setErrorMessage(null)
     try {
       const result = await window.desktop.projects.create({ name: parsedName.data })
       if (result.project) {
@@ -272,7 +268,7 @@ function App(): React.JSX.Element {
         await refreshLifecycle()
       }
     } catch {
-      setErrorMessage(actionErrorMessages.create)
+      notifyActionError(actionErrorMessages.create)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
@@ -282,13 +278,12 @@ function App(): React.JSX.Element {
   const closeProject = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
     setActiveAction('close')
-    setErrorMessage(null)
     try {
       setSnapshot((current) => ({ ...current, state: 'closing' }))
       setSnapshot(await window.desktop.projects.close({ projectSessionId }))
       await refreshRecentProjects()
     } catch {
-      setErrorMessage(actionErrorMessages.close)
+      notifyActionError(actionErrorMessages.close)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
@@ -298,13 +293,12 @@ function App(): React.JSX.Element {
   const switchProject = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
     setActiveAction('switch')
-    setErrorMessage(null)
     try {
       const result = await window.desktop.projects.switch({ projectSessionId })
       if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
       else await refreshLifecycle()
     } catch {
-      setErrorMessage(actionErrorMessages.switch)
+      notifyActionError(actionErrorMessages.switch)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
@@ -314,11 +308,10 @@ function App(): React.JSX.Element {
   const createSnapshot = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
     setActiveAction('snapshot')
-    setErrorMessage(null)
     try {
       await window.desktop.projects.createSnapshot({ projectSessionId })
     } catch {
-      setErrorMessage(actionErrorMessages.snapshot)
+      notifyActionError(actionErrorMessages.snapshot)
     } finally {
       setActiveAction(null)
     }
@@ -326,13 +319,12 @@ function App(): React.JSX.Element {
 
   const restoreSnapshot = useCallback(async (): Promise<void> => {
     setActiveAction('snapshot')
-    setErrorMessage(null)
     try {
       const result = await window.desktop.projects.restoreSnapshot()
       if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
       else await refreshLifecycle()
     } catch {
-      setErrorMessage(actionErrorMessages.snapshot)
+      notifyActionError(actionErrorMessages.snapshot)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
@@ -344,7 +336,6 @@ function App(): React.JSX.Element {
       action: () => Promise<ProjectLifecycleSnapshot | ProjectSelectionResult>
     ): Promise<void> => {
       setActiveAction('recovery')
-      setErrorMessage(null)
       try {
         const result = await action()
         if ('project' in result) {
@@ -354,7 +345,7 @@ function App(): React.JSX.Element {
           setSnapshot(result)
         }
       } catch {
-        setErrorMessage(actionErrorMessages.recovery)
+        notifyActionError(actionErrorMessages.recovery)
         await refreshLifecycle()
       } finally {
         setActiveAction(null)
@@ -365,11 +356,10 @@ function App(): React.JSX.Element {
 
   const exportRecoveryDiagnostics = useCallback(async (): Promise<void> => {
     setActiveAction('recovery')
-    setErrorMessage(null)
     try {
       await window.desktop.projects.exportRecoveryDiagnostics()
     } catch {
-      setErrorMessage(actionErrorMessages.recovery)
+      notifyActionError(actionErrorMessages.recovery)
     } finally {
       setActiveAction(null)
     }
@@ -379,7 +369,7 @@ function App(): React.JSX.Element {
     try {
       await action()
     } catch {
-      setErrorMessage(actionErrorMessages.diagnostics)
+      notifyActionError(actionErrorMessages.diagnostics)
     }
   }, [])
 
@@ -419,19 +409,6 @@ function App(): React.JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isBusy, openProject, projectSelectionDisabled])
-
-  const errorAlert = errorMessage ? (
-    <Alert variant='destructive' role='alert'>
-      <AlertCircle />
-      <AlertTitle>Action failed</AlertTitle>
-      <AlertDescription className='flex items-center justify-between gap-4'>
-        <span>{errorMessage}</span>
-        <Button variant='outline' size='sm' onClick={() => setErrorMessage(null)}>
-          Dismiss
-        </Button>
-      </AlertDescription>
-    </Alert>
-  ) : null
 
   const formatRecentProjectDate = (lastOpenedAt: string): string => {
     const date = new Date(lastOpenedAt)
@@ -476,7 +453,7 @@ function App(): React.JSX.Element {
           onViewChange={setVersionHistoryView}
           onStateChange={setVersionHistoryState}
           onProjectRestored={(project) => setSnapshot({ state: 'open', activeProject: project })}
-          onError={setErrorMessage}
+          onError={notifyActionError}
         />
       ) : null}
 
@@ -491,16 +468,14 @@ function App(): React.JSX.Element {
               projectSessionId={projectSessionId}
               projectName={activeProject.displayName}
               lifecycleState={stateLabels[snapshot.state]}
-              globalAlert={errorAlert}
               agentOpen={agentOpen}
               onAgentOpenChange={setAgentOpen}
               onOpenSettings={() => setSettingsOpen(true)}
-              onError={setErrorMessage}
+              onError={notifyActionError}
             />
           ) : (
             <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
               <div className='m-auto flex w-full max-w-xl flex-col gap-4'>
-                {errorAlert}
                 <Card>
                   <CardHeader>
                     <CardTitle>
@@ -699,7 +674,7 @@ function App(): React.JSX.Element {
         onOpenChange={setSettingsOpen}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onExportDiagnostics={() => void runDiagnostics(window.desktop.diagnostics.exportBundle)}
-        onError={setErrorMessage}
+        onError={notifyActionError}
       />
       <Dialog
         open={createDialogOpen}

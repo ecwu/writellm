@@ -1,10 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
+  accentPreferenceSchema,
   appInfoSchema,
+  setAccentPreferenceInputSchema,
   setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema,
   type AppInfo,
+  type AccentPreference,
+  type SetAccentPreferenceInput,
   type SetThemePreferenceInput,
   type ThemePreference,
   type SetDefaultAgentApprovalModeInput
@@ -179,7 +183,11 @@ import {
   agentAuthFlowInputSchema,
   agentAuthInteractionEventSchema,
   agentAuthPromptResponseSchema,
+  agentManualModelInputSchema,
+  agentManualModelRemoveInputSchema,
+  agentModelEnabledInputSchema,
   agentModelSelectionSchema,
+  agentProviderEnabledInputSchema,
   agentPresetInputSchema,
   agentPresetCredentialInputSchema,
   agentPresetLoginInputSchema,
@@ -192,10 +200,14 @@ import {
   type AgentAuthInteractionEvent,
   type AgentAuthPromptResponse,
   type AgentCustomPresetInput,
+  type AgentManualModelInput,
+  type AgentManualModelRemoveInput,
+  type AgentModelEnabledInput,
   type AgentModelSelection,
   type AgentPresetInput,
   type AgentPresetCredentialInput,
   type AgentPresetLoginInput,
+  type AgentProviderEnabledInput,
   type ProviderRoleInput,
   type ProviderSaveInput,
   type ProviderSettingsSnapshot
@@ -215,6 +227,8 @@ export interface DesktopApi {
     getInfo(): Promise<AppInfo>
     getThemePreference(): Promise<ThemePreference>
     setThemePreference(input: SetThemePreferenceInput): Promise<ThemePreference>
+    getAccentPreference(): Promise<AccentPreference>
+    setAccentPreference(input: SetAccentPreferenceInput): Promise<AccentPreference>
     getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
     setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
   }
@@ -452,6 +466,11 @@ export interface DesktopApi {
     refreshAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
     setAgentDefault(selection: AgentModelSelection | null): Promise<ProviderSettingsSnapshot>
     setAgentCredential(input: AgentPresetCredentialInput): Promise<ProviderSettingsSnapshot>
+    clearAgentCredential(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
+    setAgentProviderEnabled(input: AgentProviderEnabledInput): Promise<ProviderSettingsSnapshot>
+    setAgentModelEnabled(input: AgentModelEnabledInput): Promise<ProviderSettingsSnapshot>
+    saveAgentManualModel(input: AgentManualModelInput): Promise<ProviderSettingsSnapshot>
+    removeAgentManualModel(input: AgentManualModelRemoveInput): Promise<ProviderSettingsSnapshot>
     loginAgentPreset(
       input: AgentPresetLoginInput,
       listener: (event: AgentAuthInteractionEvent) => void
@@ -484,6 +503,19 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.appSetThemePreference,
           setThemePreferenceInputSchema.parse(input)
+        )
+      )
+    },
+    async getAccentPreference() {
+      return accentPreferenceSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.appGetAccentPreference)
+      )
+    },
+    async setAccentPreference(input) {
+      return accentPreferenceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.appSetAccentPreference,
+          setAccentPreferenceInputSchema.parse(input)
         )
       )
     },
@@ -1305,6 +1337,46 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.providersSetAgentCredential,
           agentPresetCredentialInputSchema.parse(input)
+        )
+      )
+    },
+    async clearAgentCredential(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersClearAgentCredential,
+          agentPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async setAgentProviderEnabled(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSetAgentProviderEnabled,
+          agentProviderEnabledInputSchema.parse(input)
+        )
+      )
+    },
+    async setAgentModelEnabled(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSetAgentModelEnabled,
+          agentModelEnabledInputSchema.parse(input)
+        )
+      )
+    },
+    async saveAgentManualModel(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSaveAgentManualModel,
+          agentManualModelInputSchema.parse(input)
+        )
+      )
+    },
+    async removeAgentManualModel(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersRemoveAgentManualModel,
+          agentManualModelRemoveInputSchema.parse(input)
         )
       )
     },

@@ -1346,6 +1346,7 @@ export class ProjectManager {
   }
 
   async #openCanonicalRoot(canonicalRoot: string, acquiredLock?: ProjectWriteLock): Promise<void> {
+    const startedAt = Date.now()
     const manifest = await this.#dependencies.readManifest(canonicalRoot)
     let writeLock = acquiredLock
     let database: ProjectDatabase | undefined
@@ -1466,10 +1467,10 @@ export class ProjectManager {
           log: this.#logger
         })
       }
-      await projectIndex?.initialize()
       runtime.start()
       this.#context = context
       this.#state = 'open'
+      projectIndex?.startInitialization()
       try {
         await this.#recentProjects.upsert({
           projectId: manifest.projectId,
@@ -1491,7 +1492,9 @@ export class ProjectManager {
         {
           event: 'project_manager.open.completed',
           projectId: manifest.projectId,
-          projectSessionId: context.projectSessionId
+          projectSessionId: context.projectSessionId,
+          durationMs: Date.now() - startedAt,
+          indexReadiness: projectIndex?.readiness() ?? 'unavailable'
         },
         'Project open transition completed'
       )
@@ -1615,6 +1618,7 @@ async function isIndexRebuildRequired(
   projectRoot: string,
   log: Pick<Logger, 'info' | 'warn' | 'error'>
 ): Promise<boolean> {
+  const startedAt = Date.now()
   const indexPath = resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH)
   const exists = await access(indexPath).then(
     () => true,
@@ -1630,11 +1634,10 @@ async function isIndexRebuildRequired(
     database = new Database(indexPath, { readonly: true, fileMustExist: true })
     const applicationId = database.pragma('application_id', { simple: true }) as number
     const userVersion = database.pragma('user_version', { simple: true }) as number
-    const quickCheck = database.pragma('quick_check', { simple: true }) as string
     if (
       applicationId !== INDEX_DATABASE_APPLICATION_ID ||
-      userVersion !== INDEX_SCHEMA_VERSION ||
-      quickCheck !== 'ok'
+      userVersion < 1 ||
+      userVersion > INDEX_SCHEMA_VERSION
     ) {
       return true
     }
@@ -1642,6 +1645,16 @@ async function isIndexRebuildRequired(
       .prepare("SELECT count(*) FROM index_generations WHERE state = 'active'")
       .pluck()
       .get() as number
+    log.info(
+      {
+        event: 'project.index.header_check_completed',
+        applicationId,
+        schemaVersion: userVersion,
+        activeGenerationCount: active,
+        durationMs: Date.now() - startedAt
+      },
+      'Project index header check completed'
+    )
     return active !== 1
   } catch (err) {
     log.error(

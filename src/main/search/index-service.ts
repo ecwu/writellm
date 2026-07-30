@@ -21,9 +21,16 @@ interface CurrentIndexGeneration {
   sources: IndexSource[]
 }
 
+export type IndexReadiness = 'preparing' | 'available' | 'unavailable'
+
 export const GENERATION_BUILD_DEBOUNCE_MS = 1_500
 
 export class ProjectIndexService {
+  #initialization: Promise<void> | null = null
+  #readiness: IndexReadiness = 'preparing'
+  #activeGenerationId: string | null = null
+  #closing = false
+
   constructor(
     private readonly options: {
       projectRoot: string
@@ -42,31 +49,76 @@ export class ProjectIndexService {
     }
   ) {}
 
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
+    this.#initialization ??= this.#initialize()
+    return this.#initialization
+  }
+
+  startInitialization(): void {
+    void this.initialize().catch((err: unknown) => {
+      if (this.#closing) return
+      this.#readiness = 'unavailable'
+      this.options.log.error(
+        {
+          event: 'index.service.initialization_failed',
+          err,
+          projectId: this.options.projectId
+        },
+        'Project index initialization failed'
+      )
+    })
+  }
+
+  readiness(): IndexReadiness {
+    return this.#readiness
+  }
+
+  async #initialize(): Promise<void> {
+    const startedAt = Date.now()
     const current = this.#currentGeneration()
     let snapshot: IndexSnapshot
     try {
       snapshot = await this.options.client.initialize()
     } catch (err) {
+      if (this.#closing) {
+        this.options.log.info(
+          {
+            event: 'index.service.initialization_cancelled',
+            projectId: this.options.projectId,
+            durationMs: Date.now() - startedAt
+          },
+          'Index initialization cancelled while closing project'
+        )
+        return
+      }
+      this.#readiness = 'unavailable'
       this.options.log.error(
-        { event: 'index.service.utility_unavailable', err, projectId: this.options.projectId },
+        {
+          event: 'index.service.utility_unavailable',
+          err,
+          projectId: this.options.projectId,
+          durationMs: Date.now() - startedAt
+        },
         'Index utility is unavailable; rebuild remains durable'
       )
       this.#enqueueBuild(current.generationId, 'index-open-recovery')
       return
     }
+    this.#activeGenerationId = snapshot.activeGenerationId
     if (snapshot.activeGenerationId !== current.generationId) {
       this.#enqueueBuild(current.generationId, 'index-open')
     } else {
       await this.#queueEmbeddings(current, 'index-open')
     }
+    this.#readiness = 'available'
     this.options.log.info(
       {
         event: 'index.service.initialized',
         projectId: this.options.projectId,
         activeGenerationId: snapshot.activeGenerationId,
         currentGenerationId: current.generationId,
-        sourceCount: current.sources.length
+        sourceCount: current.sources.length,
+        durationMs: Date.now() - startedAt
       },
       'Project index service initialized'
     )
@@ -167,6 +219,7 @@ export class ProjectIndexService {
       return
     }
     const activation = await this.options.client.activate(generationId, context.signal)
+    this.#activeGenerationId = activation.snapshot.activeGenerationId
     context.reportProgress({ completed: 2, total: 2, stage: 'active' })
     this.options.log.info(
       {
@@ -191,6 +244,7 @@ export class ProjectIndexService {
     }
     context.reportProgress({ completed: 1, total: 2, stage: 'validated' })
     const result = await this.options.client.activate(generationId, context.signal)
+    this.#activeGenerationId = result.snapshot.activeGenerationId
     context.reportProgress({ completed: 2, total: 2, stage: 'active' })
     this.options.log.info(
       {
@@ -371,16 +425,27 @@ export class ProjectIndexService {
   }
 
   async isCurrentGenerationIndexed(): Promise<boolean> {
+    if (this.#readiness !== 'available') return false
     const current = this.#currentGeneration()
     const snapshot = await this.options.client.inspect()
+    this.#activeGenerationId = snapshot.activeGenerationId
     return snapshot.activeGenerationId === current.generationId
   }
 
+  isRetrievalAvailable(): boolean {
+    return (
+      this.#readiness === 'available' &&
+      this.#activeGenerationId === this.#currentGeneration().generationId
+    )
+  }
+
   close(): Promise<void> {
+    this.#closing = true
     return this.options.client.close()
   }
 
   terminate(): void {
+    this.#closing = true
     this.options.client.terminate()
   }
 

@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import type { IndexUtilityResponse } from '../../shared/contracts/indexing'
@@ -68,7 +71,7 @@ function fixture(): {
 }
 
 const snapshot = {
-  schemaVersion: 4 as const,
+  schemaVersion: 5 as const,
   activeGenerationId: null,
   generationCount: 0,
   chunkCount: 0,
@@ -96,6 +99,81 @@ async function flushRequestPosts(): Promise<void> {
 }
 
 describe('IndexClient protocol boundaries', () => {
+  it('closes immediately while initialization is still pending', async () => {
+    const { client, child } = fixture()
+    const pending = client.initialize()
+
+    await expect(client.close()).resolves.toBeUndefined()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(child.killed).toBe(true)
+  })
+
+  it('terminates pending initialization without starting recovery', async () => {
+    const { client, child } = fixture()
+    const pending = client.initialize()
+
+    client.terminate()
+
+    await expect(pending).rejects.toThrow('Index utility terminated')
+    expect(child.killed).toBe(true)
+    expect(child.posts).toHaveLength(1)
+  })
+
+  it('removes a damaged derived database family and retries initialization once', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'writellm-index-client-'))
+    const indexPath = join(root, 'index.sqlite')
+    await Promise.all([
+      writeFile(indexPath, 'damaged'),
+      writeFile(`${indexPath}-wal`, 'damaged'),
+      writeFile(`${indexPath}-shm`, 'damaged')
+    ])
+    const children = [new FakeUtilityProcess(), new FakeUtilityProcess()]
+    let forkCount = 0
+    const sessionId = randomUUID()
+    const client = new IndexClient({
+      modulePath: '/worker.js',
+      indexPath,
+      extensionPath: '/vec0.dylib',
+      projectId: randomUUID(),
+      projectSessionId: sessionId,
+      collector: {} as LogCollector,
+      log: pino({ level: 'silent' }),
+      processFactory: {
+        fork: () => children[forkCount++] as never
+      }
+    })
+    try {
+      const pending = client.initialize()
+      const firstRequest = children[0]?.posts[0] as { requestId: string }
+      children[0]?.emit('message', {
+        type: 'error',
+        requestId: firstRequest.requestId,
+        projectSessionId: sessionId,
+        error: { name: 'Error', message: 'Index database integrity check failed' }
+      } satisfies IndexUtilityResponse)
+      for (let attempt = 0; attempt < 100 && children[1]?.posts.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      }
+      expect(forkCount).toBe(2)
+      const secondRequest = children[1]?.posts[0] as { requestId: string }
+      children[1]?.emit('message', {
+        type: 'ready',
+        requestId: secondRequest.requestId,
+        projectSessionId: sessionId,
+        snapshot
+      } satisfies IndexUtilityResponse)
+
+      await expect(pending).resolves.toEqual(snapshot)
+      await expect(access(indexPath)).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(access(`${indexPath}-wal`)).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(access(`${indexPath}-shm`)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(forkCount).toBe(2)
+    } finally {
+      client.terminate()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('terminates and rejects stale-session responses', async () => {
     const { client, child, sessionId } = fixture()
     await initialize(client, child, sessionId)

@@ -1,34 +1,25 @@
 import type {
   ManuscriptWorkspace,
   SectionRevision,
+  SectionStatus,
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, FileText } from 'lucide-react'
+import { AlertCircle, Download, FileText, MoreHorizontal, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGroupRef } from 'react-resizable-panels'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
@@ -36,15 +27,24 @@ import { Spinner } from '@/components/ui/spinner'
 import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
-import { OutlineEditPanel, type OutlineMove } from './outline-edit-panel'
+import { OutlineEditPanel } from './outline-edit-panel'
+import { adjacentSectionAfterDelete } from './outline-tree'
 import { ManuscriptPreview } from './manuscript-preview'
 import { SectionEditor, type SectionEditorHandle, type SaveState } from './section-editor'
+
+const editorSaveStateLabels: Record<SaveState, string> = {
+  clean: 'Unsaved body',
+  saving: 'Saving body',
+  saved: 'Saved',
+  'mirror-pending': 'Saved, mirror pending',
+  conflict: 'Conflict',
+  failed: 'Save failed'
+}
 
 export function WritingWorkspace(props: {
   projectSessionId: string
   projectName: string
   lifecycleState: string
-  globalAlert: React.ReactNode
   agentOpen: boolean
   onAgentOpenChange(open: boolean): void
   onOpenSettings(): void
@@ -68,9 +68,6 @@ export function WritingWorkspace(props: {
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<'manuscript' | 'knowledge'>('manuscript')
-  const [newSectionParent, setNewSectionParent] = useState<string | null | undefined>(undefined)
-  const [newSectionTitle, setNewSectionTitle] = useState('')
-  const [deleteSectionId, setDeleteSectionId] = useState<string | null>(null)
   const [editorSaveState, setEditorSaveState] = useState<SaveState>('saved')
   const [metadataTitle, setMetadataTitle] = useState('')
   const [metadataError, setMetadataError] = useState(false)
@@ -79,7 +76,9 @@ export function WritingWorkspace(props: {
   const activeSectionIdRef = useRef<string | null>(null)
   const metadataDraftSectionIdRef = useRef<string | null>(null)
   const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
+  const metadataCanonicalTitleRef = useRef<string | null>(null)
   const metadataSaveRef = useRef<Promise<boolean> | null>(null)
+  const outlineMutationLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
 
@@ -139,6 +138,7 @@ export function WritingWorkspace(props: {
         metadataDraftRef.current = { title: target.section.title }
         metadataDraftSectionIdRef.current = sectionId
         metadataCanonicalUpdatedAtRef.current = target.section.updatedAt
+        metadataCanonicalTitleRef.current = target.section.title
         setMetadataError(false)
       }
       activeSectionIdRef.current = sectionId
@@ -179,34 +179,24 @@ export function WritingWorkspace(props: {
     [workspace]
   )
 
-  const outlineMoveAvailability = useMemo(() => {
-    if (!workspace || !activeSummary) {
-      return { up: false, down: false, indent: false, outdent: false }
-    }
-    const section = activeSummary.section
-    const siblings = workspace.sections.filter(
-      (item) => item.section.parentSectionId === section.parentSectionId
-    )
-    return {
-      up: section.position > 0,
-      down: section.position < siblings.length - 1,
-      indent: section.position > 0,
-      outdent: section.parentSectionId !== null
-    }
-  }, [activeSummary, workspace])
-
   useEffect(() => {
     if (!activeSummary) return
     const sectionChanged = metadataDraftSectionIdRef.current !== activeSummary.section.sectionId
     const canonicalChanged =
       metadataCanonicalUpdatedAtRef.current !== activeSummary.section.updatedAt
     const draft = metadataDraftRef.current
-    const draftDirty = draft.title !== activeSummary.section.title
-    if (!sectionChanged && (!canonicalChanged || draftDirty || metadataError)) return
+    const draftDirty = draft.title !== metadataCanonicalTitleRef.current
+    const draftMatchesCanonical = draft.title === activeSummary.section.title
+    if (
+      !sectionChanged &&
+      (!canonicalChanged || (draftDirty && !draftMatchesCanonical) || metadataError)
+    )
+      return
     setMetadataTitle(activeSummary.section.title)
     metadataDraftRef.current = { title: activeSummary.section.title }
     metadataDraftSectionIdRef.current = activeSummary.section.sectionId
     metadataCanonicalUpdatedAtRef.current = activeSummary.section.updatedAt
+    metadataCanonicalTitleRef.current = activeSummary.section.title
     setMetadataError(false)
   }, [activeSummary, metadataError])
 
@@ -269,12 +259,15 @@ export function WritingWorkspace(props: {
   }, [props, saveMetadata])
 
   const selectSection = useCallback(
-    async (sectionId: string): Promise<void> => {
-      if (sectionId === activeSectionId || !(await flushCurrent())) return
+    async (sectionId: string): Promise<boolean> => {
+      if (sectionId === activeSectionId) return true
+      if (!(await flushCurrent())) return false
       try {
         await activateSection(sectionId)
+        return true
       } catch {
         props.onError('The selected section could not be activated.')
+        return false
       }
     },
     [activateSection, activeSectionId, flushCurrent, props]
@@ -456,49 +449,130 @@ export function WritingWorkspace(props: {
     )
   }
 
-  const moveSection = async (
+  const enqueueOutlineMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = outlineMutationLockRef.current.then(operation)
+    outlineMutationLockRef.current = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }, [])
+
+  const refreshOutlineAfterFailure = async (): Promise<void> => {
+    await workspaceQuery.refetch()
+  }
+
+  const updateOutlineSection = (
+    sectionId: string,
+    update: { title?: string; objective?: string | null; status?: SectionStatus }
+  ): Promise<boolean> =>
+    enqueueOutlineMutation(async () => {
+      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
+      if (!current) return false
+      const result = await runMutation(() =>
+        window.desktop.manuscript.updateSection({
+          projectSessionId: props.projectSessionId,
+          update: {
+            baseOutlineVersion: current.outlineVersion,
+            sectionId,
+            ...update
+          }
+        })
+      )
+      if (result !== null) return true
+      await refreshOutlineAfterFailure()
+      return false
+    })
+
+  const moveOutlineSection = (
     sectionId: string,
     parentSectionId: string | null,
     position: number
-  ): Promise<void> => {
-    if (!(await flushCurrent())) return
-    const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
-    if (!current) return
-    await runMutation(() =>
-      window.desktop.manuscript.moveSection({
-        projectSessionId: props.projectSessionId,
-        move: { baseOutlineVersion: current.outlineVersion, sectionId, parentSectionId, position }
-      })
-    )
-  }
+  ): Promise<boolean> =>
+    enqueueOutlineMutation(async () => {
+      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
+      if (!current) return false
+      const result = await runMutation(() =>
+        window.desktop.manuscript.moveSection({
+          projectSessionId: props.projectSessionId,
+          move: {
+            baseOutlineVersion: current.outlineVersion,
+            sectionId,
+            parentSectionId,
+            position
+          }
+        })
+      )
+      if (result !== null) return true
+      await refreshOutlineAfterFailure()
+      return false
+    })
 
-  const moveActive = async (kind: OutlineMove): Promise<void> => {
-    if (!workspace || !activeSummary) return
-    const section = activeSummary.section
-    const siblings = workspace.sections
-      .map((item) => item.section)
-      .filter((item) => item.parentSectionId === section.parentSectionId)
-    if (kind === 'up' && section.position > 0) {
-      await moveSection(section.sectionId, section.parentSectionId, section.position - 1)
-    } else if (kind === 'down' && section.position < siblings.length - 1) {
-      await moveSection(section.sectionId, section.parentSectionId, section.position + 1)
-    } else if (kind === 'indent' && section.position > 0) {
-      const previous = siblings[section.position - 1]
-      if (previous) {
-        const childCount = workspace.sections.filter(
-          (item) => item.section.parentSectionId === previous.sectionId
-        ).length
-        await moveSection(section.sectionId, previous.sectionId, childCount)
+  const createOutlineSection = (
+    parentSectionId: string | null,
+    title: string
+  ): Promise<string | null> =>
+    enqueueOutlineMutation(async () => {
+      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
+      if (!current) return null
+      const priorSectionIds = new Set(current.sections.map((item) => item.section.sectionId))
+      const position = current.sections.filter(
+        (item) => item.section.parentSectionId === parentSectionId
+      ).length
+      const result = await runMutation(() =>
+        window.desktop.manuscript.createSection({
+          projectSessionId: props.projectSessionId,
+          create: {
+            baseOutlineVersion: current.outlineVersion,
+            parentSectionId,
+            position,
+            title,
+            objective: null,
+            status: 'planned'
+          }
+        })
+      )
+      if (result === null) {
+        await refreshOutlineAfterFailure()
+        return null
       }
-    } else if (kind === 'outdent' && section.parentSectionId !== null) {
-      const parent = workspace.sections.find(
-        (item) => item.section.sectionId === section.parentSectionId
-      )?.section
-      if (parent) {
-        await moveSection(section.sectionId, parent.parentSectionId, parent.position + 1)
+      return (
+        result.sections.find((item) => !priorSectionIds.has(item.section.sectionId))?.section
+          .sectionId ?? null
+      )
+    })
+
+  const deleteOutlineSection = (sectionId: string): Promise<boolean> =>
+    enqueueOutlineMutation(async () => {
+      if (sectionId === activeSectionId && !(await flushCurrent())) return false
+      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
+      if (!current) return false
+      const fallbackId = adjacentSectionAfterDelete(
+        current.sections.map((item) => item.section),
+        sectionId
+      )
+      const result = await runMutation(() =>
+        window.desktop.manuscript.deleteSection({
+          projectSessionId: props.projectSessionId,
+          delete: {
+            baseOutlineVersion: current.outlineVersion,
+            sectionId
+          }
+        })
+      )
+      if (result === null) {
+        await refreshOutlineAfterFailure()
+        return false
       }
-    }
-  }
+      if (sectionId === activeSectionId && fallbackId !== null) {
+        try {
+          await activateSection(fallbackId)
+        } catch {
+          props.onError('The remaining section could not be activated.')
+        }
+      }
+      return true
+    })
 
   const openPreview = async (): Promise<void> => {
     if (!(await flushCurrent())) return
@@ -508,7 +582,7 @@ export function WritingWorkspace(props: {
     })
   }
 
-  const runPanelEditorAction = async (
+  const runActiveEditorAction = async (
     action: () => Promise<void>,
     failureMessage: string
   ): Promise<void> => {
@@ -520,18 +594,18 @@ export function WritingWorkspace(props: {
     }
   }
 
-  const importMarkdownFromPanel = (): Promise<void> =>
-    runPanelEditorAction(async () => {
+  const importMarkdownForActiveSection = (): Promise<void> =>
+    runActiveEditorAction(async () => {
       await editorRef.current?.importMarkdown()
     }, 'Markdown could not be imported into the current section.')
 
-  const exportNativeJsonFromPanel = (): Promise<void> =>
-    runPanelEditorAction(async () => {
+  const exportNativeJsonForActiveSection = (): Promise<void> =>
+    runActiveEditorAction(async () => {
       await editorRef.current?.exportNativeJson()
     }, 'The native section document could not be exported.')
 
-  const exportMarkdownFromPanel = (): Promise<void> =>
-    runPanelEditorAction(async () => {
+  const exportMarkdownForActiveSection = (): Promise<void> =>
+    runActiveEditorAction(async () => {
       await editorRef.current?.exportMarkdown()
     }, 'The Markdown section export could not be created.')
 
@@ -543,12 +617,15 @@ export function WritingWorkspace(props: {
     }
   }
 
+  const openOutlineEditor = async (): Promise<void> => {
+    if (await flushCurrent()) setOutlineEditOpen(true)
+  }
+
   if (activeWorkspace === 'knowledge') {
     return (
       <KnowledgeManager
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
-        globalAlert={props.globalAlert}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenSettings={props.onOpenSettings}
         onError={props.onError}
@@ -567,13 +644,8 @@ export function WritingWorkspace(props: {
         activeWorkspace={activeWorkspace}
         activeSectionId={activeSectionId}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
-        onCreateSection={setNewSectionParent}
-        onDeleteSection={setDeleteSectionId}
-        onMoveSection={(sectionId, parentSectionId, position) =>
-          void moveSection(sectionId, parentSectionId, position)
-        }
         onOpenBrief={() => setBriefOpen(true)}
-        onOpenOutlineEditor={() => setOutlineEditOpen(true)}
+        onOpenOutlineEditor={() => void openOutlineEditor()}
         onOpenKnowledge={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
@@ -603,7 +675,6 @@ export function WritingWorkspace(props: {
               </Badge>
             </header>
             <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:px-12 md:py-10 lg:px-20'>
-              {props.globalAlert}
               {workspaceQuery.isError ? (
                 <Alert variant='destructive'>
                   <AlertCircle />
@@ -619,18 +690,52 @@ export function WritingWorkspace(props: {
                 </div>
               ) : editorQuery.data && activeSummary ? (
                 <section className='flex flex-col gap-2'>
-                  <Input
-                    id='section-title'
-                    aria-label='Section title'
-                    value={metadataTitle}
-                    onBlur={() => void saveMetadata()}
-                    onChange={(event) => {
-                      metadataDraftRef.current.title = event.target.value
-                      setMetadataError(false)
-                      setMetadataTitle(event.target.value)
-                    }}
-                    className='h-auto border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
-                  />
+                  <div className='flex min-w-0 items-start gap-2'>
+                    <Input
+                      id='section-title'
+                      aria-label='Section title'
+                      value={metadataTitle}
+                      onBlur={() => void saveMetadata()}
+                      onChange={(event) => {
+                        metadataDraftRef.current.title = event.target.value
+                        setMetadataError(false)
+                        setMetadataTitle(event.target.value)
+                      }}
+                      className='h-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
+                    />
+                    <div className='flex shrink-0 items-center gap-2 pt-1'>
+                      <Badge variant='outline' className='max-md:hidden'>
+                        {editorSaveStateLabels[editorSaveState]}
+                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant='outline' size='icon-sm' aria-label='Section actions'>
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align='end'>
+                          <DropdownMenuLabel>Section actions</DropdownMenuLabel>
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem
+                              onSelect={() => void importMarkdownForActiveSection()}
+                            >
+                              <Upload /> Import Markdown
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void exportNativeJsonForActiveSection()}
+                            >
+                              <Download /> Export Native JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void exportMarkdownForActiveSection()}
+                            >
+                              <Download /> Export Markdown
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
                   {metadataError ? (
                     <p className='text-sm text-destructive' role='alert'>
                       The title could not be saved. Press ⌘/Ctrl+S to retry.
@@ -656,7 +761,7 @@ export function WritingWorkspace(props: {
                   <div className='flex flex-col gap-3'>
                     <FileText className='mx-auto size-8 text-muted-foreground' />
                     <p className='font-medium'>No section is available</p>
-                    <Button onClick={() => setNewSectionParent(null)}>Create a section</Button>
+                    <Button onClick={() => void openOutlineEditor()}>Open outline editor</Button>
                   </div>
                 </div>
               )}
@@ -699,21 +804,20 @@ export function WritingWorkspace(props: {
         ) : null}
       </ResizablePanelGroup>
 
-      <OutlineEditPanel
-        open={outlineEditOpen}
-        onOpenChange={setOutlineEditOpen}
-        activeSection={activeSummary?.section}
-        saveState={editorSaveState}
-        canMoveUp={outlineMoveAvailability.up}
-        canMoveDown={outlineMoveAvailability.down}
-        canIndent={outlineMoveAvailability.indent}
-        canOutdent={outlineMoveAvailability.outdent}
-        onMove={(move) => void moveActive(move)}
-        onImportMarkdown={importMarkdownFromPanel}
-        onExportNativeJson={exportNativeJsonFromPanel}
-        onExportMarkdown={exportMarkdownFromPanel}
-        onPreviewAll={previewFromPanel}
-      />
+      {workspace ? (
+        <OutlineEditPanel
+          open={outlineEditOpen}
+          workspace={workspace}
+          activeSectionId={activeSectionId}
+          onRequestClose={() => setOutlineEditOpen(false)}
+          onUpdateSection={updateOutlineSection}
+          onMoveSection={moveOutlineSection}
+          onCreateSection={createOutlineSection}
+          onDeleteSection={deleteOutlineSection}
+          onOpenSection={selectSection}
+          onPreviewAll={previewFromPanel}
+        />
+      ) : null}
 
       {workspace ? (
         <ManuscriptBriefDialog
@@ -751,130 +855,6 @@ export function WritingWorkspace(props: {
         error={previewQuery.isError}
         onOpenChange={setPreviewOpen}
       />
-
-      <Dialog
-        open={newSectionParent !== undefined}
-        onOpenChange={(open) => {
-          if (!open) {
-            setNewSectionParent(undefined)
-            setNewSectionTitle('')
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create section</DialogTitle>
-            <DialogDescription>
-              {newSectionParent === null ? 'Add a top-level section.' : 'Add a nested subsection.'}
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            aria-label='Section title'
-            value={newSectionTitle}
-            placeholder='Section title'
-            onChange={(event) => setNewSectionTitle(event.target.value)}
-          />
-          <DialogFooter>
-            <Button variant='outline' onClick={() => setNewSectionParent(undefined)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={!workspace || newSectionTitle.trim().length === 0 || mutation.isPending}
-              onClick={() => {
-                if (newSectionParent === undefined) return
-                void (async () => {
-                  if (!(await flushCurrent())) return
-                  const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
-                  if (!current) return
-                  const position = current.sections.filter(
-                    (item) => item.section.parentSectionId === newSectionParent
-                  ).length
-                  const priorSectionIds = new Set(
-                    current.sections.map((item) => item.section.sectionId)
-                  )
-                  const result = await runMutation(() =>
-                    window.desktop.manuscript.createSection({
-                      projectSessionId: props.projectSessionId,
-                      create: {
-                        baseOutlineVersion: current.outlineVersion,
-                        parentSectionId: newSectionParent,
-                        position,
-                        title: newSectionTitle.trim(),
-                        objective: null,
-                        status: 'planned'
-                      }
-                    })
-                  )
-                  if (!result) return
-                  const created = result.sections.find(
-                    (item) => !priorSectionIds.has(item.section.sectionId)
-                  )
-                  if (created) await activateSection(created.section.sectionId)
-                  setNewSectionParent(undefined)
-                  setNewSectionTitle('')
-                })().catch(() => props.onError('The new section could not be activated.'))
-              }}
-            >
-              Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={deleteSectionId !== null}
-        onOpenChange={(open) => !open && setDeleteSectionId(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete section?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the section from the outline. Its revision and Agent history remain
-              available for audit. Sections with children and the last remaining section cannot be
-              deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant='destructive'
-              disabled={!workspace || mutation.isPending}
-              onClick={(event) => {
-                event.preventDefault()
-                if (deleteSectionId === null) return
-                const target = deleteSectionId
-                void (async () => {
-                  if (!(await flushCurrent())) return
-                  const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
-                  if (!current) return
-                  const result = await runMutation(() =>
-                    window.desktop.manuscript.deleteSection({
-                      projectSessionId: props.projectSessionId,
-                      delete: {
-                        baseOutlineVersion: current.outlineVersion,
-                        sectionId: target
-                      }
-                    })
-                  )
-                  if (!result) return
-                  setDeleteSectionId(null)
-                  if (activeSectionId === target) {
-                    const fallback = result.sections[0]?.section.sectionId
-                    if (fallback !== undefined) await activateSection(fallback)
-                    else {
-                      activeSectionIdRef.current = null
-                      setActiveSectionId(null)
-                    }
-                  }
-                })().catch(() => props.onError('The remaining section could not be activated.'))
-              }}
-            >
-              Delete section
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </SidebarProvider>
   )
 }

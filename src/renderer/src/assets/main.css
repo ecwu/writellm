@@ -72,6 +72,76 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+:root[data-accent="blue"] {
+  --primary: oklch(0.55 0.19 255);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.17 255);
+  --sidebar-primary: oklch(0.55 0.19 255);
+}
+
+:root[data-accent="green"] {
+  --primary: oklch(0.52 0.15 150);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.6 0.14 150);
+  --sidebar-primary: oklch(0.52 0.15 150);
+}
+
+:root[data-accent="violet"] {
+  --primary: oklch(0.54 0.2 293);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.18 293);
+  --sidebar-primary: oklch(0.54 0.2 293);
+}
+
+:root[data-accent="rose"] {
+  --primary: oklch(0.56 0.2 12);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.64 0.17 12);
+  --sidebar-primary: oklch(0.56 0.2 12);
+}
+
+:root[data-accent="orange"] {
+  --primary: oklch(0.58 0.17 50);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.66 0.15 50);
+  --sidebar-primary: oklch(0.58 0.17 50);
+}
+
+.dark[data-accent="blue"] {
+  --primary: oklch(0.72 0.15 255);
+  --primary-foreground: oklch(0.18 0.04 255);
+  --ring: oklch(0.66 0.15 255);
+  --sidebar-primary: oklch(0.64 0.17 255);
+}
+
+.dark[data-accent="green"] {
+  --primary: oklch(0.72 0.15 150);
+  --primary-foreground: oklch(0.17 0.03 150);
+  --ring: oklch(0.66 0.14 150);
+  --sidebar-primary: oklch(0.62 0.16 150);
+}
+
+.dark[data-accent="violet"] {
+  --primary: oklch(0.75 0.16 293);
+  --primary-foreground: oklch(0.18 0.04 293);
+  --ring: oklch(0.68 0.16 293);
+  --sidebar-primary: oklch(0.66 0.18 293);
+}
+
+.dark[data-accent="rose"] {
+  --primary: oklch(0.72 0.17 12);
+  --primary-foreground: oklch(0.18 0.04 12);
+  --ring: oklch(0.66 0.16 12);
+  --sidebar-primary: oklch(0.64 0.18 12);
+}
+
+.dark[data-accent="orange"] {
+  --primary: oklch(0.75 0.16 50);
+  --primary-foreground: oklch(0.2 0.04 50);
+  --ring: oklch(0.68 0.15 50);
+  --sidebar-primary: oklch(0.66 0.17 50);
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

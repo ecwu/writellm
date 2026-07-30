@@ -2,12 +2,33 @@ import { describe, expect, it } from 'vitest'
 import { getProviderCapability } from '../../main/providers/capability-registry'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import {
+  agentCustomPresetInputSchema,
   effectiveGoogleGeminiImageSize,
   GOOGLE_GEMINI_IMAGE_MODELS,
   providerConfigSchema
 } from './providers'
 
 describe('provider contracts', () => {
+  it('accepts only packaged models.dev logo overrides for custom Agent Providers', () => {
+    const custom = {
+      name: 'DeepSeek proxy',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions' as const,
+      authMode: 'api_key' as const,
+      timeoutMs: 30_000
+    }
+    expect(
+      agentCustomPresetInputSchema.safeParse({ ...custom, logoOverrideId: 'deepseek' }).success
+    ).toBe(true)
+    expect(
+      agentCustomPresetInputSchema.safeParse({ ...custom, logoOverrideId: null }).success
+    ).toBe(true)
+    expect(
+      agentCustomPresetInputSchema.safeParse({ ...custom, logoOverrideId: 'remote-provider' })
+        .success
+    ).toBe(false)
+  })
+
   it('accepts HTTPS and loopback HTTP but rejects embedded credentials and remote HTTP', () => {
     const base = {
       role: 'agent' as const,

@@ -9,7 +9,7 @@ const identifierSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 const internalPathSchema = z.string().min(1).max(32_768)
 
-export const INDEX_SCHEMA_VERSION = 4
+export const INDEX_SCHEMA_VERSION = 5
 export const INDEX_CHUNKER_VERSION = 1
 
 export const indexSourceSchema = z

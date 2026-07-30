@@ -30,6 +30,8 @@ import { Spinner } from '@/components/ui/spinner'
 export function KnowledgeSearch(props: {
   projectSessionId: string
   items: KnowledgeItem[]
+  disabled: boolean
+  unavailable: boolean
   onError(message: string): void
 }): React.JSX.Element {
   const [queryText, setQueryText] = useState('')
@@ -58,6 +60,7 @@ export function KnowledgeSearch(props: {
   })
   const selectedItem = props.items.find((item) => item.knowledgeItemId === knowledgeItemId)
   const submit = (): void => {
+    if (props.disabled) return
     const normalizedQuery = queryText.trim()
     if (!normalizedQuery) return
     const parsedPage = page.trim() === '' ? undefined : Number(page) - 1
@@ -92,16 +95,27 @@ export function KnowledgeSearch(props: {
       >
         <div className='flex gap-2'>
           <Input
+            disabled={props.disabled}
             value={queryText}
             onChange={(event) => setQueryText(event.target.value)}
             placeholder='Search parsed project knowledge…'
             aria-label='Knowledge search query'
           />
-          <Button type='submit' disabled={queryText.trim().length === 0 || searchQuery.isFetching}>
+          <Button
+            type='submit'
+            disabled={props.disabled || queryText.trim().length === 0 || searchQuery.isFetching}
+          >
             {searchQuery.isFetching ? <Spinner data-icon='inline-start' /> : <Search />}
             Search
           </Button>
         </div>
+        {props.disabled ? (
+          <p className='text-sm text-muted-foreground' role='status'>
+            {props.unavailable
+              ? 'Knowledge search is currently unavailable.'
+              : 'Knowledge search is preparing in the background. You can keep editing the manuscript.'}
+          </p>
+        ) : null}
         <div className='flex flex-wrap gap-2'>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

@@ -32,17 +32,22 @@ describe('ProjectIndexService embeddings', () => {
       .fn()
       .mockResolvedValueOnce({ activeGenerationId: expectedIndexGeneration() })
       .mockResolvedValueOnce({ activeGenerationId: 'generation-stale' })
+    const client = {
+      initialize: vi.fn(async () => ({ activeGenerationId: 'generation-stale' })),
+      inspect
+    }
     const service = new ProjectIndexService({
       projectRoot,
       projectId,
       database: projectDatabaseWithSource(),
-      jobs: {} as never,
-      client: { inspect } as unknown as IndexClient,
+      jobs: { enqueue: vi.fn() } as never,
+      client: client as unknown as IndexClient,
       getEmbeddingProvider: async () => config,
       embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     })
 
+    await service.initialize()
     await expect(service.isCurrentGenerationIndexed()).resolves.toBe(true)
     await expect(service.isCurrentGenerationIndexed()).resolves.toBe(false)
   })

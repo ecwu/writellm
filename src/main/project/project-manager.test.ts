@@ -320,6 +320,60 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('publishes the project session before deferred index initialization finishes', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'background-index')
+    let finishInitialization!: () => void
+    const initialization = new Promise<void>((resolve) => {
+      finishInitialization = resolve
+    })
+    let initialized = false
+    const initialize = vi.fn(async () => {
+      await initialization
+      initialized = true
+    })
+    const closeIndex = vi.fn(async () => undefined)
+    const projectIndex = {
+      initialize,
+      startInitialization: vi.fn(() => {
+        void initialize()
+      }),
+      readiness: vi.fn(() => (initialized ? 'available' : 'preparing')),
+      requestItemDelete: vi.fn(),
+      close: closeIndex
+    }
+    const manager = new ProjectManager({
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      createKnowledgeRuntime: () => ({
+        mineruWorkflow: {} as never,
+        knowledgeNormalization: {} as never,
+        projectIndex: projectIndex as never,
+        registry: new JobHandlerRegistry()
+      }),
+      closeParticipants: {
+        stopWorkersAndIndex: async (context) => context.projectIndex?.close()
+      }
+    })
+
+    const opened = await manager.open(created.projectRoot)
+    const sessionId = opened.activeProject?.projectSessionId
+    expect(sessionId).toBeDefined()
+    expect(projectIndex.startInitialization).toHaveBeenCalledOnce()
+    expect(initialize).toHaveBeenCalledOnce()
+    expect(initialized).toBe(false)
+    expect(manager.assertActiveSession(sessionId as string).manuscript.getWorkspace()).toBeDefined()
+
+    await manager.close()
+    expect(closeIndex).toHaveBeenCalledOnce()
+    expect(() => manager.assertActiveSession(sessionId as string)).toThrow(ProjectSessionError)
+    finishInitialization()
+    await initialization
+    appDatabase.close()
+  })
+
   it('recovers expired job leases before publishing an open project session', async () => {
     const { parent, appDatabase, manager } = await testEnvironment()
     const created = await existingProject(parent, 'lease-recovery')

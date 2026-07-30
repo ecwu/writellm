@@ -1,6 +1,8 @@
 import { app, ipcMain } from 'electron'
 import {
+  accentPreferenceSchema,
   appInfoSchema,
+  setAccentPreferenceInputSchema,
   setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema
@@ -57,6 +59,22 @@ export function registerIpcHandlers({
     return themePreferenceSchema.parse(persisted)
   })
 
+  ipc.handle(IPC_CHANNELS.appGetAccentPreference, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return accentPreferenceSchema.parse(await appSettings.getAccentPreference())
+  })
+
+  ipc.handle(IPC_CHANNELS.appSetAccentPreference, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { preference } = setAccentPreferenceInputSchema.parse(rawInput)
+    const persisted = await appSettings.setAccentPreference(preference)
+    logger.info(
+      { event: 'app.settings.accent_preference_updated', preference: persisted },
+      'Accent preference updated'
+    )
+    return accentPreferenceSchema.parse(persisted)
+  })
+
   ipc.handle(IPC_CHANNELS.appGetDefaultAgentApprovalMode, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return agentApprovalModeSchema.parse(await appSettings.getDefaultAgentApprovalMode())
@@ -78,6 +96,8 @@ export function registerIpcHandlers({
       IPC_CHANNELS.appGetInfo,
       IPC_CHANNELS.appGetThemePreference,
       IPC_CHANNELS.appSetThemePreference,
+      IPC_CHANNELS.appGetAccentPreference,
+      IPC_CHANNELS.appSetAccentPreference,
       IPC_CHANNELS.appGetDefaultAgentApprovalMode,
       IPC_CHANNELS.appSetDefaultAgentApprovalMode
     ]) {

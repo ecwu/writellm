@@ -60,20 +60,56 @@ export class KnowledgeImportService {
   }
 
   list(): KnowledgeItem[] {
+    const startedAt = Date.now()
     const rows = this.#database.immediate(
       (database) =>
         database
           .prepare(
             `SELECT knowledge_items.*, file_records.sha256, file_records.byte_size,
-                    file_records.mime_type, file_records.extension, imports.bytes_copied
+                    file_records.mime_type, file_records.extension, imports.bytes_copied,
+                    (
+                      SELECT parse_tasks.state FROM parse_tasks
+                       WHERE parse_tasks.knowledge_item_id = knowledge_items.knowledge_item_id
+                       ORDER BY parse_tasks.created_at DESC, parse_tasks.parse_task_id DESC
+                       LIMIT 1
+                    ) AS parse_state,
+                    (
+                      SELECT normalization_runs.state FROM normalization_runs
+                       WHERE normalization_runs.knowledge_item_id =
+                             knowledge_items.knowledge_item_id
+                       ORDER BY normalization_runs.created_at DESC,
+                                normalization_runs.normalization_run_id DESC
+                       LIMIT 1
+                    ) AS normalization_state,
+                    active_parse_revisions.parse_revision_id AS active_parse_revision_id,
+                    active_parse_revisions.normalization_run_id AS active_normalization_run_id,
+                    active_normalization.block_count,
+                    active_normalization.asset_count,
+                    active_parse_revisions.activated_at
                FROM knowledge_items
                LEFT JOIN file_records USING (file_record_id)
                LEFT JOIN imports USING (knowledge_item_id)
+               LEFT JOIN active_parse_revisions USING (knowledge_item_id)
+               LEFT JOIN normalization_runs AS active_normalization
+                 ON active_normalization.normalization_run_id =
+                    active_parse_revisions.normalization_run_id
               ORDER BY knowledge_items.created_at DESC, knowledge_items.rowid DESC`
           )
-          .all() as Array<KnowledgeItemTable & Partial<FileRecordTable> & { bytes_copied: number }>
+          .all() as KnowledgeListRow[]
     )
-    return knowledgeListResultSchema.parse(rows.map(toKnowledgeItem))
+    const result = knowledgeListResultSchema.parse(rows.map(toKnowledgeItem))
+    this.#log.info(
+      {
+        event: 'knowledge.summary.loaded',
+        projectId: this.#projectId,
+        itemCount: result.length,
+        activeDocumentCount: result.filter((item) => item.activeParseRevisionId !== null).length,
+        blockCount: result.reduce((total, item) => total + item.blockCount, 0),
+        durationMs: Date.now() - startedAt
+      },
+      'Knowledge summary loaded'
+    )
+    return result
   }
 
   async importPaths(paths: readonly string[]): Promise<KnowledgeItem[]> {
@@ -524,9 +560,19 @@ export class KnowledgeImportService {
   }
 }
 
-function toKnowledgeItem(
-  row: KnowledgeItemTable & Partial<FileRecordTable> & { bytes_copied: number }
-): KnowledgeItem {
+type KnowledgeListRow = KnowledgeItemTable &
+  Partial<FileRecordTable> & {
+    bytes_copied: number
+    parse_state: string | null
+    normalization_state: 'staging' | 'published' | 'failed' | null
+    active_parse_revision_id: string | null
+    active_normalization_run_id: string | null
+    block_count: number | null
+    asset_count: number | null
+    activated_at: string | null
+  }
+
+function toKnowledgeItem(row: KnowledgeListRow): KnowledgeItem {
   return knowledgeItemSchema.parse({
     knowledgeItemId: row.knowledge_item_id,
     originalName: row.original_name,
@@ -538,6 +584,13 @@ function toKnowledgeItem(
     byteSize: row.byte_size ?? null,
     bytesCopied: row.bytes_copied,
     sha256: row.sha256 ?? null,
+    parseState: row.parse_state,
+    normalizationState: row.normalization_state,
+    activeParseRevisionId: row.active_parse_revision_id,
+    activeNormalizationRunId: row.active_normalization_run_id,
+    blockCount: row.block_count ?? 0,
+    assetCount: row.asset_count ?? 0,
+    activatedAt: row.activated_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   })

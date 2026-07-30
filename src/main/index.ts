@@ -6,6 +6,7 @@ import {
   safeStorage,
   utilityProcess
 } from 'electron'
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -78,6 +79,9 @@ import {
   type WindowPresentation
 } from './bootstrap/window-presentation'
 
+// Pi keeps its Node-only OAuth implementations behind bundler-opaque imports. Register the
+// statically bundled implementations before any Provider login can reach those lazy loaders.
+registerBunOAuthFlows()
 registerAppScheme()
 
 const windowPresentation: WindowPresentation = resolveWindowPresentation(
@@ -352,6 +356,7 @@ if (!hasSingleInstanceLock) {
             projectSessionId,
             manuscript,
             retrieval,
+            isRetrievalAvailable: () => projectIndex.isRetrievalAvailable(),
             log: loggerSystem.createModuleLogger('agent', 'read-tools')
           })
           const agentMutations = new MutationProposalService({

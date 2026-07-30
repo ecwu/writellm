@@ -60,23 +60,25 @@ export class KnowledgeNormalizationService {
   }
 
   async detail(knowledgeItemId: string): Promise<ParsedKnowledgeDocument> {
-    const snapshot = this.#database.immediate((database) => {
-      const latest = database
-        .prepare(
-          `SELECT state FROM parse_tasks WHERE knowledge_item_id = ?
+    const startedAt = Date.now()
+    try {
+      const snapshot = this.#database.immediate((database) => {
+        const latest = database
+          .prepare(
+            `SELECT state FROM parse_tasks WHERE knowledge_item_id = ?
             ORDER BY created_at DESC, parse_task_id DESC LIMIT 1`
-        )
-        .get(knowledgeItemId) as { state: string } | undefined
-      const normalization = database
-        .prepare(
-          `SELECT state FROM normalization_runs
+          )
+          .get(knowledgeItemId) as { state: string } | undefined
+        const normalization = database
+          .prepare(
+            `SELECT state FROM normalization_runs
             WHERE knowledge_item_id = ?
             ORDER BY created_at DESC, normalization_run_id DESC LIMIT 1`
-        )
-        .get(knowledgeItemId) as { state: 'staging' | 'published' | 'failed' } | undefined
-      const active = database
-        .prepare(
-          `SELECT active_parse_revisions.activated_at, parse_revisions.*,
+          )
+          .get(knowledgeItemId) as { state: 'staging' | 'published' | 'failed' } | undefined
+        const active = database
+          .prepare(
+            `SELECT active_parse_revisions.activated_at, parse_revisions.*,
                   normalization_runs.normalization_run_id,
                   normalization_runs.normalizer_version,
                   normalization_runs.relative_path AS normalization_relative_path,
@@ -86,68 +88,110 @@ export class KnowledgeNormalizationService {
              JOIN normalization_runs USING (normalization_run_id)
             WHERE active_parse_revisions.knowledge_item_id = ?
               AND normalization_runs.state = 'published'`
+          )
+          .get(knowledgeItemId) as
+          | (ParseRevisionTable & {
+              activated_at: string
+              normalization_run_id: string
+              normalizer_version: number
+              normalization_relative_path: string
+              normalization_manifest_sha256: string
+            })
+          | undefined
+        return { latest, normalization, active }
+      })
+      if (snapshot.active === undefined) {
+        const result = parsedKnowledgeDocumentSchema.parse({
+          knowledgeItemId,
+          parseState: snapshot.latest?.state ?? null,
+          normalizationState: snapshot.normalization?.state ?? null,
+          active: null
+        })
+        this.#log.info(
+          {
+            event: 'knowledge.detail.loaded',
+            projectId: this.#projectId,
+            knowledgeItemId,
+            active: false,
+            blockCount: 0,
+            durationMs: Date.now() - startedAt
+          },
+          'Knowledge detail loaded'
         )
-        .get(knowledgeItemId) as
-        | (ParseRevisionTable & {
-            activated_at: string
-            normalization_run_id: string
-            normalizer_version: number
-            normalization_relative_path: string
-            normalization_manifest_sha256: string
-          })
-        | undefined
-      return { latest, normalization, active }
-    })
-    if (snapshot.active === undefined) {
-      return parsedKnowledgeDocumentSchema.parse({
+        return result
+      }
+      const root = resolveProjectPath(
+        this.#projectRoot,
+        snapshot.active.normalization_relative_path
+      )
+      const manifestBytes = await readBounded(`${root}/manifest.json`, 10 * 1024 * 1024)
+      if (sha256(manifestBytes) !== snapshot.active.normalization_manifest_sha256) {
+        throw new Error('Active normalization manifest hash does not match')
+      }
+      const manifest = normalizedKnowledgeManifestSchema.parse(
+        JSON.parse(manifestBytes.toString('utf8'))
+      )
+      const blockBytes = await readBounded(`${root}/blocks.jsonl`, 200 * 1024 * 1024)
+      const documentBytes = await readBounded(`${root}/document.md`, 20 * 1024 * 1024)
+      if (
+        sha256(blockBytes) !== manifest.blocks.sha256 ||
+        sha256(documentBytes) !== manifest.document.sha256
+      ) {
+        throw new Error('Active normalized document hash does not match')
+      }
+      const blocks = blockBytes
+        .toString('utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => normalizedKnowledgeBlockSchema.parse(JSON.parse(line)))
+      if (blocks.length !== manifest.blocks.count) {
+        throw new Error('Active normalized block count does not match')
+      }
+      const result = parsedKnowledgeDocumentSchema.parse({
         knowledgeItemId,
         parseState: snapshot.latest?.state ?? null,
         normalizationState: snapshot.normalization?.state ?? null,
-        active: null
+        active: {
+          parseRevisionId: snapshot.active.parse_revision_id,
+          normalizationRunId: snapshot.active.normalization_run_id,
+          normalizerVersion: snapshot.active.normalizer_version,
+          sourceSha256: snapshot.active.source_sha256,
+          remoteTaskId: snapshot.active.remote_task_id,
+          providerId: snapshot.active.provider_id,
+          modelVersion: snapshot.active.model_version,
+          documentMarkdown: documentBytes.toString('utf8'),
+          blocks,
+          activatedAt: snapshot.active.activated_at
+        }
       })
+      this.#log.info(
+        {
+          event: 'knowledge.detail.loaded',
+          projectId: this.#projectId,
+          knowledgeItemId,
+          active: true,
+          blockCount: blocks.length,
+          assetCount: manifest.assets.length,
+          payloadBytes: manifestBytes.length + blockBytes.length + documentBytes.length,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge detail loaded'
+      )
+      return result
+    } catch (err) {
+      this.#log.error(
+        {
+          event: 'knowledge.detail.failed',
+          err,
+          projectId: this.#projectId,
+          knowledgeItemId,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge detail failed'
+      )
+      throw err
     }
-    const root = resolveProjectPath(this.#projectRoot, snapshot.active.normalization_relative_path)
-    const manifestBytes = await readBounded(`${root}/manifest.json`, 10 * 1024 * 1024)
-    if (sha256(manifestBytes) !== snapshot.active.normalization_manifest_sha256) {
-      throw new Error('Active normalization manifest hash does not match')
-    }
-    const manifest = normalizedKnowledgeManifestSchema.parse(
-      JSON.parse(manifestBytes.toString('utf8'))
-    )
-    const blockBytes = await readBounded(`${root}/blocks.jsonl`, 200 * 1024 * 1024)
-    const documentBytes = await readBounded(`${root}/document.md`, 20 * 1024 * 1024)
-    if (
-      sha256(blockBytes) !== manifest.blocks.sha256 ||
-      sha256(documentBytes) !== manifest.document.sha256
-    ) {
-      throw new Error('Active normalized document hash does not match')
-    }
-    const blocks = blockBytes
-      .toString('utf8')
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => normalizedKnowledgeBlockSchema.parse(JSON.parse(line)))
-    if (blocks.length !== manifest.blocks.count) {
-      throw new Error('Active normalized block count does not match')
-    }
-    return parsedKnowledgeDocumentSchema.parse({
-      knowledgeItemId,
-      parseState: snapshot.latest?.state ?? null,
-      normalizationState: snapshot.normalization?.state ?? null,
-      active: {
-        parseRevisionId: snapshot.active.parse_revision_id,
-        normalizationRunId: snapshot.active.normalization_run_id,
-        normalizerVersion: snapshot.active.normalizer_version,
-        sourceSha256: snapshot.active.source_sha256,
-        remoteTaskId: snapshot.active.remote_task_id,
-        providerId: snapshot.active.provider_id,
-        modelVersion: snapshot.active.model_version,
-        documentMarkdown: documentBytes.toString('utf8'),
-        blocks,
-        activatedAt: snapshot.active.activated_at
-      }
-    })
   }
 
   async asset(

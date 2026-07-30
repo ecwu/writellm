@@ -103,7 +103,13 @@ function harness() {
     })),
     loginAgentPreset: vi.fn(
       async (_presetId: string, _type: AuthType, _interaction: AuthInteraction) => snapshot
-    )
+    ),
+    saveAgentCustomPreset: vi.fn(async () => snapshot),
+    clearAgentCredential: vi.fn(async () => snapshot),
+    setAgentProviderEnabled: vi.fn(async () => snapshot),
+    setAgentModelEnabled: vi.fn(async () => snapshot),
+    saveAgentManualModel: vi.fn(async () => snapshot),
+    removeAgentManualModel: vi.fn(async () => snapshot)
   }
   registerProviderIpc({
     providers: providers as never,
@@ -160,6 +166,78 @@ describe('provider IPC', () => {
     ).rejects.toThrow()
     expect(providers.remove).not.toHaveBeenCalled()
     expect(providers.save).not.toHaveBeenCalled()
+  })
+
+  it('validates and forwards Agent availability and manual model updates', async () => {
+    const { invoke, providers } = harness()
+    await invoke(IPC_CHANNELS.providersSetAgentProviderEnabled, {
+      presetId: 'custom:loopback',
+      enabled: false
+    })
+    await invoke(IPC_CHANNELS.providersSetAgentModelEnabled, {
+      presetId: 'custom:loopback',
+      modelId: 'writer-1',
+      enabled: false
+    })
+    await invoke(IPC_CHANNELS.providersSaveAgentManualModel, {
+      presetId: 'custom:loopback',
+      model: {
+        id: 'manual-writer',
+        name: 'Manual Writer',
+        api: 'openai-responses',
+        contextWindow: 131_072,
+        maxTokens: 8_192,
+        reasoning: false,
+        input: ['text']
+      }
+    })
+
+    expect(providers.setAgentProviderEnabled).toHaveBeenCalledWith('custom:loopback', false)
+    expect(providers.setAgentModelEnabled).toHaveBeenCalledWith(
+      'custom:loopback',
+      'writer-1',
+      false
+    )
+    expect(providers.saveAgentManualModel).toHaveBeenCalledWith(
+      'custom:loopback',
+      expect.objectContaining({ id: 'manual-writer', contextWindow: 131_072 })
+    )
+
+    await expect(
+      invoke(IPC_CHANNELS.providersSaveAgentManualModel, {
+        presetId: 'custom:loopback',
+        model: {
+          id: '',
+          api: 'openai-responses',
+          contextWindow: 0,
+          maxTokens: 0,
+          reasoning: false,
+          input: []
+        }
+      })
+    ).rejects.toThrow()
+  })
+
+  it('validates and forwards only packaged custom Provider logo overrides', async () => {
+    const { invoke, providers } = harness()
+    const input = {
+      name: 'DeepSeek proxy',
+      logoOverrideId: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+      authMode: 'api_key',
+      timeoutMs: 30_000
+    }
+    await invoke(IPC_CHANNELS.providersSaveAgentPreset, input)
+    expect(providers.saveAgentCustomPreset).toHaveBeenCalledWith(input)
+
+    await expect(
+      invoke(IPC_CHANNELS.providersSaveAgentPreset, {
+        ...input,
+        logoOverrideId: 'https://attacker.invalid/logo.svg'
+      })
+    ).rejects.toThrow()
+    expect(providers.saveAgentCustomPreset).toHaveBeenCalledTimes(1)
   })
 
   it('brokers a request-scoped OAuth prompt without exposing the credential', async () => {

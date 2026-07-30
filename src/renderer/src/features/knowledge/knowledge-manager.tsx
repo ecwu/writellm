@@ -1,6 +1,6 @@
-import type { KnowledgeItem, ParsedKnowledgeDocument } from '../../../../shared/contracts/knowledge'
+import type { KnowledgeIndexStatus, KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import type { JobStatus } from '../../../../shared/contracts/jobs'
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   CheckCircle2,
@@ -63,51 +63,45 @@ const activeParseStates = new Set([
 export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
-  globalAlert: React.ReactNode
   onOpenManuscript(): void
   onOpenSettings(): void
   onError(message: string): void
 }): React.JSX.Element {
   const queryClient = useQueryClient()
-  const key = ['knowledge-items', props.projectSessionId] as const
+  const key = useMemo(
+    () => ['knowledge-items', props.projectSessionId] as const,
+    [props.projectSessionId]
+  )
+  const jobsKey = useMemo(
+    () => ['knowledge-jobs', props.projectSessionId] as const,
+    [props.projectSessionId]
+  )
   const itemsQuery = useQuery({
     queryKey: key,
     queryFn: () => window.desktop.knowledge.list({ projectSessionId: props.projectSessionId }),
-    refetchInterval: 1_000
+    refetchInterval: ({ state }) => (hasActiveKnowledgeWork(state.data ?? []) ? 1_000 : false)
   })
   const items = itemsQuery.data ?? []
   const jobsQuery = useQuery({
-    queryKey: ['knowledge-jobs', props.projectSessionId],
+    queryKey: jobsKey,
     queryFn: () =>
       window.desktop.jobs.list({ projectSessionId: props.projectSessionId, limit: 100 }),
-    refetchInterval: 1_000
+    refetchInterval: ({ state }) =>
+      state.data?.jobs.some((job) => job.state === 'queued' || job.state === 'running')
+        ? 1_000
+        : false
   })
   const indexStatusQuery = useQuery({
     queryKey: ['knowledge-index-status', props.projectSessionId],
     queryFn: () =>
       window.desktop.knowledge.indexStatus({ projectSessionId: props.projectSessionId }),
-    refetchInterval: 1_000,
+    refetchInterval: ({ state }) =>
+      state.data?.readiness === 'preparing' ||
+      (state.data?.readiness === 'available' && !state.data.indexed)
+        ? 1_000
+        : false,
     retry: false
   })
-  const parsedQueries = useQueries({
-    queries: items.map((item) => ({
-      queryKey: ['parsed-knowledge', props.projectSessionId, item.knowledgeItemId],
-      queryFn: () =>
-        window.desktop.knowledge.parsedDocument({
-          projectSessionId: props.projectSessionId,
-          knowledgeItemId: item.knowledgeItemId
-        }),
-      staleTime: 500,
-      refetchInterval: 1_000
-    }))
-  })
-  const parsedById = useMemo(
-    () =>
-      new Map(
-        items.map((item, index) => [item.knowledgeItemId, parsedQueries[index]?.data] as const)
-      ),
-    [items, parsedQueries]
-  )
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -118,26 +112,21 @@ export function KnowledgeManager(props: {
     }
   }, [items, selectedItemId])
 
+  useEffect(() => {
+    if (hasActiveKnowledgeWork(items)) {
+      void queryClient.invalidateQueries({ queryKey: jobsKey })
+    }
+  }, [items, jobsKey, queryClient])
+
   const selectedItem = items.find((item) => item.knowledgeItemId === selectedItemId)
-  const selectedParsed = selectedItemId === null ? undefined : parsedById.get(selectedItemId)
-  const selectedParsedQuery =
-    selectedItemId === null
-      ? undefined
-      : parsedQueries[items.findIndex((item) => item.knowledgeItemId === selectedItemId)]
   const jobs = jobsQuery.data?.jobs ?? []
-  const stats = getStats(items, parsedById, jobs)
+  const stats = getStats(items, jobs)
   const embeddingInProgress = jobs.some(
     (job) =>
       job.type === 'build_embedding_generation' &&
       (job.state === 'queued' || job.state === 'running')
   )
-  const parsingInProgress = items.some((item) => {
-    const parsed = parsedById.get(item.knowledgeItemId)
-    return (
-      isParseInProgress(parsed?.parseState) ||
-      (parsed?.parseState === 'succeeded' && parsed.normalizationState === 'staging')
-    )
-  })
+  const parsingInProgress = items.some(hasActiveKnowledgeWorkForItem)
 
   const replace = (nextItems: KnowledgeItem[]): void => {
     queryClient.setQueryData(key, nextItems)
@@ -146,9 +135,7 @@ export function KnowledgeManager(props: {
     setBusy(true)
     try {
       replace(await operation())
-      await queryClient.invalidateQueries({
-        queryKey: ['parsed-knowledge', props.projectSessionId]
-      })
+      await queryClient.invalidateQueries({ queryKey: jobsKey })
     } catch {
       props.onError('One or more knowledge files could not be imported or updated.')
       await itemsQuery.refetch()
@@ -175,9 +162,13 @@ export function KnowledgeManager(props: {
         projectSessionId: props.projectSessionId,
         knowledgeItemId: selectedItemId
       })
-      await queryClient.invalidateQueries({
-        queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: jobsKey }),
+        queryClient.invalidateQueries({
+          queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
+        })
+      ])
     } catch {
       props.onError('MinerU parsing could not be started. Check the MinerU provider settings.')
     } finally {
@@ -191,9 +182,7 @@ export function KnowledgeManager(props: {
         projectSessionId: props.projectSessionId,
         ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
       })
-      await queryClient.invalidateQueries({
-        queryKey: ['knowledge-jobs', props.projectSessionId]
-      })
+      await queryClient.invalidateQueries({ queryKey: jobsKey })
     } catch {
       props.onError(
         embeddingInProgress
@@ -221,12 +210,8 @@ export function KnowledgeManager(props: {
         }
       }
       await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ['parsed-knowledge', props.projectSessionId]
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['knowledge-jobs', props.projectSessionId]
-        })
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: jobsKey })
       ])
       if (failedCount > 0) {
         props.onError(
@@ -268,7 +253,6 @@ export function KnowledgeManager(props: {
         />
         <KnowledgeSidebar
           items={items}
-          parsedById={parsedById}
           jobs={jobs}
           selectedItemId={selectedItemId}
           dragging={dragging}
@@ -300,7 +284,7 @@ export function KnowledgeManager(props: {
           <div className='ml-auto flex min-w-0 items-center gap-2'>
             <KnowledgeHeaderStats
               stats={stats}
-              indexed={indexStatusQuery.data?.indexed}
+              indexStatus={indexStatusQuery.data}
               indexStatusUnavailable={indexStatusQuery.isError}
             />
             <DropdownMenu>
@@ -335,7 +319,6 @@ export function KnowledgeManager(props: {
           </div>
         </header>
         <main className='mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 md:px-8'>
-          {props.globalAlert}
           {itemsQuery.isError ? (
             <div className='mt-6 flex items-center gap-2 border-y border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive'>
               <AlertCircle className='size-4' /> Knowledge files could not be loaded.
@@ -345,8 +328,6 @@ export function KnowledgeManager(props: {
             <KnowledgeDetails
               projectSessionId={props.projectSessionId}
               item={selectedItem}
-              parsed={selectedParsed}
-              parsedLoading={selectedParsedQuery?.isLoading ?? false}
               busy={busy}
               embeddingInProgress={embeddingInProgress}
               onParse={() => void parseSelected()}
@@ -359,9 +340,13 @@ export function KnowledgeManager(props: {
                     projectSessionId: props.projectSessionId,
                     knowledgeItemId: selectedItemId
                   })
-                  await queryClient.invalidateQueries({
-                    queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
-                  })
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: key }),
+                    queryClient.invalidateQueries({ queryKey: jobsKey }),
+                    queryClient.invalidateQueries({
+                      queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
+                    })
+                  ])
                 } catch {
                   props.onError('MinerU parsing could not be stopped. Please try again.')
                 } finally {
@@ -388,6 +373,8 @@ export function KnowledgeManager(props: {
             <KnowledgeOverview
               items={items}
               projectSessionId={props.projectSessionId}
+              indexStatus={indexStatusQuery.data}
+              indexStatusUnavailable={indexStatusQuery.isError}
               onError={props.onError}
             />
           )}
@@ -400,6 +387,8 @@ export function KnowledgeManager(props: {
 function KnowledgeOverview(props: {
   items: KnowledgeItem[]
   projectSessionId: string
+  indexStatus: KnowledgeIndexStatus | undefined
+  indexStatusUnavailable: boolean
   onError(message: string): void
 }): React.JSX.Element {
   return (
@@ -416,6 +405,12 @@ function KnowledgeOverview(props: {
         <KnowledgeSearch
           projectSessionId={props.projectSessionId}
           items={props.items}
+          disabled={
+            props.indexStatus?.readiness !== 'available' || props.indexStatus.indexed === false
+          }
+          unavailable={
+            props.indexStatusUnavailable || props.indexStatus?.readiness === 'unavailable'
+          }
           onError={props.onError}
         />
         {props.items.length === 0 ? (
@@ -430,7 +425,6 @@ function KnowledgeOverview(props: {
 
 function KnowledgeSidebar(props: {
   items: KnowledgeItem[]
-  parsedById: Map<string, ParsedKnowledgeDocument | undefined>
   jobs: JobStatus[]
   selectedItemId: string | null
   dragging: boolean
@@ -490,12 +484,11 @@ function KnowledgeSidebar(props: {
           <SidebarGroupLabel className='px-3'>File list</SidebarGroupLabel>
           <div className='grid gap-1 px-2'>
             {props.items.map((item) => {
-              const parsed = props.parsedById.get(item.knowledgeItemId)
-              const parsing = isParseInProgress(parsed?.parseState)
+              const parsing = isParseInProgress(item.parseState)
               const failed =
                 item.state === 'failed' ||
-                parsed?.parseState === 'failed' ||
-                parsed?.normalizationState === 'failed'
+                item.parseState === 'failed' ||
+                item.normalizationState === 'failed'
               return (
                 <button
                   type='button'
@@ -508,7 +501,7 @@ function KnowledgeSidebar(props: {
                     <Spinner className='shrink-0 text-primary' />
                   ) : failed ? (
                     <AlertCircle className='size-4 shrink-0 text-destructive' />
-                  ) : parsed?.active ? (
+                  ) : item.activeParseRevisionId !== null ? (
                     <FileCheck2 className='shrink-0 text-success' />
                   ) : (
                     <File className='size-4 shrink-0 text-muted-foreground' />
@@ -575,7 +568,7 @@ function TaskRow(props: { job: JobStatus }): React.JSX.Element {
 
 function KnowledgeHeaderStats(props: {
   stats: KnowledgeStats
-  indexed: boolean | undefined
+  indexStatus: KnowledgeIndexStatus | undefined
   indexStatusUnavailable: boolean
 }): React.JSX.Element {
   return (
@@ -589,12 +582,16 @@ function KnowledgeHeaderStats(props: {
       <CompactStatus
         value={
           props.indexStatusUnavailable
-            ? '—'
-            : props.indexed === undefined
+            ? 'Unavailable'
+            : props.indexStatus === undefined
               ? '…'
-              : props.indexed
-                ? 'Yes'
-                : 'No'
+              : props.indexStatus.readiness === 'preparing'
+                ? 'Preparing'
+                : props.indexStatus.readiness === 'unavailable'
+                  ? 'Unavailable'
+                  : props.indexStatus.indexed
+                    ? 'Yes'
+                    : 'No'
         }
         label='Indexed'
       />
@@ -618,8 +615,6 @@ function CompactStatus(props: { value: string; label: string }): React.JSX.Eleme
 function KnowledgeDetails(props: {
   projectSessionId: string
   item: KnowledgeItem
-  parsed: ParsedKnowledgeDocument | undefined
-  parsedLoading: boolean
   busy: boolean
   embeddingInProgress: boolean
   onParse(): void
@@ -631,10 +626,10 @@ function KnowledgeDetails(props: {
   onClose(): void
   onError(message: string): void
 }): React.JSX.Element {
-  const parseInProgress = isParseInProgress(props.parsed?.parseState)
+  const parseInProgress = isParseInProgress(props.item.parseState)
   const normalizationInProgress =
-    props.parsed?.parseState === 'succeeded' && props.parsed.normalizationState === 'staging'
-  const hasActiveRevision = props.parsed?.active !== null && props.parsed?.active !== undefined
+    props.item.parseState === 'succeeded' && props.item.normalizationState === 'staging'
+  const hasActiveRevision = props.item.activeParseRevisionId !== null
   return (
     <section className='flex h-[calc(100dvh-6.5rem)] max-h-full min-h-0 flex-col overflow-hidden'>
       <div className='grid gap-4 border-b py-5'>
@@ -734,15 +729,12 @@ function KnowledgeDetails(props: {
         </div>
       </div>
       <div className='min-h-0 flex-1 overflow-hidden'>
-        {props.parsedLoading ? (
-          <div className='flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground'>
-            <Spinner /> Loading parse status…
-          </div>
-        ) : hasActiveRevision ? (
+        {hasActiveRevision ? (
           <ParsedDocumentViewer
             inline
             projectSessionId={props.projectSessionId}
             knowledgeItemId={props.item.knowledgeItemId}
+            activeRevisionId={props.item.activeParseRevisionId}
             displayName={props.item.displayName}
             extension={props.item.extension}
             onOpenChange={() => undefined}
@@ -752,7 +744,7 @@ function KnowledgeDetails(props: {
           <div className='flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center'>
             {parseInProgress || normalizationInProgress ? (
               <Spinner className='size-8 text-primary' />
-            ) : props.parsed?.parseState === 'failed' ? (
+            ) : props.item.parseState === 'failed' ? (
               <AlertCircle className='size-8 text-destructive' />
             ) : (
               <Circle className='size-8 text-muted-foreground' />
@@ -763,13 +755,13 @@ function KnowledgeDetails(props: {
                   ? 'Parsing in progress'
                   : normalizationInProgress
                     ? 'Preparing parsed result'
-                    : props.parsed?.parseState === 'failed'
+                    : props.item.parseState === 'failed'
                       ? 'Parsing failed'
                       : 'Not parsed yet'}
               </p>
               <p className='mt-1 text-sm text-muted-foreground'>
                 {parseInProgress
-                  ? `Current stage: ${props.parsed?.parseState}`
+                  ? `Current stage: ${props.item.parseState}`
                   : normalizationInProgress
                     ? 'The raw result is ready and is being normalized.'
                     : 'Run parsing to turn this source into searchable project knowledge.'}
@@ -784,7 +776,7 @@ function KnowledgeDetails(props: {
                 onClick={props.onParse}
                 disabled={props.busy || props.item.state !== 'stored'}
               >
-                <Play /> {props.parsed?.parseState === 'failed' ? 'Retry parsing' : 'Start parsing'}
+                <Play /> {props.item.parseState === 'failed' ? 'Retry parsing' : 'Start parsing'}
               </Button>
             )}
           </div>
@@ -802,22 +794,27 @@ type KnowledgeStats = {
   queue: number
 }
 
-function getStats(
-  items: KnowledgeItem[],
-  parsedById: Map<string, ParsedKnowledgeDocument | undefined>,
-  jobs: JobStatus[]
-): KnowledgeStats {
-  const parsed = items.filter((item) => parsedById.get(item.knowledgeItemId)?.active).length
+function getStats(items: KnowledgeItem[], jobs: JobStatus[]): KnowledgeStats {
+  const parsed = items.filter((item) => item.activeParseRevisionId !== null).length
   return {
     total: items.length,
     stored: items.filter((item) => item.state === 'stored').length,
     parsed,
-    blocks: items.reduce(
-      (total, item) => total + (parsedById.get(item.knowledgeItemId)?.active?.blocks.length ?? 0),
-      0
-    ),
+    blocks: items.reduce((total, item) => total + item.blockCount, 0),
     queue: jobs.filter((job) => job.state === 'queued' || job.state === 'running').length
   }
+}
+
+function hasActiveKnowledgeWork(items: KnowledgeItem[]): boolean {
+  return items.some(hasActiveKnowledgeWorkForItem)
+}
+
+function hasActiveKnowledgeWorkForItem(item: KnowledgeItem): boolean {
+  return (
+    item.state === 'importing' ||
+    isParseInProgress(item.parseState) ||
+    (item.parseState === 'succeeded' && item.normalizationState === 'staging')
+  )
 }
 
 function isParseInProgress(state: string | null | undefined): boolean {

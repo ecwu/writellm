@@ -10,14 +10,29 @@ import {
 import type { KnowledgeSearchFilters } from '../shared/contracts/search'
 import { buildDeterministicChunks } from './index-chunker'
 import { FtsIndex, type FtsCandidate } from './fts-index'
-import { SqliteVecVectorIndex, type VectorIndex } from './vector-index'
+import { SqliteVecVectorIndex, type VectorIndex, vectorTableName } from './vector-index'
 
 const INDEX_DATABASE_APPLICATION_ID = 0x574c4958
+const RETAINED_NON_ACTIVE_GENERATIONS = 3
+const EMBEDDING_CACHE_LIMIT = 50_000
+
+export interface IndexStartupReport {
+  integrityMode: 'new' | 'full' | 'clean-shutdown-fast-path'
+  integrityDurationMs: number
+  cleanup: {
+    indexGenerations: number
+    embeddingGenerations: number
+    orphanFtsRows: number
+    orphanVectorTables: number
+    embeddingCacheRows: number
+  }
+}
 
 export class IndexDatabase {
   readonly #database: Database.Database
   readonly #fts: FtsIndex
   readonly #vectors: VectorIndex
+  readonly startupReport: IndexStartupReport
 
   constructor(path: string, extensionPath?: string) {
     this.#database = new Database(path)
@@ -30,17 +45,51 @@ export class IndexDatabase {
     if (applicationId !== 0 && applicationId !== INDEX_DATABASE_APPLICATION_ID) {
       throw new Error('Index database application ID is incompatible')
     }
-    const quickCheck = this.#database.pragma('quick_check', { simple: true }) as string
-    if (quickCheck !== 'ok') throw new Error('Index database integrity check failed')
+    const userVersion = this.#database.pragma('user_version', { simple: true }) as number
+    const cleanShutdown =
+      userVersion >= 5
+        ? (this.#database
+            .prepare('SELECT clean_shutdown FROM index_runtime_state WHERE singleton = 1')
+            .pluck()
+            .get() as number | undefined)
+        : undefined
+    const integrityMode =
+      applicationId === 0 && userVersion === 0
+        ? 'new'
+        : cleanShutdown === 1
+          ? 'clean-shutdown-fast-path'
+          : 'full'
+    const integrityStartedAt = Date.now()
+    if (integrityMode === 'full') {
+      const quickCheck = this.#database.pragma('quick_check', { simple: true }) as string
+      if (quickCheck !== 'ok') throw new Error('Index database integrity check failed')
+    }
     this.#database.pragma(`application_id = ${INDEX_DATABASE_APPLICATION_ID}`)
     this.#migrate()
-    this.#verifyLogicalIntegrity()
     this.#fts = new FtsIndex(this.#database)
     this.#vectors = new SqliteVecVectorIndex(this.#database)
+    this.#verifyLogicalIntegrity()
+    const cleanup = this.#cleanupDerivedStorage()
+    this.#database
+      .prepare(
+        'UPDATE index_runtime_state SET clean_shutdown = 0, updated_at = ? WHERE singleton = 1'
+      )
+      .run(new Date().toISOString())
+    this.startupReport = {
+      integrityMode,
+      integrityDurationMs: Date.now() - integrityStartedAt,
+      cleanup
+    }
   }
 
   close(): void {
-    if (this.#database.open) this.#database.close()
+    if (!this.#database.open) return
+    this.#database
+      .prepare(
+        'UPDATE index_runtime_state SET clean_shutdown = 1, updated_at = ? WHERE singleton = 1'
+      )
+      .run(new Date().toISOString())
+    this.#database.close()
   }
 
   inspect(): IndexSnapshot {
@@ -797,7 +846,7 @@ export class IndexDatabase {
           .run(now, generationId)
       }
     })()
-    this.#cleanupObsolete()
+    this.#cleanupDerivedStorage()
     return this.inspect()
   }
 
@@ -880,7 +929,8 @@ export class IndexDatabase {
     }
   }
 
-  #cleanupObsolete(): void {
+  #cleanupDerivedStorage(): IndexStartupReport['cleanup'] {
+    let removedEmbeddingGenerations = 0
     const obsolete = this.#database
       .prepare(
         `SELECT embedding_generation_id FROM embedding_generations
@@ -888,30 +938,87 @@ export class IndexDatabase {
           ORDER BY COALESCE(activated_at, created_at) DESC`
       )
       .all() as Array<{ embedding_generation_id: string }>
-    for (const generation of obsolete.slice(3)) {
+    for (const generation of obsolete.slice(RETAINED_NON_ACTIVE_GENERATIONS)) {
       this.#vectors.delete(generation.embedding_generation_id)
+      removedEmbeddingGenerations += 1
     }
-    const obsoleteIndex = this.#database
+    const inactiveIndex = this.#database
       .prepare(
         `SELECT generation_id FROM index_generations
-          WHERE state = 'obsolete' ORDER BY COALESCE(activated_at, created_at) DESC`
+          WHERE state <> 'active'
+          ORDER BY COALESCE(activated_at, built_at, created_at) DESC, generation_id DESC`
       )
       .all() as Array<{ generation_id: string }>
-    for (const generation of obsoleteIndex.slice(3)) {
+    let removedIndexGenerations = 0
+    for (const generation of inactiveIndex.slice(RETAINED_NON_ACTIVE_GENERATIONS)) {
+      const embeddings = this.#database
+        .prepare(
+          'SELECT embedding_generation_id FROM embedding_generations WHERE index_generation_id = ?'
+        )
+        .all(generation.generation_id) as Array<{ embedding_generation_id: string }>
+      for (const embedding of embeddings) {
+        this.#vectors.delete(embedding.embedding_generation_id)
+        removedEmbeddingGenerations += 1
+      }
+      this.#database
+        .prepare('DELETE FROM chunk_fts_unicode61 WHERE generation_id = ?')
+        .run(generation.generation_id)
+      this.#database
+        .prepare('DELETE FROM chunk_fts_trigram WHERE generation_id = ?')
+        .run(generation.generation_id)
       this.#database
         .prepare('DELETE FROM index_generations WHERE generation_id = ?')
         .run(generation.generation_id)
+      removedIndexGenerations += 1
+    }
+    const orphanUnicode = this.#database
+      .prepare(
+        'DELETE FROM chunk_fts_unicode61 WHERE generation_id NOT IN (SELECT generation_id FROM index_generations)'
+      )
+      .run().changes
+    const orphanTrigram = this.#database
+      .prepare(
+        'DELETE FROM chunk_fts_trigram WHERE generation_id NOT IN (SELECT generation_id FROM index_generations)'
+      )
+      .run().changes
+    const liveVectorTables = new Set(
+      (
+        this.#database
+          .prepare('SELECT embedding_generation_id FROM embedding_generations')
+          .all() as Array<{ embedding_generation_id: string }>
+      ).map((row) => vectorTableName(row.embedding_generation_id))
+    )
+    const vectorTables = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name LIKE 'vec_%'
+            AND lower(sql) LIKE 'create virtual table%'`
+      )
+      .all() as Array<{ name: string }>
+    let removedOrphanVectorTables = 0
+    for (const table of vectorTables) {
+      if (liveVectorTables.has(table.name)) continue
+      this.#database.exec(`DROP TABLE "${table.name.replaceAll('"', '""')}"`)
+      removedOrphanVectorTables += 1
     }
     const cacheCount = this.#database
       .prepare('SELECT count(*) FROM embedding_vector_cache')
       .pluck()
       .get() as number
-    if (cacheCount > 50_000) {
+    const removedCacheRows = Math.max(0, cacheCount - EMBEDDING_CACHE_LIMIT)
+    if (removedCacheRows > 0) {
       this.#database
         .prepare(
           'DELETE FROM embedding_vector_cache WHERE rowid IN (SELECT rowid FROM embedding_vector_cache ORDER BY rowid LIMIT ?)'
         )
-        .run(cacheCount - 50_000)
+        .run(removedCacheRows)
+    }
+    return {
+      indexGenerations: removedIndexGenerations,
+      embeddingGenerations: removedEmbeddingGenerations,
+      orphanFtsRows: orphanUnicode + orphanTrigram,
+      orphanVectorTables: removedOrphanVectorTables,
+      embeddingCacheRows: removedCacheRows
     }
   }
 
@@ -1069,6 +1176,27 @@ export class IndexDatabase {
           CREATE INDEX IF NOT EXISTS index_sources_generation_idx
             ON index_sources(generation_id, knowledge_item_id);
         `)
+        this.#database
+          .prepare('UPDATE index_manifests SET schema_version = ? WHERE singleton = 1')
+          .run(INDEX_SCHEMA_VERSION)
+        this.#database.pragma(`user_version = ${INDEX_SCHEMA_VERSION}`)
+      })()
+    }
+    if (userVersion <= 4) {
+      this.#database.transaction(() => {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS index_runtime_state (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            clean_shutdown INTEGER NOT NULL CHECK (clean_shutdown IN (0, 1)),
+            updated_at TEXT NOT NULL
+          ) STRICT;
+        `)
+        this.#database
+          .prepare(
+            `INSERT OR IGNORE INTO index_runtime_state (singleton, clean_shutdown, updated_at)
+             VALUES (1, 0, ?)`
+          )
+          .run(new Date().toISOString())
         this.#database
           .prepare('UPDATE index_manifests SET schema_version = ? WHERE singleton = 1')
           .run(INDEX_SCHEMA_VERSION)

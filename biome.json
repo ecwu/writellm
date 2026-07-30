@@ -15,6 +15,7 @@
       "!!.claude",
       "!!pnpm-lock.yaml",
       "!!LICENSE.md",
+      "!!src/renderer/src/assets/provider-logos",
       "!!tsconfig.json",
       "!!tsconfig.*.json"
     ]

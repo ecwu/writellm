@@ -7,17 +7,18 @@ import { expect, expectActiveProject, launchApp, test } from './fixtures'
 
 async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('option', { name: /Agent model provider/ }).click()
-  const dialog = page.getByRole('dialog', { name: 'Agent models' })
-  await dialog.getByLabel('Preset name').fill('Refresh Agent')
-  await dialog.getByLabel('Base URL').fill(baseUrl)
-  await dialog
-    .getByLabel('API key (optional for local/keyless endpoints)')
-    .fill('refresh-e2e-secret')
-  await dialog.getByRole('button', { name: 'Add preset' }).click()
-  await dialog.getByRole('button', { name: 'Refresh Refresh Agent models' }).click()
-  await expect(dialog.getByText(/1 models · current/)).toBeVisible()
-  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('option', { name: /^Agent API/ }).click()
+  await settings.getByRole('button', { name: 'Add provider' }).click()
+  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
+  await addProvider.getByLabel('Provider name').fill('Refresh Agent')
+  await addProvider.getByRole('button', { name: 'Continue' }).click()
+  await settings.getByLabel('Base URL').fill(baseUrl)
+  await settings.getByLabel('API key').fill('refresh-e2e-secret')
+  await settings.getByRole('button', { name: 'Save provider' }).click()
+  await settings.getByRole('button', { name: 'Fetch Refresh Agent models' }).click()
+  await expect(settings.getByText(/1 models · current/)).toBeVisible()
+  await page.keyboard.press('Escape')
 }
 
 async function createProject(page: Page, name: string): Promise<void> {
@@ -228,7 +229,9 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     const panel = launched.page.getByTestId('agent-panel')
     await panel.getByRole('button', { name: 'New', exact: true }).click()
     await panel.getByLabel('Agent model').click()
-    await launched.page.getByRole('option', { name: 'Refresh Agent · Refresh E2E model' }).click()
+    const modelPicker = launched.page.getByTestId('agent-model-picker')
+    await modelPicker.getByRole('option', { name: /Refresh Agent/ }).click()
+    await modelPicker.getByRole('option', { name: /Refresh E2E model/ }).click()
     await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Prepare the first update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()

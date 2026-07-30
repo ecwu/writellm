@@ -9,6 +9,14 @@ export const appInfoSchema = z.object({
 export type AppInfo = z.infer<typeof appInfoSchema>
 
 export const themePreferenceSchema = z.enum(['system', 'light', 'dark'])
+export const accentPreferenceSchema = z.enum([
+  'neutral',
+  'blue',
+  'green',
+  'violet',
+  'rose',
+  'orange'
+])
 
 export const setThemePreferenceInputSchema = z.object({
   preference: themePreferenceSchema
@@ -16,6 +24,12 @@ export const setThemePreferenceInputSchema = z.object({
 
 export type ThemePreference = z.infer<typeof themePreferenceSchema>
 export type SetThemePreferenceInput = z.infer<typeof setThemePreferenceInputSchema>
+
+export const setAccentPreferenceInputSchema = z
+  .object({ preference: accentPreferenceSchema })
+  .strict()
+export type AccentPreference = z.infer<typeof accentPreferenceSchema>
+export type SetAccentPreferenceInput = z.infer<typeof setAccentPreferenceInputSchema>
 
 export const setDefaultAgentApprovalModeInputSchema = z
   .object({ mode: agentApprovalModeSchema })

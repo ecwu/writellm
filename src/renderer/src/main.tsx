@@ -4,6 +4,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+import { Toaster } from './components/ui/sonner'
+import { ACTION_ERROR_TOAST_DURATION_MS } from './lib/notifications'
 import { ThemeProvider } from './theme-provider'
 
 window.addEventListener('error', (event) => {
@@ -44,6 +46,14 @@ createRoot(rootElement).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <App />
+        <Toaster
+          position='bottom-right'
+          visibleToasts={3}
+          closeButton
+          richColors
+          containerAriaLabel='Notifications'
+          toastOptions={{ duration: ACTION_ERROR_TOAST_DURATION_MS }}
+        />
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>

@@ -84,20 +84,13 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
+import { AgentModelPicker } from './agent-model-picker'
 import {
   aggregateAgentUsage,
   applyAgentTerminalEvent,
@@ -207,10 +200,9 @@ export function AgentPanel(props: {
       .then(([, snapshot]) => {
         if (!disposed) setProviderCatalog(snapshot.agentCatalog)
       })
-      .catch((cause) => {
+      .catch(() => {
         if (disposed) return
         setError('Agent sessions could not be loaded.')
-        props.onError(errorMessage(cause))
       })
       .finally(() => {
         if (!disposed) setLoading(false)
@@ -218,7 +210,7 @@ export function AgentPanel(props: {
     return () => {
       disposed = true
     }
-  }, [props.open, props.onError, refreshSessions])
+  }, [props.open, refreshSessions])
 
   useEffect(() => {
     if (!props.open || activeSessionId === null) return
@@ -231,10 +223,9 @@ export function AgentPanel(props: {
     setStreaming({})
     terminalRunIdsRef.current = new Set()
     setError(null)
-    void refreshSessionTruth(activeSessionId).catch((cause) => {
+    void refreshSessionTruth(activeSessionId).catch(() => {
       if (!disposed) {
         setError('The selected conversation could not be loaded.')
-        props.onError(errorMessage(cause))
       }
     })
     void window.desktop.agent
@@ -293,10 +284,9 @@ export function AgentPanel(props: {
         if (disposed) release()
         else unsubscribe = release
       })
-      .catch((cause) => {
+      .catch(() => {
         if (!disposed) {
           setError('Conversation event replay is unavailable.')
-          props.onError(errorMessage(cause))
         }
       })
     void window.desktop.agent
@@ -376,7 +366,21 @@ export function AgentPanel(props: {
     () => resolveSelectedModel(providerCatalog, activeSession?.modelSelection ?? null),
     [activeSession?.modelSelection, providerCatalog]
   )
-  const modelReady = selectedModel?.preset.authConfigured === true
+  const modelReady =
+    selectedModel?.preset.authConfigured === true &&
+    selectedModel.preset.enabled &&
+    selectedModel.model.enabled
+  const availableModelPresets = useMemo(
+    () =>
+      providerCatalog.presets
+        .filter((preset) => preset.enabled && preset.authConfigured)
+        .map((preset) => ({
+          ...preset,
+          models: preset.models.filter((model) => model.enabled)
+        }))
+        .filter((preset) => preset.models.length > 0),
+    [providerCatalog]
+  )
   const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
   const effectiveRevisionIds = useMemo(() => {
     const result = { ...props.currentRevisionIds }
@@ -414,7 +418,6 @@ export function AgentPanel(props: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
-      props.onError(message)
     } finally {
       setBusy(false)
     }
@@ -440,7 +443,6 @@ export function AgentPanel(props: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
-      props.onError(message)
     } finally {
       setBusy(false)
     }
@@ -497,7 +499,6 @@ export function AgentPanel(props: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
-      props.onError(message)
     } finally {
       setBusy(false)
     }
@@ -532,7 +533,6 @@ export function AgentPanel(props: {
       if (!(await reconcileInactiveRun(agentRunId))) {
         const message = errorMessage(cause)
         setError(message)
-        props.onError(message)
       }
     } finally {
       setBusy(false)
@@ -556,7 +556,6 @@ export function AgentPanel(props: {
       if (await reconcileInactiveRun(activeRun.agentRunId)) return
       const message = errorMessage(cause)
       setError(message)
-      props.onError(message)
     } finally {
       setBusy(false)
     }
@@ -659,7 +658,6 @@ export function AgentPanel(props: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
-      props.onError(message)
     } finally {
       setBusy(false)
     }
@@ -871,46 +869,15 @@ export function AgentPanel(props: {
                 <>
                   <Badge variant='outline'>Idle</Badge>
                   {activeSession !== null ? (
-                    <Select
-                      value={
-                        activeSession.modelSelection === null
-                          ? undefined
-                          : encodeModelSelection(activeSession.modelSelection)
-                      }
+                    <AgentModelPicker
+                      presets={availableModelPresets}
+                      selection={activeSession.modelSelection}
                       disabled={busy || conversationLocked}
-                      onValueChange={(value) => {
-                        const selection = decodeModelSelection(value)
-                        if (selection !== null) void setModelSelection(selection)
-                      }}
-                    >
-                      <SelectTrigger
-                        size='sm'
-                        className='h-7 min-w-0 max-w-full @sm/agent:max-w-72'
-                        aria-label='Agent model'
-                        data-testid='agent-model-selector'
-                      >
-                        <SelectValue placeholder='Choose a model' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providerCatalog.presets.map((preset) => (
-                          <SelectGroup key={preset.presetId}>
-                            {preset.models.map((model) => (
-                              <SelectItem
-                                key={`${preset.presetId}:${model.id}`}
-                                value={encodeModelSelection({
-                                  presetId: preset.presetId,
-                                  modelId: model.id
-                                })}
-                                disabled={!preset.authConfigured}
-                              >
-                                {preset.name} · {model.name}
-                                {!preset.authConfigured ? ' · Not connected' : ''}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onSelect={setModelSelection}
+                    />
+                  ) : null}
+                  {activeSession?.modelSelection !== null && !modelReady ? (
+                    <Badge variant='destructive'>Choose an enabled model</Badge>
                   ) : null}
                 </>
               )}
@@ -1818,21 +1785,4 @@ function resolveSelectedModel(
   const preset = catalog.presets.find((item) => item.presetId === selection.presetId)
   const model = preset?.models.find((item) => item.id === selection.modelId)
   return preset === undefined || model === undefined ? null : { preset, model }
-}
-
-function encodeModelSelection(selection: AgentModelSelection): string {
-  return `${encodeURIComponent(selection.presetId)}|${encodeURIComponent(selection.modelId)}`
-}
-
-function decodeModelSelection(value: string): AgentModelSelection | null {
-  const separator = value.indexOf('|')
-  if (separator < 1 || separator === value.length - 1) return null
-  try {
-    return {
-      presetId: decodeURIComponent(value.slice(0, separator)),
-      modelId: decodeURIComponent(value.slice(separator + 1))
-    }
-  } catch {
-    return null
-  }
 }

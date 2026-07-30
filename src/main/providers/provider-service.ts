@@ -6,6 +6,7 @@ import {
   type ProviderConfigForRole,
   type ProviderConnectionTestResult,
   type AgentCustomPresetInput,
+  type AgentManualModel,
   type AgentModelSelection,
   type ProviderRole,
   type ProviderSettingsSnapshot
@@ -22,7 +23,12 @@ type AgentCatalog = Pick<
   | 'removePreset'
   | 'refreshPreset'
   | 'setDefaultSelection'
+  | 'setProviderEnabled'
+  | 'setModelEnabled'
+  | 'saveManualModel'
+  | 'removeManualModel'
   | 'setApiKey'
+  | 'clearCredential'
   | 'login'
 >
 
@@ -131,8 +137,46 @@ export class ProviderService {
     return this.snapshot()
   }
 
+  async setAgentProviderEnabled(
+    presetId: string,
+    enabled: boolean
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().setProviderEnabled(presetId, enabled)
+    return this.snapshot()
+  }
+
+  async setAgentModelEnabled(
+    presetId: string,
+    modelId: string,
+    enabled: boolean
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().setModelEnabled(presetId, modelId, enabled)
+    return this.snapshot()
+  }
+
+  async saveAgentManualModel(
+    presetId: string,
+    model: AgentManualModel
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().saveManualModel(presetId, model)
+    return this.snapshot()
+  }
+
+  async removeAgentManualModel(
+    presetId: string,
+    modelId: string
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().removeManualModel(presetId, modelId)
+    return this.snapshot()
+  }
+
   async setAgentApiKey(presetId: string, apiKey: string): Promise<ProviderSettingsSnapshot> {
     await this.#agentCatalogService().setApiKey(presetId, apiKey)
+    return this.snapshot()
+  }
+
+  async clearAgentCredential(presetId: string): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().clearCredential(presetId)
     return this.snapshot()
   }
 
