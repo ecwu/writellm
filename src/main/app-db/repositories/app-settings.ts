@@ -8,12 +8,17 @@ import {
 import { z } from 'zod'
 import type { AppDatabase } from '../connection'
 import { projectIdSchema } from '../../../shared/contracts/projects'
+import {
+  agentModelSelectionSchema,
+  type AgentModelSelection
+} from '../../../shared/contracts/providers'
 
 export const THEME_PREFERENCE_KEY = 'theme.preference'
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
 export const DEFAULT_AGENT_APPROVAL_MODE: AgentApprovalMode = 'manual'
 const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
+const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
 const modelLimitsCacheSchema = z.record(
   z.string().regex(/^[a-f0-9]{64}$/),
   z.object({ limits: agentModelLimitsSchema, refreshedAt: z.iso.datetime() }).strict()
@@ -103,6 +108,23 @@ export class AppSettingsRepository {
 
   async setModelLimitsCache(cache: ModelLimitsCache): Promise<void> {
     await this.#writeSetting(AGENT_MODEL_LIMITS_CACHE_KEY, modelLimitsCacheSchema.parse(cache))
+  }
+
+  async getDefaultAgentModelSelection(): Promise<AgentModelSelection | null> {
+    return this.#readSetting(
+      AGENT_DEFAULT_MODEL_SELECTION_KEY,
+      agentModelSelectionSchema.nullable(),
+      null,
+      'app.settings.invalid_agent_model_selection'
+    )
+  }
+
+  async setDefaultAgentModelSelection(
+    selection: AgentModelSelection | null
+  ): Promise<AgentModelSelection | null> {
+    const value = agentModelSelectionSchema.nullable().parse(selection)
+    await this.#writeSetting(AGENT_DEFAULT_MODEL_SELECTION_KEY, value)
+    return value
   }
 
   async getVersionHistoryPromptDismissed(projectId: string): Promise<boolean> {

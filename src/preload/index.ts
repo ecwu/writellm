@@ -26,6 +26,8 @@ import {
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
+  agentSetModelSelectionInputSchema,
+  agentSetModelSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema,
@@ -173,11 +175,27 @@ import {
   type UpdateSectionRequest
 } from '../shared/contracts/manuscript'
 import {
+  agentCustomPresetInputSchema,
+  agentAuthFlowInputSchema,
+  agentAuthInteractionEventSchema,
+  agentAuthPromptResponseSchema,
+  agentModelSelectionSchema,
+  agentPresetInputSchema,
+  agentPresetCredentialInputSchema,
+  agentPresetLoginInputSchema,
   providerConnectionTestResultSchema,
   providerRoleInputSchema,
   providerSaveInputSchema,
   providerSettingsSnapshotSchema,
   type ProviderConnectionTestResult,
+  type AgentAuthFlowInput,
+  type AgentAuthInteractionEvent,
+  type AgentAuthPromptResponse,
+  type AgentCustomPresetInput,
+  type AgentModelSelection,
+  type AgentPresetInput,
+  type AgentPresetCredentialInput,
+  type AgentPresetLoginInput,
   type ProviderRoleInput,
   type ProviderSaveInput,
   type ProviderSettingsSnapshot
@@ -310,11 +328,20 @@ export interface DesktopApi {
   }
   agent: {
     listSessions(input: { projectSessionId: string }): Promise<AgentSessionRecord[]>
-    createSession(input: { projectSessionId: string; title: string }): Promise<AgentSessionRecord>
+    createSession(input: {
+      projectSessionId: string
+      title: string
+      modelSelection?: AgentModelSelection | null
+    }): Promise<AgentSessionRecord>
     setApprovalMode(input: {
       projectSessionId: string
       agentSessionId: string
       mode: AgentApprovalMode
+    }): Promise<AgentSessionRecord>
+    setModelSelection(input: {
+      projectSessionId: string
+      agentSessionId: string
+      selection: AgentModelSelection
     }): Promise<AgentSessionRecord>
     listEvents(input: {
       projectSessionId: string
@@ -420,6 +447,17 @@ export interface DesktopApi {
     save(input: ProviderSaveInput): Promise<ProviderSettingsSnapshot>
     remove(input: ProviderRoleInput): Promise<ProviderSettingsSnapshot>
     testConnection(input: ProviderRoleInput): Promise<ProviderConnectionTestResult>
+    saveAgentPreset(input: AgentCustomPresetInput): Promise<ProviderSettingsSnapshot>
+    removeAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
+    refreshAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
+    setAgentDefault(selection: AgentModelSelection | null): Promise<ProviderSettingsSnapshot>
+    setAgentCredential(input: AgentPresetCredentialInput): Promise<ProviderSettingsSnapshot>
+    loginAgentPreset(
+      input: AgentPresetLoginInput,
+      listener: (event: AgentAuthInteractionEvent) => void
+    ): Promise<ProviderSettingsSnapshot>
+    respondAgentAuth(input: AgentAuthPromptResponse): Promise<void>
+    cancelAgentAuth(input: AgentAuthFlowInput): Promise<void>
   }
   diagnostics: {
     snapshot(): Promise<DiagnosticsSnapshot>
@@ -886,6 +924,14 @@ const desktopApi: DesktopApi = {
         )
       )
     },
+    async setModelSelection(input) {
+      return agentSetModelSelectionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentSetModelSelection,
+          agentSetModelSelectionInputSchema.parse(input)
+        )
+      )
+    },
     async listEvents(input) {
       return agentEventPageSchema.parse(
         await ipcRenderer.invoke(
@@ -1220,6 +1266,73 @@ const desktopApi: DesktopApi = {
           IPC_CHANNELS.providersTestConnection,
           providerRoleInputSchema.parse(input)
         )
+      )
+    },
+    async saveAgentPreset(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSaveAgentPreset,
+          agentCustomPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async removeAgentPreset(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersRemoveAgentPreset,
+          agentPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async refreshAgentPreset(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersRefreshAgentPreset,
+          agentPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async setAgentDefault(selection) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSetAgentDefault,
+          agentModelSelectionSchema.nullable().parse(selection)
+        )
+      )
+    },
+    async setAgentCredential(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSetAgentCredential,
+          agentPresetCredentialInputSchema.parse(input)
+        )
+      )
+    },
+    async loginAgentPreset(input, listener) {
+      const parsedInput = agentPresetLoginInputSchema.parse(input)
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const parsed = agentAuthInteractionEventSchema.parse(value)
+        if (parsed.flowId === parsedInput.flowId) listener(parsed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.providersAgentAuthEvent, handler)
+      try {
+        return providerSettingsSnapshotSchema.parse(
+          await ipcRenderer.invoke(IPC_CHANNELS.providersLoginAgentPreset, parsedInput)
+        )
+      } finally {
+        ipcRenderer.removeListener(IPC_CHANNELS.providersAgentAuthEvent, handler)
+      }
+    },
+    async respondAgentAuth(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRespondAgentAuth,
+        agentAuthPromptResponseSchema.parse(input)
+      )
+    },
+    async cancelAgentAuth(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersCancelAgentAuth,
+        agentAuthFlowInputSchema.parse(input)
       )
     }
   },

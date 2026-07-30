@@ -40,7 +40,7 @@ describe('Agent contracts', () => {
         operation: 'run_start',
         ...ids,
         config,
-        credential: 'secret',
+        credential: { apiKey: 'secret' },
         systemPrompt: 'system',
         history: [],
         prompt: 'draft',

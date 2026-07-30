@@ -305,6 +305,10 @@ describe('Agent renderer view model', () => {
       status: 'interrupted',
       providerId: 'openai-compatible',
       modelId: 'writer',
+      providerPresetId: null,
+      providerLabel: 'openai-compatible',
+      modelLabel: 'writer',
+      api: 'openai-completions',
       approvalMode: 'manual',
       modelLimits: {
         contextWindowTokens: 131_072,
@@ -514,6 +518,10 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     status,
     providerId: 'openai-compatible',
     modelId: 'writer',
+    providerPresetId: null,
+    providerLabel: 'openai-compatible',
+    modelLabel: 'writer',
+    api: 'openai-completions',
     approvalMode: 'manual',
     modelLimits: {
       contextWindowTokens: 131_072,

@@ -30,6 +30,16 @@ export interface EncryptedCredentialTable {
   updated_at: string
 }
 
+export interface AgentModelCatalogTable {
+  provider_config_id: string
+  models_json: string
+  checked_at: string | null
+  last_attempted_at: string | null
+  last_error_code: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface SchemaManifestTable {
   id: number
   application_version: string
@@ -49,6 +59,7 @@ export interface AppDatabaseSchema {
   recent_projects: RecentProjectTable
   provider_configs: ProviderConfigTable
   encrypted_credentials: EncryptedCredentialTable
+  agent_model_catalogs: AgentModelCatalogTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
 }

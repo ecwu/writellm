@@ -43,6 +43,7 @@ describe('application database', () => {
       .executeTakeFirstOrThrow()
 
     expect(tables.rows.map((row) => row.name)).toEqual([
+      'agent_model_catalogs',
       'app_settings',
       'encrypted_credentials',
       'provider_configs',

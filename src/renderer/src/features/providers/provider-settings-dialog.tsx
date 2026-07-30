@@ -1,6 +1,8 @@
 import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Plus, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
 import type {
+  AgentAuthInteractionEvent,
+  CustomAgentPiApi,
   GoogleGeminiImageModel,
   ProviderConfig,
   ProviderConnectionTestResult,
@@ -46,6 +48,14 @@ interface ProviderSettingsDialogProps {
   role: ProviderRole | null
   onOpenChange: (open: boolean) => void
   onSnapshotChange: (snapshot: ProviderSettingsSnapshot) => void
+}
+
+export function ProviderSettingsDialog(props: ProviderSettingsDialogProps): React.JSX.Element {
+  return props.role === 'agent' ? (
+    <AgentProviderCatalogDialog {...props} />
+  ) : (
+    <SingletonProviderSettingsDialog {...props} />
+  )
 }
 
 const labels: Record<ProviderRole, string> = {
@@ -122,7 +132,7 @@ function defaultConfig(role: ProviderRole): ProviderConfig {
   }
 }
 
-export function ProviderSettingsDialog({
+function SingletonProviderSettingsDialog({
   role,
   onOpenChange,
   onSnapshotChange
@@ -501,6 +511,408 @@ export function ProviderSettingsDialog({
       </AlertDialog>
     </>
   )
+}
+
+function AgentProviderCatalogDialog({
+  role,
+  onOpenChange,
+  onSnapshotChange
+}: ProviderSettingsDialogProps): React.JSX.Element {
+  const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [api, setApi] = useState<CustomAgentPiApi>('openai-completions')
+  const [apiKey, setApiKey] = useState('')
+  const [credentialPresetId, setCredentialPresetId] = useState<string | null>(null)
+  const [credential, setCredential] = useState('')
+  const [authFlowId, setAuthFlowId] = useState<string | null>(null)
+  const [authEvent, setAuthEvent] = useState<AgentAuthInteractionEvent | null>(null)
+  const [authValue, setAuthValue] = useState('')
+
+  useEffect(() => {
+    if (role !== 'agent') return
+    let current = true
+    setBusy(true)
+    setError(null)
+    void window.desktop.providers
+      .snapshot()
+      .then((next) => {
+        if (current) setSnapshot(next)
+      })
+      .catch(() => {
+        if (current) setError('Agent provider catalog could not be loaded.')
+      })
+      .finally(() => {
+        if (current) setBusy(false)
+      })
+    return () => {
+      current = false
+    }
+  }, [role])
+
+  const updateSnapshot = (next: ProviderSettingsSnapshot): void => {
+    setSnapshot(next)
+    onSnapshotChange(next)
+  }
+
+  const createPreset = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await window.desktop.providers.saveAgentPreset({
+        name,
+        baseUrl,
+        api,
+        authMode: apiKey.trim() === '' ? 'none' : 'api_key',
+        timeoutMs: 60_000,
+        ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
+      })
+      updateSnapshot(next)
+      setName('')
+      setBaseUrl('')
+      setApiKey('')
+    } catch {
+      setError('Custom Agent preset was not saved. Check its URL and credential.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refresh = async (presetId: string): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      updateSnapshot(await window.desktop.providers.refreshAgentPreset({ presetId }))
+    } catch {
+      setError('Model discovery failed. The last successful catalog was retained.')
+      setSnapshot(await window.desktop.providers.snapshot())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (presetId: string): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      updateSnapshot(await window.desktop.providers.removeAgentPreset({ presetId }))
+    } catch {
+      setError('The Agent provider preset could not be removed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveCredential = async (): Promise<void> => {
+    if (credentialPresetId === null || credential.trim() === '') return
+    setBusy(true)
+    setError(null)
+    try {
+      updateSnapshot(
+        await window.desktop.providers.setAgentCredential({
+          presetId: credentialPresetId,
+          apiKey: credential.trim()
+        })
+      )
+      setCredential('')
+      setCredentialPresetId(null)
+    } catch {
+      setError('The Agent provider credential could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const login = async (presetId: string): Promise<void> => {
+    const flowId = globalThis.crypto.randomUUID()
+    setBusy(true)
+    setError(null)
+    setAuthFlowId(flowId)
+    setAuthEvent(null)
+    setAuthValue('')
+    try {
+      const next = await window.desktop.providers.loginAgentPreset(
+        { flowId, presetId, type: 'oauth' },
+        (event) => {
+          setAuthEvent(event)
+          if (event.kind === 'prompt') setAuthValue('')
+        }
+      )
+      updateSnapshot(next)
+    } catch {
+      setError('Provider sign-in did not complete.')
+    } finally {
+      setBusy(false)
+      setAuthFlowId(null)
+      setAuthEvent(null)
+      setAuthValue('')
+    }
+  }
+
+  const respondToAuthPrompt = async (): Promise<void> => {
+    if (authEvent?.kind !== 'prompt') return
+    await window.desktop.providers.respondAgentAuth({
+      flowId: authEvent.flowId,
+      promptId: authEvent.promptId,
+      value: authValue
+    })
+    setAuthEvent(null)
+    setAuthValue('')
+  }
+
+  const cancelAuth = async (): Promise<void> => {
+    if (authFlowId === null) return
+    await window.desktop.providers.cancelAgentAuth({ flowId: authFlowId })
+  }
+
+  return (
+    <Dialog open={role === 'agent'} onOpenChange={onOpenChange}>
+      <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
+        <DialogHeader>
+          <DialogTitle>Agent models</DialogTitle>
+          <DialogDescription>
+            Pi providers and custom endpoint presets are application-global. Credentials stay
+            encrypted in Electron Main.
+          </DialogDescription>
+        </DialogHeader>
+        {snapshot?.credentialBackend.warning ? (
+          <Alert variant='destructive'>
+            <ShieldAlert />
+            <AlertTitle>Secure credential storage unavailable</AlertTitle>
+            <AlertDescription>{snapshot.credentialBackend.warning}</AlertDescription>
+          </Alert>
+        ) : null}
+        {error ? (
+          <Alert variant='destructive'>
+            <AlertCircle />
+            <AlertTitle>Action failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <section className='grid gap-3'>
+          <div>
+            <h3 className='text-sm font-medium'>Provider catalog</h3>
+            <p className='text-xs text-muted-foreground'>
+              Static providers use the pinned Pi catalog. Dynamic providers refresh only when you
+              request it.
+            </p>
+          </div>
+          <div className='max-h-72 space-y-1 overflow-y-auto rounded-md border p-2'>
+            {busy && snapshot === null ? (
+              <div className='flex min-h-24 items-center justify-center gap-2 text-muted-foreground'>
+                <Spinner /> Loading providers…
+              </div>
+            ) : (
+              snapshot?.agentCatalog.presets.map((preset) => (
+                <div
+                  key={preset.presetId}
+                  className='flex min-w-0 flex-wrap items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50'
+                >
+                  <div className='min-w-0 flex-1'>
+                    <div className='truncate text-sm font-medium'>{preset.name}</div>
+                    <div className='truncate text-xs text-muted-foreground'>
+                      {preset.models.length} models · {preset.catalogStatus}
+                      {preset.authSource ? ` · ${preset.authSource}` : ''}
+                    </div>
+                  </div>
+                  <Badge variant={preset.authConfigured ? 'default' : 'secondary'}>
+                    {preset.authConfigured ? 'Connected' : 'Not connected'}
+                  </Badge>
+                  {preset.authMethods.includes('api_key') ? (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      disabled={busy}
+                      onClick={() => setCredentialPresetId(preset.presetId)}
+                    >
+                      API key
+                    </Button>
+                  ) : null}
+                  {preset.authMethods.includes('oauth') ? (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      disabled={busy}
+                      onClick={() => void login(preset.presetId)}
+                    >
+                      Sign in
+                    </Button>
+                  ) : null}
+                  <Button
+                    size='icon-sm'
+                    variant='ghost'
+                    aria-label={`Refresh ${preset.name} models`}
+                    disabled={busy || preset.catalogStatus === 'packaged'}
+                    onClick={() => void refresh(preset.presetId)}
+                  >
+                    <RefreshCw />
+                  </Button>
+                  {preset.kind === 'custom' || preset.authConfigured ? (
+                    <Button
+                      size='icon-sm'
+                      variant='ghost'
+                      aria-label={`${preset.kind === 'custom' ? 'Remove' : 'Disconnect'} ${preset.name}`}
+                      disabled={busy}
+                      onClick={() => void remove(preset.presetId)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+        {credentialPresetId !== null ? (
+          <FieldGroup className='grid gap-3 rounded-md border p-3'>
+            <ConfigField label='Provider API key'>
+              <Input
+                type='password'
+                value={credential}
+                autoComplete='new-password'
+                onChange={(event) => setCredential(event.target.value)}
+              />
+            </ConfigField>
+            <div className='flex justify-end gap-2'>
+              <Button variant='outline' onClick={() => setCredentialPresetId(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={busy || credential.trim() === ''}
+                onClick={() => void saveCredential()}
+              >
+                Save credential
+              </Button>
+            </div>
+          </FieldGroup>
+        ) : null}
+        {authFlowId !== null ? (
+          <FieldGroup className='grid gap-3 rounded-md border p-3'>
+            <div>
+              <h3 className='text-sm font-medium'>Provider sign-in</h3>
+              <p className='text-xs text-muted-foreground'>
+                {authEvent?.kind === 'notice'
+                  ? authNoticeText(authEvent)
+                  : authEvent?.kind === 'prompt'
+                    ? authEvent.prompt.message
+                    : 'Waiting for the provider…'}
+              </p>
+            </div>
+            {authEvent?.kind === 'prompt' ? (
+              authEvent.prompt.type === 'select' ? (
+                <Select value={authValue} onValueChange={setAuthValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Choose an account or login method' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {authEvent.prompt.options.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  type={authEvent.prompt.type === 'secret' ? 'password' : 'text'}
+                  value={authValue}
+                  placeholder={authEvent.prompt.placeholder}
+                  autoComplete={authEvent.prompt.type === 'secret' ? 'new-password' : 'off'}
+                  onChange={(event) => setAuthValue(event.target.value)}
+                />
+              )
+            ) : null}
+            <div className='flex justify-end gap-2'>
+              <Button variant='outline' onClick={() => void cancelAuth()}>
+                Cancel
+              </Button>
+              {authEvent?.kind === 'prompt' ? (
+                <Button disabled={authValue === ''} onClick={() => void respondToAuthPrompt()}>
+                  Continue
+                </Button>
+              ) : null}
+            </div>
+          </FieldGroup>
+        ) : null}
+        <FieldGroup className='grid gap-3 rounded-md border p-3'>
+          <div>
+            <h3 className='text-sm font-medium'>Add custom endpoint</h3>
+            <p className='text-xs text-muted-foreground'>
+              Custom endpoints support API-key or keyless authentication and explicit model
+              discovery.
+            </p>
+          </div>
+          <ConfigField label='Preset name'>
+            <Input value={name} onChange={(event) => setName(event.target.value)} />
+          </ConfigField>
+          <ConfigField label='Base URL'>
+            <Input
+              value={baseUrl}
+              autoComplete='url'
+              placeholder='https://api.example.com/v1'
+              onChange={(event) => setBaseUrl(event.target.value)}
+            />
+          </ConfigField>
+          <Field>
+            <FieldLabel>Pi transport</FieldLabel>
+            <Select value={api} onValueChange={(value) => setApi(value as CustomAgentPiApi)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {[
+                    'openai-completions',
+                    'openai-responses',
+                    'anthropic-messages',
+                    'google-generative-ai',
+                    'mistral-conversations',
+                    'azure-openai-responses'
+                  ].map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <ConfigField label='API key (optional for local/keyless endpoints)'>
+            <Input
+              type='password'
+              value={apiKey}
+              autoComplete='new-password'
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+          </ConfigField>
+          <Button
+            disabled={busy || name.trim() === '' || baseUrl.trim() === ''}
+            onClick={() => void createPreset()}
+          >
+            <Plus data-icon='inline-start' /> Add preset
+          </Button>
+        </FieldGroup>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant='outline'>Close</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function authNoticeText(event: Extract<AgentAuthInteractionEvent, { kind: 'notice' }>): string {
+  const notice = event.notice
+  if (notice.type === 'device_code') {
+    return `A browser window was opened. Enter device code ${notice.userCode}.`
+  }
+  if (notice.type === 'auth_url') {
+    return notice.instructions ?? 'Complete sign-in in the browser window that was opened.'
+  }
+  return notice.message
 }
 
 function ConfigField({

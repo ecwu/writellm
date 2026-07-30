@@ -36,6 +36,76 @@ afterEach(async () => {
 })
 
 describe('AgentSessionService', () => {
+  it('snapshots the selected Pi preset and model and only permits idle switching', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const resolve = vi.fn(async () => ({
+      presetId: 'builtin:anthropic',
+      presetName: 'Anthropic',
+      providerId: 'anthropic',
+      timeoutMs: 45_000,
+      model: {
+        id: 'claude-writer',
+        name: 'Claude Writer',
+        api: 'anthropic-messages',
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        reasoning: true,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200_000,
+        maxTokens: 16_384
+      },
+      auth: { auth: { apiKey: 'anthropic-secret' }, source: 'Stored API key' }
+    }))
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve } as never
+    })
+    const session = service.createSession('Provider selection', undefined, {
+      presetId: 'builtin:anthropic',
+      modelId: 'claude-writer'
+    })
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft an opening.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(runtime.active().config).toMatchObject({
+      providerId: 'anthropic',
+      presetId: 'builtin:anthropic',
+      providerName: 'Anthropic',
+      model: 'claude-writer',
+      modelName: 'Claude Writer',
+      api: 'anthropic-messages'
+    })
+    expect(JSON.parse(runtime.active().credential)).toEqual({ apiKey: 'anthropic-secret' })
+    expect(() =>
+      service.setModelSelection(session.agentSessionId, {
+        presetId: 'builtin:openai',
+        modelId: 'gpt-writer'
+      })
+    ).toThrow('active')
+
+    runtime.active().resolve()
+    await started.completion
+    const runs = service.listRuns(session.agentSessionId, 10)
+    expect(runs[0]).toMatchObject({
+      providerPresetId: 'builtin:anthropic',
+      providerId: 'anthropic',
+      providerLabel: 'Anthropic',
+      modelId: 'claude-writer',
+      modelLabel: 'Claude Writer',
+      api: 'anthropic-messages'
+    })
+    expect(JSON.stringify(runs)).not.toContain('anthropic-secret')
+    expect(resolve).toHaveBeenCalledWith({
+      presetId: 'builtin:anthropic',
+      modelId: 'claude-writer'
+    })
+    database.close()
+  })
+
   it('persists ordered session history, steering/follow-up turns, and one linked model request per call', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -821,6 +891,8 @@ describe('AgentSessionService', () => {
 })
 
 interface FakeActiveRun {
+  config: ProviderConfig
+  credential: string
   input: AgentSessionRunInput
   commands: Array<{ operation: 'steer' | 'follow_up'; modelRequestId: string }>
   authorizations: Array<{ continuationId: string; modelRequestId: string }>
@@ -841,7 +913,9 @@ class FakeAgentRuntime implements AgentSessionRuntime {
     onEvent: (event: AgentRuntimeEvent) => void | Promise<void>,
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
   ): AgentSessionRunHandle {
-    expect(credential).toBe('agent-secret')
+    if (_config.role === 'agent' && _config.presetId === undefined) {
+      expect(credential).toBe('agent-secret')
+    }
     let resolve: (outcome?: 'finished' | 'awaiting_review') => void = () => undefined
     let reject: (error: Error) => void = () => undefined
     const completion = new Promise<{ outcome: 'finished' | 'awaiting_review' }>(
@@ -862,6 +936,8 @@ class FakeAgentRuntime implements AgentSessionRuntime {
     const commands: Array<{ operation: 'steer' | 'follow_up'; modelRequestId: string }> = []
     const authorizations: Array<{ continuationId: string; modelRequestId: string }> = []
     this.#active = {
+      config: _config,
+      credential,
       input,
       commands,
       authorizations,
@@ -901,7 +977,12 @@ function createService(
   overrides: Partial<
     Pick<
       AgentSessionServiceOptions,
-      'contextBuilder' | 'tools' | 'summarizeHistory' | 'messageTokenBudget' | 'publishDelta'
+      | 'agentCatalog'
+      | 'contextBuilder'
+      | 'tools'
+      | 'summarizeHistory'
+      | 'messageTokenBudget'
+      | 'publishDelta'
     >
   > = {}
 ): AgentSessionService {

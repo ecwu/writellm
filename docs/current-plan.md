@@ -1,14 +1,41 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 23V project Git version history is complete; Checkpoint 24 remains unstarted.
-Recorded: 2026-07-29
-
-## Current checkpoint
-
-No implementation checkpoint is active. Checkpoint 24 remains unstarted and requires separate
-user approval.
+Status: Checkpoint 23P Pi provider catalog is complete; Checkpoint 24 remains unstarted.
+Recorded: 2026-07-30
 
 ## Completed checkpoint
+
+Checkpoint 23P implemented ADR 008: an application-global Pi provider/preset catalog, encrypted Pi
+credentials, explicit cached model discovery, per-conversation Agent model selection, and
+run-snapshotted multi-protocol dispatch. Checkpoint 24 remains unstarted and requires separate user
+approval.
+
+The completed surface includes Pi built-in providers and their API-key, ambient, and OAuth flows;
+bounded custom endpoint presets for the six approved transports; explicit last-successful model
+catalog refresh; legacy singleton migration; idle-only model switching in the Agent sidebar; and
+immutable provider/model/API labels on each run. Pi's ESM-only runtime is bundled into the Electron
+Main/worker production output while native dependencies remain external.
+
+## Next checkpoint
+
+The Phase 10 plan was re-audited against the current source, packaging configuration, tests, ADR
+006/007, and the completed verification-gate split. Checkpoint 24 now owns only the remaining
+whole-manuscript export and portability-completion work: a Main-authoritative versioned native
+export, deterministic Markdown with explicit loss reporting, referenced-asset packaging,
+collision-safe UX, and moved/restored/no-index end-to-end evidence.
+
+Snapshot v2 create/restore, project-history transport, conflict-safe snapshot publication,
+moved-root open, and durable missing-index rebuild scheduling are completed baselines and will be
+reused rather than reimplemented. Clone/Save As remains deferred because it requires a new
+`projectId`.
+
+Checkpoint 25 is realigned around reproducible target-native packaging and removal of source-tree
+fallbacks from the existing package gate. Checkpoint 26 remains the cross-platform CI and protected
+release-promotion checkpoint; the repository currently has no GitHub Actions workflow. The full
+updated scope and gates are recorded in
+[`docs/implementation-todo/phase-10.md`](implementation-todo/phase-10.md).
+
+## Prior completed checkpoint
 
 Checkpoint 23V added application-managed, project-local Git history. ADR 007 fixes an exact-pinned
 `isomorphic-git` boundary, a bare `.writellm/history.git` repository with one linear `main`

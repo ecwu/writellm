@@ -46,12 +46,17 @@ import {
   submitChangeResultSchema,
   type MutationProposalOutcome
 } from '../../shared/contracts/agent-mutations'
-import type { ProviderConfig } from '../../shared/contracts/providers'
+import type { AgentModelSelection, ProviderConfig } from '../../shared/contracts/providers'
+import { providerConfigSchema } from '../../shared/contracts/providers'
 import { withLogContext } from '../observability/log-context'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProviderService } from '../providers/provider-service'
+import type {
+  AgentProviderCatalogService,
+  ResolvedAgentCatalogModel
+} from '../providers/agent-provider-catalog'
 import type { AgentContextBuilder, WritingSnapshot } from './context'
 import { AgentToolDomainError } from './read-tools'
 import type { AgentToolExecutor } from './tools'
@@ -92,6 +97,7 @@ export interface AgentSessionServiceOptions {
   projectSessionId: string
   database: ProjectDatabase
   providers: Pick<ProviderService, 'withConfiguredProvider'>
+  agentCatalog?: Pick<AgentProviderCatalogService, 'resolve'>
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
   tools?: AgentToolExecutor
@@ -132,7 +138,8 @@ export class AgentSessionService {
 
   createSession(
     title = 'New conversation',
-    approvalMode = this.options.defaultApprovalMode?.() ?? 'manual'
+    approvalMode = this.options.defaultApprovalMode?.() ?? 'manual',
+    modelSelection: AgentModelSelection | null = null
   ): AgentSessionRecord {
     const agentSessionId = this.#createId()
     const now = this.#now().toISOString()
@@ -142,8 +149,9 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_sessions (
              agent_session_id, title, pi_runtime_version, event_schema_version,
-             status, approval_mode, created_at, updated_at, archived_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, NULL)`
+             status, approval_mode, provider_preset_id, selected_model_id,
+             created_at, updated_at, archived_at
+           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL)`
         )
         .run(
           agentSessionId,
@@ -151,6 +159,8 @@ export class AgentSessionService {
           AGENT_RUNTIME_VERSION,
           AGENT_EVENT_SCHEMA_VERSION,
           approvalMode,
+          modelSelection?.presetId ?? null,
+          modelSelection?.modelId ?? null,
           now,
           now
         )
@@ -166,6 +176,7 @@ export class AgentSessionService {
       compatible: true,
       approvalMode,
       workflowState: 'idle',
+      modelSelection,
       createdAt: now,
       updatedAt: now
     })
@@ -177,7 +188,8 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
-                    status, approval_mode, created_at, updated_at,
+                    status, approval_mode, provider_preset_id, selected_model_id,
+                    created_at, updated_at,
                     CASE
                       WHEN EXISTS (
                         SELECT 1 FROM agent_runs
@@ -207,6 +219,8 @@ export class AgentSessionService {
           event_schema_version: number
           status: 'active' | 'archived'
           approval_mode: AgentApprovalMode
+          provider_preset_id: string | null
+          selected_model_id: string | null
           workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
           created_at: string
           updated_at: string
@@ -221,6 +235,10 @@ export class AgentSessionService {
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
           workflowState: row.workflow_state,
+          modelSelection:
+            row.provider_preset_id === null || row.selected_model_id === null
+              ? null
+              : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
           createdAt: row.created_at,
           updatedAt: row.updated_at
         })
@@ -246,6 +264,35 @@ export class AgentSessionService {
     this.options.log.info(
       { event: 'agent.session.approval_mode_updated', agentSessionId, mode },
       'Agent session approval mode updated'
+    )
+    return session
+  }
+
+  setModelSelection(agentSessionId: string, selection: AgentModelSelection): AgentSessionRecord {
+    if (this.#active?.agentSessionId === agentSessionId) {
+      throw new Error('Agent model cannot change while a run is active')
+    }
+    this.#assertConversationReady(agentSessionId)
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE agent_sessions
+              SET provider_preset_id = ?, selected_model_id = ?, updated_at = ?
+            WHERE agent_session_id = ?`
+        )
+        .run(selection.presetId, selection.modelId, now, agentSessionId)
+    })
+    const session = this.listSessions().find((item) => item.agentSessionId === agentSessionId)
+    if (session === undefined) throw new Error('Agent session does not exist')
+    this.options.log.info(
+      {
+        event: 'agent.session.model_selection_updated',
+        agentSessionId,
+        presetId: selection.presetId,
+        modelId: selection.modelId
+      },
+      'Agent session model selection updated'
     )
     return session
   }
@@ -323,6 +370,7 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_run_id, agent_session_id, status, provider_id, model_id,
+                    provider_preset_id, provider_label, model_label, api_id,
                     approval_mode, model_limits_json, editor_context_json, error_json,
                     started_at, completed_at, updated_at
                FROM agent_runs
@@ -336,6 +384,10 @@ export class AgentSessionService {
           status: 'running' | 'completed' | 'interrupted' | 'failed'
           provider_id: string
           model_id: string
+          provider_preset_id: string | null
+          provider_label: string
+          model_label: string
+          api_id: string
           approval_mode: AgentApprovalMode
           model_limits_json: string
           editor_context_json: string
@@ -351,6 +403,10 @@ export class AgentSessionService {
           status: row.status,
           providerId: row.provider_id,
           modelId: row.model_id,
+          providerPresetId: row.provider_preset_id,
+          providerLabel: row.provider_label || row.provider_id,
+          modelLabel: row.model_label || row.model_id,
+          api: row.api_id,
           approvalMode: row.approval_mode,
           modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
@@ -401,7 +457,7 @@ export class AgentSessionService {
         agentRunId
       },
       () =>
-        this.options.providers.withConfiguredProvider('agent', async (config, credential) => {
+        this.#withSessionProvider(input.agentSessionId, async (config, credential) => {
           const resolutionController = new AbortController()
           const modelLimits =
             (await this.options.resolveModelLimits?.(config, resolutionController.signal)) ??
@@ -1158,22 +1214,33 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_runs (
              agent_run_id, agent_session_id, status, provider_id, model_id,
+             provider_preset_id, provider_label, model_label, api_id,
              provider_fingerprint, model_fingerprint, approval_mode, model_limits_json,
              editor_context_json,
              error_json, started_at, completed_at, created_at, updated_at
-           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
+           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
         )
         .run(
           input.agentRunId,
           input.agentSessionId,
           input.config.providerId,
           input.config.model,
+          input.config.presetId ?? null,
+          input.config.providerName ?? input.config.providerId,
+          input.config.modelName ?? input.config.model,
+          input.config.api ?? 'openai-completions',
           fingerprint({
             providerId: input.config.providerId,
             baseUrl: input.config.baseUrl,
-            role: input.config.role
+            role: input.config.role,
+            api: input.config.api ?? 'openai-completions',
+            presetId: input.config.presetId ?? null
           }),
-          fingerprint({ model: input.config.model, revision: input.config.modelRevision }),
+          fingerprint({
+            model: input.config.model,
+            revision: input.config.modelRevision,
+            api: input.config.api ?? 'openai-completions'
+          }),
           input.approvalMode,
           JSON.stringify(input.modelLimits),
           JSON.stringify(input.editorContext),
@@ -1198,6 +1265,50 @@ export class AgentSessionService {
         .prepare('UPDATE agent_sessions SET updated_at = ? WHERE agent_session_id = ?')
         .run(now, input.agentSessionId)
     })
+  }
+
+  async #withSessionProvider<T>(
+    agentSessionId: string,
+    operation: (
+      config: Extract<ProviderConfig, { role: 'agent' }>,
+      credential: string
+    ) => Promise<T>
+  ): Promise<T> {
+    const selection = this.#sessionModelSelection(agentSessionId)
+    if (selection !== null && this.options.agentCatalog !== undefined) {
+      const resolved = await this.options.agentCatalog.resolve(selection)
+      return operation(
+        configFromCatalog(resolved),
+        JSON.stringify({
+          ...(resolved.auth.auth.apiKey === undefined ? {} : { apiKey: resolved.auth.auth.apiKey }),
+          ...(resolved.auth.auth.headers === undefined
+            ? {}
+            : { headers: resolved.auth.auth.headers }),
+          ...(resolved.auth.env === undefined ? {} : { env: resolved.auth.env })
+        })
+      )
+    }
+    return this.options.providers.withConfiguredProvider('agent', (config, credential) =>
+      operation(config, credential)
+    )
+  }
+
+  #sessionModelSelection(agentSessionId: string): AgentModelSelection | null {
+    const row = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT provider_preset_id, selected_model_id
+               FROM agent_sessions
+              WHERE agent_session_id = ?`
+          )
+          .get(agentSessionId) as
+          | { provider_preset_id: string | null; selected_model_id: string | null }
+          | undefined
+    )
+    if (row === undefined) throw new Error('Agent session does not exist')
+    if (row.provider_preset_id === null || row.selected_model_id === null) return null
+    return { presetId: row.provider_preset_id, modelId: row.selected_model_id }
   }
 
   #linkInitialUserEvent(
@@ -1650,6 +1761,27 @@ function insertEvent(
 
 function fingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function configFromCatalog(
+  resolved: ResolvedAgentCatalogModel
+): Extract<ProviderConfig, { role: 'agent' }> {
+  return providerConfigSchema.parse({
+    role: 'agent',
+    providerId: resolved.providerId,
+    presetId: resolved.presetId,
+    providerName: resolved.presetName,
+    model: resolved.model.id,
+    modelName: resolved.model.name,
+    api: resolved.model.api,
+    baseUrl: resolved.auth.auth.baseUrl ?? resolved.model.baseUrl,
+    modelRevision: `pi-0.80.10:${resolved.model.api}`.slice(0, 256),
+    contextWindowTokens: resolved.model.contextWindow,
+    timeoutMs: resolved.timeoutMs,
+    batchLimit: 1,
+    embeddingDimension: null,
+    fileSizeLimitMb: null
+  }) as Extract<ProviderConfig, { role: 'agent' }>
 }
 
 function safeErrorCode(value: string | null): string | null {

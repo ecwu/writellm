@@ -1002,6 +1002,21 @@ Write-type agent tools remain sequential even when Pi permits parallel tool exec
 
 Provider configuration is application-global because credentials are device/user concerns, not portable project content.
 
+- Agent configuration is an application-global Pi provider catalog rather than one singleton
+  endpoint. The pinned Pi built-in providers define their static model metadata, wire protocol,
+  ambient/API-key/OAuth authentication, and request auth resolution. User-defined endpoint presets
+  are limited to the approved endpoint-addressable Pi transports in ADR 008.
+- Dynamic model discovery is explicit. Main stores one bounded last-successful catalog per preset
+  in `app.sqlite`; a failed refresh records a safe status and retains the prior catalog. Renderer
+  receives only bounded model/status metadata.
+- Each project-local Agent conversation stores a preset/model reference. Switching is authorized
+  only while that conversation is idle and applies to its next run. Every run snapshots the
+  resolved provider, API, model names/IDs, limits, and fingerprints so later application-global
+  changes cannot rewrite history or silently redirect an active run.
+- OAuth interaction is request-scoped and cancellable. Main runs the provider-owned Pi flow,
+  opens only URLs emitted by that flow, and brokers bounded prompts to the initiating Renderer.
+  Returned credentials are encrypted directly through the Main-owned Pi `CredentialStore` and
+  never returned to Renderer.
 - Store only `safeStorage` ciphertext in `app.sqlite`.
 - Implement a Pi `CredentialStore` adapter that requests and updates credentials through Main.
 - Do not let Pi's default file credential store write into the project.

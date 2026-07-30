@@ -1,4 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron'
+import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -80,7 +81,8 @@ const snapshot: ProviderSettingsSnapshot = {
       issues: []
     },
     ...(['embedding', 'rerank', 'mineru', 'image'] as const).map(emptyStatus)
-  ]
+  ],
+  agentCatalog: { presets: [], defaultSelection: null }
 }
 
 function harness() {
@@ -98,16 +100,22 @@ function harness() {
       code: 'connected' as const,
       message: 'Connection succeeded.',
       durationMs: 4
-    }))
+    })),
+    loginAgentPreset: vi.fn(
+      async (_presetId: string, _type: AuthType, _interaction: AuthInteraction) => snapshot
+    )
   }
   registerProviderIpc({
     providers: providers as never,
     logger: pino({ level: 'silent' }),
     developmentUrl: 'http://localhost:5173',
-    ipc
+    ipc,
+    openExternal: vi.fn(async () => undefined)
   })
+  const send = vi.fn()
   const event = {
-    senderFrame: { url: 'http://localhost:5173/' }
+    senderFrame: { url: 'http://localhost:5173/' },
+    sender: { id: 7, send }
   } as unknown as IpcMainInvokeEvent
   return {
     providers,
@@ -116,7 +124,8 @@ function harness() {
     unauthorized: {
       senderFrame: { url: 'https://attacker.invalid/' }
     } as unknown as IpcMainInvokeEvent,
-    handlers
+    handlers,
+    send
   }
 }
 
@@ -151,5 +160,44 @@ describe('provider IPC', () => {
     ).rejects.toThrow()
     expect(providers.remove).not.toHaveBeenCalled()
     expect(providers.save).not.toHaveBeenCalled()
+  })
+
+  it('brokers a request-scoped OAuth prompt without exposing the credential', async () => {
+    const { invoke, providers, send } = harness()
+    providers.loginAgentPreset.mockImplementationOnce(async (_presetId, _type, interaction) => {
+      interaction.notify({
+        type: 'device_code',
+        userCode: 'ABCD-EFGH',
+        verificationUri: 'https://login.example.test/device'
+      })
+      const code = await interaction.prompt({
+        type: 'manual_code',
+        message: 'Paste the returned code'
+      })
+      expect(code).toBe('oauth-result-code')
+      return snapshot
+    })
+    const flowId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+    const login = Promise.resolve(
+      invoke(IPC_CHANNELS.providersLoginAgentPreset, {
+        flowId,
+        presetId: 'builtin:anthropic',
+        type: 'oauth'
+      })
+    )
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    const prompt = send.mock.calls[1]?.[1] as { promptId: string }
+    await invoke(IPC_CHANNELS.providersRespondAgentAuth, {
+      flowId,
+      promptId: prompt.promptId,
+      value: 'oauth-result-code'
+    })
+    const result = await login
+    expect(providers.loginAgentPreset).toHaveBeenCalledWith(
+      'builtin:anthropic',
+      'oauth',
+      expect.any(Object)
+    )
+    expect(JSON.stringify(result)).not.toContain('oauth-result-code')
   })
 })

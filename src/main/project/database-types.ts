@@ -157,6 +157,8 @@ export interface AgentSessionTable {
   event_schema_version: number
   status: 'active' | 'archived'
   approval_mode: 'manual' | 'section_auto' | 'yolo'
+  provider_preset_id: string | null
+  selected_model_id: string | null
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -168,6 +170,10 @@ export interface AgentRunTable {
   status: 'running' | 'completed' | 'interrupted' | 'failed'
   provider_id: string
   model_id: string
+  provider_preset_id: string | null
+  provider_label: string
+  model_label: string
+  api_id: string
   approval_mode: 'manual' | 'section_auto' | 'yolo'
   model_limits_json: string
   provider_fingerprint: string

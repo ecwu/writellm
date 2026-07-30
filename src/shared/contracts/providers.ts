@@ -11,6 +11,58 @@ export const providerIdSchema = z.enum([
 ])
 export type ProviderId = z.infer<typeof providerIdSchema>
 
+export const piApiSchema = z.enum([
+  'openai-completions',
+  'mistral-conversations',
+  'openai-responses',
+  'azure-openai-responses',
+  'openai-codex-responses',
+  'anthropic-messages',
+  'bedrock-converse-stream',
+  'google-generative-ai',
+  'google-vertex',
+  'pi-messages'
+])
+export type PiApi = z.infer<typeof piApiSchema>
+
+export const customAgentPiApiSchema = z.enum([
+  'openai-completions',
+  'openai-responses',
+  'azure-openai-responses',
+  'anthropic-messages',
+  'google-generative-ai',
+  'mistral-conversations'
+])
+export type CustomAgentPiApi = z.infer<typeof customAgentPiApiSchema>
+
+export const agentPresetIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/)
+
+export const agentModelSelectionSchema = z.object({
+  presetId: agentPresetIdSchema,
+  modelId: z.string().trim().min(1).max(500)
+})
+export type AgentModelSelection = z.infer<typeof agentModelSelectionSchema>
+
+export const agentModelSummarySchema = z.object({
+  id: z.string().trim().min(1).max(500),
+  name: z.string().trim().min(1).max(500),
+  api: piApiSchema,
+  reasoning: z.boolean(),
+  input: z
+    .array(z.enum(['text', 'image']))
+    .min(1)
+    .max(2),
+  contextWindow: z.number().int().min(1).max(10_000_000),
+  maxTokens: z.number().int().min(1).max(10_000_000),
+  metadataVerified: z.boolean()
+})
+export type AgentModelSummary = z.infer<typeof agentModelSummarySchema>
+
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 export const GOOGLE_GEMINI_IMAGE_MODELS = [
@@ -55,6 +107,48 @@ export const providerBaseUrlSchema = z
     )
   }, 'Use HTTPS, or HTTP only for a loopback endpoint')
 
+export const agentProviderPresetSummarySchema = z.object({
+  presetId: agentPresetIdSchema,
+  kind: z.enum(['builtin', 'custom']),
+  providerId: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
+  baseUrl: providerBaseUrlSchema.optional(),
+  api: customAgentPiApiSchema.optional(),
+  authMethods: z.array(z.enum(['api_key', 'oauth', 'ambient', 'none'])).max(4),
+  authConfigured: z.boolean(),
+  authSource: z.string().trim().min(1).max(200).nullable(),
+  catalogStatus: z.enum(['packaged', 'current', 'stale', 'empty']),
+  checkedAt: z.iso.datetime().nullable(),
+  lastErrorCode: z.string().trim().min(1).max(100).nullable(),
+  models: z.array(agentModelSummarySchema).max(2_000)
+})
+export type AgentProviderPresetSummary = z.infer<typeof agentProviderPresetSummarySchema>
+
+export const agentProviderCatalogSchema = z.object({
+  presets: z.array(agentProviderPresetSummarySchema).max(200),
+  defaultSelection: agentModelSelectionSchema.nullable()
+})
+export type AgentProviderCatalog = z.infer<typeof agentProviderCatalogSchema>
+
+export const agentCustomPresetInputSchema = z.object({
+  presetId: agentPresetIdSchema.optional(),
+  name: z.string().trim().min(1).max(200),
+  baseUrl: providerBaseUrlSchema,
+  api: customAgentPiApiSchema,
+  authMode: z.enum(['api_key', 'none']),
+  timeoutMs: z.number().int().min(1_000).max(300_000).default(60_000),
+  apiKey: z.string().trim().min(1).max(16_384).optional()
+})
+export type AgentCustomPresetInput = z.infer<typeof agentCustomPresetInputSchema>
+
+export const agentPresetInputSchema = z.object({ presetId: agentPresetIdSchema })
+export type AgentPresetInput = z.infer<typeof agentPresetInputSchema>
+export const agentPresetCredentialInputSchema = z.object({
+  presetId: agentPresetIdSchema,
+  apiKey: z.string().trim().min(1).max(16_384)
+})
+export type AgentPresetCredentialInput = z.infer<typeof agentPresetCredentialInputSchema>
+
 const providerCommonFields = {
   model: z.string().trim().min(1).max(200),
   timeoutMs: z.number().int().min(1_000).max(300_000),
@@ -73,7 +167,11 @@ export const providerConfigSchema = z
     z.object({
       ...endpointProviderCommonFields,
       role: z.literal('agent'),
-      providerId: z.literal('openai-compatible'),
+      providerId: z.string().trim().min(1).max(200),
+      api: piApiSchema.optional(),
+      presetId: agentPresetIdSchema.optional(),
+      providerName: z.string().trim().min(1).max(200).optional(),
+      modelName: z.string().trim().min(1).max(500).optional(),
       modelRevision: modelRevisionSchema,
       contextWindowTokens: z.number().int().min(8_192).max(10_000_000).nullable().optional(),
       embeddingDimension: z.null(),
@@ -183,7 +281,8 @@ export type ProviderStatus = z.infer<typeof providerStatusSchema>
 
 export const providerSettingsSnapshotSchema = z.object({
   credentialBackend: credentialBackendStatusSchema,
-  providers: z.array(providerStatusSchema).length(5)
+  providers: z.array(providerStatusSchema).length(5),
+  agentCatalog: agentProviderCatalogSchema.default({ presets: [], defaultSelection: null })
 })
 export type ProviderSettingsSnapshot = z.infer<typeof providerSettingsSnapshotSchema>
 
@@ -211,3 +310,82 @@ export const providerConnectionTestResultSchema = z.object({
   durationMs: z.number().int().nonnegative()
 })
 export type ProviderConnectionTestResult = z.infer<typeof providerConnectionTestResultSchema>
+
+export const agentPresetAuthTypeSchema = z.enum(['api_key', 'oauth'])
+export const agentPresetLoginInputSchema = z.object({
+  flowId: z.uuid(),
+  presetId: agentPresetIdSchema,
+  type: agentPresetAuthTypeSchema
+})
+export type AgentPresetLoginInput = z.infer<typeof agentPresetLoginInputSchema>
+
+const agentAuthPromptSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.enum(['text', 'secret', 'manual_code']),
+    message: z.string().min(1).max(2_000),
+    placeholder: z.string().max(500).optional()
+  }),
+  z.object({
+    type: z.literal('select'),
+    message: z.string().min(1).max(2_000),
+    options: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(500),
+          label: z.string().min(1).max(500),
+          description: z.string().max(1_000).optional()
+        })
+      )
+      .min(1)
+      .max(50)
+  })
+])
+
+const agentAuthNoticeSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('info'),
+    message: z.string().min(1).max(2_000),
+    links: z
+      .array(z.object({ url: z.url().max(2_048), label: z.string().max(500).optional() }))
+      .max(10)
+      .optional()
+  }),
+  z.object({
+    type: z.literal('auth_url'),
+    url: z.url().max(2_048),
+    instructions: z.string().max(2_000).optional()
+  }),
+  z.object({
+    type: z.literal('device_code'),
+    userCode: z.string().min(1).max(500),
+    verificationUri: z.url().max(2_048),
+    intervalSeconds: z.number().positive().max(3_600).optional(),
+    expiresInSeconds: z.number().positive().max(86_400).optional()
+  }),
+  z.object({ type: z.literal('progress'), message: z.string().min(1).max(2_000) })
+])
+
+export const agentAuthInteractionEventSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('prompt'),
+    flowId: z.uuid(),
+    promptId: z.uuid(),
+    prompt: agentAuthPromptSchema
+  }),
+  z.object({
+    kind: z.literal('notice'),
+    flowId: z.uuid(),
+    notice: agentAuthNoticeSchema
+  })
+])
+export type AgentAuthInteractionEvent = z.infer<typeof agentAuthInteractionEventSchema>
+
+export const agentAuthPromptResponseSchema = z.object({
+  flowId: z.uuid(),
+  promptId: z.uuid(),
+  value: z.string().max(16_384)
+})
+export type AgentAuthPromptResponse = z.infer<typeof agentAuthPromptResponseSchema>
+
+export const agentAuthFlowInputSchema = z.object({ flowId: z.uuid() })
+export type AgentAuthFlowInput = z.infer<typeof agentAuthFlowInputSchema>

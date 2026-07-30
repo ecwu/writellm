@@ -120,7 +120,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       operation: 'run_start',
       requestId,
       config,
-      credential,
+      credential: decodeAgentRuntimeAuth(credential),
       ...input,
       modelLimits: input.modelLimits ?? legacyLimits(config.contextWindowTokens)
     })
@@ -459,6 +459,28 @@ function abortError(): Error {
   const error = new Error('Agent model request aborted')
   error.name = 'AbortError'
   return error
+}
+
+function decodeAgentRuntimeAuth(value: string): {
+  apiKey?: string
+  headers?: Record<string, string | null>
+  env?: Record<string, string>
+} {
+  if (!value.startsWith('{')) return { apiKey: value }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch (err) {
+    throw new Error('Agent runtime authentication envelope is invalid', { cause: err })
+  }
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error('Agent runtime authentication envelope is invalid')
+  }
+  return parsed as {
+    apiKey?: string
+    headers?: Record<string, string | null>
+    env?: Record<string, string>
+  }
 }
 
 function rejectedSessionHandle(error: Error): AgentSessionRunHandle {

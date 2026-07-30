@@ -1,7 +1,7 @@
 # WriteLLM v2 Implementation Todo
 
-Status: Checkpoint 23V project Git version history complete; Checkpoint 24 remains unstarted
-Recorded: 2026-07-29
+Status: Checkpoint 23P is complete; Checkpoint 24 remains unstarted
+Recorded: 2026-07-30
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -17,6 +17,13 @@ Status markers:
 - `[!]` blocked; add the blocker immediately below the item
 
 ## Current Checkpoint
+
+Checkpoint 23P is complete under ADR 008. Checkpoint 24 remains unstarted. The Phase 10 plan was
+re-audited on 2026-07-30 against
+the current source, architecture, ADR 001–007, completed Snapshot v2/version history, native
+packaging scripts, packaged smoke, and test inventory. Checkpoint 24 remains unstarted and requires
+separate implementation approval. The realigned Checkpoints 24–26 are authoritative in
+[`phase-10.md`](implementation-todo/phase-10.md); this planning update does not start product code.
 
 ### Checkpoint 23V: Project Git Version History
 
@@ -540,3 +547,33 @@ The following items remain deferred until evidence requires them. See the Phase 
 - 2026-07-25: Completed the Agent manual-review wait-state correction. The Pi worker now treats `pause_for_review` as a terminal review barrier before its next-turn authorization hook, clears queued Pi work, and returns an explicit `awaiting_review` outcome without creating an unused `model_requests` row. Main persists the immutable run as `completed` with proposal metadata, derives `idle`/`running`/`awaiting_review`/`generating` session workflow state from authoritative runs and proposals, aborts only raced queued requests with `review_pause`, and rejects new starts or queue messages only for the blocked conversation; approval continuation remains a new run. The Agent panel shows and replays Waiting for review, locks its composer and scope controls while pending/generating, exposes status in every session row, projects image proposals for pre-generation review, and interprets legacy false-failure review events without masking genuine failures. The stale-proposal E2E now uses a second conversation, proving unrelated conversations remain usable. `pnpm check:fast`, canonical Electron Vitest (101 files/492 tests), production build, all 16 real Electron Playwright scenarios, isolated runtime app.sqlite identity/version/integrity/foreign-key/schema verification, the no-identity package gate with packaged Agent worker/native smoke, and `git diff --check` pass; Biome reports only the existing generated shadcn cookie warning. No state-machine migration or durable suspended Agent job was required, and Checkpoint 24 remains unstarted.
 - 2026-07-25: Started a user-approved Renderer-wide shadcn/UI correction within the completed writing, knowledge, and Agent presentation boundaries. Scope is limited to preserving the `new-york`/Radix shell while fixing Agent-panel width containment at every composed layer, replacing hand-rolled renderer forms, option sets, lists, empty/loading states, collapsibles, tabs, and destructive confirmations with official shadcn primitives, correcting registry aliases, and adding narrow-width regressions. IPC, Agent authority/state, persistence, proposal semantics, database schemas, and Checkpoint 24 remain unchanged.
 - 2026-07-25: Completed the Renderer-wide shadcn/UI correction. The registry now resolves the real `@` TypeScript aliases from the solution config and the Renderer adds official Field/InputGroup, ToggleGroup, Empty, Item, Spinner, Tabs, Collapsible, and AlertDialog compositions without overwriting the locally hardened chat primitives. Semantic success/warning tokens and Badge variants replace raw status colors; forms, menus, loading/empty states, parsed-document tabs, recent/session lists, and destructive confirmations use their official shadcn structures. The Agent root now owns named 384/448px container breakpoints, explicit `min-w-0` containment through status/timeline/proposal/composer surfaces, local-only diff scrolling, human-readable operation summaries with hidden raw IDs, full-width narrow approval actions, and a Field/InputGroup composer with accessible compact controls. Component coverage proves Field invalid semantics, single-value ToggleGroup state, Spinner labels, and Collapsible content; the real Agent E2E resizes a live split proposal through 360/384/448/480/640/360px and asserts the panel, header, status, proposal Bubble, and composer never overflow while all approval actions remain visible. `pnpm check:fast`, canonical Electron Vitest (102 files/495 tests), production build, all 16 silent Electron Playwright scenarios outside the sandbox, and `git diff --check` passed; Biome reports only the existing generated Sidebar cookie warning. IPC, Agent state/persistence, schemas, databases, architecture ADRs, packaging, and Checkpoint 24 remain unchanged.
+- 2026-07-30: Realigned the complete Phase 10 plan against the current source and completed
+  23M/23V/verification-gate baseline without starting Checkpoint 24. Snapshot v2 UI/restore,
+  managed-history transport, moved-root open, missing-index durable rebuild scheduling, Electron
+  native preparation, three packaged worker entrypoints, no-identity packaging, and the current
+  packaged hybrid smoke are now explicit reused baselines rather than duplicate future tasks.
+  Checkpoint 24 is narrowed to Main-authoritative whole-manuscript native/Markdown export,
+  referenced-asset portability, collision-safe publication, and portability E2E. Checkpoint 25
+  completes target-native, source-independent packaging on Windows x64, macOS arm64/x64, and Linux
+  x64. Checkpoint 26 adds the absent cross-platform GitHub Actions matrix, recovery/security/logging
+  packaged coverage, artifact retention/provenance, and protected signing/notarization-aware
+  release promotion. Clone/Save As, Snap, auto-update, and mandatory paid-provider CI remain
+  deferred. No product code, dependency, schema, or checkpoint status changed.
+- 2026-07-30: Started user-approved Checkpoint 23P. Scope is limited to replacing the singleton
+  Agent endpoint with an application-global exact-Pi provider/preset catalog, encrypted Pi
+  credentials and explicit cached discovery, per-conversation model selection in the Agent
+  sidebar, and run-snapshotted multi-protocol dispatch. ADR 008 preserves Main credential
+  authority, project portability, the three worker roles, Agent tool/proposal boundaries, and
+  request-scoped execution. Embedding, reranking, MinerU, image generation, and Checkpoint 24
+  remain unchanged.
+- 2026-07-30: Completed Checkpoint 23P. Application migration 0002 stores bounded
+  last-successful Agent model catalogs; project migration 0023 stores conversation selections and
+  immutable run provider/model/API labels. Main now owns Pi built-in/custom providers, encrypted
+  API-key/OAuth credentials, cancellable login interaction, explicit dynamic discovery, legacy
+  singleton migration, and run authorization. The Agent sidebar switches only idle conversations,
+  and the worker dispatches all ten pinned Pi APIs without changing active runs. Full Biome,
+  Node/Renderer typechecks, production build, canonical Electron Vitest (104 files/508 tests with
+  one opt-in benchmark skipped), all 17 silent Electron E2E scenarios, the no-identity packaged
+  build plus packaged hybrid/provider-fallback/stale-session smoke, and `git diff --check` passed.
+  The documented npm/direct equivalents were used because the installed pnpm 11.11.0 does not
+  match the repository's exact 11.17.0 pin; no pnpm-wrapper pass is claimed.

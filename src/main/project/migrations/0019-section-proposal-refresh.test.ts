@@ -114,7 +114,7 @@ describe('migration 0019 section proposal refresh', () => {
     expect(upgraded.immediate((database) => database.pragma('foreign_key_check'))).toEqual([])
     expect(
       (await readdir(join(projectRoot, '.writellm', 'backups'))).some((name) =>
-        name.includes('-to-v22-')
+        name.includes('-to-v23-')
       )
     ).toBe(true)
     upgraded.close()

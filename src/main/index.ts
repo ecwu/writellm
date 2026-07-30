@@ -38,6 +38,7 @@ import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
 import { ProjectManager } from './project/project-manager'
 import { CredentialService } from './providers/credential-service'
 import { ProviderService } from './providers/provider-service'
+import { AgentProviderCatalogService } from './providers/agent-provider-catalog'
 import { ProviderProbeClient } from './providers/provider-probe-client'
 import { AgentModelClient } from './providers/agent-model-client'
 import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
@@ -182,6 +183,13 @@ if (!hasSingleInstanceLock) {
         loggerSystem.createModuleLogger('app', 'provider-configuration'),
         providerProbe.probe
       )
+      const agentProviderCatalog = new AgentProviderCatalogService(
+        appDatabase,
+        credentials,
+        appSettings,
+        loggerSystem.createModuleLogger('app', 'agent-provider-catalog')
+      )
+      providers.setAgentCatalog(agentProviderCatalog)
       const agentModel = new AgentModelClient(
         join(__dirname, 'agent-worker.js'),
         loggerSystem.createModuleLogger('worker', 'agent-model'),
@@ -365,6 +373,7 @@ if (!hasSingleInstanceLock) {
             projectSessionId,
             database,
             providers,
+            agentCatalog: agentProviderCatalog,
             runtime: agentModel,
             contextBuilder: agentTools.contextBuilder(),
             tools: agentTools,
@@ -530,6 +539,7 @@ if (!hasSingleInstanceLock) {
         manager: projectManager,
         broker: agentEvents,
         logger: loggerSystem.createModuleLogger('ipc', 'agent'),
+        catalog: agentProviderCatalog,
         developmentUrl,
         ipc
       })

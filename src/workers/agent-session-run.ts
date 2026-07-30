@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type {
+  Api,
   AssistantMessage,
   AssistantMessageEventStream,
+  ProviderStreams,
   UserMessage
 } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
@@ -41,6 +43,8 @@ export async function runAgentSession(
   toolPort: MessagePortMain
 ): Promise<AgentSessionRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
+  const runtimeCredential =
+    typeof request.credential === 'string' ? { apiKey: request.credential } : request.credential
 
   const modelLimits = request.modelLimits ?? {
     contextWindowTokens: 131_072,
@@ -50,14 +54,14 @@ export async function runAgentSession(
     catalogModelKey: null,
     resolvedAt: null
   }
-  const [{ Agent: AgentClass }, { streamSimple }] = await Promise.all([
+  const [{ Agent: AgentClass }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
-    import('@earendil-works/pi-ai/api/openai-completions')
+    loadStreamSimple(request.config.api ?? 'openai-completions')
   ])
   const model = {
     id: request.config.model,
     name: request.config.model,
-    api: 'openai-completions' as const,
+    api: request.config.api ?? ('openai-completions' as const),
     provider: request.config.providerId,
     baseUrl: request.config.baseUrl,
     reasoning: false,
@@ -65,7 +69,14 @@ export async function runAgentSession(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: modelLimits.contextWindowTokens,
     maxTokens: request.maxOutputTokens,
-    compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const }
+    ...(request.config.api === undefined || request.config.api === 'openai-completions'
+      ? {
+          compat: {
+            supportsUsageInStreaming: true,
+            maxTokensField: 'max_tokens' as const
+          }
+        }
+      : {})
   }
   const modelRequestIds = [request.modelRequestId]
   const systemPromptByModelRequestId = new Map<string, string>()
@@ -106,7 +117,7 @@ export async function runAgentSession(
       messages: request.history.map(toPiMessage)
     },
     getApiKey: (providerId) =>
-      providerId === request.config.providerId ? request.credential : undefined,
+      providerId === request.config.providerId ? runtimeCredential.apiKey : undefined,
     transformContext: (messages) =>
       Promise.resolve(
         boundAgentContextByTokens(
@@ -199,6 +210,9 @@ export async function runAgentSession(
         stream = streamSimple(activeModel, context, {
           ...options,
           signal: callController.signal,
+          apiKey: runtimeCredential.apiKey,
+          headers: runtimeCredential.headers,
+          env: runtimeCredential.env,
           timeoutMs: undefined,
           ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
           maxTokens: request.maxOutputTokens,
@@ -370,6 +384,33 @@ export async function runAgentSession(
     throw error
   }
   return { outcome: awaitingReview ? 'awaiting_review' : 'finished' }
+}
+
+async function loadStreamSimple(api: Api): Promise<ProviderStreams['streamSimple']> {
+  switch (api) {
+    case 'openai-completions':
+      return (await import('@earendil-works/pi-ai/api/openai-completions')).streamSimple
+    case 'openai-responses':
+      return (await import('@earendil-works/pi-ai/api/openai-responses')).streamSimple
+    case 'openai-codex-responses':
+      return (await import('@earendil-works/pi-ai/api/openai-codex-responses')).streamSimple
+    case 'azure-openai-responses':
+      return (await import('@earendil-works/pi-ai/api/azure-openai-responses')).streamSimple
+    case 'anthropic-messages':
+      return (await import('@earendil-works/pi-ai/api/anthropic-messages')).streamSimple
+    case 'google-generative-ai':
+      return (await import('@earendil-works/pi-ai/api/google-generative-ai')).streamSimple
+    case 'google-vertex':
+      return (await import('@earendil-works/pi-ai/api/google-vertex')).streamSimple
+    case 'mistral-conversations':
+      return (await import('@earendil-works/pi-ai/api/mistral-conversations')).streamSimple
+    case 'bedrock-converse-stream':
+      return (await import('@earendil-works/pi-ai/api/bedrock-converse-stream')).streamSimple
+    case 'pi-messages':
+      return (await import('@earendil-works/pi-ai/api/pi-messages')).streamSimple
+    default:
+      throw new Error(`Unsupported Agent model API: ${api}`)
+  }
 }
 
 function pausesForReview(details: unknown): boolean {

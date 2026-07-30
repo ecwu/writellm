@@ -73,6 +73,15 @@ export const agentHistorySchema = z
     }
   })
 
+export const agentRuntimeAuthSchema = z
+  .object({
+    apiKey: z.string().min(1).max(16_384).optional(),
+    headers: z.record(z.string().min(1).max(200), z.string().max(16_384).nullable()).optional(),
+    env: z.record(z.string().min(1).max(200), z.string().max(16_384)).optional()
+  })
+  .strict()
+export type AgentRuntimeAuth = z.infer<typeof agentRuntimeAuthSchema>
+
 export const agentRunStartSchema = z
   .object({
     operation: z.literal('run_start'),
@@ -82,7 +91,7 @@ export const agentRunStartSchema = z
     agentRunId: agentRunIdSchema,
     modelRequestId: agentModelRequestIdSchema,
     config: providerConfigSchema.refine((config) => config.role === 'agent'),
-    credential: z.string().min(1).max(16_384),
+    credential: agentRuntimeAuthSchema,
     systemPrompt: z.string().max(65_536),
     history: agentHistorySchema,
     prompt: z.string().min(1).max(262_144),

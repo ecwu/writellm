@@ -152,6 +152,15 @@ export class CredentialService {
     }
     return operation(credential)
   }
+
+  async readPersistedValue(providerConfigId: string): Promise<string | undefined> {
+    const row = await this.database.kysely
+      .selectFrom('encrypted_credentials')
+      .select('ciphertext')
+      .where('provider_config_id', '=', providerConfigId)
+      .executeTakeFirst()
+    return row === undefined ? undefined : this.decryptPersistedValue(row.ciphertext)
+  }
 }
 
 function normalizePlatform(platform: NodeJS.Platform): CredentialBackendStatus['platform'] {

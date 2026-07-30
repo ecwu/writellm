@@ -6,6 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     build: {
+      externalizeDeps: {
+        exclude: ['@earendil-works/pi-ai']
+      },
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),

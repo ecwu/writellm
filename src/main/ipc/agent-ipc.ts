@@ -14,6 +14,8 @@ import {
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
+  agentSetModelSelectionInputSchema,
+  agentSetModelSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema
@@ -21,6 +23,7 @@ import {
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { AgentEventBroker } from '../agent/event-broker'
 import type { ProjectManager } from '../project/project-manager'
+import type { AgentProviderCatalogService } from '../providers/agent-provider-catalog'
 import { authorizeSender } from './authorize-sender'
 
 export interface AgentIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
@@ -29,6 +32,7 @@ export function registerAgentIpc(options: {
   manager: ProjectManager
   broker: AgentEventBroker
   logger: Pick<Logger, 'info' | 'error'>
+  catalog?: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve' | 'setDefaultSelection'>
   developmentUrl?: string
   ipc?: AgentIpcMain
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
@@ -66,14 +70,38 @@ export function registerAgentIpc(options: {
     const input = agentProjectInputSchema.parse(raw)
     return agentListSessionsResultSchema.parse(readService(input.projectSessionId).listSessions())
   })
-  ipc.handle(IPC_CHANNELS.agentCreateSession, (event, raw: unknown) => {
+  ipc.handle(IPC_CHANNELS.agentCreateSession, async (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentCreateSessionInputSchema.parse(raw)
-    return lifecycle('agent.session.create', () =>
-      agentCreateSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.createSession(input.title)
+    return lifecycle('agent.session.create', async () => {
+      const selection =
+        input.modelSelection ??
+        (options.catalog === undefined ? null : (await options.catalog.snapshot()).defaultSelection)
+      if (selection !== null) await options.catalog?.resolve(selection)
+      return agentCreateSessionResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.createSession(
+          input.title,
+          undefined,
+          selection
+        )
       )
-    )
+    })
+  })
+  ipc.handle(IPC_CHANNELS.agentSetModelSelection, async (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentSetModelSelectionInputSchema.parse(raw)
+    return lifecycle('agent.session.set_model_selection', async () => {
+      if (options.catalog === undefined) throw new Error('Agent provider catalog is unavailable')
+      await options.catalog.resolve(input.selection)
+      const result = agentSetModelSelectionResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.setModelSelection(
+          input.agentSessionId,
+          input.selection
+        )
+      )
+      await options.catalog.setDefaultSelection(input.selection)
+      return result
+    })
   })
   ipc.handle(IPC_CHANNELS.agentSetApprovalMode, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -225,6 +253,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentListSessions,
     IPC_CHANNELS.agentCreateSession,
     IPC_CHANNELS.agentSetApprovalMode,
+    IPC_CHANNELS.agentSetModelSelection,
     IPC_CHANNELS.agentListEvents,
     IPC_CHANNELS.agentListRuns,
     IPC_CHANNELS.agentListProposals,

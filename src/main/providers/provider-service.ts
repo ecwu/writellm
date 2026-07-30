@@ -1,15 +1,30 @@
 import type { Logger } from 'pino'
+import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import {
   providerConfigSchema,
   type ProviderConfig,
   type ProviderConfigForRole,
   type ProviderConnectionTestResult,
+  type AgentCustomPresetInput,
+  type AgentModelSelection,
   type ProviderRole,
   type ProviderSettingsSnapshot
 } from '../../shared/contracts/providers'
 import type { AppDatabase } from '../app-db/connection'
 import { getProviderCapability, providerRoles } from './capability-registry'
 import { type CredentialService, CredentialUnavailableError } from './credential-service'
+import type { AgentProviderCatalogService } from './agent-provider-catalog'
+
+type AgentCatalog = Pick<
+  AgentProviderCatalogService,
+  | 'snapshot'
+  | 'saveCustomPreset'
+  | 'removePreset'
+  | 'refreshPreset'
+  | 'setDefaultSelection'
+  | 'setApiKey'
+  | 'login'
+>
 
 export interface ConnectionProbeResult {
   status: number
@@ -23,6 +38,8 @@ export type ConnectionProbe = (
 ) => Promise<ConnectionProbeResult>
 
 export class ProviderService {
+  #agentCatalog: AgentCatalog | null = null
+
   constructor(
     private readonly database: AppDatabase,
     private readonly credentials: CredentialService,
@@ -30,6 +47,10 @@ export class ProviderService {
     private readonly probe: ConnectionProbe,
     private readonly now: () => string = () => new Date().toISOString()
   ) {}
+
+  setAgentCatalog(catalog: AgentCatalog): void {
+    this.#agentCatalog = catalog
+  }
 
   async snapshot(): Promise<ProviderSettingsSnapshot> {
     const rows = await this.database.kysely
@@ -75,7 +96,53 @@ export class ProviderService {
         }
       })
     )
-    return { credentialBackend, providers }
+    return {
+      credentialBackend,
+      providers,
+      agentCatalog:
+        this.#agentCatalog === null
+          ? { presets: [], defaultSelection: null }
+          : await this.#agentCatalog.snapshot()
+    }
+  }
+
+  async saveAgentCustomPreset(input: AgentCustomPresetInput): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().saveCustomPreset(input)
+    return this.snapshot()
+  }
+
+  async removeAgentPreset(presetId: string): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().removePreset(presetId)
+    return this.snapshot()
+  }
+
+  async refreshAgentPreset(
+    presetId: string,
+    signal: AbortSignal
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().refreshPreset(presetId, signal)
+    return this.snapshot()
+  }
+
+  async setAgentDefaultSelection(
+    selection: AgentModelSelection | null
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().setDefaultSelection(selection)
+    return this.snapshot()
+  }
+
+  async setAgentApiKey(presetId: string, apiKey: string): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().setApiKey(presetId, apiKey)
+    return this.snapshot()
+  }
+
+  async loginAgentPreset(
+    presetId: string,
+    type: AuthType,
+    interaction: AuthInteraction
+  ): Promise<ProviderSettingsSnapshot> {
+    await this.#agentCatalogService().login(presetId, type, interaction)
+    return this.snapshot()
   }
 
   async save(config: ProviderConfig, apiKey?: string): Promise<ProviderSettingsSnapshot> {
@@ -226,6 +293,11 @@ export class ProviderService {
     } finally {
       clearTimeout(timeout)
     }
+  }
+
+  #agentCatalogService(): AgentCatalog {
+    if (this.#agentCatalog === null) throw new Error('Agent provider catalog is unavailable')
+    return this.#agentCatalog
   }
 }
 

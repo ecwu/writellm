@@ -12,7 +12,7 @@ import {
 import { agentModelLimitsSchema } from './agent'
 import { mutationProposalRecordSchema } from './agent-mutations'
 import { projectSessionIdSchema } from './projects'
-import { providerIdSchema } from './providers'
+import { agentModelSelectionSchema, piApiSchema } from './providers'
 
 export const AGENT_EVENT_PAGE_LIMIT = 200
 export const AGENT_SESSION_LIMIT = 200
@@ -34,6 +34,7 @@ export const agentSessionRecordSchema = strictObject({
   compatible: z.boolean(),
   approvalMode: agentApprovalModeSchema.default('manual'),
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
+  modelSelection: agentModelSelectionSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -42,8 +43,12 @@ export const agentRunRecordSchema = strictObject({
   agentRunId: agentRunIdSchema,
   agentSessionId: agentSessionIdSchema,
   status: agentRunStatusSchema,
-  providerId: providerIdSchema,
+  providerId: z.string().min(1).max(200),
   modelId: z.string().min(1).max(500),
+  providerPresetId: z.string().min(1).max(200).nullable().default(null),
+  providerLabel: z.string().max(200).default(''),
+  modelLabel: z.string().max(500).default(''),
+  api: piApiSchema.default('openai-completions'),
   approvalMode: agentApprovalModeSchema.default('manual'),
   modelLimits: agentModelLimitsSchema.default({
     contextWindowTokens: 131_072,
@@ -82,13 +87,18 @@ export const agentSessionInputSchema = strictObject({
 })
 export const agentCreateSessionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
-  title: z.string().trim().min(1).max(500).default('New conversation')
+  title: z.string().trim().min(1).max(500).default('New conversation'),
+  modelSelection: agentModelSelectionSchema.nullable().optional()
 })
 export const agentCreateSessionResultSchema = agentSessionRecordSchema
 export const agentSetApprovalModeInputSchema = agentSessionInputSchema.extend({
   mode: agentApprovalModeSchema
 })
 export const agentSetApprovalModeResultSchema = agentSessionRecordSchema
+export const agentSetModelSelectionInputSchema = agentSessionInputSchema.extend({
+  selection: agentModelSelectionSchema
+})
+export const agentSetModelSelectionResultSchema = agentSessionRecordSchema
 export const agentListSessionsResultSchema = z
   .array(agentSessionRecordSchema)
   .max(AGENT_SESSION_LIMIT)

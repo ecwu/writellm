@@ -8,13 +8,15 @@ import { expect, expectActiveProject, launchApp, test } from './fixtures'
 async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('option', { name: /Agent model provider/ }).click()
-  const dialog = page.getByRole('dialog', { name: 'Agent model' })
+  const dialog = page.getByRole('dialog', { name: 'Agent models' })
+  await dialog.getByLabel('Preset name').fill('Refresh Agent')
   await dialog.getByLabel('Base URL').fill(baseUrl)
-  await dialog.getByLabel('Model ID').fill('refresh-e2e-model')
-  await dialog.getByLabel('Model revision').fill('refresh-e2e-r1')
-  await dialog.getByLabel('API key or token').fill('refresh-e2e-secret')
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(dialog.getByText('Credential stored', { exact: true })).toBeVisible()
+  await dialog
+    .getByLabel('API key (optional for local/keyless endpoints)')
+    .fill('refresh-e2e-secret')
+  await dialog.getByRole('button', { name: 'Add preset' }).click()
+  await dialog.getByRole('button', { name: 'Refresh Refresh Agent models' }).click()
+  await expect(dialog.getByText(/1 models · current/)).toBeVisible()
   await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
 }
 
@@ -137,6 +139,11 @@ test('refreshes a non-conflicting outdated section proposal before final approva
   let sectionId = ''
   let agentCall = 0
   const server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end('{"data":[{"id":"refresh-e2e-model","displayName":"Refresh E2E model"}]}')
+      return
+    }
     if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
       response.writeHead(404)
       response.end()
@@ -220,6 +227,8 @@ test('refreshes a non-conflicting outdated section proposal before final approva
     await launched.page.getByTestId('agent-menubar-trigger').click()
     const panel = launched.page.getByTestId('agent-panel')
     await panel.getByRole('button', { name: 'New', exact: true }).click()
+    await panel.getByLabel('Agent model').click()
+    await launched.page.getByRole('option', { name: 'Refresh Agent · Refresh E2E model' }).click()
     await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Prepare the first update.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()

@@ -62,7 +62,7 @@ test('configures provider metadata without returning a credential', async ({ tes
     authorizationHeader = request.headers.authorization
     if (request.url === '/v1/models' && authorizationHeader === 'Bearer e2e-secret') {
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end('{"data":[]}')
+      response.end('{"data":[{"id":"writer-e2e","displayName":"Writer E2E"}]}')
       return
     }
     response.writeHead(401, { 'content-type': 'application/json' })
@@ -81,16 +81,14 @@ test('configures provider metadata without returning a credential', async ({ tes
     try {
       await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
       await first.page.getByRole('option', { name: /Agent model provider/ }).click()
-      const dialog = first.page.getByRole('dialog', { name: 'Agent model' })
+      const dialog = first.page.getByRole('dialog', { name: 'Agent models' })
       await expect(dialog).toBeVisible()
+      await dialog.getByLabel('Preset name').fill('Loopback Agent')
       await dialog.getByLabel('Base URL').fill(`http://127.0.0.1:${port}/v1`)
-      await dialog.getByLabel('Model ID').fill('writer-e2e')
-      await dialog.getByLabel('API key or token').fill('e2e-secret')
-      await dialog.getByRole('button', { name: 'Save', exact: true }).click()
-      await expect(dialog.getByText('Credential stored', { exact: true })).toBeVisible()
-      await dialog.getByRole('button', { name: 'Test connection' }).click()
-      await expect(dialog.getByText('Connected', { exact: true })).toBeVisible()
-      await expect(dialog.getByText(/Connection succeeded\. \(\d+ ms\)/)).toBeVisible()
+      await dialog.getByLabel('API key (optional for local/keyless endpoints)').fill('e2e-secret')
+      await dialog.getByRole('button', { name: 'Add preset' }).click()
+      await dialog.getByRole('button', { name: 'Refresh Loopback Agent models' }).click()
+      await expect(dialog.getByText(/1 models · current/)).toBeVisible()
       expect(authorizationHeader).toBe('Bearer e2e-secret')
       await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
 
@@ -124,10 +122,20 @@ test('configures provider metadata without returning a credential', async ({ tes
     try {
       await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
       await restarted.page.getByRole('option', { name: /Agent model provider/ }).click()
-      const dialog = restarted.page.getByRole('dialog', { name: 'Agent model' })
-      await expect(dialog.getByLabel('Base URL')).toHaveValue(`http://127.0.0.1:${port}/v1`)
-      await expect(dialog.getByLabel('Model ID')).toHaveValue('writer-e2e')
-      await expect(dialog.getByLabel('API key or token')).toHaveValue('')
+      const dialog = restarted.page.getByRole('dialog', { name: 'Agent models' })
+      await expect(dialog.getByText('Loopback Agent', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(/1 models · current/)).toBeVisible()
+      await expect(dialog.getByText('Connected', { exact: true }).last()).toBeVisible()
+      const publicCatalog = await restarted.page.evaluate(
+        async () => (await window.desktop.providers.snapshot()).agentCatalog
+      )
+      expect(
+        publicCatalog.presets.find((preset) => preset.name === 'Loopback Agent')
+      ).toMatchObject({
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        models: [{ id: 'writer-e2e' }]
+      })
+      expect(JSON.stringify(publicCatalog)).not.toContain('e2e-secret')
       await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
 
       await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()

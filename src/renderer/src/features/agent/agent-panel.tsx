@@ -6,6 +6,10 @@ import type {
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
+import type {
+  AgentModelSelection,
+  AgentProviderCatalog
+} from '../../../../shared/contracts/providers'
 import {
   AlertCircle,
   ArrowLeft,
@@ -80,6 +84,14 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -133,6 +145,10 @@ export function AgentPanel(props: {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [providerCatalog, setProviderCatalog] = useState<AgentProviderCatalog>({
+    presets: [],
+    defaultSelection: null
+  })
   const [revisionTransitions, setRevisionTransitions] = useState<
     Record<string, { from: string | undefined; to: string }>
   >({})
@@ -187,7 +203,10 @@ export function AgentPanel(props: {
     setScreen('sessions')
     setLoading(true)
     setError(null)
-    void refreshSessions()
+    void Promise.all([refreshSessions(), window.desktop.providers.snapshot()])
+      .then(([, snapshot]) => {
+        if (!disposed) setProviderCatalog(snapshot.agentCatalog)
+      })
       .catch((cause) => {
         if (disposed) return
         setError('Agent sessions could not be loaded.')
@@ -353,6 +372,11 @@ export function AgentPanel(props: {
           ? 'awaiting_review'
           : (activeSession?.workflowState ?? 'idle')
   const conversationLocked = workflowState === 'awaiting_review' || workflowState === 'generating'
+  const selectedModel = useMemo(
+    () => resolveSelectedModel(providerCatalog, activeSession?.modelSelection ?? null),
+    [activeSession?.modelSelection, providerCatalog]
+  )
+  const modelReady = selectedModel?.preset.authConfigured === true
   const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
   const effectiveRevisionIds = useMemo(() => {
     const result = { ...props.currentRevisionIds }
@@ -396,6 +420,32 @@ export function AgentPanel(props: {
     }
   }
 
+  const setModelSelection = async (selection: AgentModelSelection): Promise<void> => {
+    if (activeSession === null || activeRun !== null || conversationLocked) return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.setModelSelection({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        selection
+      })
+      setSessions((current) =>
+        current.map((session) =>
+          session.agentSessionId === updated.agentSessionId ? updated : session
+        )
+      )
+      const snapshot = await window.desktop.providers.snapshot()
+      setProviderCatalog(snapshot.agentCatalog)
+    } catch (cause) {
+      const message = errorMessage(cause)
+      setError(message)
+      props.onError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
     setScreen('conversation')
@@ -411,7 +461,8 @@ export function AgentPanel(props: {
     if (
       trimmed.length === 0 ||
       (!allowWhileBusy && busy) ||
-      ((activeRun !== null || conversationLocked) && approvedProposalId === undefined)
+      ((activeRun !== null || conversationLocked) && approvedProposalId === undefined) ||
+      (!modelReady && approvedProposalId === undefined)
     )
       return
     setBusy(true)
@@ -806,8 +857,8 @@ export function AgentPanel(props: {
                   <span className='shimmer'>
                     Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
                   </span>
-                  <TruncatedBadge value={activeRun.providerId} />
-                  <TruncatedBadge value={activeRun.modelId} />
+                  <TruncatedBadge value={activeRun.providerLabel || activeRun.providerId} />
+                  <TruncatedBadge value={activeRun.modelLabel || activeRun.modelId} />
                 </>
               ) : workflowState === 'generating' ? (
                 <>
@@ -817,7 +868,51 @@ export function AgentPanel(props: {
               ) : workflowState === 'awaiting_review' ? (
                 <Badge variant='warning'>Waiting for review</Badge>
               ) : (
-                <Badge variant='outline'>Idle</Badge>
+                <>
+                  <Badge variant='outline'>Idle</Badge>
+                  {activeSession !== null ? (
+                    <Select
+                      value={
+                        activeSession.modelSelection === null
+                          ? undefined
+                          : encodeModelSelection(activeSession.modelSelection)
+                      }
+                      disabled={busy || conversationLocked}
+                      onValueChange={(value) => {
+                        const selection = decodeModelSelection(value)
+                        if (selection !== null) void setModelSelection(selection)
+                      }}
+                    >
+                      <SelectTrigger
+                        size='sm'
+                        className='h-7 min-w-0 max-w-full @sm/agent:max-w-72'
+                        aria-label='Agent model'
+                        data-testid='agent-model-selector'
+                      >
+                        <SelectValue placeholder='Choose a model' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {providerCatalog.presets.map((preset) => (
+                          <SelectGroup key={preset.presetId}>
+                            {preset.models.map((model) => (
+                              <SelectItem
+                                key={`${preset.presetId}:${model.id}`}
+                                value={encodeModelSelection({
+                                  presetId: preset.presetId,
+                                  modelId: model.id
+                                })}
+                                disabled={!preset.authConfigured}
+                              >
+                                {preset.name} · {model.name}
+                                {!preset.authConfigured ? ' · Not connected' : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                </>
               )}
             </div>
             <span className='min-w-0 truncate tabular-nums @sm/agent:text-right'>
@@ -1012,7 +1107,10 @@ export function AgentPanel(props: {
                         size='sm'
                         aria-label='Send'
                         disabled={
-                          busy || prompt.trim().length === 0 || activeSession?.compatible === false
+                          busy ||
+                          prompt.trim().length === 0 ||
+                          activeSession?.compatible === false ||
+                          !modelReady
                         }
                         onClick={() => void startRun(prompt)}
                       >
@@ -1707,4 +1805,34 @@ function proposalKindLabel(kind: MutationProposalRecord['kind']): string {
   if (kind === 'outline_patch') return 'Outline'
   if (kind === 'generated_image_insert') return 'Image'
   return 'Section'
+}
+
+function resolveSelectedModel(
+  catalog: AgentProviderCatalog,
+  selection: AgentModelSelection | null
+): {
+  preset: AgentProviderCatalog['presets'][number]
+  model: AgentProviderCatalog['presets'][number]['models'][number]
+} | null {
+  if (selection === null) return null
+  const preset = catalog.presets.find((item) => item.presetId === selection.presetId)
+  const model = preset?.models.find((item) => item.id === selection.modelId)
+  return preset === undefined || model === undefined ? null : { preset, model }
+}
+
+function encodeModelSelection(selection: AgentModelSelection): string {
+  return `${encodeURIComponent(selection.presetId)}|${encodeURIComponent(selection.modelId)}`
+}
+
+function decodeModelSelection(value: string): AgentModelSelection | null {
+  const separator = value.indexOf('|')
+  if (separator < 1 || separator === value.length - 1) return null
+  try {
+    return {
+      presetId: decodeURIComponent(value.slice(0, separator)),
+      modelId: decodeURIComponent(value.slice(separator + 1))
+    }
+  } catch {
+    return null
+  }
 }

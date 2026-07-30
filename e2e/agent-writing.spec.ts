@@ -58,12 +58,21 @@ async function configureProvider(
 ): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('option', { name: input.commandName }).click()
+  if (input.dialogName === 'Agent model') {
+    const dialog = page.getByRole('dialog', { name: 'Agent models' })
+    await dialog.getByLabel('Preset name').fill('E2E Agent')
+    await dialog.getByLabel('Base URL').fill(input.baseUrl)
+    await dialog.getByLabel('API key (optional for local/keyless endpoints)').fill('e2e-secret')
+    await dialog.getByRole('button', { name: 'Add preset' }).click()
+    await expect(dialog.getByText('E2E Agent', { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Refresh E2E Agent models' }).click()
+    await expect(dialog.getByText(/1 models · current/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+    return
+  }
   const dialog = page.getByRole('dialog', { name: input.dialogName })
   await dialog.getByLabel('Base URL').fill(input.baseUrl)
   await dialog.getByLabel('Model ID').fill(input.model)
-  if (input.dialogName === 'Agent model') {
-    await dialog.getByLabel('Model revision').fill('e2e-r1')
-  }
   await dialog.getByLabel('API key or token').fill('e2e-secret')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByText('Credential stored', { exact: true })).toBeVisible()
@@ -165,6 +174,11 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
   const requestBodies: unknown[] = []
   const server = createServer((request, response) => {
     const port = (server.address() as AddressInfo).port
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end('{"data":[{"id":"writer-model","displayName":"Writer model"}]}')
+      return
+    }
     if (request.method === 'POST' && request.url === '/api/v4/file-urls/batch') {
       const chunks: Buffer[] = []
       request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
@@ -500,6 +514,8 @@ test('completes a grounded Agent proposal workflow and recovers it across reopen
       .poll(async () => (await panel.boundingBox())?.width ?? 0)
       .toBeGreaterThan(panelBeforeResize.width + 30)
     await panel.getByRole('button', { name: 'New', exact: true }).click()
+    await panel.getByLabel('Agent model').click()
+    await launched.page.getByRole('option', { name: 'E2E Agent · Writer model' }).click()
     await panel.getByRole('radio', { name: 'Section', exact: true }).click()
     await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
