@@ -30,6 +30,11 @@ import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 import { withIpcLogContext } from '../observability/ipc-context'
+import {
+  manuscriptExportInputSchema,
+  manuscriptExportResultSchema,
+  type ManuscriptExportKind
+} from '../../shared/contracts/manuscript-export'
 
 export interface ProjectIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -60,6 +65,7 @@ export interface RegisterProjectIpcOptions {
   projectDialog?: ProjectDialog
   selectProjectFolderForTest?: () => Promise<string | null>
   selectSnapshotDestinationForTest?: () => Promise<string | null>
+  selectManuscriptExportDestinationForTest?: () => Promise<string | null>
   selectRestoreSourceForTest?: () => Promise<string | null>
   selectRestoreDestinationParentForTest?: () => Promise<string | null>
 }
@@ -128,6 +134,38 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
   const selectRestoreSource = async (): Promise<string | null> => {
     if (options.selectRestoreSourceForTest) return options.selectRestoreSourceForTest()
     return selectFolder('open')
+  }
+
+  const selectManuscriptExportDestination = async (
+    projectSessionId: string,
+    kind: ManuscriptExportKind
+  ): Promise<string | null> => {
+    if (options.selectManuscriptExportDestinationForTest) {
+      return options.selectManuscriptExportDestinationForTest()
+    }
+    const context = options.manager.assertActiveSession(projectSessionId)
+    const defaultName = `${context.displayName}-${kind}-manuscript`
+    if (projectDialog.showSaveDialog === undefined) {
+      const parent = await selectFolder('open')
+      return parent === null ? null : join(parent, defaultName)
+    }
+    if (projectDialogOpen) throw new Error('A project folder dialog is already open')
+    projectDialogOpen = true
+    try {
+      const owner = options.getWindow()
+      const dialogOptions: Electron.SaveDialogOptions = {
+        defaultPath: defaultName,
+        properties: ['createDirectory'],
+        title: kind === 'native' ? 'Export native manuscript package' : 'Export Markdown package'
+      }
+      const result =
+        owner === null
+          ? await projectDialog.showSaveDialog(dialogOptions)
+          : await projectDialog.showSaveDialog(owner, dialogOptions)
+      return result.canceled ? null : (result.filePath ?? null)
+    } finally {
+      projectDialogOpen = false
+    }
   }
 
   const selectRestoreDestinationParent = async (): Promise<string | null> => {
@@ -414,6 +452,46 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
+  handle(IPC_CHANNELS.projectManuscriptExport, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptExportInputSchema.parse(input)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    const destination = await selectManuscriptExportDestination(
+      parsed.projectSessionId,
+      parsed.kind
+    )
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    if (destination === null) {
+      return manuscriptExportResultSchema.parse({ created: false, kind: parsed.kind })
+    }
+    try {
+      const published = await options.manager.exportManuscript(
+        parsed.projectSessionId,
+        destination,
+        parsed.kind
+      )
+      return manuscriptExportResultSchema.parse({
+        created: true,
+        kind: parsed.kind,
+        packageName: published.packageName,
+        contentSha256: published.manifest.content.sha256,
+        assetCount: published.manifest.assetCount,
+        ...(published.lossReport === undefined ? {} : { lossReport: published.lossReport })
+      })
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'ipc.project_manuscript_export.failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          exportKind: parsed.kind
+        },
+        'Whole-manuscript export request failed'
+      )
+      throw operationError('Unable to export the manuscript')
+    }
+  })
+
   handle(IPC_CHANNELS.projectHistoryStatus, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
@@ -602,6 +680,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectRecoveryReturnToClosed,
       IPC_CHANNELS.projectSnapshotCreate,
       IPC_CHANNELS.projectSnapshotRestore,
+      IPC_CHANNELS.projectManuscriptExport,
       IPC_CHANNELS.projectHistoryStatus,
       IPC_CHANNELS.projectHistoryEnable,
       IPC_CHANNELS.projectHistoryDismissPrompt,

@@ -3,6 +3,7 @@ import type {
   ProviderProbeRequest,
   ProviderProbeResponse
 } from '../shared/contracts/provider-probe'
+import { fetchConfiguredEndpoint, readBoundedText } from './outbound-http'
 
 export async function runProviderProbeRequest(
   request: ProviderProbeRequest,
@@ -15,12 +16,15 @@ export async function runProviderProbeRequest(
     }
     const path =
       request.config.role === 'mineru' ? 'api/v4/extract/task/__writellm_probe__' : 'models'
-    const response = await fetchImplementation(new URL(path, `${request.config.baseUrl}/`), {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${request.credential}`, Accept: 'application/json' },
-      redirect: 'error',
-      signal
-    })
+    const response = await fetchConfiguredEndpoint(
+      new URL(path, `${request.config.baseUrl}/`),
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${request.credential}`, Accept: 'application/json' },
+        signal
+      },
+      fetchImplementation
+    )
     if (request.config.role !== 'mineru') {
       return {
         type: 'result',
@@ -30,7 +34,7 @@ export async function runProviderProbeRequest(
       }
     }
 
-    const body = (await response.text()).slice(0, 4_096)
+    const body = await readBoundedText(response, 4_096)
     try {
       const value = JSON.parse(body) as { code?: unknown }
       return {

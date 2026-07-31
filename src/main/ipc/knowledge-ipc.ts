@@ -11,7 +11,11 @@ import {
   knowledgeListResultSchema,
   parsedKnowledgeAssetInputSchema,
   parsedKnowledgeAssetSchema,
-  parsedKnowledgeDocumentSchema,
+  parsedKnowledgeBlockPageInputSchema,
+  parsedKnowledgeBlockPageSchema,
+  parsedKnowledgeMarkdownInputSchema,
+  parsedKnowledgeMarkdownSchema,
+  parsedKnowledgeMetadataSchema,
   SUPPORTED_KNOWLEDGE_EXTENSIONS
 } from '../../shared/contracts/knowledge'
 import {
@@ -25,7 +29,6 @@ import type { PdfPreviewCapabilities } from '../knowledge/pdf-preview-capabiliti
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
 import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
-import { resolveProjectPath } from '../project/project-paths'
 import { authorizeSender } from './authorize-sender'
 
 export interface KnowledgeIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
@@ -135,8 +138,7 @@ export function registerKnowledgeIpc(options: {
   const openOriginal = async (input: unknown, reveal: boolean): Promise<void> => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const absolutePath = resolveProjectPath(
-      context.projectRoot,
+    const absolutePath = await context.filesystem.assertExistingRegularFile(
       context.knowledgeImports.originalRelativePath(parsed.knowledgeItemId)
     )
     if (reveal) shell.showItemInFolder(absolutePath)
@@ -241,7 +243,7 @@ export function registerKnowledgeIpc(options: {
     }
     try {
       const relativePath = context.knowledgeImports.originalRelativePath(parsed.knowledgeItemId)
-      const absolutePath = resolveProjectPath(context.projectRoot, relativePath)
+      const absolutePath = await context.filesystem.assertExistingRegularFile(relativePath)
       const file = await stat(absolutePath)
       if (!file.isFile() || file.size !== item.byteSize || item.sha256 === null) {
         throw new Error('Original PDF is unavailable')
@@ -298,21 +300,65 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeParsedDocument, async (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.knowledgeParsedMetadata, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
     if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
-      const result = await context.knowledgeNormalization.detail(parsed.knowledgeItemId)
+      const result = await context.knowledgeNormalization.metadata(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return parsedKnowledgeDocumentSchema.parse(result)
+      return parsedKnowledgeMetadataSchema.parse(result)
     } catch (err) {
       options.logger.error(
-        { event: 'knowledge.parsed_document.failed', err, knowledgeItemId: parsed.knowledgeItemId },
-        'Failed to load parsed knowledge document'
+        { event: 'knowledge.parsed_metadata.failed', err, knowledgeItemId: parsed.knowledgeItemId },
+        'Failed to load parsed knowledge metadata'
       )
-      throw new Error('Parsed knowledge document could not be loaded', { cause: err })
+      throw new Error('Parsed knowledge metadata could not be loaded', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeParsedBlocks, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = parsedKnowledgeBlockPageInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
+    try {
+      const result = await context.knowledgeNormalization.blockPage(
+        parsed.knowledgeItemId,
+        parsed.parseRevisionId,
+        parsed.cursor,
+        parsed.limit
+      )
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return parsedKnowledgeBlockPageSchema.parse(result)
+    } catch (err) {
+      options.logger.error(
+        { event: 'knowledge.parsed_blocks.failed', err, knowledgeItemId: parsed.knowledgeItemId },
+        'Failed to load parsed knowledge blocks'
+      )
+      throw new Error('Parsed knowledge blocks could not be loaded', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeParsedMarkdown, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = parsedKnowledgeMarkdownInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
+    try {
+      const result = await context.knowledgeNormalization.markdown(
+        parsed.knowledgeItemId,
+        parsed.parseRevisionId
+      )
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return parsedKnowledgeMarkdownSchema.parse(result)
+    } catch (err) {
+      options.logger.error(
+        { event: 'knowledge.parsed_markdown.failed', err, knowledgeItemId: parsed.knowledgeItemId },
+        'Failed to load parsed knowledge Markdown'
+      )
+      throw new Error('Parsed knowledge Markdown could not be loaded', { cause: err })
     }
   })
 
@@ -354,7 +400,9 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.knowledgeCreatePdfPreview,
       IPC_CHANNELS.knowledgeReleasePdfPreview,
       IPC_CHANNELS.knowledgeMappingPage,
-      IPC_CHANNELS.knowledgeParsedDocument,
+      IPC_CHANNELS.knowledgeParsedMetadata,
+      IPC_CHANNELS.knowledgeParsedBlocks,
+      IPC_CHANNELS.knowledgeParsedMarkdown,
       IPC_CHANNELS.knowledgeParsedAsset
     ])
       ipc.removeHandler(channel)

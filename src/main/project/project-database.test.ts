@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  unlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -685,5 +695,134 @@ describe('project database', () => {
         log
       })
     ).rejects.toThrow('Failed to open project database')
+  })
+
+  it('rejects a symbolic-link project database without touching the external target', async () => {
+    const root = await temporaryRoot('数据库链接')
+    const outsideRoot = await temporaryRoot('外部数据库')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc017')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    database.close()
+    const projectDatabasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    const outsidePath = join(outsideRoot, 'sentinel.sqlite')
+    const outside = new (await import('better-sqlite3')).default(outsidePath)
+    outside.exec(
+      "CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('safe')"
+    )
+    outside.close()
+    const before = await readFile(outsidePath)
+    await unlink(projectDatabasePath)
+    await symlink(outsidePath, projectDatabasePath)
+
+    await expect(
+      openProjectDatabase({
+        projectRoot: root,
+        manifest: projectManifest,
+        applicationVersion: '1.0.0-test',
+        log
+      })
+    ).rejects.toMatchObject({ code: 'path_symbolic_link' })
+    expect(await readFile(outsidePath)).toEqual(before)
+    const verified = new (await import('better-sqlite3')).default(outsidePath, {
+      readonly: true,
+      fileMustExist: true
+    })
+    expect(verified.prepare('SELECT value FROM sentinel').pluck().get()).toBe('safe')
+    expect(verified.pragma('application_id', { simple: true })).toBe(0)
+    verified.close()
+  })
+
+  it('rejects an unrelated application-id-zero database before backup or mutation', async () => {
+    const root = await temporaryRoot('无关数据库')
+    await mkdir(join(root, '.writellm'))
+    const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    const unrelated = new (await import('better-sqlite3')).default(databasePath)
+    unrelated.exec(
+      "CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('safe')"
+    )
+    unrelated.close()
+    const before = await readFile(databasePath)
+
+    await expect(
+      openProjectDatabase({
+        projectRoot: root,
+        manifest: manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc018'),
+        applicationVersion: '1.0.0-test',
+        log
+      })
+    ).rejects.toThrow('Failed to open project database')
+    expect(await readFile(databasePath)).toEqual(before)
+    await expect(access(join(root, '.writellm', 'backups'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    const verified = new (await import('better-sqlite3')).default(databasePath, {
+      readonly: true,
+      fileMustExist: true
+    })
+    expect(verified.pragma('application_id', { simple: true })).toBe(0)
+    expect(verified.prepare('SELECT value FROM sentinel').pluck().get()).toBe('safe')
+    verified.close()
+  })
+
+  it('rejects application ID zero even when project_meta matches the manifest', async () => {
+    const root = await temporaryRoot('零应用身份')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc019')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    database.close()
+    const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    const forged = new (await import('better-sqlite3')).default(databasePath)
+    forged.pragma('application_id = 0')
+    forged.close()
+    const before = await readFile(databasePath)
+
+    await expect(
+      openProjectDatabase({
+        projectRoot: root,
+        manifest: projectManifest,
+        applicationVersion: '1.0.0-test',
+        log
+      })
+    ).rejects.toThrow('Failed to open project database')
+    expect(await readFile(databasePath)).toEqual(before)
+    const verified = new (await import('better-sqlite3')).default(databasePath, {
+      readonly: true,
+      fileMustExist: true
+    })
+    expect(verified.pragma('application_id', { simple: true })).toBe(0)
+    expect(verified.prepare('SELECT project_id FROM project_meta').pluck().get()).toBe(
+      projectManifest.projectId
+    )
+    verified.close()
+  })
+
+  it('rejects a corrupt project database without creating migration artifacts', async () => {
+    const root = await temporaryRoot('损坏数据库')
+    await mkdir(join(root, '.writellm'))
+    const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
+    const corrupt = Buffer.from('not-a-sqlite-database')
+    await writeFile(databasePath, corrupt)
+
+    await expect(
+      openProjectDatabase({
+        projectRoot: root,
+        manifest: manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc020'),
+        applicationVersion: '1.0.0-test',
+        log
+      })
+    ).rejects.toThrow('Failed to open project database')
+    expect(await readFile(databasePath)).toEqual(corrupt)
+    await expect(access(join(root, '.writellm', 'backups'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 })

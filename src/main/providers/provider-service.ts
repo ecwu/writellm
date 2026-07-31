@@ -15,6 +15,7 @@ import type { AppDatabase } from '../app-db/connection'
 import { getProviderCapability, providerRoles } from './capability-registry'
 import { type CredentialService, CredentialUnavailableError } from './credential-service'
 import type { AgentProviderCatalogService } from './agent-provider-catalog'
+import { credentialBindingFingerprint } from './credential-binding'
 
 type AgentCatalog = Pick<
   AgentProviderCatalogService,
@@ -203,6 +204,23 @@ export class ProviderService {
       throw new Error(`${capability.label} file limit exceeds its registered capability`)
     }
 
+    const previous = await this.database.kysely
+      .selectFrom('provider_configs')
+      .select(['provider', 'config_json'])
+      .where('id', '=', parsed.role)
+      .executeTakeFirst()
+    const securityIdentityChanged =
+      previous !== undefined &&
+      credentialBindingFingerprint({
+        providerConfigId: parsed.role,
+        provider: previous.provider,
+        configJson: previous.config_json
+      }) !==
+        credentialBindingFingerprint({
+          providerConfigId: parsed.role,
+          provider: parsed.providerId,
+          configJson: JSON.stringify(parsed)
+        })
     const ciphertext =
       apiKey === undefined ? undefined : this.credentials.encryptForPersistence(apiKey)
     const now = this.now()
@@ -226,6 +244,14 @@ export class ProviderService {
         .execute()
       if (ciphertext !== undefined) {
         await this.credentials.persistEncrypted(parsed.role, ciphertext, transaction)
+      } else if (securityIdentityChanged) {
+        await this.credentials.removeCredential(parsed.role, transaction)
+      }
+      if (securityIdentityChanged) {
+        await transaction
+          .deleteFrom('agent_model_catalogs')
+          .where('provider_config_id', '=', parsed.role)
+          .execute()
       }
     })
     this.log.info(
@@ -233,6 +259,7 @@ export class ProviderService {
         event: 'provider.config.saved',
         role: parsed.role,
         providerId: parsed.providerId,
+        securityIdentityChanged,
         credentialReplaced: ciphertext !== undefined
       },
       'Provider configuration saved'

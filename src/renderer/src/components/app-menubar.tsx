@@ -3,6 +3,8 @@ import {
   Bot,
   FilePlus2,
   FileText,
+  FileJson2,
+  FileDown,
   FolderOpen,
   FolderSync,
   GitCommitHorizontal,
@@ -34,6 +36,8 @@ interface AppMenubarProps {
   onOpen: () => void
   onSwitch: () => void
   onSave: () => void
+  onExportNative: () => void
+  onExportMarkdown: () => void
   onCreateSnapshot: () => void
   onRestoreSnapshot: () => void
   versionHistoryState: 'uninitialized' | 'ready' | 'damaged' | null
@@ -56,6 +60,8 @@ export function AppMenubar({
   onOpen,
   onSwitch,
   onSave,
+  onExportNative,
+  onExportMarkdown,
   onCreateSnapshot,
   onRestoreSnapshot,
   versionHistoryState,
@@ -93,6 +99,12 @@ export function AppMenubar({
               <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
                 <Save /> Save
                 <MenubarShortcut>⌘S</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportNative}>
+                <FileJson2 /> Export native manuscript…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportMarkdown}>
+                <FileDown /> Export Markdown manuscript…
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onCreateSnapshot}>
                 <Save /> Create snapshot

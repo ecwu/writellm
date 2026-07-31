@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import { openAppDatabase, type AppDatabase } from '../app-db/connection'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
+import { credentialBindingFingerprint } from './credential-binding'
 import { ProviderService, type ConnectionProbe } from './provider-service'
 
 const directories: string[] = []
@@ -135,6 +136,75 @@ describe('ProviderService', () => {
     appDatabase.close()
   })
 
+  it('binds credentials to the endpoint security identity and changes it atomically', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    await service.save(agentConfig, 'first-secret')
+
+    await service.save({
+      ...agentConfig,
+      baseUrl: 'https://api.example.test/v2',
+      model: 'renamed-model',
+      timeoutMs: 2_000
+    })
+    await expect(credentials.withCredential('agent', async (value) => value)).resolves.toBe(
+      'first-secret'
+    )
+
+    const changedOrigin = {
+      ...agentConfig,
+      baseUrl: 'https://other.example.test/v1'
+    }
+    const withoutReplacement = await service.save(changedOrigin)
+    expect(
+      withoutReplacement.providers.find((provider) => provider.role === 'agent')
+    ).toMatchObject({ configured: false, available: false })
+    await expect(credentials.withCredential('agent', async (value) => value)).rejects.toThrow(
+      'missing'
+    )
+
+    await service.save(changedOrigin, 'replacement-secret')
+    await expect(credentials.withCredential('agent', async (value) => value)).resolves.toBe(
+      'replacement-secret'
+    )
+
+    const operation = vi.fn(async () => 'must-not-run')
+    await appDatabase.kysely
+      .updateTable('provider_configs')
+      .set({ config_json: JSON.stringify(agentConfig) })
+      .where('id', '=', 'agent')
+      .execute()
+    await expect(credentials.withCredential('agent', operation)).rejects.toThrow('missing')
+    expect(operation).not.toHaveBeenCalled()
+    appDatabase.close()
+  })
+
+  it('rolls back an endpoint update when credential invalidation cannot commit', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    await service.save(agentConfig, 'first-secret')
+    appDatabase.immediate((nativeDatabase) => {
+      nativeDatabase.exec(`
+        CREATE TRIGGER reject_agent_endpoint_update
+        BEFORE UPDATE ON provider_configs
+        WHEN OLD.id = 'agent'
+        BEGIN
+          SELECT RAISE(ABORT, 'fixture rollback');
+        END;
+      `)
+    })
+
+    await expect(
+      service.save({ ...agentConfig, baseUrl: 'https://other.example.test/v1' })
+    ).rejects.toThrow('fixture rollback')
+    await expect(credentials.withCredential('agent', async (value) => value)).resolves.toBe(
+      'first-secret'
+    )
+    appDatabase.close()
+  })
+
   it('classifies invalid authentication without returning the credential', async () => {
     const appDatabase = await database()
     const probe = vi.fn<ConnectionProbe>(async (_config, credential) => {
@@ -195,6 +265,11 @@ describe('ProviderService', () => {
         ciphertext: new FakeSafeStorage(true, 'basic_text')
           .encryptString('legacy-unsafe')
           .toString('base64'),
+        binding_fingerprint: credentialBindingFingerprint({
+          providerConfigId: 'agent',
+          provider: 'openai-compatible',
+          configJson: JSON.stringify(agentConfig)
+        }),
         created_at: '2026-07-16T00:00:00.000Z',
         updated_at: '2026-07-16T00:00:00.000Z'
       })

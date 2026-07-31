@@ -131,27 +131,95 @@ export const normalizedKnowledgeManifestSchema = z
   })
   .strict()
 
-export const parsedKnowledgeDocumentSchema = z
+export const PARSED_KNOWLEDGE_BLOCK_PAGE_LIMIT = 100
+export const PARSED_KNOWLEDGE_PAGE_MAX_BYTES = 4 * 1024 * 1024
+export const PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES = 4 * 1024 * 1024
+
+const parsedKnowledgeActiveMetadataSchema = z
+  .object({
+    parseRevisionId: z.uuid(),
+    normalizationRunId: z.uuid(),
+    normalizerVersion: z.number().int().positive(),
+    sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    remoteTaskId: z.string().min(1).max(256),
+    providerId: z.literal('mineru'),
+    modelVersion: z.enum(['pipeline', 'vlm', 'MinerU-HTML']),
+    blockCount: z.number().int().nonnegative().max(20_000),
+    documentByteSize: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(20 * 1024 * 1024),
+    activatedAt: z.iso.datetime()
+  })
+  .strict()
+
+export const parsedKnowledgeMetadataSchema = z
   .object({
     knowledgeItemId: z.uuid(),
     parseState: z.string().min(1).max(100).nullable(),
     normalizationState: z.enum(['staging', 'published', 'failed']).nullable(),
-    active: z
-      .object({
-        parseRevisionId: z.uuid(),
-        normalizationRunId: z.uuid(),
-        normalizerVersion: z.number().int().positive(),
-        sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
-        remoteTaskId: z.string().min(1).max(256),
-        providerId: z.literal('mineru'),
-        modelVersion: z.enum(['pipeline', 'vlm', 'MinerU-HTML']),
-        documentMarkdown: z.string().max(20_000_000),
-        blocks: z.array(normalizedKnowledgeBlockSchema).max(20_000),
-        activatedAt: z.iso.datetime()
-      })
-      .nullable()
+    active: parsedKnowledgeActiveMetadataSchema.nullable()
   })
   .strict()
+
+export const parsedKnowledgeBlockPageInputSchema = knowledgeItemActionInputSchema
+  .extend({
+    parseRevisionId: z.uuid(),
+    cursor: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(200 * 1024 * 1024)
+      .default(0),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(PARSED_KNOWLEDGE_BLOCK_PAGE_LIMIT)
+      .default(PARSED_KNOWLEDGE_BLOCK_PAGE_LIMIT)
+  })
+  .strict()
+
+export const parsedKnowledgeBlockPageSchema = z
+  .object({
+    parseRevisionId: z.uuid(),
+    blocks: z.array(normalizedKnowledgeBlockSchema).max(PARSED_KNOWLEDGE_BLOCK_PAGE_LIMIT),
+    nextCursor: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(200 * 1024 * 1024),
+    hasMore: z.boolean(),
+    returnedBytes: z.number().int().nonnegative().max(PARSED_KNOWLEDGE_PAGE_MAX_BYTES)
+  })
+  .strict()
+
+export const parsedKnowledgeMarkdownInputSchema = knowledgeItemActionInputSchema
+  .extend({ parseRevisionId: z.uuid() })
+  .strict()
+
+export const parsedKnowledgeMarkdownSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('ready'),
+      parseRevisionId: z.uuid(),
+      byteSize: z.number().int().nonnegative().max(PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES),
+      markdown: z.string().max(PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES)
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('too_large'),
+      parseRevisionId: z.uuid(),
+      byteSize: z
+        .number()
+        .int()
+        .positive()
+        .max(20 * 1024 * 1024)
+    })
+    .strict()
+])
 
 export const parsedKnowledgeAssetInputSchema = knowledgeItemActionInputSchema
   .extend({ assetRef: normalizedAssetRefSchema, parseRevisionId: z.uuid() })
@@ -170,4 +238,6 @@ export type KnowledgeItemActionInput = z.infer<typeof knowledgeItemActionInputSc
 export type KnowledgeEmbeddingRefreshInput = z.infer<typeof knowledgeEmbeddingRefreshInputSchema>
 export type NormalizedKnowledgeBlock = z.infer<typeof normalizedKnowledgeBlockSchema>
 export type NormalizedKnowledgeManifest = z.infer<typeof normalizedKnowledgeManifestSchema>
-export type ParsedKnowledgeDocument = z.infer<typeof parsedKnowledgeDocumentSchema>
+export type ParsedKnowledgeMetadata = z.infer<typeof parsedKnowledgeMetadataSchema>
+export type ParsedKnowledgeBlockPage = z.infer<typeof parsedKnowledgeBlockPageSchema>
+export type ParsedKnowledgeMarkdown = z.infer<typeof parsedKnowledgeMarkdownSchema>

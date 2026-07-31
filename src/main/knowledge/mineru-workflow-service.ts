@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
+import { copyFile, open, readFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import type { Logger } from 'pino'
 import { mineruRawManifestSchema, type MineruRawManifest } from '../../shared/contracts/mineru'
@@ -15,7 +15,7 @@ import type {
   ParseTaskTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { resolveProjectPath } from '../project/project-paths'
+import { ProjectFilesystem } from '../project/project-filesystem'
 import { extractMineruArchive } from './mineru-archive'
 import type { MineruGateway } from './mineru-gateway'
 
@@ -53,7 +53,7 @@ interface SourceRow {
 }
 
 export class MineruWorkflowService {
-  readonly #projectRoot: string
+  readonly #filesystem: ProjectFilesystem
   readonly #projectId: string
   readonly #database: ProjectDatabase
   readonly #jobs: JobStore
@@ -66,6 +66,7 @@ export class MineruWorkflowService {
 
   constructor(options: {
     projectRoot: string
+    filesystem?: ProjectFilesystem
     projectId: string
     database: ProjectDatabase
     jobs: JobStore
@@ -76,7 +77,7 @@ export class MineruWorkflowService {
     now?: () => Date
     createId?: () => string
   }) {
-    this.#projectRoot = options.projectRoot
+    this.#filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot)
     this.#projectId = options.projectId
     this.#database = options.database
     this.#jobs = options.jobs
@@ -296,21 +297,12 @@ export class MineruWorkflowService {
       'staging paths'
     )
     const paths = [
-      ...(request.reason === 'deleted'
-        ? [resolveProjectPath(this.#projectRoot, `knowledge/parsed/${request.knowledge_item_id}`)]
-        : []),
-      ...parseTaskIds.map((parseTaskId) =>
-        resolveProjectPath(this.#projectRoot, `.writellm/temp/mineru/${parseTaskId}`)
+      ...(request.reason === 'deleted' ? [`knowledge/parsed/${request.knowledge_item_id}`] : []),
+      ...parseTaskIds.map((parseTaskId) => `.writellm/temp/mineru/${parseTaskId}`),
+      ...normalizationRunIds.map(
+        (normalizationRunId) => `.writellm/temp/normalization/${normalizationRunId}.staging`
       ),
-      ...normalizationRunIds.map((normalizationRunId) =>
-        resolveProjectPath(
-          this.#projectRoot,
-          `.writellm/temp/normalization/${normalizationRunId}.staging`
-        )
-      ),
-      ...stagingRelativePaths.map((relativePath) =>
-        resolveProjectPath(this.#projectRoot, relativePath)
-      )
+      ...stagingRelativePaths
     ]
     try {
       await this.#removeArtifacts(paths, request.knowledge_item_id, request.reason)
@@ -368,7 +360,7 @@ export class MineruWorkflowService {
     reason: 'cancelled' | 'deleted'
   ): Promise<void> {
     try {
-      await Promise.all(paths.map((path) => rm(path, { recursive: true, force: true })))
+      await Promise.all(paths.map((path) => this.#filesystem.removeTree(path)))
     } catch (err) {
       this.#log.error(
         {
@@ -603,7 +595,7 @@ export class MineruWorkflowService {
     await this.#gateway.upload(
       {
         uploadUrl,
-        sourcePath: resolveProjectPath(this.#projectRoot, source.relative_path),
+        sourcePath: await this.#filesystem.assertExistingRegularFile(source.relative_path),
         expectedBytes: source.byte_size
       },
       context.signal
@@ -747,16 +739,16 @@ export class MineruWorkflowService {
     if (task.remote_task_id === null) throw new Error('MinerU remote task ID is missing')
     const source = this.#readSource(task.knowledge_item_id)
     const revision = this.#ensureRevision(task, source.sha256)
-    const finalPath = resolveProjectPath(this.#projectRoot, revision.relative_path)
-    if (await this.#reconcilePublishedDirectory(task, revision, finalPath)) return
+    if (await this.#reconcilePublishedDirectory(task, revision)) return
+    await this.#filesystem.ensureDirectory(dirname(revision.relative_path))
 
-    const tempRoot = resolveProjectPath(
-      this.#projectRoot,
-      `.writellm/temp/mineru/${parseTaskId}/${revision.parse_revision_id}`
-    )
-    const downloadPath = `${tempRoot}.zip.partial`
-    const stagingPath = `${tempRoot}.staging`
-    const archivePath = `${stagingPath}/raw/provider-result.zip`
+    const tempRootRelativePath = `.writellm/temp/mineru/${parseTaskId}/${revision.parse_revision_id}`
+    const downloadRelativePath = `${tempRootRelativePath}.zip.partial`
+    const stagingRelativePath = `${tempRootRelativePath}.staging`
+    const archiveRelativePath = `${stagingRelativePath}/raw/provider-result.zip`
+    await this.#filesystem.ensureDirectory(dirname(tempRootRelativePath))
+    const downloadPath = await this.#filesystem.resolveForCreation(downloadRelativePath)
+    let archivePath: string | undefined
 
     if (task.state === 'downloading') {
       const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
@@ -771,8 +763,7 @@ export class MineruWorkflowService {
       if (refreshed.remoteState !== 'done' || refreshed.downloadUrl === undefined) {
         throw new Error('MinerU download URL was not available during recovery polling')
       }
-      await rm(downloadPath, { force: true })
-      await mkdir(dirname(downloadPath), { recursive: true })
+      await this.#filesystem.removeFile(downloadRelativePath)
       let downloaded: Awaited<ReturnType<MineruGateway['download']>>
       try {
         downloaded = await this.#gateway.download(
@@ -813,8 +804,9 @@ export class MineruWorkflowService {
         }
         throw err
       }
-      await rm(stagingPath, { recursive: true, force: true })
-      await mkdir(dirname(archivePath), { recursive: true })
+      await this.#filesystem.createFreshDirectory(stagingRelativePath)
+      await this.#filesystem.ensureDirectory(`${stagingRelativePath}/raw`)
+      archivePath = await this.#filesystem.resolveForCreation(archiveRelativePath)
       await copyFile(downloadPath, archivePath)
       await syncFile(archivePath)
       const now = this.#now().toISOString()
@@ -849,14 +841,16 @@ export class MineruWorkflowService {
     }
 
     if (task.state === 'extracting') {
+      archivePath ??= await this.#filesystem.assertExistingRegularFile(archiveRelativePath)
       const currentRevision = this.#requireRevision(revision.parse_revision_id)
       if (currentRevision.archive_sha256 === null || currentRevision.archive_byte_size === null) {
         throw new Error('MinerU archive metadata is missing')
       }
-      await rm(`${stagingPath}/raw/extracted`, { recursive: true, force: true })
+      const extractionRelativePath = `${stagingRelativePath}/raw/extracted`
+      const extractionPath = await this.#filesystem.createFreshDirectory(extractionRelativePath)
       const extracted = await extractMineruArchive({
         archivePath,
-        destinationRoot: `${stagingPath}/raw/extracted`,
+        destinationRoot: extractionPath,
         manifestPrefix: 'raw/extracted'
       })
       const manifest: MineruRawManifest = {
@@ -878,8 +872,11 @@ export class MineruWorkflowService {
         createdAt: this.#now().toISOString()
       }
       const bytes = Buffer.from(`${JSON.stringify(mineruRawManifestSchema.parse(manifest))}\n`)
-      await rm(`${stagingPath}/manifest.json`, { force: true })
-      await writeDurable(`${stagingPath}/manifest.json`, bytes)
+      await this.#filesystem.removeFile(`${stagingRelativePath}/manifest.json`)
+      await writeDurable(
+        await this.#filesystem.resolveForCreation(`${stagingRelativePath}/manifest.json`),
+        bytes
+      )
       const manifestSha256 = createHash('sha256').update(bytes).digest('hex')
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
@@ -918,11 +915,10 @@ export class MineruWorkflowService {
     }
 
     if (task.state === 'publishing') {
-      await mkdir(dirname(finalPath), { recursive: true })
-      await rename(stagingPath, finalPath)
+      await this.#filesystem.publish(stagingRelativePath, revision.relative_path)
       await this.#faults.afterPublishRename?.()
       await this.#commitPublished(task, this.#requireRevision(revision.parse_revision_id))
-      await rm(downloadPath, { force: true })
+      await this.#filesystem.removeFile(downloadRelativePath)
     }
   }
 
@@ -1032,11 +1028,13 @@ export class MineruWorkflowService {
 
   async #reconcilePublishedDirectory(
     task: ParseTaskTable,
-    revision: ParseRevisionTable,
-    finalPath: string
+    revision: ParseRevisionTable
   ): Promise<boolean> {
     try {
-      const bytes = await readFile(`${finalPath}/manifest.json`)
+      await this.#filesystem.assertExistingDirectory(revision.relative_path)
+      const bytes = await readFile(
+        await this.#filesystem.assertExistingRegularFile(`${revision.relative_path}/manifest.json`)
+      )
       const manifest = mineruRawManifestSchema.parse(JSON.parse(bytes.toString('utf8')))
       const hash = createHash('sha256').update(bytes).digest('hex')
       if (
@@ -1046,15 +1044,48 @@ export class MineruWorkflowService {
       ) {
         throw new Error('Published MinerU directory provenance does not match')
       }
+      await this.#verifyPublishedFiles(revision.relative_path, manifest)
       await this.#commitPublished(task, { ...revision, manifest_sha256: hash })
       return true
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+      if (
+        (err as NodeJS.ErrnoException).code === 'ENOENT' ||
+        (err as { code?: string }).code === 'path_missing'
+      ) {
+        return false
+      }
       this.#log.error(
         { event: 'mineru.publish.reconcile_failed', err, parseTaskId: task.parse_task_id },
         'Failed to reconcile a published MinerU revision'
       )
       throw err
+    }
+  }
+
+  async #verifyPublishedFiles(
+    revisionRelativePath: string,
+    manifest: MineruRawManifest
+  ): Promise<void> {
+    const archive = await digestFile(
+      await this.#filesystem.assertExistingRegularFile(
+        `${revisionRelativePath}/${manifest.archive.relativePath}`
+      )
+    )
+    if (
+      archive.byteSize !== manifest.archive.byteSize ||
+      archive.sha256 !== manifest.archive.sha256
+    ) {
+      throw new Error('Published MinerU archive does not match its manifest')
+    }
+    for (const file of manifest.files) {
+      const digest = await digestFile(
+        await this.#filesystem.assertExistingRegularFile(
+          `${revisionRelativePath}/${file.relativePath}`
+        )
+      )
+      if (digest.byteSize !== file.byteSize || digest.sha256 !== file.sha256) {
+        throw new Error('Published MinerU file does not match its manifest')
+      }
     }
   }
 
@@ -1088,10 +1119,7 @@ export class MineruWorkflowService {
       return false
     })
     if (cancelled) {
-      await rm(resolveProjectPath(this.#projectRoot, revision.relative_path), {
-        recursive: true,
-        force: true
-      })
+      await this.#filesystem.removeTree(revision.relative_path)
       return false
     }
     this.#log.info(
@@ -1247,11 +1275,28 @@ function insertEvent(
 }
 
 async function writeDurable(path: string, bytes: Buffer): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
   const handle = await open(path, 'wx', 0o600)
   try {
     await handle.writeFile(bytes)
     await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function digestFile(path: string): Promise<{ sha256: string; byteSize: number }> {
+  const handle = await open(path, 'r')
+  const digest = createHash('sha256')
+  const buffer = Buffer.allocUnsafe(64 * 1024)
+  let byteSize = 0
+  try {
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, byteSize)
+      if (bytesRead === 0) break
+      digest.update(buffer.subarray(0, bytesRead))
+      byteSize += bytesRead
+    }
+    return { sha256: digest.digest('hex'), byteSize }
   } finally {
     await handle.close()
   }

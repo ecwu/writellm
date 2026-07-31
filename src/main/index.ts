@@ -7,7 +7,7 @@ import {
   utilityProcess
 } from 'electron'
 import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
@@ -113,7 +113,7 @@ if (!hasSingleInstanceLock) {
       }
 
       // Set app user model id for windows
-      electronApp.setAppUserModelId('com.electron')
+      electronApp.setAppUserModelId('com.ecwu.writellm')
 
       // Default open or close DevTools by F12 in development
       // and ignore CommandOrControl + R in production.
@@ -123,10 +123,14 @@ if (!hasSingleInstanceLock) {
       })
 
       const developmentUrl = process.env['ELECTRON_RENDERER_URL']
+      const e2eLoggerOverrides = resolveE2eLoggerOverrides(windowPresentation)
       const loggerSystem = await createLoggerSystem({
         appVersion: app.getVersion(),
-        logDirectory: app.getPath('logs'),
-        development: is.dev
+        logDirectory: e2eLoggerOverrides.logDirectory ?? app.getPath('logs'),
+        development: is.dev,
+        ...(e2eLoggerOverrides.rotationSize === undefined
+          ? {}
+          : { rotationSize: e2eLoggerOverrides.rotationSize })
       })
       const appLog = loggerSystem.createModuleLogger('app', 'lifecycle')
       const logCollector = new LogCollector((envelope) =>
@@ -170,6 +174,12 @@ if (!hasSingleInstanceLock) {
         serviceName: 'writellm-background-worker',
         log: loggerSystem.createModuleLogger('worker', 'background'),
         factory: utilityProcess,
+        // The E2E harness selects this direct constructor policy at process
+        // bootstrap. It is not reachable from environment, project data, IPC,
+        // preload, or Renderer state.
+        args: app.commandLine.hasSwitch('writellm-e2e-artifact-loopback')
+          ? ['--writellm-test-artifact-loopback']
+          : [],
         collector: logCollector,
         processRole: 'background-worker',
         subsystem: 'worker',
@@ -259,6 +269,7 @@ if (!hasSingleInstanceLock) {
         ],
         createKnowledgeRuntime: ({
           projectRoot,
+          filesystem,
           projectId,
           projectSessionId,
           database,
@@ -271,6 +282,7 @@ if (!hasSingleInstanceLock) {
           modelExecution.recoverRunning(database)
           const mineruWorkflow = new MineruWorkflowService({
             projectRoot,
+            filesystem,
             projectId,
             database,
             jobs,
@@ -430,6 +442,7 @@ if (!hasSingleInstanceLock) {
           agentSessions.recoverInterruptedRuns()
           const knowledgeNormalization = new KnowledgeNormalizationService({
             projectRoot,
+            filesystem,
             projectId,
             database,
             log,
@@ -438,6 +451,7 @@ if (!hasSingleInstanceLock) {
           })
           const knowledgeMapping = new KnowledgeMappingService({
             projectRoot,
+            filesystem,
             database,
             normalization: knowledgeNormalization,
             index: projectIndex,
@@ -510,6 +524,7 @@ if (!hasSingleInstanceLock) {
         ipc,
         selectProjectFolderForTest: projectDialogSelection,
         selectSnapshotDestinationForTest: projectDialogSelection,
+        selectManuscriptExportDestinationForTest: projectDialogSelection,
         selectRestoreSourceForTest: projectDialogSelection,
         selectRestoreDestinationParentForTest: projectDialogSelection
       })
@@ -669,6 +684,25 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+function resolveE2eLoggerOverrides(presentation: WindowPresentation): {
+  logDirectory?: string
+  rotationSize?: string
+} {
+  const logDirectory = process.env['WRITELLM_E2E_LOG_DIRECTORY']
+  const rotationSize = process.env['WRITELLM_E2E_LOG_ROTATION_SIZE']
+  if (logDirectory === undefined && rotationSize === undefined) return {}
+  if (!isSilentWindowPresentation(presentation)) {
+    throw new Error('E2E logging overrides require silent window presentation')
+  }
+  if (logDirectory === undefined || !isAbsolute(logDirectory)) {
+    throw new Error('WRITELLM_E2E_LOG_DIRECTORY must be an absolute path')
+  }
+  if (rotationSize !== undefined && rotationSize !== '1k') {
+    throw new Error('WRITELLM_E2E_LOG_ROTATION_SIZE must be 1k when configured')
+  }
+  return { logDirectory, ...(rotationSize === undefined ? {} : { rotationSize }) }
+}
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.

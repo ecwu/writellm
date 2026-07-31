@@ -1,4 +1,4 @@
-import type { IpcMainInvokeEvent, OpenDialogReturnValue } from 'electron'
+import type { IpcMainInvokeEvent, OpenDialogReturnValue, SaveDialogReturnValue } from 'electron'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -35,7 +35,7 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
     switch: vi.fn(async () => openSnapshot),
     assertActiveSession: vi.fn((value: string) => {
       if (value !== sessionId || snapshot.state !== 'open') throw new Error('stale')
-      return { manifest: { projectId } }
+      return { manifest: { projectId }, displayName: 'Safe project' }
     }),
     versionHistoryState: vi.fn(async () => 'ready' as const),
     enableVersionHistory: vi.fn(),
@@ -54,7 +54,15 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
       status: 'up-to-date' as const,
       headOid: 'a'.repeat(40)
     })),
-    restoreCheckpoint: vi.fn()
+    restoreCheckpoint: vi.fn(),
+    exportManuscript: vi.fn(async (_sessionId: string, _destination: string, kind: string) => ({
+      packageName: 'Safe project export',
+      manifest: {
+        content: { sha256: 'c'.repeat(64) },
+        assetCount: 0
+      },
+      ...(kind === 'markdown' ? { lossReport: { formatVersion: 1, losses: [] } } : {})
+    }))
   }
   const recentProjects = {
     list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
@@ -65,6 +73,12 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
       async (): Promise<OpenDialogReturnValue> => ({
         canceled: true,
         filePaths: []
+      })
+    ),
+    showSaveDialog: vi.fn(
+      async (): Promise<SaveDialogReturnValue> => ({
+        canceled: true,
+        filePath: ''
       })
     )
   }
@@ -186,6 +200,45 @@ describe('project IPC', () => {
     expect(JSON.stringify(result)).not.toContain('/private/renderer-must-not-see')
     expect(window.maximize).not.toHaveBeenCalled()
     expect(window.unmaximize).not.toHaveBeenCalled()
+  })
+
+  it('keeps whole-manuscript destinations in Main and returns bounded completion metadata', async () => {
+    const { invoke, manager, projectDialog } = harness(openSnapshot)
+    projectDialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/private/renderer-must-not-receive/export'
+    })
+
+    const result = await invoke(IPC_CHANNELS.projectManuscriptExport, {
+      projectSessionId: sessionId,
+      kind: 'markdown'
+    })
+
+    expect(manager.exportManuscript).toHaveBeenCalledWith(
+      sessionId,
+      '/private/renderer-must-not-receive/export',
+      'markdown'
+    )
+    expect(result).toEqual({
+      created: true,
+      kind: 'markdown',
+      packageName: 'Safe project export',
+      contentSha256: 'c'.repeat(64),
+      assetCount: 0,
+      lossReport: { formatVersion: 1, losses: [] }
+    })
+    expect(JSON.stringify(result)).not.toContain('/private/')
+  })
+
+  it('treats whole-manuscript picker cancellation as a no-op', async () => {
+    const { invoke, manager } = harness(openSnapshot)
+    await expect(
+      invoke(IPC_CHANNELS.projectManuscriptExport, {
+        projectSessionId: sessionId,
+        kind: 'native'
+      })
+    ).resolves.toEqual({ created: false, kind: 'native' })
+    expect(manager.exportManuscript).not.toHaveBeenCalled()
   })
 
   it('does not override window state during project lifecycle transitions', async () => {

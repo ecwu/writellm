@@ -532,6 +532,55 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('rejects a tool request carrying a mismatched project-session capability', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn()
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Find evidence.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc475',
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc499',
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'tool-search-forged-capability',
+        modelRequestId: active.input.modelRequestId,
+        toolName: 'search_knowledge',
+        args: {
+          query: 'evidence',
+          knowledgeItemIds: [],
+          fileExtensions: [],
+          parseRevisionIds: [],
+          limit: 10,
+          rerank: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'unauthorized',
+        message: 'Agent tool request is unauthorized'
+      }
+    })
+    expect(execute).not.toHaveBeenCalled()
+    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+      'user_message'
+    ])
+
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it('reports a non-retryable image provider rejection instead of a read-tool failure', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -886,6 +935,93 @@ describe('AgentSessionService', () => {
     ).toHaveLength(1)
     runtime.active().reject(workerExitError())
     await third.completion
+    database.close()
+  })
+
+  it('keeps a synthetic 200-event near-limit history within the byte budget before parsing payloads', async () => {
+    const database = await createDatabase()
+    const service = createService(database, new FakeAgentRuntime())
+    const session = service.createSession('Bounded events')
+    const payloadJson = JSON.stringify({ text: 'x'.repeat(2_095_000) })
+    database.immediate((native) => {
+      native.exec(`
+        CREATE TEMP TABLE fixture_event_payload (
+          agent_session_id TEXT NOT NULL,
+          payload_json TEXT NOT NULL
+        );
+      `)
+      native
+        .prepare('INSERT INTO fixture_event_payload (agent_session_id, payload_json) VALUES (?, ?)')
+        .run(session.agentSessionId, payloadJson)
+      native.exec(`
+        CREATE TEMP VIEW agent_events AS
+        WITH RECURSIVE event_sequence(sequence) AS (
+          SELECT 1
+          UNION ALL
+          SELECT sequence + 1 FROM event_sequence WHERE sequence < 200
+        )
+        SELECT printf('00000000-0000-4000-8000-%012x', sequence) AS agent_event_id,
+               fixture_event_payload.agent_session_id,
+               NULL AS agent_run_id,
+               sequence,
+               'user_message' AS type,
+               fixture_event_payload.payload_json,
+               NULL AS model_request_id,
+               '2026-07-31T00:00:00.000Z' AS created_at
+          FROM event_sequence
+          CROSS JOIN fixture_event_payload;
+      `)
+    })
+
+    const first = service.listEventPage(session.agentSessionId, 0, 50)
+    expect(first.events).toHaveLength(1)
+    expect(first.events[0]?.sequence).toBe(1)
+    expect(first.hasMore).toBe(true)
+    expect(first.returnedBytes).toBeLessThan(4 * 1024 * 1024)
+    expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThanOrEqual(4 * 1024 * 1024)
+    const second = service.listEventPage(session.agentSessionId, first.nextAfterSequence, 50)
+    expect(second.events).toHaveLength(1)
+    expect(second.events[0]?.sequence).toBe(2)
+    expect(second.hasMore).toBe(true)
+    expect(second.events[0]?.agentEventId).not.toBe(first.events[0]?.agentEventId)
+    database.close()
+  })
+
+  it('paginates 200 events at the row limit without duplicates or omissions', async () => {
+    const database = await createDatabase()
+    const service = createService(database, new FakeAgentRuntime())
+    const session = service.createSession('Row-bounded events')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, agent_run_id, sequence, type,
+           payload_json, model_request_id, created_at
+         ) VALUES (?, ?, NULL, ?, 'user_message', ?, NULL, ?)`
+      )
+      for (let sequence = 1; sequence <= 200; sequence += 1) {
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          sequence,
+          JSON.stringify({ text: `event-${sequence}` }),
+          '2026-07-31T00:00:00.000Z'
+        )
+      }
+    })
+
+    const sequences: number[] = []
+    let afterSequence = 0
+    while (true) {
+      const page = service.listEventPage(session.agentSessionId, afterSequence, 50)
+      expect(page.events.length).toBeLessThanOrEqual(50)
+      expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(4 * 1024 * 1024)
+      sequences.push(...page.events.map((event) => event.sequence))
+      if (!page.hasMore) break
+      expect(page.nextAfterSequence).toBeGreaterThan(afterSequence)
+      afterSequence = page.nextAfterSequence
+    }
+    expect(sequences).toEqual(Array.from({ length: 200 }, (_, index) => index + 1))
+    expect(new Set(sequences).size).toBe(200)
     database.close()
   })
 })

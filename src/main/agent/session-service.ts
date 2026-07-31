@@ -23,6 +23,7 @@ import {
 } from '../../shared/agent-context-budget'
 import {
   AGENT_EVENT_PAGE_LIMIT,
+  AGENT_EVENT_PAGE_MAX_BYTES,
   agentEventPageSchema,
   agentEventRecordSchema,
   agentRunRecordSchema,
@@ -65,6 +66,7 @@ const DEFAULT_SYSTEM_PROMPT =
   'You are the WriteLLM writing assistant. Respond to the user request without accessing tools.'
 const HISTORY_EVENT_LIMIT = 200
 const HISTORY_BYTE_LIMIT = 2_097_152
+const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 const COMPACTION_SOURCE_EVENT_LIMIT = 120
 const COMPACTION_SOURCE_TEXT_LIMIT = 196_608
 
@@ -320,12 +322,13 @@ export class AgentSessionService {
   ): AgentEventPage {
     this.#assertSessionExists(agentSessionId)
     const boundedLimit = Math.min(AGENT_EVENT_PAGE_LIMIT, Math.max(1, Math.floor(limit)))
-    const events = this.options.database.immediate((database) =>
-      (
+    const candidateRows = this.options.database.immediate(
+      (database) =>
         database
           .prepare(
             `SELECT agent_event_id, agent_session_id, agent_run_id, sequence, type,
-                    payload_json, model_request_id, created_at
+                    length(CAST(payload_json AS BLOB)) AS payload_bytes, model_request_id,
+                    created_at
                FROM agent_events
               WHERE agent_session_id = ? AND sequence > ?
               ORDER BY sequence
@@ -337,28 +340,74 @@ export class AgentSessionService {
           agent_run_id: string | null
           sequence: number
           type: AgentEventType
-          payload_json: string
+          payload_bytes: number
           model_request_id: string | null
           created_at: string
         }>
-      ).map((row) =>
-        agentEventRecordSchema.parse({
-          agentEventId: row.agent_event_id,
-          agentSessionId: row.agent_session_id,
-          agentRunId: row.agent_run_id,
-          sequence: row.sequence,
-          type: row.type,
-          payload: JSON.parse(row.payload_json) as Record<string, unknown>,
-          modelRequestId: row.model_request_id,
-          createdAt: row.created_at
-        })
-      )
     )
-    const pageEvents = events.slice(0, boundedLimit)
+    const selectedRows: typeof candidateRows = []
+    let selectedPayloadBytes = 0
+    for (const row of candidateRows) {
+      if (
+        selectedRows.length > 0 &&
+        selectedPayloadBytes + row.payload_bytes + AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES >
+          AGENT_EVENT_PAGE_MAX_BYTES
+      ) {
+        break
+      }
+      selectedRows.push(row)
+      selectedPayloadBytes += row.payload_bytes
+      if (selectedRows.length >= boundedLimit) break
+    }
+    const payloadById =
+      selectedRows.length === 0
+        ? new Map<string, string>()
+        : this.options.database.immediate((database) => {
+            const placeholders = selectedRows.map(() => '?').join(', ')
+            const payloadRows = database
+              .prepare(
+                `SELECT agent_event_id, payload_json
+                   FROM agent_events
+                  WHERE agent_event_id IN (${placeholders})`
+              )
+              .all(...selectedRows.map((row) => row.agent_event_id)) as Array<{
+              agent_event_id: string
+              payload_json: string
+            }>
+            return new Map(payloadRows.map((row) => [row.agent_event_id, row.payload_json]))
+          })
+    const pageEvents: AgentEventRecord[] = []
+    let returnedBytes = 0
+    for (const row of selectedRows) {
+      const payloadJson = payloadById.get(row.agent_event_id)
+      if (payloadJson === undefined) throw new Error('Selected Agent event payload is missing')
+      const event = agentEventRecordSchema.parse({
+        agentEventId: row.agent_event_id,
+        agentSessionId: row.agent_session_id,
+        agentRunId: row.agent_run_id,
+        sequence: row.sequence,
+        type: row.type,
+        payload: JSON.parse(payloadJson) as Record<string, unknown>,
+        modelRequestId: row.model_request_id,
+        createdAt: row.created_at
+      })
+      const eventBytes = Buffer.byteLength(JSON.stringify(event))
+      if (
+        pageEvents.length > 0 &&
+        returnedBytes + eventBytes >
+          AGENT_EVENT_PAGE_MAX_BYTES - AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES
+      ) {
+        break
+      }
+      pageEvents.push(event)
+      returnedBytes += eventBytes
+      if (pageEvents.length >= boundedLimit) break
+    }
     return agentEventPageSchema.parse({
       events: pageEvents,
       nextAfterSequence: pageEvents.at(-1)?.sequence ?? Math.max(0, Math.floor(afterSequence)),
-      hasMore: events.length > boundedLimit
+      hasMore: candidateRows.length > pageEvents.length,
+      returnedBytes
     })
   }
 

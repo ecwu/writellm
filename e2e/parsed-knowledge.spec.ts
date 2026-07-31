@@ -155,7 +155,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(knowledge.getByRole('heading', { name: 'Search knowledge' })).toBeVisible()
     await expect(knowledge.getByRole('heading', { name: 'Knowledge base' })).toHaveCount(0)
     await expect.poll(() => diagnosticEventCount(launched.page, 'knowledge.summary.loaded')).toBe(1)
-    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(0)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.blocks_page.loaded')).toBe(0)
     await launched.page.waitForTimeout(1_200)
     expect(await diagnosticEventCount(launched.page, 'knowledge.summary.loaded')).toBe(1)
     await knowledge.getByTestId('knowledge-upload-button').click()
@@ -164,7 +164,7 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     await expect(
       knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
     ).toHaveCount(0)
-    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(0)
+    expect(await diagnosticEventCount(launched.page, 'knowledge.blocks_page.loaded')).toBe(0)
     await sourceButton.click()
     await expect(
       knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
@@ -174,11 +174,11 @@ test('parses, normalizes, and inspects a MinerU document with image provenance',
     })
     const detailCountAfterSelection = await diagnosticEventCount(
       launched.page,
-      'knowledge.detail.loaded'
+      'knowledge.blocks_page.loaded'
     )
     expect(detailCountAfterSelection).toBeGreaterThan(0)
     await launched.page.waitForTimeout(1_200)
-    expect(await diagnosticEventCount(launched.page, 'knowledge.detail.loaded')).toBe(
+    expect(await diagnosticEventCount(launched.page, 'knowledge.blocks_page.loaded')).toBe(
       detailCountAfterSelection
     )
     const previewProbe = await launched.page.evaluate(async () => {

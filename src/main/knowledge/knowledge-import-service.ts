@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import type { Logger } from 'pino'
 import {
@@ -11,7 +11,8 @@ import {
 } from '../../shared/contracts/knowledge'
 import type { FileRecordTable, KnowledgeItemTable } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { PROJECT_TEMP_DIRECTORY, resolveProjectPath } from '../project/project-paths'
+import { ProjectFilesystem } from '../project/project-filesystem'
+import { PROJECT_TEMP_DIRECTORY } from '../project/project-paths'
 
 const MAX_FILE_BYTES = 250 * 1024 * 1024
 const MAX_BATCH_BYTES = 1024 * 1024 * 1024
@@ -28,7 +29,7 @@ export class KnowledgeImportError extends Error {
 }
 
 export class KnowledgeImportService {
-  readonly #projectRoot: string
+  readonly #filesystem: ProjectFilesystem
   readonly #projectId: string
   readonly #database: ProjectDatabase
   readonly #log: Pick<Logger, 'info' | 'error'>
@@ -43,6 +44,7 @@ export class KnowledgeImportService {
 
   constructor(options: {
     projectRoot: string
+    filesystem?: ProjectFilesystem
     projectId: string
     database: ProjectDatabase
     log: Pick<Logger, 'info' | 'error'>
@@ -50,7 +52,7 @@ export class KnowledgeImportService {
     onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
     onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   }) {
-    this.#projectRoot = options.projectRoot
+    this.#filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot)
     this.#projectId = options.projectId
     this.#database = options.database
     this.#log = options.log
@@ -191,15 +193,24 @@ export class KnowledgeImportService {
             WHERE knowledge_item_id = ?`
         )
         .get(knowledgeItemId) as { relative_path?: string } | undefined
+      return row?.relative_path
+    })
+    if (relativePath) {
+      try {
+        await this.#filesystem.assertExistingRegularFile(relativePath)
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'path_missing') throw err
+      }
+    }
+    this.#database.immediate((database) => {
       database
         .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
         .run(knowledgeItemId)
-      if (row?.relative_path) {
-        database.prepare('DELETE FROM file_records WHERE relative_path = ?').run(row.relative_path)
+      if (relativePath) {
+        database.prepare('DELETE FROM file_records WHERE relative_path = ?').run(relativePath)
       }
-      return row?.relative_path
     })
-    if (relativePath) await rm(resolveProjectPath(this.#projectRoot, relativePath), { force: true })
+    if (relativePath) await this.#filesystem.removeFile(relativePath)
     try {
       await this.#onDeleted?.(knowledgeItemId)
     } catch (err) {
@@ -321,7 +332,6 @@ export class KnowledgeImportService {
   }): Promise<KnowledgeItem> {
     const startedAt = Date.now()
     const tempRelativePath = `${PROJECT_TEMP_DIRECTORY}/imports/${input.importId}.partial`
-    const tempPath = resolveProjectPath(this.#projectRoot, tempRelativePath)
     let uncommittedDestination: string | undefined
     try {
       const before = await lstat(input.sourcePath)
@@ -332,11 +342,10 @@ export class KnowledgeImportService {
         throw new KnowledgeImportError('file_size_invalid', 'Source file size is unsupported')
       }
       const capability = await inspectCapability(input.sourcePath, input.originalName, before.size)
-      await mkdir(resolveProjectPath(this.#projectRoot, `${PROJECT_TEMP_DIRECTORY}/imports`), {
-        recursive: true
-      })
+      await this.#filesystem.ensureDirectory(`${PROJECT_TEMP_DIRECTORY}/imports`)
       await this.#faults.beforeTempOpen?.()
-      const handle = await open(tempPath, 'wx', 0o600)
+      const created = await this.#filesystem.createExclusiveFile(tempRelativePath)
+      const handle = created.handle
       const hash = createHash('sha256')
       let copied = 0
       let lastReported = 0
@@ -382,7 +391,7 @@ export class KnowledgeImportService {
               .get(sha256) as { knowledge_item_id: string } | undefined
         )
         if (duplicate) {
-          await rm(tempPath, { force: true })
+          await this.#filesystem.removeFile(tempRelativePath)
           this.#database.immediate((database) => {
             database
               .prepare('DELETE FROM knowledge_items WHERE knowledge_item_id = ?')
@@ -396,16 +405,11 @@ export class KnowledgeImportService {
           }
         }
         const relativePath = `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}/${input.displayName}`
-        const destination = resolveProjectPath(this.#projectRoot, relativePath)
-        await mkdir(
-          resolveProjectPath(
-            this.#projectRoot,
-            `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}`
-          ),
-          { recursive: true }
+        await this.#filesystem.ensureDirectory(
+          `knowledge/originals/sha256/${sha256.slice(0, 2)}/${sha256}`
         )
-        await rename(tempPath, destination)
-        uncommittedDestination = destination
+        const destination = await this.#filesystem.publish(tempRelativePath, relativePath)
+        uncommittedDestination = relativePath
         await syncDirectory(dirname(destination))
         const fileRecordId = randomUUID()
         const completedAt = new Date().toISOString()
@@ -465,7 +469,7 @@ export class KnowledgeImportService {
       return stored
     } catch (err) {
       try {
-        await rm(tempPath, { force: true })
+        await this.#filesystem.removeFile(tempRelativePath)
       } catch (cleanupErr) {
         this.#log.error(
           {
@@ -478,7 +482,7 @@ export class KnowledgeImportService {
       }
       if (uncommittedDestination) {
         try {
-          await rm(uncommittedDestination, { force: true })
+          await this.#filesystem.removeFile(uncommittedDestination)
         } catch (cleanupErr) {
           this.#log.error(
             {

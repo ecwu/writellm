@@ -4,6 +4,7 @@ import {
   type ModelsDevResolveRequest,
   type ModelsDevResolveResponse
 } from '../shared/contracts/model-catalog'
+import { readBoundedText } from './outbound-http'
 
 const CATALOG_URL = 'https://models.dev/api.json'
 const MAX_CATALOG_BYTES = 16 * 1_024 * 1_024
@@ -58,30 +59,6 @@ export async function runModelsDevRequest(
             resolvedAt: new Date().toISOString()
           }
   })
-}
-
-async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
-  if (response.body === null) return response.text()
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maximumBytes) {
-      await reader.cancel()
-      throw new Error('models.dev catalog exceeds the response size limit')
-    }
-    chunks.push(value)
-  }
-  const combined = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    combined.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(combined)
 }
 
 type Catalog = z.infer<typeof catalogSchema>

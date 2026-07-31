@@ -17,10 +17,12 @@ import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
 import type { ManuscriptAssetService } from '../manuscript/asset-service'
 import type { ProjectVersionStore } from './project-version-store'
+import type { ProjectFilesystem } from './project-filesystem'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
   readonly projectRoot: string
+  readonly filesystem: ProjectFilesystem
   readonly manifest: ProjectManifest
   readonly projectSessionId: ProjectSessionId
   readonly operations?: ProjectOperationRegistry

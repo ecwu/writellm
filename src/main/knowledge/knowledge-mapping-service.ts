@@ -12,7 +12,7 @@ import { mineruRawManifestSchema } from '../../shared/contracts/mineru'
 import { chooseMineruContentListPath } from '../../shared/mineru-content-list'
 import type { ProjectIndexService } from '../search/index-service'
 import type { ProjectDatabase } from '../project/project-database'
-import { resolveProjectPath } from '../project/project-paths'
+import { ProjectFilesystem } from '../project/project-filesystem'
 import type { KnowledgeNormalizationService } from './knowledge-normalization-service'
 import {
   recoverMineruBlockProvenance,
@@ -27,20 +27,25 @@ const MAX_PAGE_DIMENSION = 10_000_000
 const VLM_CONTENT_COORDINATE_SIZE = 1_000
 
 export class KnowledgeMappingService {
+  private readonly filesystem: ProjectFilesystem
+
   constructor(
     private readonly options: {
       projectRoot: string
+      filesystem?: ProjectFilesystem
       database: ProjectDatabase
       normalization: KnowledgeNormalizationService
       index: ProjectIndexService
       log: Pick<Logger, 'info' | 'error'>
     }
-  ) {}
+  ) {
+    this.filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot)
+  }
 
   async page(knowledgeItemId: string, pageIndex: number): Promise<KnowledgeMappingPage> {
     const startedAt = Date.now()
-    const document = await this.options.normalization.detail(knowledgeItemId)
-    if (document.active === null) {
+    const metadata = await this.options.normalization.metadata(knowledgeItemId)
+    if (metadata.active === null) {
       return knowledgeMappingPageSchema.parse({
         state: 'unavailable',
         knowledgeItemId,
@@ -54,15 +59,21 @@ export class KnowledgeMappingService {
         message: 'No active parsed revision is available'
       })
     }
+    const parseRevisionId = metadata.active.parseRevisionId
+    const fallbackRead = await this.options.normalization.readBlocksForMapping(
+      knowledgeItemId,
+      parseRevisionId,
+      (block) => block.page === undefined || block.bbox === undefined,
+      { maxBlocks: 5_000, maxBytes: 16 * 1024 * 1024 }
+    )
+    const fallbackBlocks = fallbackRead.blocks
     let recoveredProvenance = new Map<string, RecoveredBlockProvenance>()
-    if (
-      document.active.blocks.some((block) => block.page === undefined || block.bbox === undefined)
-    ) {
+    if (!fallbackRead.tooComplex && fallbackBlocks.length > 0) {
       try {
         recoveredProvenance = await this.blockProvenance(
           knowledgeItemId,
-          document.active.parseRevisionId,
-          document.active.blocks
+          parseRevisionId,
+          fallbackBlocks
         )
       } catch (err) {
         this.options.log.error(
@@ -70,34 +81,34 @@ export class KnowledgeMappingService {
             event: 'knowledge.mapping.provenance_failed',
             err,
             knowledgeItemId,
-            parseRevisionId: document.active.parseRevisionId
+            parseRevisionId
           },
           'MinerU block provenance could not be recovered'
         )
       }
     }
-    const fallbackBlockOrdinals = document.active.blocks.flatMap((block) =>
+    const fallbackBlockOrdinals = fallbackBlocks.flatMap((block) =>
       block.page === undefined && recoveredProvenance.get(block.id)?.page === pageIndex
         ? [block.ordinal]
         : []
     )
-    const fallbackTooComplex = fallbackBlockOrdinals.length > 5_000
+    const fallbackTooComplex = fallbackRead.tooComplex || fallbackBlockOrdinals.length > 5_000
     const indexed = await this.options.index.inspectKnowledgeMapping(
       knowledgeItemId,
-      document.active.parseRevisionId,
+      parseRevisionId,
       pageIndex,
       fallbackTooComplex ? [] : fallbackBlockOrdinals
     )
     let geometry = new Map<number, { width: number; height: number; origin: 'top-left' }>()
     try {
-      geometry = await this.pageGeometry(knowledgeItemId, document.active.parseRevisionId)
+      geometry = await this.pageGeometry(knowledgeItemId, parseRevisionId)
     } catch (err) {
       this.options.log.error(
         {
           event: 'knowledge.mapping.geometry_failed',
           err,
           knowledgeItemId,
-          parseRevisionId: document.active.parseRevisionId
+          parseRevisionId
         },
         'MinerU page geometry is unavailable'
       )
@@ -106,7 +117,7 @@ export class KnowledgeMappingService {
       return knowledgeMappingPageSchema.parse({
         state: 'indexing',
         knowledgeItemId,
-        parseRevisionId: document.active.parseRevisionId,
+        parseRevisionId,
         pageIndex,
         geometry: geometry.get(pageIndex) ?? null,
         regions: [],
@@ -120,7 +131,7 @@ export class KnowledgeMappingService {
       return knowledgeMappingPageSchema.parse({
         state: 'unavailable',
         knowledgeItemId,
-        parseRevisionId: document.active.parseRevisionId,
+        parseRevisionId,
         pageIndex,
         geometry: geometry.get(pageIndex) ?? null,
         regions: [],
@@ -134,7 +145,7 @@ export class KnowledgeMappingService {
       return knowledgeMappingPageSchema.parse({
         state: 'too_complex',
         knowledgeItemId,
-        parseRevisionId: document.active.parseRevisionId,
+        parseRevisionId,
         pageIndex,
         geometry: geometry.get(pageIndex) ?? null,
         regions: [],
@@ -148,7 +159,7 @@ export class KnowledgeMappingService {
       return knowledgeMappingPageSchema.parse({
         state: 'too_complex',
         knowledgeItemId,
-        parseRevisionId: document.active.parseRevisionId,
+        parseRevisionId,
         pageIndex,
         geometry: geometry.get(pageIndex) ?? null,
         regions: [],
@@ -159,15 +170,44 @@ export class KnowledgeMappingService {
       })
     }
 
-    const activeBlocks = document.active.blocks
+    const ranges = indexed.chunks.map((chunk) => ({
+      start: chunk.sourceBlockStart,
+      end: chunk.sourceBlockEnd
+    }))
+    const sourceBlockIds = new Set(
+      indexed.chunks.flatMap((chunk) => chunk.sources.map((source) => source.blockId))
+    )
+    const relevantRead = await this.options.normalization.readBlocksForMapping(
+      knowledgeItemId,
+      parseRevisionId,
+      (block) =>
+        sourceBlockIds.has(block.id) ||
+        ranges.some((range) => block.ordinal >= range.start && block.ordinal <= range.end),
+      { maxBlocks: 10_000, maxBytes: 32 * 1024 * 1024 }
+    )
+    if (relevantRead.tooComplex) {
+      return knowledgeMappingPageSchema.parse({
+        state: 'too_complex',
+        knowledgeItemId,
+        parseRevisionId,
+        pageIndex,
+        geometry: geometry.get(pageIndex) ?? null,
+        regions: [],
+        chunks: [],
+        activeIndexGenerationId: indexed.activeIndexGenerationId,
+        activeEmbeddingGenerationId: indexed.activeEmbeddingGenerationId,
+        message: 'This page requires too much normalized content to display safely'
+      })
+    }
+    const activeBlocks = [
+      ...new Map(
+        [...fallbackBlocks, ...relevantRead.blocks].map((block) => [block.id, block])
+      ).values()
+    ].sort((left, right) => left.ordinal - right.ordinal)
     const blockById = new Map(activeBlocks.map((block) => [block.id, block]))
     const regions = new Map<string, RegionAccumulator>()
     const chunks = indexed.chunks.map((chunk) => {
-      const offsets = blockOffsets(
-        document.active?.blocks ?? [],
-        chunk.sourceBlockStart,
-        chunk.sourceBlockEnd
-      )
+      const offsets = blockOffsets(activeBlocks, chunk.sourceBlockStart, chunk.sourceBlockEnd)
       const coverages = new Map<string, CoverageAccumulator>()
       for (const source of chunk.sources) {
         const block = blockById.get(source.blockId)
@@ -245,7 +285,7 @@ export class KnowledgeMappingService {
     const result = knowledgeMappingPageSchema.parse({
       state: 'ready',
       knowledgeItemId,
-      parseRevisionId: document.active.parseRevisionId,
+      parseRevisionId,
       pageIndex,
       geometry: geometry.get(pageIndex) ?? null,
       regions: [...regions.values()].map((region) => ({
@@ -294,8 +334,10 @@ export class KnowledgeMappingService {
           | undefined
     )
     if (row === undefined) return new Map()
-    const root = resolveProjectPath(this.options.projectRoot, row.relative_path)
-    const manifestBytes = await readBounded(`${root}/manifest.json`, 10 * 1024 * 1024)
+    const manifestBytes = await readBounded(
+      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
+      10 * 1024 * 1024
+    )
     if (sha256(manifestBytes) !== row.manifest_sha256)
       throw new Error('Raw parse manifest hash mismatch')
     const manifest = mineruRawManifestSchema.parse(JSON.parse(manifestBytes.toString('utf8')))
@@ -306,7 +348,9 @@ export class KnowledgeMappingService {
       const contentListFile = manifest.files.find((file) => file.relativePath === contentListPath)
       if (contentListFile !== undefined) {
         const bytes = await readBounded(
-          `${root}/${contentListFile.relativePath}`,
+          await this.filesystem.assertExistingRegularFile(
+            `${row.relative_path}/${contentListFile.relativePath}`
+          ),
           MAX_GEOMETRY_BYTES
         )
         if (
@@ -323,7 +367,12 @@ export class KnowledgeMappingService {
       .filter((file) => /(?:middle|layout|model|content_list)\.json$/i.test(file.relativePath))
       .sort((a, b) => geometryPriority(a.relativePath) - geometryPriority(b.relativePath))
     for (const file of candidates) {
-      const bytes = await readBounded(`${root}/${file.relativePath}`, MAX_GEOMETRY_BYTES)
+      const bytes = await readBounded(
+        await this.filesystem.assertExistingRegularFile(
+          `${row.relative_path}/${file.relativePath}`
+        ),
+        MAX_GEOMETRY_BYTES
+      )
       if (sha256(bytes) !== file.sha256) throw new Error('Raw geometry file hash mismatch')
       const geometry = collectGeometry(JSON.parse(bytes.toString('utf8')))
       if (geometry.size > 0) return geometry
@@ -349,8 +398,10 @@ export class KnowledgeMappingService {
           | undefined
     )
     if (row === undefined) return new Map()
-    const root = resolveProjectPath(this.options.projectRoot, row.relative_path)
-    const manifestBytes = await readBounded(`${root}/manifest.json`, 10 * 1024 * 1024)
+    const manifestBytes = await readBounded(
+      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
+      10 * 1024 * 1024
+    )
     if (sha256(manifestBytes) !== row.manifest_sha256) {
       throw new Error('Raw parse manifest hash mismatch')
     }
@@ -361,7 +412,10 @@ export class KnowledgeMappingService {
     if (contentListPath === undefined) return new Map()
     const file = manifest.files.find((candidate) => candidate.relativePath === contentListPath)
     if (file === undefined) throw new Error('MinerU content list inventory record is missing')
-    const contentListBytes = await readBounded(`${root}/${contentListPath}`, MAX_GEOMETRY_BYTES)
+    const contentListBytes = await readBounded(
+      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/${contentListPath}`),
+      MAX_GEOMETRY_BYTES
+    )
     if (contentListBytes.byteLength !== file.byteSize || sha256(contentListBytes) !== file.sha256) {
       throw new Error('MinerU content list hash or size does not match')
     }
@@ -439,8 +493,9 @@ function isInheritedCaptionBbox(
 ): boolean {
   if (block.type !== 'caption' || bbox === null) return false
   let parent: NormalizedKnowledgeBlock | undefined
-  for (let ordinal = block.ordinal - 1; ordinal >= 0; ordinal -= 1) {
-    const candidate = blocks[ordinal]
+  const blockIndex = blocks.findIndex((candidate) => candidate.id === block.id)
+  for (let index = blockIndex - 1; index >= 0; index -= 1) {
+    const candidate = blocks[index]
     if (candidate?.type === 'caption') continue
     parent = candidate
     break

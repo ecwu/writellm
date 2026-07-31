@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, ImageIcon, Map as MapIcon, Play, Rows3, Square } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -64,7 +64,7 @@ export function ParsedDocumentViewer(props: {
       props.activeRevisionId
     ],
     queryFn: () =>
-      window.desktop.knowledge.parsedDocument({
+      window.desktop.knowledge.parsedMetadata({
         projectSessionId: props.projectSessionId,
         knowledgeItemId: props.knowledgeItemId as string
       }),
@@ -74,6 +74,57 @@ export function ParsedDocumentViewer(props: {
       (isParseInProgress(state.data?.parseState) || state.data?.normalizationState === 'staging')
         ? 500
         : false
+  })
+  const active = query.data?.active
+  const [blockCursor, setBlockCursor] = useState(0)
+  const [blockCursorHistory, setBlockCursorHistory] = useState<number[]>([])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new active revision must reset pagination
+  useEffect(() => {
+    setBlockCursor(0)
+    setBlockCursorHistory([])
+  }, [active?.parseRevisionId])
+  const blocksQuery = useQuery({
+    queryKey: [
+      'parsed-knowledge-blocks',
+      props.projectSessionId,
+      props.knowledgeItemId,
+      active?.parseRevisionId,
+      blockCursor
+    ],
+    queryFn: () =>
+      window.desktop.knowledge.parsedBlocks({
+        projectSessionId: props.projectSessionId,
+        knowledgeItemId: props.knowledgeItemId as string,
+        parseRevisionId: active?.parseRevisionId as string,
+        cursor: blockCursor
+      }),
+    enabled:
+      props.knowledgeItemId !== null &&
+      active !== null &&
+      active !== undefined &&
+      view === 'content',
+    placeholderData: (previous) => previous,
+    gcTime: 0
+  })
+  const markdownQuery = useQuery({
+    queryKey: [
+      'parsed-knowledge-markdown',
+      props.projectSessionId,
+      props.knowledgeItemId,
+      active?.parseRevisionId
+    ],
+    queryFn: () =>
+      window.desktop.knowledge.parsedMarkdown({
+        projectSessionId: props.projectSessionId,
+        knowledgeItemId: props.knowledgeItemId as string,
+        parseRevisionId: active?.parseRevisionId as string
+      }),
+    enabled:
+      props.knowledgeItemId !== null &&
+      active !== null &&
+      active !== undefined &&
+      view === 'markdown',
+    staleTime: Number.POSITIVE_INFINITY
   })
 
   const startParse = async (): Promise<void> => {
@@ -112,7 +163,21 @@ export function ParsedDocumentViewer(props: {
     }
   }
 
-  const active = query.data?.active
+  const openOriginal = async (): Promise<void> => {
+    if (props.knowledgeItemId === null) return
+    setActionPending(true)
+    try {
+      await window.desktop.knowledge.openOriginal({
+        projectSessionId: props.projectSessionId,
+        knowledgeItemId: props.knowledgeItemId
+      })
+    } catch {
+      props.onError('The original document could not be opened.')
+    } finally {
+      setActionPending(false)
+    }
+  }
+
   const parseInProgress = isParseInProgress(query.data?.parseState)
   const normalizationInProgress =
     query.data?.parseState === 'succeeded' && query.data.normalizationState === 'staging'
@@ -187,7 +252,7 @@ export function ParsedDocumentViewer(props: {
         <div className='flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1'>
           <Badge variant='outline'>{active.modelVersion}</Badge>
           <Badge variant='outline'>Normalizer v{active.normalizerVersion}</Badge>
-          <span className='text-xs text-muted-foreground'>{active.blocks.length} blocks</span>
+          <span className='text-xs text-muted-foreground'>{active.blockCount} blocks</span>
         </div>
       </div>
       <TabsContent value='mapping' className='min-h-0'>
@@ -203,33 +268,93 @@ export function ParsedDocumentViewer(props: {
         ) : null}
       </TabsContent>
       <TabsContent value='content' className='min-h-0'>
-        <ScrollArea className='h-full min-h-0 overflow-hidden pr-4'>
-          <div className='divide-y'>
-            {active.blocks.map((block) => (
-              <ParsedBlock
-                key={block.id}
-                block={block}
-                isPdf={props.extension === 'pdf'}
-                projectSessionId={props.projectSessionId}
-                knowledgeItemId={props.knowledgeItemId as string}
-                parseRevisionId={active.parseRevisionId}
-                onOpenMapping={() => {
-                  setMappingTarget({ pageIndex: block.page ?? 0, blockId: block.id })
-                  setView('mapping')
-                }}
-              />
-            ))}
+        <div className='flex h-full min-h-0 flex-col'>
+          <ScrollArea className='min-h-0 flex-1 overflow-hidden pr-4'>
+            <div className='divide-y'>
+              {(blocksQuery.data?.blocks ?? []).map((block) => (
+                <ParsedBlock
+                  key={block.id}
+                  block={block}
+                  isPdf={props.extension === 'pdf'}
+                  projectSessionId={props.projectSessionId}
+                  knowledgeItemId={props.knowledgeItemId as string}
+                  parseRevisionId={active.parseRevisionId}
+                  onOpenMapping={() => {
+                    setMappingTarget({ pageIndex: block.page ?? 0, blockId: block.id })
+                    setView('mapping')
+                  }}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+          <div className='flex items-center justify-between gap-2 border-t py-2'>
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={blockCursorHistory.length === 0 || blocksQuery.isFetching}
+              onClick={() => {
+                const previous = blockCursorHistory.at(-1)
+                if (previous === undefined) return
+                setBlockCursorHistory((history) => history.slice(0, -1))
+                setBlockCursor(previous)
+              }}
+            >
+              Previous
+            </Button>
+            <span className='text-xs text-muted-foreground'>
+              {(blocksQuery.data?.blocks.length ?? 0).toLocaleString()} blocks on this page
+            </span>
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={!blocksQuery.data?.hasMore || blocksQuery.isFetching}
+              onClick={() => {
+                const next = blocksQuery.data?.nextCursor
+                if (next === undefined || next <= blockCursor) return
+                setBlockCursorHistory((history) => [...history, blockCursor])
+                setBlockCursor(next)
+              }}
+            >
+              Next
+            </Button>
           </div>
-        </ScrollArea>
+        </div>
       </TabsContent>
       <TabsContent value='markdown' className='min-h-0'>
         <ScrollArea className='h-full min-h-0 overflow-hidden pr-4'>
-          <ParsedMarkdown
-            markdown={active.documentMarkdown}
-            projectSessionId={props.projectSessionId}
-            knowledgeItemId={props.knowledgeItemId as string}
-            parseRevisionId={active.parseRevisionId}
-          />
+          {markdownQuery.isLoading ? (
+            <div className='flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground'>
+              <Spinner /> Loading Markdown…
+            </div>
+          ) : markdownQuery.data?.state === 'too_large' ? (
+            <Empty className='min-h-64 border-0'>
+              <EmptyHeader>
+                <EmptyMedia variant='icon'>
+                  <FileText />
+                </EmptyMedia>
+                <EmptyTitle>Markdown is too large to render safely</EmptyTitle>
+                <EmptyDescription>
+                  Use the paginated Content view or open the original document.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button
+                  variant='outline'
+                  disabled={actionPending}
+                  onClick={() => void openOriginal()}
+                >
+                  Open original
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : markdownQuery.data?.state === 'ready' ? (
+            <ParsedMarkdown
+              markdown={markdownQuery.data.markdown}
+              projectSessionId={props.projectSessionId}
+              knowledgeItemId={props.knowledgeItemId as string}
+              parseRevisionId={active.parseRevisionId}
+            />
+          ) : null}
         </ScrollArea>
       </TabsContent>
       {view === 'mapping' ? null : (

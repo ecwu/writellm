@@ -14,7 +14,8 @@ import { mutationProposalRecordSchema } from './agent-mutations'
 import { projectSessionIdSchema } from './projects'
 import { agentModelSelectionSchema, piApiSchema } from './providers'
 
-export const AGENT_EVENT_PAGE_LIMIT = 200
+export const AGENT_EVENT_PAGE_LIMIT = 50
+export const AGENT_EVENT_PAGE_MAX_BYTES = 4 * 1024 * 1024
 export const AGENT_SESSION_LIMIT = 200
 export const AGENT_RUN_LIMIT = 200
 
@@ -112,7 +113,8 @@ export const agentEventPageInputSchema = strictObject({
 export const agentEventPageSchema = strictObject({
   events: z.array(agentEventRecordSchema).max(AGENT_EVENT_PAGE_LIMIT),
   nextAfterSequence: z.number().int().nonnegative(),
-  hasMore: z.boolean()
+  hasMore: z.boolean(),
+  returnedBytes: z.number().int().nonnegative().max(AGENT_EVENT_PAGE_MAX_BYTES)
 })
 
 export const agentListRunsInputSchema = agentSessionInputSchema.extend({

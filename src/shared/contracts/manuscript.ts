@@ -97,6 +97,7 @@ const safeLinkSchema = z
   .strict()
 
 export const blockNoteInlineContentSchema = z.union([styledTextSchema, safeLinkSchema])
+export type BlockNoteInlineContent = z.infer<typeof blockNoteInlineContentSchema>
 
 const commonTextPropsSchema = z
   .object({
@@ -142,8 +143,9 @@ const tableContentSchema = z
       .max(1_000)
   })
   .strict()
+export type BlockNoteTableContent = z.infer<typeof tableContentSchema>
 
-type BlockNoteBlockValue = {
+export type BlockNoteBlockValue = {
   id: string
   type:
     | 'paragraph'
@@ -636,14 +638,14 @@ export const saveSectionDocumentResponseSchema = z.discriminatedUnion('ok', [
 export const finalFlushSaveInputSchema = saveSectionDocumentInputSchema
   .extend({
     closingToken: z.string().uuid(),
-    purpose: z.enum(['close', 'snapshot', 'mutation']).optional()
+    purpose: z.enum(['close', 'snapshot', 'export', 'mutation']).optional()
   })
   .strict()
 export const editorFlushRequestSchema = z
   .object({
     projectSessionId: z.string().min(1).max(256),
     closingToken: z.string().uuid(),
-    purpose: z.enum(['close', 'snapshot', 'mutation']).optional(),
+    purpose: z.enum(['close', 'snapshot', 'export', 'mutation']).optional(),
     sectionId: sectionIdSchema.optional(),
     sectionRevisionId: sectionRevisionIdSchema.optional()
   })

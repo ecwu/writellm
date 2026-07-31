@@ -1,9 +1,29 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 23Q settings workspace and model availability is complete; Checkpoint 24 remains unstarted.
-Recorded: 2026-07-30
+Status: Checkpoint 26.8S security remediation is complete; Checkpoint 26.9 remains blocked on
+hosted release evidence.
+Recorded: 2026-07-31
 
 ## Most recently completed checkpoint
+
+Checkpoint 26.8S implements ADR 011 and closes all eleven findings from the 2026-07-31 Codex
+Security scan. Main now owns the project-filesystem capability and project-database identity
+preflight; encrypted credentials are bound to provider security identities; MinerU artifact URLs
+use public-HTTPS, DNS, redirect, and streamed-body enforcement; and knowledge/Agent IPC responses
+are paginated under explicit row and byte budgets.
+
+Adversarial tests cover linked project internals, temporary and knowledge paths, linked or
+identity-invalid project databases, archive special entries, MinerU private/redirect/oversized
+responses, credential rebinding and rollback, a near-200-MiB 20,000-block document, and 200
+near-limit Agent events. Exact pnpm 11.17.0 `check:fast` passed; canonical Electron Vitest passed
+115 files and 582 tests with one opt-in benchmark skipped; all 18 fresh-build E2E scenarios
+passed; and the no-identity macOS arm64 package gate passed all packaged smoke scenarios plus
+18 packaged E2E scenarios. The package evidence records app schema version 4/integrity `ok`,
+arm64 `better-sqlite3` and sqlite-vec inventories, DMG SHA-256
+`7f19fabb3f5e8823cdb17d0666cedf360ba5a5991e7882d5472b29aedd3c9986`, and ZIP SHA-256
+`e5c8a2a1e6842e418789b0ddfc2edb82eb109782e9d9e11e1080a9687bdac284`.
+
+The prior completed product checkpoint was Checkpoint 23Q.
 
 Checkpoint 23Q implements ADR 009: a responsive Cherry Studio-style global Settings workspace,
 application-global Agent provider/model availability, manual Agent models, editable custom
@@ -123,23 +143,65 @@ catalog refresh; legacy singleton migration; idle-only model switching in the Ag
 immutable provider/model/API labels on each run. Pi's ESM-only runtime is bundled into the Electron
 Main/worker production output while native dependencies remain external.
 
-## Next checkpoint
+## Current checkpoint
 
-The Phase 10 plan was re-audited against the current source, packaging configuration, tests, ADR
-006/007, and the completed verification-gate split. Checkpoint 24 now owns only the remaining
-whole-manuscript export and portability-completion work: a Main-authoritative versioned native
-export, deterministic Markdown with explicit loss reporting, referenced-asset packaging,
-collision-safe UX, and moved/restored/no-index end-to-end evidence.
+Checkpoint 24 passed its acceptance gate. Main now captures a single authoritative manuscript view
+behind the final editor-flush barrier and publishes deterministic, versioned native or Markdown
+packages with verified referenced assets, strict read-back, atomic collision handling, bounded
+path-free IPC, and explicit Markdown loss reporting. The global shadcn Menubar exposes both
+formats while retaining the existing single-section interchange surface.
+
+Exact pnpm 11.17.0 `check:fast` passed; canonical Electron Vitest passed 110 files/544 tests with
+one opt-in file/test skipped; a fresh production build and all 18 Electron Playwright scenarios
+passed. Existing moved-root, Snapshot restore, missing-index rebuild, and reopen evidence remains
+green.
 
 Snapshot v2 create/restore, project-history transport, conflict-safe snapshot publication,
 moved-root open, and durable missing-index rebuild scheduling are completed baselines and will be
 reused rather than reimplemented. Clone/Save As remains deferred because it requires a new
 `projectId`.
 
-Checkpoint 25 is realigned around reproducible target-native packaging and removal of source-tree
-fallbacks from the existing package gate. Checkpoint 26 remains the cross-platform CI and protected
-release-promotion checkpoint; the repository currently has no GitHub Actions workflow. The full
-updated scope and gates are recorded in
+Checkpoint 25 also passed its acceptance gate. Four explicit native-host commands now share
+fail-closed Electron ABI/architecture preparation, target-only sqlite-vec resources, executable
+ASAR/runtime inventory, deterministic artifact evidence, and a source-independent packaged smoke.
+The macOS arm64 gate verified ABI 148, both arm64 native binaries, 44,776 ASAR entries, all four
+process roles, schema-v2/asset reopen, vector/index/Agent/provider fallback/stale-session behavior,
+app.sqlite integrity, and unsigned DMG/ZIP hashes. Exact pnpm 11.17.0 `check:fast`, canonical
+Electron Vitest (112 files/548 tests with one opt-in file/test skipped), a fresh build, all 18
+Electron Playwright scenarios, the host package gate, and `git diff --check` passed.
+
+Checkpoint 26.1–26.8 are implemented and locally verified under the user's approval to implement
+Phase 10. Pinned least-privilege CI and release-candidate workflows now cover all four native
+runner labels, exact source/tag verification, static/Electron/E2E/package layers, versioned
+synthetic recovery fixtures, sanitized failure evidence, target-native inventories and packaged
+smoke, bounded retention, checksums, and fail-closed protected promotion. Production promotion
+requires verified macOS signing/notarization and Windows Authenticode evidence; dry-run output is
+explicitly test-only and unsigned.
+
+The strengthened macOS arm64 package gate passed with 12 structured runtime scenarios, including
+untrusted IPC/navigation/CSP denial, secure credential reporting, all four process roles,
+correlated/redacted Error diagnostics, bounded diagnostic export, log rotation/retention,
+normal/fatal flush, provider fallback, stale-session revocation, schema-v2 content/asset reopen,
+and app database integrity. All 18 Electron E2E scenarios then passed directly against the
+unpacked packaged executable. The versioned recovery manifest now binds 22 cases to exact test
+names and 20 source-file SHA-256 digests, including an application-schema v1-to-v3 migration with
+a verified pre-migration backup and Agent project-session capability rejection. Exact pnpm
+11.17.0 `check:fast` passed; canonical Electron Vitest passed 113 files/553 tests with one opt-in
+file/test skipped; recovery fixture, release evidence, YAML, plan, package, and diff gates passed.
+The local package evidence reports the worktree as dirty; protected promotion accepts only clean
+four-row evidence with one consistent recovery-fixture hash. The unsigned macOS arm64 DMG SHA-256
+is `ff0f5f3d91d55ee96f37ac4515f528e41ab125f1b94a4c0a27bf2b6e3fe38a5b`; the ZIP SHA-256 is
+`740a541cd9b706beecbc4d3b7314c229535a7c7d61e1d783bf15b5a949d48c63`.
+
+Checkpoint 26.8S completed on 2026-07-31 after all eleven validated findings passed adversarial
+regressions, static checks, canonical Electron tests, fresh-build E2E, packaged smoke, packaged
+E2E, and no-identity artifact inspection. ADR 011 is authoritative for the accepted threat model,
+including the same-user path-race and DNS-rebinding residual risks.
+
+Checkpoint 26.9 now remains blocked only on its own committed/tagged GitHub revision, four real
+hosted runners, and one protected dry-run promotion. No commit, push, tag, or workflow dispatch
+was performed without user authorization, and local macOS arm64 output is not recorded as a
+substitute. The full release scope and blocker are recorded in
 [`docs/implementation-todo/phase-10.md`](implementation-todo/phase-10.md).
 
 ## Completed maintenance

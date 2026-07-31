@@ -27,7 +27,7 @@ export interface SectionEditorHandle {
   finalFlush(request: {
     projectSessionId: string
     closingToken: string
-    purpose?: 'close' | 'snapshot' | 'mutation'
+    purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
   }): Promise<void>
   releaseMutationBarrier(): void
   importMarkdown(): Promise<void>
@@ -99,7 +99,7 @@ export const SectionEditor = forwardRef<
   const save = async (
     closingToken?: string,
     revisionSource: 'manual_autosave' | 'manual_checkpoint' = 'manual_autosave',
-    purpose?: 'close' | 'snapshot' | 'mutation'
+    purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
   ): Promise<void> => {
     if (runningRef.current !== null) {
       try {

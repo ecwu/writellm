@@ -12,6 +12,7 @@ import {
 export const PROJECT_DIALOG_PATHS_ENV = 'WRITELLM_E2E_PROJECT_DIALOG_PATHS'
 export const KNOWLEDGE_DIALOG_PATHS_ENV = 'WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS'
 export const WINDOW_PRESENTATION_ENV = 'WRITELLM_E2E_WINDOW_MODE'
+export const EXECUTABLE_PATH_ENV = 'WRITELLM_E2E_EXECUTABLE_PATH'
 
 type WindowPresentation = 'interactive' | 'silent-e2e'
 
@@ -38,8 +39,13 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
               `${WINDOW_PRESENTATION_ENV} must be either "interactive" or "silent", received ${JSON.stringify(requestedPresentation)}`
             )
           })()
+  const executablePath = process.env[EXECUTABLE_PATH_ENV]
   const app = await electron.launch({
-    args: ['.', `--user-data-dir=${options.userData}`],
+    ...(executablePath === undefined ? {} : { executablePath }),
+    args:
+      executablePath === undefined
+        ? ['.', `--user-data-dir=${options.userData}`, '--writellm-e2e-artifact-loopback']
+        : [`--user-data-dir=${options.userData}`, '--writellm-e2e-artifact-loopback'],
     cwd: process.cwd(),
     env: {
       ...process.env,

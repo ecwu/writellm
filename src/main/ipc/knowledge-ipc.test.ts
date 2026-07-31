@@ -2,7 +2,11 @@ import type { IpcMainInvokeEvent } from 'electron'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import type { ParsedKnowledgeDocument } from '../../shared/contracts/knowledge'
+import type {
+  ParsedKnowledgeBlockPage,
+  ParsedKnowledgeMarkdown,
+  ParsedKnowledgeMetadata
+} from '../../shared/contracts/knowledge'
 import { registerKnowledgeIpc, type KnowledgeIpcMain } from './knowledge-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
@@ -11,7 +15,7 @@ const parseRevisionId = '33333333-3333-4333-8333-333333333333'
 const normalizationRunId = '44444444-4444-4444-8444-444444444444'
 const assetRef = `images/${'a'.repeat(64)}.png`
 
-const document: ParsedKnowledgeDocument = {
+const metadata: ParsedKnowledgeMetadata = {
   knowledgeItemId,
   parseState: 'succeeded',
   normalizationState: 'published',
@@ -23,23 +27,36 @@ const document: ParsedKnowledgeDocument = {
     remoteTaskId: 'remote-task',
     providerId: 'mineru',
     modelVersion: 'pipeline',
-    documentMarkdown: 'Body',
-    blocks: [
-      {
-        id: `kb_${'c'.repeat(32)}`,
-        ordinal: 0,
-        type: 'image',
-        text: 'Figure',
-        headingPath: [],
-        page: 0,
-        bbox: [0, 0, 1000, 1000],
-        sourceProviderBlockId: 'provider-block',
-        assetRefs: [assetRef],
-        contentHash: 'd'.repeat(64)
-      }
-    ],
+    blockCount: 1,
+    documentByteSize: 4,
     activatedAt: '2026-07-16T00:00:00.000Z'
   }
+}
+const blockPage: ParsedKnowledgeBlockPage = {
+  parseRevisionId,
+  blocks: [
+    {
+      id: `kb_${'c'.repeat(32)}`,
+      ordinal: 0,
+      type: 'image',
+      text: 'Figure',
+      headingPath: [],
+      page: 0,
+      bbox: [0, 0, 1000, 1000],
+      sourceProviderBlockId: 'provider-block',
+      assetRefs: [assetRef],
+      contentHash: 'd'.repeat(64)
+    }
+  ],
+  nextCursor: 100,
+  hasMore: false,
+  returnedBytes: 512
+}
+const markdown: ParsedKnowledgeMarkdown = {
+  state: 'ready',
+  parseRevisionId,
+  byteSize: 4,
+  markdown: 'Body'
 }
 
 function harness() {
@@ -59,7 +76,9 @@ function harness() {
     cleanupAllArtifacts: vi.fn(async () => undefined)
   }
   const knowledgeNormalization = {
-    detail: vi.fn(async () => document),
+    metadata: vi.fn(async () => metadata),
+    blockPage: vi.fn(async () => blockPage),
+    markdown: vi.fn(async () => markdown),
     asset: vi.fn(async () => ({ mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=' }))
   }
   const projectIndex = {
@@ -118,14 +137,29 @@ function harness() {
 }
 
 describe('knowledge IPC', () => {
-  it('starts parsing and returns validated normalized document and asset data', async () => {
+  it('starts parsing and returns bounded metadata, block, Markdown, and asset data', async () => {
     const { invoke, mineruWorkflow, knowledgeNormalization, projectIndex } = harness()
     await invoke(IPC_CHANNELS.knowledgeStartParse, { projectSessionId, knowledgeItemId })
     expect(mineruWorkflow.start).toHaveBeenCalledWith(knowledgeItemId)
 
     await expect(
-      invoke(IPC_CHANNELS.knowledgeParsedDocument, { projectSessionId, knowledgeItemId })
-    ).resolves.toEqual(document)
+      invoke(IPC_CHANNELS.knowledgeParsedMetadata, { projectSessionId, knowledgeItemId })
+    ).resolves.toEqual(metadata)
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeParsedBlocks, {
+        projectSessionId,
+        knowledgeItemId,
+        parseRevisionId,
+        cursor: 0
+      })
+    ).resolves.toEqual(blockPage)
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeParsedMarkdown, {
+        projectSessionId,
+        knowledgeItemId,
+        parseRevisionId
+      })
+    ).resolves.toEqual(markdown)
     await expect(
       invoke(IPC_CHANNELS.knowledgeParsedAsset, {
         projectSessionId,
@@ -134,7 +168,7 @@ describe('knowledge IPC', () => {
         assetRef
       })
     ).resolves.toEqual({ mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=' })
-    expect(knowledgeNormalization.detail).toHaveBeenCalledWith(knowledgeItemId)
+    expect(knowledgeNormalization.metadata).toHaveBeenCalledWith(knowledgeItemId)
     expect(knowledgeNormalization.asset).toHaveBeenCalledWith(
       knowledgeItemId,
       parseRevisionId,
@@ -193,21 +227,21 @@ describe('knowledge IPC', () => {
   it('rejects stale sessions both before and after privileged asynchronous work', async () => {
     const first = harness()
     await expect(
-      first.invoke(IPC_CHANNELS.knowledgeParsedDocument, {
+      first.invoke(IPC_CHANNELS.knowledgeParsedMetadata, {
         projectSessionId: '55555555-5555-4555-8555-555555555555',
         knowledgeItemId
       })
     ).rejects.toThrow('stale project session')
-    expect(first.knowledgeNormalization.detail).not.toHaveBeenCalled()
+    expect(first.knowledgeNormalization.metadata).not.toHaveBeenCalled()
 
     const second = harness()
-    second.knowledgeNormalization.detail.mockImplementationOnce(async () => {
+    second.knowledgeNormalization.metadata.mockImplementationOnce(async () => {
       second.revoke()
-      return document
+      return metadata
     })
     await expect(
-      second.invoke(IPC_CHANNELS.knowledgeParsedDocument, { projectSessionId, knowledgeItemId })
-    ).rejects.toThrow('Parsed knowledge document could not be loaded')
+      second.invoke(IPC_CHANNELS.knowledgeParsedMetadata, { projectSessionId, knowledgeItemId })
+    ).rejects.toThrow('Parsed knowledge metadata could not be loaded')
 
     const third = harness()
     third.projectIndex.isCurrentGenerationIndexed.mockImplementationOnce(async () => {
@@ -226,7 +260,7 @@ describe('knowledge IPC', () => {
     } as unknown as IpcMainInvokeEvent
     await expect(
       Promise.resolve(
-        handlers.get(IPC_CHANNELS.knowledgeParsedDocument)?.(
+        handlers.get(IPC_CHANNELS.knowledgeParsedMetadata)?.(
           unauthorized as never,
           { projectSessionId, knowledgeItemId } as never
         )

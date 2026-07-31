@@ -6,6 +6,7 @@ import type { MineruUtilityRequest } from '../shared/contracts/mineru'
 import { type MineruRequestError, runMineruRequest } from './mineru-request'
 
 const directories: string[] = []
+const allowArtifactUrl = async (): Promise<void> => undefined
 const baseConfig = {
   role: 'mineru' as const,
   providerId: 'mineru' as const,
@@ -81,7 +82,8 @@ describe('runMineruRequest', () => {
         sourcePath,
         expectedBytes: 14
       },
-      uploadFetch
+      uploadFetch,
+      { validateArtifactUrl: allowArtifactUrl }
     )
     expect(uploaded).toMatchObject({ type: 'uploaded', byteSize: 14 })
 
@@ -97,7 +99,8 @@ describe('runMineruRequest', () => {
         new Response('zip-bytes', {
           status: 200,
           headers: { 'content-length': '9', 'content-type': 'application/zip' }
-        })
+        }),
+      { validateArtifactUrl: allowArtifactUrl }
     )
     expect(downloaded).toMatchObject({
       type: 'downloaded',
@@ -145,15 +148,17 @@ describe('runMineruRequest', () => {
     })
   })
 
-  it('rejects an unsafe final redirect even when the signed source URL is valid', async () => {
+  it('rejects an unsafe redirect hop before following it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'writellm-mineru-redirect-'))
     directories.push(directory)
     const destination = join(directory, 'result.zip')
-    const fetchMock = vi.fn<typeof fetch>(async () => {
-      const response = new Response('zip-bytes', { status: 200 })
-      Object.defineProperty(response, 'url', { value: 'http://remote.example.test/result.zip' })
-      return response
-    })
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://remote.example.test/result.zip' }
+        })
+    )
     await expect(
       runMineruRequest(
         {
@@ -163,7 +168,12 @@ describe('runMineruRequest', () => {
           destinationPath: destination,
           maxBytes: 100
         },
-        fetchMock
+        fetchMock,
+        {
+          validateArtifactUrl: async (url) => {
+            if (url.protocol !== 'https:') throw new Error('unsafe')
+          }
+        }
       )
     ).rejects.toMatchObject({ code: 'download_redirect_invalid', retryable: false })
   })
@@ -191,6 +201,17 @@ describe('runMineruRequest', () => {
     await expect(
       runMineruRequest(request, async () => json({ code: -60007, msg: 'PRIVATE BODY' }))
     ).rejects.toMatchObject({ code: 'provider_unavailable', retryable: true })
+
+    await expect(
+      runMineruRequest(
+        request,
+        async () =>
+          new Response('x'.repeat(1024 * 1024 + 1), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+      )
+    ).rejects.toMatchObject({ code: 'response_too_large', retryable: false })
   })
 })
 

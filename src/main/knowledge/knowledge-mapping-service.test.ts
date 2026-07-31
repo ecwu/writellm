@@ -118,12 +118,18 @@ describe('KnowledgeMappingService', () => {
           })
       } as never,
       normalization: {
-        detail: vi.fn(async () => ({
+        metadata: vi.fn(async () => ({
           active: {
-            parseRevisionId: manifest.parseRevisionId,
-            blocks: [block0, block1]
+            parseRevisionId: manifest.parseRevisionId
           }
-        }))
+        })),
+        readBlocksForMapping: vi.fn(
+          async (
+            _knowledgeItemId: string,
+            _parseRevisionId: string,
+            select: (block: typeof block0) => boolean
+          ) => ({ blocks: [block0, block1].filter(select), tooComplex: false })
+        )
       } as never,
       index: { inspectKnowledgeMapping: inspect } as never,
       log: { info: vi.fn(), error: vi.fn() }
@@ -237,9 +243,16 @@ describe('KnowledgeMappingService', () => {
           })
       } as never,
       normalization: {
-        detail: vi.fn(async () => ({
-          active: { parseRevisionId: manifest.parseRevisionId, blocks: [block] }
-        }))
+        metadata: vi.fn(async () => ({
+          active: { parseRevisionId: manifest.parseRevisionId }
+        })),
+        readBlocksForMapping: vi.fn(
+          async (
+            _knowledgeItemId: string,
+            _parseRevisionId: string,
+            select: (candidate: typeof block) => boolean
+          ) => ({ blocks: [block].filter(select), tooComplex: false })
+        )
       } as never,
       index: { inspectKnowledgeMapping: inspect } as never,
       log: { info: vi.fn(), error: vi.fn() }

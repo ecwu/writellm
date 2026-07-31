@@ -13,6 +13,7 @@ export interface OpenDatabaseOptions {
   databaseRole: 'app' | 'project'
   migrations: readonly DatabaseMigration[]
   log: Logger
+  preflight?: (database: Database.Database) => void
   validate?: (database: Database.Database) => void
   beforeMigrate?: (database: Database.Database) => void | Promise<void>
 }
@@ -56,6 +57,7 @@ export async function openDatabase<Schema>(
       if (inspectionApplicationId !== 0 && inspectionApplicationId !== options.applicationId) {
         throw new Error('Database file belongs to a different application role')
       }
+      options.preflight?.(inspectionDatabase)
       if (hasPendingMigrations(inspectionDatabase, options.migrations)) {
         await options.beforeMigrate?.(inspectionDatabase)
       }

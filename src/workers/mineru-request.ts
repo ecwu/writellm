@@ -8,9 +8,15 @@ import type {
   MineruUtilityResponse
 } from '../shared/contracts/mineru'
 import { runKnowledgeNormalizer } from './knowledge-normalizer'
+import {
+  fetchConfiguredEndpoint,
+  fetchPublicHttps,
+  OutboundHttpPolicyError,
+  readBoundedText,
+  type ArtifactUrlValidator
+} from './outbound-http'
 
 const MAX_API_BODY_BYTES = 1024 * 1024
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 export class MineruRequestError extends Error {
   constructor(
@@ -62,17 +68,18 @@ const pollDataSchema = z.object({
 
 export async function runMineruRequest(
   request: MineruUtilityRequest,
-  fetchImplementation: typeof fetch = fetch
+  fetchImplementation: typeof fetch = fetch,
+  security: { validateArtifactUrl?: ArtifactUrlValidator } = {}
 ): Promise<Exclude<MineruUtilityResponse, { type: 'error' }>> {
   switch (request.operation) {
     case 'allocate':
       return allocate(request, fetchImplementation)
     case 'upload':
-      return upload(request, fetchImplementation)
+      return upload(request, fetchImplementation, security.validateArtifactUrl)
     case 'poll':
       return poll(request, fetchImplementation)
     case 'download':
-      return download(request, fetchImplementation)
+      return download(request, fetchImplementation, security.validateArtifactUrl)
     case 'normalize':
       return runKnowledgeNormalizer(request)
   }
@@ -83,7 +90,7 @@ async function allocate(
   fetchImplementation: typeof fetch
 ): Promise<Exclude<MineruUtilityResponse, { type: 'error' }>> {
   if (request.config.role !== 'mineru') throw new Error('MinerU provider role is required')
-  const response = await fetchImplementation(
+  const response = await fetchConfiguredEndpoint(
     new URL('/api/v4/file-urls/batch', request.config.baseUrl),
     {
       method: 'POST',
@@ -96,9 +103,9 @@ async function allocate(
       body: JSON.stringify({
         files: [{ name: request.fileName, data_id: request.parseTaskId }],
         model_version: request.config.model
-      }),
-      redirect: 'error'
-    }
+      })
+    },
+    fetchImplementation
   )
   const envelope = await readEnvelope(response)
   const data = allocateDataSchema.parse(envelope.data)
@@ -113,18 +120,29 @@ async function allocate(
 
 async function upload(
   request: Extract<MineruUtilityRequest, { operation: 'upload' }>,
-  fetchImplementation: typeof fetch
+  fetchImplementation: typeof fetch,
+  validateArtifactUrl?: ArtifactUrlValidator
 ): Promise<Exclude<MineruUtilityResponse, { type: 'error' }>> {
   const before = await lstat(request.sourcePath)
   if (!before.isFile() || before.isSymbolicLink() || before.size !== request.expectedBytes) {
     throw new MineruRequestError('source_changed', false)
   }
-  const response = await fetchImplementation(request.uploadUrl, {
-    method: 'PUT',
-    body: createReadStream(request.sourcePath) as never,
-    redirect: 'error',
-    duplex: 'half'
-  } as RequestInit)
+  let response: Response
+  try {
+    response = await fetchPublicHttps(
+      request.uploadUrl,
+      {
+        method: 'PUT',
+        body: createReadStream(request.sourcePath) as never,
+        duplex: 'half'
+      } as RequestInit,
+      { fetchImplementation, validateUrl: validateArtifactUrl, maxRedirects: 0 }
+    )
+  } catch (err) {
+    throw new MineruRequestError('upload_url_invalid', false, undefined, undefined, {
+      cause: err
+    })
+  }
   if (!response.ok) {
     throw httpError(response.status)
   }
@@ -140,16 +158,16 @@ async function poll(
   fetchImplementation: typeof fetch
 ): Promise<Exclude<MineruUtilityResponse, { type: 'error' }>> {
   if (request.config.role !== 'mineru') throw new Error('MinerU provider role is required')
-  const response = await fetchImplementation(
+  const response = await fetchConfiguredEndpoint(
     new URL(
       `/api/v4/extract-results/batch/${encodeURIComponent(request.remoteTaskId)}`,
       request.config.baseUrl
     ),
     {
       method: 'GET',
-      headers: { Authorization: `Bearer ${request.credential}`, Accept: 'application/json' },
-      redirect: 'error'
-    }
+      headers: { Authorization: `Bearer ${request.credential}`, Accept: 'application/json' }
+    },
+    fetchImplementation
   )
   const envelope = await readEnvelope(response)
   const data = pollDataSchema.parse(envelope.data)
@@ -178,14 +196,21 @@ async function poll(
 
 async function download(
   request: Extract<MineruUtilityRequest, { operation: 'download' }>,
-  fetchImplementation: typeof fetch
+  fetchImplementation: typeof fetch,
+  validateArtifactUrl?: ArtifactUrlValidator
 ): Promise<Exclude<MineruUtilityResponse, { type: 'error' }>> {
-  assertSafeDownloadUrl(request.downloadUrl)
-  const response = await fetchImplementation(request.downloadUrl, {
-    method: 'GET',
-    redirect: 'follow'
-  })
-  if (response.url !== '') assertSafeDownloadUrl(response.url)
+  let response: Response
+  try {
+    response = await fetchPublicHttps(
+      request.downloadUrl,
+      { method: 'GET' },
+      { fetchImplementation, validateUrl: validateArtifactUrl, maxRedirects: 3 }
+    )
+  } catch (err) {
+    throw new MineruRequestError('download_redirect_invalid', false, undefined, undefined, {
+      cause: err
+    })
+  }
   if (!response.ok || response.body === null) throw httpError(response.status)
   const declaredLength = response.headers.get('content-length')
   if (declaredLength !== null) {
@@ -238,22 +263,19 @@ async function download(
   }
 }
 
-function assertSafeDownloadUrl(value: string): void {
-  const url = new URL(value)
-  const loopback = LOOPBACK_HOSTS.has(url.hostname)
-  if (
-    !(url.protocol === 'https:' || (url.protocol === 'http:' && loopback)) ||
-    url.username !== '' ||
-    url.password !== '' ||
-    url.hash !== ''
-  ) {
-    throw new MineruRequestError('download_redirect_invalid', false)
-  }
-}
-
 async function readEnvelope(response: Response): Promise<z.infer<typeof envelopeSchema>> {
   if (!response.ok) throw httpError(response.status)
-  const text = await readBoundedText(response, MAX_API_BODY_BYTES)
+  let text: string
+  try {
+    text = await readBoundedText(response, MAX_API_BODY_BYTES)
+  } catch (err) {
+    if (err instanceof OutboundHttpPolicyError && err.code === 'response_too_large') {
+      throw new MineruRequestError('response_too_large', false, response.status, undefined, {
+        cause: err
+      })
+    }
+    throw err
+  }
   let value: unknown
   try {
     value = JSON.parse(text)
@@ -273,19 +295,6 @@ async function readEnvelope(response: Response): Promise<z.infer<typeof envelope
     )
   }
   return envelope
-}
-
-async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
-  if (response.body === null) return ''
-  const chunks: Buffer[] = []
-  let total = 0
-  for await (const chunk of response.body) {
-    const bytes = Buffer.from(chunk)
-    total += bytes.byteLength
-    if (total > maxBytes) throw new MineruRequestError('response_too_large', false)
-    chunks.push(bytes)
-  }
-  return Buffer.concat(chunks).toString('utf8')
 }
 
 function httpError(status: number): MineruRequestError {

@@ -6,6 +6,7 @@ import type { OpenedDatabase } from '../db/open-database'
 import { openDatabase } from '../db/open-database'
 import type { AppDatabaseSchema } from './database-types'
 import { appMigrations } from './migrations'
+import { backfillCredentialBindings } from '../providers/credential-binding'
 
 export const APP_DATABASE_APPLICATION_ID = 0x574c4150
 export const APP_SCHEMA_VERSION = appMigrations.at(-1)?.version ?? 0
@@ -42,6 +43,7 @@ export async function openAppDatabase(
     }
   }).then(async (database) => {
     try {
+      await backfillCredentialBindings(database, options.log)
       await cleanupMigrationBackups(join(dirname(options.path), 'backups'), {
         keep: 3,
         log: options.log

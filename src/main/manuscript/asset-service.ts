@@ -195,7 +195,10 @@ export class ManuscriptAssetService {
     if (createHash('sha256').update(bytes).digest('hex') !== row.sha256) {
       throw new Error('Manuscript asset hash changed')
     }
-    validateImageBytes(bytes, row.mime_type)
+    const validated = validateImageBytes(bytes, row.mime_type)
+    if (validated.extension !== row.extension) {
+      throw new Error('Manuscript asset extension does not match its validated MIME')
+    }
     return { row, bytes }
   }
 

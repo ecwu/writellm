@@ -3,6 +3,7 @@ import type { Logger } from 'pino'
 import type { CredentialBackendStatus } from '../../shared/contracts/providers'
 import type { AppDatabase } from '../app-db/connection'
 import type { AppDatabaseSchema } from '../app-db/database-types'
+import { expectedCredentialBinding } from './credential-binding'
 
 export interface SafeStorageAdapter {
   isEncryptionAvailable(): boolean
@@ -62,10 +63,11 @@ export class CredentialService {
   async hasCredential(providerConfigId: string): Promise<boolean> {
     const row = await this.database.kysely
       .selectFrom('encrypted_credentials')
-      .select('id')
+      .select(['id', 'binding_fingerprint'])
       .where('provider_config_id', '=', providerConfigId)
       .executeTakeFirst()
-    return row !== undefined
+    if (row === undefined) return false
+    return this.bindingMatches(providerConfigId, row.binding_fingerprint)
   }
 
   encryptForPersistence(plainText: string): string {
@@ -103,21 +105,32 @@ export class CredentialService {
     database: Kysely<AppDatabaseSchema> | Transaction<AppDatabaseSchema> = this.database.kysely
   ): Promise<void> {
     const now = this.now()
+    const bindingFingerprint = await expectedCredentialBinding(database, providerConfigId)
     await database
       .insertInto('encrypted_credentials')
       .values({
         id: `${providerConfigId}:api-key`,
         provider_config_id: providerConfigId,
         ciphertext,
+        binding_fingerprint: bindingFingerprint,
         created_at: now,
         updated_at: now
       })
-      .onConflict((conflict) => conflict.column('id').doUpdateSet({ ciphertext, updated_at: now }))
+      .onConflict((conflict) =>
+        conflict.column('id').doUpdateSet({
+          ciphertext,
+          binding_fingerprint: bindingFingerprint,
+          updated_at: now
+        })
+      )
       .execute()
   }
 
-  async removeCredential(providerConfigId: string): Promise<void> {
-    await this.database.kysely
+  async removeCredential(
+    providerConfigId: string,
+    database: Kysely<AppDatabaseSchema> | Transaction<AppDatabaseSchema> = this.database.kysely
+  ): Promise<void> {
+    await database
       .deleteFrom('encrypted_credentials')
       .where('provider_config_id', '=', providerConfigId)
       .execute()
@@ -129,10 +142,13 @@ export class CredentialService {
   ): Promise<T> {
     const row = await this.database.kysely
       .selectFrom('encrypted_credentials')
-      .select('ciphertext')
+      .select(['ciphertext', 'binding_fingerprint'])
       .where('provider_config_id', '=', providerConfigId)
       .executeTakeFirst()
     if (row === undefined) throw new CredentialUnavailableError('Provider credential is missing')
+    if (!(await this.bindingMatches(providerConfigId, row.binding_fingerprint))) {
+      throw new CredentialUnavailableError('Provider credential is missing')
+    }
     const status = this.backendStatus()
     if (!status.securePersistence) {
       throw new CredentialUnavailableError(
@@ -156,10 +172,43 @@ export class CredentialService {
   async readPersistedValue(providerConfigId: string): Promise<string | undefined> {
     const row = await this.database.kysely
       .selectFrom('encrypted_credentials')
-      .select('ciphertext')
+      .select(['ciphertext', 'binding_fingerprint'])
       .where('provider_config_id', '=', providerConfigId)
       .executeTakeFirst()
-    return row === undefined ? undefined : this.decryptPersistedValue(row.ciphertext)
+    if (
+      row === undefined ||
+      !(await this.bindingMatches(providerConfigId, row.binding_fingerprint))
+    ) {
+      return undefined
+    }
+    return this.decryptPersistedValue(row.ciphertext)
+  }
+
+  private async bindingMatches(
+    providerConfigId: string,
+    actualBinding: string | null
+  ): Promise<boolean> {
+    let expectedBinding: string
+    try {
+      expectedBinding = await expectedCredentialBinding(this.database.kysely, providerConfigId)
+    } catch (err) {
+      this.log.error(
+        { event: 'credential.binding_resolution.failed', err, providerConfigId },
+        'Failed to resolve provider credential security identity'
+      )
+      return false
+    }
+    if (actualBinding === expectedBinding) return true
+    this.log.warn(
+      {
+        subsystem: 'providers',
+        component: 'credential-binding',
+        event: 'security.credential_binding_mismatch',
+        providerConfigId
+      },
+      'Rejected a provider credential bound to a different security identity'
+    )
+    return false
   }
 }
 

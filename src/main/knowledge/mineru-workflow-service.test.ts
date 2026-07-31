@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -66,6 +66,40 @@ describe('MineruWorkflowService', () => {
 
     expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
     await expect(readFile(join(temporary, 'partial.zip'))).rejects.toMatchObject({ code: 'ENOENT' })
+    fixture.database.close()
+  })
+
+  it('refuses cleanup through a symbolic-link temp directory and preserves the external sentinel', async () => {
+    const fixture = await createFixture()
+    const service = createService(fixture, createGateway())
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const outside = join(fixture.root, 'outside-cleanup')
+    await mkdir(outside)
+    await writeFile(join(outside, 'sentinel.txt'), 'safe')
+    await symlink(outside, join(fixture.projectRoot, '.writellm', 'temp', 'mineru'))
+
+    const cleanupId = await service.cleanupCancelledArtifacts(fixture.knowledgeItemId, {
+      parseTaskIds: [parseTaskId],
+      parseRevisionIds: [],
+      normalizationRunIds: []
+    })
+    const cleanupJob = fixture.jobs
+      .list({ limit: 20 })
+      .find((job) => job.type === 'artifact_cleanup' && job.payload.cleanupId === cleanupId)
+    if (cleanupJob === undefined) throw new Error('Cleanup job was not enqueued')
+
+    await expect(service.handleArtifactCleanup(context(cleanupJob))).rejects.toThrow(
+      'MinerU artifact cleanup failed'
+    )
+    expect(await readFile(join(outside, 'sentinel.txt'), 'utf8')).toBe('safe')
+    expect(
+      fixture.database.immediate((database) =>
+        database
+          .prepare('SELECT state FROM artifact_cleanup_requests WHERE cleanup_id = ?')
+          .pluck()
+          .get(cleanupId)
+      )
+    ).toBe('queued')
     fixture.database.close()
   })
 

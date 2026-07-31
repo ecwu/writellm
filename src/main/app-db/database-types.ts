@@ -26,6 +26,7 @@ export interface EncryptedCredentialTable {
   id: string
   provider_config_id: string
   ciphertext: string
+  binding_fingerprint: string | null
   created_at: string
   updated_at: string
 }

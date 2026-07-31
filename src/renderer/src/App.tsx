@@ -9,8 +9,13 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
+  TriangleAlert,
   XCircle
 } from 'lucide-react'
+import type {
+  ManuscriptExportKind,
+  ManuscriptExportResult
+} from '../../shared/contracts/manuscript-export'
 import type {
   ProjectLifecycleSnapshot,
   ProjectLifecycleState,
@@ -79,6 +84,7 @@ type ProjectAction =
   | 'switch'
   | 'recovery'
   | 'snapshot'
+  | 'export'
   | 'history'
 
 const actionErrorMessages: Record<
@@ -96,6 +102,7 @@ const actionErrorMessages: Record<
   diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
   recovery: 'WriteLLM could not complete that recovery action. Check diagnostics and try again.',
   snapshot: 'WriteLLM could not complete the snapshot action. Please try again.',
+  export: 'WriteLLM could not export the manuscript. Choose another destination and try again.',
   history: 'WriteLLM could not complete the version history action. Please try again.'
 }
 
@@ -123,6 +130,9 @@ function App(): React.JSX.Element {
   }>({ projectSessionId: null, open: false })
   const [versionHistoryState, setVersionHistoryState] = useState<VersionHistoryState | null>(null)
   const [versionHistoryView, setVersionHistoryView] = useState<VersionHistoryView>(null)
+  const [exportResult, setExportResult] = useState<
+    Extract<ManuscriptExportResult, { created: true }> | undefined
+  >()
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -317,6 +327,25 @@ function App(): React.JSX.Element {
     }
   }, [projectSessionId])
 
+  const exportManuscript = useCallback(
+    async (kind: ManuscriptExportKind): Promise<void> => {
+      if (projectSessionId === undefined) return
+      setActiveAction('export')
+      try {
+        const result = await window.desktop.projects.exportManuscript({
+          projectSessionId,
+          kind
+        })
+        if (result.created) setExportResult(result)
+      } catch {
+        notifyActionError(actionErrorMessages.export)
+      } finally {
+        setActiveAction(null)
+      }
+    },
+    [projectSessionId]
+  )
+
   const restoreSnapshot = useCallback(async (): Promise<void> => {
     setActiveAction('snapshot')
     try {
@@ -433,6 +462,8 @@ function App(): React.JSX.Element {
         onOpen={() => void openProject()}
         onSwitch={() => void switchProject()}
         onSave={() => window.dispatchEvent(new Event('writellm:save'))}
+        onExportNative={() => void exportManuscript('native')}
+        onExportMarkdown={() => void exportManuscript('markdown')}
         onCreateSnapshot={() => void createSnapshot()}
         onRestoreSnapshot={() => void restoreSnapshot()}
         versionHistoryState={versionHistoryState}
@@ -733,6 +764,46 @@ function App(): React.JSX.Element {
               <Button type='submit'>Choose location</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={exportResult !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setExportResult(undefined)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manuscript exported</DialogTitle>
+            <DialogDescription>
+              {exportResult?.packageName} contains the complete current manuscript and{' '}
+              {exportResult?.assetCount ?? 0} referenced asset
+              {(exportResult?.assetCount ?? 0) === 1 ? '' : 's'}.
+            </DialogDescription>
+          </DialogHeader>
+          {exportResult?.lossReport && exportResult.lossReport.losses.length > 0 ? (
+            <Alert>
+              <TriangleAlert />
+              <AlertTitle>Markdown limitations</AlertTitle>
+              <AlertDescription>
+                <p>
+                  {exportResult.lossReport.losses.length} formatting detail
+                  {exportResult.lossReport.losses.length === 1 ? ' was' : 's were'} recorded in{' '}
+                  writellm.loss-report.json.
+                </p>
+                <ul className='list-disc pl-4'>
+                  {exportResult.lossReport.losses.slice(0, 5).map((loss) => (
+                    <li key={`${loss.sectionId}:${loss.blockId}:${loss.code}`}>{loss.message}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button>Done</Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

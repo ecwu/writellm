@@ -1,7 +1,8 @@
 # WriteLLM v2 Implementation Todo
 
-Status: Checkpoint 23P is complete; Checkpoint 24 remains unstarted
-Recorded: 2026-07-30
+Status: Checkpoint 26.8S security remediation is complete; Checkpoint 26.9 is blocked on hosted
+release evidence
+Recorded: 2026-07-31
 
 This is the persistent ordered implementation tracker for the clarified product: WriteLLM opens one self-contained project folder at a time. Update this document in the same change that starts or completes an item.
 
@@ -18,12 +19,49 @@ Status markers:
 
 ## Current Checkpoint
 
-Checkpoint 23P is complete under ADR 008. Checkpoint 24 remains unstarted. The Phase 10 plan was
-re-audited on 2026-07-30 against
-the current source, architecture, ADR 001–007, completed Snapshot v2/version history, native
-packaging scripts, packaged smoke, and test inventory. Checkpoint 24 remains unstarted and requires
-separate implementation approval. The realigned Checkpoints 24–26 are authoritative in
-[`phase-10.md`](implementation-todo/phase-10.md); this planning update does not start product code.
+Checkpoints 24 and 25 are complete and verified. Whole-manuscript export is Main-authoritative,
+deterministic, asset-verified, collision-safe, and path-bounded. Native packaging now has four
+explicit native-host targets, fail-closed Electron ABI/architecture preparation, executable
+ASAR/resource inventory, source-independent packaged runtime coverage, deterministic artifact
+evidence, and product metadata. Exact pnpm 11.17.0 static, canonical Electron Vitest, production
+build, all 18 Electron Playwright scenarios, and the macOS arm64 no-identity package/DMG/ZIP gate
+passed. The strengthened package gate also passed 12 runtime smoke scenarios and all 18 E2E
+scenarios against the packaged executable; the recovery manifest binds 22 executable cases to
+exact test names and 20 source hashes. Checkpoint 26.1–26.8 are implemented and locally verified;
+Checkpoint 26.9 requires the
+committed/tagged four-runner GitHub matrix and protected dry-run promotion, which were not
+performed without authorization to commit, push, tag, or dispatch. The realigned Checkpoints
+24–26 are authoritative in [`phase-10.md`](implementation-todo/phase-10.md).
+
+### Checkpoint 26.8S: Security Boundary Remediation
+
+- [x] 26.8S.1 Add the canonical Main-owned project-filesystem capability and migrate MinerU
+  cleanup/extraction, knowledge import/delete/publication, normalization staging/publication, and
+  project-database path access.
+- [x] 26.8S.2 Add application migration 0004 and bind encrypted credentials to the current
+  provider security identity; invalidate unverifiable custom Agent credentials and clear them on
+  endpoint-origin/auth changes without a replacement key.
+- [x] 26.8S.3 Add public-HTTPS MinerU artifact URL validation, manual redirect validation, and a
+  shared actual-byte-bounded response reader for MinerU, provider probes, models.dev, and custom
+  model catalogs.
+- [x] 26.8S.4 Replace the full parsed-document IPC with verified metadata, bounded block pages, and
+  lazy Markdown; bound Agent event pages by both rows and encoded bytes.
+- [x] 26.8S.5 Pass focused adversarial regressions, `check:fast`, the canonical Electron suite,
+  fresh-build E2E, no-identity package verification, and final change-aware bypass review.
+
+Started 2026-07-31 after explicit user approval. The validated scan covered revision
+`9c3119b5f29e1636671ce7b18ce4a13e2230ef3d` plus the recorded dirty-worktree snapshot. ADR 011
+preserves the existing Renderer, project-session, database, worker, and provider authority while
+adding common enforcement points for the eleven findings.
+
+Completed and verified 2026-07-31. Focused filesystem, database, archive, HTTP, credential,
+knowledge-budget, and Agent-budget regressions passed, including a near-200-MiB/20,000-block
+fixture and 200 near-limit Agent events. `pnpm check:fast` passed; canonical Electron Vitest
+passed 115 files/582 tests with one opt-in benchmark skipped; fresh-build Electron E2E passed
+18/18; recovery fixtures passed with 22 cases and 20 bound sources; and `pnpm check:package`
+passed the no-Team-ID signature policy, native inventory, twelve packaged smoke scenarios,
+packaged E2E 18/18, and DMG/ZIP inspection. `check:release` was not run. CP26.9 remains blocked
+only on its own hosted-runner and protected-promotion evidence.
 
 ### Maintenance: Outline editor workspace refinement (2026-07-30)
 
@@ -432,7 +470,7 @@ There are 13 planning files in total: this overview, 11 Phase detail files, and 
 | 7 | [phase-7.md](implementation-todo/phase-7.md) | MinerU submission, normalization, and parsed viewer | 15–16 | Completed |
 | 8 | [phase-8.md](implementation-todo/phase-8.md) | Indexing, embeddings, and hybrid retrieval | 17–19 | Completed |
 | 9 | [phase-9.md](implementation-todo/phase-9.md) | Pi writing agent | 20–23 | Completed |
-| 10 | [phase-10.md](implementation-todo/phase-10.md) | Export, packaging, and release confidence | 24–26 | Not started |
+| 10 | [phase-10.md](implementation-todo/phase-10.md) | Export, packaging, and release confidence | 24–26 | Blocked at Checkpoint 26.9 (real hosted-runner evidence) |
 
 | Maintenance | [maintenance.md](implementation-todo/maintenance.md) | Cross-cutting window-state maintenance | — | Completed |
 

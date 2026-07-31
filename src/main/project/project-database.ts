@@ -12,11 +12,8 @@ import {
   assertJobPersistenceBoundary,
   assertNoPersistedMineruCapabilities
 } from './mineru-persistence-invariant'
-import {
-  PROJECT_BACKUPS_DIRECTORY,
-  PROJECT_DATABASE_RELATIVE_PATH,
-  resolveProjectPath
-} from './project-paths'
+import { PROJECT_BACKUPS_DIRECTORY, PROJECT_DATABASE_RELATIVE_PATH } from './project-paths'
+import { ProjectFilesystem } from './project-filesystem'
 
 export const PROJECT_DATABASE_APPLICATION_ID = 0x574c5052
 export const PROJECT_SCHEMA_VERSION = projectMigrations.at(-1)?.version ?? 0
@@ -24,6 +21,10 @@ export const PROJECT_SCHEMA_VERSION = projectMigrations.at(-1)?.version ?? 0
 export type ProjectDatabase = OpenedDatabase<ProjectDatabaseSchema>
 
 function validateProjectIdentity(database: Database.Database, manifest: ProjectManifest): void {
+  const applicationId = database.pragma('application_id', { simple: true }) as number
+  if (applicationId !== PROJECT_DATABASE_APPLICATION_ID) {
+    throw new Error('Project database application identity is invalid')
+  }
   const projectId = database
     .prepare('SELECT project_id FROM project_meta WHERE singleton_id = 1')
     .pluck()
@@ -39,13 +40,19 @@ function validateProjectIdentity(database: Database.Database, manifest: ProjectM
 
 export async function initializeProjectDatabase(options: {
   projectRoot: string
+  filesystem?: ProjectFilesystem
   manifest: ProjectManifest
   applicationVersion: string
   log: Logger
   initialTitle?: string
 }): Promise<ProjectDatabase> {
+  const filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot, options.log)
+  await filesystem.ensureDirectory('.writellm')
+  const createdDatabase = await filesystem.createExclusiveFile(PROJECT_DATABASE_RELATIVE_PATH)
+  await createdDatabase.handle.close()
+  const databasePath = createdDatabase.path
   const database = await openDatabase<ProjectDatabaseSchema>({
-    path: resolveProjectPath(options.projectRoot, PROJECT_DATABASE_RELATIVE_PATH),
+    path: databasePath,
     applicationId: PROJECT_DATABASE_APPLICATION_ID,
     applicationVersion: options.applicationVersion,
     databaseRole: 'project',
@@ -169,11 +176,13 @@ export async function initializeProjectDatabase(options: {
 
 export async function openProjectDatabase(options: {
   projectRoot: string
+  filesystem?: ProjectFilesystem
   manifest: ProjectManifest
   applicationVersion: string
   log: Logger
 }): Promise<ProjectDatabase> {
-  const databasePath = resolveProjectPath(options.projectRoot, PROJECT_DATABASE_RELATIVE_PATH)
+  const filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot, options.log)
+  const databasePath = await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH)
   try {
     const database = await openDatabase<ProjectDatabaseSchema>({
       path: databasePath,
@@ -182,13 +191,15 @@ export async function openProjectDatabase(options: {
       databaseRole: 'project',
       migrations: projectMigrations,
       log: options.log,
+      preflight: (database) => {
+        validateProjectIdentity(database, options.manifest)
+      },
       beforeMigrate: async (nativeDatabase) => {
         if (!hasPendingMigrations(nativeDatabase, projectMigrations)) return
         const state = readMigrationState(nativeDatabase)
-        const destination = resolveProjectPath(
-          options.projectRoot,
-          `${PROJECT_BACKUPS_DIRECTORY}/migration-v${state.schemaVersion}-to-v${PROJECT_SCHEMA_VERSION}-${randomUUID()}.sqlite`
-        )
+        const destinationRelativePath = `${PROJECT_BACKUPS_DIRECTORY}/migration-v${state.schemaVersion}-to-v${PROJECT_SCHEMA_VERSION}-${randomUUID()}.sqlite`
+        await filesystem.ensureDirectory(PROJECT_BACKUPS_DIRECTORY)
+        const destination = await filesystem.resolveForCreation(destinationRelativePath)
         await createVerifiedDatabaseBackup({
           source: nativeDatabase,
           destination,
@@ -212,13 +223,10 @@ export async function openProjectDatabase(options: {
       }
     })
     try {
-      await cleanupMigrationBackups(
-        resolveProjectPath(options.projectRoot, PROJECT_BACKUPS_DIRECTORY),
-        {
-          keep: 3,
-          log: options.log
-        }
-      )
+      await cleanupMigrationBackups(await filesystem.ensureDirectory(PROJECT_BACKUPS_DIRECTORY), {
+        keep: 3,
+        log: options.log
+      })
     } catch (err) {
       database.close()
       throw err

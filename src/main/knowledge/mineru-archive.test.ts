@@ -63,6 +63,12 @@ describe('extractMineruArchive', () => {
       extractMineruArchive({ archivePath: symlink, destinationRoot: join(root, 'symlink-out') })
     ).rejects.toThrow('symbolic link')
 
+    const device = join(root, 'device.zip')
+    await createZip(device, [['device.md', 'target', 0o060666]])
+    await expect(
+      extractMineruArchive({ archivePath: device, destinationRoot: join(root, 'device-out') })
+    ).rejects.toThrow('non-regular file')
+
     const unexpected = join(root, 'unexpected.zip')
     await createZip(unexpected, [['payload.exe', 'bad']])
     await expect(

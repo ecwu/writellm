@@ -1,4 +1,14 @@
-import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import pino from 'pino'
@@ -250,6 +260,10 @@ describe('ProjectManager', () => {
 
   it('keeps an opened project authoritative when recent metadata update fails', async () => {
     const calls: string[] = []
+    const canonicalRoot = await mkdtemp(join(tmpdir(), 'writellm-project-manager-mocked-open-'))
+    temporaryDirectories.push(canonicalRoot)
+    await mkdir(join(canonicalRoot, '.writellm'))
+    await writeFile(join(canonicalRoot, '.writellm', 'project.sqlite'), 'mock database')
     const database = {
       immediate: vi.fn(() => ({ recovered: 0, cancelled: 0, failed: 0 })),
       close: vi.fn(() => calls.push('database.close'))
@@ -275,7 +289,7 @@ describe('ProjectManager', () => {
       dependencies: {
         canonicalizeRoot: async () => {
           calls.push('realpath')
-          return '/canonical/project'
+          return canonicalRoot
         },
         readManifest: async () => {
           calls.push('manifest')
@@ -441,6 +455,22 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('rejects a linked internal root before acquiring the project lock', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'linked-internal-root')
+    const outside = join(parent, 'outside-internal-root')
+    await mkdir(outside)
+    await writeFile(join(outside, 'sentinel.txt'), 'unchanged')
+    await rm(join(created.projectRoot, '.writellm'), { recursive: true })
+    await symlink(outside, join(created.projectRoot, '.writellm'))
+
+    await expect(manager.open(created.projectRoot)).rejects.toThrow('Failed to open project')
+    await expect(readFile(join(outside, 'sentinel.txt'), 'utf8')).resolves.toBe('unchanged')
+    await expect(access(join(outside, 'project.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
+
+    appDatabase.close()
+  })
+
   it('restores only through a locked manager transition and reopens with a new session', async () => {
     const { parent, appDatabase, manager } = await testEnvironment()
     const created = await existingProject(parent, 'managed-restore')
@@ -493,6 +523,26 @@ describe('ProjectManager', () => {
     await expect(
       manager.versionHistoryState(restored.activeProject?.projectSessionId as string)
     ).resolves.toBe('ready')
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('exports the active manuscript through the live manager without exposing its root', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'export-source')
+    const opened = await manager.open(created.projectRoot)
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const destination = join(parent, 'whole manuscript')
+
+    const exported = await manager.exportManuscript(sessionId, destination, 'native')
+
+    expect(exported.packageName).toBe('whole manuscript')
+    expect(exported.manifest.kind).toBe('native')
+    expect(JSON.stringify(exported)).not.toContain(created.projectRoot)
+    await expect(readFile(join(destination, 'manuscript.json'), 'utf8')).resolves.toContain(
+      'Untitled Section'
+    )
     await manager.close()
     appDatabase.close()
   })

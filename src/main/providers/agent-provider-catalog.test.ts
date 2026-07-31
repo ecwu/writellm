@@ -358,6 +358,114 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
+  it('invalidates custom endpoint credentials and catalogs when the security identity changes', async () => {
+    const { database, credentials, catalog } = await createHarness()
+    await catalog.saveCustomPreset({
+      presetId: 'custom:bound',
+      name: 'Bound',
+      baseUrl: 'https://models.example.test/v1',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 30_000,
+      apiKey: 'first-secret'
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ data: [{ id: 'writer-1' }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        )
+      )
+    )
+    await catalog.refreshPreset('custom:bound', new AbortController().signal)
+
+    const sameOrigin = await catalog.saveCustomPreset({
+      presetId: 'custom:bound',
+      name: 'Bound renamed',
+      baseUrl: 'https://models.example.test/v2',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 45_000
+    })
+    expect(sameOrigin.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
+      authConfigured: true,
+      catalogStatus: 'current',
+      models: [{ id: 'writer-1' }]
+    })
+
+    const changedOrigin = await catalog.saveCustomPreset({
+      presetId: 'custom:bound',
+      name: 'Bound renamed',
+      baseUrl: 'https://other.example.test/v2',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 45_000
+    })
+    expect(
+      changedOrigin.presets.find((preset) => preset.presetId === 'custom:bound')
+    ).toMatchObject({
+      authConfigured: false,
+      catalogStatus: 'empty',
+      models: []
+    })
+    await expect(
+      credentials.withCredential('agent:custom:bound', async (value) => value)
+    ).rejects.toThrow('missing')
+
+    const replaced = await catalog.saveCustomPreset({
+      presetId: 'custom:bound',
+      name: 'Bound renamed',
+      baseUrl: 'https://other.example.test/v2',
+      api: 'anthropic-messages',
+      authMode: 'api_key',
+      timeoutMs: 45_000,
+      apiKey: 'replacement-secret'
+    })
+    expect(replaced.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
+      authConfigured: true,
+      catalogStatus: 'empty'
+    })
+    await expect(
+      credentials.withCredential('agent:custom:bound', async (value) => value)
+    ).resolves.toBe(JSON.stringify({ type: 'api_key', key: 'replacement-secret' }))
+    database.close()
+  })
+
+  it('rejects a streamed custom model catalog above 2 MiB before JSON parsing', async () => {
+    const { database, catalog } = await createHarness()
+    await catalog.saveCustomPreset({
+      presetId: 'custom:oversized',
+      name: 'Oversized',
+      baseUrl: 'https://models.example.test/v1',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 30_000,
+      apiKey: 'catalog-secret'
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Promise.resolve(
+          new Response(`{"data":[{"id":"${'x'.repeat(2 * 1024 * 1024)}"}]}`, {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        )
+      )
+    )
+
+    await expect(
+      catalog.refreshPreset('custom:oversized', new AbortController().signal)
+    ).rejects.toThrow('Agent model catalog refresh failed')
+    expect(
+      (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:oversized')
+    ).toMatchObject({ catalogStatus: 'empty', models: [] })
+    database.close()
+  })
+
   it('migrates a singleton Agent configuration without decrypting or removing it', async () => {
     const { database, credentials, catalog } = await createHarness()
     const ciphertext = await seedLegacyAgentConfig(database, credentials)

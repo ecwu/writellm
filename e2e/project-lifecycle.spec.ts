@@ -377,8 +377,13 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
   const userData = join(testRoot, 'user-data')
   const alpha = join(testRoot, 'Alpha project.writellm')
   const beta = join(testRoot, 'Beta project.writellm')
+  const nativeManuscriptExport = join(testRoot, 'Alpha native manuscript')
+  const markdownManuscriptExport = join(testRoot, 'Alpha Markdown manuscript')
 
-  const first = await launchApp({ userData, dialogPaths: [testRoot, testRoot, alpha, beta] })
+  const first = await launchApp({
+    userData,
+    dialogPaths: [testRoot, testRoot, alpha, nativeManuscriptExport, markdownManuscriptExport, beta]
+  })
   try {
     await expect(first.page.getByRole('menubar')).toBeVisible()
     await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -426,6 +431,44 @@ test('creates, closes, reopens, switches, and reopens after app restart', async 
     ).resolves.toBe(true)
     await expectActiveProject(first.page, 'Alpha project')
     await expect(first.page.locator('.bn-editor').first()).toContainText('Close flush persistence')
+    await first.page.locator('.bn-editor').first().click()
+    await first.page.keyboard.press('End')
+    await first.page.keyboard.type(' Export final flush')
+    await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await first.page
+      .getByRole('menuitem', { name: 'Export native manuscript…', exact: true })
+      .click()
+    const nativeCompletion = first.page.getByRole('dialog', { name: 'Manuscript exported' })
+    await expect(nativeCompletion).toContainText('Alpha native manuscript')
+    await nativeCompletion.getByRole('button', { name: 'Done', exact: true }).click()
+
+    await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+    await first.page
+      .getByRole('menuitem', { name: 'Export Markdown manuscript…', exact: true })
+      .click()
+    const markdownCompletion = first.page.getByRole('dialog', { name: 'Manuscript exported' })
+    await expect(markdownCompletion).toContainText('Alpha Markdown manuscript')
+    await markdownCompletion.getByRole('button', { name: 'Done', exact: true }).click()
+
+    const nativeManifestText = await readFile(
+      join(nativeManuscriptExport, 'writellm.manuscript-export.json'),
+      'utf8'
+    )
+    const markdownManifestText = await readFile(
+      join(markdownManuscriptExport, 'writellm.manuscript-export.json'),
+      'utf8'
+    )
+    expect(nativeManifestText).not.toContain(alpha)
+    expect(markdownManifestText).not.toContain(alpha)
+    await expect(
+      readFile(join(nativeManuscriptExport, 'manuscript.json'), 'utf8')
+    ).resolves.toContain('Export final flush')
+    await expect(
+      readFile(join(markdownManuscriptExport, 'manuscript.md'), 'utf8')
+    ).resolves.toContain('Export final flush')
+    await expect(
+      readFile(join(markdownManuscriptExport, 'writellm.loss-report.json'), 'utf8')
+    ).resolves.toContain('"formatVersion":1')
     const exportInput = await first.page.evaluate(async () => {
       const lifecycle = await window.desktop.projects.lifecycle()
       const projectSessionId = lifecycle.activeProject?.projectSessionId

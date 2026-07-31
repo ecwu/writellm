@@ -10,6 +10,7 @@ import {
 import { mineruUtilityRequestSchema, type MineruUtilityResponse } from '../shared/contracts/mineru'
 import { runAuxiliaryModelRequest } from './auxiliary-model-request'
 import { MineruRequestError, runMineruRequest } from './mineru-request'
+import { assertPublicHttpsOrLoopbackTestUrl } from './outbound-http'
 import { runProviderProbeRequest } from './provider-probe-request'
 import {
   modelsDevResolveRequestSchema,
@@ -21,6 +22,7 @@ import { createPortLogger } from './shared/port-logger'
 
 const parentPort = process.parentPort
 if (parentPort === undefined) throw new Error('Background worker requires an Electron parent port')
+const allowLoopbackArtifactTestPolicy = process.argv.includes('--writellm-test-artifact-loopback')
 
 const activeRequests = new Map<
   string,
@@ -88,7 +90,15 @@ async function dispatch(value: unknown): Promise<void> {
   const mineru = mineruUtilityRequestSchema.safeParse(value)
   if (mineru.success) {
     try {
-      post(await runMineruRequest(mineru.data))
+      post(
+        await runMineruRequest(
+          mineru.data,
+          fetch,
+          allowLoopbackArtifactTestPolicy
+            ? { validateArtifactUrl: assertPublicHttpsOrLoopbackTestUrl }
+            : {}
+        )
+      )
     } catch (err) {
       workerLog?.(
         'error',

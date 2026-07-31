@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -291,11 +301,13 @@ describe('KnowledgeNormalizationService', () => {
     })
 
     await service.normalize(parseRevisionId, new AbortController().signal)
-    const detail = await service.detail(knowledgeItemId)
-    expect(detail.active?.blocks.map((block) => block.text)).toEqual(expected)
-    expect(detail.active?.blocks.map((block) => block.ordinal)).toEqual(
-      expected.map((_, index) => index)
+    const metadata = await service.metadata(knowledgeItemId)
+    const page = await service.blockPage(
+      knowledgeItemId,
+      metadata.active?.parseRevisionId as string
     )
+    expect(page.blocks.map((block) => block.text)).toEqual(expected)
+    expect(page.blocks.map((block) => block.ordinal)).toEqual(expected.map((_, index) => index))
     fixture.database.close()
   })
 
@@ -419,6 +431,114 @@ describe('KnowledgeNormalizationService', () => {
           .all(parseRevisionId) as Array<Record<string, unknown>>
     )
     expect(runsAfter).toEqual(runs)
+    fixture.database.close()
+  })
+
+  it('streams a near-200 MiB 20,000-block document through bounded pages and rejects oversized Markdown', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Seed' }]))
+    })
+    const service = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      createId: () => '44444444-4444-4444-8444-444444444444'
+    })
+    await service.normalize(parseRevisionId, new AbortController().signal)
+    await replaceNormalizedOutput(fixture, {
+      blockCount: 20_000,
+      blockTextBytes: 9_700,
+      document: Buffer.alloc(4 * 1024 * 1024 + 1, 0x6d)
+    })
+
+    const metadata = await service.metadata(knowledgeItemId)
+    expect(metadata.active).toMatchObject({
+      parseRevisionId,
+      blockCount: 20_000,
+      documentByteSize: 4 * 1024 * 1024 + 1
+    })
+    const seen = new Set<number>()
+    let cursor = 0
+    let pageCount = 0
+    while (true) {
+      const page = await service.blockPage(knowledgeItemId, parseRevisionId, cursor, 100)
+      expect(page.blocks.length).toBeGreaterThan(0)
+      expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(4 * 1024 * 1024)
+      for (const block of page.blocks) {
+        expect(seen.has(block.ordinal)).toBe(false)
+        seen.add(block.ordinal)
+      }
+      pageCount += 1
+      if (!page.hasMore) break
+      expect(page.nextCursor).toBeGreaterThan(cursor)
+      cursor = page.nextCursor
+    }
+    expect(pageCount).toBe(200)
+    expect(seen.size).toBe(20_000)
+    expect(Math.min(...seen)).toBe(0)
+    expect(Math.max(...seen)).toBe(19_999)
+    await expect(service.markdown(knowledgeItemId, parseRevisionId)).resolves.toEqual({
+      state: 'too_large',
+      parseRevisionId,
+      byteSize: 4 * 1024 * 1024 + 1
+    })
+    fixture.database.close()
+  }, 30_000)
+
+  it('rejects a single JSONL record above the 2 MiB line limit', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Seed' }]))
+    })
+    const service = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      createId: () => '44444444-4444-4444-8444-444444444444'
+    })
+    await service.normalize(parseRevisionId, new AbortController().signal)
+    await replaceNormalizedOutput(fixture, {
+      rawBlocks: Buffer.alloc(2 * 1024 * 1024 + 1, 0x78),
+      blockCount: 1,
+      document: Buffer.from('# Safe')
+    })
+
+    await expect(service.metadata(knowledgeItemId)).rejects.toThrow(
+      'Normalized block line exceeds the size limit'
+    )
+    fixture.database.close()
+  })
+
+  it('invalidates verified block cache entries when file identity changes at the same size and mtime', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Seed' }]))
+    })
+    const service = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      createId: () => '44444444-4444-4444-8444-444444444444'
+    })
+    await service.normalize(parseRevisionId, new AbortController().signal)
+    await service.metadata(knowledgeItemId)
+    const run = fixture.database.immediate(
+      (database) =>
+        database
+          .prepare('SELECT relative_path FROM normalization_runs WHERE parse_revision_id = ?')
+          .get(parseRevisionId) as { relative_path: string }
+    )
+    const blocksPath = join(fixture.projectRoot, run.relative_path, 'blocks.jsonl')
+    const before = await stat(blocksPath)
+    const original = await readFile(blocksPath)
+    const replacement = Buffer.from(original.toString('utf8').replace('Seed', 'Evil'))
+    expect(replacement.byteLength).toBe(original.byteLength)
+    const replacementPath = `${blocksPath}.replacement`
+    await writeFile(replacementPath, replacement)
+    await rename(replacementPath, blocksPath)
+    await utimes(blocksPath, before.atime, before.mtime)
+
+    await expect(service.metadata(knowledgeItemId)).rejects.toThrow(
+      'Active normalized document hash or block count does not match'
+    )
     fixture.database.close()
   })
 })
@@ -578,4 +698,96 @@ function tinyPng(): Buffer {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64'
   )
+}
+
+async function replaceNormalizedOutput(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  options:
+    | {
+        blockCount: number
+        blockTextBytes: number
+        document: Buffer
+        rawBlocks?: never
+      }
+    | {
+        blockCount: number
+        rawBlocks: Buffer
+        document: Buffer
+        blockTextBytes?: never
+      }
+): Promise<void> {
+  const run = fixture.database.immediate(
+    (database) =>
+      database
+        .prepare(
+          'SELECT normalization_run_id, relative_path FROM normalization_runs WHERE parse_revision_id = ?'
+        )
+        .get(parseRevisionId) as { normalization_run_id: string; relative_path: string }
+  )
+  const root = join(fixture.projectRoot, run.relative_path)
+  const blocksPath = join(root, 'blocks.jsonl')
+  let blocksSha256: string
+  if (options.rawBlocks !== undefined) {
+    await writeFile(blocksPath, options.rawBlocks)
+    blocksSha256 = hash(options.rawBlocks)
+  } else {
+    const handle = await open(blocksPath, 'w')
+    const digest = createHash('sha256')
+    const text = 'x'.repeat(options.blockTextBytes)
+    const contentHash = hash(Buffer.from(text))
+    try {
+      let pending: Buffer[] = []
+      for (let ordinal = 0; ordinal < options.blockCount; ordinal += 1) {
+        const line = Buffer.from(
+          `${JSON.stringify({
+            id: `kb_${ordinal.toString(16).padStart(32, '0')}`,
+            ordinal,
+            type: 'paragraph',
+            text,
+            headingPath: [],
+            assetRefs: [],
+            contentHash
+          })}\n`
+        )
+        pending.push(line)
+        digest.update(line)
+        if (pending.length === 100) {
+          await handle.write(Buffer.concat(pending))
+          pending = []
+        }
+      }
+      if (pending.length > 0) await handle.write(Buffer.concat(pending))
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    blocksSha256 = digest.digest('hex')
+  }
+  const documentPath = join(root, 'document.md')
+  await writeFile(documentPath, options.document)
+  const manifestPath = join(root, 'manifest.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    blocks: { sha256: string; count: number }
+    document: { sha256: string }
+  }
+  manifest.blocks.sha256 = blocksSha256
+  manifest.blocks.count = options.blockCount
+  manifest.document.sha256 = hash(options.document)
+  const manifestBytes = Buffer.from(`${JSON.stringify(manifest)}\n`)
+  await writeFile(manifestPath, manifestBytes)
+  fixture.database.immediate((database) => {
+    database
+      .prepare(
+        `UPDATE normalization_runs
+            SET blocks_sha256 = ?, document_sha256 = ?, manifest_sha256 = ?, block_count = ?
+          WHERE normalization_run_id = ?`
+      )
+      .run(
+        blocksSha256,
+        hash(options.document),
+        hash(manifestBytes),
+        options.blockCount,
+        run.normalization_run_id
+      )
+  })
 }

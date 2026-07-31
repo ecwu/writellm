@@ -37,6 +37,8 @@ import type { AppDatabase } from '../app-db/connection'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { CredentialService } from './credential-service'
 import { MainPiCredentialStore } from './pi-credential-store'
+import { credentialBindingFingerprint } from './credential-binding'
+import { fetchConfiguredEndpoint, readBoundedText } from '../../workers/outbound-http'
 
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024
 const MAX_MODELS = 2_000
@@ -161,10 +163,18 @@ export class AgentProviderCatalogService {
       authMode: input.authMode,
       timeoutMs: input.timeoutMs
     })
-    if (previous !== null && previous.api !== config.api) {
-      throw new Error('Custom Agent preset transport cannot be changed')
-    }
-    const endpointChanged = previous !== null && previous.baseUrl !== config.baseUrl
+    const securityIdentityChanged =
+      previous !== null &&
+      credentialBindingFingerprint({
+        providerConfigId: `agent:${presetId}`,
+        provider: providerId,
+        configJson: JSON.stringify(previous)
+      }) !==
+        credentialBindingFingerprint({
+          providerConfigId: `agent:${presetId}`,
+          provider: providerId,
+          configJson: JSON.stringify(config)
+        })
     const now = this.now().toISOString()
     await this.database.kysely.transaction().execute(async (transaction) => {
       await transaction
@@ -195,28 +205,32 @@ export class AgentProviderCatalogService {
           })
           .execute()
       }
-      if (input.apiKey !== undefined) {
+      if (config.authMode === 'none') {
+        await this.credentials.removeCredential(`agent:${presetId}`, transaction)
+      } else if (input.apiKey !== undefined) {
         const serialized = JSON.stringify({ type: 'api_key', key: input.apiKey })
         await this.credentials.persistEncrypted(
           `agent:${presetId}`,
           this.credentials.encryptForPersistence(serialized),
           transaction
         )
+      } else if (securityIdentityChanged) {
+        await this.credentials.removeCredential(`agent:${presetId}`, transaction)
       }
-      if (previous === null || endpointChanged) {
+      if (previous === null || securityIdentityChanged) {
         await transaction
           .deleteFrom('agent_model_catalogs')
           .where('provider_config_id', '=', `agent:${presetId}`)
           .execute()
       }
     })
-    if (input.authMode === 'none') await this.#credentialStore.delete(providerId)
     this.log.info(
       {
         event: 'agent.provider_preset.saved',
         presetId,
         providerId,
         api: config.api,
+        securityIdentityChanged,
         credentialReplaced: input.apiKey !== undefined
       },
       'Agent provider preset saved'
@@ -889,16 +903,11 @@ export class AgentProviderCatalogService {
         .where('provider_config_id', '=', LEGACY_AGENT_PROVIDER_CONFIG_ID)
         .executeTakeFirst()
       if (credential !== undefined) {
-        await transaction
-          .insertInto('encrypted_credentials')
-          .values({
-            id: `${providerConfigId}:api-key`,
-            provider_config_id: providerConfigId,
-            ciphertext: credential.ciphertext,
-            created_at: now,
-            updated_at: now
-          })
-          .execute()
+        await this.credentials.persistEncrypted(
+          providerConfigId,
+          credential.ciphertext,
+          transaction
+        )
       }
       await transaction
         .insertInto('agent_model_catalogs')
@@ -967,12 +976,9 @@ async function fetchCustomModels(
     } else if (preset.api === 'azure-openai-responses') headers.set('api-key', apiKey)
     else headers.set('authorization', `Bearer ${apiKey}`)
   }
-  const response = await fetch(url, { headers, signal })
+  const response = await fetchConfiguredEndpoint(url, { headers, signal })
   if (!response.ok) throw new Error(`Model discovery returned HTTP ${response.status}`)
-  const text = await response.text()
-  if (new TextEncoder().encode(text).byteLength > MAX_CATALOG_BYTES) {
-    throw new Error('Model discovery response is too large')
-  }
+  const text = await readBoundedText(response, MAX_CATALOG_BYTES)
   const parsed = JSON.parse(text) as unknown
   const entries = discoveryEntries(parsed)
   if (entries.length === 0) throw new Error('Model discovery returned no models')

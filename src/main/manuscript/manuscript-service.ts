@@ -700,7 +700,7 @@ function revisionFromRow(row: SectionRevisionTable): SectionRevision {
     source: row.source,
     sourceClass: row.source_class,
     content: blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
-    contentSchemaVersion: 1,
+    contentSchemaVersion: contentSchemaVersionFromRow(row),
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,
     wordCount: row.word_count,
@@ -720,7 +720,7 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
     revisionNumber: row.revision_number,
     source: row.source,
     sourceClass: row.source_class,
-    contentSchemaVersion: 1,
+    contentSchemaVersion: contentSchemaVersionFromRow(row),
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,
     wordCount: row.word_count,
@@ -731,6 +731,13 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
     agentProposalId: row.agent_proposal_id,
     createdAt: row.created_at
   }
+}
+
+function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 {
+  if (row.content_schema_version !== 1 && row.content_schema_version !== 2) {
+    throw new Error('Section revision content schema version is unsupported')
+  }
+  return row.content_schema_version
 }
 
 function siblingRows(rows: SectionTable[], parentId: string | null): SectionTable[] {

@@ -1,17 +1,26 @@
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const resourcesArgument = process.argv[2]
 if (resourcesArgument === undefined) throw new Error('Packaged Resources path is required')
 const resources = resolve(resourcesArgument)
 const appPackage = join(resources, 'app.asar', 'package.json')
-const requireBase = await access(appPackage)
-  .then(() => appPackage)
-  .catch(() => join(process.cwd(), 'package.json'))
-const require = createRequire(requireBase)
+await access(appPackage)
+const require = createRequire(appPackage)
 const Database = require('better-sqlite3')
 const extension = join(
   resources,
@@ -25,7 +34,7 @@ const extension = join(
       : 'vec0.so'
 )
 
-const root = await mkdtemp(join('/tmp', 'writellm-packaged-hybrid-'))
+const root = await mkdtemp(join(tmpdir(), 'writellm-packaged-hybrid-'))
 const database = new Database(join(root, 'index.sqlite'))
 try {
   database.loadExtension(extension)
@@ -211,6 +220,7 @@ try {
   process.stdout.write(
     `${JSON.stringify({
       packaged: true,
+      scenario: 'native-hybrid',
       activeGenerationId: generationId,
       activeEmbeddingGenerationId: embeddingGenerationId,
       ftsChunkId: fts.chunk_id,
@@ -240,38 +250,81 @@ async function runPackagedAppScenarios(resources) {
   const repoRequire = createRequire(join(process.cwd(), 'package.json'))
   const { _electron: electron } = repoRequire('@playwright/test')
   const executable = await packagedExecutable(resources)
-  const root = await mkdtemp(join('/tmp', 'writellm-packaged-app-'))
+  const root = await mkdtemp(join(tmpdir(), 'WriteLLM packaged Ünicode '))
   const userData = join(root, 'user-data')
   const projectsParent = join(root, 'projects')
+  const logDirectory = join(root, 'logs')
+  const expiredLog = join(logDirectory, 'retention-expired.log')
+  const retainedLog = join(logDirectory, 'retention-newest.log')
+  const diagnosticPath = join(root, 'writellm-diagnostics.json')
   const sourcePath = join(root, 'packaged fallback.pdf')
-  const projectName = 'Packaged fallback'
+  const projectName = 'Packaged 回归 workspace'
   const evidence = 'Packaged fallback evidence for hybrid retrieval'
   const zipBytes = await resultZip(evidence)
   const mineru = await startMineruServer(zipBytes)
   const embeddingsState = { requests: 0 }
   const embeddings = await startEmbeddingsServer(embeddingsState)
+  const agentState = { requests: 0 }
+  const agent = await startAgentServer(agentState)
   const mineruUrl = `http://127.0.0.1:${mineru.address().port}`
   const embeddingsUrl = `http://127.0.0.1:${embeddings.address().port}/v1`
+  const agentUrl = `http://127.0.0.1:${agent.address().port}/v1`
   let app
   try {
     await writeFile(sourcePath, '%PDF-1.7\nPackaged fallback source')
     await mkdir(projectsParent, { recursive: true })
+    await mkdir(logDirectory, { recursive: true })
+    await writeFile(expiredLog, '{"fixture":"expired"}\n')
+    await writeFile(retainedLog, '{"fixture":"retained"}\n')
+    await utimes(expiredLog, new Date(0), new Date(0))
+    await utimes(retainedLog, new Date(1_000), new Date(1_000))
     app = await electron.launch({
       executablePath: executable,
-      args: [`--user-data-dir=${userData}`],
+      args: [`--user-data-dir=${userData}`, '--writellm-e2e-artifact-loopback'],
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
         WRITELLM_E2E_WINDOW_MODE: 'silent',
+        WRITELLM_LOGGING_FIXTURE: '1',
+        WRITELLM_E2E_LOG_DIRECTORY: logDirectory,
+        WRITELLM_E2E_LOG_ROTATION_SIZE: '1k',
         WRITELLM_E2E_PROJECT_DIALOG_PATHS: JSON.stringify([projectsParent]),
         WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS: JSON.stringify([sourcePath])
       }
     })
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
+    await pollUntil(async () => {
+      try {
+        await access(expiredLog)
+        return null
+      } catch {
+        return true
+      }
+    })
+    await access(retainedLog)
+
+    const credentialBackend = await page.evaluate(async () => {
+      const snapshot = await window.desktop.providers.snapshot()
+      return snapshot.credentialBackend
+    })
+    assert(
+      credentialBackend.persistenceAllowed,
+      `packaged loopback credentials require a secure backend, received ${JSON.stringify(credentialBackend)}`
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'credential-backend',
+        platform: credentialBackend.platform,
+        backend: credentialBackend.backend,
+        securePersistence: credentialBackend.securePersistence,
+        persistenceAllowed: credentialBackend.persistenceAllowed
+      })}\n`
+    )
 
     await page.evaluate(
-      async ({ mineruUrl: mineruBase, embeddingsUrl: embeddingsBase }) => {
+      async ({ mineruUrl: mineruBase, embeddingsUrl: embeddingsBase, agentUrl: agentBase }) => {
         await window.desktop.providers.save({
           config: {
             role: 'mineru',
@@ -299,8 +352,22 @@ async function runPackagedAppScenarios(resources) {
           },
           apiKey: 'packaged-smoke-embedding'
         })
+        await window.desktop.providers.save({
+          config: {
+            role: 'agent',
+            providerId: 'openai-compatible',
+            baseUrl: agentBase,
+            model: 'packaged-agent',
+            modelRevision: 'packaged-agent-v1',
+            embeddingDimension: null,
+            fileSizeLimitMb: null,
+            timeoutMs: 30_000,
+            batchLimit: 1
+          },
+          apiKey: 'packaged-smoke-agent'
+        })
       },
-      { mineruUrl, embeddingsUrl }
+      { mineruUrl, embeddingsUrl, agentUrl }
     )
 
     await page.getByRole('button', { name: 'Create project', exact: true }).click()
@@ -313,9 +380,104 @@ async function runPackagedAppScenarios(resources) {
       .getByText('Active', { exact: true })
       .waitFor({ timeout: 60_000 })
 
+    const durableProject = await page.evaluate(async (pngBase64) => {
+      const active = (await window.desktop.projects.lifecycle()).activeProject
+      if (active === null || active === undefined) throw new Error('Active project missing')
+      const workspace = await window.desktop.manuscript.workspace({
+        projectSessionId: active.projectSessionId
+      })
+      const withPackagedSection = await window.desktop.manuscript.createSection({
+        projectSessionId: active.projectSessionId,
+        create: {
+          baseOutlineVersion: workspace.outlineVersion,
+          parentSectionId: null,
+          position: workspace.sections.length,
+          title: 'Packaged persistence fixture',
+          objective: null,
+          status: 'drafting'
+        }
+      })
+      const sectionId = withPackagedSection.sections.find(
+        (entry) => entry.section.title === 'Packaged persistence fixture'
+      )?.section.sectionId
+      if (sectionId === undefined) throw new Error('Packaged persistence section missing')
+      const loaded = await window.desktop.editor.loadSection({
+        projectSessionId: active.projectSessionId,
+        sectionId
+      })
+      const asset = await window.desktop.editor.uploadAsset({
+        projectSessionId: active.projectSessionId,
+        originalName: 'packaged pixel.png',
+        mimeType: 'image/png',
+        dataBase64: pngBase64
+      })
+      const saved = await window.desktop.editor.saveSectionDocument({
+        projectSessionId: active.projectSessionId,
+        sectionId,
+        baseRevisionId: loaded.revision.sectionRevisionId,
+        baseContentHash: loaded.revision.contentHash,
+        document: [
+          {
+            id: 'packaged-paragraph',
+            type: 'paragraph',
+            props: {
+              backgroundColor: 'default',
+              textColor: 'default',
+              textAlignment: 'left'
+            },
+            content: [{ type: 'text', text: 'Packaged schema-v2 persisted body.', styles: {} }],
+            children: []
+          },
+          {
+            id: 'packaged-image',
+            type: 'image',
+            props: {
+              backgroundColor: 'default',
+              textAlignment: 'center',
+              name: 'Packaged pixel',
+              url: asset.logicalUrl,
+              caption: 'Packaged asset',
+              showPreview: true,
+              previewWidth: 320
+            },
+            children: []
+          }
+        ]
+      })
+      if (!saved.ok) throw new Error(saved.error.message)
+      return {
+        projectId: active.projectId,
+        sectionId,
+        assetId: asset.assetId,
+        firstSessionId: active.projectSessionId
+      }
+    }, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+
     await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     await page.getByTestId('knowledge-upload-button').click()
 
+    const importStarted = await pollUntil(
+      () =>
+        page.evaluate(async () => {
+          const session = (await window.desktop.projects.lifecycle()).activeProject
+            ?.projectSessionId
+          if (session === undefined) return null
+          const items = await window.desktop.knowledge.list({ projectSessionId: session })
+          return items.length === 0
+            ? null
+            : {
+                session,
+                items: items.map((item) => ({
+                  knowledgeItemId: item.knowledgeItemId,
+                  state: item.state
+                }))
+              }
+        }),
+      30_000
+    )
+    process.stdout.write(
+      `${JSON.stringify({ packaged: true, scenario: 'import-started', ...importStarted })}\n`
+    )
     const projectSessionId = await pollUntil(() =>
       page.evaluate(async () => {
         const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
@@ -323,11 +485,31 @@ async function runPackagedAppScenarios(resources) {
         const items = await window.desktop.knowledge.list({ projectSessionId: session })
         const item = items.find((entry) => entry.state === 'stored')
         if (item === undefined) return null
-        const parsed = await window.desktop.knowledge.parsedDocument({
+        const metadata = await window.desktop.knowledge.parsedMetadata({
           projectSessionId: session,
           knowledgeItemId: item.knowledgeItemId
         })
-        return parsed.active !== null && parsed.active !== undefined ? session : null
+        if (metadata.active === null) return null
+        const [blocks, markdown] = await Promise.all([
+          window.desktop.knowledge.parsedBlocks({
+            projectSessionId: session,
+            knowledgeItemId: item.knowledgeItemId,
+            parseRevisionId: metadata.active.parseRevisionId,
+            cursor: 0,
+            limit: 100
+          }),
+          window.desktop.knowledge.parsedMarkdown({
+            projectSessionId: session,
+            knowledgeItemId: item.knowledgeItemId,
+            parseRevisionId: metadata.active.parseRevisionId
+          })
+        ])
+        return blocks.blocks.length > 0 &&
+          blocks.parseRevisionId === metadata.active.parseRevisionId &&
+          markdown.state === 'ready' &&
+          markdown.parseRevisionId === metadata.active.parseRevisionId
+          ? session
+          : null
       })
     )
     const baseline = await pollUntil(async () => {
@@ -344,6 +526,100 @@ async function runPackagedAppScenarios(resources) {
     assert(
       baseline.rerankStatus === 'not-configured',
       `baseline rerank status should be not-configured, was ${baseline.rerankStatus}`
+    )
+
+    const agentRun = await page.evaluate(async (session) => {
+      const conversation = await window.desktop.agent.createSession({
+        projectSessionId: session,
+        title: 'Packaged loopback'
+      })
+      return window.desktop.agent.startRun({
+        projectSessionId: session,
+        agentSessionId: conversation.agentSessionId,
+        prompt: 'Confirm the packaged Agent worker loopback.',
+        scope: 'project',
+        editorContext: {
+          activeSectionId: null,
+          activeBlockId: null,
+          selectedBlockIds: []
+        }
+      })
+    }, projectSessionId)
+    const completedAgentRun = await pollUntil(() =>
+      page.evaluate(
+        async ({ session, agentSessionId, agentRunId }) => {
+          const runs = await window.desktop.agent.listRuns({
+            projectSessionId: session,
+            agentSessionId,
+            limit: 20
+          })
+          const run = runs.find((candidate) => candidate.agentRunId === agentRunId)
+          return run?.status === 'completed' ? run : null
+        },
+        {
+          session: projectSessionId,
+          agentSessionId: agentRun.agentSessionId,
+          agentRunId: agentRun.agentRunId
+        }
+      )
+    )
+    assert(completedAgentRun.status === 'completed', 'packaged Agent run did not complete')
+    assert(agentState.requests > 0, 'packaged Agent loopback received no request')
+
+    const processRoles = await pollUntil(() =>
+      page.evaluate(async () => {
+        const snapshot = await window.desktop.diagnostics.snapshot()
+        const roles = [
+          ...new Set(
+            snapshot.map((entry) => entry.processRole).filter((role) => typeof role === 'string')
+          )
+        ]
+        return ['main', 'agent-worker', 'background-worker', 'index-worker'].every((role) =>
+          roles.includes(role)
+        )
+          ? roles
+          : null
+      })
+    )
+    const trustedUrl = page.url()
+    const blockedFileFetch = await page.evaluate(async () => {
+      try {
+        await fetch('file:///private/etc/passwd')
+        return false
+      } catch {
+        return true
+      }
+    })
+    assert(blockedFileFetch, 'Renderer unexpectedly fetched a file URL')
+    await page.evaluate(() => {
+      window.location.href = 'file:///private/etc/passwd'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const blockedNavigation = page.url() === trustedUrl
+    assert(blockedNavigation, `Renderer navigated away from ${trustedUrl} to ${page.url()}`)
+    const unauthorizedIpc = await verifyUntrustedRendererIpc(
+      app,
+      join(resources, 'app.asar', 'out', 'preload', 'index.js')
+    )
+    assert(unauthorizedIpc === 'rejected', 'an untrusted Renderer invoked privileged IPC')
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'runtime-inventory',
+        schemaVersion: 2,
+        assetProtocol: 'writellm',
+        agentRequests: agentState.requests,
+        processRoles
+      })}\n`
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'security-boundary',
+        blockedFileFetch,
+        blockedNavigation,
+        unauthorizedIpc
+      })}\n`
     )
 
     // Embedding provider failure: the vector leg must degrade to FTS results.
@@ -399,6 +675,110 @@ async function runPackagedAppScenarios(resources) {
       })}\n`
     )
 
+    await page.evaluate(() => {
+      for (let index = 0; index < 50; index += 1) {
+        window.desktop.diagnostics.reportRendererError({
+          event: 'renderer.error',
+          message: `Synthetic packaged rotation entry ${index}`,
+          stack: `SyntheticError: rotation ${index}\n${'x'.repeat(512)}`
+        })
+      }
+    })
+    await pollUntil(() =>
+      page.evaluate(async () => {
+        const snapshot = await window.desktop.diagnostics.snapshot()
+        return snapshot.filter((entry) => entry.event === 'renderer.error').length >= 50
+      })
+    )
+
+    const loggingEvidence = await page.evaluate(
+      async ({ privateRoot, credentials, privateBody }) => {
+        const snapshot = await window.desktop.diagnostics.snapshot()
+        const serialized = JSON.stringify(snapshot)
+        const roles = [
+          ...new Set(
+            snapshot.map((entry) => entry.processRole).filter((role) => typeof role === 'string')
+          )
+        ]
+        const correlationEntries = snapshot.filter(
+          (entry) =>
+            typeof entry.operationId === 'string' ||
+            typeof entry.jobId === 'string' ||
+            typeof entry.requestId === 'string'
+        )
+        const errorEntries = snapshot.filter(
+          (entry) =>
+            entry.err !== null &&
+            typeof entry.err === 'object' &&
+            typeof entry.err.stack === 'string'
+        )
+        return {
+          entries: snapshot.length,
+          roles,
+          correlationEntries: correlationEntries.length,
+          errorEntries: errorEntries.length,
+          leaksPrivateRoot: serialized.includes(privateRoot),
+          leaksCredential: credentials.some((credential) => serialized.includes(credential)),
+          leaksPrivateBody: serialized.includes(privateBody)
+        }
+      },
+      {
+        privateRoot: root,
+        credentials: [
+          'packaged-smoke-mineru',
+          'packaged-smoke-embedding',
+          'packaged-smoke-agent',
+          'packaged-smoke-rerank'
+        ],
+        privateBody: 'Packaged schema-v2 persisted body.'
+      }
+    )
+    assert(loggingEvidence.correlationEntries > 0, 'packaged logs contain no correlation context')
+    assert(loggingEvidence.errorEntries > 0, 'packaged failure logs preserved no Error stack')
+    assert(!loggingEvidence.leaksPrivateRoot, 'packaged diagnostics leaked a private path')
+    assert(!loggingEvidence.leaksCredential, 'packaged diagnostics leaked a credential')
+    assert(!loggingEvidence.leaksPrivateBody, 'packaged diagnostics leaked document content')
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'logging-boundary',
+        ...loggingEvidence
+      })}\n`
+    )
+
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path })
+    }, diagnosticPath)
+    const diagnosticExport = await page.evaluate(() => window.desktop.diagnostics.exportBundle())
+    assert(diagnosticExport.exported, 'packaged diagnostic export was cancelled')
+    const diagnosticBytes = await readFile(diagnosticPath)
+    const diagnosticBundle = JSON.parse(diagnosticBytes.toString('utf8'))
+    const diagnosticText = diagnosticBytes.toString('utf8')
+    const diagnosticMode = (await stat(diagnosticPath)).mode & 0o777
+    assert(Array.isArray(diagnosticBundle.logs), 'packaged diagnostic export has no log array')
+    assert(diagnosticBundle.logs.length <= 5_000, 'packaged diagnostic export exceeded its bound')
+    assert(
+      diagnosticBytes.byteLength < 3 * 1_024 * 1_024,
+      'packaged diagnostic export is unbounded'
+    )
+    assert(!diagnosticText.includes(root), 'packaged diagnostic export leaked a private path')
+    assert(
+      !diagnosticText.includes('packaged-smoke-agent'),
+      'packaged diagnostic export leaked a credential'
+    )
+    if (process.platform !== 'win32') {
+      assert(diagnosticMode === 0o600, `diagnostic export mode was ${diagnosticMode.toString(8)}`)
+    }
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'diagnostic-export',
+        entries: diagnosticBundle.logs.length,
+        bytes: diagnosticBytes.byteLength,
+        mode: process.platform === 'win32' ? 'platform-managed' : diagnosticMode.toString(8)
+      })}\n`
+    )
+
     // Stale sessions: unknown and revoked projectSessionId values must be rejected.
     const unknownSessionSearch = await page.evaluate(async () => {
       try {
@@ -414,38 +794,281 @@ async function runPackagedAppScenarios(resources) {
         return 'rejected'
       }
     })
-    const closedSessionList = await page.evaluate(async (session) => {
-      await window.desktop.projects.close({ projectSessionId: session })
-      try {
-        await window.desktop.knowledge.list({ projectSessionId: session })
-        return 'accepted'
-      } catch {
-        return 'rejected'
-      }
-    }, projectSessionId)
-    const lifecycleAfterClose = await page.evaluate(
-      async () => (await window.desktop.projects.lifecycle()).state
+    const reopenResult = await page.evaluate(
+      async ({ projectId, firstSessionId, sectionId, assetId }) => {
+        try {
+          await window.desktop.projects.close({ projectSessionId: firstSessionId })
+        } catch (cause) {
+          const diagnostics = await window.desktop.diagnostics.snapshot()
+          return {
+            closeError: cause instanceof Error ? cause.message : String(cause),
+            diagnostics: diagnostics
+              .filter((entry) => entry.level === 'error' || entry.level === 'fatal')
+              .slice(-10)
+          }
+        }
+        let firstSessionAccess = 'accepted'
+        try {
+          await window.desktop.knowledge.list({ projectSessionId: firstSessionId })
+        } catch {
+          firstSessionAccess = 'rejected'
+        }
+        const reopened = await window.desktop.projects.openRecent({ projectId })
+        const active = reopened.project
+        if (active === null || active === undefined) throw new Error('Reopened project missing')
+        const loaded = await window.desktop.editor.loadSection({
+          projectSessionId: active.projectSessionId,
+          sectionId
+        })
+        if (
+          loaded.revision.contentSchemaVersion !== 2 ||
+          !JSON.stringify(loaded.revision.content).includes('Packaged schema-v2 persisted body.')
+        ) {
+          throw new Error('Schema-v2 content did not survive packaged reopen')
+        }
+        const resolved = await window.desktop.editor.resolveAsset({
+          projectSessionId: active.projectSessionId,
+          assetId
+        })
+        if (!resolved.url.startsWith('writellm://')) {
+          throw new Error('Packaged asset did not resolve through the application protocol')
+        }
+        return {
+          closeError: null,
+          firstSessionAccess,
+          reopenedSessionId: active.projectSessionId,
+          lifecycle: (await window.desktop.projects.lifecycle()).state
+        }
+      },
+      durableProject
     )
+    if (reopenResult.closeError !== null) {
+      throw new Error(`Packaged close failed: ${JSON.stringify(reopenResult)}`)
+    }
     assert(unknownSessionSearch === 'rejected', 'unknown projectSessionId search was not rejected')
-    assert(closedSessionList === 'rejected', 'closed projectSessionId list was not rejected')
     assert(
-      lifecycleAfterClose === 'closed',
-      `project should be closed after the stale-session check, was ${lifecycleAfterClose}`
+      reopenResult.firstSessionAccess === 'rejected',
+      'closed project session was not rejected'
+    )
+    assert(
+      reopenResult.lifecycle === 'open',
+      `project should be open after packaged reopen, was ${reopenResult.lifecycle}`
     )
     process.stdout.write(
       `${JSON.stringify({
         packaged: true,
         scenario: 'stale-session',
         unknownSessionSearch,
-        closedSessionList,
-        lifecycleAfterClose
+        closedSessionList: reopenResult.firstSessionAccess,
+        reopenedSessionId: reopenResult.reopenedSessionId,
+        lifecycleAfterReopen: reopenResult.lifecycle
       })}\n`
     )
+    await app.close()
+    app = undefined
+    await verifyPackagedLogFiles({
+      logDirectory,
+      expiredLog,
+      retainedLog,
+      privateRoot: root
+    })
+    verifyPackagedAppDatabase(Database, join(userData, 'app.sqlite'))
+    if (process.platform === 'linux') {
+      await verifyLinuxBasicTextRejection(electron, executable, root)
+    }
+    await verifyFatalLogFlush(electron, executable, root)
   } finally {
     if (app !== undefined) await app.close()
     await closeServer(mineru)
     await closeServer(embeddings)
+    await closeServer(agent)
     await rm(root, { recursive: true, force: true })
+  }
+}
+
+async function verifyPackagedLogFiles({ logDirectory, expiredLog, retainedLog, privateRoot }) {
+  try {
+    await access(expiredLog)
+    throw new Error('expired packaged log survived retention cleanup')
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('survived')) throw error
+  }
+  await access(retainedLog)
+  const logs = await pollUntil(async () => {
+    const entries = (await readdir(logDirectory)).filter((name) => name.endsWith('.log'))
+    return entries.length > 2 ? entries : null
+  })
+  const contents = (
+    await Promise.all(logs.map((name) => readFile(join(logDirectory, name), 'utf8')))
+  ).join('\n')
+  assert(contents.includes('"event":"app.stopping"'), 'shutdown log flush omitted app.stopping')
+  assert(!contents.includes(privateRoot), 'packaged log files leaked a private path')
+  assert(!contents.includes('packaged-smoke-agent'), 'packaged log files leaked a credential')
+  process.stdout.write(
+    `${JSON.stringify({
+      packaged: true,
+      scenario: 'log-files',
+      files: logs.length,
+      rotation: 'verified',
+      retention: 'verified',
+      shutdownFlush: 'verified'
+    })}\n`
+  )
+}
+
+async function verifyFatalLogFlush(electron, executable, root) {
+  const userData = join(root, 'fatal-user-data')
+  const logDirectory = join(root, 'fatal-logs')
+  const app = await electron.launch({
+    executablePath: executable,
+    args: [`--user-data-dir=${userData}`],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: undefined,
+      WRITELLM_E2E_WINDOW_MODE: 'silent',
+      WRITELLM_E2E_LOG_DIRECTORY: logDirectory
+    }
+  })
+  let closed = false
+  try {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    const close = app.waitForEvent('close').then(() => {
+      closed = true
+    })
+    await app.evaluate(() => {
+      setTimeout(() => {
+        process.emit('uncaughtException', new Error('synthetic packaged fatal fixture'))
+      }, 0)
+    })
+    await Promise.race([
+      close,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('fatal packaged app did not exit')), 10_000)
+      )
+    ])
+    const fatalText = await pollUntil(async () => {
+      const entries = (await readdir(logDirectory)).filter((name) => name.endsWith('.log'))
+      const text = (
+        await Promise.all(entries.map((name) => readFile(join(logDirectory, name), 'utf8')))
+      ).join('\n')
+      return text.includes('"event":"app.uncaught_exception"') ? text : null
+    })
+    assert(
+      fatalText.includes('synthetic packaged fatal fixture'),
+      'fatal Error stack was not flushed'
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'fatal-log-flush',
+        event: 'app.uncaught_exception',
+        originalError: 'verified'
+      })}\n`
+    )
+  } finally {
+    if (!closed) await app.close()
+  }
+}
+
+async function verifyUntrustedRendererIpc(app, preload) {
+  return app.evaluate(async ({ BrowserWindow }, preloadPath) => {
+    const window = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        preload: preloadPath,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
+      }
+    })
+    try {
+      await window.loadURL('data:text/html,<title>untrusted</title>')
+      return await window.webContents.executeJavaScript(
+        `window.desktop.app.getInfo().then(() => 'accepted', () => 'rejected')`
+      )
+    } finally {
+      window.destroy()
+    }
+  }, preload)
+}
+
+async function verifyLinuxBasicTextRejection(electron, executable, root) {
+  const userData = join(root, 'linux-basic-text-user-data')
+  const app = await electron.launch({
+    executablePath: executable,
+    args: [`--user-data-dir=${userData}`, '--password-store=basic'],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: undefined,
+      WRITELLM_E2E_WINDOW_MODE: 'silent'
+    }
+  })
+  try {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    const result = await page.evaluate(async () => {
+      const backend = (await window.desktop.providers.snapshot()).credentialBackend
+      let persistence = 'accepted'
+      try {
+        await window.desktop.providers.save({
+          config: {
+            role: 'agent',
+            providerId: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:1/v1',
+            model: 'must-not-persist',
+            modelRevision: 'must-not-persist-v1',
+            embeddingDimension: null,
+            fileSizeLimitMb: null,
+            timeoutMs: 5_000,
+            batchLimit: 1
+          },
+          apiKey: 'must-not-persist'
+        })
+      } catch {
+        persistence = 'rejected'
+      }
+      return { backend, persistence }
+    })
+    assert(result.backend.backend === 'basic_text', 'Linux basic store was not reported truthfully')
+    assert(
+      !result.backend.persistenceAllowed && result.persistence === 'rejected',
+      'Linux basic_text credential persistence was not rejected'
+    )
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'linux-basic-text-rejection',
+        backend: result.backend.backend,
+        securePersistence: result.backend.securePersistence,
+        persistence: result.persistence
+      })}\n`
+    )
+  } finally {
+    await app.close()
+  }
+}
+
+function verifyPackagedAppDatabase(Database, path) {
+  const appDatabase = new Database(path, { readonly: true, fileMustExist: true })
+  try {
+    const applicationId = appDatabase.pragma('application_id', { simple: true })
+    const userVersion = appDatabase.pragma('user_version', { simple: true })
+    const integrity = appDatabase.pragma('integrity_check', { simple: true })
+    assert(applicationId === 0x574c4150, `unexpected app.sqlite application ID ${applicationId}`)
+    assert(Number(userVersion) > 0, `app.sqlite user_version was ${userVersion}`)
+    assert(integrity === 'ok', `app.sqlite integrity_check returned ${integrity}`)
+    process.stdout.write(
+      `${JSON.stringify({
+        packaged: true,
+        scenario: 'app-database',
+        applicationId,
+        userVersion,
+        integrity
+      })}\n`
+    )
+  } finally {
+    appDatabase.close()
   }
 }
 
@@ -600,6 +1223,55 @@ function startEmbeddingsServer(state) {
             usage: { prompt_tokens: inputs.length, total_tokens: inputs.length }
           })
         )
+      })
+      return
+    }
+    response.writeHead(404)
+    response.end()
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function startAgentServer(state) {
+  const server = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/v1/chat/completions') {
+      request.resume()
+      request.on('end', () => {
+        state.requests += 1
+        response.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          'x-request-id': 'packaged-agent-loopback'
+        })
+        response.write(
+          `data: ${JSON.stringify({
+            id: 'packaged-agent-loopback',
+            object: 'chat.completion.chunk',
+            created: 1,
+            model: 'packaged-agent',
+            choices: [
+              {
+                index: 0,
+                delta: { role: 'assistant', content: 'Packaged Agent worker completed.' },
+                finish_reason: null
+              }
+            ]
+          })}\n\n`
+        )
+        response.write(
+          `data: ${JSON.stringify({
+            id: 'packaged-agent-loopback',
+            object: 'chat.completion.chunk',
+            created: 1,
+            model: 'packaged-agent',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 8, completion_tokens: 5, total_tokens: 13 }
+          })}\n\n`
+        )
+        response.end('data: [DONE]\n\n')
       })
       return
     }

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino, { type Logger } from 'pino'
@@ -185,5 +185,44 @@ describe('KnowledgeImportService', () => {
       state: 'stored'
     })
     database.close()
+  })
+
+  it('rejects symbolic-link publication and deletion targets without changing external files', async () => {
+    const publication = await fixture()
+    const publicationSource = join(publication.root, 'publication.pdf')
+    const outsidePublication = join(publication.root, 'outside-publication')
+    await mkdir(outsidePublication)
+    await writeFile(join(outsidePublication, 'sentinel.txt'), 'safe')
+    await symlink(outsidePublication, join(publication.projectRoot, 'knowledge'))
+    await writeFile(publicationSource, '%PDF-1.7\npublication')
+
+    await publication.service.importPaths([publicationSource])
+    expect(publication.service.list()[0]).toMatchObject({
+      state: 'failed',
+      errorCode: 'copy_failed'
+    })
+    expect(await readFile(join(outsidePublication, 'sentinel.txt'), 'utf8')).toBe('safe')
+    publication.database.close()
+
+    const deletion = await fixture()
+    const deletionSource = join(deletion.root, 'deletion.pdf')
+    const outsideFile = join(deletion.root, 'outside.pdf')
+    await writeFile(deletionSource, '%PDF-1.7\ndeletion')
+    await writeFile(outsideFile, 'external-safe')
+    const [stored] = await deletion.service.importPaths([deletionSource])
+    if (stored?.sha256 === null || stored?.sha256 === undefined) throw new Error('Import failed')
+    const relativePath = deletion.service.originalRelativePath(stored.knowledgeItemId)
+    const originalPath = join(deletion.projectRoot, relativePath)
+    await unlink(originalPath)
+    await symlink(outsideFile, originalPath)
+
+    await expect(deletion.service.delete(stored.knowledgeItemId)).rejects.toMatchObject({
+      code: 'path_symbolic_link'
+    })
+    expect(await readFile(outsideFile, 'utf8')).toBe('external-safe')
+    expect(deletion.service.list()).toEqual([
+      expect.objectContaining({ knowledgeItemId: stored.knowledgeItemId, state: 'stored' })
+    ])
+    deletion.database.close()
   })
 })

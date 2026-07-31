@@ -45,10 +45,12 @@ import {
 } from './project-lock'
 import {
   INDEX_DATABASE_RELATIVE_PATH,
+  PROJECT_DATABASE_RELATIVE_PATH,
   PROJECT_TEMP_DIRECTORY,
   PROJECT_HISTORY_IGNORE_RELATIVE_PATH,
   PROJECT_HISTORY_RELATIVE_PATH,
-  resolveProjectPath
+  resolveProjectPath,
+  WRITELLM_INTERNAL_DIRECTORY
 } from './project-paths'
 import {
   createProjectSnapshot,
@@ -64,8 +66,14 @@ import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
+import {
+  createManuscriptExport,
+  type PublishedManuscriptExport
+} from '../manuscript/manuscript-export'
+import type { ManuscriptExportKind } from '../../shared/contracts/manuscript-export'
 import { IsomorphicGitProjectVersionStore, type ProjectVersionStore } from './project-version-store'
 import { writeAtomicFile } from '../storage/atomic-file'
+import { ProjectFilesystem } from './project-filesystem'
 
 const historyRestoreJournalSchema = z
   .object({
@@ -211,7 +219,7 @@ export interface ProjectCloseParticipants {
 }
 
 export interface ProjectSnapshotParticipants {
-  finalEditorFlush(context: ProjectContext): Promise<void>
+  finalEditorFlush(context: ProjectContext, purpose?: 'snapshot' | 'export'): Promise<void>
   pauseFilePublishers(context: ProjectContext): Promise<void>
   resumeFilePublishers(context: ProjectContext): Promise<void>
 }
@@ -280,6 +288,7 @@ export interface ProjectManagerOptions {
   ) => ManuscriptService
   createKnowledgeRuntime?: (options: {
     projectRoot: string
+    filesystem: ProjectFilesystem
     projectId: string
     projectSessionId: string
     database: ProjectDatabase
@@ -1091,6 +1100,48 @@ export class ProjectManager {
     })
   }
 
+  exportManuscript(
+    projectSessionId: string,
+    destination: string,
+    kind: ManuscriptExportKind
+  ): Promise<PublishedManuscriptExport> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      const operations = context.operations
+      try {
+        return await createManuscriptExport({
+          projectRoot: context.projectRoot,
+          projectId: context.manifest.projectId,
+          sourceAppVersion: this.#applicationVersion,
+          destination,
+          kind,
+          manuscript: context.manuscript,
+          assets: context.manuscriptAssets,
+          database: context.database,
+          barrier: {
+            pauseMutations: async () => operations?.pauseMutations(),
+            finalEditorFlush: () => this.#snapshotParticipants.finalEditorFlush(context, 'export'),
+            pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
+            resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
+            resumeMutations: async () => operations?.resumeMutations()
+          },
+          log: this.#logger
+        })
+      } catch (err) {
+        this.#logger.error(
+          {
+            event: 'project_manager.manuscript_export.failed',
+            err,
+            projectId: context.manifest.projectId,
+            exportKind: kind
+          },
+          'Project manuscript export failed'
+        )
+        throw new Error('Failed to export the project manuscript', { cause: err })
+      }
+    })
+  }
+
   versionHistoryState(projectSessionId: string): Promise<'uninitialized' | 'ready' | 'damaged'> {
     return this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
@@ -1348,16 +1399,22 @@ export class ProjectManager {
   async #openCanonicalRoot(canonicalRoot: string, acquiredLock?: ProjectWriteLock): Promise<void> {
     const startedAt = Date.now()
     const manifest = await this.#dependencies.readManifest(canonicalRoot)
+    const filesystem = new ProjectFilesystem(canonicalRoot, this.#logger)
     let writeLock = acquiredLock
     let database: ProjectDatabase | undefined
     let runtime: ProjectRuntime | undefined
     try {
+      // Reject a static malicious internal root or database before the write lock
+      // creates anything below `.writellm`.
+      await filesystem.assertExistingDirectory(WRITELLM_INTERNAL_DIRECTORY)
+      await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH)
       writeLock ??= await this.#dependencies.acquireLock(canonicalRoot, {
         ...this.#lockOptions,
         logger: this.#logger
       })
       database = await this.#dependencies.openDatabase({
         projectRoot: canonicalRoot,
+        filesystem,
         manifest,
         applicationVersion: this.#applicationVersion,
         log: this.#logger as Logger
@@ -1392,6 +1449,7 @@ export class ProjectManager {
       await editorPersistence.repairAll()
       const knowledgeRuntime = this.#createKnowledgeRuntime?.({
         projectRoot: canonicalRoot,
+        filesystem,
         projectId: manifest.projectId,
         projectSessionId,
         database,
@@ -1404,6 +1462,7 @@ export class ProjectManager {
       const projectIndex = knowledgeRuntime?.projectIndex
       const knowledgeImports = new KnowledgeImportService({
         projectRoot: canonicalRoot,
+        filesystem,
         projectId: manifest.projectId,
         database,
         log: this.#logger,
@@ -1440,6 +1499,7 @@ export class ProjectManager {
       })
       const context: ProjectContext = {
         projectRoot: canonicalRoot,
+        filesystem,
         manifest,
         projectSessionId,
         operations,

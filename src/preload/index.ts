@@ -101,6 +101,12 @@ import {
   type ProjectSessionInput,
   type VersionHistoryStatus
 } from '../shared/contracts/projects'
+import {
+  manuscriptExportInputSchema,
+  manuscriptExportResultSchema,
+  type ManuscriptExportKind,
+  type ManuscriptExportResult
+} from '../shared/contracts/manuscript-export'
 import { diagnosticLogSchema, type DiagnosticLog } from '../shared/observability/log-schema'
 import {
   jobStatusEventSchema,
@@ -123,8 +129,14 @@ import {
   knowledgeListResultSchema,
   parsedKnowledgeAssetInputSchema,
   parsedKnowledgeAssetSchema,
-  parsedKnowledgeDocumentSchema,
-  type ParsedKnowledgeDocument,
+  parsedKnowledgeBlockPageInputSchema,
+  parsedKnowledgeBlockPageSchema,
+  parsedKnowledgeMarkdownInputSchema,
+  parsedKnowledgeMarkdownSchema,
+  parsedKnowledgeMetadataSchema,
+  type ParsedKnowledgeBlockPage,
+  type ParsedKnowledgeMarkdown,
+  type ParsedKnowledgeMetadata,
   type KnowledgeIndexStatus,
   type KnowledgeItem
 } from '../shared/contracts/knowledge'
@@ -249,6 +261,10 @@ export interface DesktopApi {
     returnToClosed(): Promise<ProjectLifecycleSnapshot>
     createSnapshot(input: ProjectSessionInput): Promise<{ created: boolean }>
     restoreSnapshot(): Promise<ProjectSelectionResult>
+    exportManuscript(input: {
+      projectSessionId: string
+      kind: ManuscriptExportKind
+    }): Promise<ManuscriptExportResult>
     versionHistoryStatus(input: ProjectSessionInput): Promise<VersionHistoryStatus>
     enableVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
     reinitializeVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
@@ -320,7 +336,7 @@ export interface DesktopApi {
       input: SaveSectionDocumentInput & {
         projectSessionId: string
         closingToken: string
-        purpose?: 'close' | 'snapshot' | 'mutation'
+        purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
       }
     ): Promise<SaveSectionDocumentResponse>
     acknowledgeFlush(
@@ -440,10 +456,22 @@ export interface DesktopApi {
       knowledgeItemId: string
       pageIndex: number
     }): Promise<KnowledgeMappingPage>
-    parsedDocument(input: {
+    parsedMetadata(input: {
       projectSessionId: string
       knowledgeItemId: string
-    }): Promise<ParsedKnowledgeDocument>
+    }): Promise<ParsedKnowledgeMetadata>
+    parsedBlocks(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+      parseRevisionId: string
+      cursor?: number
+      limit?: number
+    }): Promise<ParsedKnowledgeBlockPage>
+    parsedMarkdown(input: {
+      projectSessionId: string
+      knowledgeItemId: string
+      parseRevisionId: string
+    }): Promise<ParsedKnowledgeMarkdown>
     parsedAsset(input: {
       projectSessionId: string
       knowledgeItemId: string
@@ -637,6 +665,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.projectSnapshotRestore,
           projectRecoveryActionInputSchema.parse({})
+        )
+      )
+    },
+    async exportManuscript(input) {
+      return manuscriptExportResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectManuscriptExport,
+          manuscriptExportInputSchema.parse(input)
         )
       )
     },
@@ -1243,11 +1279,27 @@ const desktopApi: DesktopApi = {
         )
       )
     },
-    async parsedDocument(input) {
-      return parsedKnowledgeDocumentSchema.parse(
+    async parsedMetadata(input) {
+      return parsedKnowledgeMetadataSchema.parse(
         await ipcRenderer.invoke(
-          IPC_CHANNELS.knowledgeParsedDocument,
+          IPC_CHANNELS.knowledgeParsedMetadata,
           knowledgeItemActionInputSchema.parse(input)
+        )
+      )
+    },
+    async parsedBlocks(input) {
+      return parsedKnowledgeBlockPageSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeParsedBlocks,
+          parsedKnowledgeBlockPageInputSchema.parse(input)
+        )
+      )
+    },
+    async parsedMarkdown(input) {
+      return parsedKnowledgeMarkdownSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeParsedMarkdown,
+          parsedKnowledgeMarkdownInputSchema.parse(input)
         )
       )
     },

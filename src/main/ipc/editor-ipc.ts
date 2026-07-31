@@ -233,7 +233,7 @@ export function registerEditorIpc(options: {
     const context =
       parsed.purpose === 'mutation'
         ? options.manager.assertMutationSession(parsed.projectSessionId)
-        : parsed.purpose === 'snapshot'
+        : parsed.purpose === 'snapshot' || parsed.purpose === 'export'
           ? options.manager.authorizeSnapshotFlush(parsed.projectSessionId, parsed.closingToken)
           : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
@@ -319,7 +319,7 @@ export function registerEditorIpc(options: {
   }
 
   const snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'> = {
-    finalEditorFlush: async (context) => {
+    finalEditorFlush: async (context, purpose = 'snapshot') => {
       const authorization = options.manager.beginSnapshotFlush(context.projectSessionId)
       const activeSectionId = resolveActiveSection(context, activeSections)
       const currentRevision =
@@ -366,7 +366,7 @@ export function registerEditorIpc(options: {
                 editorFlushRequestSchema.parse({
                   projectSessionId: context.projectSessionId,
                   closingToken: authorization.closingToken,
-                  purpose: 'snapshot',
+                  purpose,
                   sectionId: activeSectionId,
                   sectionRevisionId: currentRevision
                 })

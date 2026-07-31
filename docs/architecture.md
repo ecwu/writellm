@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-16 CP19.5 audit gate
-Recorded: 2026-07-16
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate
+Recorded: 2026-07-31
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -22,6 +22,31 @@ The following rules are now the current target. Any older section in this docume
 - BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
 - Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
 - Section deletion uses an internal tombstone: active outline reads exclude `sections.deleted_at`, while the section row, revision chain, and Agent proposal/model lineage remain durable. Tombstones are not restorable through the initial product UI and section IDs are never reused.
+
+## 2026-07-31 Security Boundary Amendment
+
+Checkpoint 26.8S is a blocking security-remediation gate before hosted release promotion. ADR 011
+defines four enforcement boundaries:
+
+- Main constructs one canonical, project-scoped `ProjectFilesystem` capability. Project services
+  use it for managed reads, publication, deletion, extraction, and authoritative database paths;
+  lexical containment alone is not sufficient. Existing ancestors, files, and directories must
+  reject symbolic links and junctions before an operation can reach the filesystem.
+- Existing `project.sqlite` files are identity-checked through a safe read-only preflight before
+  backup, migration, application-ID assignment, pragma mutation, or any other write.
+- Stored credentials are bound to the provider configuration security identity that is allowed to
+  receive them. A changed or unbound identity is unauthenticated and must never be decrypted for a
+  request.
+- MinerU-provided upload and download capabilities are untrusted public-HTTPS destinations.
+  Private/non-global DNS results and unsafe redirect hops are rejected before each request.
+- Main-to-Renderer projections are independently byte-bounded. Large normalized knowledge
+  artifacts use streaming verification plus paginated blocks and lazy bounded Markdown; Agent
+  event pages enforce both row and serialized-byte budgets.
+
+These controls preserve the Renderer sandbox, three fixed worker roles, forward-only migrations,
+request-scoped provider work, and project portability. The filesystem threat model covers
+malicious projects containing pre-existing links; protecting against a same-user process replacing
+paths concurrently would require a future native handle/dirfd design.
 
 ## Product Scope And Invariants
 

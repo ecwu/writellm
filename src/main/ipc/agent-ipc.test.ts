@@ -103,7 +103,7 @@ function harness() {
     createSession: vi.fn(),
     listEventPage: vi.fn(() => {
       order.push('replay')
-      return { events: [], nextAfterSequence: 0, hasMore: false }
+      return { events: [], nextAfterSequence: 0, hasMore: false, returnedBytes: 0 }
     }),
     listRuns: vi.fn(() => [run]),
     startRun: vi.fn(async () => ({ agentRunId, completion: Promise.resolve() })),

@@ -254,6 +254,35 @@ describe('editor IPC active-section final flush', () => {
     expect(logged.err).toBeInstanceOf(Error)
   })
 
+  it('labels whole-manuscript final flushes as export work', async () => {
+    const { context, invoke, manager, registration, sender } = harness()
+    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+      projectSessionId,
+      subscriptionId: '33333333-3333-4333-8333-333333333333'
+    })
+
+    const flush = registration.snapshotParticipants.finalEditorFlush(context as never, 'export')
+    expect(sender.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.editorFlushRequest,
+      expect.objectContaining({
+        purpose: 'export',
+        closingToken: snapshotClosingToken,
+        sectionId: 'section-2',
+        sectionRevisionId: 'revision-2'
+      })
+    )
+    invoke(IPC_CHANNELS.editorFlushAck, {
+      projectSessionId,
+      closingToken: snapshotClosingToken,
+      purpose: 'export',
+      sectionId: 'section-2',
+      sectionRevisionId: 'revision-2'
+    })
+    await flush
+    expect(manager.completeSnapshotFlush).toHaveBeenCalledWith(snapshotClosingToken)
+  })
+
   it('logs the original export error while the renderer receives no absolute path', async () => {
     const { editorPersistence, invoke, logger } = harness()
     const absolutePath = '/Users/private/project/manuscript/exports/section-1.blocknote.json'

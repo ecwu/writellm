@@ -37,6 +37,7 @@ export class PersistentUtilityProcess {
   readonly #processRole?: ProcessRole
   readonly #subsystem?: Subsystem
   readonly #component?: string
+  readonly #args: string[]
   readonly #pending = new Map<string, PendingRequest<unknown>>()
   #child: UtilityProcess | undefined
   #detachLogPort: (() => void) | undefined
@@ -52,6 +53,7 @@ export class PersistentUtilityProcess {
     processRole?: ProcessRole
     subsystem?: Subsystem
     component?: string
+    args?: string[]
   }) {
     this.#modulePath = options.modulePath
     this.#serviceName = options.serviceName
@@ -61,6 +63,7 @@ export class PersistentUtilityProcess {
     this.#processRole = options.processRole
     this.#subsystem = options.subsystem
     this.#component = options.component
+    this.#args = options.args ?? []
   }
 
   request<T>(options: {
@@ -158,7 +161,7 @@ export class PersistentUtilityProcess {
 
   #ensureChild(): UtilityProcess {
     if (this.#child !== undefined) return this.#child
-    const child = this.#factory.fork(this.#modulePath, [], {
+    const child = this.#factory.fork(this.#modulePath, this.#args, {
       serviceName: this.#serviceName,
       stdio: 'ignore'
     })
