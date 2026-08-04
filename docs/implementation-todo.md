@@ -63,6 +63,15 @@ passed the no-Team-ID signature policy, native inventory, twelve packaged smoke 
 packaged E2E 18/18, and DMG/ZIP inspection. `check:release` was not run. CP26.9 remains blocked
 only on its own hosted-runner and protected-promotion evidence.
 
+### Maintenance: Tag-only cross-platform CI triggers (2026-08-04)
+
+- [x] Keep the static/fixture gate on pull requests and `main`, run the four-platform Electron and
+  native-package matrices only for tag refs, and remove the scheduled cron trigger.
+
+Started and completed 2026-08-04 at the user's request. The release-candidate workflow remains an
+explicit exact-tag rebuild and promotion path; branch-based manual CI dispatches no longer spend
+four-platform runner capacity. YAML parsing and repository diff checks passed.
+
 ### Maintenance: Outline editor workspace refinement (2026-07-30)
 
 - [x] Replace the current-section Sheet with a responsive full-outline Dialog, add explicit

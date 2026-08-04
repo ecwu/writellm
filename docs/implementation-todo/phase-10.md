@@ -184,9 +184,9 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   Pin external actions to reviewed commit SHAs.
 - [x] 26.2 Separate workflow layers: a fast static gate; canonical Electron-hosted tests and
   production build on every target row; silent Electron E2E on every release row; and native-host
-  package/inventory/packaged-smoke jobs for all four rows. Pull requests may use a documented
-  cost-bounded subset, but protected-main/nightly release-candidate validation must exercise the
-  complete matrix, and a release cannot reuse a skipped or failed row.
+  package/inventory/packaged-smoke jobs for all four rows. Pull requests and `main` pushes run the
+  static gate, while only a tag ref may start the complete cross-platform matrix; scheduled runs
+  are disabled. A release cannot reuse a skipped or failed row.
 - [x] 26.3 Build and retain versioned migration/recovery fixtures for supported app/project schema
   histories, WAL-resident backup/restore, Snapshot v1/v2 with and without managed history,
   interrupted history restore, stale/live locks, stale sessions, moved roots, Unicode and
@@ -203,7 +203,7 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   redaction, rotation, retention cleanup, fatal/shutdown flush, and bounded diagnostic export.
   Workflow artifacts may include only synthetic sanitized logs.
 - [x] 26.6 Define artifact governance. Keep PR/test reports and sanitized failure diagnostics for
-  14 days, successful main/nightly unsigned packages for 30 days, and version-controlled migration
+  14 days, successful tagged unsigned packages for 30 days, and version-controlled migration
   fixtures for the full supported migration window. Release artifacts live on the immutable
   GitHub Release rather than depending on expiring Actions artifacts and include SHA-256 checksums,
   target/architecture/build metadata, and the exact source revision. Failed or partial matrix
@@ -254,6 +254,10 @@ Service for the positive paths and performs a second packaged launch that proves
 reported and rejected. Promotion verifies the exact tag/source SHA, four-row artifact formats,
 source revision, inventory, packaged-smoke and packaged-E2E evidence, checksums, duplicate names,
 and required macOS notarization/Windows Authenticode evidence before production.
+
+Trigger-policy maintenance (2026-08-04): PR and `main` events retain the static/fixture gate, but
+the Electron and native-package four-runner matrices now require a tag ref. The prior cron trigger
+was removed; an explicit workflow dispatch runs the matrices only when dispatched against a tag.
 
 Local verification passed exact pnpm 11.17.0 `check:fast`, 113 canonical Electron Vitest files and
 553 tests with one opt-in file/test skipped, the 22-case recovery manifest, focused release/native
