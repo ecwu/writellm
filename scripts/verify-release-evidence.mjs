@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveReleaseMetadata } from './release-version.mjs'
 
 const EXPECTED_FORMATS = Object.freeze({
   'windows-x64': ['NSIS'],
@@ -25,9 +26,17 @@ const REQUIRED_PACKAGED_SMOKE = Object.freeze([
   'fatal-log-flush'
 ])
 
-export async function verifyReleaseEvidence({ root, output, tag, revision, mode, packageVersion }) {
-  if (tag !== `v${packageVersion}`) {
-    throw new Error(`Release tag ${tag} does not match package version ${packageVersion}`)
+export async function verifyReleaseEvidence({
+  root,
+  output,
+  tag,
+  revision,
+  mode,
+  packageVersion,
+  releaseVersion
+}) {
+  if (tag !== `v${releaseVersion}`) {
+    throw new Error(`Release tag ${tag} does not match release version ${releaseVersion}`)
   }
   if (mode !== 'dry-run' && mode !== 'production') throw new Error(`Unknown release mode ${mode}`)
   if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error('Release revision must be a full Git SHA')
@@ -49,6 +58,9 @@ export async function verifyReleaseEvidence({ root, output, tag, revision, mode,
     }
     if (evidence.sourceState !== 'clean') {
       throw new Error(`${evidence.target} package evidence was not built from a clean checkout`)
+    }
+    if (evidence.packageVersion !== packageVersion || evidence.releaseVersion !== releaseVersion) {
+      throw new Error(`${evidence.target} package or release version does not match`)
     }
     if (evidence.inventory?.target !== evidence.target) {
       throw new Error(`${evidence.target} inventory target does not match`)
@@ -143,6 +155,7 @@ export async function verifyReleaseEvidence({ root, output, tag, revision, mode,
     tag,
     revision,
     packageVersion,
+    releaseVersion,
     rows: rows.sort((left, right) => left.target.localeCompare(right.target))
   }
   await writeFile(join(output, 'SHA256SUMS'), `${checksumText}\n`)
@@ -154,11 +167,13 @@ export function verifyReleaseSource({ tag, revision, requireClean = false }) {
   if (!/^[a-f0-9]{40}$/u.test(revision)) {
     throw new Error('Release revision must be a full Git SHA')
   }
-  const packageVersion = JSON.parse(
-    requireCommand('git', ['show', `${revision}:package.json`])
-  ).version
-  if (tag !== `v${packageVersion}`) {
-    throw new Error(`Release tag ${tag} does not match package version ${packageVersion}`)
+  const releaseMetadata = resolveReleaseMetadata(
+    JSON.parse(requireCommand('git', ['show', `${revision}:package.json`]))
+  )
+  if (tag !== `v${releaseMetadata.releaseVersion}`) {
+    throw new Error(
+      `Release tag ${tag} does not match release version ${releaseMetadata.releaseVersion}`
+    )
   }
   const taggedRevision = requireCommand('git', ['rev-list', '-n', '1', tag]).trim()
   if (taggedRevision !== revision) {
@@ -176,7 +191,7 @@ export function verifyReleaseSource({ tag, revision, requireClean = false }) {
   if (requireClean && requireCommand('git', ['status', '--porcelain']).trim() !== '') {
     throw new Error('Release checkout must be clean')
   }
-  return packageVersion
+  return releaseMetadata
 }
 
 function verifyPackagedSmokeEvidence(evidence) {
@@ -257,14 +272,15 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === currentFile) {
         '--mode=<dry-run|production> --revision=<sha>'
     )
   }
-  const packageVersion = verifyReleaseSource({ tag, revision })
+  const releaseMetadata = verifyReleaseSource({ tag, revision })
   const result = await verifyReleaseEvidence({
     root: resolve(root),
     output: resolve(output),
     tag,
     revision,
     mode,
-    packageVersion
+    packageVersion: releaseMetadata.packageVersion,
+    releaseVersion: releaseMetadata.releaseVersion
   })
   process.stdout.write(`${JSON.stringify(result)}\n`)
 }

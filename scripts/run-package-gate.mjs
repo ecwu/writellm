@@ -8,9 +8,11 @@ import {
   currentPackageTarget,
   resolvePackageTarget
 } from './package-targets.mjs'
+import { releaseBuilderArguments, resolveReleaseMetadata } from './release-version.mjs'
 
 const require = createRequire(import.meta.url)
 const rootPackage = require('../package.json')
+const releaseMetadata = resolveReleaseMetadata(rootPackage)
 const electronBuilderCli = require.resolve('electron-builder/cli.js')
 const packagedSmoke = new URL('./run-packaged-hybrid-smoke.mjs', import.meta.url)
 const packagedE2e = new URL('./run-e2e.mjs', import.meta.url)
@@ -43,6 +45,9 @@ const plan = {
   electron: rootPackage.devDependencies.electron,
   electronAbi: electronProbe('process.versions.modules'),
   electronBuilder: require('electron-builder/package.json').version,
+  packageVersion: releaseMetadata.packageVersion,
+  releaseVersion: releaseMetadata.releaseVersion,
+  buildNumber: releaseMetadata.buildNumber,
   betterSqlite3: rootPackage.dependencies['better-sqlite3'],
   sqliteVec: rootPackage.dependencies['sqlite-vec'],
   outputDirectory: `dist/${target.id}`,
@@ -85,12 +90,14 @@ run('npm', ['run', 'build'])
 
 const packageEnvironment = {
   ...process.env,
+  WRITELLM_RELEASE_VERSION: releaseMetadata.releaseVersion,
   ...(release ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
 }
 const builderBaseArguments = [
   target.builderPlatform,
   target.builderArch,
   `--config.directories.output=${outputDirectory}`,
+  ...releaseBuilderArguments(target, releaseMetadata),
   ...(release && target.platform === 'darwin' ? ['--config.mac.notarize=true'] : [])
 ]
 run(
@@ -135,7 +142,7 @@ if (!unpackedOnly) {
     ],
     packageEnvironment
   )
-  artifacts = await inspectPackageArtifacts(outputDirectory, target)
+  artifacts = await inspectPackageArtifacts(outputDirectory, target, releaseMetadata.releaseVersion)
   if (release && target.platform === 'win32') {
     verifyWindowsAuthenticode(outputDirectory, artifacts)
   }

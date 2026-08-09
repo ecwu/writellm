@@ -1,5 +1,16 @@
 # WriteLLM Release Policy
 
+## Release version
+
+WriteLLM release candidates use a four-component calendar/build identifier. For
+`0.2026.8.1`, `package.json#version` carries the valid three-component SemVer base `0.2026.8`,
+while `package.json#release.version`, the Git tag, and artifact filenames carry `0.2026.8.1`.
+The final component is the build sequence for that calendar version. The package gate maps it to
+platform-native metadata: Windows `FileVersion` uses all four components, macOS
+`CFBundleVersion` uses the compatible three-component `2026.8.1`, and Linux uses package
+iteration `1`. Promotion fails closed when the release tag, SemVer base, row evidence, or artifact
+metadata disagree.
+
 ## Native build rows
 
 Release candidates are built only on the matching generally available GitHub-hosted architecture.

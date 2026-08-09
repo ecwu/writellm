@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { currentPackageTarget } from './package-targets.mjs'
+import { resolveReleaseMetadata } from './release-version.mjs'
 
 const argumentsSet = new Set(process.argv.slice(2))
 for (const argument of argumentsSet) {
@@ -16,11 +17,14 @@ const tag =
   process.env.WRITELLM_RELEASE_TAG ??
   command('git', ['describe', '--tags', '--exact-match', revision], true).trim()
 const packageMetadata = JSON.parse(await readFile(resolve('package.json'), 'utf8'))
-const expectedTag = `v${packageMetadata.version}`
+const releaseMetadata = resolveReleaseMetadata(packageMetadata)
+const expectedTag = `v${releaseMetadata.releaseVersion}`
 const plan = {
   gate: dryRun ? 'release-dry-run' : 'production-release',
   target: target.id,
   expectedTag,
+  packageVersion: releaseMetadata.packageVersion,
+  releaseVersion: releaseMetadata.releaseVersion,
   revision,
   signing: dryRun
     ? 'unsigned test-only'

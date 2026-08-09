@@ -4,8 +4,11 @@ import { createRequire } from 'node:module'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { assertNativeBinaryArchitecture } from './native-binary.mjs'
 import { resolvePackageTarget } from './package-targets.mjs'
+import { resolveReleaseMetadata } from './release-version.mjs'
 
 const require = createRequire(import.meta.url)
+const rootPackage = require('../package.json')
+const releaseMetadata = resolveReleaseMetadata(rootPackage)
 const builderRequire = createRequire(require.resolve('electron-builder/package.json'))
 const { extractFile, listPackage } = builderRequire('@electron/asar')
 
@@ -186,19 +189,20 @@ async function fileSha256(path) {
   return createHash('sha256').update(file).digest('hex')
 }
 
-export async function inspectPackageArtifacts(directory, target) {
+export async function inspectPackageArtifacts(directory, target, releaseVersion) {
   const entries = await readdir(directory)
+  const artifactBase = `WriteLLM-${releaseVersion}-${target.arch}`
   const expected =
     target.platform === 'darwin'
       ? [
-          { label: 'DMG', matches: (name) => name.endsWith(`-${target.arch}.dmg`) },
-          { label: 'ZIP', matches: (name) => name.endsWith(`-${target.arch}-mac.zip`) }
+          { label: 'DMG', matches: (name) => name === `${artifactBase}.dmg` },
+          { label: 'ZIP', matches: (name) => name === `${artifactBase}.zip` }
         ]
       : target.platform === 'win32'
-        ? [{ label: 'NSIS', matches: (name) => name.endsWith(`-${target.arch}-setup.exe`) }]
+        ? [{ label: 'NSIS', matches: (name) => name === `${artifactBase}-setup.exe` }]
         : [
-            { label: 'AppImage', matches: (name) => name.endsWith(`-${target.arch}.AppImage`) },
-            { label: 'deb', matches: (name) => name.endsWith(`-${target.arch}.deb`) }
+            { label: 'AppImage', matches: (name) => name === `${artifactBase}.AppImage` },
+            { label: 'deb', matches: (name) => name === `${artifactBase}.deb` }
           ]
   const artifacts = []
   for (const expectation of expected) {
@@ -233,6 +237,6 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import
   const artifacts =
     artifactsDirectory === undefined
       ? undefined
-      : await inspectPackageArtifacts(artifactsDirectory, target)
+      : await inspectPackageArtifacts(artifactsDirectory, target, releaseMetadata.releaseVersion)
   process.stdout.write(`${JSON.stringify({ ...inventory, ...(artifacts ? { artifacts } : {}) })}\n`)
 }

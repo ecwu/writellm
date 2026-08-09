@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { verifyReleaseEvidence } from './verify-release-evidence.mjs'
+import { releaseBuilderArguments, resolveReleaseMetadata } from './release-version.mjs'
 
 const roots: string[] = []
 const revision = 'a'.repeat(40)
@@ -34,10 +35,11 @@ describe('release evidence verification', () => {
     const result = await verifyReleaseEvidence({
       root,
       output,
-      tag: 'v1.0.0',
+      tag: 'v0.2026.8.1',
       revision,
       mode: 'dry-run',
-      packageVersion: '1.0.0'
+      packageVersion: '0.2026.8',
+      releaseVersion: '0.2026.8.1'
     })
     expect(result.status).toBe('test-only-unsigned')
     expect(result.rows).toHaveLength(4)
@@ -49,10 +51,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: incomplete,
         output: join(incomplete, 'output'),
-        tag: 'v1.0.0',
+        tag: 'v0.2026.8.1',
         revision,
         mode: 'dry-run',
-        packageVersion: '1.0.0'
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.1'
       })
     ).rejects.toThrow('targets are incomplete')
 
@@ -61,10 +64,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: unsigned,
         output: join(unsigned, 'output'),
-        tag: 'v1.0.0',
+        tag: 'v0.2026.8.1',
         revision,
         mode: 'production',
-        packageVersion: '1.0.0'
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.1'
       })
     ).rejects.toThrow(/signing|notarization/u)
   })
@@ -79,10 +83,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: dirty,
         output: join(dirty, 'output'),
-        tag: 'v1.0.0',
+        tag: 'v0.2026.8.1',
         revision,
         mode: 'dry-run',
-        packageVersion: '1.0.0'
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.1'
       })
     ).rejects.toThrow('clean checkout')
 
@@ -98,12 +103,41 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: inconsistent,
         output: join(inconsistent, 'output'),
-        tag: 'v1.0.0',
+        tag: 'v0.2026.8.1',
         revision,
         mode: 'dry-run',
-        packageVersion: '1.0.0'
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.1'
       })
     ).rejects.toThrow('disagree')
+  })
+
+  it('maps the four-component release version to platform-native build metadata', () => {
+    const metadata = resolveReleaseMetadata({
+      version: '0.2026.8',
+      release: { version: '0.2026.8.1' }
+    })
+    expect(metadata).toEqual({
+      packageVersion: '0.2026.8',
+      releaseVersion: '0.2026.8.1',
+      buildNumber: '1',
+      macBuildVersion: '2026.8.1'
+    })
+    expect(releaseBuilderArguments({ platform: 'darwin' }, metadata)).toEqual([
+      '--config.buildVersion=2026.8.1'
+    ])
+    expect(releaseBuilderArguments({ platform: 'win32' }, metadata)).toEqual([
+      '--config.buildVersion=0.2026.8.1'
+    ])
+    expect(releaseBuilderArguments({ platform: 'linux' }, metadata)).toEqual([
+      '--config.buildNumber=1'
+    ])
+  })
+
+  it('rejects release metadata whose SemVer base does not match', () => {
+    expect(() =>
+      resolveReleaseMetadata({ version: '1.0.0', release: { version: '0.2026.8.1' } })
+    ).toThrow('must match release base')
   })
 })
 
@@ -140,6 +174,8 @@ async function fixtureRoot(omitted: string[] = []) {
       join(directory, 'package-evidence.json'),
       JSON.stringify({
         target,
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.1',
         sourceRevision: revision,
         sourceState: 'clean',
         electron: '43.1.0',

@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { verifyReleaseSource } from './verify-release-evidence.mjs'
 
 export function verifyCurrentReleaseSource({ tag, revision }) {
-  const packageVersion = verifyReleaseSource({ tag, revision, requireClean: true })
-  return { tag, revision, packageVersion }
+  const releaseMetadata = verifyReleaseSource({ tag, revision, requireClean: true })
+  return { tag, revision, ...releaseMetadata }
 }
 
 function command(executable, args) {

@@ -16,7 +16,7 @@ win:
   target:
     - nsis
 nsis:
-  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -24,13 +24,14 @@ mac:
   target:
     - dmg
     - zip
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: WriteLLM opens projects selected by the user.
     - NSDownloadsFolderUsageDescription: WriteLLM exports files to locations selected by the user.
   notarize: false
 dmg:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
 linux:
   target:
     - AppImage
@@ -38,7 +39,7 @@ linux:
   maintainer: WriteLLM contributors
   category: Utility
 appImage:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
 deb:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
 npmRebuild: false

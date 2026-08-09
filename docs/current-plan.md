@@ -63,6 +63,10 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
+The authorized release-candidate identifier is `0.2026.8.1` (`v0.2026.8.1` as the Git tag). Its
+package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
+[`release-policy.md`](release-policy.md#release-version).
+
 ## Deferred
 
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and
