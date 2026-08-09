@@ -308,6 +308,34 @@ unsigned arm64 artifacts are `WriteLLM-0.2026.8.3-arm64.dmg` (249,407,596 bytes,
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
 
+Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
+`53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
+and both macOS rows passed. Windows reached the complete test suite and exposed six portability or
+fixture-lifecycle failures: Git's CRLF checkout changed the provider-logo digest; concurrent asset
+publication attempted a replace-existing rename that Windows rejects; nested snapshot staging
+crossed the legacy `MAX_PATH` boundary; and one test retained a read-only SQLite handle through
+cleanup. Linux again completed 12 of 20 serial E2E scenarios because the `gnome-libsecret` switch
+followed Electron's development application path and was parsed as an application argument instead
+of a Chromium switch. Packaging and promotion were correctly skipped. The candidate remains failed
+evidence and cannot be promoted or retagged.
+
+Local pre-tag evidence for `0.2026.8.4` (2026-08-09): provider-logo SVGs now have repository-enforced
+LF endings; content-addressed manuscript assets use atomic no-replacement publication and verify an
+existing winner; snapshot staging names leave room for SQLite's nested backup suffix; and the
+test-owned database handle is explicitly closed. Development E2E places the documented Linux
+password-store switch before the application path. `pnpm check:fast` passed; the canonical Electron
+test runner passed 591 tests in 116 files with one benchmark skipped; the recovery fixture verifier
+passed 22 cases from 20 sources with SHA-256
+`71ec06fefb15070c2e110c00f510c2820bf4fe64caa123deafe2089813885943`; and the complete local
+Electron E2E suite passed all 20 scenarios. `pnpm check:package` passed 12 packaged-smoke scenarios
+plus all 15 packaged E2E scenarios. The unsigned arm64 artifacts are
+`WriteLLM-0.2026.8.4-arm64.dmg` (249,407,820 bytes, SHA-256
+`dc71cc9ff619de0cc21cd660aa71254756abceba6c6f72c88934e63c50cda17c`) and
+`WriteLLM-0.2026.8.4-arm64.zip` (249,764,661 bytes, SHA-256
+`03309f6ce1dcd3ac5fb65cb61c3029b77f4b51570cf4aa63ddc8ed4d0cc883e6`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
 ## Phase 10 deferred work
 
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and

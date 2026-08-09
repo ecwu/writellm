@@ -44,4 +44,18 @@ describe('writeAtomicFile', () => {
     await expect(access(destination)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await readdir(root)).toEqual([])
   })
+
+  it('publishes without replacing an existing destination', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'writellm-atomic-file-existing-'))
+    roots.push(root)
+    const destination = join(root, 'document.md')
+
+    await expect(writeAtomicFile(destination, 'winner')).resolves.toBe(true)
+    await expect(
+      writeAtomicFile(destination, 'loser', { publishWithoutReplacement: true })
+    ).resolves.toBe(false)
+
+    await expect(readFile(destination, 'utf8')).resolves.toBe('winner')
+    expect(await readdir(root)).toEqual(['document.md'])
+  })
 })

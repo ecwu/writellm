@@ -57,7 +57,7 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
   }
   const app = await electron.launch({
     ...(executablePath === undefined ? {} : { executablePath }),
-    args: executablePath === undefined ? ['.', ...launchArguments] : launchArguments,
+    args: executablePath === undefined ? [...launchArguments, '.'] : launchArguments,
     cwd: process.cwd(),
     env: {
       ...process.env,

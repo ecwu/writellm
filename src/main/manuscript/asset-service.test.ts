@@ -1,4 +1,5 @@
-import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -167,6 +168,21 @@ describe('ManuscriptAssetService', () => {
     ).toBe(1)
     database.close()
   })
+
+  it('rejects a conflicting unregistered file instead of replacing it', async () => {
+    const { database, projectRoot, service } = await fixture()
+    const bytes = png(40, 30)
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    const destination = join(projectRoot, 'manuscript', 'assets', `${sha256}.png`)
+    await mkdir(join(projectRoot, 'manuscript', 'assets'), { recursive: true })
+    await writeFile(destination, Buffer.alloc(bytes.byteLength, 1))
+
+    await expect(
+      service.store({ bytes, mimeType: 'image/png', sourceType: 'upload' })
+    ).rejects.toThrow('Stored manuscript asset is missing or changed')
+    await expect(readFile(destination)).resolves.toEqual(Buffer.alloc(bytes.byteLength, 1))
+    database.close()
+  })
 })
 
 async function fixture() {
@@ -188,6 +204,7 @@ async function fixture() {
   })
   return {
     database,
+    projectRoot,
     service: new ManuscriptAssetService({
       projectRoot,
       projectId: manifest.projectId,

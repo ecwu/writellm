@@ -63,7 +63,7 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.3` (`v0.2026.8.3` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.4` (`v0.2026.8.4` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -74,6 +74,15 @@ The immutable `v0.2026.8.2` candidate passed both macOS rows. Windows exposed un
 directory fsync behavior, while Linux completed 12 of 20 serial E2E scenarios before eight
 credential-dependent scenarios failed because headless Electron selected `basic_text` despite the
 temporary Secret Service. It also remains failed audit evidence and is not moved or promoted.
+
+The immutable `v0.2026.8.3` candidate again passed both macOS rows. Windows exposed CRLF-sensitive
+provider-logo evidence, replace-existing rename behavior during concurrent asset publication, a
+legacy `MAX_PATH` overflow in nested snapshot staging, and one test-owned database handle that
+survived cleanup. Linux again completed 12 of 20 scenarios because the documented password-store
+switch appeared after Electron's development application path and was therefore not applied. The
+candidate remains failed audit evidence and is neither moved nor promoted. Candidate
+`v0.2026.8.4` contains only the focused portability and test-lifecycle corrections plus their
+regression coverage; it has not yet been pushed or run on hosted runners.
 
 ## Deferred
 

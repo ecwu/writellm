@@ -202,10 +202,9 @@ describe('project snapshots', () => {
     await current.writeLock.release()
     await other.writeLock.release()
     const databasePath = resolveProjectPath(current.projectRoot, '.writellm/project.sqlite')
-    const originalProjectId = new Database(databasePath, { readonly: true })
-      .prepare('SELECT project_id FROM project_meta')
-      .pluck()
-      .get()
+    const original = new Database(databasePath, { readonly: true })
+    const originalProjectId = original.prepare('SELECT project_id FROM project_meta').pluck().get()
+    original.close()
 
     await expect(
       restoreProjectDatabase({

@@ -314,7 +314,9 @@ export async function createProjectSnapshot(options: {
 }): Promise<ProjectSnapshotManifest> {
   const barrier = options.barrier
   const parent = dirname(options.destination)
-  const stage = join(parent, `.${options.manifest.projectId}.${randomUUID()}.snapshot.partial`)
+  // Keep the live-backup path below Windows' legacy MAX_PATH boundary. The nested
+  // SQLite backup adds another UUID-bearing suffix before it is atomically published.
+  const stage = join(parent, `.snapshot-${randomUUID()}.partial`)
   let mutationsPaused = false
   let publishersPaused = false
   try {

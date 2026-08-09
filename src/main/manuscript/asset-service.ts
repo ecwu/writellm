@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, rm, stat } from 'node:fs/promises'
+import { lstat, readFile, rm } from 'node:fs/promises'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import type { JobStore } from '../jobs/job-store'
@@ -80,7 +80,10 @@ export class ManuscriptAssetService {
     const assetId = (this.options.createId ?? randomUUID)()
     const relativePath = `${MANUSCRIPT_ASSETS_DIRECTORY}/${sha256}${validated.extension}`
     const destination = resolveProjectPath(this.options.projectRoot, relativePath)
-    await writeAtomicFile(destination, input.bytes)
+    const published = await writeAtomicFile(destination, input.bytes, {
+      publishWithoutReplacement: true
+    })
+    if (!published) await verifyStoredAsset(destination, input.bytes.byteLength, sha256)
     const now = (this.options.now ?? (() => new Date()))().toISOString()
     try {
       this.options.database.immediate((database) => {
@@ -243,14 +246,7 @@ export class ManuscriptAssetService {
   }
 
   async #verifyStored(row: ManuscriptAssetTable): Promise<void> {
-    const file = await stat(this.absolutePath(row))
-    if (!file.isFile() || file.size !== row.byte_size) {
-      throw new Error('Stored manuscript asset is missing or changed')
-    }
-    const bytes = await readFile(this.absolutePath(row))
-    if (createHash('sha256').update(bytes).digest('hex') !== row.sha256) {
-      throw new Error('Stored manuscript asset is missing or changed')
-    }
+    await verifyStoredAsset(this.absolutePath(row), row.byte_size, row.sha256)
   }
 
   #enqueueCleanup(assetId: string, createdAt: Date): void {
@@ -261,6 +257,17 @@ export class ManuscriptAssetService {
       runAfter: new Date(createdAt.getTime() + ORPHAN_GRACE_MS),
       maxAttempts: 3
     })
+  }
+}
+
+async function verifyStoredAsset(path: string, expectedSize: number, expectedSha256: string) {
+  const file = await lstat(path)
+  if (!file.isFile() || file.isSymbolicLink() || file.size !== expectedSize) {
+    throw new Error('Stored manuscript asset is missing or changed')
+  }
+  const bytes = await readFile(path)
+  if (createHash('sha256').update(bytes).digest('hex') !== expectedSha256) {
+    throw new Error('Stored manuscript asset is missing or changed')
   }
 }
 
