@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { syncDirectory } from './durable-sync'
 
 export interface AtomicFileOptions {
   mode?: number
@@ -29,12 +30,7 @@ export async function writeAtomicFile(
     if (!shouldRename) return false
     await rename(temporary, destination)
     await options.afterRename?.()
-    const directory = await open(dirname(destination), 'r')
-    try {
-      await directory.sync()
-    } finally {
-      await directory.close()
-    }
+    await syncDirectory(dirname(destination))
     return true
   } finally {
     await handle?.close().catch(() => undefined)

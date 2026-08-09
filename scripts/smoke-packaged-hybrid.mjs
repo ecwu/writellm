@@ -17,6 +17,16 @@ import { join, resolve } from 'node:path'
 
 const resourcesArgument = process.argv[2]
 if (resourcesArgument === undefined) throw new Error('Packaged Resources path is required')
+const linuxPasswordStoreArguments = (() => {
+  if (process.platform !== 'linux') return []
+  const passwordStore = process.env['WRITELLM_E2E_PASSWORD_STORE']
+  if (passwordStore !== 'gnome-libsecret') {
+    throw new Error(
+      'Linux packaged smoke requires WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret and a running Secret Service'
+    )
+  }
+  return [`--password-store=${passwordStore}`]
+})()
 const resources = resolve(resourcesArgument)
 const appPackage = join(resources, 'app.asar', 'package.json')
 await access(appPackage)
@@ -280,7 +290,11 @@ async function runPackagedAppScenarios(resources) {
     await utimes(retainedLog, new Date(1_000), new Date(1_000))
     app = await electron.launch({
       executablePath: executable,
-      args: [`--user-data-dir=${userData}`, '--writellm-e2e-artifact-loopback'],
+      args: [
+        `--user-data-dir=${userData}`,
+        '--writellm-e2e-artifact-loopback',
+        ...linuxPasswordStoreArguments
+      ],
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,

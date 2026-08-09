@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import type { Logger } from 'pino'
+import { syncDirectory } from '../storage/durable-sync'
 import {
   knowledgeItemSchema,
   knowledgeListResultSchema,
@@ -680,14 +681,5 @@ async function inspectCapability(
     return { extension, mimeType: capability.mimeType }
   } finally {
     await handle.close()
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  const directory = await open(path, 'r')
-  try {
-    await directory.sync()
-  } finally {
-    await directory.close()
   }
 }

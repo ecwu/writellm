@@ -77,6 +77,7 @@ jobs:
         run: |
           dbus-run-session -- bash -lc '
             eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
+            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
             xvfb-run --auto-servernum pnpm check:e2e:critical
           '
       - name: Retain critical E2E failure diagnostics
@@ -138,6 +139,7 @@ jobs:
         run: |
           dbus-run-session -- bash -lc '
             eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
+            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
             xvfb-run --auto-servernum pnpm test:e2e
           '
       - name: Retain synthetic failure diagnostics
@@ -201,6 +203,7 @@ jobs:
         run: |
           dbus-run-session -- bash -lc '
             eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
+            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
             xvfb-run --auto-servernum pnpm run package:linux-x64
           '
       - name: Upload unsigned package evidence

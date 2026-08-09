@@ -1,9 +1,10 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { copyFile, mkdir, open, readdir, rm, stat, lstat, link } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, rm, stat, lstat, link } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
+import { syncDirectory, syncFile } from '../storage/durable-sync'
 import { assertDatabaseIntegrity, type IntegrityCheckLevel } from './integrity'
 import type { OpenedDatabase } from './open-database'
 
@@ -34,30 +35,6 @@ export async function sha256File(path: string): Promise<{ sha256: string; size: 
     stream.once('error', reject)
   })
   return { sha256: hash.digest('hex'), size }
-}
-
-async function syncFile(path: string): Promise<void> {
-  const handle = await open(path, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  try {
-    const handle = await open(path, 'r')
-    try {
-      await handle.sync()
-    } finally {
-      await handle.close()
-    }
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'EINVAL' || code === 'ENOTSUP' || code === 'EBADF') return
-    throw err
-  }
 }
 
 async function publishFileWithoutReplacement(source: string, destination: string): Promise<void> {

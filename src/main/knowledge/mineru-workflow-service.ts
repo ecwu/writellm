@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, open, readFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import type { Logger } from 'pino'
+import { syncFile } from '../storage/durable-sync'
 import { mineruRawManifestSchema, type MineruRawManifest } from '../../shared/contracts/mineru'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
 import { getProviderCapability } from '../providers/capability-registry'
@@ -1297,15 +1298,6 @@ async function digestFile(path: string): Promise<{ sha256: string; byteSize: num
       byteSize += bytesRead
     }
     return { sha256: digest.digest('hex'), byteSize }
-  } finally {
-    await handle.close()
-  }
-}
-
-async function syncFile(path: string): Promise<void> {
-  const handle = await open(path, 'r')
-  try {
-    await handle.sync()
   } finally {
     await handle.close()
   }

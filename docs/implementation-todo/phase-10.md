@@ -284,6 +284,30 @@ now waits specifically for the final `.md` artifact. The candidate is intentiona
 failed evidence and is not eligible for promotion; the focused fixes advance the release build
 sequence rather than moving the tag.
 
+Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.2` at
+`cf0372cc772cabab37bedcb64adfa15ec1bb2bb9` started CI run `31338207654`. Both macOS rows passed
+their Electron tests, production builds, and complete 20-scenario E2E suites. Linux passed its
+Electron tests/build, then completed 12 of 20 serial E2E scenarios; eight credential-dependent
+scenarios failed because headless Electron selected `basic_text` even though the workflow had
+started a temporary Secret Service. Windows verified the canonical launcher path fix, then exposed
+`EPERM` from directory fsync and from syncing a read-only file handle across atomic project writes
+and verified database backups. The durability helper now opens files read-write for fsync and
+treats only Windows directory `EPERM` as an unsupported directory-sync operation while retaining
+strict handling elsewhere. Linux positive-path E2E and packaged-smoke launches explicitly select
+Electron's documented `gnome-libsecret` password store and continue to fail closed unless the
+workflow opts in and the Secret Service actually provides encryption. The candidate remains failed
+evidence and cannot be promoted or retagged.
+
+Local pre-tag evidence for `0.2026.8.3` (2026-08-09): `pnpm check:fast` passed; the canonical
+Electron test runner passed 589 tests in 116 files with one benchmark skipped; and
+`pnpm check:package` passed 12 packaged-smoke scenarios plus all 15 packaged E2E scenarios. The
+unsigned arm64 artifacts are `WriteLLM-0.2026.8.3-arm64.dmg` (249,407,596 bytes, SHA-256
+`03132e4ba1a0c98079429d301318264a1b939b9f3864a72390bff1e9da72d88e`) and
+`WriteLLM-0.2026.8.3-arm64.zip` (249,764,871 bytes, SHA-256
+`73e75722844ebfc2ac9eb05ad8e3b5b820aac72dfbf595c45b265441015e1f29`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
 ## Phase 10 deferred work
 
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and

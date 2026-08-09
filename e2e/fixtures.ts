@@ -46,6 +46,15 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
     '--lang=en-IE',
     '--writellm-e2e-artifact-loopback'
   ]
+  if (process.platform === 'linux') {
+    const passwordStore = process.env['WRITELLM_E2E_PASSWORD_STORE']
+    if (passwordStore !== 'gnome-libsecret') {
+      throw new Error(
+        'Linux Electron E2E requires WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret and a running Secret Service'
+      )
+    }
+    launchArguments.push(`--password-store=${passwordStore}`)
+  }
   const app = await electron.launch({
     ...(executablePath === undefined ? {} : { executablePath }),
     args: executablePath === undefined ? ['.', ...launchArguments] : launchArguments,

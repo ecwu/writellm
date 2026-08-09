@@ -41,9 +41,11 @@ and a new native package row.
   version-controlled for the full supported migration window.
 - Diagnostics uploaded by CI must be synthetic and sanitized. Credentials, prompts, responses,
   document bodies, signed URLs, private paths, and real user projects are prohibited.
-- Linux positive-path Electron and package jobs start a temporary CI-only Secret Service. The
-  packaged smoke also launches once with `--password-store=basic` and requires truthful
-  `basic_text` reporting plus credential-persistence rejection.
+- Linux positive-path Electron and package jobs start a temporary CI-only Secret Service and opt
+  the test harness into Electron's `gnome-libsecret` password store explicitly. The harness fails
+  closed when that opt-in is absent or encryption is unavailable. The packaged smoke also launches
+  once with `--password-store=basic` and requires truthful `basic_text` reporting plus
+  credential-persistence rejection.
 
 ## Promotion
 
