@@ -5,7 +5,11 @@ Recorded: 2026-07-31
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
-The ordered delivery plan lives in `docs/implementation-todo.md`. The complexity-reduction and Agent-boundary audit is recorded in [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md). Phase 9, Checkpoint 23M, and Checkpoint 23V are complete; Checkpoint 24 remains unstarted.
+The active delivery state lives in [`docs/current-plan.md`](current-plan.md), while the compact
+tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
+complexity-reduction and Agent-boundary audit is recorded in
+[`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+Checkpoint 26.8S is complete; Checkpoint 26.9 remains blocked on hosted release evidence.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -628,8 +632,9 @@ A missing or stale materialization does not invalidate the manuscript. Project o
 Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, block math uses
 `$$...$$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
 remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
-`manuscript/exports/` and never silently replaces native BlockNote JSON; Checkpoint 24 remains
-responsible for whole-manuscript export packages and complete asset portability UX.
+`manuscript/exports/` and never silently replaces native BlockNote JSON. The completed Checkpoint
+24 whole-manuscript packages reuse this conversion boundary and add verified asset portability,
+deterministic manifests, explicit loss reporting, and atomic publication.
 
 ### Manual editing
 
@@ -1256,7 +1261,7 @@ Do not use in the current architecture:
 - subsystem-owned log files alongside the centralized Pino stream;
 - logs as authoritative agent, job, import, or mutation history.
 
-## Impact On The Previous Baseline
+## Historical Transition Into This Baseline
 
 The following previous decisions remain valid:
 
@@ -1271,7 +1276,7 @@ The following previous decisions remain valid:
 - utility-process isolation;
 - native packaged smoke tests.
 
-The following decisions must be revised before continuing product work:
+The following earlier decisions were revised to form the current baseline:
 
 - Replace the ambiguous global `core.sqlite` product role with `app.sqlite` plus per-project `project.sqlite`.
 - Make the active project folder a first-class lifecycle and authorization boundary.

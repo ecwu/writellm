@@ -686,9 +686,10 @@ export const manuscriptAssetResultSchema = z
 export const manuscriptAssetPreviewInputSchema = editorSessionInputSchema
   .extend({ assetId: manuscriptAssetIdSchema })
   .strict()
-export const manuscriptAssetPreviewResultSchema = z
-  .object({ url: z.string().url().max(2_048) })
-  .strict()
+export const manuscriptAssetPreviewResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('resolved'), url: z.string().url().max(2_048) }).strict(),
+  z.object({ status: z.literal('session-revoked') }).strict()
+])
 export const manuscriptAssetImportReferenceInputSchema = editorSessionInputSchema
   .extend({ reference: z.string().min(1).max(1_024) })
   .strict()

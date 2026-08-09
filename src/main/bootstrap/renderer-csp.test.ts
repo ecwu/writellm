@@ -7,8 +7,11 @@ describe('renderer content security policy', () => {
     const policy = /content="([^"]+)"/.exec(html)?.[1]
 
     expect(policy).toContain("img-src 'self' data: writellm://bundle")
+    expect(policy).toContain('writellm-asset:')
     expect(policy).not.toContain('img-src *')
     expect(policy).not.toContain('img-src http:')
     expect(policy).not.toContain('img-src https:')
+    expect(policy).toContain("font-src 'self' data:")
+    expect(policy).not.toContain('frame-ancestors')
   })
 })

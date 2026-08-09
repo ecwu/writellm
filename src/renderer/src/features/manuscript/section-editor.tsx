@@ -46,6 +46,8 @@ export const SectionEditor = forwardRef<
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
   const { resolvedTheme } = useTheme()
+  const closingRef = useRef(false)
+  const pendingAssetResolutionsRef = useRef(new Set<Promise<string>>())
   const initialContent =
     props.revision.content.length === 0
       ? [
@@ -78,8 +80,20 @@ export const SectionEditor = forwardRef<
         })
         return result.logicalUrl
       },
-      resolveFileUrl: (url) =>
-        resolveProjectAssetUrl(url, props.projectSessionId, window.desktop.editor.resolveAsset)
+      resolveFileUrl: (url) => {
+        if (closingRef.current) return Promise.resolve('')
+        const resolution = resolveProjectAssetUrl(
+          url,
+          props.projectSessionId,
+          window.desktop.editor.resolveAsset
+        )
+        pendingAssetResolutionsRef.current.add(resolution)
+        void resolution.then(
+          () => pendingAssetResolutionsRef.current.delete(resolution),
+          () => pendingAssetResolutionsRef.current.delete(resolution)
+        )
+        return resolution
+      }
     },
     [props.projectSessionId]
   )
@@ -258,6 +272,10 @@ export const SectionEditor = forwardRef<
       await save(undefined, 'manual_checkpoint')
     },
     async finalFlush(request) {
+      if (request.purpose === 'close') {
+        closingRef.current = true
+        await Promise.allSettled([...pendingAssetResolutionsRef.current])
+      }
       if (request.purpose !== 'snapshot') setReadOnly(true)
       try {
         if (timerRef.current !== undefined) {
@@ -271,6 +289,7 @@ export const SectionEditor = forwardRef<
           sectionRevisionId: baseRef.current.sectionRevisionId
         })
       } catch (error) {
+        if (request.purpose === 'close') closingRef.current = false
         if (request.purpose === 'mutation') setReadOnly(false)
         throw error
       }
@@ -286,6 +305,7 @@ export const SectionEditor = forwardRef<
   return (
     <div className='min-h-80'>
       <BlockNoteView
+        data-testid='section-editor'
         editor={editor}
         theme={resolvedTheme}
         slashMenu={false}

@@ -28,12 +28,23 @@ export async function verifyPackageInventory(resources, target) {
   }
 
   const rendererIndex = extractUtf8(appAsar, 'out/renderer/index.html')
-  if (
-    !rendererIndex.includes('Content-Security-Policy') ||
-    !rendererIndex.includes("object-src 'none'") ||
-    !rendererIndex.includes("frame-ancestors 'none'")
-  ) {
-    throw new Error('Packaged Renderer CSP is missing its fail-closed directives')
+  for (const directive of [
+    'Content-Security-Policy',
+    "default-src 'self'",
+    "script-src 'self'",
+    "font-src 'self' data:",
+    "img-src 'self' data: writellm://bundle writellm-asset:",
+    "object-src 'none'",
+    "base-uri 'none'"
+  ]) {
+    if (!rendererIndex.includes(directive)) {
+      throw new Error(`Packaged Renderer CSP is missing ${directive}`)
+    }
+  }
+  for (const forbidden of ['img-src *', 'img-src http:', 'img-src https:']) {
+    if (rendererIndex.includes(forbidden)) {
+      throw new Error(`Packaged Renderer CSP includes forbidden directive ${forbidden}`)
+    }
   }
 
   const rendererScripts = paths.filter(

@@ -1,7 +1,7 @@
 export type ProjectAssetResolver = (input: {
   projectSessionId: string
   assetId: string
-}) => Promise<{ url: string }>
+}) => Promise<{ status: 'resolved'; url: string } | { status: 'session-revoked' }>
 
 export async function resolveProjectAssetUrl(
   url: string,
@@ -13,7 +13,7 @@ export async function resolveProjectAssetUrl(
     projectSessionId,
     assetId: logicalAssetId(url)
   })
-  return result.url
+  return result.status === 'resolved' ? result.url : ''
 }
 
 export function logicalAssetId(url: string): string {

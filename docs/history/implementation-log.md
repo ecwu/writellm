@@ -1,9 +1,8 @@
 # Implementation History
 
-Historical Checkpoint 1–19 verification and audit decisions remain in
-`docs/implementation-todo.md` and the Phase files. This entry point records
-the current transition into Checkpoint 19.5; new completion evidence belongs
-here rather than extending superseded Phase designs.
+Completed checkpoint details remain in the Phase files under
+`docs/implementation-todo/`. This chronology records cross-phase transitions and documentation
+maintenance without turning the active tracker back into a historical log.
 
 ## 2026-07-16
 
@@ -55,3 +54,25 @@ here rather than extending superseded Phase designs.
   user_version 1, valid schema_manifest). The pnpm wrapper was unavailable
   because Corepack rejected the pnpm 11 registry signature; equivalent local
   commands passed. Checkpoint 20 remains not started.
+
+## 2026-08-06
+
+- Reduced `current-plan.md` to the active Checkpoint 26.9 state, its completed baseline, next
+  authorized work, and deferred scope. Reduced `implementation-todo.md` to the active gate and a
+  routing index for Phase evidence. Corrected stale Checkpoint 24 wording in `architecture.md`.
+  No architecture decision, product boundary, or checkpoint scope changed.
+
+## 2026-08-09
+
+- Locally completed the authorized Checkpoint 27 Electron E2E evolution while leaving Checkpoint
+  26.9 blocked. The suite now uses isolated per-test projects, stable manifest-backed scenario IDs,
+  critical and packaged tiers, two workers, strict renderer error handling, keyboard/focus and
+  axe-core accessibility coverage, and versioned fail-closed packaged evidence. The pull-request
+  workflow includes an Ubuntu critical gate while the tagged workflow retains complete
+  cross-platform coverage.
+- Local verification passed `check:fast`; 115 Electron-hosted Vitest files with 583 passing tests
+  and one opt-in benchmark skipped; 20/20 full Electron E2E scenarios with no flaky or skipped
+  results; 6/6 critical scenarios; the no-identity macOS arm64 package gate with 12 packaged smoke
+  and 15/15 packaged E2E scenarios; and 22 recovery cases from 20 sources. Hosted Ubuntu and
+  four-target evidence remains pending because no commit, push, tag, or workflow dispatch was
+  authorized.

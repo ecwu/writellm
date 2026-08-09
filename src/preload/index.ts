@@ -327,7 +327,10 @@ export interface DesktopApi {
       mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
       dataBase64: string
     }): Promise<ReturnType<typeof manuscriptAssetResultSchema.parse>>
-    resolveAsset(input: { projectSessionId: string; assetId: string }): Promise<{ url: string }>
+    resolveAsset(input: {
+      projectSessionId: string
+      assetId: string
+    }): Promise<ReturnType<typeof manuscriptAssetPreviewResultSchema.parse>>
     resolveImportAsset(input: {
       projectSessionId: string
       reference: string

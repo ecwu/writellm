@@ -115,10 +115,14 @@ const unpackedInventory = await verifyPackageInventory(resources, target)
 const smokeOutput = runWithOutput(process.execPath, [packagedSmoke.pathname, resources])
 const packagedSmokeEvidence = verifyPackagedSmokeOutput(smokeOutput, target)
 const packagedExecutable = await resolvePackagedExecutable(resources, target)
-const packagedE2eOutput = runWithOutput(process.execPath, [packagedE2e.pathname], {
-  ...process.env,
-  WRITELLM_E2E_EXECUTABLE_PATH: packagedExecutable
-})
+const packagedE2eOutput = runWithOutput(
+  process.execPath,
+  [packagedE2e.pathname, '--suite=packaged'],
+  {
+    ...process.env,
+    WRITELLM_E2E_EXECUTABLE_PATH: packagedExecutable
+  }
+)
 const packagedE2eEvidence = verifyPackagedE2eOutput(packagedE2eOutput)
 let artifacts = []
 if (!unpackedOnly) {
@@ -215,14 +219,39 @@ function verifyPackagedSmokeOutput(output, target) {
 }
 
 function verifyPackagedE2eOutput(output) {
-  const passed = [...output.matchAll(/\b(\d+) passed\b/gu)].at(-1)
-  if (passed === undefined || Number(passed[1]) !== 18) {
-    throw new Error('Packaged Electron E2E evidence did not report exactly 18 passing scenarios')
+  const evidence = output
+    .split(/\r?\n/gu)
+    .filter((line) => line.startsWith('{"e2eEvidence":true'))
+    .map((line) => JSON.parse(line))
+    .at(-1)
+  if (
+    evidence?.format !== 'writellm-e2e-evidence' ||
+    evidence.version !== 2 ||
+    evidence.suite !== 'packaged' ||
+    !/^[a-f0-9]{64}$/u.test(evidence.manifestSha256 ?? '') ||
+    !Array.isArray(evidence.requiredScenarioIds) ||
+    !Array.isArray(evidence.passedScenarioIds) ||
+    !Array.isArray(evidence.flakyScenarioIds) ||
+    !Array.isArray(evidence.skippedScenarioIds) ||
+    !Array.isArray(evidence.failedScenarioIds) ||
+    evidence.requiredScenarioIds.length === 0 ||
+    JSON.stringify(evidence.requiredScenarioIds) !== JSON.stringify(evidence.passedScenarioIds) ||
+    evidence.flakyScenarioIds.length !== 0 ||
+    evidence.skippedScenarioIds.length !== 0 ||
+    evidence.failedScenarioIds.length !== 0 ||
+    evidence.status !== 'passed'
+  ) {
+    throw new Error('Packaged Electron E2E evidence is incomplete, flaky, skipped, or invalid')
   }
   return {
     format: 'writellm-packaged-e2e',
-    version: 1,
-    passed: 18
+    version: 2,
+    suite: evidence.suite,
+    manifestSha256: evidence.manifestSha256,
+    requiredScenarioIds: evidence.requiredScenarioIds,
+    passedScenarioIds: evidence.passedScenarioIds,
+    flakyScenarioIds: evidence.flakyScenarioIds,
+    skippedScenarioIds: evidence.skippedScenarioIds
   }
 }
 

@@ -77,7 +77,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "d29871945fb08ad7f6d8e70ee4c0fcb6969526eb30e949eb6eb2d2d3345d59e7",
+      "sourceSha256": "36b005b71b9d2ec909b56ede82a23dd0d6db96bc922085ffa9a98bd557712665",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",
@@ -108,9 +108,10 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "b69a598830e45bbe5c91c14a5fc740813e80fbaa91c523faf5b191501167f95a",
+      "sourceSha256": "c1b0f863189f41bdf3a2a1b883bcec3e182fd51004032dc36c5a6056234d68f3",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
+        "rebuilds a missing or corrupt derived search index after a worker crash",
         "imports with visible progress and supports cancel, retry, open, reveal, and delete"
       ]
     },

@@ -1,0 +1,26 @@
+{
+  "format": "writellm-e2e-scenarios",
+  "version": 1,
+  "scenarios": [
+    { "id": "accessibility.shell-settings", "tiers": ["critical", "packaged"] },
+    { "id": "agent.grounded-proposal-workflow", "tiers": ["critical", "packaged"] },
+    { "id": "agent.refreshes-outdated-proposal", "tiers": ["packaged"] },
+    { "id": "app.provider-settings-persist-without-secret", "tiers": [] },
+    { "id": "knowledge.import-lifecycle", "tiers": ["packaged"] },
+    { "id": "knowledge.original-survives-reopen", "tiers": [] },
+    { "id": "knowledge.parse-preview-search", "tiers": ["critical", "packaged"] },
+    { "id": "knowledge.rebuilds-derived-index", "tiers": ["critical", "packaged"] },
+    { "id": "manuscript.checkpoint-restore-preserves-history", "tiers": ["packaged"] },
+    { "id": "manuscript.exports-durable", "tiers": ["packaged"] },
+    { "id": "manuscript.outline-conflict-preserves-draft", "tiers": [] },
+    { "id": "manuscript.rich-media-reopen-export", "tiers": ["packaged"] },
+    { "id": "manuscript.section-conflict-reloads-canonical", "tiers": [] },
+    { "id": "manuscript.workspace-survives-reopen", "tiers": ["packaged"] },
+    { "id": "project.create-conflict-preserves-data", "tiers": [] },
+    { "id": "project.lifecycle-restart", "tiers": ["critical", "packaged"] },
+    { "id": "project.moved-root-keeps-identity", "tiers": ["packaged"] },
+    { "id": "project.recovers-stale-lock", "tiers": ["packaged"] },
+    { "id": "project.rejects-live-lock-contention", "tiers": ["packaged"] },
+    { "id": "project.snapshot-restore", "tiers": ["critical", "packaged"] }
+  ]
+}

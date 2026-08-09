@@ -68,8 +68,18 @@ export async function verifyReleaseEvidence({ root, output, tag, revision, mode,
     verifyPackagedSmokeEvidence(evidence)
     if (
       evidence.packagedE2e?.format !== 'writellm-packaged-e2e' ||
-      evidence.packagedE2e.version !== 1 ||
-      evidence.packagedE2e.passed !== 18
+      evidence.packagedE2e.version !== 2 ||
+      evidence.packagedE2e.suite !== 'packaged' ||
+      !/^[a-f0-9]{64}$/u.test(evidence.packagedE2e.manifestSha256 ?? '') ||
+      !Array.isArray(evidence.packagedE2e.requiredScenarioIds) ||
+      evidence.packagedE2e.requiredScenarioIds.length === 0 ||
+      !Array.isArray(evidence.packagedE2e.passedScenarioIds) ||
+      JSON.stringify(evidence.packagedE2e.requiredScenarioIds) !==
+        JSON.stringify(evidence.packagedE2e.passedScenarioIds) ||
+      !Array.isArray(evidence.packagedE2e.flakyScenarioIds) ||
+      evidence.packagedE2e.flakyScenarioIds.length !== 0 ||
+      !Array.isArray(evidence.packagedE2e.skippedScenarioIds) ||
+      evidence.packagedE2e.skippedScenarioIds.length !== 0
     ) {
       throw new Error(`${evidence.target} packaged Electron E2E evidence is invalid`)
     }

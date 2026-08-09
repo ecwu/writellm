@@ -13,6 +13,7 @@ describe('project asset URL resolution', () => {
 
   it('exchanges only a logical project asset URL for a session-bound preview URL', async () => {
     const resolveAsset = vi.fn(async () => ({
+      status: 'resolved' as const,
       url: 'writellm://bundle/project-asset/preview-capability'
     }))
 
@@ -23,6 +24,14 @@ describe('project asset URL resolution', () => {
       projectSessionId: 'project-session',
       assetId: ASSET_ID
     })
+  })
+
+  it('stops resolving after the project session capability is revoked', async () => {
+    const resolveAsset = vi.fn(async () => ({ status: 'session-revoked' as const }))
+
+    await expect(
+      resolveProjectAssetUrl(`writellm-asset:${ASSET_ID}`, 'project-session', resolveAsset)
+    ).resolves.toBe('')
   })
 
   it('continues to reject arbitrary image sources', async () => {

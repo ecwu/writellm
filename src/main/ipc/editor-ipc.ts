@@ -27,11 +27,12 @@ import {
   type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
 import type { ProjectContext } from '../project/project-context'
-import type {
-  ProjectCloseParticipants,
-  ProjectFinalFlushAuthorization,
-  ProjectSnapshotParticipants,
-  ProjectManager
+import {
+  ProjectSessionError,
+  type ProjectManager,
+  type ProjectCloseParticipants,
+  type ProjectFinalFlushAuthorization,
+  type ProjectSnapshotParticipants
 } from '../project/project-manager'
 import { resolveProjectPath } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
@@ -188,16 +189,31 @@ export function registerEditorIpc(options: {
   ipc.handle(IPC_CHANNELS.editorResolveAsset, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = manuscriptAssetPreviewInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    context.manuscriptAssets.get(parsed.assetId)
-    if (options.assetCapabilities === undefined) throw new Error('Asset previews are unavailable')
-    return manuscriptAssetPreviewResultSchema.parse(
-      options.assetCapabilities.issue({
-        projectSessionId: parsed.projectSessionId,
-        assetId: parsed.assetId,
-        assets: context.manuscriptAssets
+    try {
+      const context = options.manager.assertActiveSession(parsed.projectSessionId)
+      context.manuscriptAssets.get(parsed.assetId)
+      if (options.assetCapabilities === undefined) throw new Error('Asset previews are unavailable')
+      return manuscriptAssetPreviewResultSchema.parse({
+        status: 'resolved',
+        ...options.assetCapabilities.issue({
+          projectSessionId: parsed.projectSessionId,
+          assetId: parsed.assetId,
+          assets: context.manuscriptAssets
+        })
       })
-    )
+    } catch (err) {
+      if (!(err instanceof ProjectSessionError)) throw err
+      options.logger.error(
+        {
+          event: 'editor.resolve_asset.session_revoked',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          assetId: parsed.assetId
+        },
+        'Asset resolution arrived after the project session was revoked'
+      )
+      return manuscriptAssetPreviewResultSchema.parse({ status: 'session-revoked' })
+    }
   })
   ipc.handle(IPC_CHANNELS.editorResolveImportAsset, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)

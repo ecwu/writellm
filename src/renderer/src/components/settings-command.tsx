@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Bot,
@@ -71,6 +71,7 @@ export function SettingsCommand({
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
   const { preference, accent, setPreference, setAccent } = useTheme()
 
   useEffect(() => {
@@ -131,6 +132,17 @@ export function SettingsCommand({
       description='Application settings and provider configuration'
       className='h-[min(90vh,56rem)] w-[min(96vw,90rem)] max-w-none sm:max-w-none'
       showCloseButton={false}
+      onOpenAutoFocus={() => {
+        returnFocusRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null
+      }}
+      onCloseAutoFocus={(event) => {
+        const returnFocus = returnFocusRef.current
+        returnFocusRef.current = null
+        if (returnFocus === null || !returnFocus.isConnected) return
+        event.preventDefault()
+        returnFocus.focus()
+      }}
     >
       <div className='grid h-full min-h-0 grid-cols-1 overflow-hidden md:grid-cols-[14rem_minmax(0,1fr)]'>
         <aside

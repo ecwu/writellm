@@ -176,8 +176,13 @@ async function fixtureRoot(omitted: string[] = []) {
         },
         packagedE2e: {
           format: 'writellm-packaged-e2e',
-          version: 1,
-          passed: 18
+          version: 2,
+          suite: 'packaged',
+          manifestSha256: 'd'.repeat(64),
+          requiredScenarioIds: ['project.lifecycle-restart'],
+          passedScenarioIds: ['project.lifecycle-restart'],
+          flakyScenarioIds: [],
+          skippedScenarioIds: []
         },
         inventory: { target },
         artifacts

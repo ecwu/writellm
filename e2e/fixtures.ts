@@ -6,7 +6,8 @@ import {
   test as base,
   type ElectronApplication,
   expect,
-  type Page
+  type Page,
+  type TestInfo
 } from '@playwright/test'
 
 export const PROJECT_DIALOG_PATHS_ENV = 'WRITELLM_E2E_PROJECT_DIALOG_PATHS'
@@ -40,23 +41,52 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
             )
           })()
   const executablePath = process.env[EXECUTABLE_PATH_ENV]
+  const launchArguments = [
+    `--user-data-dir=${options.userData}`,
+    '--lang=en-IE',
+    '--writellm-e2e-artifact-loopback'
+  ]
   const app = await electron.launch({
     ...(executablePath === undefined ? {} : { executablePath }),
-    args:
-      executablePath === undefined
-        ? ['.', `--user-data-dir=${options.userData}`, '--writellm-e2e-artifact-loopback']
-        : [`--user-data-dir=${options.userData}`, '--writellm-e2e-artifact-loopback'],
+    args: executablePath === undefined ? ['.', ...launchArguments] : launchArguments,
     cwd: process.cwd(),
     env: {
       ...process.env,
       ...options.env,
       ELECTRON_RUN_AS_NODE: undefined,
+      TZ: 'Europe/Dublin',
       [WINDOW_PRESENTATION_ENV]: windowPresentation === 'interactive' ? 'interactive' : 'silent',
       [PROJECT_DIALOG_PATHS_ENV]: JSON.stringify(options.dialogPaths ?? []),
       [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? [])
     }
   })
   const page = await app.firstWindow()
+  const rendererErrors = rendererErrorsForCurrentTest()
+  page.on('pageerror', (error) => {
+    const details = {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause,
+      url: page.url(),
+      pageClosed: page.isClosed()
+    }
+    rendererErrors.push(`pageerror: ${JSON.stringify(details)}`)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      const location = message.location()
+      if (
+        message.text() === 'Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME' &&
+        /^writellm-asset:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+          location.url
+        )
+      ) {
+        return
+      }
+      rendererErrors.push(`console.error: ${JSON.stringify({ text: message.text(), location })}`)
+    }
+  })
   await page.waitForLoadState('domcontentloaded')
   if (windowPresentation === 'silent-e2e') {
     await expect
@@ -85,11 +115,43 @@ export async function expectActiveProject(page: Page, name: string): Promise<voi
   await expect(header.getByText('Active', { exact: true })).toBeVisible()
 }
 
+export function sectionEditor(page: Page) {
+  return page.getByTestId('section-editor').getByRole('textbox', { includeHidden: true })
+}
+
 interface Fixtures {
   testRoot: string
+  rendererErrorGuard: undefined
+}
+
+const rendererErrorsByTest = new Map<string, string[]>()
+
+export function scenario(
+  id: string,
+  tags: readonly ('@critical' | '@packaged')[] = []
+): {
+  tag: string[]
+  annotation: { type: string; description: string }
+} {
+  return {
+    tag: [...tags],
+    annotation: { type: 'scenario', description: id }
+  }
 }
 
 export const test = base.extend<Fixtures>({
+  rendererErrorGuard: [
+    // Playwright requires fixture callbacks to use an object destructuring pattern.
+    // biome-ignore lint/correctness/noEmptyPattern: required by the Playwright fixture API
+    async ({}, use, testInfo) => {
+      rendererErrorsByTest.set(testInfo.testId, [])
+      await use(undefined)
+      const errors = rendererErrorsByTest.get(testInfo.testId) ?? []
+      rendererErrorsByTest.delete(testInfo.testId)
+      expect(errors, 'unexpected Renderer pageerror/console.error events').toEqual([])
+    },
+    { auto: true }
+  ],
   // Playwright requires fixture callbacks to use an object destructuring pattern.
   // biome-ignore lint/correctness/noEmptyPattern: required by the Playwright fixture API
   testRoot: async ({}, use) => {
@@ -102,5 +164,19 @@ export const test = base.extend<Fixtures>({
     }
   }
 })
+
+function rendererErrorsForCurrentTest(): string[] {
+  let testInfo: TestInfo
+  try {
+    testInfo = base.info()
+  } catch {
+    return []
+  }
+  const existing = rendererErrorsByTest.get(testInfo.testId)
+  if (existing !== undefined) return existing
+  const created: string[] = []
+  rendererErrorsByTest.set(testInfo.testId, created)
+  return created
+}
 
 export { expect } from '@playwright/test'
