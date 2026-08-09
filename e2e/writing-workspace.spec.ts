@@ -641,15 +641,16 @@ test(
 
       await launched.page.getByRole('button', { name: 'Section actions', exact: true }).click()
       await launched.page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()
+      const exportsDirectory = join(projectRoot, 'manuscript', 'exports')
       await expect
-        .poll(async () => (await readdir(join(projectRoot, 'manuscript', 'exports'))).length)
+        .poll(
+          async () =>
+            (await readdir(exportsDirectory)).filter((name) => name.endsWith('.md')).length
+        )
         .toBe(1)
-      const [exportName] = await readdir(join(projectRoot, 'manuscript', 'exports'))
+      const exportName = (await readdir(exportsDirectory)).find((name) => name.endsWith('.md'))
       if (exportName === undefined) throw new Error('Markdown export missing')
-      const markdown = await readFile(
-        join(projectRoot, 'manuscript', 'exports', exportName),
-        'utf8'
-      )
+      const markdown = await readFile(join(exportsDirectory, exportName), 'utf8')
       expect(markdown).toContain('```mermaid')
       expect(markdown).toContain('$$\nE = mc^2\n$$')
       expect(markdown).toMatch(/\.\.\/assets\/[0-9a-f]{64}\.png/)

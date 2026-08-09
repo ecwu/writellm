@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { currentPackageTarget } from './package-targets.mjs'
 import { resolveReleaseMetadata } from './release-version.mjs'
 
@@ -65,12 +66,8 @@ if (!dryRun) {
   }
 }
 
-const packageGate = new URL('./run-package-gate.mjs', import.meta.url)
-run(process.execPath, [
-  packageGate.pathname,
-  `--target=${target.id}`,
-  ...(dryRun ? [] : ['--release'])
-])
+const packageGate = fileURLToPath(new URL('./run-package-gate.mjs', import.meta.url))
+run(process.execPath, [packageGate, `--target=${target.id}`, ...(dryRun ? [] : ['--release'])])
 process.stdout.write(`${JSON.stringify({ ...plan, tag })}\n`)
 
 function command(executable, args, allowFailure = false) {

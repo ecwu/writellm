@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { inspectPackageArtifacts, verifyPackageInventory } from './package-inventory.mjs'
 import {
   assertNativePackageHost,
@@ -14,10 +15,12 @@ const require = createRequire(import.meta.url)
 const rootPackage = require('../package.json')
 const releaseMetadata = resolveReleaseMetadata(rootPackage)
 const electronBuilderCli = require.resolve('electron-builder/cli.js')
-const packagedSmoke = new URL('./run-packaged-hybrid-smoke.mjs', import.meta.url)
-const packagedE2e = new URL('./run-e2e.mjs', import.meta.url)
-const nativePreparation = new URL('./prepare-native-target.mjs', import.meta.url)
-const recoveryFixtureVerification = new URL('./verify-recovery-fixtures.mjs', import.meta.url)
+const packagedSmoke = fileURLToPath(new URL('./run-packaged-hybrid-smoke.mjs', import.meta.url))
+const packagedE2e = fileURLToPath(new URL('./run-e2e.mjs', import.meta.url))
+const nativePreparation = fileURLToPath(new URL('./prepare-native-target.mjs', import.meta.url))
+const recoveryFixtureVerification = fileURLToPath(
+  new URL('./verify-recovery-fixtures.mjs', import.meta.url)
+)
 const rawArguments = process.argv.slice(2)
 const targetArgument = rawArguments.find((argument) => argument.startsWith('--target='))
 const target = resolvePackageTarget(
@@ -83,9 +86,9 @@ await rm(outputDirectory, { recursive: true, force: true })
 await mkdir(outputDirectory, { recursive: true })
 
 const recoveryFixtures = JSON.parse(
-  runWithOutput(process.execPath, [recoveryFixtureVerification.pathname]).trim()
+  runWithOutput(process.execPath, [recoveryFixtureVerification]).trim()
 )
-run(process.execPath, [nativePreparation.pathname, '--install', `--target=${target.id}`])
+run(process.execPath, [nativePreparation, '--install', `--target=${target.id}`])
 run('npm', ['run', 'build'])
 
 const packageEnvironment = {
@@ -119,17 +122,13 @@ if (target.platform === 'darwin') {
 }
 
 const unpackedInventory = await verifyPackageInventory(resources, target)
-const smokeOutput = runWithOutput(process.execPath, [packagedSmoke.pathname, resources])
+const smokeOutput = runWithOutput(process.execPath, [packagedSmoke, resources])
 const packagedSmokeEvidence = verifyPackagedSmokeOutput(smokeOutput, target)
 const packagedExecutable = await resolvePackagedExecutable(resources, target)
-const packagedE2eOutput = runWithOutput(
-  process.execPath,
-  [packagedE2e.pathname, '--suite=packaged'],
-  {
-    ...process.env,
-    WRITELLM_E2E_EXECUTABLE_PATH: packagedExecutable
-  }
-)
+const packagedE2eOutput = runWithOutput(process.execPath, [packagedE2e, '--suite=packaged'], {
+  ...process.env,
+  WRITELLM_E2E_EXECUTABLE_PATH: packagedExecutable
+})
 const packagedE2eEvidence = verifyPackagedE2eOutput(packagedE2eOutput)
 let artifacts = []
 if (!unpackedOnly) {

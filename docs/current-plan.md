@@ -63,9 +63,12 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The authorized release-candidate identifier is `0.2026.8.1` (`v0.2026.8.1` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.2` (`v0.2026.8.2` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
-[`release-policy.md`](release-policy.md#release-version).
+[`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
+failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
+provider-catalog E2E precondition, while Linux exposed concurrent Electron runner contention; it
+remains audit evidence and is not moved or promoted.
 
 ## Deferred
 

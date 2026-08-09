@@ -77,7 +77,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "36b005b71b9d2ec909b56ede82a23dd0d6db96bc922085ffa9a98bd557712665",
+      "sourceSha256": "34808fbdbde258c0e4993de8d517330d3a49ef4df35b3e8a7e693c14f04a88f3",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",

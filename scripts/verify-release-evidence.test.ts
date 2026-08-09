@@ -35,11 +35,11 @@ describe('release evidence verification', () => {
     const result = await verifyReleaseEvidence({
       root,
       output,
-      tag: 'v0.2026.8.1',
+      tag: 'v0.2026.8.2',
       revision,
       mode: 'dry-run',
       packageVersion: '0.2026.8',
-      releaseVersion: '0.2026.8.1'
+      releaseVersion: '0.2026.8.2'
     })
     expect(result.status).toBe('test-only-unsigned')
     expect(result.rows).toHaveLength(4)
@@ -51,11 +51,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: incomplete,
         output: join(incomplete, 'output'),
-        tag: 'v0.2026.8.1',
+        tag: 'v0.2026.8.2',
         revision,
         mode: 'dry-run',
         packageVersion: '0.2026.8',
-        releaseVersion: '0.2026.8.1'
+        releaseVersion: '0.2026.8.2'
       })
     ).rejects.toThrow('targets are incomplete')
 
@@ -64,11 +64,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: unsigned,
         output: join(unsigned, 'output'),
-        tag: 'v0.2026.8.1',
+        tag: 'v0.2026.8.2',
         revision,
         mode: 'production',
         packageVersion: '0.2026.8',
-        releaseVersion: '0.2026.8.1'
+        releaseVersion: '0.2026.8.2'
       })
     ).rejects.toThrow(/signing|notarization/u)
   })
@@ -83,11 +83,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: dirty,
         output: join(dirty, 'output'),
-        tag: 'v0.2026.8.1',
+        tag: 'v0.2026.8.2',
         revision,
         mode: 'dry-run',
         packageVersion: '0.2026.8',
-        releaseVersion: '0.2026.8.1'
+        releaseVersion: '0.2026.8.2'
       })
     ).rejects.toThrow('clean checkout')
 
@@ -103,11 +103,11 @@ describe('release evidence verification', () => {
       verifyReleaseEvidence({
         root: inconsistent,
         output: join(inconsistent, 'output'),
-        tag: 'v0.2026.8.1',
+        tag: 'v0.2026.8.2',
         revision,
         mode: 'dry-run',
         packageVersion: '0.2026.8',
-        releaseVersion: '0.2026.8.1'
+        releaseVersion: '0.2026.8.2'
       })
     ).rejects.toThrow('disagree')
   })
@@ -175,7 +175,7 @@ async function fixtureRoot(omitted: string[] = []) {
       JSON.stringify({
         target,
         packageVersion: '0.2026.8',
-        releaseVersion: '0.2026.8.1',
+        releaseVersion: '0.2026.8.2',
         sourceRevision: revision,
         sourceState: 'clean',
         electron: '43.1.0',

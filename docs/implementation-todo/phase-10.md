@@ -272,6 +272,18 @@ bytes with SHA-256 `740a541cd9b706beecbc4d3b7314c229535a7c7d61e1d783bf15b5a949d4
 Checkpoint 26.9 is in progress on the real four-row workflow and protected dry-run promotion, so
 Phase 10 is not yet marked complete.
 
+Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.1` at
+`31164142d628443254cf0f23f8ec93dcf2d4f03f` started CI run `31337066783`. The static/fixture gate
+passed, while Windows x64 exposed filesystem URL misuse in the canonical Electron test launcher
+(`D:\\D:\\...`) and macOS arm64 exposed a provider-settings E2E that depended on ambient enabled
+provider state. Both macOS rows failed that same precondition. Linux x64 also exposed hosted-runner
+resource contention from two concurrent Electron applications: unrelated scenarios slowed together
+and timed out, so Linux CI now serializes the otherwise parallel E2E suite. Local package validation
+also caught a Markdown-export assertion racing the expected atomic temporary-file rename; the test
+now waits specifically for the final `.md` artifact. The candidate is intentionally retained as
+failed evidence and is not eligible for promotion; the focused fixes advance the release build
+sequence rather than moving the tag.
+
 ## Phase 10 deferred work
 
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and

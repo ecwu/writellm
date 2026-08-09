@@ -94,14 +94,26 @@ test(
       await mkdir(userData)
       const first = await launchApp({ userData, dialogPaths: [testRoot] })
       try {
+        const providerToDisable = await first.page.evaluate(async () => {
+          const presetId = 'builtin:openai-codex'
+          const initial = (await window.desktop.providers.snapshot()).agentCatalog.presets.find(
+            (preset) => preset.presetId === presetId
+          )
+          if (initial === undefined) throw new Error('Expected the packaged OpenAI Codex provider')
+          if (!initial.enabled) {
+            await window.desktop.providers.setAgentProviderEnabled({ presetId, enabled: true })
+          }
+          const enabled = (await window.desktop.providers.snapshot()).agentCatalog.presets.find(
+            (preset) => preset.presetId === presetId
+          )
+          if (enabled === undefined || !enabled.enabled) {
+            throw new Error('Expected the OpenAI Codex provider to be enabled')
+          }
+          return enabled
+        })
         await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
         const dialog = first.page.getByRole('dialog', { name: 'Settings' })
         await dialog.getByRole('option', { name: /^Agent API/ }).click()
-        const initialAgentCatalog = (
-          await first.page.evaluate(() => window.desktop.providers.snapshot())
-        ).agentCatalog
-        const providerToDisable = initialAgentCatalog.presets.find((preset) => preset.enabled)
-        if (providerToDisable === undefined) throw new Error('Expected an enabled Agent provider')
         const providerList = dialog.getByTestId('agent-provider-list')
         await providerList
           .locator(`[data-agent-provider-preset-id="${providerToDisable.presetId}"]`)
