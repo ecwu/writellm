@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 27 is locally complete; hosted validation remains pending, and Checkpoint 26.9 remains blocked.
+Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
 Recorded: 2026-08-09
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -10,10 +10,9 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 
 ## Current checkpoint
 
-Checkpoint 27 is locally complete. On 2026-08-09 the user explicitly authorized starting the E2E
-evolution before Checkpoint 26.9 completes. Checkpoint 26.9 remains blocked rather than being
-treated as complete; its implementation is ready, but its acceptance gate still requires external
-evidence that cannot be produced from this uncommitted local worktree:
+Checkpoint 27 is locally complete. On 2026-08-09 the user explicitly authorized starting
+Checkpoint 26.9, including the required commit, push, tag, hosted workflow dispatch, and protected
+dry-run promotion. Checkpoint 26.9 is now in progress; its acceptance gate requires:
 
 - a committed and tagged GitHub revision;
 - successful Windows x64, macOS arm64, macOS x64, and Linux x64 hosted-runner rows;
@@ -21,9 +20,9 @@ evidence that cannot be produced from this uncommitted local worktree:
 - verified checksums, provenance, retention metadata, and required signing status; and
 - one protected dry-run promotion that does not publish a production release.
 
-No commit, push, tag, workflow dispatch, or release promotion has been performed without user
-authorization. Local macOS arm64 results are supporting evidence, not a substitute for the four
-hosted rows. The authoritative scope, acceptance criteria, and local evidence are in
+The promotion must remain a dry run and must not publish a production release. Local macOS arm64
+results are supporting evidence, not a substitute for the four hosted rows. The authoritative
+scope, acceptance criteria, and local evidence are in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 
 Checkpoint 27 evolves the Electron Playwright suite around independent user outcomes. It
@@ -59,11 +58,10 @@ local evidence completes the implementation portion of Checkpoint 27 but does no
 
 ## Current authorized work
 
-Obtain hosted validation for the implemented Checkpoint 27 workflow: the Ubuntu pull-request
-critical gate and the existing four-target complete tagged E2E matrix. These runs require a
-committed revision and GitHub execution, so they remain pending until the required Git/GitHub
-mutations are separately authorized. Do not resume Checkpoint 26.9 or start a later product
-checkpoint without explicit user approval.
+Execute Checkpoint 26.9 from one clean tagged revision: run the complete four-target hosted matrix,
+verify every artifact and its governance evidence, perform the protected dry-run promotion without
+publishing a production release, and record the exact completion evidence. Do not start a later
+product checkpoint without explicit user approval.
 
 ## Deferred
 

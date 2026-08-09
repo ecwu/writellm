@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 27 is locally complete; hosted validation remains pending, and Checkpoint 26.9 remains blocked.
+Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
 Recorded: 2026-08-09
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -40,17 +40,18 @@ scenarios; and 22 recovery cases from 20 sources.
 
 ### Checkpoint 26.9: Hosted release-candidate gate
 
-- [!] Run the complete native four-row GitHub Actions matrix from one committed and tagged clean
+- [~] Run the complete native four-row GitHub Actions matrix from one committed and tagged clean
   revision.
-- [!] Install or launch every produced artifact on its supported host and verify checksums,
+- [~] Install or launch every produced artifact on its supported host and verify checksums,
   provenance, retention metadata, and signing or intentionally unsigned status.
-- [!] Perform one protected dry-run promotion without publishing a production release.
-- [!] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
+- [~] Perform one protected dry-run promotion without publishing a production release.
+- [~] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
   promotion outcome in the Phase 10 completion evidence.
 
-Blocker: these steps require authorization to commit, push, tag, dispatch hosted workflows, and
-invoke the protected promotion path. Local macOS arm64 verification cannot substitute for the
-Windows x64, macOS x64, or Linux x64 hosted rows.
+Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including the
+required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion. Production
+release publication remains out of scope. Local macOS arm64 verification cannot substitute for
+the Windows x64, macOS x64, or Linux x64 hosted rows.
 
 Acceptance criteria: every row succeeds for the same tagged revision; all migration, recovery,
 export, native runtime, Agent, security, and logging boundaries pass in packaged artifacts;

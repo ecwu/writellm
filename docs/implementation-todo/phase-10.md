@@ -221,16 +221,16 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   release notes. Live billable provider checks remain separately authorized manual probes against
   non-production fixtures; deterministic loopback providers are the release gate and no provider
   secret is embedded in an artifact.
-- [!] 26.9 Pass the complete four-row CI matrix on real target architectures, install or launch
+- [~] 26.9 Pass the complete four-row CI matrix on real target architectures, install or launch
   every produced artifact in its supported form, verify uploaded checksums and retention metadata,
   perform one protected dry-run promotion without publishing a production release, and record the
   exact commands, runner images, test counts, artifact names, hashes, signatures, and any
   intentionally unsigned status in the completion evidence.
 
-  Blocker: the workflows and protected dry-run path require a committed/tagged revision on GitHub
-  and execution by the four GitHub-hosted runners. This worktree has not been committed, pushed,
-  tagged, or dispatched because the user has not authorized those external mutations. Local
-  macOS arm64 evidence cannot substitute for Windows x64, macOS x64, or Linux x64 native runs.
+  Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including
+  the required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion.
+  Production release publication remains out of scope. Local macOS arm64 evidence cannot
+  substitute for Windows x64, macOS x64, or Linux x64 native runs.
 
 Acceptance criteria: the protected release candidate is built and tested on all four real target
 rows; the current migration, recovery, export, native runtime, Agent, security, and logging
@@ -269,7 +269,7 @@ E2E scenarios, and unsigned DMG/ZIP artifacts. The local evidence truthfully rec
 inconsistent recovery fixture hashes. The DMG is 249,397,727 bytes with SHA-256
 `ff0f5f3d91d55ee96f37ac4515f528e41ab125f1b94a4c0a27bf2b6e3fe38a5b`; the ZIP is 249,753,413
 bytes with SHA-256 `740a541cd9b706beecbc4d3b7314c229535a7c7d61e1d783bf15b5a949d48c63`.
-Checkpoint 26.9 remains blocked on the real four-row workflow and protected dry-run promotion, so
+Checkpoint 26.9 is in progress on the real four-row workflow and protected dry-run promotion, so
 Phase 10 is not yet marked complete.
 
 ## Phase 10 deferred work
