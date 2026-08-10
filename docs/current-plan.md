@@ -66,7 +66,7 @@ promotion without publishing a production release, and record the exact completi
 Windows/Linux release rows are deferred. Do not start a later product checkpoint without explicit
 user approval.
 
-The current release-candidate identifier is `0.2026.8.9` (`v0.2026.8.9` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.10` (`v0.2026.8.10` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -122,8 +122,9 @@ failed because no `GH_TOKEN` was supplied. Protected dry-run `31387596825` repro
 fail-closed result on both macOS rows. Linux was skipped, no Windows row was generated, promotion
 was skipped, the run uploaded no candidate artifact, and no GitHub Release exists. The local fix
 passes `--publish=never` to every electron-builder invocation and passed a simulated tag-CI package
-gate without a token. No additional candidate tag or hosted rerun is authorized; completing 26.9
-requires a new explicit budget approval.
+gate without a token. On 2026-08-10 the user explicitly authorized exactly one immutable `.10`
+macOS arm64/x64 tag CI and, only if it succeeds, exactly one macOS-only dry-run. Windows/Linux,
+reruns, and production remain unauthorized.
 
 ## Deferred
 

@@ -42,9 +42,9 @@ scenarios; and 22 recovery cases from 20 sources.
 
 - [x] Pass macOS arm64 and macOS x64 Electron tests/build/E2E from one committed and tagged clean
   revision; defer Windows/Linux distribution evidence.
-- [!] Install or launch every produced macOS artifact on its supported host and verify checksums,
+- [~] Install or launch every produced macOS artifact on its supported host and verify checksums,
   provenance, retention metadata, and signing or intentionally unsigned status.
-- [!] Perform one protected macOS-only dry-run promotion without publishing a production release.
+- [~] Perform one protected macOS-only dry-run promotion without publishing a production release.
 - [~] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
   promotion outcome in the Phase 10 completion evidence.
 
@@ -67,7 +67,9 @@ packaged E2E paths, then failed closed after electron-builder 26.15.3 implicitly
 publishing and found no `GH_TOKEN`. No candidate artifact was uploaded and no GitHub Release was
 created. The local remediation explicitly passes `--publish=never` and has passed a tag-CI
 simulation without a token; completing the hosted gate now requires explicit authorization for
-one new immutable candidate and one dry-run.
+one new immutable candidate and one dry-run. On 2026-08-10 the user granted that approval for
+exactly one `v0.2026.8.10` macOS arm64/x64 tag CI and, only after it succeeds, exactly one
+macOS-only dry-run. Windows/Linux, reruns, and production remain out of scope.
 
 Acceptance criteria: both macOS rows succeed for the same tagged revision; all migration,
 recovery, export, native runtime, Agent, security, and logging boundaries pass in their packaged

@@ -480,7 +480,19 @@ packaged E2E scenarios with no failures/flakes/skips, and inspected DMG/ZIP outp
 `253d0d70541b041c76e7d6f6a6808884c17248eb8f3dbca00a5e5120f15e8db2`; the ZIP is 249,764,679
 bytes with SHA-256 `e47701fdf7e6b432f8fb8eaa9495feaba33506660ec4751e1931eef2e97b22be`.
 This proves the observed implicit-publish failure is fixed locally, but it cannot change immutable
-`.9`. No new tag or Actions run is authorized.
+`.9`. On 2026-08-10 the user authorized exactly one immutable `v0.2026.8.10` macOS arm64/x64 tag
+CI and, only if that run succeeds, exactly one macOS-only dry-run. Windows/Linux, reruns, and
+production remain unauthorized.
+
+Local pre-tag evidence for `0.2026.8.10` (2026-08-10): `check:write`, `check:fast`, the 22-case
+recovery-fixture verifier, all seven focused release-evidence tests, and workflow YAML parsing
+passed. A simulated tag-CI macOS arm64 package gate explicitly removed GitHub tokens and passed all
+12 packaged-smoke scenarios plus all 15 packaged E2E scenarios without failures, flakes, or skips.
+It did not infer publishing. The unsigned DMG is 249,407,827 bytes with SHA-256
+`709a2005ddfcf3fcd0bd150405cd50d47312376cb8ff5a423bf9228a6b40a987`; the ZIP is 249,764,704
+bytes with SHA-256 `cd663ac82eeebd70036c997ad9913d993635c19262a0aa32bd48b1cb16eeac3a`.
+The evidence truthfully records the pre-tag checkout as dirty; the hosted verifier still requires
+the final committed tag revision to be clean.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
