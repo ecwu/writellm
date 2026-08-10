@@ -56,6 +56,8 @@ the Windows x64, macOS x64, or Linux x64 hosted rows.
 Budget guard: after immutable candidate `v0.2026.8.7` proved three hosted Electron rows but failed
 Linux credential persistence, no additional tag or rerun is allowed without a real Electron Linux
 credential preflight. The preflight must fail before the expensive four-platform matrix starts.
+Hosted run `31380991013` satisfied that guard on `main` in 2m26s; all matrix/package jobs remained
+skipped, so exactly one `v0.2026.8.8` candidate may proceed to the full matrix.
 
 Acceptance criteria: every row succeeds for the same tagged revision; all migration, recovery,
 export, native runtime, Agent, security, and logging boundaries pass in packaged artifacts;

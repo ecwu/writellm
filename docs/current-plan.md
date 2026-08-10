@@ -63,7 +63,7 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.7` (`v0.2026.8.7` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.8` (`v0.2026.8.8` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -100,11 +100,11 @@ still selected `basic_text` because D-Bus activation retained the runner's old r
 environment; 13 of 20 E2E scenarios passed. The immutable `v0.2026.8.7` candidate passed the static
 gate, Windows, and both macOS rows. Linux passed the Secret Service API probe and canonical tests,
 but the real application still selected `basic_text`; 13 of 20 E2E scenarios passed and packaging
-was skipped. No dry-run was dispatched. The next candidate is withheld until a low-cost hosted
-preflight proves the actual Electron 43 `safeStorage` backend is `gnome_libsecret`. The wrapper now
-uses the documented login/start lifecycle inside its private D-Bus session and performs a real
-encrypted Electron round trip before any expensive E2E or package command. Candidates `.4` through
-`.7` remain failed audit evidence and are neither moved nor promoted.
+was skipped. No dry-run was dispatched. Low-cost hosted preflight run `31380991013` then proved the
+actual Electron 43 `safeStorage` backend with a successful `gnome_libsecret` encrypted round trip;
+the expensive matrix remained skipped. Candidate `.8` carries that proven wrapper and gates every
+hosted matrix on the same preflight. Candidates `.4` through `.7` remain failed audit evidence and
+are neither moved nor promoted.
 
 ## Deferred
 

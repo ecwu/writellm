@@ -419,6 +419,24 @@ infrastructure-launch failure rather than credential evidence. Playwright's Elec
 already supplies `--no-sandbox` by default on this runner, so the standalone probe now supplies the
 same CI-only switch. This does not change product launch arguments or packaged application policy.
 
+The authorized corrected preflight, CI run `31380991013` at
+`3aacf76ec3300741c18ee9313d01d471a72db12e`, passed the static gate in 1m0s and the Linux
+credential preflight in 2m26s. The real Electron 43 process selected `gnome_libsecret` and passed
+its encrypted round trip; every Electron matrix and package job was skipped. This satisfies the
+budget guard for one new immutable `v0.2026.8.8` candidate and is not itself cross-platform or
+promotion evidence.
+
+Local pre-tag evidence for `0.2026.8.8` (2026-08-10): `check:write`, `check:fast`, the 22-case
+recovery-fixture verifier, and all five focused release-evidence tests passed. The no-identity
+macOS arm64 package gate then passed all 12 packaged smoke scenarios and all 15 manifest-selected
+packaged E2E scenarios without failures, flakes, or skips. Its unsigned artifacts are
+`WriteLLM-0.2026.8.8-arm64.dmg` (249,407,946 bytes, SHA-256
+`b5d00e34bd87e8087cb453d341ba8603905efb867e5e239014c5b5890d9b8aea`) and
+`WriteLLM-0.2026.8.8-arm64.zip` (249,764,681 bytes, SHA-256
+`a881eb6174660d21aaa7163fff245af1be6bac49f37df8f5c1268000ca91c7fb`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or
