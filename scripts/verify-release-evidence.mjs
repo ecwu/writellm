@@ -11,6 +11,10 @@ const EXPECTED_FORMATS = Object.freeze({
   'macos-x64': ['DMG', 'ZIP'],
   'linux-x64': ['AppImage', 'deb']
 })
+const TARGET_SETS = Object.freeze({
+  all: Object.freeze(Object.keys(EXPECTED_FORMATS).sort()),
+  macos: Object.freeze(['macos-arm64', 'macos-x64'])
+})
 const REQUIRED_PACKAGED_SMOKE = Object.freeze([
   'native-hybrid',
   'credential-backend',
@@ -32,6 +36,7 @@ export async function verifyReleaseEvidence({
   tag,
   revision,
   mode,
+  targets = 'all',
   packageVersion,
   releaseVersion
 }) {
@@ -39,6 +44,11 @@ export async function verifyReleaseEvidence({
     throw new Error(`Release tag ${tag} does not match release version ${releaseVersion}`)
   }
   if (mode !== 'dry-run' && mode !== 'production') throw new Error(`Unknown release mode ${mode}`)
+  if (!Object.hasOwn(TARGET_SETS, targets)) throw new Error(`Unknown release target set ${targets}`)
+  const expectedTargets = TARGET_SETS[targets]
+  if (mode === 'production' && targets !== 'macos') {
+    throw new Error('Production release target set must be macos')
+  }
   if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error('Release revision must be a full Git SHA')
 
   const evidencePaths = (await recursiveFiles(resolve(root))).filter(
@@ -128,7 +138,6 @@ export async function verifyReleaseEvidence({
     })
   }
 
-  const expectedTargets = Object.keys(EXPECTED_FORMATS).sort()
   const actualTargets = rows.map((row) => row.target).sort()
   if (JSON.stringify(actualTargets) !== JSON.stringify(expectedTargets)) {
     throw new Error(`Release evidence targets are incomplete: ${actualTargets.join(', ')}`)
@@ -150,12 +159,13 @@ export async function verifyReleaseEvidence({
     .join('\n')
   const manifest = {
     format: 'writellm-release-evidence',
-    version: 1,
+    version: 2,
     status: mode === 'production' ? 'production' : 'test-only-unsigned',
     tag,
     revision,
     packageVersion,
     releaseVersion,
+    targetSet: targets,
     rows: rows.sort((left, right) => left.target.localeCompare(right.target))
   }
   await writeFile(join(output, 'SHA256SUMS'), `${checksumText}\n`)
@@ -259,6 +269,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === currentFile) {
   const output = values.get('output')
   const tag = values.get('tag')
   const mode = values.get('mode')
+  const targets = values.get('targets') ?? 'all'
   const revision = values.get('revision') ?? process.env.GITHUB_SHA
   if (
     root === undefined ||
@@ -269,7 +280,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === currentFile) {
   ) {
     throw new Error(
       'Usage: verify-release-evidence.mjs --root=<dir> --output=<dir> --tag=<tag> ' +
-        '--mode=<dry-run|production> --revision=<sha>'
+        '--mode=<dry-run|production> --targets=<macos|all> --revision=<sha>'
     )
   }
   const releaseMetadata = verifyReleaseSource({ tag, revision })
@@ -279,6 +290,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === currentFile) {
     tag,
     revision,
     mode,
+    targets,
     packageVersion: releaseMetadata.packageVersion,
     releaseVersion: releaseMetadata.releaseVersion
   })

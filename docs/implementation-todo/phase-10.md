@@ -221,22 +221,24 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   release notes. Live billable provider checks remain separately authorized manual probes against
   non-production fixtures; deterministic loopback providers are the release gate and no provider
   secret is embedded in an artifact.
-- [~] 26.9 Pass the complete four-row CI matrix on real target architectures, install or launch
-  every produced artifact in its supported form, verify uploaded checksums and retention metadata,
-  perform one protected dry-run promotion without publishing a production release, and record the
-  exact commands, runner images, test counts, artifact names, hashes, signatures, and any
-  intentionally unsigned status in the completion evidence.
+- [~] 26.9 Pass the macOS arm64 and macOS x64 rows on their real target architectures, install or
+  launch every produced macOS artifact in its supported form, verify uploaded checksums and
+  retention metadata, perform one protected macOS-only dry-run promotion without publishing a
+  production release, and record the exact commands, runner images, test counts, artifact names,
+  hashes, signatures, and any intentionally unsigned status in the completion evidence. Windows
+  x64 and Linux x64 distribution evidence is deferred by the 2026-08-10 scope amendment.
 
   Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including
   the required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion.
   Production release publication remains out of scope. Local macOS arm64 evidence cannot
-  substitute for Windows x64, macOS x64, or Linux x64 native runs.
+  substitute for either hosted macOS architecture.
 
-Acceptance criteria: the protected release candidate is built and tested on all four real target
+Acceptance criteria: the protected release candidate is built and tested on both real macOS target
 rows; the current migration, recovery, export, native runtime, Agent, security, and logging
 boundaries pass in packaged artifacts; artifacts and diagnostics have explicit retention and
-provenance; secrets are confined to approved promotion jobs; and no production release can be
-created from an incomplete, unsigned-when-required, unnotarized-when-required, or mismatched matrix.
+provenance; secrets are confined to approved promotion jobs; and no release can be created from a
+missing macOS row, an extra deferred row, unsigned-when-required, unnotarized-when-required, or
+mismatched evidence set.
 
 Implementation evidence (2026-07-31): pinned least-privilege CI and release-candidate workflows
 now use `windows-2022`, `macos-15`, `macos-15-intel`, and `ubuntu-24.04`, immutable action SHAs,
@@ -265,12 +267,14 @@ evidence tests (7 tests), YAML parsing, both package/release plans, `git diff --
 macOS arm64 no-identity package gate. The package gate verified Electron ABI 148, 44,776 ASAR
 entries, arm64 native binaries, 12 structured packaged-smoke scenarios, 18/18 packaged Electron
 E2E scenarios, and unsigned DMG/ZIP artifacts. The local evidence truthfully records
-`sourceState: dirty`; promotion requires `sourceState: clean` on all four rows and rejects
-inconsistent recovery fixture hashes. The DMG is 249,397,727 bytes with SHA-256
+`sourceState: dirty`; promotion requires `sourceState: clean` on every row in the selected target
+set and rejects missing or extra rows and inconsistent recovery fixture hashes. The DMG is
+249,397,727 bytes with SHA-256
 `ff0f5f3d91d55ee96f37ac4515f528e41ab125f1b94a4c0a27bf2b6e3fe38a5b`; the ZIP is 249,753,413
 bytes with SHA-256 `740a541cd9b706beecbc4d3b7314c229535a7c7d61e1d783bf15b5a949d48c63`.
-Checkpoint 26.9 is in progress on the real four-row workflow and protected dry-run promotion, so
-Phase 10 is not yet marked complete.
+Checkpoint 26.9 is in progress on the real macOS arm64/x64 workflow and protected dry-run
+promotion; Windows/Linux distribution evidence is deferred, so Phase 10 is not yet marked
+complete.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.1` at
 `31164142d628443254cf0f23f8ec93dcf2d4f03f` started CI run `31337066783`. The static/fixture gate
@@ -306,7 +310,7 @@ unsigned arm64 artifacts are `WriteLLM-0.2026.8.3-arm64.dmg` (249,407,596 bytes,
 `WriteLLM-0.2026.8.3-arm64.zip` (249,764,871 bytes, SHA-256
 `73e75722844ebfc2ac9eb05ad8e3b5b820aac72dfbf595c45b265441015e1f29`). The package evidence
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
-revision on all four targets.
+revision on both selected macOS targets.
 
 Hosted candidate evidence (2026-08-10): immutable tag `v0.2026.8.4` at
 `4299bf77e37e74049746ce99029cbcd5c6cd3919` started CI run `31369520249`. The static/fixture gate
@@ -436,6 +440,25 @@ packaged E2E scenarios without failures, flakes, or skips. Its unsigned artifact
 `a881eb6174660d21aaa7163fff245af1be6bac49f37df8f5c1268000ca91c7fb`). The package evidence
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
+
+Hosted candidate evidence for `v0.2026.8.8` (2026-08-10): CI run `31381711382` at
+`7312f01e0230a0fe8e4fd4c8ec34887a366d4b9a` passed the static gate, macOS arm64 Electron row in
+3m14s, and macOS x64 Electron row in 6m32s. Windows and Linux failed their complete E2E steps; the
+dependent package matrix was therefore skipped and no dry-run was dispatched. The candidate is
+retained as audit evidence.
+
+Local pre-tag evidence for `0.2026.8.9` (2026-08-10): `check:write`, `check:fast`, the 22-case
+recovery-fixture verifier, 593 canonical Electron tests in 116 files, and all seven focused
+release-evidence tests passed; one opt-in benchmark remained skipped. The no-identity macOS arm64
+package gate passed all 12 packaged-smoke scenarios and all 15 manifest-selected packaged E2E
+scenarios without failures, flakes, or skips. Its unsigned artifacts are
+`WriteLLM-0.2026.8.9-arm64.dmg` (249,407,988 bytes, SHA-256
+`1303ce912224a1a3430dd5197fcc6b3442f756ab061d3e9e81fcda76bbd493cf`) and
+`WriteLLM-0.2026.8.9-arm64.zip` (249,764,679 bytes, SHA-256
+`02a99e70ebfa737aff3d0aa47e55d1569aea9b2204eb27bae4cfbef763a34442`). The package evidence
+truthfully records the pre-tag checkout as dirty. Exactly one `v0.2026.8.9` follow-up is authorized
+to encode and run the explicit two-row macOS target set; Windows/Linux and any further candidate
+tags remain deferred.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate

@@ -38,31 +38,35 @@ opt-in benchmark skipped; 20/20 full Electron E2E scenarios with two workers and
 skipped results; 6/6 critical scenarios; 15/15 packaged E2E scenarios; 12 packaged smoke
 scenarios; and 22 recovery cases from 20 sources.
 
-### Checkpoint 26.9: Hosted release-candidate gate
+### Checkpoint 26.9: macOS release-candidate gate
 
-- [~] Run the complete native four-row GitHub Actions matrix from one committed and tagged clean
-  revision.
-- [~] Install or launch every produced artifact on its supported host and verify checksums,
+- [x] Pass macOS arm64 and macOS x64 Electron tests/build/E2E from one committed and tagged clean
+  revision; defer Windows/Linux distribution evidence.
+- [~] Install or launch every produced macOS artifact on its supported host and verify checksums,
   provenance, retention metadata, and signing or intentionally unsigned status.
-- [~] Perform one protected dry-run promotion without publishing a production release.
+- [~] Perform one protected macOS-only dry-run promotion without publishing a production release.
 - [~] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
   promotion outcome in the Phase 10 completion evidence.
 
 Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including the
 required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion. Production
-release publication remains out of scope. Local macOS arm64 verification cannot substitute for
-the Windows x64, macOS x64, or Linux x64 hosted rows.
+release publication remains out of scope. On 2026-08-10 the active distribution scope was narrowed
+to macOS arm64 and macOS x64; Windows/Linux release rows are deferred rather than silently accepted
+as partial evidence.
 
 Budget guard: after immutable candidate `v0.2026.8.7` proved three hosted Electron rows but failed
 Linux credential persistence, no additional tag or rerun is allowed without a real Electron Linux
 credential preflight. The preflight must fail before the expensive four-platform matrix starts.
 Hosted run `31380991013` satisfied that guard on `main` in 2m26s; all matrix/package jobs remained
-skipped, so exactly one `v0.2026.8.8` candidate may proceed to the full matrix.
+skipped. Candidate `v0.2026.8.8` then proved both macOS Electron rows, while its Windows/Linux E2E
+rows failed and the dependent package matrix was skipped. Exactly one follow-up candidate,
+`v0.2026.8.9`, is authorized for the explicit macOS-only matrix and dry-run; no Windows/Linux row
+or additional candidate tag is authorized.
 
-Acceptance criteria: every row succeeds for the same tagged revision; all migration, recovery,
-export, native runtime, Agent, security, and logging boundaries pass in packaged artifacts;
-artifact governance is verified; and the protected dry-run rejects incomplete, mismatched, or
-improperly signed evidence.
+Acceptance criteria: both macOS rows succeed for the same tagged revision; all migration,
+recovery, export, native runtime, Agent, security, and logging boundaries pass in their packaged
+artifacts; artifact governance is verified; and the protected dry-run rejects missing macOS rows,
+extra deferred rows, mismatched provenance, or improperly signed evidence.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

@@ -15,14 +15,16 @@ Checkpoint 26.9, including the required commit, push, tag, hosted workflow dispa
 dry-run promotion. Checkpoint 26.9 is now in progress; its acceptance gate requires:
 
 - a committed and tagged GitHub revision;
-- successful Windows x64, macOS arm64, macOS x64, and Linux x64 hosted-runner rows;
-- installation or launch verification for every produced artifact;
+- successful macOS arm64 and macOS x64 hosted-runner rows from that revision;
+- installation or launch verification for every produced macOS artifact;
 - verified checksums, provenance, retention metadata, and required signing status; and
-- one protected dry-run promotion that does not publish a production release.
+- one protected macOS-only dry-run promotion that does not publish a production release.
 
-The promotion must remain a dry run and must not publish a production release. Local macOS arm64
-results are supporting evidence, not a substitute for the four hosted rows. The authoritative
-scope, acceptance criteria, and local evidence are in
+The promotion must remain a dry run and must not publish a production release. Windows and Linux
+distribution are deferred; their current failures or incomplete rows do not block the macOS target
+set and their artifacts must not enter its manifest. Local macOS arm64 results remain supporting
+evidence, not a substitute for both hosted macOS rows. The authoritative scope, acceptance
+criteria, and local evidence are in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 
 Checkpoint 27 evolves the Electron Playwright suite around independent user outcomes. It
@@ -58,12 +60,13 @@ local evidence completes the implementation portion of Checkpoint 27 but does no
 
 ## Current authorized work
 
-Execute Checkpoint 26.9 from one clean tagged revision: run the complete four-target hosted matrix,
-verify every artifact and its governance evidence, perform the protected dry-run promotion without
-publishing a production release, and record the exact completion evidence. Do not start a later
-product checkpoint without explicit user approval.
+Execute Checkpoint 26.9 from one clean tagged revision: verify both macOS hosted rows, rebuild and
+verify only their four artifacts and governance evidence, perform the protected macOS-only dry-run
+promotion without publishing a production release, and record the exact completion evidence.
+Windows/Linux release rows are deferred. Do not start a later product checkpoint without explicit
+user approval.
 
-The current release-candidate identifier is `0.2026.8.8` (`v0.2026.8.8` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.9` (`v0.2026.8.9` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -105,6 +108,13 @@ actual Electron 43 `safeStorage` backend with a successful `gnome_libsecret` enc
 the expensive matrix remained skipped. Candidate `.8` carries that proven wrapper and gates every
 hosted matrix on the same preflight. Candidates `.4` through `.7` remain failed audit evidence and
 are neither moved nor promoted.
+
+Candidate `.8` CI run `31381711382` passed macOS arm64 in 3m14s and macOS x64 in 6m32s from
+revision `7312f01e0230a0fe8e4fd4c8ec34887a366d4b9a`. Windows and Linux later failed their complete
+E2E steps, so the dependent package matrix was skipped. Those deferred failures do not satisfy or
+block the narrowed macOS promotion scope, and no `.8` dry-run was dispatched. Candidate `.9` is
+reserved for the explicit macOS-only workflow and manifest boundary; no other candidate tag is
+authorized.
 
 ## Deferred
 

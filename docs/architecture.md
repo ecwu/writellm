@@ -9,7 +9,8 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
-Checkpoint 26.8S is complete; Checkpoint 26.9 remains blocked on hosted release evidence.
+Checkpoint 26.8S is complete; Checkpoint 26.9 is validating the two macOS release rows while
+Windows and Linux distribution are deferred.
 
 ## 2026-07-16 Architecture Amendment
 

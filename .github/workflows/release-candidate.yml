@@ -15,12 +15,20 @@ on:
         options:
           - dry-run
           - production
+      targets:
+        description: Release target set
+        required: true
+        type: choice
+        default: macos
+        options:
+          - macos
+          - all
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag }}
+  group: release-${{ inputs.tag }}-${{ inputs.targets }}
   cancel-in-progress: false
 
 env:
@@ -34,6 +42,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       revision: ${{ steps.revision.outputs.sha }}
+      matrix: ${{ steps.targets.outputs.matrix }}
     steps:
       - name: Checkout exact tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -44,6 +53,30 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - name: Resolve exact release target matrix
+        id: targets
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_TARGETS: ${{ inputs.targets }}
+        run: |
+          if [[ "${RELEASE_MODE}" == 'production' && "${RELEASE_TARGETS}" != 'macos' ]]; then
+            echo 'Production release target set must be macos' >&2
+            exit 1
+          fi
+          case "${RELEASE_TARGETS}" in
+            macos)
+              matrix='{"include":[{"target":"macos-arm64","runner":"macos-15","signing":"macos","command":"package:macos-arm64"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos","command":"package:macos-x64"}]}'
+              ;;
+            all)
+              matrix='{"include":[{"target":"windows-x64","runner":"windows-2022","signing":"windows","command":"package:windows-x64"},{"target":"macos-arm64","runner":"macos-15","signing":"macos","command":"package:macos-arm64"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos","command":"package:macos-x64"},{"target":"linux-x64","runner":"ubuntu-24.04","signing":"none","command":"package:linux-x64"}]}'
+              ;;
+            *)
+              echo "Unknown release target set ${RELEASE_TARGETS}" >&2
+              exit 1
+              ;;
+          esac
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
       - name: Verify tag, package version, lockfile, and clean checkout
         id: revision
         shell: bash
@@ -57,6 +90,7 @@ jobs:
   linux-credential-preflight:
     name: Linux credential preflight
     needs: source
+    if: ${{ inputs.targets == 'all' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -91,29 +125,15 @@ jobs:
     needs:
       - source
       - linux-credential-preflight
+    if: >-
+      ${{ !cancelled() && needs.source.result == 'success' &&
+          (inputs.targets == 'macos' || needs.linux-credential-preflight.result == 'success') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     environment: release
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: windows-x64
-            runner: windows-2022
-            signing: windows
-            command: package:windows-x64
-          - target: macos-arm64
-            runner: macos-15
-            signing: macos
-            command: package:macos-arm64
-          - target: macos-x64
-            runner: macos-15-intel
-            signing: macos
-            command: package:macos-x64
-          - target: linux-x64
-            runner: ubuntu-24.04
-            signing: none
-            command: package:linux-x64
+      matrix: ${{ fromJSON(needs.source.outputs.matrix) }}
     steps:
       - name: Checkout exact tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -220,18 +240,20 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_MODE: ${{ inputs.mode }}
           RELEASE_REVISION: ${{ needs.source.outputs.revision }}
+          RELEASE_TARGETS: ${{ inputs.targets }}
         run: >-
           node scripts/verify-release-evidence.mjs
           --root=release-input
           --output=release-output
           "--tag=${RELEASE_TAG}"
           "--mode=${RELEASE_MODE}"
+          "--targets=${RELEASE_TARGETS}"
           "--revision=${RELEASE_REVISION}"
       - name: Retain dry-run promotion evidence
         if: ${{ inputs.mode == 'dry-run' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: promotion-dry-run-${{ needs.source.outputs.revision }}
+          name: promotion-dry-run-${{ inputs.targets }}-${{ needs.source.outputs.revision }}
           path: release-output
           if-no-files-found: error
           retention-days: 14

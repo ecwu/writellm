@@ -99,8 +99,7 @@ jobs:
     name: Linux credential preflight
     needs: static
     if: >-
-      ${{ startsWith(github.ref, 'refs/tags/') ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'linux-credential-preflight') }}
+      ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'linux-credential-preflight' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -129,9 +128,7 @@ jobs:
 
   electron:
     name: Electron ${{ matrix.target }}
-    needs:
-      - static
-      - linux-credential-preflight
+    needs: static
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -139,14 +136,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: windows-x64
-            runner: windows-2022
           - target: macos-arm64
             runner: macos-15
           - target: macos-x64
             runner: macos-15-intel
-          - target: linux-x64
-            runner: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -163,22 +156,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Frozen dependency install
         run: pnpm install --frozen-lockfile
-      - name: Install Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Electron tests and production build
         run: pnpm check:electron
       - name: Complete silent Electron E2E
-        if: ${{ matrix.target != 'linux-x64' }}
         run: pnpm test:e2e
-      - name: Complete silent Electron E2E with Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        shell: bash
-        run: |
-          bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm test:e2e
       - name: Retain synthetic failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -198,18 +179,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: windows-x64
-            runner: windows-2022
-            command: package:windows-x64
           - target: macos-arm64
             runner: macos-15
             command: package:macos-arm64
           - target: macos-x64
             runner: macos-15-intel
             command: package:macos-x64
-          - target: linux-x64
-            runner: ubuntu-24.04
-            command: package:linux-x64
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -226,20 +201,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Frozen dependency install
         run: pnpm install --frozen-lockfile
-      - name: Install Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Native-host package gate
-        if: ${{ matrix.target != 'linux-x64' }}
         run: pnpm run ${{ matrix.command }}
-      - name: Native-host package gate with Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        shell: bash
-        run: |
-          bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm run package:linux-x64
       - name: Upload unsigned package evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

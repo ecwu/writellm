@@ -42,7 +42,29 @@ describe('release evidence verification', () => {
       releaseVersion: '0.2026.8.7'
     })
     expect(result.status).toBe('test-only-unsigned')
+    expect(result.version).toBe(2)
     expect(result.rows).toHaveLength(4)
+    expect(result.targetSet).toBe('all')
+  })
+
+  it('accepts exactly the two macOS rows for a macOS dry run', async () => {
+    const root = await fixtureRoot(['windows-x64', 'linux-x64'])
+    const output = join(root, 'output')
+    const result = await verifyReleaseEvidence({
+      root,
+      output,
+      tag: 'v0.2026.8.7',
+      revision,
+      mode: 'dry-run',
+      targets: 'macos',
+      packageVersion: '0.2026.8',
+      releaseVersion: '0.2026.8.7'
+    })
+    expect(result.targetSet).toBe('macos')
+    expect(result.rows.map((row: { target: string }) => row.target)).toEqual([
+      'macos-arm64',
+      'macos-x64'
+    ])
   })
 
   it('rejects an incomplete matrix and unsigned production evidence', async () => {
@@ -59,7 +81,21 @@ describe('release evidence verification', () => {
       })
     ).rejects.toThrow('targets are incomplete')
 
-    const unsigned = await fixtureRoot()
+    const macWithExtraTarget = await fixtureRoot(['linux-x64'])
+    await expect(
+      verifyReleaseEvidence({
+        root: macWithExtraTarget,
+        output: join(macWithExtraTarget, 'output'),
+        tag: 'v0.2026.8.7',
+        revision,
+        mode: 'dry-run',
+        targets: 'macos',
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.7'
+      })
+    ).rejects.toThrow('targets are incomplete')
+
+    const unsigned = await fixtureRoot(['windows-x64', 'linux-x64'])
     await expect(
       verifyReleaseEvidence({
         root: unsigned,
@@ -67,10 +103,27 @@ describe('release evidence verification', () => {
         tag: 'v0.2026.8.7',
         revision,
         mode: 'production',
+        targets: 'macos',
         packageVersion: '0.2026.8',
         releaseVersion: '0.2026.8.7'
       })
     ).rejects.toThrow(/signing|notarization/u)
+  })
+
+  it('rejects production promotion outside the macOS target set', async () => {
+    const root = await fixtureRoot()
+    await expect(
+      verifyReleaseEvidence({
+        root,
+        output: join(root, 'output'),
+        tag: 'v0.2026.8.7',
+        revision,
+        mode: 'production',
+        targets: 'all',
+        packageVersion: '0.2026.8',
+        releaseVersion: '0.2026.8.7'
+      })
+    ).rejects.toThrow('must be macos')
   })
 
   it('rejects dirty package provenance and inconsistent recovery fixtures', async () => {
