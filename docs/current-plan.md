@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
 Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
-Recorded: 2026-08-09
+Recorded: 2026-08-10
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -63,7 +63,7 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.6` (`v0.2026.8.6` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.7` (`v0.2026.8.7` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -93,10 +93,15 @@ scenarios still failed and several long scenarios also reached 45 seconds. The i
 while the outline-conflict scenario automatically reached `Saved` before Playwright could click its
 transient Retry button. Linux again passed 12 of 20 scenarios because its runner lacked a usable
 `XDG_RUNTIME_DIR`, so the login collection did not exist and the Secret Service attempted an
-unavailable graphical prompt. Candidate `v0.2026.8.6` gives Windows a bounded 180-second limit,
-accepts the valid automatic conflict recovery, provisions a private Linux runtime directory, and
-requires a real Secret Service write/read/clear probe before Electron starts. Candidates `.4` and
-`.5` remain failed audit evidence and are neither moved nor promoted.
+unavailable graphical prompt. The immutable `v0.2026.8.6` candidate passed the static gate and both
+macOS rows. Windows then exposed three known I/O-heavy canonical tests that exceeded Vitest's
+default five-second limit. Linux passed the Secret Service probe and canonical tests, but Electron
+still selected `basic_text` because D-Bus activation retained the runner's old runtime-directory
+environment; 13 of 20 E2E scenarios passed. Candidate `v0.2026.8.7` gives those three tests explicit
+15-second limits and makes the Secret Service wrapper create `XDG_RUNTIME_DIR` before it starts the
+D-Bus session. A real Ubuntu 24.04 Electron 43 probe selected `gnome_libsecret` and passed encrypted
+write/read round-trip verification with that ordering. Candidates `.4`, `.5`, and `.6` remain
+failed audit evidence and are neither moved nor promoted.
 
 ## Deferred
 

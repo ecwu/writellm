@@ -8,10 +8,14 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 keyring_password="${WRITELLM_CI_KEYRING_PASSWORD:-writellm-ci-keyring}"
-runtime_parent="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-keyring_runtime_dir="$(mktemp -d "${runtime_parent%/}/writellm-keyring-runtime.XXXXXX")"
-chmod 700 "$keyring_runtime_dir"
-export XDG_RUNTIME_DIR="$keyring_runtime_dir"
+if [[ "${WRITELLM_CI_SECRET_SERVICE_SESSION:-}" != '1' ]]; then
+  runtime_parent="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+  keyring_runtime_dir="$(mktemp -d "${runtime_parent%/}/writellm-keyring-runtime.XXXXXX")"
+  chmod 700 "$keyring_runtime_dir"
+  export XDG_RUNTIME_DIR="$keyring_runtime_dir"
+  export WRITELLM_CI_SECRET_SERVICE_SESSION=1
+  exec dbus-run-session -- bash "$0" "$@"
+fi
 
 eval "$(printf '%s' "$keyring_password" | gnome-keyring-daemon --unlock --components=secrets)"
 

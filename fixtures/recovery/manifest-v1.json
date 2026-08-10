@@ -88,7 +88,7 @@
       "id": "missing-materializations",
       "category": "materialization",
       "source": "src/main/manuscript/editor-persistence-service.test.ts",
-      "sourceSha256": "42fdaaa25cb17b3a0d136ebc955811f8843afa0280064da2b51f29514f227368",
+      "sourceSha256": "ff3a3cb1b08ea42a5216f37afcbf48ee9129df95a0cb393a60d245540587ec72",
       "tests": [
         "reports a pending mirror after rename failure and repairs missing, corrupt, and stale metadata from DB",
         "repairs a file published before its materialization metadata commit"

@@ -5,7 +5,7 @@
 - Purpose: deliver a portable whole-manuscript export, finish reproducible native packaging on
   every supported target, and establish cross-platform CI and controlled release promotion.
 - Checkpoints: 24–26.
-- Current status: Blocked at Checkpoint 26.9 pending real GitHub-hosted runner evidence.
+- Current status: Checkpoint 26.9 hosted candidate validation is in progress.
 - Implementation state: plan realigned with the verified 2026-07-31 codebase; Checkpoint 24 passed
   its acceptance gate, Checkpoint 25 passed its acceptance gate, and Checkpoint 26.1–26.8 are
   implemented and locally verified under the user's approval to implement Phase 10.
@@ -356,6 +356,31 @@ scenarios and verified the no-Team-ID signature policy. The unsigned arm64 artif
 `3a8d224ebd2e860fdad30bdb14eec6354f15f536ba5b1e38143d3555485a607f`) and
 `WriteLLM-0.2026.8.6-arm64.zip` (249,764,685 bytes, SHA-256
 `e4dd05804ae7a2f55219739304ee1036ebb37835936c8529c07c98d0d1ee542a`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
+Hosted candidate evidence (2026-08-10): immutable tag `v0.2026.8.6` at
+`71d3e54123ee39f5fdf0811a369289fd323cf422` started CI run `31374299460`. The static gate and both
+macOS rows passed. Windows reached the canonical Electron suite, where three known I/O-heavy tests
+exceeded Vitest's default five-second limit; later `EBUSY` cleanup reports were consequences of
+those cancellations. Linux passed the real Secret Service write/read/clear probe and its canonical
+tests/build, but Electron still selected `basic_text`: the workflow started `dbus-run-session`
+before the wrapper created its private `XDG_RUNTIME_DIR`, so D-Bus activation retained the stale
+runtime-directory environment. Thirteen of 20 E2E scenarios passed and the credential-dependent
+flows failed closed. Packaging and promotion were correctly skipped. Candidate `.6` remains failed
+evidence and cannot be promoted or retagged.
+
+Local pre-tag evidence for `0.2026.8.7` (2026-08-10): `pnpm check:fast`, the 22-case recovery
+fixture verifier, and the five focused release-evidence tests passed; the canonical Electron test
+runner passed 591 tests in 116 files with one benchmark skipped. The three Windows-sensitive
+I/O-heavy tests now have explicit 15-second limits. `pnpm check:package` passed 12 packaged-smoke
+scenarios plus all 15 packaged E2E scenarios and verified the no-Team-ID signature policy. The
+unsigned arm64 artifacts are `WriteLLM-0.2026.8.7-arm64.dmg` (249,407,856 bytes, SHA-256
+`3e88e0374dafa4b558a486e97ee542abe5904a55b60cc62f60de000729126ee6`) and
+`WriteLLM-0.2026.8.7-arm64.zip` (249,764,836 bytes, SHA-256
+`fc87712ac628ee6f0194efa14f31364a1848a752f4412fd1f3ccbd2bdf5e8a30`). A real Electron 43 probe
+on Ubuntu 24.04 selected `gnome_libsecret` and passed encrypted write/read round-trip verification
+after the wrapper created its private runtime directory before starting D-Bus. The package evidence
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
 
