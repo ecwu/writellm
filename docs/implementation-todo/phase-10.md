@@ -308,6 +308,32 @@ unsigned arm64 artifacts are `WriteLLM-0.2026.8.3-arm64.dmg` (249,407,596 bytes,
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
 
+Hosted candidate evidence (2026-08-10): immutable tag `v0.2026.8.4` at
+`4299bf77e37e74049746ce99029cbcd5c6cd3919` started CI run `31369520249`. The static/fixture gate
+and macOS arm64 row passed. macOS x64 passed 590 of 591 canonical tests before the I/O-heavy
+application-ID-zero database test exceeded Vitest's default five-second limit. Windows passed the
+same Electron tests/build and 13 of 20 complete E2E scenarios; one more scenario passed only on
+retry and six long scenarios exceeded Playwright's 45-second test limit. Their cleanup then
+truthfully reported still-open SQLite files as `EBUSY`, a consequence of timeout cancellation rather
+than the original failure. Linux proved the `gnome-libsecret` switch preceded the application path,
+but the fresh hosted session still lacked a usable login keyring: 12 scenarios passed while eight
+credential-dependent scenarios failed, and several of those long paths also reached 45 seconds.
+GNOME Keyring's documented fresh-session sequence is now centralized as `--login` followed by
+`--start` inside the D-Bus session, and slow Windows/Linux hosted scenarios receive a bounded
+90-second limit. Packaging and promotion were correctly skipped. Candidate `.4` remains failed
+evidence and cannot be promoted or retagged.
+
+Local pre-tag evidence for `0.2026.8.5` (2026-08-10): `pnpm check:fast` passed; the canonical
+Electron test runner passed 591 tests in 116 files with one benchmark skipped; and the complete
+fresh-build Electron E2E suite passed all 20 scenarios without a flaky result. `pnpm check:package`
+passed 12 packaged-smoke scenarios plus all 15 packaged E2E scenarios. The unsigned arm64
+artifacts are `WriteLLM-0.2026.8.5-arm64.dmg` (249,407,853 bytes, SHA-256
+`92bee77d9f4931d9ce3eae9906d1e0d5d4b8052969c4cc357623ab8ce0edd012`) and
+`WriteLLM-0.2026.8.5-arm64.zip` (249,764,699 bytes, SHA-256
+`6683350bf94c03ad4541ad57a3123d95982ae9cd9a2584769f1052ad0405299c`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

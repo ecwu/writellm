@@ -75,11 +75,8 @@ jobs:
       - name: Fresh-build critical Electron E2E
         shell: bash
         run: |
-          dbus-run-session -- bash -lc '
-            eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
-            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
+          dbus-run-session -- bash scripts/run-with-linux-secret-service.sh \
             xvfb-run --auto-servernum pnpm check:e2e:critical
-          '
       - name: Retain critical E2E failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -137,11 +134,8 @@ jobs:
         if: ${{ matrix.target == 'linux-x64' }}
         shell: bash
         run: |
-          dbus-run-session -- bash -lc '
-            eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
-            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
+          dbus-run-session -- bash scripts/run-with-linux-secret-service.sh \
             xvfb-run --auto-servernum pnpm test:e2e
-          '
       - name: Retain synthetic failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -201,11 +195,8 @@ jobs:
         if: ${{ matrix.target == 'linux-x64' }}
         shell: bash
         run: |
-          dbus-run-session -- bash -lc '
-            eval "$(printf "%s\n" "writellm-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets)"
-            export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
+          dbus-run-session -- bash scripts/run-with-linux-secret-service.sh \
             xvfb-run --auto-servernum pnpm run package:linux-x64
-          '
       - name: Upload unsigned package evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

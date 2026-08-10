@@ -803,7 +803,7 @@ describe('project database', () => {
       projectManifest.projectId
     )
     verified.close()
-  })
+  }, 15_000)
 
   it('rejects a corrupt project database without creating migration artifacts', async () => {
     const root = await temporaryRoot('损坏数据库')

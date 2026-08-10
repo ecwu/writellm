@@ -63,7 +63,7 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.4` (`v0.2026.8.4` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.5` (`v0.2026.8.5` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -80,9 +80,16 @@ provider-logo evidence, replace-existing rename behavior during concurrent asset
 legacy `MAX_PATH` overflow in nested snapshot staging, and one test-owned database handle that
 survived cleanup. Linux again completed 12 of 20 scenarios because the documented password-store
 switch appeared after Electron's development application path and was therefore not applied. The
-candidate remains failed audit evidence and is neither moved nor promoted. Candidate
-`v0.2026.8.4` contains only the focused portability and test-lifecycle corrections plus their
-regression coverage; it has not yet been pushed or run on hosted runners.
+candidate remains failed audit evidence and is neither moved nor promoted.
+
+The immutable `v0.2026.8.4` candidate passed the static gate and macOS arm64 row. macOS x64 passed
+590 of 591 tests before one I/O-heavy database test exceeded the default five-second Vitest limit.
+Windows passed its Electron tests/build and 13 of 20 E2E scenarios; the remaining long scenarios
+exceeded the 45-second Playwright limit. Linux proved the password-store switch was now parsed,
+but `--unlock` did not provision a login keyring in the fresh runner, so eight credential-dependent
+scenarios still failed and several long scenarios also reached 45 seconds. Candidate
+`v0.2026.8.5` uses bounded hosted-runner timeouts and the documented two-stage GNOME Keyring login
+and session startup. Candidate `.4` remains failed audit evidence and is neither moved nor promoted.
 
 ## Deferred
 
