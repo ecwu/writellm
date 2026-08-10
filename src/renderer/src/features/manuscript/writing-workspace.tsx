@@ -48,6 +48,7 @@ export function WritingWorkspace(props: {
   agentOpen: boolean
   onAgentOpenChange(open: boolean): void
   onOpenSettings(): void
+  onOpenSkillSettings(): void
   onError(message: string): void
 }): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -791,6 +792,7 @@ export function WritingWorkspace(props: {
               <AgentPanel
                 open
                 onOpenChange={props.onAgentOpenChange}
+                onOpenSettings={props.onOpenSkillSettings}
                 projectSessionId={props.projectSessionId}
                 activeSectionId={activeSectionId}
                 currentRevisionIds={currentRevisionIds}

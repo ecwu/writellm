@@ -73,7 +73,7 @@ The initial product has these fixed invariants:
 - A project must not be writable from two WriteLLM instances at the same time.
 - The renderer never receives raw database, filesystem, credential, or generic IPC access.
 - Markdown is an interchange and export format, not the lossless manuscript source of truth.
-- Agent writes are typed, revision-checked mutation proposals. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools.
+- Agent writes are typed, revision-checked mutation proposals. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools. Accepted ADR 013 adds application-global, Main-installed, read-only writing guidance beneath the global policy without adding an Agent tool or exposing installed files to the model.
 
 The architecture continues to favor embedded components and explicit boundaries over local services:
 
@@ -956,7 +956,35 @@ The worker accepts bounded PNG/JPEG output and reports its actual MIME; only Mai
 magic and atomically publishes the project asset before a `writellm-asset:<assetId>` block
 reference can be committed.
 
-The initial Agent surface does not include generic file/SQL/JSON Patch/shell/process/network tools, custom tool creation, plugin or skill registries, multiple agents, long-term memory, provider configuration mutation, or restore/snapshot triggers.
+The Agent surface does not include generic file/SQL/JSON Patch/shell/process/network tools, custom
+tool creation, executable plugins, multiple agents, long-term memory, provider configuration
+mutation, or restore/snapshot triggers. Accepted ADR 013 is the narrow exception to the former
+skill-registry freeze: Main may install bounded `.md`/`.txt` writing guidance into application-
+global, hash-verified storage and compose it beneath the global policy. Skills cannot add tools,
+execute code, discover files, read projects, fetch arbitrary URLs, or write manuscripts directly.
+
+### Application-global Writing Skills
+
+Writing Skill authority lives in `app.sqlite` plus `userData/agent-skills`, never in a project.
+Renderer receives bounded metadata only; Main owns GitHub inspection, download, git-blob and local
+SHA-256 verification, startup integrity checks, and atomic publication. Curated entries update only
+to a reviewed pin and file allowlist shipped in a later application catalog. Custom entries use a
+user-confirmed immutable GitHub commit under TOFU semantics. Only UTF-8 `.md` and `.txt` files are
+accepted, and no skill content is executable.
+
+Each Agent start declares `{ mode: 'auto' }`, `{ mode: 'explicit', skillId }`, or
+`{ mode: 'none' }`; omitted legacy input defaults to auto. A run snapshot persists provenance,
+selected resources, routing status, and safe errors in the project database but never skill bodies.
+The optional pre-router reuses the run provider/model and remains ordinary cancellable interactive
+work. Route requests retain `operation_kind = 'agent'` and use nullable
+`model_requests.delivery = 'skill_route'`; the existing operation-kind CHECK is unchanged.
+
+Prompt composition is ordered and byte-bounded: global policy, companion note, Pi
+`formatSkillInvocation` blocks and complete selected references, trusted requirements, then
+manuscript data. Mandatory entrypoints and references are never truncated. Optional references are
+removed whole before the established outline reduction; mandatory overflow degrades auto to none
+or returns `skill_prompt_budget_exceeded` for explicit selection. Model-visible locations use
+`writellm://skills/...`, never private filesystem paths.
 
 Submit tools are sequential and create `mutation_proposals`; they do not directly commit project state.
 
@@ -1066,6 +1094,12 @@ Provider configuration is application-global because credentials are device/user
   only while that conversation is idle and applies to its next run. Every run snapshots the
   resolved provider, API, model names/IDs, limits, and fingerprints so later application-global
   changes cannot rewrite history or silently redirect an active run.
+- Each Agent conversation also stores one Pi Thinking level. Main exposes the exact supported
+  levels only for non-manual models from Pi built-in provider presets, clamps remembered or stale
+  values with Pi's model helper, and snapshots the effective level on every run. Custom presets and
+  manual models remain `off`. The worker receives only a bounded non-secret runtime model
+  descriptor; Pi owns provider-specific reasoning parameter translation. Thinking content remains
+  excluded from persisted Agent messages and Renderer projections. See ADR 014.
 - OAuth interaction is request-scoped and cancellable. Main runs the provider-owned Pi flow,
   opens only URLs emitted by that flow, and brokers bounded prompts to the initiating Renderer.
   Returned credentials are encrypted directly through the Main-owned Pi `CredentialStore` and

@@ -53,6 +53,7 @@ describe('application database', () => {
       'agent_model_catalogs',
       'agent_model_preferences',
       'agent_provider_preferences',
+      'agent_skills',
       'app_settings',
       'encrypted_credentials',
       'provider_configs',
@@ -119,7 +120,7 @@ describe('application database', () => {
 
     const backupNames = await readdir(join(userData, 'backups'))
     expect(backupNames).toHaveLength(1)
-    expect(backupNames[0]).toMatch(/^migration-v1-to-v4-[0-9a-f-]+\.sqlite$/u)
+    expect(backupNames[0]).toMatch(/^migration-v1-to-v5-[0-9a-f-]+\.sqlite$/u)
     const backup = new Database(join(userData, 'backups', backupNames[0] as string), {
       readonly: true,
       fileMustExist: true

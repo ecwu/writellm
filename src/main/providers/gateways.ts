@@ -11,6 +11,7 @@ import type {
 } from '../../shared/contracts/model-runtime'
 import type {
   AgentHistoryMessage,
+  AgentRuntimeModel,
   AgentModelLimits,
   AgentModelCallAuthorization,
   AgentQueueCommand,
@@ -19,6 +20,7 @@ import type {
 } from '../../shared/contracts/agent'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
+import type { AgentThinkingLevel } from '../../shared/contracts/providers'
 
 export interface AgentModelRuntime {
   run(
@@ -42,6 +44,8 @@ export interface AgentSessionRunInput {
   prompt: string
   maxOutputTokens: number
   modelLimits?: AgentModelLimits
+  thinkingLevel?: AgentThinkingLevel
+  runtimeModel?: AgentRuntimeModel
   temperature?: number
 }
 

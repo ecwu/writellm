@@ -16,6 +16,28 @@ import {
 import { agentApprovalModeSchema, type AgentApprovalMode } from '../shared/contracts/agent'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
+  cancelSkillOperationInputSchema,
+  inspectGithubSkillInputSchema,
+  inspectGithubSkillResultSchema,
+  installSkillInputSchema,
+  setSkillEnabledInputSchema,
+  skillChangeEventSchema,
+  skillIdInputSchema,
+  skillMutationResultSchema,
+  skillsSnapshotSchema,
+  skillUpdateResultSchema,
+  uninstallSkillInputSchema,
+  updateSkillInputSchema,
+  type InspectGithubSkillInput,
+  type InspectGithubSkillResult,
+  type InstallSkillInput,
+  type SetSkillEnabledInput,
+  type SkillsSnapshot,
+  type SkillUpdateResult,
+  type UninstallSkillInput,
+  type UpdateSkillInput
+} from '../shared/contracts/skills'
+import {
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentEventPageInputSchema,
@@ -32,6 +54,8 @@ import {
   agentSetApprovalModeResultSchema,
   agentSetModelSelectionInputSchema,
   agentSetModelSelectionResultSchema,
+  agentSetThinkingLevelInputSchema,
+  agentSetThinkingLevelResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema,
@@ -216,6 +240,7 @@ import {
   type AgentManualModelRemoveInput,
   type AgentModelEnabledInput,
   type AgentModelSelection,
+  type AgentThinkingLevel,
   type AgentPresetInput,
   type AgentPresetCredentialInput,
   type AgentPresetLoginInput,
@@ -243,6 +268,17 @@ export interface DesktopApi {
     setAccentPreference(input: SetAccentPreferenceInput): Promise<AccentPreference>
     getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
     setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
+  }
+  skills: {
+    snapshot(): Promise<SkillsSnapshot>
+    inspectGithub(input: InspectGithubSkillInput): Promise<InspectGithubSkillResult>
+    install(input: InstallSkillInput): Promise<SkillsSnapshot>
+    setEnabled(input: SetSkillEnabledInput): Promise<SkillsSnapshot>
+    checkUpdate(input: { skillId: string; operationId: string }): Promise<SkillUpdateResult>
+    update(input: UpdateSkillInput): Promise<SkillsSnapshot>
+    uninstall(input: UninstallSkillInput): Promise<SkillsSnapshot>
+    cancelOperation(input: { operationId: string }): Promise<void>
+    subscribeChanges(listener: (revision: number) => void): () => void
   }
   projects: {
     lifecycle(): Promise<ProjectLifecycleSnapshot>
@@ -375,6 +411,11 @@ export interface DesktopApi {
       projectSessionId: string
       agentSessionId: string
       selection: AgentModelSelection
+    }): Promise<AgentSessionRecord>
+    setThinkingLevel(input: {
+      projectSessionId: string
+      agentSessionId: string
+      level: AgentThinkingLevel
     }): Promise<AgentSessionRecord>
     listEvents(input: {
       projectSessionId: string
@@ -519,6 +560,20 @@ export interface DesktopApi {
   }
 }
 
+// Main registers one skills:changed subscription per webContents. Multiplex every Renderer
+// listener here so one component unsubscribing cannot silence the others.
+const skillChangeListeners = new Set<(revision: number) => void>()
+let skillChangeDispatcherAttached = false
+
+function attachSkillChangeDispatcher(): void {
+  if (skillChangeDispatcherAttached) return
+  ipcRenderer.on(IPC_CHANNELS.skillsChanged, (_event: Electron.IpcRendererEvent, raw: unknown) => {
+    const revision = skillChangeEventSchema.parse(raw).revision
+    for (const listener of skillChangeListeners) listener(revision)
+  })
+  skillChangeDispatcherAttached = true
+}
+
 const desktopApi: DesktopApi = {
   app: {
     async getInfo() {
@@ -562,6 +617,69 @@ const desktopApi: DesktopApi = {
           setDefaultAgentApprovalModeInputSchema.parse(input)
         )
       )
+    }
+  },
+  skills: {
+    async snapshot() {
+      return skillsSnapshotSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.skillsSnapshot))
+    },
+    async inspectGithub(input) {
+      return inspectGithubSkillResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.skillsInspectGithub,
+          inspectGithubSkillInputSchema.parse(input)
+        )
+      )
+    },
+    async install(input) {
+      return skillMutationResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.skillsInstall, installSkillInputSchema.parse(input))
+      ).snapshot
+    },
+    async setEnabled(input) {
+      return skillMutationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.skillsSetEnabled,
+          setSkillEnabledInputSchema.parse(input)
+        )
+      ).snapshot
+    },
+    async checkUpdate(input) {
+      return skillUpdateResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.skillsCheckUpdate, skillIdInputSchema.parse(input))
+      )
+    },
+    async update(input) {
+      return skillMutationResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.skillsUpdate, updateSkillInputSchema.parse(input))
+      ).snapshot
+    },
+    async uninstall(input) {
+      return skillMutationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.skillsUninstall,
+          uninstallSkillInputSchema.parse(input)
+        )
+      ).snapshot
+    },
+    async cancelOperation(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.skillsCancelOperation,
+        cancelSkillOperationInputSchema.parse(input)
+      )
+    },
+    subscribeChanges(listener) {
+      attachSkillChangeDispatcher()
+      skillChangeListeners.add(listener)
+      if (skillChangeListeners.size === 1) {
+        ipcRenderer.send(IPC_CHANNELS.skillsSubscribeChanges)
+      }
+      return () => {
+        skillChangeListeners.delete(listener)
+        if (skillChangeListeners.size === 0) {
+          ipcRenderer.send(IPC_CHANNELS.skillsUnsubscribeChanges)
+        }
+      }
     }
   },
   projects: {
@@ -1000,6 +1118,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentSetModelSelection,
           agentSetModelSelectionInputSchema.parse(input)
+        )
+      )
+    },
+    async setThinkingLevel(input) {
+      return agentSetThinkingLevelResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentSetThinkingLevel,
+          agentSetThinkingLevelInputSchema.parse(input)
         )
       )
     },

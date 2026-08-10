@@ -95,6 +95,19 @@ afterEach(async () => {
 })
 
 describe('AgentProviderCatalogService', () => {
+  it('projects exact Pi Thinking levels only for built-in non-manual models', async () => {
+    const { database, catalog } = await createHarness()
+    const snapshot = await catalog.snapshot()
+    const bedrock = snapshot.presets.find((preset) => preset.presetId === 'builtin:amazon-bedrock')
+    const nova = bedrock?.models.find((model) => model.id === 'amazon.nova-2-lite-v1:0')
+
+    expect(nova).toMatchObject({
+      reasoning: true,
+      supportedThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high']
+    })
+    database.close()
+  })
+
   it('loads the statically registered xAI OAuth device flow', async () => {
     const { database, catalog } = await createHarness()
     const controller = new AbortController()
@@ -335,6 +348,7 @@ describe('AgentProviderCatalogService', () => {
           source: 'manual',
           enabled: true,
           reasoning: true,
+          supportedThinkingLevels: ['off'],
           input: ['text', 'image']
         }),
         expect.objectContaining({ id: 'writer-2', source: 'discovered', enabled: true })
@@ -349,6 +363,9 @@ describe('AgentProviderCatalogService', () => {
     ).rejects.toThrow('Agent model is disabled')
 
     await catalog.setModelEnabled('custom:overlay', 'writer-1', true)
+    await expect(
+      catalog.resolve({ presetId: 'custom:overlay', modelId: 'writer-1' })
+    ).resolves.toMatchObject({ model: { reasoning: false } })
     const withoutManual = await catalog.removeManualModel('custom:overlay', 'writer-1')
     expect(
       withoutManual.presets

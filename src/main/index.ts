@@ -24,6 +24,7 @@ import { registerAgentIpc } from './ipc/agent-ipc'
 import { registerKnowledgeIpc } from './ipc/knowledge-ipc'
 import { registerProviderIpc } from './ipc/provider-ipc'
 import { registerSearchIpc } from './ipc/search-ipc'
+import { registerSkillIpc } from './ipc/skill-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
 import { withIpcLogging } from './observability/ipc-context'
@@ -45,6 +46,9 @@ import { AgentModelClient } from './providers/agent-model-client'
 import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
 import { ModelExecutionService } from './providers/model-execution-service'
 import { AgentSessionService } from './agent/session-service'
+import { SkillService } from './skills/skill-service'
+import { SkillRouter } from './skills/skill-router'
+import { installSkillE2eFixture } from './skills/skill-test-seam'
 import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
 import { MainAgentTools } from './agent/tools'
@@ -167,6 +171,13 @@ if (!hasSingleInstanceLock) {
       )
       await appSettings.getDefaultAgentApprovalMode()
       const recentProjects = new RecentProjectsRepository(appDatabase)
+      const skills = new SkillService(
+        appDatabase,
+        join(app.getPath('userData'), 'agent-skills'),
+        loggerSystem.createModuleLogger('agent', 'skills')
+      )
+      await skills.initialize()
+      await installSkillE2eFixture({ service: skills, windowPresentation, log: appLog })
       const credentialLog = loggerSystem.createModuleLogger('security', 'credentials')
       const credentials = new CredentialService(appDatabase, safeStorage, credentialLog)
       const backgroundWorker = new PersistentUtilityProcess({
@@ -209,6 +220,11 @@ if (!hasSingleInstanceLock) {
         loggerSystem.createModuleLogger('worker', 'agent-model'),
         utilityProcess,
         logCollector
+      )
+      const skillRouter = new SkillRouter(
+        skills,
+        agentModel,
+        loggerSystem.createModuleLogger('agent', 'skill-router')
       )
       const auxiliaryModel = new AuxiliaryModelClient(
         join(__dirname, 'background-worker.js'),
@@ -393,6 +409,7 @@ if (!hasSingleInstanceLock) {
             agentCatalog: agentProviderCatalog,
             runtime: agentModel,
             contextBuilder: agentTools.contextBuilder(),
+            skillRouter,
             tools: agentTools,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
@@ -508,6 +525,12 @@ if (!hasSingleInstanceLock) {
       const unregisterAppIpc = registerIpcHandlers({
         appSettings,
         logger: loggerSystem.createModuleLogger('ipc', 'app'),
+        developmentUrl,
+        ipc
+      })
+      const unregisterSkillIpc = registerSkillIpc({
+        service: skills,
+        logger: loggerSystem.createModuleLogger('ipc', 'skills'),
         developmentUrl,
         ipc
       })
@@ -642,6 +665,7 @@ if (!hasSingleInstanceLock) {
       const shutdownCoordinator = createShutdownCoordinator({
         projectManager,
         unregisterProjectIpc: () => {
+          unregisterSkillIpc()
           unregisterProviderIpc()
           unregisterSearchIpc()
           unregisterKnowledgeIpc()

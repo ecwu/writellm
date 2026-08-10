@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import { modelExecutionMetadataSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
-import { providerConfigSchema } from './providers'
+import {
+  agentThinkingLevelMapSchema,
+  agentThinkingLevelSchema,
+  piApiSchema,
+  providerConfigSchema
+} from './providers'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 
 export const AGENT_EVENT_SCHEMA_VERSION = 2
@@ -82,6 +87,36 @@ export const agentRuntimeAuthSchema = z
   .strict()
 export type AgentRuntimeAuth = z.infer<typeof agentRuntimeAuthSchema>
 
+const boundedPiCompatSchema = z
+  .record(z.string().min(1).max(100), z.json())
+  .superRefine((compat, context) => {
+    if (new TextEncoder().encode(JSON.stringify(compat)).byteLength > 16_384) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Agent runtime model compatibility data is too large'
+      })
+    }
+  })
+
+export const agentRuntimeModelSchema = z
+  .object({
+    id: z.string().min(1).max(500),
+    name: z.string().min(1).max(500),
+    api: piApiSchema,
+    provider: z.string().min(1).max(200),
+    baseUrl: z.url().max(2_048),
+    reasoning: z.boolean(),
+    thinkingLevelMap: agentThinkingLevelMapSchema.optional(),
+    input: z
+      .array(z.enum(['text', 'image']))
+      .min(1)
+      .max(2),
+    contextWindow: z.number().int().positive().max(10_000_000),
+    maxTokens: z.number().int().positive().max(10_000_000),
+    compat: boundedPiCompatSchema.optional()
+  })
+  .strict()
+
 export const agentRunStartSchema = z
   .object({
     operation: z.literal('run_start'),
@@ -96,6 +131,8 @@ export const agentRunStartSchema = z
     history: agentHistorySchema,
     prompt: z.string().min(1).max(262_144),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
+    thinkingLevel: agentThinkingLevelSchema.default('off'),
+    runtimeModel: agentRuntimeModelSchema.optional(),
     maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),
     temperature: z.number().min(0).max(2).optional()
   })
@@ -278,6 +315,7 @@ export const mutationProposalStatusSchema = z.enum([
 export type AgentEditorContext = z.infer<typeof agentEditorContextSchema>
 export type AgentApprovalMode = z.infer<typeof agentApprovalModeSchema>
 export type AgentHistoryMessage = z.infer<typeof agentHistoryMessageSchema>
+export type AgentRuntimeModel = z.infer<typeof agentRuntimeModelSchema>
 export type AgentRunStart = z.infer<typeof agentRunStartSchema>
 export type AgentQueueCommand = z.infer<typeof agentQueueCommandSchema>
 export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>

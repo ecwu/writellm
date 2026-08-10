@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 27.3 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 27.5 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +15,68 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 27.5: Agent Thinking Level
+
+- [x] Accept ADR 014 and establish the session/run snapshot, Pi-owned capability mapping,
+  remembered-default, built-in-only, and no-thinking-display boundaries.
+- [x] Add shared contracts, supported-level catalog projection, remembered app setting, and the
+  additive project migration for session/run Thinking levels.
+- [x] Propagate the validated runtime model descriptor and snapshotted level through Main,
+  `model_requests`, and the agent-worker Pi loop.
+- [x] Add the idle-only shadcn Thinking selector and immutable active-run status.
+- [x] Pass focused tests, `check:fast`, `check:electron`, production build, relevant Real-Electron
+  E2E, the Impeccable detector, and `git diff --check`.
+
+Authorization: on 2026-08-10 the user approved the decision-complete Checkpoint 27.5 plan and
+explicitly requested implementation. Hosted CI, package, release, commit, push, and promotion are
+not authorized.
+
+Local evidence: focused contract/catalog/settings/migration/Main/Worker/Renderer suites;
+`check:fast`; `check:electron` with 125 passing Electron-hosted test files, 644 passing tests, and
+one opt-in benchmark skipped; a successful production build; 22/22 full Real-Electron E2E
+scenarios with no flaky or skipped results; the focused `agent.thinking-level-memory` scenario;
+23 recovery cases from 21 sources; a clean Impeccable detector; and `git diff --check`.
+
+### Checkpoint 27.4: Global Writing Skill management
+
+- [x] Accept ADR 013 and establish the fixed budget, reviewed-pin, text-only, provenance, and
+  auto/explicit/none invariants in the architecture documents.
+- [x] Implement the application-global catalog, Main downloader, integrity-verified atomic
+  storage, `app.sqlite` state, and bounded `desktop.skills` IPC.
+- [x] Add project-local run provenance and route-request migrations without changing the existing
+  `operation_kind` CHECK, then integrate cancellable routing and ordered Pi skill prompt assembly.
+- [x] Add the Writing Skills Settings surface and the Agent composer `/` skill selector using the
+  existing shadcn new-york components.
+- [x] Focused tests, `check:fast`, `check:electron` (122 files / 626 tests), the production build,
+  Impeccable detector, `git diff --check`, and the network-free focused Real-Electron
+  `agent.global-writing-skill` scenario pass.
+- [x] Acceptance review fixes: the composer refreshes on the first stream delta after routing,
+  the generic Settings entry opens General while only the Agent entry opens Writing Skills,
+  skill change subscriptions are reference-counted per webContents, GitHub skills have an
+  explicit Check update flow before the unreviewed-update confirmation, skill-free runs omit the
+  companion note, and updates preserve a disabled skill's enabled state.
+- [x] State-propagation audit fixes: a tampered skill is demoted and published instead of
+  rejecting `loadEnabled` (lazy paths in `loadById`/`readResource` demote and emit
+  `skills:changed`), setup failures publish the queued prompt and mark the run snapshot
+  `failed` instead of leaving it `pending`, a user stop during history compaction records
+  `user_stopped` rather than `compaction_failed`, the composer leaves "Choosing writing
+  skill…" on the guaranteed post-routing `user_message` (tool-first and non-streaming runs),
+  terminal markers label every Main-emitted code from the shared view-model helper, a staged
+  explicit chip is cleared when its skill leaves the valid set and is no longer consumed by
+  Retry/Continue reuse, Settings surfaces Main error details and keeps a just-updated GitHub
+  skill on "Latest pinned", and the dead `installedSkill.updateKind: 'unreviewed'` contract
+  value is removed. The 0019 migration test now derives the backup suffix from
+  `PROJECT_SCHEMA_VERSION` instead of a hardcoded version.
+
+Authorization: on 2026-08-10 the user accepted ADR 013, reviewed the revised implementation plan,
+and explicitly requested Checkpoint 27.4 implementation. No hosted CI, package, release, commit,
+push, or promotion work is authorized.
+
+Packaging addendum: the user subsequently authorized one local macOS arm64 package for hands-on
+evaluation. `check:package` passed the 12 packaged-smoke scenarios, all 15 packaged Electron E2E
+scenarios, native inventory, and DMG/ZIP structural inspection. Commit, push, hosted CI, release,
+and promotion remain unauthorized.
 
 ### Checkpoint 27.3: Agent academic writing and citation policy
 

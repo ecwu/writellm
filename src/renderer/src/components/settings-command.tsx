@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Bot,
+  BookOpen,
   Braces,
   FileArchive,
   FolderOpen,
@@ -17,6 +18,7 @@ import {
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
 import type { AccentPreference, ThemePreference } from '../../../shared/contracts/app'
 import type { AgentApprovalMode } from '../../../shared/contracts/agent'
+import type { SkillsSnapshot } from '../../../shared/contracts/skills'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,12 +35,14 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
+import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings'
 import { useTheme } from '@/theme-provider'
 
-type SettingsSection = 'general' | ProviderRole
+type SettingsSection = 'general' | 'skills' | ProviderRole
 
 interface SettingsCommandProps {
   open: boolean
+  initialSection?: 'general' | 'skills'
   onOpenChange: (open: boolean) => void
   onOpenLogs: () => void
   onExportDiagnostics: () => void
@@ -52,6 +56,7 @@ const sections: Array<{
 }> = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'agent', label: 'Agent API', icon: Bot },
+  { id: 'skills', label: 'Writing Skills', icon: BookOpen },
   { id: 'embedding', label: 'Embedding API', icon: Braces },
   { id: 'rerank', label: 'Reranking API', icon: Braces },
   { id: 'mineru', label: 'MinerU API', icon: KeyRound },
@@ -60,6 +65,7 @@ const sections: Array<{
 
 export function SettingsCommand({
   open,
+  initialSection = 'general',
   onOpenChange,
   onOpenLogs,
   onExportDiagnostics,
@@ -68,6 +74,7 @@ export function SettingsCommand({
   const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
   const [section, setSection] = useState<SettingsSection>('general')
   const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('manual')
+  const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -77,17 +84,20 @@ export function SettingsCommand({
   useEffect(() => {
     if (!open) return
     let current = true
-    setMobileSectionOpen(false)
+    setSection(initialSection)
+    setMobileSectionOpen(initialSection !== 'general')
     setLoading(true)
     setLoadError(null)
     void Promise.all([
       window.desktop.providers.snapshot(),
-      window.desktop.app.getDefaultAgentApprovalMode()
+      window.desktop.app.getDefaultAgentApprovalMode(),
+      window.desktop.skills.snapshot()
     ])
-      .then(([nextSnapshot, nextApprovalMode]) => {
+      .then(([nextSnapshot, nextApprovalMode, nextSkillSnapshot]) => {
         if (!current) return
         setSnapshot(nextSnapshot)
         setApprovalMode(nextApprovalMode)
+        setSkillSnapshot(nextSkillSnapshot)
       })
       .catch(() => {
         if (current) setLoadError('Settings could not be loaded.')
@@ -98,6 +108,16 @@ export function SettingsCommand({
     return () => {
       current = false
     }
+  }, [initialSection, open])
+
+  useEffect(() => {
+    if (!open) return
+    return window.desktop.skills.subscribeChanges(() => {
+      void window.desktop.skills
+        .snapshot()
+        .then(setSkillSnapshot)
+        .catch(() => undefined)
+    })
   }, [open])
 
   const selectTheme = async (next: ThemePreference): Promise<void> => {
@@ -160,7 +180,7 @@ export function SettingsCommand({
               {sections.map((item) => {
                 const Icon = item.icon
                 const provider =
-                  item.id === 'general'
+                  item.id === 'general' || item.id === 'skills'
                     ? null
                     : snapshot?.providers.find((candidate) => candidate.role === item.id)
                 return (
@@ -237,7 +257,14 @@ export function SettingsCommand({
                 onOpenLogs={onOpenLogs}
                 onExportDiagnostics={onExportDiagnostics}
               />
-            ) : snapshot ? (
+            ) : section === 'skills' && skillSnapshot ? (
+              <WritingSkillsSettings
+                snapshot={skillSnapshot}
+                closeAction={<SettingsCloseButton />}
+                onSnapshot={setSkillSnapshot}
+                onError={onError}
+              />
+            ) : snapshot && section !== 'skills' ? (
               <ProviderSettingsWorkspace
                 role={section}
                 snapshot={snapshot}

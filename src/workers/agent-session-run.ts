@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { Api, AssistantMessage, ProviderStreams, UserMessage } from '@earendil-works/pi-ai'
+import type {
+  Api,
+  AssistantMessage,
+  Model,
+  ProviderStreams,
+  UserMessage
+} from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import {
@@ -56,26 +62,32 @@ export async function runAgentSession(
     import('@earendil-works/pi-agent-core'),
     loadStreamSimple(request.config.api ?? 'openai-completions')
   ])
+  const runtimeModel = request.runtimeModel
   const model = {
-    id: request.config.model,
-    name: request.config.model,
-    api: request.config.api ?? ('openai-completions' as const),
-    provider: request.config.providerId,
-    baseUrl: request.config.baseUrl,
-    reasoning: false,
-    input: ['text' as const],
+    id: runtimeModel?.id ?? request.config.model,
+    name: runtimeModel?.name ?? request.config.model,
+    api: runtimeModel?.api ?? request.config.api ?? ('openai-completions' as const),
+    provider: runtimeModel?.provider ?? request.config.providerId,
+    baseUrl: runtimeModel?.baseUrl ?? request.config.baseUrl,
+    reasoning: runtimeModel?.reasoning ?? false,
+    ...(runtimeModel?.thinkingLevelMap === undefined
+      ? {}
+      : { thinkingLevelMap: runtimeModel.thinkingLevelMap }),
+    input: runtimeModel?.input ?? ['text' as const],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: modelLimits.contextWindowTokens,
-    maxTokens: request.maxOutputTokens,
-    ...(request.config.api === undefined || request.config.api === 'openai-completions'
-      ? {
-          compat: {
-            supportsUsageInStreaming: true,
-            maxTokensField: 'max_tokens' as const
+    contextWindow: runtimeModel?.contextWindow ?? modelLimits.contextWindowTokens,
+    maxTokens: runtimeModel?.maxTokens ?? request.maxOutputTokens,
+    ...(runtimeModel?.compat !== undefined
+      ? { compat: runtimeModel.compat }
+      : request.config.api === undefined || request.config.api === 'openai-completions'
+        ? {
+            compat: {
+              supportsUsageInStreaming: true,
+              maxTokensField: 'max_tokens' as const
+            }
           }
-        }
-      : {})
-  }
+        : {})
+  } as Model<Api>
   const modelRequestIds = [request.modelRequestId]
   const systemPromptByModelRequestId = new Map<string, string>()
   const pendingModelCallAuthorizations = new Map<
@@ -111,7 +123,7 @@ export async function runAgentSession(
     initialState: {
       systemPrompt: request.systemPrompt,
       model,
-      thinkingLevel: 'off',
+      thinkingLevel: request.thinkingLevel ?? 'off',
       tools: toolBridge.tools(),
       messages: request.history.map(toPiMessage)
     },

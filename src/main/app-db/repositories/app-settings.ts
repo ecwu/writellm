@@ -15,6 +15,8 @@ import type { AppDatabase } from '../connection'
 import { projectIdSchema } from '../../../shared/contracts/projects'
 import {
   agentModelSelectionSchema,
+  agentThinkingLevelSchema,
+  type AgentThinkingLevel,
   type AgentModelSelection
 } from '../../../shared/contracts/providers'
 
@@ -25,6 +27,7 @@ export const DEFAULT_AGENT_APPROVAL_MODE: AgentApprovalMode = 'manual'
 const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
 const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
+const AGENT_LAST_THINKING_LEVEL_KEY = 'agent.last-thinking-level.v1'
 const ACCENT_PREFERENCE_KEY = 'theme.accent'
 const modelLimitsCacheSchema = z.record(
   z.string().regex(/^[a-f0-9]{64}$/),
@@ -146,6 +149,21 @@ export class AppSettingsRepository {
   ): Promise<AgentModelSelection | null> {
     const value = agentModelSelectionSchema.nullable().parse(selection)
     await this.#writeSetting(AGENT_DEFAULT_MODEL_SELECTION_KEY, value)
+    return value
+  }
+
+  async getLastAgentThinkingLevel(): Promise<AgentThinkingLevel> {
+    return this.#readSetting(
+      AGENT_LAST_THINKING_LEVEL_KEY,
+      agentThinkingLevelSchema,
+      'medium',
+      'app.settings.invalid_agent_thinking_level'
+    )
+  }
+
+  async setLastAgentThinkingLevel(level: AgentThinkingLevel): Promise<AgentThinkingLevel> {
+    const value = agentThinkingLevelSchema.parse(level)
+    await this.#writeSetting(AGENT_LAST_THINKING_LEVEL_KEY, value)
     return value
   }
 

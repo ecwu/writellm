@@ -89,6 +89,7 @@
     "sqlite-vec": "0.1.9",
     "tailwind-merge": "^3.6.0",
     "typebox": "1.1.38",
+    "yaml": "2.9.0",
     "yauzl": "3.4.0",
     "zod": "^4.0.0"
   },

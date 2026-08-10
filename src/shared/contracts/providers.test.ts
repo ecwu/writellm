@@ -3,12 +3,42 @@ import { getProviderCapability } from '../../main/providers/capability-registry'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import {
   agentCustomPresetInputSchema,
+  agentModelSummarySchema,
+  agentThinkingLevelSchema,
   effectiveGoogleGeminiImageSize,
   GOOGLE_GEMINI_IMAGE_MODELS,
   providerConfigSchema
 } from './providers'
 
 describe('provider contracts', () => {
+  it('bounds the unified Agent Thinking levels and model capability projection', () => {
+    expect(agentThinkingLevelSchema.options).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max'
+    ])
+    expect(agentThinkingLevelSchema.safeParse('extreme').success).toBe(false)
+    expect(
+      agentModelSummarySchema.parse({
+        id: 'writer',
+        name: 'Writer',
+        api: 'openai-responses',
+        enabled: true,
+        source: 'packaged',
+        reasoning: true,
+        supportedThinkingLevels: ['off', 'medium', 'max'],
+        input: ['text'],
+        contextWindow: 131_072,
+        maxTokens: 8_192,
+        metadataVerified: true
+      }).supportedThinkingLevels
+    ).toEqual(['off', 'medium', 'max'])
+  })
+
   it('accepts custom Agent Providers without the legacy generation timeout', () => {
     const custom = {
       name: 'No deadline proxy',

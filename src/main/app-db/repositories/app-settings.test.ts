@@ -96,4 +96,21 @@ describe('AppSettingsRepository', () => {
     await expect(repository.getThemePreference()).resolves.toBe(DEFAULT_THEME_PREFERENCE)
     database.close()
   })
+
+  it('defaults, persists, and safely recovers the last Agent Thinking level', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await expect(repository.getLastAgentThinkingLevel()).resolves.toBe('medium')
+    await expect(repository.setLastAgentThinkingLevel('xhigh')).resolves.toBe('xhigh')
+    await expect(repository.getLastAgentThinkingLevel()).resolves.toBe('xhigh')
+
+    await database.kysely
+      .updateTable('app_settings')
+      .set({ value_json: '"extreme"' })
+      .where('key', '=', 'agent.last-thinking-level.v1')
+      .execute()
+    await expect(repository.getLastAgentThinkingLevel()).resolves.toBe('medium')
+    database.close()
+  })
 })

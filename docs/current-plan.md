@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 27.3 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 27.5 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -9,6 +9,49 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 27.5 is locally complete. It implements accepted ADR 014 as a conversation-scoped Pi
+Thinking level with exact built-in-model capability projection, an application-global remembered
+default, immutable run provenance, and provider-neutral worker propagation. Existing sessions and
+runs remain `off`; custom providers and manual models remain `off`; chain-of-thought display,
+reasoning summaries, persisted reasoning, Pro mode, and auxiliary-model controls remain deferred.
+Local evidence includes focused contract/catalog/settings/migration/Main/Worker/Renderer tests;
+`check:fast`; `check:electron` with 125 passing Electron-hosted test files, 644 passing tests, and
+one opt-in benchmark skipped; a successful production build; all 22 full Real-Electron E2E
+scenarios without flaky or skipped results; the focused `agent.thinking-level-memory` scenario;
+23 verified recovery cases from 21 sources; a clean Impeccable detector; and `git diff --check`.
+Hosted CI, package, release, commit, push, and promotion remain out of scope.
+
+Checkpoint 27.4 is locally complete. It implements accepted ADR 013 as a bounded,
+application-global Writing Skill manager: reviewed curated pins plus user-confirmed GitHub TOFU
+installs, Main-owned text-only downloads and integrity checks, additive run provenance, cancellable
+auto/explicit/none routing, Pi-compatible invocation blocks with deterministic prompt budgets,
+Settings management, and an Agent composer skill picker. It does not add a thirteenth Agent tool,
+executable plugins, model filesystem access, arbitrary URLs, automatic updates, or a Pi harness
+migration. Completion requires focused tests, `check:fast`, `check:electron`, relevant real-
+Electron E2E, the Impeccable detector, and `git diff --check`; hosted CI, package, release, commit,
+push, and promotion remain out of scope.
+
+The implementation is locally complete through Main storage/download/update authority, additive
+app/project migrations, Pi-compatible prompt routing and retry provenance, Settings/composer UI,
+and a network-free Real-Electron fixture scenario. Local evidence currently includes 63 focused
+tests, `check:fast`, `check:electron` with 122 passing Electron-hosted test files, 626 passing tests
+and one opt-in benchmark skipped, a successful production build, a clean Impeccable detector, and
+`git diff --check`. The focused Real-Electron `agent.global-writing-skill` scenario also passes and
+verifies that the global fixture remains visible across projects, explicit selection injects the
+Pi-compatible skill block through a virtual URI, and the run persists its skill provenance. The
+production Main bundle includes Pi's ESM-only root export so the same path starts successfully in
+Electron. Acceptance review then fixed six findings — routing-completion composer refresh on the
+first stream delta, the split General/Writing Skills settings entries, reference-counted skill
+change subscriptions, an explicit GitHub Check update flow, companion-note omission on skill-free
+runs, and update preserving a disabled skill's enabled state — and re-passed `check:fast`,
+focused tests, `check:electron`, and the focused E2E scenario.
+
+The user subsequently authorized one local macOS arm64 package for hands-on evaluation. The
+unsigned, unnotarized `check:package` gate passed the 12-scenario packaged smoke, all 15 packaged
+Electron E2E scenarios, native inventory and artifact inspection, and produced local DMG and ZIP
+artifacts for version 0.2026.8.10. Commit, push, hosted CI, release, and promotion remain out of
+scope.
 
 Checkpoint 27.3 is locally complete. It strengthens the global Agent writing policy with bounded
 claim-evidence reasoning, terminology and paragraph discipline, direct non-defensive academic
@@ -22,10 +65,8 @@ fallback labels to carry expanded proposal citation provenance. Local evidence i
 tests; `check:fast`; `check:electron` with 119 passing Electron-hosted test files, 615 passing
 tests, and one opt-in benchmark skipped; a successful production build; and `git diff --check`.
 
-Skill selection is not part of the accepted architecture yet. Proposed ADR 013 documents a curated
-catalog plus user-chosen GitHub skills, installed on demand by a Main-owned, hash-verifying
-downloader — no vendored skill bodies, user plugins, new Agent tools, automatic updates, or Pi
-harness migration. Its implementation requires explicit user approval.
+Accepted ADR 013 supersedes Checkpoint 27.3's proposed-only record. Checkpoint 27.4 owns the skill
+implementation; Checkpoint 27.3 remains complete as the global-policy baseline beneath every skill.
 
 Checkpoint 27.2 is locally complete. It repairs the Agent approval experience without changing the
 proposal protocol or authority boundary: the pending proposal is now the timeline scroll anchor,
@@ -174,8 +215,9 @@ Checkpoint 26.9 therefore remains incomplete and paused.
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and
   project-wide file watching.
 - Snap distribution and any auto-updater or update-feed subsystem.
-- Provider reasoning controls, chain-of-thought display, additional Agent tools or tables,
-  multi-agent workflows, long-term memory, and multi-level summaries.
+- Chain-of-thought display, reasoning summaries, persisted reasoning, Provider Pro modes,
+  custom/manual-model reasoning controls, additional Agent tools or tables, multi-agent workflows,
+  long-term memory, and multi-level summaries.
 - Alternative vector backends, client-side MinerU page-count enforcement, and model cost
   estimation.
 - Mandatory paid-provider calls in CI; live certification remains separately authorized and does

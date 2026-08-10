@@ -71,6 +71,27 @@ export interface SchemaMigrationTable {
   applied_at: string
 }
 
+export interface AgentSkillTable {
+  skill_id: string
+  source_kind: 'curated' | 'github'
+  catalog_id: string | null
+  repository: string
+  directory: string
+  commit_sha: string
+  name: string
+  description: string
+  display_name: string
+  license_spdx: string | null
+  enabled: number
+  disable_model_invocation: number
+  integrity_status: 'ready' | 'missing_files' | 'integrity_failed'
+  manifest_json: string
+  installed_at: string
+  last_checked_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AppDatabaseSchema {
   app_settings: AppSettingTable
   recent_projects: RecentProjectTable
@@ -79,6 +100,7 @@ export interface AppDatabaseSchema {
   agent_model_catalogs: AgentModelCatalogTable
   agent_provider_preferences: AgentProviderPreferenceTable
   agent_model_preferences: AgentModelPreferenceTable
+  agent_skills: AgentSkillTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
 }

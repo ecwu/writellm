@@ -12,7 +12,8 @@ import {
 import { agentModelLimitsSchema } from './agent'
 import { mutationProposalRecordSchema } from './agent-mutations'
 import { projectSessionIdSchema } from './projects'
-import { agentModelSelectionSchema, piApiSchema } from './providers'
+import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from './providers'
+import { skillRunSnapshotSchema, skillSelectionSchema } from './skills'
 
 export const AGENT_EVENT_PAGE_LIMIT = 50
 export const AGENT_EVENT_PAGE_MAX_BYTES = 4 * 1024 * 1024
@@ -36,6 +37,7 @@ export const agentSessionRecordSchema = strictObject({
   approvalMode: agentApprovalModeSchema.default('manual'),
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
   modelSelection: agentModelSelectionSchema.nullable().default(null),
+  thinkingLevel: agentThinkingLevelSchema.default('off'),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -50,6 +52,7 @@ export const agentRunRecordSchema = strictObject({
   providerLabel: z.string().max(200).default(''),
   modelLabel: z.string().max(500).default(''),
   api: piApiSchema.default('openai-completions'),
+  thinkingLevel: agentThinkingLevelSchema.default('off'),
   approvalMode: agentApprovalModeSchema.default('manual'),
   modelLimits: agentModelLimitsSchema.default({
     contextWindowTokens: 131_072,
@@ -60,6 +63,14 @@ export const agentRunRecordSchema = strictObject({
     resolvedAt: null
   }),
   editorContext: agentEditorContextSchema,
+  skillSnapshot: skillRunSnapshotSchema.default({
+    mode: 'none',
+    routingStatus: 'legacy',
+    primary: null,
+    dependencies: [],
+    resources: [],
+    safeError: null
+  }),
   errorCode: z.string().min(1).max(200).nullable(),
   startedAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
@@ -100,6 +111,10 @@ export const agentSetModelSelectionInputSchema = agentSessionInputSchema.extend(
   selection: agentModelSelectionSchema
 })
 export const agentSetModelSelectionResultSchema = agentSessionRecordSchema
+export const agentSetThinkingLevelInputSchema = agentSessionInputSchema.extend({
+  level: agentThinkingLevelSchema
+})
+export const agentSetThinkingLevelResultSchema = agentSessionRecordSchema
 export const agentListSessionsResultSchema = z
   .array(agentSessionRecordSchema)
   .max(AGENT_SESSION_LIMIT)
@@ -129,7 +144,9 @@ export const agentStartRunInputSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   prompt: z.string().trim().min(1).max(262_144),
   approvedProposalId: z.uuid().optional(),
+  reuseSkillFromRunId: agentRunIdSchema.optional(),
   scope: agentStartScopeSchema,
+  skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {
   if (input.scope === 'project') {

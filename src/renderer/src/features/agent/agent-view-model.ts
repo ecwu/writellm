@@ -387,6 +387,35 @@ export function formatAgentDuration(durationMs: number): string {
   return `${seconds}s`
 }
 
+export function agentTerminalLabel(code: string): string {
+  switch (code) {
+    case 'provider_timeout':
+      return 'Provider request timed out'
+    case 'provider_retries_exhausted':
+      return 'Provider request failed after 5 attempts'
+    case 'user_stopped':
+      return 'Stopped by user'
+    case 'project_closed':
+      return 'Interrupted because project closed'
+    case 'process_restarted':
+      return 'Interrupted because the app restarted'
+    case 'skill_route_failed':
+      return 'Writing skill routing failed'
+    case 'skill_prompt_budget_exceeded':
+      return 'Writing skill exceeds the prompt budget'
+    case 'compaction_failed':
+      return 'Session compaction failed'
+    case 'model_request_start_failed':
+      return 'Model request could not be started'
+    case 'agent_context_failed':
+      return 'Agent context could not be built'
+    case 'run_failed':
+      return 'Run failed'
+    default:
+      return 'Run interrupted'
+  }
+}
+
 function terminalFromEvent(
   event: AgentTerminalEvent,
   run: AgentRunRecord | undefined,

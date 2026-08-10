@@ -121,6 +121,7 @@ function App(): React.JSX.Element {
   const [initialLoading, setInitialLoading] = useState(true)
   const [activeAction, setActiveAction] = useState<ProjectAction | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'general' | 'skills'>('general')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
@@ -424,6 +425,7 @@ function App(): React.JSX.Element {
 
       if (event.key === ',') {
         event.preventDefault()
+        setSettingsSection('general')
         setSettingsOpen(true)
       } else if (event.key.toLowerCase() === 'n' && !isBusy && !projectSelectionDisabled) {
         event.preventDefault()
@@ -472,7 +474,10 @@ function App(): React.JSX.Element {
         onOpenVersionHistory={() => setVersionHistoryView('history')}
         canRestoreSnapshot={snapshot.state === 'closed' || snapshot.state === 'recovery-required'}
         onClose={() => void closeProject()}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsSection('general')
+          setSettingsOpen(true)
+        }}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onToggleAgent={() => setAgentOpen(!agentOpen)}
       />
@@ -501,7 +506,14 @@ function App(): React.JSX.Element {
               lifecycleState={stateLabels[snapshot.state]}
               agentOpen={agentOpen}
               onAgentOpenChange={setAgentOpen}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => {
+                setSettingsSection('general')
+                setSettingsOpen(true)
+              }}
+              onOpenSkillSettings={() => {
+                setSettingsSection('skills')
+                setSettingsOpen(true)
+              }}
               onError={notifyActionError}
             />
           ) : (
@@ -685,7 +697,10 @@ function App(): React.JSX.Element {
                         <Button
                           className='w-full sm:ml-auto sm:w-auto'
                           variant='ghost'
-                          onClick={() => setSettingsOpen(true)}
+                          onClick={() => {
+                            setSettingsSection('general')
+                            setSettingsOpen(true)
+                          }}
                         >
                           <Settings2 /> Settings
                         </Button>
@@ -702,6 +717,7 @@ function App(): React.JSX.Element {
 
       <SettingsCommand
         open={settingsOpen}
+        initialSection={settingsSection}
         onOpenChange={setSettingsOpen}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onExportDiagnostics={() => void runDiagnostics(window.desktop.diagnostics.exportBundle)}

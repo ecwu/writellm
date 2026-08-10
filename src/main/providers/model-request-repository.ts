@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import type { ModelExecutionMetadata } from '../../shared/contracts/model-runtime'
-import type { ProviderConfig } from '../../shared/contracts/providers'
+import type { AgentThinkingLevel, ProviderConfig } from '../../shared/contracts/providers'
 import type { ModelRequestOperationKind, ModelRequestStatus } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 
@@ -18,6 +18,8 @@ export interface StartModelRequestInput extends ModelRequestCorrelation {
   request: unknown
   inputItems: number
   attemptCount?: number
+  delivery?: 'skill_route'
+  thinkingLevel?: AgentThinkingLevel
 }
 
 export interface SafeModelRequestError {
@@ -50,6 +52,9 @@ export class ModelRequestRepository {
     }
     if (input.provider.role !== input.operation) {
       throw new Error('Model request operation does not match the provider role')
+    }
+    if (input.thinkingLevel !== undefined && input.operation !== 'agent') {
+      throw new Error('Thinking level is only valid for Agent model requests')
     }
     if (
       input.attemptCount !== undefined &&
@@ -91,6 +96,8 @@ export class ModelRequestRepository {
         operation_id: input.operationId ?? null,
         job_id: input.jobId ?? null,
         agent_run_id: input.agentRunId ?? null,
+        thinking_level: input.thinkingLevel ?? null,
+        delivery: input.delivery ?? null,
         started_at: now,
         completed_at: null,
         duration_ms: null,
@@ -108,7 +115,8 @@ export class ModelRequestRepository {
         inputItems: input.inputItems,
         operationId: input.operationId,
         jobId: input.jobId,
-        agentRunId: input.agentRunId
+        agentRunId: input.agentRunId,
+        thinkingLevel: input.thinkingLevel
       },
       'Model request started'
     )

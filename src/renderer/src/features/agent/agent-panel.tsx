@@ -6,9 +6,11 @@ import type {
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
+import type { SkillSelection, SkillsSnapshot } from '../../../../shared/contracts/skills'
 import type {
   AgentModelSelection,
-  AgentProviderCatalog
+  AgentProviderCatalog,
+  AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
 import {
   AlertCircle,
@@ -23,6 +25,7 @@ import {
   FolderOpen,
   MessageSquarePlus,
   RotateCcw,
+  Settings2,
   Send,
   TextCursorInput,
   Undo2,
@@ -42,6 +45,13 @@ import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,6 +94,7 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -91,9 +102,11 @@ import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
 import { AgentModelPicker } from './agent-model-picker'
+import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
   aggregateAgentUsage,
   agentReviewState,
+  agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
@@ -121,6 +134,7 @@ export interface AgentPanelSelection {
 export function AgentPanel(props: {
   open: boolean
   onOpenChange(open: boolean): void
+  onOpenSettings(): void
   projectSessionId: string
   activeSectionId: string | null
   currentRevisionIds: Readonly<Record<string, string>>
@@ -137,6 +151,9 @@ export function AgentPanel(props: {
   const [streaming, setStreaming] = useState<Record<string, string>>({})
   const [prompt, setPrompt] = useState('')
   const [scope, setScope] = useState<AgentStartScope>('section')
+  const [skillSelection, setSkillSelection] = useState<SkillSelection>({ mode: 'auto' })
+  const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const [screen, setScreen] = useState<'sessions' | 'conversation'>('sessions')
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -150,7 +167,16 @@ export function AgentPanel(props: {
   >({})
   const activeSessionIdRef = useRef<string | null>(null)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
+  const skillRoutingPendingRef = useRef<Set<string>>(new Set())
   activeSessionIdRef.current = activeSessionId
+
+  useEffect(() => {
+    skillRoutingPendingRef.current = new Set(
+      runs
+        .filter((run) => run.skillSnapshot.routingStatus === 'pending')
+        .map((run) => run.agentRunId)
+    )
+  }, [runs])
 
   const refreshSessions = useCallback(async (): Promise<AgentSessionRecord[]> => {
     const next = await window.desktop.agent.listSessions({
@@ -199,9 +225,16 @@ export function AgentPanel(props: {
     setScreen('sessions')
     setLoading(true)
     setError(null)
-    void Promise.all([refreshSessions(), window.desktop.providers.snapshot()])
-      .then(([, snapshot]) => {
-        if (!disposed) setProviderCatalog(snapshot.agentCatalog)
+    void Promise.all([
+      refreshSessions(),
+      window.desktop.providers.snapshot(),
+      window.desktop.skills.snapshot()
+    ])
+      .then(([, snapshot, nextSkills]) => {
+        if (!disposed) {
+          setProviderCatalog(snapshot.agentCatalog)
+          setSkillSnapshot(nextSkills)
+        }
       })
       .catch(() => {
         if (disposed) return
@@ -214,6 +247,30 @@ export function AgentPanel(props: {
       disposed = true
     }
   }, [props.open, refreshSessions])
+
+  useEffect(() => {
+    if (!props.open) return
+    return window.desktop.skills.subscribeChanges(() => {
+      void window.desktop.skills
+        .snapshot()
+        .then((next) => {
+          setSkillSnapshot(next)
+          // A staged explicit chip must not survive its skill being disabled, uninstalled,
+          // or demoted in Settings while the panel is open.
+          setSkillSelection((current) => {
+            if (current.mode !== 'explicit') return current
+            const stillAvailable = next.installed.some(
+              (skill) =>
+                skill.skillId === current.skillId &&
+                skill.enabled &&
+                skill.integrityStatus === 'ready'
+            )
+            return stillAvailable ? current : { mode: 'auto' }
+          })
+        })
+        .catch(() => undefined)
+    })
+  }, [props.open])
 
   useEffect(() => {
     if (!props.open || activeSessionId === null) return
@@ -245,6 +302,14 @@ export function AgentPanel(props: {
                   2_097_152
                 )
             }))
+            // Deltas only exist after routing finished and generation started; refresh once so
+            // the composer leaves the "Choosing writing skill…" state without waiting for a
+            // tool result or the terminal event.
+            if (skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)) {
+              void refreshSessionTruth(activeSessionId).catch((cause) =>
+                props.onError(errorMessage(cause))
+              )
+            }
             return
           }
           setEvents((current) => mergeAgentEvents(current, rendererEvent.event))
@@ -271,6 +336,18 @@ export function AgentPanel(props: {
                 return next
               })
             }
+          }
+          if (
+            rendererEvent.event.type === 'user_message' &&
+            rendererEvent.event.agentRunId !== null &&
+            skillRoutingPendingRef.current.delete(rendererEvent.event.agentRunId)
+          ) {
+            // The linked initial user message is the first durable event guaranteed to be
+            // published after routing finished; tool-first runs and non-streaming providers
+            // may not emit an early delta, so leave "Choosing writing skill…" here instead.
+            void refreshSessionTruth(activeSessionId).catch((cause) =>
+              props.onError(errorMessage(cause))
+            )
           }
           if (
             rendererEvent.event.type === 'tool_result' ||
@@ -337,6 +414,7 @@ export function AgentPanel(props: {
   const activeSession =
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
   const activeRun = runs.find((run) => run.status === 'running') ?? null
+  const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
   const hasStreamingRun = Object.keys(streaming).length > 0
   const isAgentWorking = activeRun !== null || hasStreamingRun
   const [clockNow, setClockNow] = useState(() => Date.now())
@@ -373,6 +451,7 @@ export function AgentPanel(props: {
     selectedModel?.preset.authConfigured === true &&
     selectedModel.preset.enabled &&
     selectedModel.model.enabled
+  const supportedThinkingLevels = selectedModel?.model.supportedThinkingLevels ?? ['off']
   const availableModelPresets = useMemo(
     () =>
       providerCatalog.presets
@@ -451,6 +530,28 @@ export function AgentPanel(props: {
     }
   }
 
+  const setThinkingLevel = async (level: AgentThinkingLevel): Promise<void> => {
+    if (activeSession === null || activeRun !== null || conversationLocked) return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.setThinkingLevel({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        level
+      })
+      setSessions((current) =>
+        current.map((session) =>
+          session.agentSessionId === updated.agentSessionId ? updated : session
+        )
+      )
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
     setScreen('conversation')
@@ -460,7 +561,9 @@ export function AgentPanel(props: {
     content: string,
     approvedProposalId?: string,
     allowWhileBusy = false,
-    skipEditorFlush = false
+    skipEditorFlush = false,
+    selectionOverride?: SkillSelection,
+    reuseSkillFromRunId?: string
   ): Promise<void> => {
     const trimmed = content.trim()
     if (
@@ -484,6 +587,8 @@ export function AgentPanel(props: {
         prompt: trimmed,
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         scope,
+        skillSelection: selectionOverride ?? skillSelection,
+        ...(reuseSkillFromRunId === undefined ? {} : { reuseSkillFromRunId }),
         editorContext: editorContextForScope(
           scope,
           props.activeSectionId,
@@ -499,6 +604,15 @@ export function AgentPanel(props: {
         )
       )
       setPrompt('')
+      // Retry/Continue pin the original run's skill snapshot, so a staged explicit chip is
+      // not consumed by those paths and must stay staged for the next fresh run.
+      if (
+        skillSelection.mode === 'explicit' &&
+        selectionOverride === undefined &&
+        reuseSkillFromRunId === undefined
+      ) {
+        setSkillSelection({ mode: 'auto' })
+      }
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
@@ -619,7 +733,9 @@ export function AgentPanel(props: {
             'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
             result.proposal.proposalId,
             true,
-            true
+            true,
+            undefined,
+            proposal.agentRunId
           )
         }
         await refreshSessionTruth(proposal.agentSessionId)
@@ -856,10 +972,24 @@ export function AgentPanel(props: {
                 <>
                   <Spinner />
                   <span className='shimmer'>
-                    Working · {formatAgentDuration(elapsedRunMs(activeRun, clockNow))}
+                    {activeRun.skillSnapshot.routingStatus === 'pending'
+                      ? 'Choosing writing skill…'
+                      : `Working · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`}
                   </span>
                   <TruncatedBadge value={activeRun.providerLabel || activeRun.providerId} />
                   <TruncatedBadge value={activeRun.modelLabel || activeRun.modelId} />
+                  <Badge variant='outline'>
+                    Thinking: {thinkingLevelLabel(activeRun.thinkingLevel)}
+                  </Badge>
+                  <Badge variant='outline'>{skillModeLabel(activeRun)}</Badge>
+                  {activeRun.skillSnapshot.primary ? (
+                    <TruncatedBadge
+                      value={`${activeRun.skillSnapshot.primary.name} · ${activeRun.skillSnapshot.primary.commit.slice(0, 8)}`}
+                    />
+                  ) : null}
+                  {activeRun.skillSnapshot.routingStatus === 'degraded' ? (
+                    <Badge variant='warning'>Skill routing degraded</Badge>
+                  ) : null}
                 </>
               ) : workflowState === 'generating' ? (
                 <>
@@ -877,6 +1007,16 @@ export function AgentPanel(props: {
                       selection={activeSession.modelSelection}
                       disabled={busy || conversationLocked}
                       onSelect={setModelSelection}
+                    />
+                  ) : null}
+                  {activeSession !== null ? (
+                    <AgentThinkingPicker
+                      levels={supportedThinkingLevels}
+                      value={activeSession.thinkingLevel}
+                      disabled={
+                        busy || conversationLocked || !modelReady || !activeSession.compatible
+                      }
+                      onSelect={setThinkingLevel}
                     />
                   ) : null}
                   {activeSession?.modelSelection !== null && !modelReady ? (
@@ -990,19 +1130,23 @@ export function AgentPanel(props: {
                 </ToggleGroupItem>
               </ToggleGroup>
             ) : null}
-            <Field data-disabled={busy || conversationLocked}>
+            <Field data-disabled={busy || conversationLocked || choosingSkill}>
               <FieldLabel htmlFor='agent-message' className='sr-only'>
                 Agent message
               </FieldLabel>
               <InputGroup
-                data-disabled={busy || conversationLocked || activeSession?.compatible === false}
+                data-disabled={
+                  busy || conversationLocked || choosingSkill || activeSession?.compatible === false
+                }
               >
                 <InputGroupTextarea
                   id='agent-message'
                   value={prompt}
                   placeholder={
                     activeRun
-                      ? 'Steer the current turn or queue a follow-up…'
+                      ? choosingSkill
+                        ? 'Choosing a writing skill…'
+                        : 'Steer the current turn or queue a follow-up…'
                       : workflowState === 'generating'
                         ? 'Image generation is in progress…'
                         : workflowState === 'awaiting_review'
@@ -1010,8 +1154,24 @@ export function AgentPanel(props: {
                           : 'Ask the writing agent…'
                   }
                   rows={3}
-                  disabled={busy || conversationLocked || activeSession?.compatible === false}
+                  disabled={
+                    busy ||
+                    conversationLocked ||
+                    choosingSkill ||
+                    activeSession?.compatible === false
+                  }
                   onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === '/' &&
+                      prompt.length === 0 &&
+                      activeRun === null &&
+                      !conversationLocked
+                    ) {
+                      event.preventDefault()
+                      setSkillPickerOpen(true)
+                    }
+                  }}
                 />
                 <InputGroupAddon align='block-end' className='flex-wrap justify-end'>
                   {activeRun ? (
@@ -1020,7 +1180,7 @@ export function AgentPanel(props: {
                         size='icon-sm'
                         variant='outline'
                         label='Steer'
-                        disabled={busy || prompt.trim().length === 0}
+                        disabled={busy || choosingSkill || prompt.trim().length === 0}
                         onClick={() => void queueMessage('steer')}
                       >
                         <ChevronRight data-icon='inline-start' />
@@ -1029,7 +1189,7 @@ export function AgentPanel(props: {
                         size='icon-sm'
                         variant='outline'
                         label='Follow up'
-                        disabled={busy || prompt.trim().length === 0}
+                        disabled={busy || choosingSkill || prompt.trim().length === 0}
                         onClick={() => void queueMessage('follow_up')}
                       >
                         <Send data-icon='inline-start' />
@@ -1051,13 +1211,34 @@ export function AgentPanel(props: {
                     </Badge>
                   ) : (
                     <>
+                      <SkillPicker
+                        open={skillPickerOpen}
+                        onOpenChange={setSkillPickerOpen}
+                        snapshot={skillSnapshot}
+                        selection={skillSelection}
+                        disabled={busy}
+                        onSelect={(selection) => {
+                          setSkillSelection(selection)
+                          setSkillPickerOpen(false)
+                        }}
+                        onOpenSettings={props.onOpenSettings}
+                      />
                       {latestPrompt ? (
                         <ComposerAction
                           size='icon-sm'
                           variant='outline'
                           label='Retry'
                           disabled={busy}
-                          onClick={() => void startRun(latestPrompt)}
+                          onClick={() =>
+                            void startRun(
+                              latestPrompt,
+                              undefined,
+                              false,
+                              false,
+                              retrySkillSelection(latestRun),
+                              latestRun?.agentRunId
+                            )
+                          }
                         >
                           <RotateCcw data-icon='inline-start' />
                         </ComposerAction>
@@ -1068,7 +1249,16 @@ export function AgentPanel(props: {
                           variant='outline'
                           label='Continue'
                           disabled={busy}
-                          onClick={() => void startRun('Continue from the previous response.')}
+                          onClick={() =>
+                            void startRun(
+                              'Continue from the previous response.',
+                              undefined,
+                              false,
+                              false,
+                              undefined,
+                              latestRun?.agentRunId
+                            )
+                          }
                         >
                           <ChevronRight data-icon='inline-start' />
                         </ComposerAction>
@@ -1147,6 +1337,7 @@ function EventTimeline(props: {
                 <TimelineItem
                   item={item}
                   proposals={props.proposals}
+                  runs={props.runs}
                   citationsById={citationsById}
                   busy={props.busy}
                   currentRevisionIds={props.currentRevisionIds}
@@ -1184,6 +1375,7 @@ function EventTimeline(props: {
 function TimelineItem(props: {
   item: AgentTimelineItem
   proposals: MutationProposalRecord[]
+  runs: AgentRunRecord[]
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   currentRevisionIds: Readonly<Record<string, string>>
@@ -1193,6 +1385,10 @@ function TimelineItem(props: {
   ): Promise<void>
 }): React.JSX.Element {
   const { item } = props
+  const run =
+    item.type === 'run_interrupted' || item.type === 'run_completed'
+      ? props.runs.find((candidate) => candidate.agentRunId === item.terminal.runId)
+      : undefined
   if (item.type === 'user') {
     return (
       <Message align='end'>
@@ -1252,7 +1448,12 @@ function TimelineItem(props: {
           )}
         </MarkerIcon>
         <MarkerContent>
-          {terminalLabel(item.terminal.code)} · {formatAgentDuration(item.terminal.durationMs)}
+          {agentTerminalLabel(item.terminal.code)} · {formatAgentDuration(item.terminal.durationMs)}
+          {run ? ` · ${skillModeLabel(run)}` : ''}
+          {run?.skillSnapshot.primary
+            ? ` · ${run.skillSnapshot.primary.name} ${run.skillSnapshot.primary.commit.slice(0, 8)}`
+            : ''}
+          {run?.skillSnapshot.routingStatus === 'degraded' ? ' · Skill routing degraded' : ''}
         </MarkerContent>
       </Marker>
     )
@@ -1268,6 +1469,11 @@ function TimelineItem(props: {
         </MarkerIcon>
         <MarkerContent>
           Run completed · {formatAgentDuration(item.terminal.durationMs)}
+          {run ? ` · ${skillModeLabel(run)}` : ''}
+          {run?.skillSnapshot.primary
+            ? ` · ${run.skillSnapshot.primary.name} ${run.skillSnapshot.primary.commit.slice(0, 8)}`
+            : ''}
+          {run?.skillSnapshot.routingStatus === 'degraded' ? ' · Skill routing degraded' : ''}
         </MarkerContent>
       </Marker>
     )
@@ -1604,23 +1810,6 @@ function elapsedRunMs(run: AgentRunRecord | null, now: number): number {
   return Math.max(0, end - start)
 }
 
-function terminalLabel(code: string): string {
-  switch (code) {
-    case 'provider_timeout':
-      return 'Provider request timed out'
-    case 'provider_retries_exhausted':
-      return 'Provider request failed after 5 attempts'
-    case 'user_stopped':
-      return 'Stopped by user'
-    case 'project_closed':
-      return 'Interrupted because project closed'
-    case 'run_failed':
-      return 'Run failed'
-    default:
-      return 'Run interrupted'
-  }
-}
-
 function reviewStatePresentation(state: AgentReviewState): {
   label: string
   icon: React.JSX.Element
@@ -1682,6 +1871,111 @@ function ComposerAction({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  )
+}
+
+function SkillPicker({
+  open,
+  onOpenChange,
+  snapshot,
+  selection,
+  disabled,
+  onSelect,
+  onOpenSettings
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  snapshot: SkillsSnapshot | null
+  selection: SkillSelection
+  disabled: boolean
+  onSelect: (selection: SkillSelection) => void
+  onOpenSettings: () => void
+}): React.JSX.Element {
+  const available =
+    snapshot?.installed.filter((skill) => skill.enabled && skill.integrityStatus === 'ready') ?? []
+  const explicit =
+    selection.mode === 'explicit'
+      ? (available.find((skill) => skill.skillId === selection.skillId) ?? null)
+      : null
+  const label =
+    selection.mode === 'auto'
+      ? 'Skill: Auto'
+      : selection.mode === 'none'
+        ? 'No skill'
+        : (explicit?.displayName ?? 'Selected skill')
+  return (
+    <div className='flex items-center gap-1'>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <InputGroupButton
+            size='sm'
+            variant='outline'
+            disabled={disabled}
+            aria-label='Choose writing skill'
+          >
+            <Bot data-icon='inline-start' />
+            <span className='max-w-32 truncate'>{label}</span>
+          </InputGroupButton>
+        </PopoverTrigger>
+        <PopoverContent align='start' side='top' className='w-80 p-0'>
+          <Command>
+            <CommandList>
+              <CommandEmpty>No matching writing skill.</CommandEmpty>
+              <CommandGroup heading='Mode'>
+                <CommandItem value='skill-auto' onSelect={() => onSelect({ mode: 'auto' })}>
+                  {selection.mode === 'auto' ? <Check /> : <Bot />}
+                  Auto
+                </CommandItem>
+                <CommandItem value='skill-none' onSelect={() => onSelect({ mode: 'none' })}>
+                  {selection.mode === 'none' ? <Check /> : <X />}
+                  No skill
+                </CommandItem>
+              </CommandGroup>
+              <CommandGroup heading='Installed'>
+                {available.map((skill) => (
+                  <CommandItem
+                    key={skill.skillId}
+                    value={`${skill.displayName} ${skill.description}`}
+                    onSelect={() => onSelect({ mode: 'explicit', skillId: skill.skillId })}
+                  >
+                    {selection.mode === 'explicit' && selection.skillId === skill.skillId ? (
+                      <Check />
+                    ) : (
+                      <FileText />
+                    )}
+                    <span className='min-w-0 flex-1 truncate'>{skill.displayName}</span>
+                    <span className='text-xs text-muted-foreground'>
+                      {skill.commit.slice(0, 8)}
+                    </span>
+                  </CommandItem>
+                ))}
+                {available.length === 0 ? (
+                  <CommandItem
+                    value='open-writing-skills-settings'
+                    onSelect={() => {
+                      onOpenChange(false)
+                      onOpenSettings()
+                    }}
+                  >
+                    <Settings2 /> Open Writing Skills settings
+                  </CommandItem>
+                ) : null}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selection.mode === 'explicit' ? (
+        <InputGroupButton
+          size='icon-xs'
+          variant='ghost'
+          aria-label='Remove selected writing skill'
+          onClick={() => onSelect({ mode: 'auto' })}
+        >
+          <X />
+        </InputGroupButton>
+      ) : null}
+    </div>
   )
 }
 
@@ -1790,6 +2084,20 @@ function blockCountLabel(count: number): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The Agent operation failed.'
+}
+
+function retrySkillSelection(run: AgentRunRecord | null): SkillSelection {
+  if (run === null) return { mode: 'auto' }
+  if (run.skillSnapshot.primary !== null) {
+    return { mode: 'explicit', skillId: run.skillSnapshot.primary.skillId }
+  }
+  return run.skillSnapshot.mode === 'none' ? { mode: 'none' } : { mode: 'auto' }
+}
+
+function skillModeLabel(run: AgentRunRecord): string {
+  if (run.skillSnapshot.mode === 'none') return 'No skill'
+  if (run.skillSnapshot.mode === 'explicit') return 'Explicit skill'
+  return 'Auto skill'
 }
 
 function approvalModeLabel(mode: AgentApprovalMode): string {

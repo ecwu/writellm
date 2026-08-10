@@ -146,7 +146,20 @@ export const migration0022: DatabaseMigration = {
         updated_at TEXT NOT NULL
       ) STRICT;
 
-      INSERT INTO model_requests SELECT * FROM model_requests_v21;
+      INSERT INTO model_requests (
+        model_request_id, operation_kind, provider_id, model_id, provider_fingerprint,
+        request_fingerprint, status, attempt_count, retry_count, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, input_items, output_items,
+        estimated_cost_usd_micros, usage_json, response_ids_json, error_json, operation_id,
+        job_id, agent_run_id, started_at, completed_at, duration_ms, created_at, updated_at
+      )
+      SELECT
+        model_request_id, operation_kind, provider_id, model_id, provider_fingerprint,
+        request_fingerprint, status, attempt_count, retry_count, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, input_items, output_items,
+        estimated_cost_usd_micros, usage_json, response_ids_json, error_json, operation_id,
+        job_id, agent_run_id, started_at, completed_at, duration_ms, created_at, updated_at
+      FROM model_requests_v21;
 
       CREATE TABLE agent_events (
         agent_event_id TEXT PRIMARY KEY NOT NULL,

@@ -143,6 +143,8 @@ export interface ModelRequestTable {
   operation_id: string | null
   job_id: string | null
   agent_run_id: string | null
+  thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+  delivery: 'skill_route' | null
   started_at: string
   completed_at: string | null
   duration_ms: number | null
@@ -159,6 +161,7 @@ export interface AgentSessionTable {
   approval_mode: 'manual' | 'section_auto' | 'yolo'
   provider_preset_id: string | null
   selected_model_id: string | null
+  thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -174,12 +177,15 @@ export interface AgentRunTable {
   provider_label: string
   model_label: string
   api_id: string
+  thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   approval_mode: 'manual' | 'section_auto' | 'yolo'
   model_limits_json: string
   provider_fingerprint: string
   model_fingerprint: string
   editor_context_json: string
   error_json: string | null
+  skill_snapshot_json: string
+  skill_route_model_request_id: string | null
   started_at: string
   completed_at: string | null
   created_at: string

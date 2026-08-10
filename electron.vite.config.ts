@@ -7,7 +7,7 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: {
-        exclude: ['@earendil-works/pi-ai']
+        exclude: ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai']
       },
       rollupOptions: {
         input: {

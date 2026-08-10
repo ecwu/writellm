@@ -5,7 +5,7 @@ import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { ManuscriptService } from '../manuscript/manuscript-service'
-import { AgentContextBuilder } from './context'
+import { AgentContextBuilder, SkillPromptBudgetError } from './context'
 import { AgentToolDomainError, MainAgentReadTools } from './read-tools'
 import { AGENT_TOOL_RESULT_BYTES } from '../../shared/contracts/agent-tools'
 
@@ -98,6 +98,62 @@ describe('Agent context and Main read tools', () => {
     expect(result.systemPrompt).toContain('【来源：准确来源标题，第 N 页】')
     expect(result.systemPrompt).toContain('display N as page + 1')
     expect(new TextEncoder().encode(result.systemPrompt).byteLength).toBeLessThanOrEqual(65_536)
+    database.close()
+  })
+
+  it('orders skill guidance below policy and removes optional references only as whole files', async () => {
+    const { database, manuscript } = await createManuscript()
+    const builder = new AgentContextBuilder(manuscript)
+    const references = Array.from({ length: 8 }, (_, index) => ({
+      path: `references/${index}.md`,
+      content: `REFERENCE_${index}\n${'x'.repeat(8 * 1_024 - 20)}`
+    }))
+    const result = builder.build({
+      prompt: 'Draft',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+      skillPrompt: {
+        mode: 'auto',
+        mandatory: '<skill name="demo">MANDATORY_SKILL</skill>',
+        references
+      }
+    })
+    expect(result.systemPrompt.indexOf('ACADEMIC_WRITING_POLICY')).toBeLessThan(
+      result.systemPrompt.indexOf('writellm_skill_companion')
+    )
+    expect(result.systemPrompt.indexOf('writellm_skill_companion')).toBeLessThan(
+      result.systemPrompt.indexOf('MANDATORY_SKILL')
+    )
+    expect(result.systemPrompt.indexOf('MANDATORY_SKILL')).toBeLessThan(
+      result.systemPrompt.indexOf('TRUSTED_WRITING_REQUIREMENTS')
+    )
+    expect(result.includedSkillResources.length).toBeLessThan(references.length)
+    for (const reference of references) {
+      const present = result.systemPrompt.includes(`REFERENCE_${reference.path.split('/')[1]?.[0]}`)
+      expect(result.includedSkillResources.includes(reference.path)).toBe(present)
+    }
+    expect(Buffer.byteLength(result.systemPrompt)).toBeLessThanOrEqual(65_536)
+    database.close()
+  })
+
+  it('falls back for auto mandatory overflow and rejects explicit overflow without truncation', async () => {
+    const { database, manuscript } = await createManuscript()
+    const builder = new AgentContextBuilder(manuscript)
+    const mandatory = `FULL_ENTRYPOINT_${'x'.repeat(70 * 1_024)}`
+    const editorContext = { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    const auto = builder.build({
+      prompt: 'Draft',
+      editorContext,
+      skillPrompt: { mode: 'auto', mandatory, references: [] }
+    })
+    expect(auto.skillPromptDropped).toBe(true)
+    expect(auto.systemPrompt).not.toContain('FULL_ENTRYPOINT_')
+    expect(() =>
+      builder.build({
+        prompt: 'Draft',
+        editorContext,
+        skillPrompt: { mode: 'explicit', mandatory, references: [] }
+      })
+    ).toThrow(SkillPromptBudgetError)
     database.close()
   })
 

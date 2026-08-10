@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRuntimeEvent } from '../../shared/contracts/agent'
+import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type {
@@ -36,6 +37,192 @@ afterEach(async () => {
 })
 
 describe('AgentSessionService', () => {
+  it('returns a pending run before skill routing and permits only Stop until routing completes', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    let resolveRoute: (() => void) | undefined
+    const routed = new Promise<void>((resolve) => {
+      resolveRoute = resolve
+    })
+    const service = createService(database, runtime, undefined, {
+      skillRouter: {
+        route: async () => {
+          await routed
+          return {
+            snapshot: {
+              mode: 'auto',
+              routingStatus: 'not_needed',
+              primary: null,
+              dependencies: [],
+              resources: [],
+              safeError: null
+            },
+            prompt: { mode: 'auto', mandatory: '', references: [] },
+            modelRequestId: null
+          }
+        }
+      }
+    })
+    const session = service.createSession('Skill routing')
+
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft an opening.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('pending')
+    expect(() => runtime.active()).toThrow('No fake Agent run')
+    await expect(service.steer(started.agentRunId, 'Too soon')).rejects.toThrow(
+      'skill selection is still in progress'
+    )
+    resolveRoute?.()
+    await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(started.agentRunId))
+    runtime.active().resolve()
+    await started.completion
+    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('not_needed')
+    database.close()
+  })
+
+  it('cancels skill routing before the provider runtime starts', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime, undefined, {
+      skillRouter: {
+        route: (input) =>
+          new Promise((_resolve, reject) => {
+            input.signal.addEventListener('abort', () => reject(input.signal.reason), {
+              once: true
+            })
+          })
+      }
+    })
+    const session = service.createSession('Cancelable skill routing')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft an opening.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    await service.abort(started.agentRunId)
+
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped'
+    })
+    expect(() => runtime.active()).toThrow('No fake Agent run')
+    database.close()
+  })
+
+  it('publishes the queued prompt and marks routing failed when skill routing errors', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const published: AgentEventRecord[] = []
+    const service = createService(
+      database,
+      runtime,
+      (event) => {
+        published.push(event)
+      },
+      {
+        skillRouter: {
+          route: async () => {
+            throw new Error('router exploded')
+          }
+        }
+      }
+    )
+    const session = service.createSession('Routing failure')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft an opening.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await started.completion
+
+    const run = service.requireRun(started.agentRunId)
+    expect(run).toMatchObject({ status: 'failed', errorCode: 'skill_route_failed' })
+    expect(run.skillSnapshot).toMatchObject({
+      routingStatus: 'failed',
+      safeError: 'skill_route_failed'
+    })
+    expect(published.map((event) => event.type)).toEqual(['user_message', 'run_interrupted'])
+    expect(published[0]?.payload).toMatchObject({ delivery: 'prompt' })
+    expect(() => runtime.active()).toThrow('No fake Agent run')
+    database.close()
+  })
+
+  it('records a user stop during compaction as user_stopped instead of compaction_failed', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn(
+      (
+        input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]
+      ): Promise<{ summary: string; modelRequestId: string }> =>
+        new Promise((_resolve, reject) => {
+          if (input.signal.aborted) {
+            reject(input.signal.reason)
+            return
+          }
+          input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true })
+        })
+    )
+    const service = createService(database, runtime, undefined, {
+      messageTokenBudget: 4_096,
+      summarizeHistory,
+      skillRouter: {
+        route: async () => ({
+          snapshot: {
+            mode: 'auto',
+            routingStatus: 'not_needed',
+            primary: null,
+            dependencies: [],
+            resources: [],
+            safeError: null
+          },
+          prompt: { mode: 'auto', mandatory: '', references: [] },
+          modelRequestId: null
+        })
+      }
+    })
+    const session = service.createSession('Compaction stop')
+    const first = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: '界'.repeat(2_500),
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(first.agentRunId))
+    const firstActive = runtime.active()
+    await firstActive.emit({
+      type: 'model_call_finished',
+      modelRequestId: firstActive.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('long-response')
+    })
+    await firstActive.emit({
+      type: 'assistant_message',
+      modelRequestId: firstActive.input.modelRequestId,
+      message: assistant('文'.repeat(2_500), 'long-response')
+    })
+    firstActive.resolve()
+    await first.completion
+
+    const second = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Continue.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(summarizeHistory).toHaveBeenCalledOnce())
+    await service.abort(second.agentRunId)
+    await second.completion
+
+    expect(service.requireRun(second.agentRunId)).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped'
+    })
+    database.close()
+  })
+
   it('snapshots the selected Pi preset and model and only permits idle switching', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -61,10 +248,15 @@ describe('AgentSessionService', () => {
     const service = createService(database, runtime, undefined, {
       agentCatalog: { resolve } as never
     })
-    const session = service.createSession('Provider selection', undefined, {
-      presetId: 'builtin:anthropic',
-      modelId: 'claude-writer'
-    })
+    const session = service.createSession(
+      'Provider selection',
+      undefined,
+      {
+        presetId: 'builtin:anthropic',
+        modelId: 'claude-writer'
+      },
+      'xhigh'
+    )
     const started = await service.startRun({
       agentSessionId: session.agentSessionId,
       prompt: 'Draft an opening.',
@@ -80,12 +272,21 @@ describe('AgentSessionService', () => {
       api: 'anthropic-messages'
     })
     expect(JSON.parse(runtime.active().credential)).toEqual({ apiKey: 'anthropic-secret' })
+    expect(runtime.active().input).toMatchObject({
+      thinkingLevel: 'high',
+      runtimeModel: {
+        id: 'claude-writer',
+        provider: 'anthropic',
+        reasoning: true
+      }
+    })
     expect(() =>
       service.setModelSelection(session.agentSessionId, {
         presetId: 'builtin:openai',
         modelId: 'gpt-writer'
       })
     ).toThrow('active')
+    expect(() => service.setThinkingLevel(session.agentSessionId, 'low')).toThrow('active')
 
     runtime.active().resolve()
     await started.completion
@@ -96,13 +297,29 @@ describe('AgentSessionService', () => {
       providerLabel: 'Anthropic',
       modelId: 'claude-writer',
       modelLabel: 'Claude Writer',
-      api: 'anthropic-messages'
+      api: 'anthropic-messages',
+      thinkingLevel: 'high'
     })
+    expect(service.listSessions()[0]?.thinkingLevel).toBe('high')
+    await expect(
+      database.kysely
+        .selectFrom('model_requests')
+        .select('thinking_level')
+        .where('agent_run_id', '=', started.agentRunId)
+        .executeTakeFirstOrThrow()
+    ).resolves.toEqual({ thinking_level: 'high' })
     expect(JSON.stringify(runs)).not.toContain('anthropic-secret')
     expect(resolve).toHaveBeenCalledWith({
       presetId: 'builtin:anthropic',
       modelId: 'claude-writer'
     })
+
+    database.immediate((sqlite) =>
+      sqlite
+        .prepare('UPDATE agent_sessions SET pi_runtime_version = ? WHERE agent_session_id = ?')
+        .run('read-only-runtime', session.agentSessionId)
+    )
+    expect(() => service.setThinkingLevel(session.agentSessionId, 'low')).toThrow('incompatible')
     database.close()
   })
 
@@ -1183,6 +1400,7 @@ function createService(
       | 'summarizeHistory'
       | 'messageTokenBudget'
       | 'publishDelta'
+      | 'skillRouter'
     >
   > = {}
 ): AgentSessionService {

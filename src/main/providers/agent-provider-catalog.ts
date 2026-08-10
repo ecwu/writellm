@@ -3,6 +3,8 @@ import { builtinProviders, type BuiltinProvider } from '@earendil-works/pi-ai/pr
 import {
   createModels,
   createProvider,
+  clampThinkingLevel as clampPiThinkingLevel,
+  getSupportedThinkingLevels,
   type Api,
   type AuthResult,
   type AuthInteraction,
@@ -22,11 +24,13 @@ import {
   agentModelSummarySchema,
   agentProviderCatalogSchema,
   agentPresetIdSchema,
+  agentThinkingLevelSchema,
   customAgentPiApiSchema,
   modelsDevProviderLogoIdSchema,
   piApiSchema,
   providerConfigSchema,
   type AgentCustomPresetInput,
+  type AgentThinkingLevel,
   type AgentManualModel,
   type AgentModelSelection,
   type AgentProviderCatalog,
@@ -108,6 +112,18 @@ export interface ResolvedAgentCatalogModel {
   auth: AuthResult
 }
 
+export function clampResolvedAgentThinkingLevel(
+  resolved: ResolvedAgentCatalogModel,
+  level: AgentThinkingLevel
+): AgentThinkingLevel {
+  return agentThinkingLevelSchema.parse(clampPiThinkingLevel(resolved.model, level))
+}
+
+function withoutReasoning(model: Model<Api>): Model<Api> {
+  const { thinkingLevelMap: _thinkingLevelMap, ...rest } = model
+  return { ...rest, reasoning: false }
+}
+
 export class AgentProviderCatalogService {
   readonly #credentialStore: MainPiCredentialStore
   readonly #modelsStore: DatabaseModelsStore
@@ -117,7 +133,10 @@ export class AgentProviderCatalogService {
     private readonly credentials: CredentialService,
     private readonly settings: Pick<
       AppSettingsRepository,
-      'getDefaultAgentModelSelection' | 'setDefaultAgentModelSelection'
+      | 'getDefaultAgentModelSelection'
+      | 'setDefaultAgentModelSelection'
+      | 'getLastAgentThinkingLevel'
+      | 'setLastAgentThinkingLevel'
     >,
     private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>,
     private readonly now: () => Date = () => new Date()
@@ -140,6 +159,14 @@ export class AgentProviderCatalogService {
       presets: presets.sort((left, right) => left.name.localeCompare(right.name)),
       defaultSelection
     })
+  }
+
+  async getLastThinkingLevel(): Promise<AgentThinkingLevel> {
+    return this.settings.getLastAgentThinkingLevel()
+  }
+
+  async setLastThinkingLevel(level: AgentThinkingLevel): Promise<AgentThinkingLevel> {
+    return this.settings.setLastAgentThinkingLevel(level)
   }
 
   async saveCustomPreset(input: AgentCustomPresetInput): Promise<AgentProviderCatalog> {
@@ -506,12 +533,16 @@ export class AgentProviderCatalogService {
       throw new Error('Selected Agent model is disabled')
     }
     const custom = await this.#customPreset(parsed.presetId)
+    const manual = (await this.#manualModels(parsed.presetId)).some(
+      (candidate) => candidate.id === parsed.modelId
+    )
+    const effectiveModel = custom === null && !manual ? model : withoutReasoning(model)
     return {
       presetId: parsed.presetId,
       presetName: custom?.name ?? provider.name,
       providerId,
       timeoutMs: custom?.timeoutMs ?? 60_000,
-      model,
+      model: effectiveModel,
       auth
     }
   }
@@ -573,6 +604,10 @@ export class AgentProviderCatalogService {
                   ? 'packaged'
                   : 'discovered',
               reasoning: model.reasoning,
+              supportedThinkingLevels:
+                custom === null && !manualIds.has(model.id)
+                  ? getSupportedThinkingLevels(model)
+                  : ['off'],
               input: model.input,
               contextWindow: model.contextWindow,
               maxTokens: model.maxTokens,

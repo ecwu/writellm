@@ -7,7 +7,7 @@
       "id": "app-schema-history",
       "category": "migration",
       "source": "src/main/app-db/connection.test.ts",
-      "sourceSha256": "8240986ebd1b62018980410a8aa1cb1c6a250eee832b1858610b5a60203f455e",
+      "sourceSha256": "36024bd0fa12df964288fee3877d871b02dba5b647b304be1478f49301a378e5",
       "tests": [
         "upgrades the v1 application schema, preserves data, and verifies a pre-migration backup"
       ]
@@ -130,7 +130,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "865b09a1de0526b98c013f901783cfadd8e4ddcea43a1dfc86b04d3f4d9fe14f",
+      "sourceSha256": "56999ccbc37e8ac1a9fba3588f57a1e785975ad064fb1a1000a5154723e37886",
       "tests": [
         "persists partial output as interrupted and aborts the model request on project close",
         "persists manual review as a completed wait state and locks only that conversation",
@@ -222,6 +222,13 @@
       "source": "src/main/observability/process-errors.test.ts",
       "sourceSha256": "7dddee62af9c335ac5bb6f13b5bf78ad99813b79b272cf0d01bafd4cf8bf30a9",
       "tests": ["logs the original fatal error and exits after flushing"]
+    },
+    {
+      "id": "agent-thinking-level-schema-history",
+      "category": "migration",
+      "source": "src/main/project/migrations/0025-agent-thinking-level.test.ts",
+      "sourceSha256": "7c3457cc689c50be44f564a752614bbc2b087384cab8db91dc16ed7f49e13b92",
+      "tests": ["preserves existing rows as off and enforces bounded levels"]
     }
   ]
 }

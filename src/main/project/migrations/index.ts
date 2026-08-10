@@ -21,6 +21,8 @@ import { migration0020 } from './0020-agent-approval-and-limits'
 import { migration0021 } from './0021-agent-harness-protocol-v2'
 import { migration0022 } from './0022-rich-media-and-image-generation'
 import { migration0023 } from './0023-agent-provider-selection'
+import { migration0024 } from './0024-writing-skills'
+import { migration0025 } from './0025-agent-thinking-level'
 
 export const projectMigrations = [
   migration0001,
@@ -45,5 +47,7 @@ export const projectMigrations = [
   migration0020,
   migration0021,
   migration0022,
-  migration0023
+  migration0023,
+  migration0024,
+  migration0025
 ] as const

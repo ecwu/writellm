@@ -124,6 +124,30 @@ describe('Agent session IPC', () => {
       )
     ).toThrow('Unauthorized IPC sender')
   })
+
+  it('accepts only an exactly supported Thinking level and remembers explicit changes', async () => {
+    const value = harness()
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSetThinkingLevel, {
+        projectSessionId,
+        agentSessionId,
+        level: 'high'
+      })
+    ).resolves.toMatchObject({ agentSessionId, thinkingLevel: 'high' })
+    expect(value.sessions.setThinkingLevel).toHaveBeenCalledWith(agentSessionId, 'high')
+    expect(value.catalog.setLastThinkingLevel).toHaveBeenCalledWith('high')
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSetThinkingLevel, {
+        projectSessionId,
+        agentSessionId,
+        level: 'xhigh'
+      })
+    ).rejects.toThrow('unavailable')
+    expect(value.sessions.setThinkingLevel).toHaveBeenCalledTimes(1)
+    expect(value.catalog.setLastThinkingLevel).toHaveBeenCalledTimes(1)
+  })
 })
 
 function harness() {
@@ -145,9 +169,26 @@ function harness() {
     completedAt: null,
     updatedAt: '2026-07-21T00:00:00.000Z'
   }
+  const session = {
+    agentSessionId,
+    title: 'Conversation',
+    status: 'active' as const,
+    compatible: true,
+    approvalMode: 'manual' as const,
+    workflowState: 'idle' as const,
+    modelSelection: { presetId: 'builtin:anthropic', modelId: 'claude-writer' },
+    thinkingLevel: 'off' as const,
+    createdAt: '2026-07-21T00:00:00.000Z',
+    updatedAt: '2026-07-21T00:00:00.000Z'
+  }
   const sessions = {
-    listSessions: vi.fn(() => []),
+    listSessions: vi.fn(() => [session]),
     createSession: vi.fn(),
+    setModelSelection: vi.fn(),
+    setThinkingLevel: vi.fn((_sessionId: string, level: string) => ({
+      ...session,
+      thinkingLevel: level
+    })),
     listEventPage: vi.fn(() => {
       order.push('replay')
       return { events: [], nextAfterSequence: 0, hasMore: false, returnedBytes: 0 }
@@ -181,9 +222,35 @@ function harness() {
     revokeSession: vi.fn(),
     clear: vi.fn()
   }
+  const catalog = {
+    snapshot: vi.fn(async () => ({ presets: [], defaultSelection: session.modelSelection })),
+    resolve: vi.fn(async () => ({
+      presetId: 'builtin:anthropic',
+      presetName: 'Anthropic',
+      providerId: 'anthropic',
+      timeoutMs: 45_000,
+      model: {
+        id: 'claude-writer',
+        name: 'Claude Writer',
+        api: 'anthropic-messages',
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        reasoning: true,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200_000,
+        maxTokens: 16_384
+      },
+      auth: { auth: { apiKey: 'secret' }, source: 'test' }
+    })),
+    setDefaultSelection: vi.fn(),
+    getLastThinkingLevel: vi.fn(async () => 'medium' as const),
+    setLastThinkingLevel: vi.fn(async (level: string) => level)
+  }
   registerAgentIpc({
     manager: manager as never,
     broker: broker as never,
+    catalog: catalog as never,
     logger: { info: vi.fn(), error: vi.fn() },
     developmentUrl: 'http://localhost:5173',
     ipc
@@ -199,5 +266,5 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   const invoke = async (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { handlers, invoke, sender, sessions, mutations, broker, order }
+  return { handlers, invoke, sender, sessions, mutations, broker, catalog, order }
 }

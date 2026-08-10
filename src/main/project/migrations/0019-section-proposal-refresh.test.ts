@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   initializeProjectDatabase,
   openProjectDatabase,
+  PROJECT_SCHEMA_VERSION,
   type ProjectDatabase
 } from '../project-database'
 import type { ProjectManifest } from '../project-manifest'
@@ -114,7 +115,7 @@ describe('migration 0019 section proposal refresh', () => {
     expect(upgraded.immediate((database) => database.pragma('foreign_key_check'))).toEqual([])
     expect(
       (await readdir(join(projectRoot, '.writellm', 'backups'))).some((name) =>
-        name.includes('-to-v23-')
+        name.includes(`-to-v${PROJECT_SCHEMA_VERSION}-`)
       )
     ).toBe(true)
     upgraded.close()

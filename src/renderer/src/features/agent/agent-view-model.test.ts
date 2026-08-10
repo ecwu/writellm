@@ -4,6 +4,7 @@ import type { MutationProposalRecord } from '../../../../shared/contracts/agent-
 import {
   aggregateAgentUsage,
   agentReviewState,
+  agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
@@ -312,6 +313,7 @@ describe('Agent renderer view model', () => {
       modelLabel: 'writer',
       api: 'openai-completions',
       approvalMode: 'manual',
+      thinkingLevel: 'off',
       modelLimits: {
         contextWindowTokens: 131_072,
         inputLimitTokens: null,
@@ -321,6 +323,7 @@ describe('Agent renderer view model', () => {
         resolvedAt: null
       },
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+      skillSnapshot: legacySkillSnapshot(),
       errorCode: 'user_stopped',
       startedAt: '2026-07-21T00:00:00.000Z',
       completedAt: '2026-07-21T00:00:05.000Z',
@@ -415,6 +418,28 @@ describe('Agent renderer view model', () => {
     expect(agentReviewState(base.agentRunId, [pending])).toBe('waiting')
     expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'applied' }])).toBe('approved')
     expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'rejected' }])).toBe('rejected')
+  })
+
+  it('labels every Main-emitted terminal code instead of falling back to interrupted', () => {
+    expect(agentTerminalLabel('provider_timeout')).toBe('Provider request timed out')
+    expect(agentTerminalLabel('provider_retries_exhausted')).toBe(
+      'Provider request failed after 5 attempts'
+    )
+    expect(agentTerminalLabel('user_stopped')).toBe('Stopped by user')
+    expect(agentTerminalLabel('project_closed')).toBe('Interrupted because project closed')
+    expect(agentTerminalLabel('process_restarted')).toBe('Interrupted because the app restarted')
+    expect(agentTerminalLabel('skill_route_failed')).toBe('Writing skill routing failed')
+    expect(agentTerminalLabel('skill_prompt_budget_exceeded')).toBe(
+      'Writing skill exceeds the prompt budget'
+    )
+    expect(agentTerminalLabel('compaction_failed')).toBe('Session compaction failed')
+    expect(agentTerminalLabel('model_request_start_failed')).toBe(
+      'Model request could not be started'
+    )
+    expect(agentTerminalLabel('agent_context_failed')).toBe('Agent context could not be built')
+    expect(agentTerminalLabel('run_failed')).toBe('Run failed')
+    expect(agentTerminalLabel('run_interrupted')).toBe('Run interrupted')
+    expect(agentTerminalLabel('unknown_code')).toBe('Run interrupted')
   })
 })
 
@@ -560,6 +585,7 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     modelLabel: 'writer',
     api: 'openai-completions',
     approvalMode: 'manual',
+    thinkingLevel: 'off',
     modelLimits: {
       contextWindowTokens: 131_072,
       inputLimitTokens: null,
@@ -569,9 +595,21 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
       resolvedAt: null
     },
     editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+    skillSnapshot: legacySkillSnapshot(),
     errorCode: null,
     startedAt: base.createdAt,
     completedAt: null,
     updatedAt: base.createdAt
+  }
+}
+
+function legacySkillSnapshot(): AgentRunRecord['skillSnapshot'] {
+  return {
+    mode: 'none',
+    routingStatus: 'legacy',
+    primary: null,
+    dependencies: [],
+    resources: [],
+    safeError: null
   }
 }

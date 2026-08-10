@@ -7,12 +7,14 @@ import {
   agentCompactionSummaryPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
+  agentRuntimeModelSchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
   type AgentApprovalMode,
   type AgentEditorContext,
   type AgentEventType,
   type AgentHistoryMessage,
+  type AgentRuntimeModel,
   type AgentRuntimeEvent,
   type AgentModelLimits
 } from '../../shared/contracts/agent'
@@ -47,18 +49,36 @@ import {
   submitChangeResultSchema,
   type MutationProposalOutcome
 } from '../../shared/contracts/agent-mutations'
-import type { AgentModelSelection, ProviderConfig } from '../../shared/contracts/providers'
+import {
+  agentThinkingLevelSchema,
+  type AgentModelSelection,
+  type AgentThinkingLevel,
+  type ProviderConfig
+} from '../../shared/contracts/providers'
+import {
+  skillRunSnapshotSchema,
+  skillSelectionSchema,
+  type SkillRunSnapshot,
+  type SkillSelection
+} from '../../shared/contracts/skills'
 import { providerConfigSchema } from '../../shared/contracts/providers'
 import { withLogContext } from '../observability/log-context'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProviderService } from '../providers/provider-service'
-import type {
-  AgentProviderCatalogService,
-  ResolvedAgentCatalogModel
+import {
+  clampResolvedAgentThinkingLevel,
+  type AgentProviderCatalogService,
+  type ResolvedAgentCatalogModel
 } from '../providers/agent-provider-catalog'
-import type { AgentContextBuilder, WritingSnapshot } from './context'
+import {
+  SkillPromptBudgetError,
+  type AgentContextBuilder,
+  type AgentSkillPromptInput,
+  type WritingSnapshot
+} from './context'
+import type { SkillRouter } from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
 import type { AgentToolExecutor } from './tools'
 
@@ -80,14 +100,19 @@ interface ActiveRun {
   readonly agentRunId: string
   readonly operationId: string
   readonly controller: AbortController
-  readonly handle: AgentSessionRunHandle
+  handle: AgentSessionRunHandle | null
+  phase: 'routing' | 'running'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
+  readonly thinkingLevel: AgentThinkingLevel
+  readonly runtimeModel?: AgentRuntimeModel
   readonly modelLimits: AgentModelLimits
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
   readonly snapshots: Map<string, WritingSnapshot>
+  skillSnapshot: SkillRunSnapshot
+  skillPrompt: AgentSkillPromptInput
   systemPrompt: string
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
@@ -102,6 +127,7 @@ export interface AgentSessionServiceOptions {
   agentCatalog?: Pick<AgentProviderCatalogService, 'resolve'>
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
+  skillRouter?: Pick<SkillRouter, 'route'>
   tools?: AgentToolExecutor
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publishEvent?: (event: AgentEventRecord) => void | Promise<void>
@@ -141,7 +167,8 @@ export class AgentSessionService {
   createSession(
     title = 'New conversation',
     approvalMode = this.options.defaultApprovalMode?.() ?? 'manual',
-    modelSelection: AgentModelSelection | null = null
+    modelSelection: AgentModelSelection | null = null,
+    thinkingLevel: AgentThinkingLevel = 'off'
   ): AgentSessionRecord {
     const agentSessionId = this.#createId()
     const now = this.#now().toISOString()
@@ -151,9 +178,9 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_sessions (
              agent_session_id, title, pi_runtime_version, event_schema_version,
-             status, approval_mode, provider_preset_id, selected_model_id,
+             status, approval_mode, provider_preset_id, selected_model_id, thinking_level,
              created_at, updated_at, archived_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL)`
+           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, NULL)`
         )
         .run(
           agentSessionId,
@@ -163,6 +190,7 @@ export class AgentSessionService {
           approvalMode,
           modelSelection?.presetId ?? null,
           modelSelection?.modelId ?? null,
+          thinkingLevel,
           now,
           now
         )
@@ -179,6 +207,7 @@ export class AgentSessionService {
       approvalMode,
       workflowState: 'idle',
       modelSelection,
+      thinkingLevel,
       createdAt: now,
       updatedAt: now
     })
@@ -191,6 +220,7 @@ export class AgentSessionService {
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
                     status, approval_mode, provider_preset_id, selected_model_id,
+                    thinking_level,
                     created_at, updated_at,
                     CASE
                       WHEN EXISTS (
@@ -223,6 +253,7 @@ export class AgentSessionService {
           approval_mode: AgentApprovalMode
           provider_preset_id: string | null
           selected_model_id: string | null
+          thinking_level: AgentThinkingLevel
           workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
           created_at: string
           updated_at: string
@@ -241,6 +272,7 @@ export class AgentSessionService {
             row.provider_preset_id === null || row.selected_model_id === null
               ? null
               : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
+          thinkingLevel: row.thinking_level,
           createdAt: row.created_at,
           updatedAt: row.updated_at
         })
@@ -270,7 +302,11 @@ export class AgentSessionService {
     return session
   }
 
-  setModelSelection(agentSessionId: string, selection: AgentModelSelection): AgentSessionRecord {
+  setModelSelection(
+    agentSessionId: string,
+    selection: AgentModelSelection,
+    thinkingLevel: AgentThinkingLevel = 'off'
+  ): AgentSessionRecord {
     if (this.#active?.agentSessionId === agentSessionId) {
       throw new Error('Agent model cannot change while a run is active')
     }
@@ -280,10 +316,10 @@ export class AgentSessionService {
       database
         .prepare(
           `UPDATE agent_sessions
-              SET provider_preset_id = ?, selected_model_id = ?, updated_at = ?
+              SET provider_preset_id = ?, selected_model_id = ?, thinking_level = ?, updated_at = ?
             WHERE agent_session_id = ?`
         )
-        .run(selection.presetId, selection.modelId, now, agentSessionId)
+        .run(selection.presetId, selection.modelId, thinkingLevel, now, agentSessionId)
     })
     const session = this.listSessions().find((item) => item.agentSessionId === agentSessionId)
     if (session === undefined) throw new Error('Agent session does not exist')
@@ -292,9 +328,34 @@ export class AgentSessionService {
         event: 'agent.session.model_selection_updated',
         agentSessionId,
         presetId: selection.presetId,
-        modelId: selection.modelId
+        modelId: selection.modelId,
+        thinkingLevel
       },
       'Agent session model selection updated'
+    )
+    return session
+  }
+
+  setThinkingLevel(agentSessionId: string, level: AgentThinkingLevel): AgentSessionRecord {
+    if (this.#active?.agentSessionId === agentSessionId) {
+      throw new Error('Agent Thinking level cannot change while a run is active')
+    }
+    this.#assertCompatibleSession(agentSessionId)
+    this.#assertConversationReady(agentSessionId)
+    const thinkingLevel = agentThinkingLevelSchema.parse(level)
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      database
+        .prepare(
+          'UPDATE agent_sessions SET thinking_level = ?, updated_at = ? WHERE agent_session_id = ?'
+        )
+        .run(thinkingLevel, now, agentSessionId)
+    })
+    const session = this.listSessions().find((item) => item.agentSessionId === agentSessionId)
+    if (session === undefined) throw new Error('Agent session does not exist')
+    this.options.log.info(
+      { event: 'agent.session.thinking_level_updated', agentSessionId, thinkingLevel },
+      'Agent session Thinking level updated'
     )
     return session
   }
@@ -420,7 +481,8 @@ export class AgentSessionService {
           .prepare(
             `SELECT agent_run_id, agent_session_id, status, provider_id, model_id,
                     provider_preset_id, provider_label, model_label, api_id,
-                    approval_mode, model_limits_json, editor_context_json, error_json,
+                    approval_mode, thinking_level, model_limits_json, editor_context_json, error_json,
+                    skill_snapshot_json,
                     started_at, completed_at, updated_at
                FROM agent_runs
               WHERE agent_session_id = ?
@@ -438,9 +500,11 @@ export class AgentSessionService {
           model_label: string
           api_id: string
           approval_mode: AgentApprovalMode
+          thinking_level: AgentThinkingLevel
           model_limits_json: string
           editor_context_json: string
           error_json: string | null
+          skill_snapshot_json: string
           started_at: string
           completed_at: string | null
           updated_at: string
@@ -457,8 +521,10 @@ export class AgentSessionService {
           modelLabel: row.model_label || row.model_id,
           api: row.api_id,
           approvalMode: row.approval_mode,
+          thinkingLevel: row.thinking_level,
           modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
+          skillSnapshot: skillRunSnapshotSchema.parse(JSON.parse(row.skill_snapshot_json)),
           errorCode: safeErrorCode(row.error_json),
           startedAt: row.started_at,
           completedAt: row.completed_at,
@@ -489,11 +555,14 @@ export class AgentSessionService {
     maxOutputTokens?: number
     temperature?: number
     operationId?: string
+    skillSelection?: SkillSelection
+    reuseSkillSnapshot?: SkillRunSnapshot
   }): Promise<StartedAgentRun> {
     if (this.#active !== undefined) throw new Error('An Agent run is already active')
     const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
     const editorContext = agentEditorContextSchema.parse(input.editorContext)
     const operationId = input.operationId ?? this.#createId()
+    const skillSelection = skillSelectionSchema.parse(input.skillSelection ?? { mode: 'auto' })
     const agentRunId = this.#createId()
     this.#assertCompatibleSession(input.agentSessionId)
     this.#assertConversationReady(input.agentSessionId)
@@ -506,14 +575,24 @@ export class AgentSessionService {
         agentRunId
       },
       () =>
-        this.#withSessionProvider(input.agentSessionId, async (config, credential) => {
-          const resolutionController = new AbortController()
+        this.#withSessionProvider(input.agentSessionId, async (config, credential, resolved) => {
+          const controller = new AbortController()
           const modelLimits =
-            (await this.options.resolveModelLimits?.(config, resolutionController.signal)) ??
+            (await this.options.resolveModelLimits?.(config, controller.signal)) ??
             legacyModelLimits()
           const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
           agentMessageBudget(maxOutputTokens, modelLimits)
           const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
+          const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
+          const thinkingLevel =
+            resolved === undefined
+              ? 'off'
+              : clampResolvedAgentThinkingLevel(resolved, storedThinkingLevel)
+          if (thinkingLevel !== storedThinkingLevel) {
+            this.#reconcileThinkingLevel(input.agentSessionId, storedThinkingLevel, thinkingLevel)
+          }
+          const runtimeModel =
+            resolved === undefined ? undefined : runtimeModelFromCatalog(resolved)
           const now = this.#now()
           this.#insertRunAndUserEvent({
             agentSessionId: input.agentSessionId,
@@ -522,132 +601,274 @@ export class AgentSessionService {
             editorContext,
             prompt,
             approvalMode,
+            thinkingLevel,
             modelLimits,
+            skillSelection,
             now
           })
-          const controller = new AbortController()
-          let history: AgentHistoryMessage[]
-          try {
-            history = await this.#prepareRuntimeHistory({
-              agentSessionId: input.agentSessionId,
-              agentRunId,
-              prompt,
-              maxOutputTokens,
-              modelLimits,
-              signal: controller.signal
-            })
-          } catch (err) {
-            this.options.log.error(
-              { event: 'agent.compaction.failed', err, agentRunId },
-              'Failed to prepare bounded Agent history'
-            )
-            await this.#finishRunAndAppendEvent({
-              agentRunId,
-              agentSessionId: input.agentSessionId,
-              status: 'failed',
-              error: { code: 'compaction_failed' },
-              eventPayload: { code: 'compaction_failed', status: 'failed' }
-            })
-            throw err
-          }
-          const modelRequests = new ModelRequestRepository(
-            this.options.database,
-            this.options.log,
-            this.#now,
-            this.#createId
-          )
-          let modelRequestId: string
-          try {
-            modelRequestId = (
-              await modelRequests.start({
-                operation: 'agent',
-                provider: config,
-                request: { prompt, delivery: 'prompt' },
-                inputItems: 1,
-                operationId,
-                agentRunId,
-                projectSessionId: this.options.projectSessionId
-              })
-            ).modelRequestId
-          } catch (err) {
-            this.options.log.error(
-              { event: 'agent.run.model_request_start_failed', err, agentRunId },
-              'Failed to persist the initial Agent model request'
-            )
-            await this.#finishRunAndAppendEvent({
-              agentRunId,
-              agentSessionId: input.agentSessionId,
-              status: 'failed',
-              error: { code: 'model_request_start_failed' },
-              eventPayload: { code: 'model_request_start_failed', status: 'failed' }
-            })
-            throw err
-          }
-          const initialEvent = this.#linkInitialUserEvent(
-            input.agentSessionId,
-            agentRunId,
-            modelRequestId
-          )
-          await this.#publishDurable(initialEvent)
-          const builtContext = this.options.contextBuilder?.build({
-            prompt,
-            editorContext,
-            snapshotId: modelRequestId
-          })
-          const userRequest = builtContext?.userRequest ?? prompt
-          const systemPrompt = (
-            builtContext?.systemPrompt ??
-            input.systemPrompt ??
-            DEFAULT_SYSTEM_PROMPT
-          ).slice(0, 65_536)
-          const handle = this.options.runtime.beginSessionRun(
-            config,
-            credential,
-            {
-              projectSessionId: this.options.projectSessionId,
-              agentSessionId: input.agentSessionId,
-              agentRunId,
-              modelRequestId,
-              systemPrompt,
-              history,
-              prompt: userRequest,
-              maxOutputTokens,
-              modelLimits,
-              ...(input.temperature === undefined ? {} : { temperature: input.temperature })
-            },
-            controller.signal,
-            (event) => this.#handleRuntimeEvent(agentRunId, event),
-            (request, signal) => this.#handleToolRequest(agentRunId, request, signal)
-          )
           const active: ActiveRun = {
             agentSessionId: input.agentSessionId,
             agentRunId,
             operationId,
             controller,
-            handle,
+            handle: null,
+            phase: 'routing',
             config,
             editorContext,
             approvalMode,
+            thinkingLevel,
+            runtimeModel,
             modelLimits,
-            authorizedModelRequestIds: new Set([modelRequestId]),
-            pendingModelRequestIds: new Set([modelRequestId]),
-            snapshots: new Map(
-              builtContext === undefined ? [] : [[modelRequestId, builtContext.snapshot]]
-            ),
-            systemPrompt,
+            authorizedModelRequestIds: new Set(),
+            pendingModelRequestIds: new Set(),
+            snapshots: new Map(),
+            skillSnapshot: pendingSkillSnapshot(skillSelection),
+            skillPrompt: { mode: skillSelection.mode, mandatory: '', references: [] },
+            systemPrompt: input.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
             partialText: '',
             reviewPause: null,
             completion: Promise.resolve()
           }
           this.#active = active
-          active.completion = this.#settleRun(active)
+          let markPrepared: () => void = () => undefined
+          const prepared = new Promise<void>((resolve) => {
+            markPrepared = resolve
+          })
+          active.completion = this.#prepareAndRun(active, {
+            credential,
+            prompt,
+            skillSelection,
+            reuseSkillSnapshot: input.reuseSkillSnapshot,
+            maxOutputTokens,
+            ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
+            markPrepared
+          })
+            .catch((err) => {
+              markPrepared()
+              return this.#settleSetupFailure(active, err)
+            })
+            .finally(() => {
+              if (this.#active === active) this.#active = undefined
+            })
           this.options.log.info(
-            { event: 'agent.run.started', agentSessionId: input.agentSessionId, agentRunId },
-            'Agent run started'
+            {
+              event: 'agent.run.started',
+              agentSessionId: input.agentSessionId,
+              agentRunId,
+              phase: 'routing',
+              thinkingLevel
+            },
+            'Agent run started and entered writing skill routing'
           )
+          // Legacy/test integrations without a router have no observable routing phase.
+          // Keep their existing ready-on-return contract while production returns immediately.
+          if (this.options.skillRouter === undefined) await prepared
           return { agentRunId, completion: active.completion }
         })
     )
+  }
+
+  async #prepareAndRun(
+    active: ActiveRun,
+    input: {
+      credential: string
+      prompt: string
+      skillSelection: SkillSelection
+      reuseSkillSnapshot?: SkillRunSnapshot
+      maxOutputTokens: number
+      temperature?: number
+      markPrepared: () => void
+    }
+  ): Promise<void> {
+    let history: AgentHistoryMessage[]
+    try {
+      history = await this.#prepareRuntimeHistory({
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        prompt: input.prompt,
+        maxOutputTokens: input.maxOutputTokens,
+        modelLimits: active.modelLimits,
+        signal: active.controller.signal
+      })
+    } catch (err) {
+      throw new AgentRunSetupError(
+        active.controller.signal.aborted ? 'user_stopped' : 'compaction_failed',
+        err
+      )
+    }
+
+    if (this.options.skillRouter !== undefined) {
+      try {
+        const routed = await this.options.skillRouter.route({
+          selection: input.skillSelection,
+          reuseSnapshot: input.reuseSkillSnapshot,
+          userPrompt: input.prompt,
+          config: active.config,
+          credential: input.credential,
+          modelLimits: active.modelLimits,
+          database: this.options.database,
+          operationId: active.operationId,
+          agentRunId: active.agentRunId,
+          projectSessionId: this.options.projectSessionId,
+          signal: active.controller.signal,
+          createId: this.#createId,
+          now: this.#now
+        })
+        active.skillSnapshot = routed.snapshot
+        active.skillPrompt = routed.prompt
+      } catch (err) {
+        throw new AgentRunSetupError(
+          active.controller.signal.aborted ? 'user_stopped' : 'skill_route_failed',
+          err
+        )
+      }
+    } else {
+      active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
+    }
+    active.controller.signal.throwIfAborted()
+    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
+
+    const modelRequests = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    let modelRequestId: string
+    try {
+      modelRequestId = (
+        await modelRequests.start({
+          operation: 'agent',
+          provider: active.config,
+          request: {
+            prompt: input.prompt,
+            delivery: 'prompt'
+          },
+          thinkingLevel: active.thinkingLevel,
+          inputItems: 1,
+          operationId: active.operationId,
+          agentRunId: active.agentRunId,
+          projectSessionId: this.options.projectSessionId
+        })
+      ).modelRequestId
+    } catch (err) {
+      throw new AgentRunSetupError('model_request_start_failed', err)
+    }
+    active.authorizedModelRequestIds.add(modelRequestId)
+    active.pendingModelRequestIds.add(modelRequestId)
+    const initialEvent = this.#linkInitialUserEvent(
+      active.agentSessionId,
+      active.agentRunId,
+      modelRequestId
+    )
+    await this.#publishDurable(initialEvent)
+
+    let builtContext: ReturnType<AgentContextBuilder['build']> | undefined
+    try {
+      builtContext = this.options.contextBuilder?.build({
+        prompt: input.prompt,
+        editorContext: active.editorContext,
+        snapshotId: modelRequestId,
+        skillPrompt: active.skillPrompt
+      })
+    } catch (err) {
+      throw new AgentRunSetupError(
+        err instanceof SkillPromptBudgetError
+          ? 'skill_prompt_budget_exceeded'
+          : 'agent_context_failed',
+        err
+      )
+    }
+    if (builtContext?.skillPromptDropped === true) {
+      active.skillSnapshot = {
+        mode: 'auto',
+        routingStatus: 'degraded',
+        primary: null,
+        dependencies: [],
+        resources: [],
+        safeError: 'skill_prompt_budget_exceeded'
+      }
+      active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
+    } else if (builtContext !== undefined) {
+      active.skillSnapshot = {
+        ...active.skillSnapshot,
+        resources: builtContext.includedSkillResources
+      }
+      active.skillPrompt = {
+        ...active.skillPrompt,
+        references: active.skillPrompt.references.filter((reference) =>
+          builtContext.includedSkillResources.includes(reference.path)
+        )
+      }
+      active.snapshots.set(modelRequestId, builtContext.snapshot)
+    }
+    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
+    active.systemPrompt = builtContext?.systemPrompt ?? active.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+    active.controller.signal.throwIfAborted()
+    active.handle = this.options.runtime.beginSessionRun(
+      active.config,
+      input.credential,
+      {
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        modelRequestId,
+        systemPrompt: active.systemPrompt,
+        history,
+        prompt: builtContext?.userRequest ?? input.prompt,
+        maxOutputTokens: input.maxOutputTokens,
+        modelLimits: active.modelLimits,
+        thinkingLevel: active.thinkingLevel,
+        ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
+        ...(input.temperature === undefined ? {} : { temperature: input.temperature })
+      },
+      active.controller.signal,
+      (event) => this.#handleRuntimeEvent(active.agentRunId, event),
+      (request, signal) => this.#handleToolRequest(active.agentRunId, request, signal)
+    )
+    active.phase = 'running'
+    input.markPrepared()
+    this.options.log.info(
+      {
+        event: 'skill.route.completed',
+        agentRunId: active.agentRunId,
+        routingStatus: active.skillSnapshot.routingStatus,
+        skillId: active.skillSnapshot.primary?.skillId
+      },
+      'Writing skill routing completed'
+    )
+    await this.#settleRun(active)
+  }
+
+  async #settleSetupFailure(active: ActiveRun, err: unknown): Promise<void> {
+    this.options.log.error(
+      { event: 'agent.run.setup_failed', err, agentRunId: active.agentRunId, phase: active.phase },
+      'Agent run failed before provider generation started'
+    )
+    await this.#abortPendingModelRequests(active, 'agent_run_setup_failed')
+    const cancellation = classifyRunFailure(err, active.controller.signal)
+    const code = err instanceof AgentRunSetupError ? err.code : cancellation.code
+    const status = active.controller.signal.aborted ? cancellation.status : 'failed'
+    const current = this.requireRun(active.agentRunId)
+    if (current.status !== 'running') return
+    if (active.skillSnapshot.routingStatus === 'pending') {
+      active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'failed', safeError: code }
+      this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
+    }
+    // The initial user event is persisted at run start but normally published only after
+    // routing; publish it here so a setup failure still shows the prompt in the timeline.
+    const initialUserEvent = this.#unlinkedInitialUserEvent(
+      active.agentSessionId,
+      active.agentRunId
+    )
+    if (initialUserEvent !== null) await this.#publishDurable(initialUserEvent)
+    await this.#finishRunAndAppendEvent({
+      agentRunId: active.agentRunId,
+      agentSessionId: active.agentSessionId,
+      status,
+      error: { code },
+      eventPayload: { code, status }
+    })
   }
 
   async steer(agentRunId: string, content: string): Promise<void> {
@@ -746,6 +967,10 @@ export class AgentSessionService {
     rawContent: string
   ): Promise<void> {
     const active = this.#requireActive(agentRunId)
+    if (active.phase === 'routing' || active.handle === null) {
+      throw new Error('Writing skill selection is still in progress')
+    }
+    const handle = active.handle
     if (active.reviewPause !== null) {
       throw new Error('Agent conversation is waiting for review')
     }
@@ -767,6 +992,7 @@ export class AgentSessionService {
         operation: 'agent',
         provider: active.config,
         request: { content, delivery },
+        thinkingLevel: active.thinkingLevel,
         inputItems: 1,
         operationId: active.operationId,
         agentRunId: active.agentRunId,
@@ -785,7 +1011,8 @@ export class AgentSessionService {
     const refreshedContext = this.options.contextBuilder?.build({
       prompt: content,
       editorContext: active.editorContext,
-      snapshotId: modelRequestId
+      snapshotId: modelRequestId,
+      skillPrompt: active.skillPrompt
     })
     if (refreshedContext !== undefined) {
       active.snapshots.set(modelRequestId, refreshedContext.snapshot)
@@ -801,8 +1028,8 @@ export class AgentSessionService {
         timestamp,
         systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
       }
-      if (delivery === 'steer') active.handle.steer(command)
-      else active.handle.followUp(command)
+      if (delivery === 'steer') handle.steer(command)
+      else handle.followUp(command)
     } catch (err) {
       this.options.log.error(
         { event: 'agent.run.queue_failed', err, agentRunId, modelRequestId, delivery },
@@ -898,6 +1125,10 @@ export class AgentSessionService {
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
+    if (active.phase !== 'running' || active.handle === null) {
+      throw new Error('Agent continuation is unavailable during writing skill selection')
+    }
+    const handle = active.handle
     if (active.reviewPause !== null) {
       throw new Error('Agent continuation is blocked while review is pending')
     }
@@ -918,7 +1149,11 @@ export class AgentSessionService {
         await repository.start({
           operation: 'agent',
           provider: active.config,
-          request: { delivery: 'tool_continuation', continuationId },
+          request: {
+            delivery: 'tool_continuation',
+            continuationId
+          },
+          thinkingLevel: active.thinkingLevel,
           inputItems: 1,
           operationId: active.operationId,
           agentRunId: active.agentRunId,
@@ -930,13 +1165,14 @@ export class AgentSessionService {
       const refreshedContext = this.options.contextBuilder?.build({
         prompt: 'Continue from the authoritative tool result.',
         editorContext: active.editorContext,
-        snapshotId: modelRequestId
+        snapshotId: modelRequestId,
+        skillPrompt: active.skillPrompt
       })
       if (refreshedContext !== undefined) {
         active.snapshots.set(modelRequestId, refreshedContext.snapshot)
         active.systemPrompt = refreshedContext.systemPrompt
       }
-      active.handle.authorizeModelCall({
+      handle.authorizeModelCall({
         projectSessionId: this.options.projectSessionId,
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
@@ -1150,8 +1386,10 @@ export class AgentSessionService {
   }
 
   async #settleRun(active: ActiveRun): Promise<void> {
+    const handle = active.handle
+    if (handle === null) throw new Error('Agent runtime did not start')
     try {
-      const result = await active.handle.completion
+      const result = await handle.completion
       if (result.outcome === 'awaiting_review') {
         if (active.reviewPause === null) {
           throw new Error('Agent review pause completed without a pending proposal')
@@ -1280,7 +1518,9 @@ export class AgentSessionService {
     editorContext: AgentEditorContext
     prompt: string
     approvalMode: AgentApprovalMode
+    thinkingLevel: AgentThinkingLevel
     modelLimits: AgentModelLimits
+    skillSelection: SkillSelection
     now: Date
   }): void {
     const now = input.now.toISOString()
@@ -1290,10 +1530,10 @@ export class AgentSessionService {
           `INSERT INTO agent_runs (
              agent_run_id, agent_session_id, status, provider_id, model_id,
              provider_preset_id, provider_label, model_label, api_id,
-             provider_fingerprint, model_fingerprint, approval_mode, model_limits_json,
-             editor_context_json,
+             provider_fingerprint, model_fingerprint, approval_mode, thinking_level, model_limits_json,
+             editor_context_json, skill_snapshot_json,
              error_json, started_at, completed_at, created_at, updated_at
-           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
+           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
         )
         .run(
           input.agentRunId,
@@ -1317,8 +1557,10 @@ export class AgentSessionService {
             api: input.config.api ?? 'openai-completions'
           }),
           input.approvalMode,
+          input.thinkingLevel,
           JSON.stringify(input.modelLimits),
           JSON.stringify(input.editorContext),
+          JSON.stringify(pendingSkillSnapshot(input.skillSelection)),
           now,
           now,
           now
@@ -1342,11 +1584,24 @@ export class AgentSessionService {
     })
   }
 
+  #updateSkillSnapshot(agentRunId: string, snapshot: SkillRunSnapshot): void {
+    const parsed = skillRunSnapshotSchema.parse(snapshot)
+    this.options.database.immediate((database) => {
+      const result = database
+        .prepare(
+          'UPDATE agent_runs SET skill_snapshot_json = ?, updated_at = ? WHERE agent_run_id = ?'
+        )
+        .run(JSON.stringify(parsed), this.#now().toISOString(), agentRunId)
+      if (result.changes !== 1) throw new Error('Agent run does not exist')
+    })
+  }
+
   async #withSessionProvider<T>(
     agentSessionId: string,
     operation: (
       config: Extract<ProviderConfig, { role: 'agent' }>,
-      credential: string
+      credential: string,
+      resolved?: ResolvedAgentCatalogModel
     ) => Promise<T>
   ): Promise<T> {
     const selection = this.#sessionModelSelection(agentSessionId)
@@ -1360,7 +1615,8 @@ export class AgentSessionService {
             ? {}
             : { headers: resolved.auth.auth.headers }),
           ...(resolved.auth.env === undefined ? {} : { env: resolved.auth.env })
-        })
+        }),
+        resolved
       )
     }
     return this.options.providers.withConfiguredProvider('agent', (config, credential) =>
@@ -1384,6 +1640,68 @@ export class AgentSessionService {
     if (row === undefined) throw new Error('Agent session does not exist')
     if (row.provider_preset_id === null || row.selected_model_id === null) return null
     return { presetId: row.provider_preset_id, modelId: row.selected_model_id }
+  }
+
+  #sessionThinkingLevel(agentSessionId: string): AgentThinkingLevel {
+    const value = this.options.database.immediate((database) =>
+      database
+        .prepare('SELECT thinking_level FROM agent_sessions WHERE agent_session_id = ?')
+        .pluck()
+        .get(agentSessionId)
+    )
+    return agentThinkingLevelSchema.parse(value)
+  }
+
+  #reconcileThinkingLevel(
+    agentSessionId: string,
+    requested: AgentThinkingLevel,
+    effective: AgentThinkingLevel
+  ): void {
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      database
+        .prepare(
+          'UPDATE agent_sessions SET thinking_level = ?, updated_at = ? WHERE agent_session_id = ?'
+        )
+        .run(effective, now, agentSessionId)
+    })
+    this.options.log.info(
+      {
+        event: 'agent.session.thinking_level_clamped',
+        agentSessionId,
+        requestedThinkingLevel: requested,
+        thinkingLevel: effective
+      },
+      'Agent session Thinking level was clamped to current model capabilities'
+    )
+  }
+
+  #unlinkedInitialUserEvent(agentSessionId: string, agentRunId: string): AgentEventRecord | null {
+    return this.options.database.immediate((database) => {
+      const row = database
+        .prepare(
+          `SELECT agent_event_id, sequence, payload_json, created_at
+             FROM agent_events
+            WHERE agent_session_id = ? AND agent_run_id = ? AND type = 'user_message'
+              AND model_request_id IS NULL
+            ORDER BY sequence
+            LIMIT 1`
+        )
+        .get(agentSessionId, agentRunId) as
+        | { agent_event_id: string; sequence: number; payload_json: string; created_at: string }
+        | undefined
+      if (row === undefined) return null
+      return {
+        agentEventId: row.agent_event_id,
+        agentSessionId,
+        agentRunId,
+        sequence: row.sequence,
+        type: 'user_message',
+        payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+        modelRequestId: null,
+        createdAt: row.created_at
+      }
+    })
   }
 
   #linkInitialUserEvent(
@@ -1783,6 +2101,38 @@ function legacyModelLimits(): AgentModelLimits {
   }
 }
 
+function runtimeModelFromCatalog(resolved: ResolvedAgentCatalogModel): AgentRuntimeModel {
+  const model = resolved.model
+  const compat =
+    model.compat === undefined
+      ? undefined
+      : (JSON.parse(JSON.stringify(model.compat)) as Record<string, unknown>)
+  return agentRuntimeModelSchema.parse({
+    id: model.id,
+    name: model.name,
+    api: model.api,
+    provider: model.provider,
+    baseUrl: resolved.auth.auth.baseUrl ?? model.baseUrl,
+    reasoning: model.reasoning,
+    ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
+    input: model.input,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    ...(compat === undefined ? {} : { compat })
+  })
+}
+
+function pendingSkillSnapshot(selection: SkillSelection): SkillRunSnapshot {
+  return skillRunSnapshotSchema.parse({
+    mode: selection.mode,
+    routingStatus: 'pending',
+    primary: null,
+    dependencies: [],
+    resources: [],
+    safeError: null
+  })
+}
+
 function insertEvent(
   database: import('better-sqlite3').Database,
   input: {
@@ -1898,6 +2248,16 @@ class AgentRunCancellationError extends Error {
   ) {
     super(message)
     this.name = 'AgentRunCancellationError'
+  }
+}
+
+class AgentRunSetupError extends Error {
+  constructor(
+    readonly code: string,
+    cause: unknown
+  ) {
+    super(code, { cause })
+    this.name = 'AgentRunSetupError'
   }
 }
 

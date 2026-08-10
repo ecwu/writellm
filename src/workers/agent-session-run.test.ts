@@ -50,7 +50,30 @@ const request: AgentRunStart = {
     }
   ],
   prompt: 'Write a line.',
+  thinkingLevel: 'off',
   maxOutputTokens: 100
+}
+
+const reasoningRequest: AgentRunStart = {
+  ...request,
+  thinkingLevel: 'high',
+  runtimeModel: {
+    id: 'writer-model',
+    name: 'Reasoning Writer',
+    api: 'openai-completions',
+    provider: 'openai-compatible',
+    baseUrl: 'https://agent.example.test/v1',
+    reasoning: true,
+    thinkingLevelMap: { high: 'high' },
+    input: ['text'],
+    contextWindow: 131_072,
+    maxTokens: 8_192,
+    compat: {
+      supportsReasoningEffort: true,
+      supportsUsageInStreaming: true,
+      maxTokensField: 'max_tokens'
+    }
+  }
 }
 
 afterEach(() => {
@@ -76,7 +99,7 @@ describe('runAgentSession', () => {
     expect(estimateAgentTokens(oversized)).toBeLessThanOrEqual(4_096)
   })
 
-  it('rebuilds history, streams three queued turns, and reports per-call retry metadata', async () => {
+  it('keeps the Thinking snapshot across retry, steer, and follow-up calls', async () => {
     let resolveFirst: ((response: Response) => void) | undefined
     const bodies: unknown[] = []
     let fetchAttempt = 0
@@ -94,7 +117,7 @@ describe('runAgentSession', () => {
     const events: AgentRuntimeEvent[] = []
     let control: AgentSessionRunControl | undefined
     const running = runAgentSession(
-      request,
+      reasoningRequest,
       (event) => events.push(event),
       (value) => {
         control = value
@@ -136,12 +159,14 @@ describe('runAgentSession', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(bodies[0]).toMatchObject({
       messages: [
-        { role: 'system', content: 'You draft prose.' },
+        { role: 'developer', content: 'You draft prose.' },
         { role: 'user' },
         { role: 'assistant' },
         { role: 'user' }
       ]
     })
+    expect(bodies).toHaveLength(4)
+    for (const body of bodies) expect(body).toMatchObject({ reasoning_effort: 'high' })
     const finished = events.filter((event) => event.type === 'model_call_finished')
     expect(finished).toHaveLength(3)
     expect(
@@ -164,8 +189,60 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(events)).not.toContain('agent-secret')
   })
 
+  it('passes the snapshotted Thinking level through Pi without exposing thinking content', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return completionResponse('Visible answer', 'reasoning-response', 'Private chain')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    await runAgentSession(
+      reasoningRequest,
+      (event) => events.push(event),
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({ reasoning_effort: 'high' })
+    expect(events.find((event) => event.type === 'assistant_message')).toMatchObject({
+      type: 'assistant_message',
+      message: { content: 'Visible answer' }
+    })
+    expect(JSON.stringify(events)).not.toContain('Private chain')
+  })
+
+  it('does not send a reasoning effort when Thinking is off', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return completionResponse('Visible answer', 'off-response')
+      })
+    )
+
+    await runAgentSession(
+      request,
+      () => undefined,
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).not.toHaveProperty('reasoning_effort')
+  })
+
   it('executes a bounded read tool and waits for one authorized continuation model call', async () => {
-    const bodies: Array<{ messages?: Array<{ role?: string; content?: unknown }> }> = []
+    const bodies: Array<{
+      messages?: Array<{ role?: string; content?: unknown }>
+      reasoning_effort?: string
+    }> = []
     let fetchAttempt = 0
     vi.stubGlobal(
       'fetch',
@@ -196,7 +273,7 @@ describe('runAgentSession', () => {
     let control: AgentSessionRunControl | undefined
     const continuationModelRequestId = '019c6a5c-8d34-7a8e-a602-3d37a52dc419'
     await runAgentSession(
-      request,
+      reasoningRequest,
       (event) => {
         events.push(event)
         if (event.type === 'model_call_requested') {
@@ -236,6 +313,7 @@ describe('runAgentSession', () => {
         .map((event) => (event.type === 'model_call_finished' ? event.modelRequestId : ''))
     ).toEqual([request.modelRequestId, continuationModelRequestId])
     expect(JSON.stringify(bodies[1])).toContain('<UNTRUSTED_EXTERNAL')
+    expect(bodies.map((body) => body.reasoning_effort)).toEqual(['high', 'high'])
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
@@ -477,14 +555,24 @@ function createFakeMessageChannel(): { port1: FakeMessagePort; port2: FakeMessag
   return { port1, port2 }
 }
 
-function completionResponse(text: string, responseId: string): Response {
+function completionResponse(text: string, responseId: string, reasoning?: string): Response {
   const chunks = [
     `data: ${JSON.stringify({
       id: responseId,
       object: 'chat.completion.chunk',
       created: 1,
       model: 'writer-model-resolved',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            content: text,
+            ...(reasoning === undefined ? {} : { reasoning_content: reasoning })
+          },
+          finish_reason: null
+        }
+      ]
     })}\n\n`,
     `data: ${JSON.stringify({
       id: responseId,

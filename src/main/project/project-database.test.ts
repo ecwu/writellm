@@ -105,6 +105,34 @@ afterEach(async () => {
 })
 
 describe('project database', () => {
+  it('adds writing-skill provenance without rebuilding the model operation-kind boundary', async () => {
+    const root = await temporaryRoot('skill-migration')
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc099'),
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    const evidence = database.immediate((native) => ({
+      agentRunColumns: native.prepare('PRAGMA table_info(agent_runs)').all() as Array<{
+        name: string
+        dflt_value: string | null
+      }>,
+      modelRequestSql: (
+        native
+          .prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'model_requests'")
+          .get() as { sql: string }
+      ).sql
+    }))
+    expect(evidence.agentRunColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(['skill_snapshot_json', 'skill_route_model_request_id'])
+    )
+    expect(evidence.modelRequestSql).toContain("delivery IS NULL OR delivery = 'skill_route'")
+    expect(evidence.modelRequestSql).toContain("'agent', 'embedding', 'rerank'")
+    expect(evidence.modelRequestSql).not.toContain("operation_kind IN ('skill_route'")
+    database.close()
+  })
+
   it('isolates project data from other projects and the app database', async () => {
     const firstRoot = await temporaryRoot('项目一')
     const secondRoot = await temporaryRoot('项目二')

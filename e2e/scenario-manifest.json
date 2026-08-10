@@ -4,7 +4,9 @@
   "scenarios": [
     { "id": "accessibility.shell-settings", "tiers": ["critical", "packaged"] },
     { "id": "agent.grounded-proposal-workflow", "tiers": ["critical", "packaged"] },
+    { "id": "agent.global-writing-skill", "tiers": [] },
     { "id": "agent.refreshes-outdated-proposal", "tiers": ["packaged"] },
+    { "id": "agent.thinking-level-memory", "tiers": [] },
     { "id": "app.provider-settings-persist-without-secret", "tiers": [] },
     { "id": "knowledge.import-lifecycle", "tiers": ["packaged"] },
     { "id": "knowledge.original-survives-reopen", "tiers": [] },

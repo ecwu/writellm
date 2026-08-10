@@ -36,6 +36,22 @@ export const customAgentPiApiSchema = z.enum([
 ])
 export type CustomAgentPiApi = z.infer<typeof customAgentPiApiSchema>
 
+export const AGENT_THINKING_LEVELS = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
+] as const
+export const agentThinkingLevelSchema = z.enum(AGENT_THINKING_LEVELS)
+export type AgentThinkingLevel = z.infer<typeof agentThinkingLevelSchema>
+export const agentThinkingLevelMapSchema = z.partialRecord(
+  agentThinkingLevelSchema,
+  z.string().max(100).nullable()
+)
+
 export const agentPresetIdSchema = z
   .string()
   .trim()
@@ -56,6 +72,7 @@ export const agentModelSummarySchema = z.object({
   enabled: z.boolean(),
   source: z.enum(['packaged', 'discovered', 'manual']),
   reasoning: z.boolean(),
+  supportedThinkingLevels: z.array(agentThinkingLevelSchema).min(1).max(7).default(['off']),
   input: z
     .array(z.enum(['text', 'image']))
     .min(1)

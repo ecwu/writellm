@@ -16,6 +16,8 @@ import {
   agentSetApprovalModeResultSchema,
   agentSetModelSelectionInputSchema,
   agentSetModelSelectionResultSchema,
+  agentSetThinkingLevelInputSchema,
+  agentSetThinkingLevelResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema
@@ -24,7 +26,10 @@ import type { MutationProposalRecord } from '../../shared/contracts/agent-mutati
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { AgentEventBroker } from '../agent/event-broker'
 import type { ProjectManager } from '../project/project-manager'
-import type { AgentProviderCatalogService } from '../providers/agent-provider-catalog'
+import {
+  clampResolvedAgentThinkingLevel,
+  type AgentProviderCatalogService
+} from '../providers/agent-provider-catalog'
 import { authorizeSender } from './authorize-sender'
 
 export interface AgentIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
@@ -33,7 +38,10 @@ export function registerAgentIpc(options: {
   manager: ProjectManager
   broker: AgentEventBroker
   logger: Pick<Logger, 'info' | 'error'>
-  catalog?: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve' | 'setDefaultSelection'>
+  catalog?: Pick<
+    AgentProviderCatalogService,
+    'snapshot' | 'resolve' | 'setDefaultSelection' | 'getLastThinkingLevel' | 'setLastThinkingLevel'
+  >
   developmentUrl?: string
   ipc?: AgentIpcMain
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
@@ -78,12 +86,19 @@ export function registerAgentIpc(options: {
       const selection =
         input.modelSelection ??
         (options.catalog === undefined ? null : (await options.catalog.snapshot()).defaultSelection)
-      if (selection !== null) await options.catalog?.resolve(selection)
+      const thinkingLevel =
+        selection === null
+          ? 'off'
+          : clampResolvedAgentThinkingLevel(
+              await requireCatalog(options.catalog).resolve(selection),
+              await requireCatalog(options.catalog).getLastThinkingLevel()
+            )
       return agentCreateSessionResultSchema.parse(
         mutationContext(input.projectSessionId).agentSessions?.createSession(
           input.title,
           undefined,
-          selection
+          selection,
+          thinkingLevel
         )
       )
     })
@@ -93,14 +108,46 @@ export function registerAgentIpc(options: {
     const input = agentSetModelSelectionInputSchema.parse(raw)
     return lifecycle('agent.session.set_model_selection', async () => {
       if (options.catalog === undefined) throw new Error('Agent provider catalog is unavailable')
-      await options.catalog.resolve(input.selection)
+      const catalog = requireCatalog(options.catalog)
+      const resolved = await catalog.resolve(input.selection)
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      const current = service
+        .listSessions()
+        .find((session) => session.agentSessionId === input.agentSessionId)
+      if (current === undefined) throw new Error('Agent session does not exist')
+      const requestedLevel =
+        current.modelSelection === null
+          ? await catalog.getLastThinkingLevel()
+          : current.thinkingLevel
+      const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, requestedLevel)
       const result = agentSetModelSelectionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.setModelSelection(
-          input.agentSessionId,
-          input.selection
-        )
+        service.setModelSelection(input.agentSessionId, input.selection, thinkingLevel)
       )
-      await options.catalog.setDefaultSelection(input.selection)
+      await catalog.setDefaultSelection(input.selection)
+      return result
+    })
+  })
+  ipc.handle(IPC_CHANNELS.agentSetThinkingLevel, async (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentSetThinkingLevelInputSchema.parse(raw)
+    return lifecycle('agent.session.set_thinking_level', async () => {
+      const catalog = requireCatalog(options.catalog)
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      const session = service
+        .listSessions()
+        .find((candidate) => candidate.agentSessionId === input.agentSessionId)
+      if (session === undefined) throw new Error('Agent session does not exist')
+      if (session.modelSelection === null) throw new Error('Choose an Agent model first')
+      const resolved = await catalog.resolve(session.modelSelection)
+      if (clampResolvedAgentThinkingLevel(resolved, input.level) !== input.level) {
+        throw new Error('Selected Thinking level is unavailable for this Agent model')
+      }
+      const result = agentSetThinkingLevelResultSchema.parse(
+        service.setThinkingLevel(input.agentSessionId, input.level)
+      )
+      await catalog.setLastThinkingLevel(input.level)
       return result
     })
   })
@@ -149,6 +196,7 @@ export function registerAgentIpc(options: {
       const service = context.agentSessions
       if (service === null) throw new Error('Agent sessions are unavailable')
       let prompt = input.prompt
+      let reuseSkillFromRunId = input.reuseSkillFromRunId
       if (input.approvedProposalId !== undefined) {
         if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
         const proposal = context.agentMutations
@@ -174,12 +222,21 @@ export function registerAgentIpc(options: {
           decision: 'approved',
           continueRequested: true
         })
+        reuseSkillFromRunId ??= proposal.agentRunId
         prompt = approvalContinuationPrompt(proposal, input.prompt)
       }
+      const reuseRun =
+        reuseSkillFromRunId === undefined ? undefined : service.requireRun(reuseSkillFromRunId)
+      if (reuseRun !== undefined && reuseRun.agentSessionId !== input.agentSessionId) {
+        throw new Error('The writing skill snapshot belongs to another Agent conversation')
+      }
+      const reuseSkillSnapshot = reuseRun?.skillSnapshot
       const started = await service.startRun({
         agentSessionId: input.agentSessionId,
         prompt,
-        editorContext: input.editorContext
+        editorContext: input.editorContext,
+        skillSelection: input.skillSelection,
+        reuseSkillSnapshot
       })
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
     })
@@ -244,6 +301,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentCreateSession,
     IPC_CHANNELS.agentSetApprovalMode,
     IPC_CHANNELS.agentSetModelSelection,
+    IPC_CHANNELS.agentSetThinkingLevel,
     IPC_CHANNELS.agentListEvents,
     IPC_CHANNELS.agentListRuns,
     IPC_CHANNELS.agentListProposals,
@@ -264,6 +322,13 @@ export function registerAgentIpc(options: {
       for (const channel of channels) ipc.removeHandler(channel)
     }
   }
+}
+
+function requireCatalog(
+  catalog: Parameters<typeof registerAgentIpc>[0]['catalog']
+): NonNullable<Parameters<typeof registerAgentIpc>[0]['catalog']> {
+  if (catalog === undefined) throw new Error('Agent provider catalog is unavailable')
+  return catalog
 }
 
 function approvalContinuationPrompt(

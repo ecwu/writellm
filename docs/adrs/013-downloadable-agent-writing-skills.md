@@ -1,6 +1,6 @@
 # ADR 013: Downloadable Agent Writing Skills
 
-Status: proposed; implementation requires explicit approval
+Status: accepted
 Date: 2026-08-10
 
 ## Context
@@ -31,7 +31,7 @@ content.
 The open ecosystem already has a downloader: Vercel's MIT-licensed `skills` CLI
 (`vercel-labs/skills`, npm `skills`). Its evaluation is recorded under Alternatives.
 
-## Proposed decision
+## Decision
 
 Ship no skill bodies. Ship a small curated catalog of metadata, and let users install skills on
 demand — from the curated list or from a GitHub repository they choose themselves — through a
@@ -40,16 +40,22 @@ user-installed plugins in the executable sense, no skill-authored tools, no mode
 discovery, no network authority for skills, and no direct mutation authority.
 
 - The curated catalog carries only metadata per entry: stable ID, display name, description,
-  upstream repository, skill directory path, a reviewed commit pin, SPDX license ID, byte limits,
-  and declared dependencies. The first entries are `nature-writing`, `ccf-paper-writer`, and
-  `ccf-humanization`. Every entry's pin is reviewed like application code before the catalog ships.
+  upstream repository, skill directory path, a reviewed commit pin, SPDX license ID, declared
+  dependencies, and a reviewed text-file allowlist. Every allowlisted file includes its expected
+  size and git blob SHA. The first entries are `nature-writing`, `ccf-paper-writer`, and
+  `ccf-humanization`. Every entry's pin and allowlist are reviewed like application code before the
+  catalog ships. Files added upstream do not enter an installed curated skill until a later
+  WriteLLM release reviews and publishes a new pin and allowlist.
 - Users may also add a skill by GitHub `owner/repo` plus an optional directory path. Curated
   entries install at the reviewed pin; user-added entries pin the commit resolved at install time
   (trust on first use) and record it. Skills are never fetched by mutable ref or tag.
 - Main owns the downloader. It resolves the pinned commit through the GitHub git-trees and blobs
   APIs, downloads only the selected skill directory, and verifies every file against its
-  content-addressed git blob hash. Content must be UTF-8 text; binary files reject the install.
-  Deterministic caps apply to per-file bytes, per-skill total bytes, and file count. Writes land
+  content-addressed git blob hash. Curated content must additionally match the catalog's expected
+  blob SHA and byte size, so the GitHub tree response is not the only integrity anchor. Content
+  must be UTF-8 text; binary files reject the install. Only selected `.md` and `.txt` files are
+  downloaded; scripts, YAML sidecars, PDFs, images, templates, and other content never enter the
+  installation. Writes land
   atomically in an application-owned directory under the app user-data path — never inside a
   project — via a temporary directory plus rename. Downloads run outside database transactions,
   use fixed GitHub endpoints only (no arbitrary URLs; GitHub-only in the first version), carry
@@ -61,29 +67,59 @@ discovery, no network authority for skills, and no direct mutation authority.
   per-file hashes, SPDX license, fetch time — and the Agent surface displays source and license
   with attribution. Because WriteLLM redistributes nothing, no NOTICE or derivative-work
   obligations arise from the skills themselves.
-- Prompt assembly combines the skill directory's text files, entry `SKILL.md` first, within the
-  per-skill byte budget; a skill that cannot fit is rejected at validation, never silently
-  truncated. An application-owned companion note — WriteLLM's own text, shipped with the app —
+- Prompt assembly loads the complete primary and dependency `SKILL.md` entrypoints plus selected
+  complete reference files. A skill that cannot fit is rejected at validation, never silently
+  truncated. `MAX_SYSTEM_PROMPT_BYTES` remains 65,536 bytes. Catalog tests freeze the measured
+  UTF-8 byte cost of `buildAgentPolicy()`, the companion note, Pi's invocation wrapper, and the
+  fixed XML/JSON envelope; policy or companion changes intentionally fail that measurement test
+  until the budget is reassessed. Custom skills are limited to a fully formatted `SKILL.md` of at
+  most 24 KiB, at most 48 KiB across all installed text, at most 32 `.md`/`.txt` files, and at most
+  8 KiB per reference file. Entrypoints, dependencies, and references are never truncated. An
+  application-owned companion note — WriteLLM's own text, shipped with the app —
   states the fixed twelve-tool set and converts references to unavailable capabilities (shell,
   arbitrary files, `.bib` mutation, external literature search, subagents, other skills) into
   explicit evidence gaps. The final system prompt remains under the existing 65,536-byte bound
   (`MAX_SYSTEM_PROMPT_BYTES` in `src/main/agent/context.ts`); catalog validation must prove at
-  startup that the worst-case assembly — global policy plus any one primary skill plus its
-  dependency closure — fits the bound.
-- Skill activation is explicit and snapshotted per run. The default is no active skill. At most
-  one primary writing-method skill is active per run, plus its declared dependencies;
+  startup that every mandatory assembly — global policy, companion note, one primary skill, and
+  its dependency closure — fits the bound while retaining a small reference-file reserve.
+- Skill activation is snapshotted per run as `auto | explicit | none`; the default is `auto`.
+  `auto` considers enabled, integrity-verified skills that permit model invocation, `explicit`
+  fixes one enabled, integrity-verified primary skill selected for that run, and `none` disables
+  skill use. At most one primary writing-method skill is active per run, plus its declared dependencies;
   `ccf-humanization` may be a declared dependency of `ccf-paper-writer`. Dependencies resolve only
   within the curated catalog — user-added skills have no dependencies — and catalog validation
   rejects unknown or cyclic dependencies at startup. Venue or style methods with conflicting rules
   are never co-active.
-- Persist stable skill IDs and commit pins in existing session/run SQLite records only if product
-  evidence shows that durable replay and historical display require them. Prefer an additive
-  migration over a new Agent table. Independently of that choice, structured lifecycle logs for
-  every run event and model request carry bounded skill IDs and commit pins, never full prompt
-  bodies.
-- No automatic updates. An explicit per-skill check compares the recorded pin against the upstream
-  default branch and re-installs only on user confirmation; runs keep the recorded snapshot until
-  then. Uninstall deletes only files Main itself wrote.
+- Persist every run's bounded skill provenance in `agent_runs.skill_snapshot_json`: requested
+  mode, selected primary and dependencies, commit pins, hashes, loaded resource paths, routing
+  status, and safe errors. `agent_runs.skill_route_model_request_id` links the optional pre-route
+  request. The project migration is additive. `model_requests.delivery` is nullable and permits
+  only `skill_route`; skill routing retains `operation_kind = 'agent'`, so the existing STRICT
+  table and its operation-kind CHECK are neither rebuilt nor widened. Skill bodies stay global and
+  never enter project databases. Structured lifecycle logs carry bounded IDs and pins, never full
+  prompt bodies.
+- No automatic updates. A curated skill's update check compares its installed pin only with the
+  reviewed pin in the current application catalog; it never follows the upstream default branch.
+  A custom skill may inspect the upstream default branch for a new immutable commit, but the UI
+  labels it an unreviewed update and installs it only after explicit confirmation. Existing runs
+  retain their snapshot. Uninstall deletes only files Main itself wrote.
+- Main performs startup integrity revalidation. Missing or hash-mismatched files mark an installed
+  skill unavailable instead of silently dropping it. Settings exposes the safe reason plus
+  Reinstall and Uninstall; no private path is shown. Curated reinstall uses the catalog's reviewed
+  pin, while custom reinstall defaults to the recorded commit.
+- Auto routing reuses the current run's selected provider and model, records retry/token/cost usage
+  against the same `agent_run_id`, and adds no provider preference. `none`, no eligible candidates,
+  a single candidate with no optional references, and an explicit skill with no optional
+  references short-circuit deterministically. Otherwise one cancellable structured model request
+  chooses at most one primary skill and up to four complete references; explicit mode may choose
+  only references for its fixed primary. If no provider is available, auto routing degrades to
+  none without an extra route error. Auto route failure continues without a skill; explicit route
+  failure loads the complete entrypoint and omits optional references.
+- Prompt order is fixed: global safety/tool/writing/citation policy, companion note, Pi-formatted
+  primary/dependency blocks and complete references, trusted writing requirements, then manuscript
+  data. Optional references are removed whole before the existing outline reduction. If mandatory
+  entrypoints still do not fit, auto falls back to none and explicit fails with
+  `skill_prompt_budget_exceeded`.
 - Adopt Pi's exported skill primitives where they fit the low-level `Agent`; all of them are
   re-exported from the package root and none requires `AgentHarness`. The `Skill` type
   (`name`, `description`, `content`, `filePath`, `disableModelInvocation?`) is the in-memory
