@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
+Status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -12,7 +12,7 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 
 Checkpoint 27 is locally complete. On 2026-08-09 the user explicitly authorized starting
 Checkpoint 26.9, including the required commit, push, tag, hosted workflow dispatch, and protected
-dry-run promotion. Checkpoint 26.9 is now in progress; its acceptance gate requires:
+dry-run promotion. Checkpoint 26.9 is now paused before completion; its acceptance gate requires:
 
 - a committed and tagged GitHub revision;
 - successful macOS arm64 and macOS x64 hosted-runner rows from that revision;
@@ -60,11 +60,12 @@ local evidence completes the implementation portion of Checkpoint 27 but does no
 
 ## Current authorized work
 
-Execute Checkpoint 26.9 from one clean tagged revision: verify both macOS hosted rows, rebuild and
-verify only their four artifacts and governance evidence, perform the protected macOS-only dry-run
-promotion without publishing a production release, and record the exact completion evidence.
-Windows/Linux release rows are deferred. Do not start a later product checkpoint without explicit
-user approval.
+No hosted CI, release-candidate dry run, production promotion, or other GitHub Actions execution is
+authorized. On 2026-08-10 the user stopped the remaining `v0.2026.8.10` macOS x64 package job after
+the account exhausted its included Actions minutes, then directed that every workflow be disabled
+for every trigger. The repository preserves the definitions only as `.yml.disabled` files, and the
+two remote workflows are manually disabled. Restoring any workflow requires new explicit user
+approval. Do not start a later product checkpoint without explicit user approval.
 
 The current release-candidate identifier is `0.2026.8.10` (`v0.2026.8.10` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
@@ -125,6 +126,11 @@ passes `--publish=never` to every electron-builder invocation and passed a simul
 gate without a token. On 2026-08-10 the user explicitly authorized exactly one immutable `.10`
 macOS arm64/x64 tag CI and, only if it succeeds, exactly one macOS-only dry-run. Windows/Linux,
 reruns, and production remain unauthorized.
+
+The `.10` tag CI run `31390617065` passed the static gate, both macOS Electron rows, and the macOS
+arm64 package row. The user manually cancelled the macOS x64 package row during artifact
+construction to stop further billed usage. No `.10` dry-run or production promotion was started.
+Checkpoint 26.9 therefore remains incomplete and paused.
 
 ## Deferred
 

@@ -5,7 +5,7 @@
 - Purpose: deliver a portable whole-manuscript export, finish reproducible native packaging on
   every supported target, and establish cross-platform CI and controlled release promotion.
 - Checkpoints: 24–26.
-- Current status: Checkpoint 26.9 hosted candidate validation is in progress.
+- Current status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
 - Implementation state: plan realigned with the verified 2026-07-31 codebase; Checkpoint 24 passed
   its acceptance gate, Checkpoint 25 passed its acceptance gate, and Checkpoint 26.1–26.8 are
   implemented and locally verified under the user's approval to implement Phase 10.
@@ -493,6 +493,16 @@ It did not infer publishing. The unsigned DMG is 249,407,827 bytes with SHA-256
 bytes with SHA-256 `cd663ac82eeebd70036c997ad9913d993635c19262a0aa32bd48b1cb16eeac3a`.
 The evidence truthfully records the pre-tag checkout as dirty; the hosted verifier still requires
 the final committed tag revision to be clean.
+
+Hosted pause evidence for `v0.2026.8.10` (2026-08-10): CI run `31390617065` at
+`4221da838afbbc41b02eb1c29a15914d89a07bf8` passed the static gate, macOS arm64 and macOS x64
+Electron rows, and the macOS arm64 package row. After the account exhausted its included Actions
+minutes, the user manually cancelled the macOS x64 package row while electron-builder was
+constructing its DMG/ZIP artifacts. The candidate uploaded no x64 package evidence, and no `.10`
+dry-run or production promotion was started. The user then directed that CI never run under any
+condition. Both GitHub workflows were manually disabled, and their definitions were retained only
+with `.yml.disabled` suffixes so GitHub cannot recognize them as executable workflows. Checkpoint
+26.9 remains incomplete and may resume only after new explicit approval.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate

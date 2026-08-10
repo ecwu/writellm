@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
+Status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -42,10 +42,10 @@ scenarios; and 22 recovery cases from 20 sources.
 
 - [x] Pass macOS arm64 and macOS x64 Electron tests/build/E2E from one committed and tagged clean
   revision; defer Windows/Linux distribution evidence.
-- [~] Install or launch every produced macOS artifact on its supported host and verify checksums,
+- [!] Install or launch every produced macOS artifact on its supported host and verify checksums,
   provenance, retention metadata, and signing or intentionally unsigned status.
-- [~] Perform one protected macOS-only dry-run promotion without publishing a production release.
-- [~] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
+- [!] Perform one protected macOS-only dry-run promotion without publishing a production release.
+- [!] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
   promotion outcome in the Phase 10 completion evidence.
 
 Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including the
@@ -70,6 +70,13 @@ simulation without a token; completing the hosted gate now requires explicit aut
 one new immutable candidate and one dry-run. On 2026-08-10 the user granted that approval for
 exactly one `v0.2026.8.10` macOS arm64/x64 tag CI and, only after it succeeds, exactly one
 macOS-only dry-run. Windows/Linux, reruns, and production remain out of scope.
+
+Pause record: tag CI run `31390617065` passed static, both macOS Electron rows, and the arm64
+package row. The user manually stopped the x64 package row after included Actions minutes were
+exhausted. No `.10` dry-run or production run started. On 2026-08-10 the user then directed that
+all CI be stopped under every condition. Both remote workflows are manually disabled and their
+repository definitions are preserved only as `.yml.disabled` files. No hosted work may resume
+without new explicit approval.
 
 Acceptance criteria: both macOS rows succeed for the same tagged revision; all migration,
 recovery, export, native runtime, Agent, security, and logging boundaries pass in their packaged

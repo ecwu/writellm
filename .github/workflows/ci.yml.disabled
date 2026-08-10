@@ -1,4 +1,4 @@
-name: CI
+name: CI (disabled)
 
 on:
   pull_request:
