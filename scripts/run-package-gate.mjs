@@ -55,6 +55,7 @@ const plan = {
   sqliteVec: rootPackage.dependencies['sqlite-vec'],
   outputDirectory: `dist/${target.id}`,
   formats: unpackedOnly ? ['unpacked'] : ['unpacked', ...target.formats],
+  publishing: 'disabled; promotion is explicit and external to electron-builder',
   signing: release
     ? signedPlatform
       ? 'required configured platform identity'
@@ -99,6 +100,7 @@ const packageEnvironment = {
 const builderBaseArguments = [
   target.builderPlatform,
   target.builderArch,
+  '--publish=never',
   `--config.directories.output=${outputDirectory}`,
   ...releaseBuilderArguments(target, releaseMetadata),
   ...(release && target.platform === 'darwin' ? ['--config.mac.notarize=true'] : [])

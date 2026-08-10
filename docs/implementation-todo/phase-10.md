@@ -460,6 +460,28 @@ truthfully records the pre-tag checkout as dirty. Exactly one `v0.2026.8.9` foll
 to encode and run the explicit two-row macOS target set; Windows/Linux and any further candidate
 tags remain deferred.
 
+Hosted candidate evidence for immutable `v0.2026.8.9` (2026-08-10): tag CI run `31385773729` at
+`39c9b40b48f9b3367c8d82f118607bc89210a03b` passed the static gate in 54s, macOS arm64 Electron
+row in 5m22s, and macOS x64 Electron row in 6m54s. Linux was skipped and no Windows row was
+generated. Both package rows passed 12 packaged-smoke scenarios and all 15 packaged E2E scenarios,
+then built their DMG/ZIP files. electron-builder 26.15.3 subsequently inferred publishing from the
+tag and failed closed because `GH_TOKEN` was intentionally absent, so package evidence was not
+uploaded. Protected macOS-only dry-run `31387596825` verified the exact tag and two-row target set,
+passed the same application and packaged checks on both architectures, and failed at the same
+implicit-publish boundary. Its promotion job was skipped, its artifact list is empty, and no
+GitHub Release exists for the tag.
+
+Local post-candidate remediation evidence (2026-08-10): every package-gate electron-builder
+invocation now supplies `--publish=never`; promotion remains the separate protected workflow's
+responsibility. `check:fast` passed, and a local run with `CI=true`, `GITHUB_ACTIONS=true`, a tag
+ref, and no `GH_TOKEN` passed the macOS arm64 package gate: 12 packaged-smoke scenarios, all 15
+packaged E2E scenarios with no failures/flakes/skips, and inspected DMG/ZIP output. The DMG is
+249,407,933 bytes with SHA-256
+`253d0d70541b041c76e7d6f6a6808884c17248eb8f3dbca00a5e5120f15e8db2`; the ZIP is 249,764,679
+bytes with SHA-256 `e47701fdf7e6b432f8fb8eaa9495feaba33506660ec4751e1931eef2e97b22be`.
+This proves the observed implicit-publish failure is fixed locally, but it cannot change immutable
+`.9`. No new tag or Actions run is authorized.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

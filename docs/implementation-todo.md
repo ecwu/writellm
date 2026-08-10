@@ -42,9 +42,9 @@ scenarios; and 22 recovery cases from 20 sources.
 
 - [x] Pass macOS arm64 and macOS x64 Electron tests/build/E2E from one committed and tagged clean
   revision; defer Windows/Linux distribution evidence.
-- [~] Install or launch every produced macOS artifact on its supported host and verify checksums,
+- [!] Install or launch every produced macOS artifact on its supported host and verify checksums,
   provenance, retention metadata, and signing or intentionally unsigned status.
-- [~] Perform one protected macOS-only dry-run promotion without publishing a production release.
+- [!] Perform one protected macOS-only dry-run promotion without publishing a production release.
 - [~] Record the exact revision, commands, runner images, test counts, artifact names, hashes, and
   promotion outcome in the Phase 10 completion evidence.
 
@@ -61,7 +61,13 @@ Hosted run `31380991013` satisfied that guard on `main` in 2m26s; all matrix/pac
 skipped. Candidate `v0.2026.8.8` then proved both macOS Electron rows, while its Windows/Linux E2E
 rows failed and the dependent package matrix was skipped. Exactly one follow-up candidate,
 `v0.2026.8.9`, is authorized for the explicit macOS-only matrix and dry-run; no Windows/Linux row
-or additional candidate tag is authorized.
+or additional candidate tag is authorized. That authorization has now been consumed. Tag CI run
+`31385773729` and protected dry-run `31387596825` both completed the macOS application tests and
+packaged E2E paths, then failed closed after electron-builder 26.15.3 implicitly enabled GitHub
+publishing and found no `GH_TOKEN`. No candidate artifact was uploaded and no GitHub Release was
+created. The local remediation explicitly passes `--publish=never` and has passed a tag-CI
+simulation without a token; completing the hosted gate now requires explicit authorization for
+one new immutable candidate and one dry-run.
 
 Acceptance criteria: both macOS rows succeed for the same tagged revision; all migration,
 recovery, export, native runtime, Agent, security, and logging boundaries pass in their packaged

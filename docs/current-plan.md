@@ -112,9 +112,18 @@ are neither moved nor promoted.
 Candidate `.8` CI run `31381711382` passed macOS arm64 in 3m14s and macOS x64 in 6m32s from
 revision `7312f01e0230a0fe8e4fd4c8ec34887a366d4b9a`. Windows and Linux later failed their complete
 E2E steps, so the dependent package matrix was skipped. Those deferred failures do not satisfy or
-block the narrowed macOS promotion scope, and no `.8` dry-run was dispatched. Candidate `.9` is
-reserved for the explicit macOS-only workflow and manifest boundary; no other candidate tag is
-authorized.
+block the narrowed macOS promotion scope, and no `.8` dry-run was dispatched.
+
+Immutable candidate `.9` at `39c9b40b48f9b3367c8d82f118607bc89210a03b` consumed the one
+authorized macOS-only attempt. CI run `31385773729` passed the static gate and both macOS Electron
+test/build/E2E rows; its package rows then completed packaged smoke, all 15 packaged E2E scenarios,
+and DMG/ZIP construction before electron-builder 26.15.3 implicitly enabled GitHub publishing and
+failed because no `GH_TOKEN` was supplied. Protected dry-run `31387596825` reproduced the same
+fail-closed result on both macOS rows. Linux was skipped, no Windows row was generated, promotion
+was skipped, the run uploaded no candidate artifact, and no GitHub Release exists. The local fix
+passes `--publish=never` to every electron-builder invocation and passed a simulated tag-CI package
+gate without a token. No additional candidate tag or hosted rerun is authorized; completing 26.9
+requires a new explicit budget approval.
 
 ## Deferred
 
