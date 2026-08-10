@@ -830,6 +830,21 @@ export class AgentSessionService {
     if (!active.authorizedModelRequestIds.has(event.modelRequestId)) {
       throw new Error('Agent event refers to an unauthorized model request')
     }
+    if (event.type === 'model_call_retrying') {
+      this.options.log.warn(
+        {
+          event: 'agent.provider_retry.scheduled',
+          agentRunId: active.agentRunId,
+          modelRequestId: event.modelRequestId,
+          completedAttempts: event.completedAttempts,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reasonCode: event.reasonCode
+        },
+        'Agent provider retry scheduled'
+      )
+      return
+    }
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -856,13 +871,18 @@ export class AgentSessionService {
           retryable: true
         })
       } else if (event.outcome === 'aborted') {
-        await repository.abort(event.modelRequestId)
+        await repository.abort(event.modelRequestId, 'aborted', event.metadata)
       } else {
-        await repository.fail(event.modelRequestId, {
-          code: 'provider_request_failed',
-          retryable: event.httpStatus === 429 || (event.httpStatus ?? 0) >= 500,
-          ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus })
-        })
+        await repository.fail(
+          event.modelRequestId,
+          {
+            code: event.failureCode ?? 'provider_request_failed',
+            retryable:
+              event.retryable ?? (event.httpStatus === 429 || (event.httpStatus ?? 0) >= 500),
+            ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus })
+          },
+          event.metadata
+        )
       }
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
@@ -1195,12 +1215,18 @@ export class AgentSessionService {
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
           content: active.partialText,
-          stopReason: termination.code === 'provider_timeout' ? 'error' : 'aborted',
+          stopReason:
+            termination.code === 'provider_timeout' ||
+            termination.code === 'provider_retries_exhausted'
+              ? 'error'
+              : 'aborted',
           provider: active.config.providerId,
           model: active.config.model,
           metadata: emptyMetadata(active.config.model),
           timestamp: this.#now().getTime(),
-          interrupted: termination.code !== 'provider_timeout'
+          interrupted:
+            termination.code !== 'provider_timeout' &&
+            termination.code !== 'provider_retries_exhausted'
         })
         await this.#appendAndPublishEvent({
           sessionId: active.agentSessionId,
@@ -1859,7 +1885,10 @@ function emptyMetadata(model: string): AgentAssistantMessagePayload['metadata'] 
 }
 
 type AgentRunTermination =
-  | { status: 'failed'; code: 'provider_timeout' | 'run_failed' }
+  | {
+      status: 'failed'
+      code: 'provider_timeout' | 'provider_retries_exhausted' | 'run_failed'
+    }
   | { status: 'interrupted'; code: 'user_stopped' | 'project_closed' | 'run_interrupted' }
 
 class AgentRunCancellationError extends Error {
@@ -1878,6 +1907,9 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
   }
   if (error instanceof Error && error.name === 'ProviderTimeoutError') {
     return { status: 'failed', code: 'provider_timeout' }
+  }
+  if (error instanceof Error && error.name === 'ProviderRetriesExhaustedError') {
+    return { status: 'failed', code: 'provider_retries_exhausted' }
   }
   if (signal.aborted) return { status: 'interrupted', code: 'run_interrupted' }
   if (

@@ -252,6 +252,14 @@ test(
           requestBodies.push(body)
           agentCall += 1
           if (agentCall === 1) {
+            response.writeHead(503, {
+              'content-type': 'application/json',
+              'retry-after': '0'
+            })
+            response.end(JSON.stringify({ error: { message: 'Temporary Agent outage' } }))
+            return
+          }
+          if (agentCall === 2) {
             sendToolCall(response, {
               responseId: 'agent-search-response',
               toolCallId: 'agent-search-tool',
@@ -267,7 +275,7 @@ test(
             })
             return
           }
-          if (agentCall === 2) {
+          if (agentCall === 3) {
             const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
             if (citationId === undefined) {
               response.writeHead(500, { 'content-type': 'application/json' })
@@ -282,7 +290,7 @@ test(
             })
             return
           }
-          if (agentCall === 3) {
+          if (agentCall === 4) {
             const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
             if (citationId === undefined || sectionId === '') {
               response.writeHead(500, { 'content-type': 'application/json' })
@@ -314,7 +322,7 @@ test(
             })
             return
           }
-          if (agentCall === 4) {
+          if (agentCall === 5) {
             sendCompletion(response, 'I found **evidence** and prepared a reviewable proposal.')
             return
           }
@@ -442,7 +450,7 @@ test(
       await expect(panel.getByText('Run failed', { exact: true })).toHaveCount(0)
       await expect(panel.getByLabel('Agent message')).toBeDisabled()
       await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
-      await expect.poll(() => requestBodies.length).toBe(3)
+      await expect.poll(() => requestBodies.length).toBe(4)
       const waitingTruth = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
           ?.projectSessionId
@@ -494,6 +502,11 @@ test(
         .toBe(true)
       await panel.getByRole('button', { name: 'Approve & Continue', exact: true }).click()
       await expect(panel.getByText('applied', { exact: true })).toBeVisible()
+      await expect(panel.getByText(/^Review approved ·/)).toBeVisible()
+      await expect(panel.getByText('Waiting for review', { exact: true })).toHaveCount(0)
+      const approvalContinuation =
+        'The user approved the proposed section update, and it is now applied. Treat the resulting manuscript state as authoritative. Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
+      await expect(panel.getByText(approvalContinuation, { exact: true })).toBeVisible()
       await expect(
         panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
       ).toBeVisible()
@@ -515,6 +528,18 @@ test(
         })
         const proposal = proposals[0]
         if (proposal === undefined) throw new Error('Agent proposal missing')
+        const eventPage = await window.desktop.agent.listEvents({
+          projectSessionId,
+          agentSessionId: session.agentSessionId
+        })
+        const retryCounts = eventPage.events.flatMap((event) => {
+          if (event.type !== 'assistant_message') return []
+          return [event.payload.metadata.retryCount]
+        })
+        const userMessages = eventPage.events.flatMap((event) => {
+          if (event.type !== 'user_message') return []
+          return [event.payload.content]
+        })
         const loaded = await window.desktop.editor.loadSection({
           projectSessionId,
           sectionId: expectedSectionId
@@ -522,11 +547,19 @@ test(
         return {
           agentSessionId: session.agentSessionId,
           proposal,
-          revision: loaded.revision
+          revision: loaded.revision,
+          retryCounts,
+          userMessages,
+          workflowState: session.workflowState
         }
       }, sectionId)
       expect(appliedTruth.proposal.status).toBe('applied')
+      expect(appliedTruth.workflowState).toBe('idle')
+      expect(appliedTruth.userMessages.at(-1)).toBe(approvalContinuation)
+      expect(appliedTruth.userMessages.at(-1)).not.toContain(appliedTruth.proposal.proposalId)
+      expect(appliedTruth.userMessages.at(-1)).not.toContain('{')
       expect(appliedTruth.proposal.payload.preview.citedSources).toHaveLength(1)
+      expect(appliedTruth.retryCounts).toContain(1)
       expect(appliedTruth.revision).toMatchObject({
         sectionRevisionId: appliedTruth.proposal.appliedRevisionId,
         source: 'agent',
@@ -602,7 +635,7 @@ test(
         agentProposalId: null
       })
 
-      expect(requestBodies).toHaveLength(4)
+      expect(requestBodies).toHaveLength(5)
       expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
     } finally {
       await launched.app.close()

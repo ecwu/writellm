@@ -1029,6 +1029,13 @@ Handlers are idempotent and deduplicated by stable content/operation keys. Job p
 
 The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns are request-scoped work; they use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
 
+Agent provider generation has no WriteLLM wall-clock deadline. Each authorized model request may
+make at most five logical attempts for transient failures before any assistant content is
+published. Permanent failures, cancellation, and failures after streamed text, thinking, or tool
+call content are not automatically retried. User stop and project close remain authoritative
+request-scoped cancellation boundaries. Tool deadlines remain independent internal tool-contract
+safeguards. See ADR 012.
+
 Current resource queues (rerank is request-scoped and has no durable queue; the set remains subject to provider limits and benchmarks):
 
 ```text

@@ -174,18 +174,27 @@ export class ModelRequestRepository {
     return { modelRequestId, status: 'succeeded' }
   }
 
-  async fail(modelRequestId: string, error: SafeModelRequestError): Promise<ModelRequestRecord> {
-    return this.finish(modelRequestId, 'failed', error)
+  async fail(
+    modelRequestId: string,
+    error: SafeModelRequestError,
+    metadata?: ModelExecutionMetadata
+  ): Promise<ModelRequestRecord> {
+    return this.finish(modelRequestId, 'failed', error, metadata)
   }
 
-  async abort(modelRequestId: string, code = 'aborted'): Promise<ModelRequestRecord> {
-    return this.finish(modelRequestId, 'aborted', { code, retryable: false })
+  async abort(
+    modelRequestId: string,
+    code = 'aborted',
+    metadata?: ModelExecutionMetadata
+  ): Promise<ModelRequestRecord> {
+    return this.finish(modelRequestId, 'aborted', { code, retryable: false }, metadata)
   }
 
   private async finish(
     modelRequestId: string,
     status: 'failed' | 'aborted',
-    error: SafeModelRequestError
+    error: SafeModelRequestError,
+    metadata?: ModelExecutionMetadata
   ): Promise<ModelRequestRecord> {
     const completedAt = this.now()
     const safeError = parseSafeError(error)
@@ -195,6 +204,18 @@ export class ModelRequestRepository {
       .set({
         status,
         error_json: JSON.stringify(safeError),
+        ...(metadata === undefined
+          ? {}
+          : {
+              retry_count: metadata.retryCount,
+              input_tokens: metadata.usage.inputTokens,
+              output_tokens: metadata.usage.outputTokens,
+              cache_read_tokens: metadata.usage.cacheReadTokens,
+              cache_write_tokens: metadata.usage.cacheWriteTokens,
+              estimated_cost_usd_micros: metadata.usage.estimatedCostUsdMicros,
+              usage_json: JSON.stringify(metadata.usage),
+              response_ids_json: JSON.stringify(metadata.responseIds)
+            }),
         completed_at: completedAt.toISOString(),
         duration_ms: durationMs,
         updated_at: completedAt.toISOString()
@@ -204,7 +225,12 @@ export class ModelRequestRepository {
       .executeTakeFirst()
     assertTransition(update.numUpdatedRows, modelRequestId)
     this.log.warn(
-      { event: `model_request.${status}`, modelRequestId, errorCode: safeError.code },
+      {
+        event: `model_request.${status}`,
+        modelRequestId,
+        errorCode: safeError.code,
+        ...(metadata === undefined ? {} : { retryCount: metadata.retryCount })
+      },
       `Model request ${status}`
     )
     return { modelRequestId, status }

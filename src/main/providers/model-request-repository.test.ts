@@ -108,19 +108,35 @@ describe('ModelRequestRepository', () => {
       request: { prompt: 'secret' },
       inputItems: 1
     })
-    await repository.fail(record.modelRequestId, {
-      code: 'rate_limited',
-      retryable: true,
-      httpStatus: 429
-    })
+    await repository.fail(
+      record.modelRequestId,
+      {
+        code: 'rate_limited',
+        retryable: true,
+        httpStatus: 429
+      },
+      {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          estimatedCostUsdMicros: null
+        },
+        responseIds: [],
+        retryCount: 4,
+        providerModelId: 'writer-model'
+      }
+    )
     await expect(repository.abort(record.modelRequestId)).rejects.toThrow('transitionable')
     const row = await project.kysely
       .selectFrom('model_requests')
-      .select(['status', 'error_json'])
+      .select(['status', 'error_json', 'retry_count'])
       .executeTakeFirstOrThrow()
     expect(row).toEqual({
       status: 'failed',
-      error_json: JSON.stringify({ code: 'rate_limited', retryable: true, httpStatus: 429 })
+      error_json: JSON.stringify({ code: 'rate_limited', retryable: true, httpStatus: 429 }),
+      retry_count: 4
     })
     project.close()
   })

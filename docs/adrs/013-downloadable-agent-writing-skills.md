@@ -1,0 +1,153 @@
+# ADR 013: Downloadable Agent Writing Skills
+
+Status: proposed; implementation requires explicit approval
+Date: 2026-08-10
+
+## Context
+
+WriteLLM's fixed Agent tool protocol already provides bounded manuscript reads, project-knowledge
+retrieval, citation expansion, deterministic checks, typed proposals, and image generation. Its
+prompt, however, is one global policy. The product cannot select a task-specific academic writing
+method without either loading every method into every request or adding a bounded skill concept.
+
+The architecture and the 2026-07-16 boundary audit deliberately excluded a generic plugin/skill
+registry from the initial product. Adding one without a new decision would conflict with that
+freeze. The current `@earendil-works/pi-agent-core` 0.80.10 package does expose application-provided
+`Skill` resources and explicit `AgentHarness.skill()` invocation, but WriteLLM intentionally uses
+the lower-level `Agent` so Main can own its existing session persistence, provider authorization,
+tool bridge, proposal pause/continuation, and cancellation protocol. Migrating wholesale to
+`AgentHarness` would duplicate or replace these accepted boundaries.
+
+The desired writing methods live upstream: the Apache-2.0 `nature-skills` repository's
+`nature-writing` skill (`Yuan1z0825/nature-skills`) and the MIT-licensed `CCFA-Skills` repository's
+`ccf-paper-writer` and `ccf-humanization` skills (`mikubaka88/CCFA-Skills`). An earlier revision of
+this ADR proposed vendoring adapted copies into application resources. That makes WriteLLM a
+redistributor of adapted third-party text: Apache-2.0 §4 change notices and LICENSE/NOTICE
+propagation would apply, and every adapted body would enlarge the signed-bundle audit surface.
+Downloading skills on demand from upstream avoids redistribution entirely — the user fetches the
+bytes directly under the upstream license — and keeps the signed bundle free of third-party skill
+content.
+
+The open ecosystem already has a downloader: Vercel's MIT-licensed `skills` CLI
+(`vercel-labs/skills`, npm `skills`). Its evaluation is recorded under Alternatives.
+
+## Proposed decision
+
+Ship no skill bodies. Ship a small curated catalog of metadata, and let users install skills on
+demand — from the curated list or from a GitHub repository they choose themselves — through a
+Main-owned, content-verifying downloader. Installed skills remain read-only text guidance: no
+user-installed plugins in the executable sense, no skill-authored tools, no model-driven filesystem
+discovery, no network authority for skills, and no direct mutation authority.
+
+- The curated catalog carries only metadata per entry: stable ID, display name, description,
+  upstream repository, skill directory path, a reviewed commit pin, SPDX license ID, byte limits,
+  and declared dependencies. The first entries are `nature-writing`, `ccf-paper-writer`, and
+  `ccf-humanization`. Every entry's pin is reviewed like application code before the catalog ships.
+- Users may also add a skill by GitHub `owner/repo` plus an optional directory path. Curated
+  entries install at the reviewed pin; user-added entries pin the commit resolved at install time
+  (trust on first use) and record it. Skills are never fetched by mutable ref or tag.
+- Main owns the downloader. It resolves the pinned commit through the GitHub git-trees and blobs
+  APIs, downloads only the selected skill directory, and verifies every file against its
+  content-addressed git blob hash. Content must be UTF-8 text; binary files reject the install.
+  Deterministic caps apply to per-file bytes, per-skill total bytes, and file count. Writes land
+  atomically in an application-owned directory under the app user-data path — never inside a
+  project — via a temporary directory plus rename. Downloads run outside database transactions,
+  use fixed GitHub endpoints only (no arbitrary URLs; GitHub-only in the first version), carry
+  correlation IDs, and emit structured lifecycle logs. Anonymous API rate limits surface as safe,
+  actionable errors. The runtime never shells out to `npx`, the `skills` CLI, `git`, or `gh`.
+- Installed skill content is user-installed third-party text, not application code and not project
+  content. It stays below the global safety, citation, tool-authority, and trusted/untrusted-data
+  policies, which it cannot override. The installer records provenance — repository, commit,
+  per-file hashes, SPDX license, fetch time — and the Agent surface displays source and license
+  with attribution. Because WriteLLM redistributes nothing, no NOTICE or derivative-work
+  obligations arise from the skills themselves.
+- Prompt assembly combines the skill directory's text files, entry `SKILL.md` first, within the
+  per-skill byte budget; a skill that cannot fit is rejected at validation, never silently
+  truncated. An application-owned companion note — WriteLLM's own text, shipped with the app —
+  states the fixed twelve-tool set and converts references to unavailable capabilities (shell,
+  arbitrary files, `.bib` mutation, external literature search, subagents, other skills) into
+  explicit evidence gaps. The final system prompt remains under the existing 65,536-byte bound
+  (`MAX_SYSTEM_PROMPT_BYTES` in `src/main/agent/context.ts`); catalog validation must prove at
+  startup that the worst-case assembly — global policy plus any one primary skill plus its
+  dependency closure — fits the bound.
+- Skill activation is explicit and snapshotted per run. The default is no active skill. At most
+  one primary writing-method skill is active per run, plus its declared dependencies;
+  `ccf-humanization` may be a declared dependency of `ccf-paper-writer`. Dependencies resolve only
+  within the curated catalog — user-added skills have no dependencies — and catalog validation
+  rejects unknown or cyclic dependencies at startup. Venue or style methods with conflicting rules
+  are never co-active.
+- Persist stable skill IDs and commit pins in existing session/run SQLite records only if product
+  evidence shows that durable replay and historical display require them. Prefer an additive
+  migration over a new Agent table. Independently of that choice, structured lifecycle logs for
+  every run event and model request carry bounded skill IDs and commit pins, never full prompt
+  bodies.
+- No automatic updates. An explicit per-skill check compares the recorded pin against the upstream
+  default branch and re-installs only on user confirmation; runs keep the recorded snapshot until
+  then. Uninstall deletes only files Main itself wrote.
+- Adopt Pi's exported skill primitives where they fit the low-level `Agent`; all of them are
+  re-exported from the package root and none requires `AgentHarness`. The `Skill` type
+  (`name`, `description`, `content`, `filePath`, `disableModelInvocation?`) is the in-memory
+  shape of a loaded skill, extended with WriteLLM provenance (commit pin, per-file hashes,
+  license) through the same `TSkill extends Skill` generic pattern Pi itself supports.
+  `formatSkillInvocation` supplies the model-visible `<skill name="…" location="…">` block
+  format for the prompt section, so WriteLLM does not invent its own wrapping. Installer
+  validation adopts Pi's `SKILL.md` metadata rules — a required `description` of at most
+  1,024 characters, a `name` of at most 64 lowercase-hyphen characters matching the skill
+  directory, and the optional `disable-model-invocation` flag — so any agentskills.io-compatible
+  skill installs unchanged. A skill's model-visible `location` is a virtual `writellm://skills/…`
+  URI, never an absolute user-data path; prompts sent to providers must not carry private
+  filesystem paths.
+- Three Pi pieces stay unused, each for a concrete reason. `loadSkills` recursively discovers
+  `SKILL.md` files and additionally treats every root-level `.md` as its own skill; that
+  conflicts with manifest-driven, hash-verified storage and with reference files living next to
+  `SKILL.md`, so loading stays manifest-driven. `formatSkillsForSystemPrompt` implements
+  model-driven progressive disclosure that presumes a filesystem read tool; WriteLLM grants
+  skills no filesystem authority, so selection uses the small pre-router instead. The router's
+  candidate listing may reuse the same name/description listing shape.
+  `AgentHarness.skill()` delivers the skill as a user-turn message and requires the harness;
+  WriteLLM keeps the skill in the ordered system prompt. A later migration from the low-level
+  `Agent` to `AgentHarness` requires separate evidence that its session, hook, retry,
+  compaction, and tool lifecycle semantics preserve WriteLLM's current protocol.
+
+## Alternatives considered
+
+1. Vendor adapted skill bodies into application resources (this ADR's previous revision). It makes
+   WriteLLM a redistributor of adapted third-party text — Apache-2.0 §4 change notices, LICENSE/
+   NOTICE propagation — and grows the signed-bundle audit surface for content that users can fetch
+   from upstream themselves.
+2. Bundle or shell out to Vercel's `skills` CLI. The CLI is interactive-first with no library API,
+   requires Node >= 22.20 plus system `git`/`gh` at runtime, orchestrates symlinks across 70+
+   agent targets WriteLLM does not have, emits telemetry that must be suppressed, resolves through
+   a registry fast path with known correctness bugs (for example `vercel-labs/skills#1469`, which
+   installed a 1,831-file monorepo instead of one skill), and couples product behavior to another
+   tool's flags and release cadence. WriteLLM needs only its GitHub-download happy path — pinned
+   fetch plus hash verification plus size caps — which is small enough to own in Main.
+3. Run `npx skills` at install time. A desktop Electron product cannot assume Node/npm on the
+   user's machine.
+4. Let the model discover `SKILL.md` files in project or user directories. This grants a new
+   filesystem/prompt-injection surface and breaks project portability and the fixed authority
+   model.
+5. Load all skill bodies in every run, or keep one global prompt forever. The first wastes the
+   bounded system context and creates conflicting venue/style rules; the second cannot express
+   explicit, inspectable, task-specific writing methods.
+6. Migrate immediately to Pi `AgentHarness`. This gains native resource APIs but risks replacing
+   stable WriteLLM persistence, provider-call authorization, retry, proposal review, and event
+   semantics without product evidence.
+
+## Migration and roadmap impact
+
+An approved implementation needs a focused checkpoint covering: curated-catalog contracts and
+startup validation; the Main downloader (GitHub trees/blobs, git-hash verification, deterministic
+caps, atomic user-data storage, provenance manifest); IPC contracts exposing bounded metadata,
+install/update/uninstall commands, and add-by-repository to Renderer; a compact shadcn skill picker
+in the Agent surface showing source, license, install state, and version; Main-owned prompt
+composition with the companion note, reusing Pi's `Skill` type and `formatSkillInvocation` block
+format; per-run snapshot semantics; event/model-request observability;
+compatibility for existing sessions; focused Main/Worker/Renderer tests with mocked network; and a
+real-Electron grounded-writing scenario. It does not authorize a skill marketplace, executable
+plugins or skill-authored tools, new Agent tools, arbitrary URL fetching, automatic updates, hosted
+CI, packaging, release, push, or promotion.
+
+Checkpoint 27.3 is already locally complete with the global-policy-only scope this ADR permits; it
+added no skill catalog, downloader, selector, persistence migration, or Pi harness migration.
+Implementing this ADR requires explicit acceptance and a new dedicated checkpoint scoped as above.

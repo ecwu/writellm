@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
+Status: Checkpoint 27.3 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +15,66 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 27.3: Agent academic writing and citation policy
+
+- [x] Replace the minimal global writing prompt with bounded claim-evidence, paragraph-cohesion,
+  terminology, humanization, and targeted-revision rules adapted from the referenced Nature and
+  CCFA writing methods.
+- [x] Require citation-slot planning, expanded evidence, proposal citation provenance, and readable
+  manuscript labels; prohibit raw citation IDs and unmapped `[xx]`/bare numeric markers.
+- [x] Pass focused Main/Worker coverage, `check:fast`, the applicable Electron gate, and
+  `git diff --check`.
+- [x] Record the bounded downloadable-skill design in proposed ADR 013 without implementing it
+  before explicit approval.
+
+Authorization: on 2026-08-10 the user explicitly requested improving the writing/citation prompt
+with the referenced Nature/CCFA methods and asked to consider bundled Pi Agent skills. The prompt
+work is authorized. ADR 013 records the architecture change required for on-demand, user-installed
+skills; its implementation is not yet approved. No new Agent tools, generic plugin/skill loading,
+hosted CI, package, release, push, or promotion work is authorized.
+
+Local evidence: 18 focused Main policy/context/proposal tests; `check:fast`; `check:electron` with
+119 passing Electron-hosted test files, 615 passing tests, and one opt-in benchmark skipped; a
+successful production build; and `git diff --check`.
+
+### Checkpoint 27.2: Agent approval experience repair
+
+- [x] Keep the complete approval proposal and all actions visible inside the right Agent panel.
+- [x] Reconcile the session header and historical review marker with the latest proposal decision.
+- [x] Replace the raw approval-result JSON user message with concise, human-facing continuation copy
+  while retaining Main-process approval authority.
+- [x] Pass focused Main/Renderer coverage, `check:fast`, the applicable Electron gate, the Impeccable
+  detector, and `git diff --check`.
+
+Authorization: on 2026-08-10 the user explicitly requested these three approval-experience repairs.
+No provider, protocol, release, hosted CI, package, push, or promotion work is authorized.
+
+Local evidence: 15 focused Main/Renderer tests; `check:fast`; `check:electron` with 117 passing
+Electron-hosted test files, 602 passing tests, and one opt-in benchmark skipped; a successful
+production build; the focused real-Electron `agent.grounded-proposal-workflow` E2E scenario; a
+clean Impeccable detector result; and `git diff --check`.
+
+### Checkpoint 27.1: Agent provider request lifetime and retry policy
+
+- [x] Remove the Agent provider wall-clock deadline while preserving user-stop, project-close, and
+  worker-lifecycle cancellation.
+- [x] Add one provider-neutral policy with at most five logical attempts for transient failures
+  before assistant output is published, including abortable backoff and bounded retry metadata.
+- [x] Persist exhausted and permanent provider failures accurately while retaining historical
+  `provider_timeout` replay compatibility.
+- [x] Stop the Agent settings surface from overwriting the legacy ignored timeout field; retain
+  credential-bound stored configuration without a migration.
+- [x] Pass focused runtime/Main/Renderer coverage plus local static, Electron, E2E, and diff gates.
+
+Authorization: on 2026-08-10 the user explicitly approved executing this checkpoint. Tool
+deadlines and non-Agent provider timeouts remain out of scope. No hosted CI, package, release, push,
+or promotion work is authorized.
+
+Local evidence: `check:fast`; 65 focused tests; 117 Electron-hosted Vitest files with 600 passing
+tests and one opt-in benchmark skipped; a successful production build; 20/20 full Electron E2E
+scenarios with no flaky or skipped results; and `git diff --check`. The Agent E2E scenario now
+forces a transient HTTP 503, recovers automatically, and verifies durable `retryCount: 1` evidence.
 
 ### Checkpoint 27: Electron E2E evolution
 

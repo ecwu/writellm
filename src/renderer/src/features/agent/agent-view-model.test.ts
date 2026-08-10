@@ -3,6 +3,8 @@ import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contra
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import {
   aggregateAgentUsage,
+  agentReviewState,
+  agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
   formatAgentDuration,
@@ -378,6 +380,41 @@ describe('Agent renderer view model', () => {
       type: 'run_interrupted',
       terminal: { status: 'failed', outcome: 'finished', code: 'provider_timeout' }
     })
+
+    const retriesExhausted = projectAgentTimeline([
+      record(1, 'run_interrupted', { status: 'failed', code: 'provider_retries_exhausted' })
+    ])
+    expect(retriesExhausted[0]).toMatchObject({
+      type: 'run_interrupted',
+      terminal: {
+        status: 'failed',
+        outcome: 'finished',
+        code: 'provider_retries_exhausted'
+      }
+    })
+  })
+
+  it('anchors the pending proposal and resolves its historical review state after a decision', () => {
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc435'
+    const pending = proposalRecord(proposalId, null, 'pending')
+    const events = [
+      toolCallRecord(1, 'proposal-chain', 'submit_section_change'),
+      toolResultRecord(2, 'proposal-chain', 'submit_section_change'),
+      record(3, 'run_completed', {
+        status: 'completed',
+        outcome: 'awaiting_review',
+        proposalId
+      })
+    ]
+    const timeline = projectAgentTimeline(events, [pending])
+
+    expect(timeline[agentTimelineScrollAnchorIndex(timeline)]).toMatchObject({
+      type: 'proposal',
+      proposal: { proposalId, status: 'pending' }
+    })
+    expect(agentReviewState(base.agentRunId, [pending])).toBe('waiting')
+    expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'applied' }])).toBe('approved')
+    expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'rejected' }])).toBe('rejected')
   })
 })
 

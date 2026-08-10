@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
+Status: Checkpoint 27.3 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-10
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -9,6 +9,43 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 27.3 is locally complete. It strengthens the global Agent writing policy with bounded
+claim-evidence reasoning, terminology and paragraph discipline, direct non-defensive academic
+prose, targeted revision, citation-slot planning, mandatory expanded evidence, proposal
+provenance, and readable citation labels. Raw internal citation IDs, `[xx]`-style placeholders, and
+bare numeric markers without a verified manuscript bibliography mapping are prohibited. The work
+adapts general methods from the referenced Nature and CCFA skills without importing venue-specific
+citation quotas or granting new authority. Main also rejects model-authored raw citation IDs and
+opaque citation placeholders at the typed section-proposal boundary, and requires readable source
+fallback labels to carry expanded proposal citation provenance. Local evidence is 18 focused
+tests; `check:fast`; `check:electron` with 119 passing Electron-hosted test files, 615 passing
+tests, and one opt-in benchmark skipped; a successful production build; and `git diff --check`.
+
+Skill selection is not part of the accepted architecture yet. Proposed ADR 013 documents a curated
+catalog plus user-chosen GitHub skills, installed on demand by a Main-owned, hash-verifying
+downloader — no vendored skill bodies, user plugins, new Agent tools, automatic updates, or Pi
+harness migration. Its implementation requires explicit user approval.
+
+Checkpoint 27.2 is locally complete. It repairs the Agent approval experience without changing the
+proposal protocol or authority boundary: the pending proposal is now the timeline scroll anchor,
+right-rail approval actions remain single-column until a wider container is available, session and
+historical review states reconcile after a decision, and approval continuation uses human-facing
+copy without raw IDs or JSON. Local evidence is 15 focused Main/Renderer tests; `check:fast`;
+`check:electron` with 117 passing Electron-hosted test files, 602 passing tests, and one opt-in
+benchmark skipped; a successful production build; the focused real-Electron
+`agent.grounded-proposal-workflow` E2E scenario; a clean Impeccable detector result; and
+`git diff --check`. Hosted CI, packaging, release, push, and promotion remain out of scope.
+
+Checkpoint 27.1 is locally complete. It removes the Agent provider's 60-second
+wall-clock deadline, retains request-scoped user/project cancellation, and adds at most five
+provider-neutral logical attempts for transient failures before assistant content is published.
+It does not change tool deadlines or embedding, reranking, MinerU, image, scheduler, close, or test
+timeouts. ADR 012 defines the accepted behavior and compatibility boundary. Local evidence is
+`check:fast`; 65 focused tests; 117 Electron-hosted Vitest files with 600 passing tests and one
+opt-in benchmark skipped; a successful production build; and 20/20 full Electron E2E scenarios
+with no flaky or skipped results, including transient Agent failure recovery and durable retry
+metadata. Work remains local only; hosted CI, packaging, release, push, and promotion were not run.
 
 Checkpoint 27 is locally complete. On 2026-08-09 the user explicitly authorized starting
 Checkpoint 26.9, including the required commit, push, tag, hosted workflow dispatch, and protected

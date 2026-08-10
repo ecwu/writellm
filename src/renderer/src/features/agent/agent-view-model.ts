@@ -46,6 +46,14 @@ export type AgentRunTerminal = {
   durationMs: number
 }
 
+export type AgentReviewState =
+  | 'waiting'
+  | 'approved'
+  | 'rejected'
+  | 'failed'
+  | 'undone'
+  | 'resolved'
+
 export type AgentTimelineItem =
   | { type: 'user'; id: string; payload: AgentUserMessagePayload }
   | { type: 'assistant'; id: string; payload: AgentAssistantMessagePayload }
@@ -290,6 +298,45 @@ export function projectAgentTimeline(
   }
   flushTools()
   return items
+}
+
+export function agentReviewState(
+  runId: string | null,
+  proposals: MutationProposalRecord[]
+): AgentReviewState {
+  const statuses = proposals
+    .filter((proposal) => proposal.agentRunId === runId)
+    .map((proposal) => proposal.status)
+  if (statuses.some((status) => status === 'pending' || status === 'generating')) return 'waiting'
+
+  const resolved = new Set<AgentReviewState>()
+  for (const status of statuses) {
+    if (status === 'applied' || status === 'approved' || status === 'satisfied') {
+      resolved.add('approved')
+    } else if (status === 'rejected') {
+      resolved.add('rejected')
+    } else if (status === 'failed' || status === 'conflicted') {
+      resolved.add('failed')
+    } else if (status === 'undone') {
+      resolved.add('undone')
+    }
+  }
+  if (resolved.size === 0) return 'waiting'
+  if (resolved.size > 1) return 'resolved'
+  return [...resolved][0] ?? 'resolved'
+}
+
+export function agentTimelineScrollAnchorIndex(timeline: AgentTimelineItem[]): number {
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index]
+    if (
+      item?.type === 'proposal' &&
+      (item.proposal?.status === 'pending' || item.proposal?.status === 'generating')
+    ) {
+      return index
+    }
+  }
+  return timeline.length - 1
 }
 
 export function isSectionProposalOutdated(

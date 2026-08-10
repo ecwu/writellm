@@ -9,6 +9,17 @@ import {
 } from './providers'
 
 describe('provider contracts', () => {
+  it('accepts custom Agent Providers without the legacy generation timeout', () => {
+    const custom = {
+      name: 'No deadline proxy',
+      baseUrl: 'https://api.example.test',
+      api: 'openai-completions' as const,
+      authMode: 'api_key' as const
+    }
+    expect(agentCustomPresetInputSchema.safeParse(custom).success).toBe(true)
+    expect(agentCustomPresetInputSchema.parse(custom)).not.toHaveProperty('timeoutMs')
+  })
+
   it('accepts only packaged models.dev logo overrides for custom Agent Providers', () => {
     const custom = {
       name: 'DeepSeek proxy',

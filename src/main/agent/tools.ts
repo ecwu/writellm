@@ -29,6 +29,8 @@ import type { AgentContextBuilder, WritingSnapshot } from './context'
 import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
 import { AgentToolDomainError } from './read-tools'
+import { extractSectionAgentText } from '../manuscript/content'
+import { findOpaqueCitationMarker, usesReadableSourceFallback } from './writing-policy'
 
 interface AgentToolResultMap {
   get_writing_context: WritingContextResult
@@ -429,6 +431,21 @@ function normalizeSectionArguments(
   if (content === undefined) throw new AgentToolDomainError('conflict', 'Section snapshot expired')
   const blocks = indexCanonicalBlocks(content)
   const createdBlockRefs = new Map<string, string>()
+  const assertCitationText = (text: string): void => {
+    const opaqueMarker = findOpaqueCitationMarker(text)
+    if (opaqueMarker !== null) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        `Section change contains an opaque citation marker (${opaqueMarker}); use a verified bibliography mapping or a readable source label`
+      )
+    }
+    if (usesReadableSourceFallback(text) && args.citationIds.length === 0) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Readable source labels require corresponding expanded citationIds'
+      )
+    }
+  }
   const verify = (target: { blockId: string; expectedBlockHash: string }): unknown => {
     const block = blocks.get(target.blockId)
     if (block === undefined)
@@ -444,6 +461,7 @@ function normalizeSectionArguments(
   }
   const operations = args.operations.map((operation) => {
     if (operation.type === 'replaceBlockText') {
+      assertCitationText(operation.text)
       const block = verify(operation.target) as { type?: unknown; content?: unknown }
       if (block.type === 'table' || !isPlainInlineContent(block.content)) {
         throw new AgentToolDomainError(
@@ -464,6 +482,7 @@ function normalizeSectionArguments(
         anchorBlockId: operation.anchor?.blockId ?? null,
         placement: operation.placement,
         blocks: operation.blocks.map((block) => {
+          assertCitationText(block.text)
           const created = createTextBlock(block.blockType, block.text)
           if (block.clientRef !== undefined) {
             if (createdBlockRefs.has(block.clientRef)) {
@@ -515,6 +534,7 @@ function normalizeSectionArguments(
       }
     }
     verify(operation.target)
+    assertCitationText(extractSectionAgentText([operation.block]))
     if (operation.block.id !== operation.target.blockId) {
       throw new AgentToolDomainError(
         'invalid_arguments',

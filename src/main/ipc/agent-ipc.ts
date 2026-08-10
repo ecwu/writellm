@@ -20,6 +20,7 @@ import {
   agentStartRunResultSchema,
   agentSubscriptionInputSchema
 } from '../../shared/contracts/agent-ipc'
+import type { MutationProposalRecord } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { AgentEventBroker } from '../agent/event-broker'
 import type { ProjectManager } from '../project/project-manager'
@@ -173,18 +174,7 @@ export function registerAgentIpc(options: {
           decision: 'approved',
           continueRequested: true
         })
-        prompt = [
-          'Continue after this authoritative approval result.',
-          JSON.stringify({
-            proposalId: proposal.proposalId,
-            kind: proposal.kind,
-            status: proposal.status,
-            appliedRevisionId: proposal.appliedRevisionId,
-            appliedBriefVersion: proposal.appliedBriefVersion,
-            appliedOutlineVersion: proposal.appliedOutlineVersion
-          }),
-          input.prompt
-        ].join('\n')
+        prompt = approvalContinuationPrompt(proposal, input.prompt)
       }
       const started = await service.startRun({
         agentSessionId: input.agentSessionId,
@@ -274,4 +264,23 @@ export function registerAgentIpc(options: {
       for (const channel of channels) ipc.removeHandler(channel)
     }
   }
+}
+
+function approvalContinuationPrompt(
+  proposal: MutationProposalRecord,
+  requestedContinuation: string
+): string {
+  const subject =
+    proposal.kind === 'brief_update'
+      ? 'Brief update'
+      : proposal.kind === 'outline_patch'
+        ? 'Outline update'
+        : proposal.kind === 'generated_image_insert'
+          ? 'generated image'
+          : 'section update'
+  const result =
+    proposal.status === 'satisfied'
+      ? `The user approved the proposed ${subject}; the current manuscript already satisfies it.`
+      : `The user approved the proposed ${subject}, and it is now applied.`
+  return `${result} Treat the resulting manuscript state as authoritative. ${requestedContinuation.trim()}`
 }

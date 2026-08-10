@@ -270,6 +270,70 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('persists exhausted provider retries as a retryable failed request and run', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Retry a transient provider failure.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_retrying',
+      modelRequestId: active.input.modelRequestId,
+      completedAttempts: 4,
+      maxAttempts: 5,
+      delayMs: 8_000,
+      reasonCode: 'server_error'
+    })
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'failed',
+      failureCode: 'provider_retries_exhausted',
+      retryable: true,
+      httpStatus: 503,
+      metadata: { ...metadata('response-exhausted'), retryCount: 4 }
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: active.input.modelRequestId,
+      message: {
+        ...assistant('', 'response-exhausted'),
+        stopReason: 'error',
+        metadata: { ...metadata('response-exhausted'), retryCount: 4 },
+        interrupted: true
+      }
+    })
+    const exhausted = new Error('Agent provider request failed after 5 attempts')
+    exhausted.name = 'ProviderRetriesExhaustedError'
+    active.reject(exhausted)
+    await started.completion
+
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'provider_retries_exhausted'
+    })
+    expect(
+      await database.kysely
+        .selectFrom('model_requests')
+        .select(['status', 'error_json', 'retry_count'])
+        .executeTakeFirstOrThrow()
+    ).toMatchObject({
+      status: 'failed',
+      error_json: JSON.stringify({
+        code: 'provider_retries_exhausted',
+        retryable: true,
+        httpStatus: 503
+      }),
+      retry_count: 4
+    })
+    database.close()
+  })
+
   it('records an explicit user stop and blocks queueing after cancellation', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

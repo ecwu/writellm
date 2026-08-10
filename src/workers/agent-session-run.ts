@@ -1,11 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type {
-  Api,
-  AssistantMessage,
-  AssistantMessageEventStream,
-  ProviderStreams,
-  UserMessage
-} from '@earendil-works/pi-ai'
+import type { Api, AssistantMessage, ProviderStreams, UserMessage } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import {
@@ -22,12 +16,16 @@ import {
 } from '../shared/contracts/agent'
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
 import {
+  AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
+  createRetryingAgentProviderStream,
+  parseRetryAfterMs
+} from './agent-provider-stream'
+import {
   agentMessageBudget,
   boundAgentContextByTokens,
   estimateAgentTokens
 } from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
-import { linkAbortSignal } from './shared/linked-abort-signal'
 
 export interface AgentSessionRunControl {
   enqueue(command: AgentQueueCommand): void
@@ -90,7 +88,8 @@ export async function runAgentSession(
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
   let lastAssistant: AssistantMessage | undefined
-  let lastAssistantTimedOut = false
+  let lastAssistantRetriesExhausted = false
+  let lastAssistantHttpStatus: number | undefined
   let awaitingReview = false
   const toolBridge = new AgentToolBridge(
     toolPort,
@@ -190,86 +189,83 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent provider call has no authorized model request')
       }
-      const callController = new AbortController()
-      const unlinkAbortSignal = linkAbortSignal(options?.signal, callController)
-      let timedOut = false
-      const callTimeout = setTimeout(() => {
-        timedOut = true
-        callController.abort(new AgentProviderTimeoutError(request.config.timeoutMs))
-      }, request.config.timeoutMs)
-      let fetchCount = 0
       let lastResponseStatus: number | undefined
-      const originalFetch = globalThis.fetch
-      const countingFetch: typeof fetch = (input, init) => {
-        fetchCount += 1
-        return originalFetch(input, init)
-      }
-      globalThis.fetch = countingFetch
-      let stream: AssistantMessageEventStream
-      try {
-        stream = streamSimple(activeModel, context, {
-          ...options,
-          signal: callController.signal,
-          apiKey: runtimeCredential.apiKey,
-          headers: runtimeCredential.headers,
-          env: runtimeCredential.env,
-          timeoutMs: undefined,
-          ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-          maxTokens: request.maxOutputTokens,
-          maxRetries: 2,
-          maxRetryDelayMs: Math.min(request.config.timeoutMs, 30_000),
-          onResponse: async (response, responseModel) => {
-            lastResponseStatus = response.status
-            await options?.onResponse?.(response, responseModel)
-          }
-        })
-      } catch (err) {
-        globalThis.fetch = originalFetch
-        clearTimeout(callTimeout)
-        unlinkAbortSignal()
-        throw err
-      }
-      const completion = stream
-        .result()
-        .then((message) => {
-          lastAssistant = message
-          lastAssistantTimedOut = timedOut
-          for (const part of message.content) {
-            if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
-          }
-          const providerPromptTokens = message.usage.input + message.usage.cacheRead
-          const contextTokensEstimated = providerPromptTokens === 0
-          const payload = toAssistantPayload(
-            message,
-            fetchCount,
-            timedOut,
-            contextTokensEstimated ? estimateAgentTokens(context) : providerPromptTokens,
-            contextTokensEstimated
-          )
-          onEvent({
-            type: 'model_call_finished',
-            modelRequestId,
-            outcome: timedOut
-              ? 'timed_out'
-              : message.stopReason === 'aborted'
-                ? 'aborted'
-                : message.stopReason === 'error'
-                  ? 'failed'
-                  : 'succeeded',
-            metadata: payload.metadata,
-            ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus })
+      let retryAfterMs: number | undefined
+      const retrying = createRetryingAgentProviderStream({
+        signal: options?.signal,
+        startAttempt: () => {
+          lastResponseStatus = undefined
+          retryAfterMs = undefined
+          return streamSimple(activeModel, context, {
+            ...options,
+            signal: options?.signal,
+            apiKey: runtimeCredential.apiKey,
+            headers: runtimeCredential.headers,
+            env: runtimeCredential.env,
+            timeoutMs: undefined,
+            ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+            maxTokens: request.maxOutputTokens,
+            maxRetries: 0,
+            maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
+            onResponse: async (response, responseModel) => {
+              lastResponseStatus = response.status
+              retryAfterMs = parseRetryAfterMs(response.headers)
+              await options?.onResponse?.(response, responseModel)
+            }
           })
-          onEvent({ type: 'assistant_message', modelRequestId, message: payload })
+        },
+        responseStatus: () => lastResponseStatus,
+        retryAfterMs: () => retryAfterMs,
+        createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        onRetry: ({ completedAttempts, maxAttempts, delayMs, reasonCode }) => {
+          onEvent({
+            type: 'model_call_retrying',
+            modelRequestId,
+            completedAttempts,
+            maxAttempts,
+            delayMs,
+            reasonCode
+          })
+        }
+      })
+      const stream = retrying.stream
+      const completion = stream.result().then((message) => {
+        lastAssistant = message
+        lastAssistantRetriesExhausted = retrying.state.exhausted
+        lastAssistantHttpStatus = lastResponseStatus
+        for (const part of message.content) {
+          if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
+        }
+        const providerPromptTokens = message.usage.input + message.usage.cacheRead
+        const contextTokensEstimated = providerPromptTokens === 0
+        const payload = toAssistantPayload(
+          message,
+          retrying.state.retryCount,
+          contextTokensEstimated ? estimateAgentTokens(context) : providerPromptTokens,
+          contextTokensEstimated
+        )
+        const failed = message.stopReason === 'error'
+        onEvent({
+          type: 'model_call_finished',
+          modelRequestId,
+          outcome: message.stopReason === 'aborted' ? 'aborted' : failed ? 'failed' : 'succeeded',
+          metadata: payload.metadata,
+          ...(failed
+            ? {
+                failureCode: retrying.state.exhausted
+                  ? ('provider_retries_exhausted' as const)
+                  : ('provider_request_failed' as const),
+                retryable: retrying.state.retryableFailure
+              }
+            : {}),
+          ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus })
         })
-        .finally(() => {
-          if (globalThis.fetch === countingFetch) globalThis.fetch = originalFetch
-          clearTimeout(callTimeout)
-          unlinkAbortSignal()
-        })
+        onEvent({ type: 'assistant_message', modelRequestId, message: payload })
+      })
       callCompletions.push(completion)
       return stream
     },
-    maxRetryDelayMs: Math.min(request.config.timeoutMs, 30_000),
+    maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
     steeringMode: 'one-at-a-time',
     followUpMode: 'one-at-a-time',
     toolExecution: 'parallel'
@@ -371,11 +367,12 @@ export async function runAgentSession(
   if (runError !== undefined) throw runError
 
   if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
-  if (lastAssistantTimedOut) {
-    throw new AgentProviderTimeoutError(request.config.timeoutMs)
-  }
   if (lastAssistant.stopReason === 'error') {
+    if (lastAssistantRetriesExhausted) {
+      throw new AgentProviderRetriesExhaustedError(lastAssistantHttpStatus)
+    }
     const error: Error & { status?: number } = new Error('Agent provider request failed')
+    if (lastAssistantHttpStatus !== undefined) error.status = lastAssistantHttpStatus
     throw error
   }
   if (lastAssistant.stopReason === 'aborted') {
@@ -457,8 +454,7 @@ function toPiMessage(message: AgentHistoryMessage): UserMessage | AssistantMessa
 
 function toAssistantPayload(
   message: AssistantMessage,
-  fetchCount: number,
-  timedOut: boolean,
+  retryCount: number,
   contextTokensUsed: number,
   contextTokensEstimated: boolean
 ): AgentAssistantMessagePayload {
@@ -467,7 +463,7 @@ function toAssistantPayload(
       .filter((part) => part.type === 'text')
       .map((part) => part.text)
       .join(''),
-    stopReason: timedOut ? 'error' : message.stopReason,
+    stopReason: message.stopReason,
     provider: message.provider,
     model: message.model,
     responseModel: message.responseModel,
@@ -481,20 +477,49 @@ function toAssistantPayload(
         estimatedCostUsdMicros: null
       },
       responseIds: message.responseId === undefined ? [] : [message.responseId],
-      retryCount: Math.max(0, fetchCount - 1),
+      retryCount,
       providerModelId: message.responseModel ?? message.model,
       contextTokensUsed,
       contextTokensEstimated
     },
     timestamp: message.timestamp,
-    interrupted: !timedOut && (message.stopReason === 'aborted' || message.stopReason === 'error')
+    interrupted: message.stopReason === 'aborted' || message.stopReason === 'error'
   })
 }
 
-class AgentProviderTimeoutError extends Error {
-  constructor(readonly timeoutMs: number) {
-    super(`Agent provider request timed out after ${timeoutMs}ms`)
-    this.name = 'ProviderTimeoutError'
+class AgentProviderRetriesExhaustedError extends Error {
+  readonly status?: number
+
+  constructor(status?: number) {
+    super('Agent provider request failed after 5 attempts')
+    this.name = 'ProviderRetriesExhaustedError'
+    if (status !== undefined) this.status = status
+  }
+}
+
+function providerErrorMessage(
+  model: { api: Api; provider: string; id: string },
+  error: unknown,
+  aborted: boolean
+): AssistantMessage {
+  const message = error instanceof Error ? error.message : String(error)
+  return {
+    role: 'assistant',
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason: aborted ? 'aborted' : 'error',
+    errorMessage: message,
+    timestamp: Date.now()
   }
 }
 

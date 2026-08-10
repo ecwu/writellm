@@ -153,7 +153,19 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       modelRequestId: agentModelRequestIdSchema,
       outcome: z.enum(['succeeded', 'failed', 'aborted', 'timed_out']),
       metadata: modelExecutionMetadataSchema,
-      httpStatus: z.number().int().min(100).max(599).optional()
+      httpStatus: z.number().int().min(100).max(599).optional(),
+      failureCode: z.enum(['provider_retries_exhausted', 'provider_request_failed']).optional(),
+      retryable: z.boolean().optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('model_call_retrying'),
+      modelRequestId: agentModelRequestIdSchema,
+      completedAttempts: z.number().int().min(1).max(4),
+      maxAttempts: z.literal(5),
+      delayMs: z.number().int().min(0).max(60_000),
+      reasonCode: z.enum(['network', 'rate_limited', 'server_error', 'stream_ended'])
     })
     .strict(),
   z

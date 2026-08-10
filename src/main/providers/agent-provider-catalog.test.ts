@@ -387,14 +387,24 @@ describe('AgentProviderCatalogService', () => {
       name: 'Bound renamed',
       baseUrl: 'https://models.example.test/v2',
       api: 'openai-responses',
-      authMode: 'api_key',
-      timeoutMs: 45_000
+      authMode: 'api_key'
     })
     expect(sameOrigin.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
       authConfigured: true,
       catalogStatus: 'current',
       models: [{ id: 'writer-1' }]
     })
+    expect(
+      JSON.parse(
+        (
+          await database.kysely
+            .selectFrom('provider_configs')
+            .select('config_json')
+            .where('id', '=', 'agent:custom:bound')
+            .executeTakeFirstOrThrow()
+        ).config_json
+      )
+    ).toMatchObject({ timeoutMs: 30_000 })
 
     const changedOrigin = await catalog.saveCustomPreset({
       presetId: 'custom:bound',

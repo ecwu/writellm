@@ -93,6 +93,8 @@ import { AgentMarkdown } from './agent-markdown'
 import { AgentModelPicker } from './agent-model-picker'
 import {
   aggregateAgentUsage,
+  agentReviewState,
+  agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
   formatAgentDuration,
@@ -103,6 +105,7 @@ import {
   protectTerminalAgentRuns,
   projectAgentTimeline,
   type AgentCitationDisplay,
+  type AgentReviewState,
   type AgentTimelineItem,
   type AgentToolActivity,
   toolWasStopped
@@ -612,14 +615,14 @@ export function AgentPanel(props: {
           result.outcome !== 'refresh_required' &&
           (result.outcome === 'applied' || result.outcome === 'already_satisfied')
         ) {
-          await refreshSessionTruth(proposal.agentSessionId)
           await startRun(
-            'Verify the applied change, continue the requested writing task, and run check_draft when appropriate.',
+            'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
             result.proposal.proposalId,
             true,
             true
           )
         }
+        await refreshSessionTruth(proposal.agentSessionId)
       } else if (action === 'reject') {
         const result = await window.desktop.agent.rejectProposal({
           projectSessionId: props.projectSessionId,
@@ -1126,6 +1129,7 @@ function EventTimeline(props: {
     }
     return citations
   }, [timeline])
+  const scrollAnchorIndex = agentTimelineScrollAnchorIndex(timeline)
 
   return (
     <MessageScrollerProvider autoScroll>
@@ -1136,10 +1140,13 @@ function EventTimeline(props: {
               <MessageScrollerItem
                 key={item.id}
                 messageId={item.id}
-                scrollAnchor={index === timeline.length - 1}
+                scrollAnchor={
+                  Object.keys(props.streaming).length === 0 && index === scrollAnchorIndex
+                }
               >
                 <TimelineItem
                   item={item}
+                  proposals={props.proposals}
                   citationsById={citationsById}
                   busy={props.busy}
                   currentRevisionIds={props.currentRevisionIds}
@@ -1176,6 +1183,7 @@ function EventTimeline(props: {
 
 function TimelineItem(props: {
   item: AgentTimelineItem
+  proposals: MutationProposalRecord[]
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   currentRevisionIds: Readonly<Record<string, string>>
@@ -1232,16 +1240,7 @@ function TimelineItem(props: {
   }
   if (item.type === 'run_interrupted') {
     if (item.terminal.outcome === 'awaiting_review') {
-      return (
-        <Marker role='status'>
-          <MarkerIcon>
-            <AlertCircle className='text-warning' />
-          </MarkerIcon>
-          <MarkerContent>
-            Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
-          </MarkerContent>
-        </Marker>
-      )
+      return <ReviewTerminal terminal={item.terminal} proposals={props.proposals} />
     }
     return (
       <Marker role='status'>
@@ -1260,16 +1259,7 @@ function TimelineItem(props: {
   }
   if (item.type === 'run_completed') {
     if (item.terminal.outcome === 'awaiting_review') {
-      return (
-        <Marker role='status'>
-          <MarkerIcon>
-            <AlertCircle className='text-warning' />
-          </MarkerIcon>
-          <MarkerContent>
-            Waiting for review · {formatAgentDuration(item.terminal.durationMs)}
-          </MarkerContent>
-        </Marker>
-      )
+      return <ReviewTerminal terminal={item.terminal} proposals={props.proposals} />
     }
     return (
       <Marker role='status'>
@@ -1287,6 +1277,22 @@ function TimelineItem(props: {
       <MarkerContent>
         Context summarized through event {item.payload.coveredThroughSequence}; full history
         retained.
+      </MarkerContent>
+    </Marker>
+  )
+}
+
+function ReviewTerminal(props: {
+  terminal: Extract<AgentTimelineItem, { type: 'run_completed' }>['terminal']
+  proposals: MutationProposalRecord[]
+}): React.JSX.Element {
+  const state = agentReviewState(props.terminal.runId, props.proposals)
+  const presentation = reviewStatePresentation(state)
+  return (
+    <Marker role='status'>
+      <MarkerIcon>{presentation.icon}</MarkerIcon>
+      <MarkerContent>
+        {presentation.label} · {formatAgentDuration(props.terminal.durationMs)}
       </MarkerContent>
     </Marker>
   )
@@ -1441,13 +1447,13 @@ function ProposalMessage(props: {
           No update is needed because the latest section already contains this change.
         </p>
       ) : null}
-      <div className='grid w-full min-w-0 gap-2 @md/agent:flex @md/agent:flex-wrap @md/agent:justify-end'>
+      <div className='grid w-full min-w-0 gap-2 @xl/agent:flex @xl/agent:flex-wrap @xl/agent:justify-end'>
         {isPending ? (
           <>
             <Button
               variant='outline'
               size='sm'
-              className='w-full @md/agent:w-auto'
+              className='w-full @xl/agent:w-auto'
               disabled={props.busy}
               onClick={() => void props.onAction(proposal, 'reject')}
             >
@@ -1456,7 +1462,7 @@ function ProposalMessage(props: {
             <Button
               variant='outline'
               size='sm'
-              className='w-full @md/agent:w-auto'
+              className='w-full @xl/agent:w-auto'
               disabled={props.busy || isOutdated}
               onClick={() => void props.onAction(proposal, 'approve_continue')}
             >
@@ -1464,7 +1470,7 @@ function ProposalMessage(props: {
             </Button>
             <Button
               size='sm'
-              className='w-full @md/agent:w-auto'
+              className='w-full @xl/agent:w-auto'
               disabled={props.busy}
               onClick={() => void props.onAction(proposal, 'approve')}
             >
@@ -1481,7 +1487,7 @@ function ProposalMessage(props: {
           <Button
             variant='outline'
             size='sm'
-            className='w-full @md/agent:w-auto'
+            className='w-full @xl/agent:w-auto'
             onClick={() => void props.onAction(proposal, 'cancel_image')}
           >
             <X data-icon='inline-start' /> Cancel generation
@@ -1602,6 +1608,8 @@ function terminalLabel(code: string): string {
   switch (code) {
     case 'provider_timeout':
       return 'Provider request timed out'
+    case 'provider_retries_exhausted':
+      return 'Provider request failed after 5 attempts'
     case 'user_stopped':
       return 'Stopped by user'
     case 'project_closed':
@@ -1610,6 +1618,29 @@ function terminalLabel(code: string): string {
       return 'Run failed'
     default:
       return 'Run interrupted'
+  }
+}
+
+function reviewStatePresentation(state: AgentReviewState): {
+  label: string
+  icon: React.JSX.Element
+} {
+  switch (state) {
+    case 'approved':
+      return { label: 'Review approved', icon: <Check className='text-success' /> }
+    case 'rejected':
+      return { label: 'Review rejected', icon: <X className='text-destructive' /> }
+    case 'failed':
+      return {
+        label: 'Review could not be applied',
+        icon: <AlertCircle className='text-destructive' />
+      }
+    case 'undone':
+      return { label: 'Approved change undone', icon: <RotateCcw /> }
+    case 'resolved':
+      return { label: 'Review resolved', icon: <Check className='text-success' /> }
+    default:
+      return { label: 'Waiting for review', icon: <AlertCircle className='text-warning' /> }
   }
 }
 

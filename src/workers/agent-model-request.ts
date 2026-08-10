@@ -1,4 +1,11 @@
+import type { Api, AssistantMessage } from '@earendil-works/pi-ai'
 import type { AgentRunResult, AgentUtilityRequest } from '../shared/contracts/model-runtime'
+import {
+  AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
+  createRetryingAgentProviderStream,
+  type AgentProviderRetryState,
+  parseRetryAfterMs
+} from './agent-provider-stream'
 
 export async function runAgentModelRequest(
   request: AgentUtilityRequest,
@@ -24,8 +31,9 @@ export async function runAgentModelRequest(
     maxTokens: request.input.maxOutputTokens,
     compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const }
   }
-  let fetchCount = 0
   let lastResponseStatus: number | undefined
+  let retryAfterMs: number | undefined
+  let retryState: AgentProviderRetryState | undefined
   const agent = new Agent({
     initialState: {
       systemPrompt: request.input.systemPrompt,
@@ -36,22 +44,37 @@ export async function runAgentModelRequest(
     },
     getApiKey: (providerId) =>
       providerId === request.config.providerId ? request.credential : undefined,
-    streamFn: (activeModel, context, options) =>
-      streamSimple(activeModel, context, {
-        ...options,
-        ...(request.input.temperature === undefined
-          ? {}
-          : { temperature: request.input.temperature }),
-        maxTokens: request.input.maxOutputTokens,
-        maxRetries: 2,
-        maxRetryDelayMs: Math.min(request.config.timeoutMs, 30_000),
-        timeoutMs: request.config.timeoutMs,
-        onResponse: async (response, responseModel) => {
-          lastResponseStatus = response.status
-          await options?.onResponse?.(response, responseModel)
-        }
-      }),
-    maxRetryDelayMs: Math.min(request.config.timeoutMs, 30_000),
+    streamFn: (activeModel, context, options) => {
+      const retrying = createRetryingAgentProviderStream({
+        signal: options?.signal,
+        startAttempt: () => {
+          lastResponseStatus = undefined
+          retryAfterMs = undefined
+          return streamSimple(activeModel, context, {
+            ...options,
+            ...(request.input.temperature === undefined
+              ? {}
+              : { temperature: request.input.temperature }),
+            maxTokens: request.input.maxOutputTokens,
+            maxRetries: 0,
+            maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
+            timeoutMs: undefined,
+            onResponse: async (response, responseModel) => {
+              lastResponseStatus = response.status
+              retryAfterMs = parseRetryAfterMs(response.headers)
+              await options?.onResponse?.(response, responseModel)
+            }
+          })
+        },
+        responseStatus: () => lastResponseStatus,
+        retryAfterMs: () => retryAfterMs,
+        createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        onRetry: () => undefined
+      })
+      retryState = retrying.state
+      return retrying.stream
+    },
+    maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
     toolExecution: 'sequential'
   })
   agent.subscribe((event) => {
@@ -63,12 +86,6 @@ export async function runAgentModelRequest(
       onTextDelta(event.assistantMessageEvent.delta)
     }
   })
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = (input, init) => {
-    fetchCount += 1
-    return originalFetch(input, init)
-  }
-  const timeout = setTimeout(() => agent.abort(), request.config.timeoutMs)
   const abortExternal = (): void => agent.abort()
   if (externalSignal?.aborted) agent.abort()
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
@@ -76,9 +93,7 @@ export async function runAgentModelRequest(
     await agent.prompt(request.input.prompt)
     await agent.waitForIdle()
   } finally {
-    clearTimeout(timeout)
     externalSignal?.removeEventListener('abort', abortExternal)
-    globalThis.fetch = originalFetch
   }
 
   const finalMessage = [...agent.state.messages]
@@ -89,6 +104,10 @@ export async function runAgentModelRequest(
   }
   if (finalMessage.stopReason === 'error') {
     const error: Error & { status?: number } = new Error('Agent provider request failed')
+    if (retryState?.exhausted) {
+      error.name = 'ProviderRetriesExhaustedError'
+      error.message = 'Agent provider request failed after 5 attempts'
+    }
     if (lastResponseStatus !== undefined) error.status = lastResponseStatus
     throw error
   }
@@ -113,8 +132,33 @@ export async function runAgentModelRequest(
         estimatedCostUsdMicros: null
       },
       responseIds: finalMessage.responseId === undefined ? [] : [finalMessage.responseId],
-      retryCount: Math.max(0, fetchCount - 1),
+      retryCount: retryState?.retryCount ?? 0,
       providerModelId: finalMessage.responseModel ?? finalMessage.model
     }
+  }
+}
+
+function providerErrorMessage(
+  model: { api: Api; provider: string; id: string },
+  error: unknown,
+  aborted: boolean
+): AssistantMessage {
+  return {
+    role: 'assistant',
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason: aborted ? 'aborted' : 'error',
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now()
   }
 }

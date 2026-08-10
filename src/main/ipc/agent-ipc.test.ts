@@ -1,11 +1,16 @@
 import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { MutationProposalRecord } from '../../shared/contracts/agent-mutations'
 import { registerAgentIpc, type AgentIpcMain } from './agent-ipc'
 
 const projectSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc900'
 const agentSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc901'
 const agentRunId = '019c6a5c-8d34-7a8e-a602-3d37a52dc902'
+type ListedProposal = Pick<
+  MutationProposalRecord,
+  'proposalId' | 'agentSessionId' | 'agentRunId' | 'kind' | 'status'
+>
 
 describe('Agent session IPC', () => {
   it('installs the session lease before querying replay and completes it explicitly', async () => {
@@ -59,6 +64,48 @@ describe('Agent session IPC', () => {
     ).rejects.toThrow('Project scope')
   })
 
+  it('continues an approved proposal with human-facing authoritative copy', async () => {
+    const value = harness()
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc905'
+    value.mutations.list.mockReturnValue([
+      {
+        proposalId,
+        agentSessionId,
+        agentRunId,
+        kind: 'brief_update',
+        status: 'applied'
+      }
+    ])
+
+    await value.invoke(IPC_CHANNELS.agentStartRun, {
+      projectSessionId,
+      agentSessionId,
+      prompt:
+        'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
+      approvedProposalId: proposalId,
+      scope: 'project',
+      editorContext: {
+        activeSectionId: null,
+        activeBlockId: null,
+        selectedBlockIds: []
+      }
+    })
+
+    expect(value.sessions.recordApprovalDecision).toHaveBeenCalledWith({
+      agentSessionId,
+      agentRunId,
+      proposalId,
+      decision: 'approved',
+      continueRequested: true
+    })
+    const continuedPrompt = value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt
+    expect(continuedPrompt).toBe(
+      'The user approved the proposed Brief update, and it is now applied. Treat the resulting manuscript state as authoritative. Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
+    )
+    expect(continuedPrompt).not.toContain(proposalId)
+    expect(continuedPrompt).not.toContain('{')
+  })
+
   it('rejects stale project capabilities and unauthorized senders', async () => {
     const value = harness()
     await expect(
@@ -106,13 +153,17 @@ function harness() {
       return { events: [], nextAfterSequence: 0, hasMore: false, returnedBytes: 0 }
     }),
     listRuns: vi.fn(() => [run]),
-    startRun: vi.fn(async () => ({ agentRunId, completion: Promise.resolve() })),
+    startRun: vi.fn(async (_input: { agentSessionId: string; prompt: string }) => ({
+      agentRunId,
+      completion: Promise.resolve()
+    })),
+    recordApprovalDecision: vi.fn(),
     requireRun: vi.fn(() => run),
     steer: vi.fn(),
     followUp: vi.fn(),
     abort: vi.fn()
   }
-  const mutations = { list: vi.fn(() => []) }
+  const mutations = { list: vi.fn((): ListedProposal[] => []) }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
@@ -148,5 +199,5 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   const invoke = async (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { handlers, invoke, sender, sessions, broker, order }
+  return { handlers, invoke, sender, sessions, mutations, broker, order }
 }

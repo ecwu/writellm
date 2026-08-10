@@ -152,7 +152,7 @@ export const agentCustomPresetInputSchema = z.object({
   baseUrl: providerBaseUrlSchema,
   api: customAgentPiApiSchema,
   authMode: z.enum(['api_key', 'none']),
-  timeoutMs: z.number().int().min(1_000).max(300_000).default(60_000),
+  timeoutMs: z.number().int().min(1_000).max(300_000).optional(),
   apiKey: z.string().trim().min(1).max(16_384).optional()
 })
 export type AgentCustomPresetInput = z.infer<typeof agentCustomPresetInputSchema>

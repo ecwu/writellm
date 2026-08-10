@@ -473,7 +473,6 @@ interface AgentDraft {
   baseUrl: string
   api: CustomAgentPiApi
   authMode: 'api_key' | 'none'
-  timeoutMs: number
 }
 
 function AgentProviderWorkspace({
@@ -528,8 +527,7 @@ function AgentProviderWorkspace({
         logoOverrideId: selectedPreset.logoOverrideId,
         baseUrl: selectedPreset.baseUrl ?? '',
         api: selectedPreset.api ?? 'openai-completions',
-        authMode: selectedPreset.authMethods.includes('none') ? 'none' : 'api_key',
-        timeoutMs: 60_000
+        authMode: selectedPreset.authMethods.includes('none') ? 'none' : 'api_key'
       })
       setApiKey('')
       setModelSearch('')
@@ -580,8 +578,7 @@ function AgentProviderWorkspace({
       logoOverrideId: null,
       baseUrl: '',
       api: newProviderApi,
-      authMode: 'api_key',
-      timeoutMs: 60_000
+      authMode: 'api_key'
     })
     setApiKey('')
     setAddProviderOpen(false)
@@ -600,7 +597,6 @@ function AgentProviderWorkspace({
         baseUrl: draft.baseUrl,
         api: draft.api,
         authMode: draft.authMode,
-        timeoutMs: draft.timeoutMs,
         ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
       })
       updateSnapshot(next)

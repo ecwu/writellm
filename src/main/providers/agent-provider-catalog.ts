@@ -161,7 +161,8 @@ export class AgentProviderCatalogService {
       baseUrl: input.baseUrl,
       api: input.api,
       authMode: input.authMode,
-      timeoutMs: input.timeoutMs
+      // Retain the credential-bound legacy value without exposing a generation deadline.
+      timeoutMs: previous?.timeoutMs ?? input.timeoutMs ?? 60_000
     })
     const securityIdentityChanged =
       previous !== null &&

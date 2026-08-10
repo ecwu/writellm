@@ -53,7 +53,10 @@ const request: AgentRunStart = {
   maxOutputTokens: 100
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 describe('runAgentSession', () => {
   it('keeps complete recent turns and safely truncates an oversized current turn', () => {
@@ -281,7 +284,7 @@ describe('runAgentSession', () => {
     expect(events.filter((event) => event.type === 'model_call_requested')).toEqual([])
   })
 
-  it('starts a fresh provider deadline after a tool continuation', async () => {
+  it('does not count tool execution against the legacy provider timeout', async () => {
     const shortRequest = {
       ...request,
       config: { ...request.config, timeoutMs: 50 }
@@ -345,43 +348,35 @@ describe('runAgentSession', () => {
     ).toEqual(['succeeded', 'succeeded'])
   })
 
-  it('reports a provider timeout separately from an external user stop', async () => {
+  it('continues beyond the legacy provider timeout and still honors an external stop', async () => {
     const shortRequest = {
       ...request,
       config: { ...request.config, timeoutMs: 40 }
     }
-    const timeoutEvents: AgentRuntimeEvent[] = []
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>(
-        async (_input, init) =>
-          new Promise<Response>((_resolve, reject) => {
-            const onAbort = () => {
-              const error = new Error('request aborted')
-              error.name = 'AbortError'
-              reject(error)
-            }
-            init?.signal?.addEventListener('abort', onAbort, { once: true })
+        async () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(() => resolve(completionResponse('Slow success', 'slow-response')), 75)
           })
       )
     )
+    const slowEvents: AgentRuntimeEvent[] = []
     await expect(
       runAgentSession(
         shortRequest,
-        (event) => timeoutEvents.push(event),
+        (event) => slowEvents.push(event),
         () => undefined,
         undefined,
         new FakeMessagePort() as never
       )
-    ).rejects.toMatchObject({ name: 'ProviderTimeoutError' })
-    expect(timeoutEvents).toContainEqual(
-      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+    ).resolves.toEqual({ outcome: 'finished' })
+    expect(slowEvents).toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'succeeded' })
     )
-    expect(timeoutEvents).toContainEqual(
-      expect.objectContaining({
-        type: 'assistant_message',
-        message: expect.objectContaining({ stopReason: 'error', interrupted: false })
-      })
+    expect(slowEvents).not.toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
     )
 
     const stopController = new AbortController()
@@ -415,49 +410,52 @@ describe('runAgentSession', () => {
     )
   })
 
-  it('shares one deadline across automatic provider retries', async () => {
-    const shortRequest = {
-      ...request,
-      config: { ...request.config, timeoutMs: 50 }
-    }
+  it('makes at most five logical attempts for transient provider failures', async () => {
+    vi.useFakeTimers()
     let attempts = 0
     const events: AgentRuntimeEvent[] = []
     vi.stubGlobal(
       'fetch',
-      vi.fn<typeof fetch>(async (_input, init) => {
+      vi.fn<typeof fetch>(async () => {
         attempts += 1
-        if (attempts === 1) {
-          return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
-            status: 429,
-            headers: { 'content-type': 'application/json', 'retry-after': '0' }
-          })
-        }
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            'abort',
-            () => {
-              const error = new Error('request aborted')
-              error.name = 'AbortError'
-              reject(error)
-            },
-            { once: true }
-          )
+        return new Response(JSON.stringify({ error: { message: 'service unavailable' } }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' }
         })
       })
     )
 
-    await expect(
-      runAgentSession(
-        shortRequest,
-        (event) => events.push(event),
-        () => undefined,
-        undefined,
-        new FakeMessagePort() as never
-      )
-    ).rejects.toMatchObject({ name: 'ProviderTimeoutError' })
-    expect(attempts).toBeGreaterThan(1)
+    const running = runAgentSession(
+      request,
+      (event) => events.push(event),
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never
+    )
+    const rejected = expect(running).rejects.toMatchObject({
+      name: 'ProviderRetriesExhaustedError'
+    })
+    await vi.waitFor(() => expect(attempts).toBe(1))
+    for (const [delayMs, expectedAttempts] of [
+      [1_000, 2],
+      [2_000, 3],
+      [4_000, 4],
+      [8_000, 5]
+    ] as const) {
+      await vi.advanceTimersByTimeAsync(delayMs)
+      await vi.waitFor(() => expect(attempts).toBe(expectedAttempts))
+    }
+    await rejected
+    expect(attempts).toBe(5)
+    expect(events.filter((event) => event.type === 'model_call_retrying')).toHaveLength(4)
     expect(events).toContainEqual(
-      expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+      expect.objectContaining({
+        type: 'model_call_finished',
+        outcome: 'failed',
+        failureCode: 'provider_retries_exhausted',
+        retryable: true,
+        metadata: expect.objectContaining({ retryCount: 4 })
+      })
     )
   })
 })
