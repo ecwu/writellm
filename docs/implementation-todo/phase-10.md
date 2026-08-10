@@ -384,6 +384,34 @@ after the wrapper created its private runtime directory before starting D-Bus. T
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
 
+Hosted candidate evidence (2026-08-10): immutable tag `v0.2026.8.7` at
+`746da6c09ea8fe7d28bedd143a1a29ec143ee532` started CI run `31377192686`. The static gate passed
+in 1m1s; macOS arm64 passed in 6m13s, macOS x64 in 7m14s, and Windows x64 in 13m20s. Linux passed
+the Secret Service write/read/clear probe plus its canonical Electron tests/build, but the real
+application still reported `basic_text`. Thirteen of 20 E2E scenarios passed; the seven failures
+all followed fail-closed credential saves, and the Linux row ended after 18m23s. Packaging was
+correctly skipped and no promotion workflow was dispatched. Candidate `.7` remains failed evidence
+and cannot be promoted or retagged.
+
+Budget-aware remediation in progress (2026-08-10): the Linux wrapper now provisions the private
+runtime directory before D-Bus, uses GNOME Keyring's login/start lifecycle, verifies Secret Service,
+and launches Electron 43 itself to require `gnome_libsecret` plus an encrypted round trip before it
+runs E2E or packaging. The tag workflow also has a separately dispatchable Linux credential
+preflight that gates all four expensive Electron rows, and the promotion workflow gates its four
+candidate rows on the same preflight. No next immutable tag is created until that low-cost hosted
+probe succeeds.
+
+Local remediation evidence (2026-08-10): the real Electron preflight passed as an unprivileged user
+in an Ubuntu 24.04 container and reported `available=true`, `backend=gnome_libsecret`, and a
+successful encrypted round trip. The same wrapper then passed a Playwright Electron launch, while a
+deliberate `--password-store=basic` launch failed in about four seconds before any suite could run.
+`check:write`, `check:fast`, the 22-case recovery-fixture verifier, and the canonical Electron test
+runner passed with 116 files and 591 tests; one opt-in benchmark remained skipped. The local
+macOS arm64 package gate also passed its unpacked smoke, all 15 packaged E2E scenarios without
+flakes or skips, and DMG/ZIP inspection. This local evidence authorizes only one low-cost hosted
+preflight on `main`; it does not authorize a new tag or four-platform matrix unless that preflight
+also reports `gnome_libsecret`.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

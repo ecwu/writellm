@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
 Status: Checkpoint 26.9 hosted release-candidate validation is in progress.
-Recorded: 2026-08-09
+Recorded: 2026-08-10
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -31,7 +31,7 @@ Status markers:
   execution is authorized.
 
 Authorization: on 2026-08-09 the user explicitly approved starting this checkpoint before 26.9.
-Checkpoint 26.9 remains blocked and is not represented as complete.
+Checkpoint 26.9 remains in progress and is not represented as complete.
 
 Local evidence: `check:fast`; 115 Electron-hosted Vitest files with 583 passing tests and one
 opt-in benchmark skipped; 20/20 full Electron E2E scenarios with two workers and no flaky or
@@ -52,6 +52,10 @@ Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26
 required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion. Production
 release publication remains out of scope. Local macOS arm64 verification cannot substitute for
 the Windows x64, macOS x64, or Linux x64 hosted rows.
+
+Budget guard: after immutable candidate `v0.2026.8.7` proved three hosted Electron rows but failed
+Linux credential persistence, no additional tag or rerun is allowed without a real Electron Linux
+credential preflight. The preflight must fail before the expensive four-platform matrix starts.
 
 Acceptance criteria: every row succeeds for the same tagged revision; all migration, recovery,
 export, native runtime, Agent, security, and logging boundaries pass in packaged artifacts;

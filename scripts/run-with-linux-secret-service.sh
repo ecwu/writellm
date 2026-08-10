@@ -17,7 +17,8 @@ if [[ "${WRITELLM_CI_SECRET_SERVICE_SESSION:-}" != '1' ]]; then
   exec dbus-run-session -- bash "$0" "$@"
 fi
 
-eval "$(printf '%s' "$keyring_password" | gnome-keyring-daemon --unlock --components=secrets)"
+eval "$(printf '%s' "$keyring_password" | gnome-keyring-daemon --login --components=secrets)"
+eval "$(gnome-keyring-daemon --start --components=secrets)"
 
 probe_secret="writellm-ci-secret-service-probe"
 printf '%s' "$probe_secret" | secret-tool store \
@@ -32,4 +33,15 @@ fi
 secret-tool clear service writellm-ci account probe
 
 export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
+
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+electron_executable="$project_root/node_modules/.bin/electron"
+if [[ ! -x "$electron_executable" ]]; then
+  echo "Linux safeStorage probe could not find Electron at $electron_executable" >&2
+  exit 1
+fi
+xvfb-run --auto-servernum "$electron_executable" \
+  --password-store=gnome-libsecret \
+  "$project_root/scripts/verify-linux-safe-storage.cjs"
+
 exec "$@"

@@ -97,11 +97,14 @@ unavailable graphical prompt. The immutable `v0.2026.8.6` candidate passed the s
 macOS rows. Windows then exposed three known I/O-heavy canonical tests that exceeded Vitest's
 default five-second limit. Linux passed the Secret Service probe and canonical tests, but Electron
 still selected `basic_text` because D-Bus activation retained the runner's old runtime-directory
-environment; 13 of 20 E2E scenarios passed. Candidate `v0.2026.8.7` gives those three tests explicit
-15-second limits and makes the Secret Service wrapper create `XDG_RUNTIME_DIR` before it starts the
-D-Bus session. A real Ubuntu 24.04 Electron 43 probe selected `gnome_libsecret` and passed encrypted
-write/read round-trip verification with that ordering. Candidates `.4`, `.5`, and `.6` remain
-failed audit evidence and are neither moved nor promoted.
+environment; 13 of 20 E2E scenarios passed. The immutable `v0.2026.8.7` candidate passed the static
+gate, Windows, and both macOS rows. Linux passed the Secret Service API probe and canonical tests,
+but the real application still selected `basic_text`; 13 of 20 E2E scenarios passed and packaging
+was skipped. No dry-run was dispatched. The next candidate is withheld until a low-cost hosted
+preflight proves the actual Electron 43 `safeStorage` backend is `gnome_libsecret`. The wrapper now
+uses the documented login/start lifecycle inside its private D-Bus session and performs a real
+encrypted Electron round trip before any expensive E2E or package command. Candidates `.4` through
+`.7` remain failed audit evidence and are neither moved nor promoted.
 
 ## Deferred
 
