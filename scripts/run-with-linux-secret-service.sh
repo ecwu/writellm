@@ -41,6 +41,7 @@ if [[ ! -x "$electron_executable" ]]; then
   exit 1
 fi
 xvfb-run --auto-servernum "$electron_executable" \
+  --no-sandbox \
   --password-store=gnome-libsecret \
   "$project_root/scripts/verify-linux-safe-storage.cjs"
 

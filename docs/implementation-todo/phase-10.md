@@ -412,6 +412,13 @@ flakes or skips, and DMG/ZIP inspection. This local evidence authorizes only one
 preflight on `main`; it does not authorize a new tag or four-platform matrix unless that preflight
 also reports `gnome_libsecret`.
 
+The first low-cost hosted preflight, CI run `31380305789`, stopped after 2m26s before the
+credential assertion because direct Electron startup rejected GitHub's non-setuid
+`chrome-sandbox`; the static job passed in 53s and every matrix/package job was skipped. This is an
+infrastructure-launch failure rather than credential evidence. Playwright's Electron launcher
+already supplies `--no-sandbox` by default on this runner, so the standalone probe now supplies the
+same CI-only switch. This does not change product launch arguments or packaged application policy.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or
