@@ -103,7 +103,7 @@ jobs:
         if: ${{ matrix.target == 'linux-x64' }}
         run: |
           sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Verify recovery fixtures
         run: pnpm check:fixtures
       - name: Verify static boundary

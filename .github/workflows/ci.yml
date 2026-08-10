@@ -71,7 +71,7 @@ jobs:
       - name: Install Linux Electron runtime and Secret Service
         run: |
           sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Fresh-build critical Electron E2E
         shell: bash
         run: |
@@ -124,7 +124,7 @@ jobs:
         if: ${{ matrix.target == 'linux-x64' }}
         run: |
           sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Electron tests and production build
         run: pnpm check:electron
       - name: Complete silent Electron E2E
@@ -187,7 +187,7 @@ jobs:
         if: ${{ matrix.target == 'linux-x64' }}
         run: |
           sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Native-host package gate
         if: ${{ matrix.target != 'linux-x64' }}
         run: pnpm run ${{ matrix.command }}

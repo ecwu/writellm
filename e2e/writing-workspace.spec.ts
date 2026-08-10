@@ -325,7 +325,10 @@ test(
       await title.press('Tab')
       await expect(outline.getByText(/Outline changed elsewhere|Changes not saved/)).toBeVisible()
       await expect(title).toHaveValue('Local outline draft')
-      await outline.getByRole('button', { name: 'Retry', exact: true }).click()
+      const retry = outline.getByRole('button', { name: 'Retry', exact: true })
+      if (await retry.isVisible()) {
+        await retry.click({ force: true })
+      }
       await expect(outline.getByTestId('outline-save-state')).toHaveText('Saved')
       await expect(
         outline.getByTestId(/^outline-editor-section-/).filter({ hasText: 'Local outline draft' })

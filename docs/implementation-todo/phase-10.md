@@ -334,6 +334,31 @@ artifacts are `WriteLLM-0.2026.8.5-arm64.dmg` (249,407,853 bytes, SHA-256
 truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
 revision on all four targets.
 
+Hosted candidate evidence (2026-08-10): immutable tag `v0.2026.8.5` at
+`34b3b7077b16aab092145934b0cb106eacdd105b` started CI run `31371666872`. The static gate and both
+macOS rows passed; the explicit 15-second database-test limit removed candidate `.4`'s macOS x64
+failure. Windows passed the canonical tests/build and 17 of 20 E2E scenarios. Two longest scenarios
+reached the 90-second total limit near completion, while the outline-conflict scenario had already
+recovered to `Saved` before Playwright could click its transient Retry button. Linux passed the
+canonical tests/build but again completed only 12 of 20 E2E scenarios: the two-stage daemon startup
+still had no login collection because the runner lacked a usable `XDG_RUNTIME_DIR`, so Secret
+Service attempted an unavailable graphical prompt. Packaging and promotion were correctly skipped.
+Candidate `.5` remains failed evidence and cannot be promoted or retagged. Container reproduction
+on Ubuntu 24.04 matched the hosted failure; a private mode-700 runtime directory plus the daemon's
+single-stage `--unlock` flow then passed real `secret-tool` write, read, and cleanup probes.
+
+Local pre-tag evidence for `0.2026.8.6` (2026-08-10): `pnpm check:fast` and the 22-case recovery
+fixture verifier passed; the canonical Electron test runner passed 591 tests in 116 files with one
+benchmark skipped; and the complete fresh-build Electron E2E suite passed all 20 scenarios without
+a flaky result. `pnpm check:package` passed 12 packaged-smoke scenarios plus all 15 packaged E2E
+scenarios and verified the no-Team-ID signature policy. The unsigned arm64 artifacts are
+`WriteLLM-0.2026.8.6-arm64.dmg` (249,407,950 bytes, SHA-256
+`3a8d224ebd2e860fdad30bdb14eec6354f15f536ba5b1e38143d3555485a607f`) and
+`WriteLLM-0.2026.8.6-arm64.zip` (249,764,685 bytes, SHA-256
+`e4dd05804ae7a2f55219739304ee1036ebb37835936c8529c07c98d0d1ee542a`). The package evidence
+truthfully records the pre-tag checkout as dirty; hosted promotion still requires a clean tagged
+revision on all four targets.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

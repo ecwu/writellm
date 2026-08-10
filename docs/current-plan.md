@@ -63,7 +63,7 @@ verify every artifact and its governance evidence, perform the protected dry-run
 publishing a production release, and record the exact completion evidence. Do not start a later
 product checkpoint without explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.5` (`v0.2026.8.5` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.6` (`v0.2026.8.6` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -87,9 +87,16 @@ The immutable `v0.2026.8.4` candidate passed the static gate and macOS arm64 row
 Windows passed its Electron tests/build and 13 of 20 E2E scenarios; the remaining long scenarios
 exceeded the 45-second Playwright limit. Linux proved the password-store switch was now parsed,
 but `--unlock` did not provision a login keyring in the fresh runner, so eight credential-dependent
-scenarios still failed and several long scenarios also reached 45 seconds. Candidate
-`v0.2026.8.5` uses bounded hosted-runner timeouts and the documented two-stage GNOME Keyring login
-and session startup. Candidate `.4` remains failed audit evidence and is neither moved nor promoted.
+scenarios still failed and several long scenarios also reached 45 seconds. The immutable
+`v0.2026.8.5` candidate passed the static gate and both macOS rows. Windows passed
+17 of 20 E2E scenarios; two longest scenarios reached the 90-second total limit near completion,
+while the outline-conflict scenario automatically reached `Saved` before Playwright could click its
+transient Retry button. Linux again passed 12 of 20 scenarios because its runner lacked a usable
+`XDG_RUNTIME_DIR`, so the login collection did not exist and the Secret Service attempted an
+unavailable graphical prompt. Candidate `v0.2026.8.6` gives Windows a bounded 180-second limit,
+accepts the valid automatic conflict recovery, provisions a private Linux runtime directory, and
+requires a real Secret Service write/read/clear probe before Electron starts. Candidates `.4` and
+`.5` remain failed audit evidence and are neither moved nor promoted.
 
 ## Deferred
 
