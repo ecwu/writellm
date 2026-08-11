@@ -130,7 +130,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "56999ccbc37e8ac1a9fba3588f57a1e785975ad064fb1a1000a5154723e37886",
+      "sourceSha256": "caca6bc126a221e72e15ff983fa1d2eadd3cde8c6bd9682ea92c6233679109e1",
       "tests": [
         "persists partial output as interrupted and aborts the model request on project close",
         "persists manual review as a completed wait state and locks only that conversation",
