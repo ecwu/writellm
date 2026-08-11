@@ -25,13 +25,13 @@ describe('Agent IPC contracts', () => {
       }
     })
     expect(parsed.scope).toBe('selection')
-    expect(parsed.skillSelection).toEqual({ mode: 'auto' })
-    expect(
+    expect('skillSelection' in parsed).toBe(false)
+    expect(() =>
       agentStartRunInputSchema.parse({
         ...parsed,
         skillSelection: { mode: 'explicit', skillId: 'nature-writing' }
-      }).skillSelection
-    ).toEqual({ mode: 'explicit', skillId: 'nature-writing' })
+      })
+    ).toThrow()
     expect(() =>
       agentStartRunInputSchema.parse({
         projectSessionId,

@@ -162,6 +162,8 @@ export interface AgentSessionTable {
   provider_preset_id: string | null
   selected_model_id: string | null
   thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  skill_mode: 'auto' | 'explicit' | 'none'
+  skill_id: string | null
   created_at: string
   updated_at: string
   archived_at: string | null

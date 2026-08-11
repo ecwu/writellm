@@ -78,7 +78,11 @@ import {
   type AgentSkillPromptInput,
   type WritingSnapshot
 } from './context'
-import type { SkillRouter } from '../skills/skill-router'
+import {
+  SkillReadError,
+  type SkillRunState,
+  type WritingSkillRuntime
+} from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
 import type { AgentToolExecutor } from './tools'
 
@@ -112,6 +116,7 @@ interface ActiveRun {
   readonly pendingModelRequestIds: Set<string>
   readonly snapshots: Map<string, WritingSnapshot>
   skillSnapshot: SkillRunSnapshot
+  skillState: SkillRunState | null
   skillPrompt: AgentSkillPromptInput
   systemPrompt: string
   partialText: string
@@ -127,7 +132,8 @@ export interface AgentSessionServiceOptions {
   agentCatalog?: Pick<AgentProviderCatalogService, 'resolve'>
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
-  skillRouter?: Pick<SkillRouter, 'route'>
+  skillRouter?: Pick<WritingSkillRuntime, 'route'> &
+    Partial<Pick<WritingSkillRuntime, 'read' | 'validateSelection'>>
   tools?: AgentToolExecutor
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publishEvent?: (event: AgentEventRecord) => void | Promise<void>
@@ -179,8 +185,9 @@ export class AgentSessionService {
           `INSERT INTO agent_sessions (
              agent_session_id, title, pi_runtime_version, event_schema_version,
              status, approval_mode, provider_preset_id, selected_model_id, thinking_level,
+             skill_mode, skill_id,
              created_at, updated_at, archived_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, NULL)`
+           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, 'auto', NULL, ?, ?, NULL)`
         )
         .run(
           agentSessionId,
@@ -208,6 +215,7 @@ export class AgentSessionService {
       workflowState: 'idle',
       modelSelection,
       thinkingLevel,
+      skillSelection: { mode: 'auto' },
       createdAt: now,
       updatedAt: now
     })
@@ -220,7 +228,7 @@ export class AgentSessionService {
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
                     status, approval_mode, provider_preset_id, selected_model_id,
-                    thinking_level,
+                    thinking_level, skill_mode, skill_id,
                     created_at, updated_at,
                     CASE
                       WHEN EXISTS (
@@ -254,6 +262,8 @@ export class AgentSessionService {
           provider_preset_id: string | null
           selected_model_id: string | null
           thinking_level: AgentThinkingLevel
+          skill_mode: 'auto' | 'explicit' | 'none'
+          skill_id: string | null
           workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
           created_at: string
           updated_at: string
@@ -273,6 +283,10 @@ export class AgentSessionService {
               ? null
               : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
           thinkingLevel: row.thinking_level,
+          skillSelection:
+            row.skill_mode === 'explicit' && row.skill_id !== null
+              ? { mode: 'explicit', skillId: row.skill_id }
+              : { mode: row.skill_mode },
           createdAt: row.created_at,
           updatedAt: row.updated_at
         })
@@ -356,6 +370,44 @@ export class AgentSessionService {
     this.options.log.info(
       { event: 'agent.session.thinking_level_updated', agentSessionId, thinkingLevel },
       'Agent session Thinking level updated'
+    )
+    return session
+  }
+
+  async setSkillSelection(
+    agentSessionId: string,
+    selection: SkillSelection
+  ): Promise<AgentSessionRecord> {
+    if (this.#active?.agentSessionId === agentSessionId) {
+      throw new Error('Writing Skill selection cannot change while a run is active')
+    }
+    this.#assertCompatibleSession(agentSessionId)
+    this.#assertConversationReady(agentSessionId)
+    const parsed = skillSelectionSchema.parse(selection)
+    if (parsed.mode === 'explicit') {
+      if (this.options.skillRouter?.validateSelection === undefined) {
+        throw new Error('Writing Skills are unavailable')
+      }
+      await this.options.skillRouter.validateSelection(parsed)
+    }
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      database
+        .prepare(
+          'UPDATE agent_sessions SET skill_mode = ?, skill_id = ?, updated_at = ? WHERE agent_session_id = ?'
+        )
+        .run(parsed.mode, parsed.mode === 'explicit' ? parsed.skillId : null, now, agentSessionId)
+    })
+    const session = this.listSessions().find((item) => item.agentSessionId === agentSessionId)
+    if (session === undefined) throw new Error('Agent session does not exist')
+    this.options.log.info(
+      {
+        event: 'agent.session.skill_selection_updated',
+        agentSessionId,
+        skillMode: parsed.mode,
+        ...(parsed.mode === 'explicit' ? { skillId: parsed.skillId } : {})
+      },
+      'Agent session Writing Skill selection updated'
     )
     return session
   }
@@ -479,14 +531,24 @@ export class AgentSessionService {
       (
         database
           .prepare(
-            `SELECT agent_run_id, agent_session_id, status, provider_id, model_id,
-                    provider_preset_id, provider_label, model_label, api_id,
-                    approval_mode, thinking_level, model_limits_json, editor_context_json, error_json,
-                    skill_snapshot_json,
-                    started_at, completed_at, updated_at
-               FROM agent_runs
-              WHERE agent_session_id = ?
-              ORDER BY started_at DESC, agent_run_id DESC
+            `SELECT run.agent_run_id, run.agent_session_id, run.status, run.provider_id, run.model_id,
+                    run.provider_preset_id, run.provider_label, run.model_label, run.api_id,
+                    run.approval_mode, run.thinking_level, run.model_limits_json,
+                    run.editor_context_json, run.error_json, run.skill_snapshot_json,
+                    skill_route.model_request_id AS skill_route_model_request_id,
+                    skill_route.input_tokens AS skill_route_input_tokens,
+                    skill_route.output_tokens AS skill_route_output_tokens,
+                    skill_route.cache_read_tokens AS skill_route_cache_read_tokens,
+                    skill_route.cache_write_tokens AS skill_route_cache_write_tokens,
+                    skill_route.estimated_cost_usd_micros AS skill_route_estimated_cost_usd_micros,
+                    skill_route.retry_count AS skill_route_retry_count,
+                    run.started_at, run.completed_at, run.updated_at
+               FROM agent_runs AS run
+               LEFT JOIN model_requests AS skill_route
+                 ON skill_route.model_request_id = run.skill_route_model_request_id
+                AND skill_route.delivery = 'skill_route'
+              WHERE run.agent_session_id = ?
+              ORDER BY run.started_at DESC, run.agent_run_id DESC
               LIMIT ?`
           )
           .all(agentSessionId, boundedLimit) as Array<{
@@ -505,6 +567,13 @@ export class AgentSessionService {
           editor_context_json: string
           error_json: string | null
           skill_snapshot_json: string
+          skill_route_model_request_id: string | null
+          skill_route_input_tokens: number | null
+          skill_route_output_tokens: number | null
+          skill_route_cache_read_tokens: number | null
+          skill_route_cache_write_tokens: number | null
+          skill_route_estimated_cost_usd_micros: number | null
+          skill_route_retry_count: number | null
           started_at: string
           completed_at: string | null
           updated_at: string
@@ -525,6 +594,17 @@ export class AgentSessionService {
           modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
           skillSnapshot: skillRunSnapshotSchema.parse(JSON.parse(row.skill_snapshot_json)),
+          skillRouteUsage:
+            row.skill_route_model_request_id === null
+              ? null
+              : {
+                  inputTokens: row.skill_route_input_tokens,
+                  outputTokens: row.skill_route_output_tokens,
+                  cacheReadTokens: row.skill_route_cache_read_tokens,
+                  cacheWriteTokens: row.skill_route_cache_write_tokens,
+                  estimatedCostUsdMicros: row.skill_route_estimated_cost_usd_micros,
+                  retryCount: row.skill_route_retry_count ?? 0
+                },
           errorCode: safeErrorCode(row.error_json),
           startedAt: row.started_at,
           completedAt: row.completed_at,
@@ -555,14 +635,35 @@ export class AgentSessionService {
     maxOutputTokens?: number
     temperature?: number
     operationId?: string
-    skillSelection?: SkillSelection
     reuseSkillSnapshot?: SkillRunSnapshot
   }): Promise<StartedAgentRun> {
     if (this.#active !== undefined) throw new Error('An Agent run is already active')
     const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
     const editorContext = agentEditorContextSchema.parse(input.editorContext)
     const operationId = input.operationId ?? this.#createId()
-    const skillSelection = skillSelectionSchema.parse(input.skillSelection ?? { mode: 'auto' })
+    const skillSelection = this.#sessionSkillSelection(input.agentSessionId)
+    if (skillSelection.mode === 'explicit') {
+      if (this.options.skillRouter?.validateSelection === undefined) {
+        throw new Error('The selected Writing Skill is unavailable. Reinstall it or choose Auto.')
+      }
+      try {
+        await this.options.skillRouter.validateSelection(skillSelection)
+      } catch (err) {
+        this.options.log.error(
+          {
+            event: 'agent.session.explicit_skill_unavailable',
+            err,
+            agentSessionId: input.agentSessionId,
+            skillId: skillSelection.skillId
+          },
+          'Selected Writing Skill is unavailable'
+        )
+        throw new Error(
+          'The selected Writing Skill is unavailable. Reinstall it, choose another Skill, or switch to Auto.',
+          { cause: err }
+        )
+      }
+    }
     const agentRunId = this.#createId()
     this.#assertCompatibleSession(input.agentSessionId)
     this.#assertConversationReady(input.agentSessionId)
@@ -623,6 +724,7 @@ export class AgentSessionService {
             pendingModelRequestIds: new Set(),
             snapshots: new Map(),
             skillSnapshot: pendingSkillSnapshot(skillSelection),
+            skillState: null,
             skillPrompt: { mode: skillSelection.mode, mandatory: '', references: [] },
             systemPrompt: input.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
             partialText: '',
@@ -655,12 +757,12 @@ export class AgentSessionService {
               event: 'agent.run.started',
               agentSessionId: input.agentSessionId,
               agentRunId,
-              phase: 'routing',
+              phase: 'skill_preparation',
               thinkingLevel
             },
-            'Agent run started and entered writing skill routing'
+            'Agent run started and entered writing skill preparation'
           )
-          // Legacy/test integrations without a router have no observable routing phase.
+          // Legacy/test integrations without a skill runtime have no observable preparation phase.
           // Keep their existing ready-on-return contract while production returns immediately.
           if (this.options.skillRouter === undefined) await prepared
           return { agentRunId, completion: active.completion }
@@ -716,6 +818,7 @@ export class AgentSessionService {
         })
         active.skillSnapshot = routed.snapshot
         active.skillPrompt = routed.prompt
+        active.skillState = routed.state ?? null
       } catch (err) {
         throw new AgentRunSetupError(
           active.controller.signal.aborted ? 'user_stopped' : 'skill_route_failed',
@@ -1252,31 +1355,46 @@ export class AgentSessionService {
     const deadlineSignal = AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
     const toolSignal = AbortSignal.any([signal, deadlineSignal])
     try {
-      if (this.options.tools === undefined) {
+      let data: unknown
+      if (request.toolName === 'read_writing_skill') {
+        if (
+          this.options.skillRouter === undefined ||
+          this.options.skillRouter.read === undefined ||
+          active.skillState === null
+        ) {
+          throw new AgentToolDomainError('unavailable', 'Writing Skills are unavailable', true)
+        }
+        const read = await this.options.skillRouter.read(active.skillState, request.args.uri)
+        active.skillSnapshot = read.snapshot
+        this.#updateSkillSnapshot(active.agentRunId, read.snapshot)
+        data = read.data
+      } else if (this.options.tools === undefined) {
         throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
+      } else {
+        data = await this.options.tools.execute({
+          toolName: request.toolName,
+          args: request.args,
+          editorContext: active.editorContext,
+          agentSessionId: active.agentSessionId,
+          agentRunId: active.agentRunId,
+          toolCallId: request.toolCallId,
+          toolCallEventId: toolCallEvent.agentEventId,
+          modelRequestId: request.modelRequestId,
+          snapshot: active.snapshots.get(request.modelRequestId),
+          signal: toolSignal
+        })
       }
-      let data: unknown = await this.options.tools.execute({
-        toolName: request.toolName,
-        args: request.args,
-        editorContext: active.editorContext,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        toolCallId: request.toolCallId,
-        toolCallEventId: toolCallEvent.agentEventId,
-        modelRequestId: request.modelRequestId,
-        snapshot: active.snapshots.get(request.modelRequestId),
-        signal: toolSignal
-      })
+      const tools = this.options.tools
       const proposal = mutationProposalToolResultSchema.safeParse(data)
       if (proposal.success) {
         const shouldAutoApprove =
-          this.options.tools.shouldAutoApprove?.(
+          tools?.shouldAutoApprove?.(
             active.agentSessionId,
             proposal.data.proposalId,
             active.approvalMode
           ) ?? false
         if (shouldAutoApprove) {
-          if (this.options.tools.approveProposalAutomatically === undefined) {
+          if (tools?.approveProposalAutomatically === undefined) {
             throw new AgentToolDomainError('unavailable', 'Automatic approval is unavailable', true)
           }
           this.options.log.info(
@@ -1288,14 +1406,14 @@ export class AgentSessionService {
             },
             'Automatic Agent proposal approval started'
           )
-          const outcome = await this.options.tools.approveProposalAutomatically(
+          const outcome = await tools.approveProposalAutomatically(
             active.agentSessionId,
             proposal.data.proposalId,
             true
           )
           data = submitResultFromOutcome(
             outcome,
-            this.options.tools.getProposal?.(active.agentSessionId, outcome.effectiveProposalId),
+            tools.getProposal?.(active.agentSessionId, outcome.effectiveProposalId),
             {
               createdSectionRefs: proposal.data.createdSectionRefs,
               createdBlockRefs: proposal.data.createdBlockRefs
@@ -1332,7 +1450,7 @@ export class AgentSessionService {
         toolName: request.toolName,
         contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
         isError: false,
-        result: data,
+        result: request.toolName === 'read_writing_skill' ? skillResultProjection(data) : data,
         error: null,
         ...provenance,
         timestamp: this.#now().getTime()
@@ -1421,6 +1539,10 @@ export class AgentSessionService {
       }
       if (active.pendingModelRequestIds.size > 0) {
         throw new Error('Agent run completed with unfinished model requests')
+      }
+      if (active.skillSnapshot.routingStatus === 'available') {
+        active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
+        this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
       }
       const event = await this.#finishRunAndAppendEvent({
         agentRunId: active.agentRunId,
@@ -1650,6 +1772,23 @@ export class AgentSessionService {
         .get(agentSessionId)
     )
     return agentThinkingLevelSchema.parse(value)
+  }
+
+  #sessionSkillSelection(agentSessionId: string): SkillSelection {
+    const row = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare('SELECT skill_mode, skill_id FROM agent_sessions WHERE agent_session_id = ?')
+          .get(agentSessionId) as
+          | { skill_mode: 'auto' | 'explicit' | 'none'; skill_id: string | null }
+          | undefined
+    )
+    if (row === undefined) throw new Error('Agent session does not exist')
+    return skillSelectionSchema.parse(
+      row.skill_mode === 'explicit'
+        ? { mode: 'explicit', skillId: row.skill_id }
+        : { mode: row.skill_mode }
+    )
   }
 
   #reconcileThinkingLevel(
@@ -2328,6 +2467,9 @@ function safeToolError(
   if (err instanceof AgentToolDomainError) {
     return { code: err.code, message: err.message.slice(0, 1_000), retryable: err.retryable }
   }
+  if (err instanceof SkillReadError) {
+    return { code: err.code, message: err.message.slice(0, 1_000), retryable: false }
+  }
   if (toolName === 'generate_image') {
     const httpStatus = findToolErrorHttpStatus(err)
     const providerCode = findToolErrorProviderCode(err)
@@ -2504,6 +2646,28 @@ function extractToolProvenance(data: unknown): {
     citationIds: uniqueStrings(entries.map((entry) => entry.citationId)),
     knowledgeItemIds: uniqueStrings(entries.map((entry) => entry.knowledgeItemId)),
     parseRevisionIds: uniqueStrings(entries.map((entry) => entry.parseRevisionId))
+  }
+}
+
+function skillResultProjection(data: unknown): Record<string, unknown> {
+  if (data === null || typeof data !== 'object') return {}
+  const value = data as Record<string, unknown>
+  const project = (entry: unknown): Record<string, unknown> | null => {
+    if (entry === null || typeof entry !== 'object') return null
+    const record = entry as Record<string, unknown>
+    return {
+      skillId: record.skillId,
+      commit: record.commit,
+      relativePath: record.relativePath,
+      sha256: record.sha256,
+      byteSize: record.byteSize
+    }
+  }
+  return {
+    ...project(value),
+    dependencies: Array.isArray(value.dependencies)
+      ? value.dependencies.map(project).filter((entry) => entry !== null)
+      : []
   }
 }
 

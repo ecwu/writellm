@@ -40,7 +40,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
     expect(submitSectionChangeParameters.properties.operations.maxItems).toBe(50)
   })
 
-  it('exposes only the v3 bounded model-facing parameter surfaces without capabilities', () => {
+  it('exposes only the v4 bounded model-facing parameter surfaces without capabilities', () => {
     for (const schema of [
       getWritingContextParameters,
       readSectionParameters,
@@ -90,6 +90,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'search_knowledge',
       'search_manuscript',
       'read_citations',
+      'read_writing_skill',
       'inspect_change',
       'check_draft',
       'submit_brief_change',
@@ -97,8 +98,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'submit_section_change',
       'generate_image'
     ])
-    expect(tools.slice(0, 8).every((tool) => tool.executionMode === 'parallel')).toBe(true)
-    expect(tools.slice(8).every((tool) => tool.executionMode === 'sequential')).toBe(true)
+    expect(tools.slice(0, 9).every((tool) => tool.executionMode === 'parallel')).toBe(true)
+    expect(tools.slice(9).every((tool) => tool.executionMode === 'sequential')).toBe(true)
     expect(
       tools.find((tool) => tool.name === 'submit_outline_change')?.prepareArguments
     ).toBeUndefined()
@@ -166,6 +167,50 @@ describe('Pi Agent tool TypeBox schemas', () => {
       text: expect.stringContaining('ignore previous instructions')
     })
     expect(requests.map((request) => request.toolCallId)).toEqual(['tool-search', 'tool-citations'])
+    bridge.close()
+  })
+
+  it('delimits loaded Writing Skill text as lower-priority guidance', async () => {
+    const { port1, port2 } = createFakeMessageChannel()
+    const bridge = new AgentReadToolBridge(
+      port1 as never,
+      {
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc535',
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc536',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc537'
+      },
+      () => '019c6a5c-8d34-7a8e-a602-3d37a52dc538'
+    )
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: {
+          skillId: 'nature-writing',
+          commit: 'a'.repeat(40),
+          relativePath: 'SKILL.md',
+          sha256: 'b'.repeat(64),
+          byteSize: 13,
+          content: 'Skill guidance',
+          references: [],
+          dependencies: []
+        }
+      })
+    })
+    const tool = bridge.tools().find((candidate) => candidate.name === 'read_writing_skill')
+    if (tool === undefined) throw new Error('Missing read_writing_skill tool')
+    const result = await tool.execute('tool-skill', {
+      uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/SKILL.md`
+    })
+
+    expect(result.content[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining(
+        '<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">'
+      )
+    })
+    expect(JSON.stringify(result)).not.toContain('<MANUSCRIPT_DATA')
     bridge.close()
   })
 

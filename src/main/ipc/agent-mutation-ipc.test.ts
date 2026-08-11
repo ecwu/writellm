@@ -15,7 +15,7 @@ const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc903'
 const revisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
 
 describe('Agent mutation IPC', () => {
-  it('authorizes the active project capability and publishes an applied section revision', async () => {
+  it('authorizes the active project capability without publishing the removed legacy channel', async () => {
     const value = harness()
     await value.invoke(IPC_CHANNELS.agentSubscribeMutations, {
       projectSessionId,
@@ -28,10 +28,7 @@ describe('Agent mutation IPC', () => {
     })
     expect(result).toEqual(approvalResult)
     expect(value.service.approve).toHaveBeenCalledOnce()
-    expect(value.sender.send).toHaveBeenCalledWith(
-      IPC_CHANNELS.agentSectionChanged,
-      approvalResult.sectionChanged
-    )
+    expect(value.sender.send).not.toHaveBeenCalled()
   })
 
   it('returns a refreshed proposal without publishing sectionChanged', async () => {
@@ -48,10 +45,7 @@ describe('Agent mutation IPC', () => {
     })
 
     expect(result).toEqual(refreshResult)
-    expect(value.sender.send).not.toHaveBeenCalledWith(
-      IPC_CHANNELS.agentSectionChanged,
-      expect.anything()
-    )
+    expect(value.sender.send).not.toHaveBeenCalled()
   })
 
   it('rejects stale project sessions and unauthorized renderer origins before mutation', async () => {

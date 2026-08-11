@@ -71,7 +71,7 @@ describe('AgentModelClient', () => {
     expect(result.text).toBe('draft')
     expect(JSON.stringify(result)).not.toContain('process-secret')
     expect(child.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ config, credential: 'process-secret' })
+      expect.objectContaining({ config, credential: { apiKey: 'process-secret' } })
     )
     await client.run(
       config,

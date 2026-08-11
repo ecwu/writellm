@@ -21,6 +21,7 @@ import {
   type ReadCitationsResult,
   type ReadOutlineResult,
   type ReadSectionResult,
+  type ReadWritingSkillResult,
   type SearchManuscriptResult,
   type SearchKnowledgeResult,
   type WritingContextResult
@@ -39,6 +40,7 @@ interface AgentToolResultMap {
   search_manuscript: SearchManuscriptResult
   search_knowledge: SearchKnowledgeResult
   read_citations: ReadCitationsResult
+  read_writing_skill: ReadWritingSkillResult
   inspect_change: InspectChangeResult
   check_draft: CheckDraftResult
   submit_brief_change: MutationProposalToolResult

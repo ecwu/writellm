@@ -19,7 +19,7 @@ The following rules are now the current target. Any older section in this docume
 - Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
 - Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- Agent Harness Protocol v3 uses eight bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`), three typed manuscript submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`), and one bounded `generate_image` effect/proposal tool. ADR 006 adds no generic network, file, or direct-write authority.
+- Agent Harness Protocol v4 uses nine bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`, `read_writing_skill`), three typed manuscript submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`), and one bounded `generate_image` effect/proposal tool. `read_writing_skill` accepts only run-authorized virtual Skill URIs; it adds no generic network, file, or direct-write authority.
 - The initial Agent persistence surface is `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
@@ -896,7 +896,7 @@ Full manuscript and knowledge access is through tools with pagination and size l
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
-### Agent Harness Protocol v3 tools
+### Agent Harness Protocol v4 tools
 
 ```text
 get_writing_context
@@ -908,6 +908,7 @@ read_citations
 inspect_change
 check_draft
 generate_image
+read_writing_skill
 ```
 
 `get_writing_context` is a lightweight snapshot manifest and never returns active section text.
@@ -917,6 +918,13 @@ a complete canonical block view, and bounded canonical JSON fragments. `inspect_
 proposals from the current Agent session. `check_draft` performs bounded deterministic checks.
 The UI injects selection capture time and revision; stale block selections are not combined with a
 newer body.
+
+`read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
+active run. In Auto mode, the first successful primary `SKILL.md` read atomically selects that one
+primary Skill; a second primary conflicts. Dependency entrypoints are supplied with the primary,
+and at most four manifest-listed primary reference files may be read afterward. Skill guidance is
+delimited below global policy and is never treated as manuscript data. Durable events store only
+IDs, pins, relative paths, hashes, and byte counts, never Skill bodies or private paths.
 
 Read-only tools may execute in parallel when their results are independent.
 
@@ -972,19 +980,29 @@ to a reviewed pin and file allowlist shipped in a later application catalog. Cus
 user-confirmed immutable GitHub commit under TOFU semantics. Only UTF-8 `.md` and `.txt` files are
 accepted, and no skill content is executable.
 
-Each Agent start declares `{ mode: 'auto' }`, `{ mode: 'explicit', skillId }`, or
-`{ mode: 'none' }`; omitted legacy input defaults to auto. A run snapshot persists provenance,
-selected resources, routing status, and safe errors in the project database but never skill bodies.
-The optional pre-router reuses the run provider/model and remains ordinary cancellable interactive
-work. Route requests retain `operation_kind = 'agent'` and use nullable
-`model_requests.delivery = 'skill_route'`; the existing operation-kind CHECK is unchanged.
+Each Agent session durably owns `{ mode: 'auto' }`, `{ mode: 'explicit', skillId }`, or
+`{ mode: 'none' }`; new and migrated sessions default to Auto. The setting changes only while the
+session is idle. Explicit selection remains intact if its installation later becomes unavailable,
+and new runs fail closed until the user reinstalls it or changes the setting. A run snapshot
+persists immutable provenance, authorized resources, routing status, and safe errors but never
+Skill bodies. Retry and Continue reuse the original snapshot. Historical `skill_route` model
+requests and legacy snapshot states remain readable, but new runs create no routing request.
+`listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
+credential surface, so historical conversation totals remain complete.
 
-Prompt composition is ordered and byte-bounded: global policy, companion note, Pi
-`formatSkillInvocation` blocks and complete selected references, trusted requirements, then
-manuscript data. Mandatory entrypoints and references are never truncated. Optional references are
-removed whole before the established outline reduction; mandatory overflow degrades auto to none
-or returns `skill_prompt_budget_exceeded` for explicit selection. Model-visible locations use
-`writellm://skills/...`, never private filesystem paths.
+Pi `loadSourcedSkills` runs over a read-only, manifest-backed virtual `ExecutionEnv`; WriteLLM's
+stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any Pi or
+WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
+`formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog of at most 32 complete entries and
+16 KiB; truncation is logged as `skill_catalog_truncated`. Explicit prompt composition uses
+`formatSkillInvocation` for the frozen primary and dependency entrypoints on every turn. Prompt
+order remains global policy, companion/catalog or invocation guidance, trusted requirements, then
+manuscript data. Model-visible locations use `writellm://skills/...`, never private filesystem
+paths.
+
+Custom-skill update availability is an ephemeral result of the user's explicit GitHub check. Main
+persists only the confirmed immutable commit pin; it does not persist or automatically trust a
+mutable default-branch head across Settings lifecycles.
 
 Submit tools are sequential and create `mutation_proposals`; they do not directly commit project state.
 

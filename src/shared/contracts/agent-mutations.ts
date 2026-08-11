@@ -11,7 +11,7 @@ import {
 import { projectSessionIdSchema } from './projects'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 3
+export const AGENT_TOOL_CONTRACT_VERSION = 4
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20

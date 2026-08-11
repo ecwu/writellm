@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 27.5 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-10
+Status: Checkpoint 27.6 is locally complete; local candidate v0.2026.8.11 is authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-11
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -15,6 +15,37 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 27.6: Pi-native progressive Writing Skills
+
+- [x] Amend ADR 013 and the architecture baseline for Agent Harness Protocol v4, the bounded
+  `read_writing_skill` tool, Pi-native discovery/invocation formatting, and durable session
+  selection.
+- [x] Replace the extra SkillRouter model request with a manifest-backed virtual Pi loader,
+  bounded Auto catalog, one-primary run lock, dependency entrypoints, and lazy references.
+- [x] Add migration 0026, idle-only session selection IPC, immutable Retry/Continue snapshots,
+  unavailable explicit-selection fail-closed behavior, and persistent Renderer selection.
+- [x] Share provider-neutral model/transport construction between session and single-shot Agent
+  requests; remove the hard-coded OpenAI Completions path.
+- [x] Close K3 acceptance findings: expose historical SkillRouter usage in bounded run metadata,
+  add cancellable Writing Skill operations, remove the unused legacy section-change channel,
+  render durable approval decisions, and harden Renderer run-truth merging in the view-model.
+- [x] Pass focused native-loader/Auto/Explicit/protocol/provider/migration/UI tests, `check:fast`,
+  `check:electron`, production build, `check:e2e`, the Impeccable detector, and
+  `git diff --check`.
+
+Authorization: on 2026-08-10 the user explicitly approved and requested implementation of the
+decision-complete Checkpoint 27.6 plan. On 2026-08-11 the user authorized the local
+`v0.2026.8.11` commit, tag, and macOS arm64 package build. Push, hosted CI, release, workflow
+restoration, and promotion remain unauthorized.
+
+Local evidence: focused native-loader, progressive Auto/Explicit runtime, tool protocol,
+provider transport, migration, Main/Worker, IPC, and Renderer suites; `check:fast`;
+`check:electron` with 129 passing Electron-hosted test files, 661 passing tests, and one opt-in
+benchmark skipped; a successful production build; 22/22 full Real-Electron E2E scenarios with no
+flaky or skipped results; the focused `agent.global-writing-skill` scenario covering two-turn
+explicit persistence and Auto `read_writing_skill`; a clean Impeccable detector; and
+`git diff --check`.
 
 ### Checkpoint 27.5: Agent Thinking Level
 

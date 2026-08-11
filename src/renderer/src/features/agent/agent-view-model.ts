@@ -1,4 +1,5 @@
 import {
+  agentApprovalDecisionPayloadSchema,
   agentAssistantMessagePayloadSchema,
   agentCompactionSummaryPayloadSchema,
   agentUserMessagePayloadSchema
@@ -17,6 +18,7 @@ type AgentToolCallPayload = ReturnType<typeof agentToolCallPayloadSchema.parse>
 type AgentUserMessagePayload = ReturnType<typeof agentUserMessagePayloadSchema.parse>
 type AgentAssistantMessagePayload = ReturnType<typeof agentAssistantMessagePayloadSchema.parse>
 type AgentCompactionSummaryPayload = ReturnType<typeof agentCompactionSummaryPayloadSchema.parse>
+type AgentApprovalDecisionPayload = ReturnType<typeof agentApprovalDecisionPayloadSchema.parse>
 type AgentTerminalEvent = AgentEventRecord & {
   type: 'run_interrupted' | 'run_completed'
 }
@@ -72,6 +74,7 @@ export type AgentTimelineItem =
       tool: AgentToolActivity
       proposal: MutationProposalRecord | null
     }
+  | { type: 'approval_decision'; id: string; payload: AgentApprovalDecisionPayload }
   | { type: 'run_interrupted'; id: string; terminal: AgentRunTerminal }
   | { type: 'run_completed'; id: string; terminal: AgentRunTerminal }
   | { type: 'compaction_summary'; id: string; payload: AgentCompactionSummaryPayload }
@@ -90,12 +93,35 @@ export function protectTerminalAgentRuns(
   terminalRunIds: ReadonlySet<string>
 ): AgentRunRecord[] {
   const currentById = new Map(current.map((run) => [run.agentRunId, run] as const))
-  return incoming.flatMap((run) => {
+  const incomingIds = new Set(incoming.map((run) => run.agentRunId))
+  const merged = incoming.flatMap((run) => {
     if (run.status !== 'running') return [run]
     const previous = currentById.get(run.agentRunId)
     if (previous !== undefined && previous.status !== 'running') return [previous]
     return terminalRunIds.has(run.agentRunId) ? [] : [run]
   })
+  for (const run of current) {
+    if (
+      run.status === 'running' &&
+      !incomingIds.has(run.agentRunId) &&
+      !terminalRunIds.has(run.agentRunId)
+    ) {
+      merged.push(run)
+    }
+  }
+  let keptRunning = false
+  return merged
+    .sort((left, right) =>
+      right.startedAt === left.startedAt
+        ? right.agentRunId.localeCompare(left.agentRunId)
+        : right.startedAt.localeCompare(left.startedAt)
+    )
+    .filter((run) => {
+      if (run.status !== 'running') return true
+      if (keptRunning) return false
+      keptRunning = true
+      return true
+    })
 }
 
 export function applyAgentTerminalEvent(
@@ -276,6 +302,29 @@ export function projectAgentTimeline(
         })
       } else {
         pendingTools.push(tool)
+      }
+      continue
+    }
+    if (event.type === 'approval_decision') {
+      const parsed = agentApprovalDecisionPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) continue
+      flushTools()
+      const previous = items.at(-1)
+      if (
+        previous?.type === 'approval_decision' &&
+        previous.payload.proposalId === parsed.data.proposalId &&
+        previous.payload.decision === parsed.data.decision
+      ) {
+        items[items.length - 1] = {
+          type: 'approval_decision',
+          id: event.agentEventId,
+          payload: {
+            ...parsed.data,
+            continueRequested: previous.payload.continueRequested || parsed.data.continueRequested
+          }
+        }
+      } else {
+        items.push({ type: 'approval_decision', id: event.agentEventId, payload: parsed.data })
       }
       continue
     }
@@ -569,14 +618,19 @@ export function findLatestPrompt(events: AgentEventRecord[]): string | null {
   return null
 }
 
-export function aggregateAgentUsage(events: AgentEventRecord[]): {
+export function aggregateAgentUsage(
+  events: AgentEventRecord[],
+  runs: AgentRunRecord[] = []
+): {
   inputTokens: number
   outputTokens: number
   retryCount: number
+  skillRouteRequests: number
 } {
   let inputTokens = 0
   let outputTokens = 0
   let retryCount = 0
+  let skillRouteRequests = 0
   for (const event of events) {
     if (event.type !== 'assistant_message') continue
     const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
@@ -585,7 +639,14 @@ export function aggregateAgentUsage(events: AgentEventRecord[]): {
     outputTokens += parsed.data.metadata.usage.outputTokens ?? 0
     retryCount += parsed.data.metadata.retryCount
   }
-  return { inputTokens, outputTokens, retryCount }
+  for (const run of runs) {
+    if (run.skillRouteUsage === null) continue
+    skillRouteRequests += 1
+    inputTokens += run.skillRouteUsage.inputTokens ?? 0
+    outputTokens += run.skillRouteUsage.outputTokens ?? 0
+    retryCount += run.skillRouteUsage.retryCount
+  }
+  return { inputTokens, outputTokens, retryCount, skillRouteRequests }
 }
 
 export function latestAgentContextUsage(events: AgentEventRecord[]): {

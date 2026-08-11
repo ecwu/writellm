@@ -11,6 +11,7 @@ import {
 } from './agent'
 import { agentModelLimitsSchema } from './agent'
 import { mutationProposalRecordSchema } from './agent-mutations'
+import { modelUsageSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
 import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from './providers'
 import { skillRunSnapshotSchema, skillSelectionSchema } from './skills'
@@ -38,6 +39,7 @@ export const agentSessionRecordSchema = strictObject({
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
   modelSelection: agentModelSelectionSchema.nullable().default(null),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
+  skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -71,6 +73,12 @@ export const agentRunRecordSchema = strictObject({
     resources: [],
     safeError: null
   }),
+  skillRouteUsage: strictObject({
+    ...modelUsageSchema.shape,
+    retryCount: z.number().int().nonnegative().max(20)
+  })
+    .nullable()
+    .default(null),
   errorCode: z.string().min(1).max(200).nullable(),
   startedAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
@@ -115,6 +123,10 @@ export const agentSetThinkingLevelInputSchema = agentSessionInputSchema.extend({
   level: agentThinkingLevelSchema
 })
 export const agentSetThinkingLevelResultSchema = agentSessionRecordSchema
+export const agentSetSkillSelectionInputSchema = agentSessionInputSchema.extend({
+  selection: skillSelectionSchema
+})
+export const agentSetSkillSelectionResultSchema = agentSessionRecordSchema
 export const agentListSessionsResultSchema = z
   .array(agentSessionRecordSchema)
   .max(AGENT_SESSION_LIMIT)
@@ -146,7 +158,6 @@ export const agentStartRunInputSchema = strictObject({
   approvedProposalId: z.uuid().optional(),
   reuseSkillFromRunId: agentRunIdSchema.optional(),
   scope: agentStartScopeSchema,
-  skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {
   if (input.scope === 'project') {

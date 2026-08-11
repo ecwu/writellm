@@ -56,6 +56,8 @@ import {
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
+  agentSetSkillSelectionInputSchema,
+  agentSetSkillSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentSubscriptionInputSchema,
@@ -417,6 +419,9 @@ export interface DesktopApi {
       agentSessionId: string
       level: AgentThinkingLevel
     }): Promise<AgentSessionRecord>
+    setSkillSelection(
+      input: ReturnType<typeof agentSetSkillSelectionInputSchema.parse>
+    ): Promise<AgentSessionRecord>
     listEvents(input: {
       projectSessionId: string
       agentSessionId: string
@@ -1126,6 +1131,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentSetThinkingLevel,
           agentSetThinkingLevelInputSchema.parse(input)
+        )
+      )
+    },
+    async setSkillSelection(input) {
+      return agentSetSkillSelectionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentSetSkillSelection,
+          agentSetSkillSelectionInputSchema.parse(input)
         )
       )
     },

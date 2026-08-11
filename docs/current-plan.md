@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 27.5 is locally complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-10
+Status: Checkpoint 27.6 is locally complete; local candidate v0.2026.8.11 is authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-11
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -9,6 +9,27 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 27.6 is locally complete. It replaces the out-of-band Writing Skill model pre-router with
+Pi-native progressive disclosure inside the formal Agent turn. Auto mode exposes a bounded,
+virtual-URI catalog and adds one read-only `read_writing_skill` tool; explicit selection becomes a
+durable session setting and injects the frozen primary Skill on every turn. WriteLLM retains
+manifest, commit-pin, hash, dependency, prompt-budget, and no-private-path authority. Protocol v4
+has thirteen bounded tools; it does not migrate the runtime to `AgentHarness`, add executable
+skills, or expose general filesystem reads. The checkpoint also unifies single-shot and session
+model transport construction so non-Skill requests honor the selected provider API and credential
+envelope. The user explicitly approved implementation on 2026-08-10 and authorized the local
+`v0.2026.8.11` commit, tag, and macOS arm64 package build on 2026-08-11. Push, hosted CI,
+release, workflow restoration, and promotion remain out of scope.
+
+Local evidence includes the focused native-loader, progressive Auto/Explicit runtime, tool
+protocol, provider transport, migration, Main/Worker, IPC, and Renderer suites; `check:fast`;
+`check:electron` with 129 passing Electron-hosted test files, 661 passing tests, and one opt-in
+benchmark skipped; a successful production build; 22/22 full Real-Electron E2E scenarios without
+flaky or skipped results; a focused Writing Skills scenario that proves two-turn explicit
+persistence plus Auto `read_writing_skill` loading in the formal Agent turn; a clean Impeccable
+detector; and `git diff --check`. No package, release, hosted CI, commit, push, or promotion was
+run.
 
 Checkpoint 27.5 is locally complete. It implements accepted ADR 014 as a conversation-scoped Pi
 Thinking level with exact built-in-model capability projection, an application-global remembered
@@ -143,9 +164,10 @@ authorized. On 2026-08-10 the user stopped the remaining `v0.2026.8.10` macOS x6
 the account exhausted its included Actions minutes, then directed that every workflow be disabled
 for every trigger. The repository preserves the definitions only as `.yml.disabled` files, and the
 two remote workflows are manually disabled. Restoring any workflow requires new explicit user
-approval. Do not start a later product checkpoint without explicit user approval.
+approval. Checkpoint 27.6 has that approval; do not start a subsequent product checkpoint without
+new explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.10` (`v0.2026.8.10` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.11` (`v0.2026.8.11` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS

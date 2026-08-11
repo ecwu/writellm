@@ -152,6 +152,52 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('projects bounded historical SkillRouter usage through listRuns', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Historical route usage')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft an opening.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('historical-route')
+    })
+    active.resolve()
+    await started.completion
+
+    database.immediate((sqlite) => {
+      sqlite
+        .prepare(
+          `UPDATE model_requests
+              SET delivery = 'skill_route', input_tokens = 7, output_tokens = 2,
+                  cache_read_tokens = 3, cache_write_tokens = 1,
+                  estimated_cost_usd_micros = 9, retry_count = 2
+            WHERE model_request_id = ?`
+        )
+        .run(active.input.modelRequestId)
+      sqlite
+        .prepare('UPDATE agent_runs SET skill_route_model_request_id = ? WHERE agent_run_id = ?')
+        .run(active.input.modelRequestId, started.agentRunId)
+    })
+
+    expect(service.listRuns(session.agentSessionId)[0]?.skillRouteUsage).toEqual({
+      inputTokens: 7,
+      outputTokens: 2,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 1,
+      estimatedCostUsdMicros: 9,
+      retryCount: 2
+    })
+    database.close()
+  })
+
   it('records a user stop during compaction as user_stopped instead of compaction_failed', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -320,6 +366,69 @@ describe('AgentSessionService', () => {
         .run('read-only-runtime', session.agentSessionId)
     )
     expect(() => service.setThinkingLevel(session.agentSessionId, 'low')).toThrow('incompatible')
+    database.close()
+  })
+
+  it('persists one explicit Writing Skill across consecutive session messages', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const validateSelection = vi.fn(async () => undefined)
+    const route = vi.fn(async (input: { selection: { mode: string } }) => ({
+      snapshot: {
+        mode: input.selection.mode as 'explicit',
+        routingStatus: 'selected' as const,
+        primary: {
+          skillId: 'nature-writing',
+          name: 'nature-writing',
+          commit: 'a'.repeat(40),
+          manifestSha256: 'b'.repeat(64)
+        },
+        dependencies: [],
+        resources: [],
+        safeError: null
+      },
+      prompt: { mode: 'explicit' as const, mandatory: '<skill>Use it.</skill>', references: [] },
+      modelRequestId: null
+    }))
+    const service = createService(database, runtime, undefined, {
+      skillRouter: { route, validateSelection }
+    })
+    const session = service.createSession('Persistent skill')
+    expect(session.skillSelection).toEqual({ mode: 'auto' })
+    await service.setSkillSelection(session.agentSessionId, {
+      mode: 'explicit',
+      skillId: 'nature-writing'
+    })
+    expect(service.listSessions()[0]?.skillSelection).toEqual({
+      mode: 'explicit',
+      skillId: 'nature-writing'
+    })
+
+    const first = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'First message.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await expect(
+      service.setSkillSelection(session.agentSessionId, { mode: 'auto' })
+    ).rejects.toThrow('active')
+    await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(first.agentRunId))
+    runtime.active().resolve()
+    await first.completion
+    const second = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Second message.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(second.agentRunId))
+    runtime.active().resolve()
+    await second.completion
+
+    expect(route.mock.calls.map(([input]) => input.selection)).toEqual([
+      { mode: 'explicit', skillId: 'nature-writing' },
+      { mode: 'explicit', skillId: 'nature-writing' }
+    ])
+    expect(validateSelection).toHaveBeenCalledTimes(3)
     database.close()
   })
 
@@ -810,6 +919,85 @@ describe('AgentSessionService', () => {
     ])
     reopenedRuntime.active().reject(workerExitError())
     await continued.completion
+    database.close()
+  })
+
+  it('persists a selected Skill snapshot before returning guidance without storing its body', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const commit = 'a'.repeat(40)
+    const snapshot = {
+      mode: 'auto' as const,
+      routingStatus: 'selected' as const,
+      primary: {
+        skillId: 'nature-writing',
+        name: 'nature-writing',
+        commit,
+        manifestSha256: 'b'.repeat(64)
+      },
+      dependencies: [],
+      resources: [],
+      safeError: null
+    }
+    const state = {
+      mode: 'auto' as const,
+      candidates: new Map(),
+      primary: null,
+      lockingPrimaryUri: null,
+      dependencies: [],
+      readResources: new Set<string>(),
+      readingResources: new Set<string>()
+    }
+    const service = createService(database, runtime, undefined, {
+      skillRouter: {
+        route: async () => ({
+          snapshot: { ...snapshot, routingStatus: 'available' as const, primary: null },
+          prompt: { mode: 'auto', mandatory: '<available_skills />', references: [] },
+          modelRequestId: null,
+          state
+        }),
+        read: async () => ({
+          snapshot,
+          data: {
+            skillId: 'nature-writing',
+            commit,
+            relativePath: 'SKILL.md',
+            sha256: 'c'.repeat(64),
+            byteSize: 18,
+            content: 'PRIVATE SKILL BODY',
+            references: [],
+            dependencies: []
+          }
+        })
+      }
+    })
+    const session = service.createSession('Progressive skill')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Use a method.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(started.agentRunId))
+    const active = runtime.active()
+    const response = await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc479',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-skill-1',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'read_writing_skill',
+      args: { uri: `writellm://skills/nature-writing/${commit}/SKILL.md` }
+    })
+
+    expect(JSON.stringify(response)).toContain('PRIVATE SKILL BODY')
+    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('selected')
+    expect(JSON.stringify(service.listEvents(session.agentSessionId))).not.toContain(
+      'PRIVATE SKILL BODY'
+    )
+    active.resolve()
+    await started.completion
     database.close()
   })
 

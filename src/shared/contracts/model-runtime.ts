@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { googleGeminiImageSizeSchema, providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
+import { agentRuntimeAuthSchema } from './agent-auth'
 
 export const modelUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative().nullable(),
@@ -152,7 +153,7 @@ export const agentUtilityRequestSchema = z.object({
   requestId: z.uuid(),
   projectSessionId: projectSessionIdSchema.nullable().optional(),
   config: providerConfigSchema.refine((config) => config.role === 'agent'),
-  credential: z.string().min(1).max(16_384),
+  credential: agentRuntimeAuthSchema,
   modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
   input: agentRunInputSchema
 })

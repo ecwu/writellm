@@ -151,7 +151,6 @@ export function AgentPanel(props: {
   const [streaming, setStreaming] = useState<Record<string, string>>({})
   const [prompt, setPrompt] = useState('')
   const [scope, setScope] = useState<AgentStartScope>('section')
-  const [skillSelection, setSkillSelection] = useState<SkillSelection>({ mode: 'auto' })
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const [screen, setScreen] = useState<'sessions' | 'conversation'>('sessions')
@@ -255,18 +254,6 @@ export function AgentPanel(props: {
         .snapshot()
         .then((next) => {
           setSkillSnapshot(next)
-          // A staged explicit chip must not survive its skill being disabled, uninstalled,
-          // or demoted in Settings while the panel is open.
-          setSkillSelection((current) => {
-            if (current.mode !== 'explicit') return current
-            const stillAvailable = next.installed.some(
-              (skill) =>
-                skill.skillId === current.skillId &&
-                skill.enabled &&
-                skill.integrityStatus === 'ready'
-            )
-            return stillAvailable ? current : { mode: 'auto' }
-          })
         })
         .catch(() => undefined)
     })
@@ -302,8 +289,8 @@ export function AgentPanel(props: {
                   2_097_152
                 )
             }))
-            // Deltas only exist after routing finished and generation started; refresh once so
-            // the composer leaves the "Choosing writing skill…" state without waiting for a
+            // Deltas only exist after skill preparation finished and generation started; refresh
+            // once so the composer leaves the "Preparing writing guidance…" state without a
             // tool result or the terminal event.
             if (skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)) {
               void refreshSessionTruth(activeSessionId).catch((cause) =>
@@ -343,8 +330,8 @@ export function AgentPanel(props: {
             skillRoutingPendingRef.current.delete(rendererEvent.event.agentRunId)
           ) {
             // The linked initial user message is the first durable event guaranteed to be
-            // published after routing finished; tool-first runs and non-streaming providers
-            // may not emit an early delta, so leave "Choosing writing skill…" here instead.
+            // published after skill preparation finished; tool-first runs and non-streaming
+            // providers may not emit an early delta, so leave "Preparing writing guidance…" here.
             void refreshSessionTruth(activeSessionId).catch((cause) =>
               props.onError(errorMessage(cause))
             )
@@ -413,6 +400,7 @@ export function AgentPanel(props: {
 
   const activeSession =
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
+  const skillSelection: SkillSelection = activeSession?.skillSelection ?? { mode: 'auto' }
   const activeRun = runs.find((run) => run.status === 'running') ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
   const hasStreamingRun = Object.keys(streaming).length > 0
@@ -424,7 +412,7 @@ export function AgentPanel(props: {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1_000)
     return () => window.clearInterval(timer)
   }, [isAgentWorking])
-  const usage = useMemo(() => aggregateAgentUsage(events), [events])
+  const usage = useMemo(() => aggregateAgentUsage(events, runs), [events, runs])
   const contextUsage = useMemo(() => latestAgentContextUsage(events), [events])
   const latestRun = runs[0] ?? null
   const contextLimits = activeRun?.modelLimits ?? latestRun?.modelLimits ?? null
@@ -552,6 +540,29 @@ export function AgentPanel(props: {
     }
   }
 
+  const setSkillSelection = async (selection: SkillSelection): Promise<void> => {
+    if (activeSession === null || activeRun !== null || conversationLocked) return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.setSkillSelection({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        selection
+      })
+      setSessions((current) =>
+        current.map((session) =>
+          session.agentSessionId === updated.agentSessionId ? updated : session
+        )
+      )
+      setSkillPickerOpen(false)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
     setScreen('conversation')
@@ -562,7 +573,7 @@ export function AgentPanel(props: {
     approvedProposalId?: string,
     allowWhileBusy = false,
     skipEditorFlush = false,
-    selectionOverride?: SkillSelection,
+    _selectionOverride?: SkillSelection,
     reuseSkillFromRunId?: string
   ): Promise<void> => {
     const trimmed = content.trim()
@@ -587,7 +598,6 @@ export function AgentPanel(props: {
         prompt: trimmed,
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         scope,
-        skillSelection: selectionOverride ?? skillSelection,
         ...(reuseSkillFromRunId === undefined ? {} : { reuseSkillFromRunId }),
         editorContext: editorContextForScope(
           scope,
@@ -604,15 +614,6 @@ export function AgentPanel(props: {
         )
       )
       setPrompt('')
-      // Retry/Continue pin the original run's skill snapshot, so a staged explicit chip is
-      // not consumed by those paths and must stay staged for the next fresh run.
-      if (
-        skillSelection.mode === 'explicit' &&
-        selectionOverride === undefined &&
-        reuseSkillFromRunId === undefined
-      ) {
-        setSkillSelection({ mode: 'auto' })
-      }
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
@@ -973,7 +974,7 @@ export function AgentPanel(props: {
                   <Spinner />
                   <span className='shimmer'>
                     {activeRun.skillSnapshot.routingStatus === 'pending'
-                      ? 'Choosing writing skill…'
+                      ? 'Preparing writing guidance…'
                       : `Working · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`}
                   </span>
                   <TruncatedBadge value={activeRun.providerLabel || activeRun.providerId} />
@@ -1025,9 +1026,19 @@ export function AgentPanel(props: {
                 </>
               )}
             </div>
-            <span className='min-w-0 truncate tabular-nums @sm/agent:text-right'>
+            <span
+              className='min-w-0 truncate tabular-nums @sm/agent:text-right'
+              title={
+                usage.skillRouteRequests > 0
+                  ? `Includes ${usage.skillRouteRequests} historical Writing Skill routing request${usage.skillRouteRequests === 1 ? '' : 's'}.`
+                  : undefined
+              }
+            >
               {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
               {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
+              {usage.skillRouteRequests > 0
+                ? ` · ${usage.skillRouteRequests} skill route${usage.skillRouteRequests === 1 ? '' : 's'}`
+                : ''}
             </span>
             {contextLimits !== null ? (
               <div
@@ -1145,7 +1156,7 @@ export function AgentPanel(props: {
                   placeholder={
                     activeRun
                       ? choosingSkill
-                        ? 'Choosing a writing skill…'
+                        ? 'Preparing writing guidance…'
                         : 'Steer the current turn or queue a follow-up…'
                       : workflowState === 'generating'
                         ? 'Image generation is in progress…'
@@ -1217,10 +1228,7 @@ export function AgentPanel(props: {
                         snapshot={skillSnapshot}
                         selection={skillSelection}
                         disabled={busy}
-                        onSelect={(selection) => {
-                          setSkillSelection(selection)
-                          setSkillPickerOpen(false)
-                        }}
+                        onSelect={(selection) => void setSkillSelection(selection)}
                         onOpenSettings={props.onOpenSettings}
                       />
                       {latestPrompt ? (
@@ -1423,6 +1431,23 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'activity') return <ActivityGroup item={item} />
+  if (item.type === 'approval_decision') {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          {item.payload.decision === 'approved' ? (
+            <Check className='text-success' />
+          ) : (
+            <X className='text-destructive' />
+          )}
+        </MarkerIcon>
+        <MarkerContent>
+          {item.payload.decision === 'approved' ? 'Change approved' : 'Change rejected'}
+          {item.payload.continueRequested ? ' · Continued conversation' : ''}
+        </MarkerContent>
+      </Marker>
+    )
+  }
   if (item.type === 'proposal') {
     return (
       <ProposalMessage

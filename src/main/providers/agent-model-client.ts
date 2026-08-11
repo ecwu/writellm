@@ -83,7 +83,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       requestId: randomUUID(),
       projectSessionId: projectSessionId ?? null,
       config,
-      credential,
+      credential: decodeAgentRuntimeAuth(credential),
       modelLimits: modelLimits ?? legacyLimits(config.contextWindowTokens),
       input
     }

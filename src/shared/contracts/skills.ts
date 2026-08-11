@@ -56,6 +56,7 @@ export const skillRunProvenanceSchema = strictObject({
 export const skillRoutingStatusSchema = z.enum([
   'legacy',
   'pending',
+  'available',
   'not_needed',
   'selected',
   'degraded',

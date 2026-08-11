@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMain, type WebContents } from 'electron'
+import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import {
   approveMutationProposalInputSchema,
@@ -8,9 +8,7 @@ import {
   mutationProposalActionResultSchema,
   mutationSubscriptionInputSchema,
   rejectMutationProposalInputSchema,
-  undoMutationProposalInputSchema,
-  mutationSectionChangedSchema,
-  type MutationSectionChanged
+  undoMutationProposalInputSchema
 } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { ProjectManager } from '../project/project-manager'
@@ -30,7 +28,6 @@ export function registerAgentMutationIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
-  const legacySubscribers = new Map<string, Map<string, WebContents>>()
   const service = (projectSessionId: string) => {
     const context = options.manager.assertMutationSession(projectSessionId)
     if (context.agentMutations === null) throw new Error('Agent mutations are unavailable')
@@ -51,12 +48,6 @@ export function registerAgentMutationIpc(options: {
       decision: input.decision,
       continueRequested: false
     })
-  }
-  const publishLegacy = (changed: MutationSectionChanged): void => {
-    const parsed = mutationSectionChangedSchema.parse(changed)
-    for (const sender of legacySubscribers.get(parsed.projectSessionId)?.values() ?? []) {
-      if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.agentSectionChanged, parsed)
-    }
   }
   const lifecycle = async <T>(
     event: string,
@@ -88,7 +79,6 @@ export function registerAgentMutationIpc(options: {
         await service(input.projectSessionId).approve(input)
       )
       options.manager.assertActiveSession(input.projectSessionId)
-      if (result.sectionChanged !== null) publishLegacy(result.sectionChanged)
       await recordDecision({
         ...input,
         agentRunId: result.proposal.agentRunId,
@@ -120,7 +110,6 @@ export function registerAgentMutationIpc(options: {
         await service(input.projectSessionId).undo(input)
       )
       options.manager.assertActiveSession(input.projectSessionId)
-      if (result.sectionChanged !== null) publishLegacy(result.sectionChanged)
       return result
     })
   })
@@ -139,27 +128,19 @@ export function registerAgentMutationIpc(options: {
     const input = mutationSubscriptionInputSchema.parse(rawInput)
     options.manager.assertActiveSession(input.projectSessionId)
     options.broker?.subscribe(input.projectSessionId, input.subscriptionId, event.sender)
-    const leases = legacySubscribers.get(input.projectSessionId) ?? new Map()
-    leases.set(input.subscriptionId, event.sender)
-    legacySubscribers.set(input.projectSessionId, leases)
   })
   ipc.handle(IPC_CHANNELS.agentUnsubscribeMutations, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = mutationSubscriptionInputSchema.parse(rawInput)
     options.broker?.unsubscribe(input.projectSessionId, input.subscriptionId, event.sender.id)
-    const leases = legacySubscribers.get(input.projectSessionId)
-    if (leases?.get(input.subscriptionId)?.id === event.sender.id)
-      leases.delete(input.subscriptionId)
   })
 
   return {
     revokeSession(projectSessionId) {
       options.broker?.revokeSession(projectSessionId)
-      legacySubscribers.delete(projectSessionId)
     },
     unregister() {
       options.broker?.clear()
-      legacySubscribers.clear()
       for (const channel of [
         IPC_CHANNELS.agentProposalApprove,
         IPC_CHANNELS.agentProposalReject,

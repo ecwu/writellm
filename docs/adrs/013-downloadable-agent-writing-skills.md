@@ -1,6 +1,6 @@
 # ADR 013: Downloadable Agent Writing Skills
 
-Status: accepted
+Status: accepted; amended for Checkpoint 27.6
 Date: 2026-08-10
 
 ## Context
@@ -67,8 +67,9 @@ discovery, no network authority for skills, and no direct mutation authority.
   per-file hashes, SPDX license, fetch time — and the Agent surface displays source and license
   with attribution. Because WriteLLM redistributes nothing, no NOTICE or derivative-work
   obligations arise from the skills themselves.
-- Prompt assembly loads the complete primary and dependency `SKILL.md` entrypoints plus selected
-  complete reference files. A skill that cannot fit is rejected at validation, never silently
+- Explicit prompt assembly loads the complete primary and dependency `SKILL.md` entrypoints on
+  every turn; optional reference files remain progressively readable. A skill that cannot fit is
+  rejected at validation, never silently
   truncated. `MAX_SYSTEM_PROMPT_BYTES` remains 65,536 bytes. Catalog tests freeze the measured
   UTF-8 byte cost of `buildAgentPolicy()`, the companion note, Pi's invocation wrapper, and the
   fixed XML/JSON envelope; policy or companion changes intentionally fail that measurement test
@@ -76,13 +77,14 @@ discovery, no network authority for skills, and no direct mutation authority.
   most 24 KiB, at most 48 KiB across all installed text, at most 32 `.md`/`.txt` files, and at most
   8 KiB per reference file. Entrypoints, dependencies, and references are never truncated. An
   application-owned companion note — WriteLLM's own text, shipped with the app —
-  states the fixed twelve-tool set and converts references to unavailable capabilities (shell,
+  states the fixed thirteen-tool set and converts references to unavailable capabilities (shell,
   arbitrary files, `.bib` mutation, external literature search, subagents, other skills) into
   explicit evidence gaps. The final system prompt remains under the existing 65,536-byte bound
   (`MAX_SYSTEM_PROMPT_BYTES` in `src/main/agent/context.ts`); catalog validation must prove at
   startup that every mandatory assembly — global policy, companion note, one primary skill, and
   its dependency closure — fits the bound while retaining a small reference-file reserve.
-- Skill activation is snapshotted per run as `auto | explicit | none`; the default is `auto`.
+- Skill activation is stored per session and snapshotted per run as `auto | explicit | none`; new
+  sessions default to `auto`.
   `auto` considers enabled, integrity-verified skills that permit model invocation, `explicit`
   fixes one enabled, integrity-verified primary skill selected for that run, and `none` disables
   skill use. At most one primary writing-method skill is active per run, plus its declared dependencies;
@@ -92,29 +94,30 @@ discovery, no network authority for skills, and no direct mutation authority.
   are never co-active.
 - Persist every run's bounded skill provenance in `agent_runs.skill_snapshot_json`: requested
   mode, selected primary and dependencies, commit pins, hashes, loaded resource paths, routing
-  status, and safe errors. `agent_runs.skill_route_model_request_id` links the optional pre-route
-  request. The project migration is additive. `model_requests.delivery` is nullable and permits
-  only `skill_route`; skill routing retains `operation_kind = 'agent'`, so the existing STRICT
-  table and its operation-kind CHECK are neither rebuilt nor widened. Skill bodies stay global and
-  never enter project databases. Structured lifecycle logs carry bounded IDs and pins, never full
-  prompt bodies.
+  status, and safe errors. Historical `agent_runs.skill_route_model_request_id` and
+  `model_requests.delivery = 'skill_route'` data remain readable, but new runs create no pre-route
+  request. `listRuns` exposes only their bounded token/cost/retry usage so historical Renderer
+  totals remain complete. The project migration is additive. Skill bodies stay global and never enter project
+  databases, Renderer projections, durable tool events, or logs. Structured lifecycle logs carry
+  bounded IDs and pins, never full prompt bodies.
 - No automatic updates. A curated skill's update check compares its installed pin only with the
   reviewed pin in the current application catalog; it never follows the upstream default branch.
   A custom skill may inspect the upstream default branch for a new immutable commit, but the UI
-  labels it an unreviewed update and installs it only after explicit confirmation. Existing runs
-  retain their snapshot. Uninstall deletes only files Main itself wrote.
+  labels it an unreviewed update and installs it only after explicit confirmation. That mutable-head
+  check result is Renderer-ephemeral; Main persists only the confirmed immutable pin. Existing
+  runs retain their snapshot. Uninstall deletes only files Main itself wrote.
 - Main performs startup integrity revalidation. Missing or hash-mismatched files mark an installed
   skill unavailable instead of silently dropping it. Settings exposes the safe reason plus
   Reinstall and Uninstall; no private path is shown. Curated reinstall uses the catalog's reviewed
   pin, while custom reinstall defaults to the recorded commit.
-- Auto routing reuses the current run's selected provider and model, records retry/token/cost usage
-  against the same `agent_run_id`, and adds no provider preference. `none`, no eligible candidates,
-  a single candidate with no optional references, and an explicit skill with no optional
-  references short-circuit deterministically. Otherwise one cancellable structured model request
-  chooses at most one primary skill and up to four complete references; explicit mode may choose
-  only references for its fixed primary. If no provider is available, auto routing degrades to
-  none without an extra route error. Auto route failure continues without a skill; explicit route
-  failure loads the complete entrypoint and omits optional references.
+- Auto mode performs no auxiliary model request. The formal turn receives enabled,
+  integrity-ready, model-invocable Skill name/description metadata through Pi's catalog formatter.
+  The model may use `read_writing_skill` to read one candidate entrypoint; that first successful
+  read atomically locks the run to one primary and supplies its dependency entrypoints. It may then
+  read at most four manifest-listed primary references. Explicit mode freezes its primary and
+  dependency closure at run start and injects their complete entrypoints on every turn while
+  retaining the same lazy reference capability. A selected explicit Skill that becomes unavailable
+  blocks new runs without silently changing the session setting.
 - Prompt order is fixed: global safety/tool/writing/citation policy, companion note, Pi-formatted
   primary/dependency blocks and complete references, trusted writing requirements, then manuscript
   data. Optional references are removed whole before the existing outline reduction. If mandatory
@@ -125,6 +128,8 @@ discovery, no network authority for skills, and no direct mutation authority.
   (`name`, `description`, `content`, `filePath`, `disableModelInvocation?`) is the in-memory
   shape of a loaded skill, extended with WriteLLM provenance (commit pin, per-file hashes,
   license) through the same `TSkill extends Skill` generic pattern Pi itself supports.
+  `loadSourcedSkills` validates the manifest-backed virtual resource view,
+  `formatSkillsForSystemPrompt` supplies Auto's progressive-disclosure catalog, and
   `formatSkillInvocation` supplies the model-visible `<skill name="…" location="…">` block
   format for the prompt section, so WriteLLM does not invent its own wrapping. Installer
   validation adopts Pi's `SKILL.md` metadata rules — a required `description` of at most
@@ -133,15 +138,13 @@ discovery, no network authority for skills, and no direct mutation authority.
   skill installs unchanged. A skill's model-visible `location` is a virtual `writellm://skills/…`
   URI, never an absolute user-data path; prompts sent to providers must not carry private
   filesystem paths.
-- Three Pi pieces stay unused, each for a concrete reason. `loadSkills` recursively discovers
-  `SKILL.md` files and additionally treats every root-level `.md` as its own skill; that
-  conflicts with manifest-driven, hash-verified storage and with reference files living next to
-  `SKILL.md`, so loading stays manifest-driven. `formatSkillsForSystemPrompt` implements
-  model-driven progressive disclosure that presumes a filesystem read tool; WriteLLM grants
-  skills no filesystem authority, so selection uses the small pre-router instead. The router's
-  candidate listing may reuse the same name/description listing shape.
-  `AgentHarness.skill()` delivers the skill as a user-turn message and requires the harness;
-  WriteLLM keeps the skill in the ordered system prompt. A later migration from the low-level
+- Pi runs only over a manifest-backed, read-only virtual `ExecutionEnv`. It cannot write, shell,
+  enumerate arbitrary directories, follow symbolic links, or resolve real paths. Pi diagnostics
+  and WriteLLM's stricter metadata/integrity rules are both fail-closed. The bounded
+  `read_writing_skill` tool accepts only virtual URIs pre-authorized for the run, so progressive
+  disclosure adds no generic filesystem authority. `AgentHarness.skill()` remains unused because
+  it delivers the skill as a user-turn message and requires the harness; WriteLLM keeps explicit
+  invocation in the ordered system prompt. A later migration from the low-level
   `Agent` to `AgentHarness` requires separate evidence that its session, hook, retry,
   compaction, and tool lifecycle semantics preserve WriteLLM's current protocol.
 

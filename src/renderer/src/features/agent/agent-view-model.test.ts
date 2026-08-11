@@ -54,6 +54,18 @@ describe('Agent renderer view model', () => {
     expect(protectTerminalAgentRuns([], [running], new Set([base.agentRunId]))).toEqual([])
   })
 
+  it('keeps a newly started running row when an older listRuns response arrives late', () => {
+    const current = {
+      ...runRecord('running'),
+      agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc425',
+      startedAt: '2026-07-21T00:00:10.000Z',
+      updatedAt: '2026-07-21T00:00:10.000Z'
+    }
+    const older = runRecord('running')
+
+    expect(protectTerminalAgentRuns([current], [older], new Set())).toEqual([current])
+  })
+
   it('correlates tool results and keeps retry prompts visible', () => {
     const events = [
       record(1, 'user_message', { content: 'Draft.', delivery: 'prompt', timestamp: 1 }),
@@ -96,7 +108,63 @@ describe('Agent renderer view model', () => {
         interrupted: false
       })
     ]
-    expect(aggregateAgentUsage(events)).toEqual({ inputTokens: 12, outputTokens: 4, retryCount: 2 })
+    expect(aggregateAgentUsage(events)).toEqual({
+      inputTokens: 12,
+      outputTokens: 4,
+      retryCount: 2,
+      skillRouteRequests: 0
+    })
+  })
+
+  it('includes bounded historical SkillRouter usage without double-counting Agent messages', () => {
+    const run = {
+      ...runRecord('completed'),
+      skillRouteUsage: {
+        inputTokens: 7,
+        outputTokens: 1,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 0,
+        estimatedCostUsdMicros: 10,
+        retryCount: 1
+      }
+    }
+
+    expect(aggregateAgentUsage([assistantRecord(1, 'Done.')], [run])).toEqual({
+      inputTokens: 19,
+      outputTokens: 5,
+      retryCount: 1,
+      skillRouteRequests: 1
+    })
+  })
+
+  it('projects durable approval decisions into the visible timeline', () => {
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc426'
+    const timeline = projectAgentTimeline([
+      record(1, 'approval_decision', {
+        schemaVersion: 2,
+        proposalId,
+        decision: 'approved',
+        continueRequested: false,
+        actor: 'user',
+        timestamp: 1
+      }),
+      record(2, 'approval_decision', {
+        schemaVersion: 2,
+        proposalId,
+        decision: 'approved',
+        continueRequested: true,
+        actor: 'user',
+        timestamp: 2
+      })
+    ])
+
+    expect(timeline).toEqual([
+      {
+        type: 'approval_decision',
+        id: '019c6a5c-8d34-7a8e-a602-000000000002',
+        payload: expect.objectContaining({ decision: 'approved', continueRequested: true })
+      }
+    ])
   })
 
   it('labels search citations with source titles and page indexes', () => {
@@ -324,6 +392,7 @@ describe('Agent renderer view model', () => {
       },
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
       skillSnapshot: legacySkillSnapshot(),
+      skillRouteUsage: null,
       errorCode: 'user_stopped',
       startedAt: '2026-07-21T00:00:00.000Z',
       completedAt: '2026-07-21T00:00:05.000Z',
@@ -596,6 +665,7 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     },
     editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
     skillSnapshot: legacySkillSnapshot(),
+    skillRouteUsage: null,
     errorCode: null,
     startedAt: base.createdAt,
     completedAt: null,

@@ -64,7 +64,15 @@ describe('runAgentModelRequest', () => {
         batchLimit: 1,
         fileSizeLimitMb: null
       },
-      credential: 'agent-secret',
+      credential: { apiKey: 'agent-secret' },
+      modelLimits: {
+        contextWindowTokens: 131_072,
+        inputLimitTokens: null,
+        outputLimitTokens: null,
+        source: 'legacy_fallback',
+        catalogModelKey: null,
+        resolvedAt: null
+      },
       input: {
         systemPrompt: 'You draft prose.',
         prompt: 'Write a line.',

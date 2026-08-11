@@ -1,5 +1,13 @@
-import { useState } from 'react'
-import { BookOpen, Download, GitBranch, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import {
+  BookOpen,
+  CircleStop,
+  Download,
+  GitBranch,
+  RefreshCw,
+  ShieldAlert,
+  Trash2
+} from 'lucide-react'
 import type {
   InspectGithubSkillResult,
   InstalledSkill,
@@ -50,63 +58,105 @@ export function WritingSkillsSettings({
   const [inspection, setInspection] = useState<InspectGithubSkillResult | null>(null)
   const [updateChecks, setUpdateChecks] = useState<Record<string, SkillUpdateResult>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  const [activeOperation, setActiveOperation] = useState<{
+    operationId: string
+  } | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const cancelledOperationIds = useRef(new Set<string>())
 
-  const perform = async (key: string, operation: () => Promise<SkillsSnapshot>): Promise<void> => {
+  const perform = async (
+    key: string,
+    operation: (operationId: string) => Promise<SkillsSnapshot>,
+    cancellable = false
+  ): Promise<void> => {
+    const operationId = crypto.randomUUID()
     setBusy(key)
+    if (cancellable) setActiveOperation({ operationId })
     try {
-      onSnapshot(await operation())
+      onSnapshot(await operation(operationId))
     } catch (cause) {
-      onError(
-        skillOperationMessage(
-          cause,
-          'Writing skill operation failed. Check the skill status and try again.'
+      if (!cancelledOperationIds.current.has(operationId)) {
+        onError(
+          skillOperationMessage(
+            cause,
+            'Writing skill operation failed. Check the skill status and try again.'
+          )
         )
-      )
+      }
     } finally {
+      cancelledOperationIds.current.delete(operationId)
+      setActiveOperation((current) => (current?.operationId === operationId ? null : current))
       setBusy(null)
     }
   }
 
   const checkUpdate = async (skillId: string): Promise<void> => {
+    const operationId = crypto.randomUUID()
     setBusy(skillId)
+    setActiveOperation({ operationId })
     try {
       const result = await window.desktop.skills.checkUpdate({
         skillId,
-        operationId: crypto.randomUUID()
+        operationId
       })
       setUpdateChecks((current) => ({ ...current, [skillId]: result }))
     } catch (cause) {
-      onError(
-        skillOperationMessage(
-          cause,
-          'Update check failed. Check the network connection and try again.'
+      if (!cancelledOperationIds.current.has(operationId)) {
+        onError(
+          skillOperationMessage(
+            cause,
+            'Update check failed. Check the network connection and try again.'
+          )
         )
-      )
+      }
     } finally {
+      cancelledOperationIds.current.delete(operationId)
+      setActiveOperation((current) => (current?.operationId === operationId ? null : current))
       setBusy(null)
     }
   }
 
   const inspect = async (): Promise<void> => {
+    const operationId = crypto.randomUUID()
     setBusy('inspect')
+    setActiveOperation({ operationId })
     setInspection(null)
     try {
       setInspection(
         await window.desktop.skills.inspectGithub({
           repository: repository.trim(),
           directory: directory.trim() || '.',
-          operationId: crypto.randomUUID()
+          operationId
         })
       )
     } catch (cause) {
-      onError(
-        skillOperationMessage(
-          cause,
-          'GitHub skill could not be inspected. Verify the public repository and directory.'
+      if (!cancelledOperationIds.current.has(operationId)) {
+        onError(
+          skillOperationMessage(
+            cause,
+            'GitHub skill could not be inspected. Verify the public repository and directory.'
+          )
         )
-      )
+      }
     } finally {
+      cancelledOperationIds.current.delete(operationId)
+      setActiveOperation((current) => (current?.operationId === operationId ? null : current))
       setBusy(null)
+    }
+  }
+
+  const cancelOperation = async (): Promise<void> => {
+    const operation = activeOperation
+    if (operation === null || cancelling) return
+    setCancelling(true)
+    cancelledOperationIds.current.add(operation.operationId)
+    try {
+      await window.desktop.skills.cancelOperation({ operationId: operation.operationId })
+    } catch (cause) {
+      cancelledOperationIds.current.delete(operation.operationId)
+      onError(skillOperationMessage(cause, 'Writing skill operation could not be cancelled.'))
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -121,7 +171,20 @@ export function WritingSkillsSettings({
               read project files.
             </p>
           </div>
-          {closeAction}
+          <div className='flex shrink-0 items-center gap-2'>
+            {activeOperation !== null ? (
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={cancelling}
+                onClick={() => void cancelOperation()}
+              >
+                {cancelling ? <Spinner /> : <CircleStop data-icon='inline-start' />}
+                {cancelling ? 'Cancelling…' : 'Cancel operation'}
+              </Button>
+            ) : null}
+            {closeAction}
+          </div>
         </header>
 
         <section className='flex flex-col gap-3' aria-labelledby='installed-skills-title'>
@@ -167,31 +230,35 @@ export function WritingSkillsSettings({
                     )
                   }
                   onUpdate={(confirmUnreviewed) =>
-                    perform(skill.skillId, async () => {
-                      const next = await window.desktop.skills.update({
-                        skillId: skill.skillId,
-                        confirmUnreviewed,
-                        operationId: crypto.randomUUID()
-                      })
-                      const updated = next.installed.find(
-                        (candidate) => candidate.skillId === skill.skillId
-                      )
-                      if (skill.source === 'github' && updated !== undefined) {
-                        // Keep the row on "Latest pinned" after the pin moves instead of
-                        // falling back to a never-checked "Update" state.
-                        setUpdateChecks((current) => ({
-                          ...current,
-                          [skill.skillId]: {
-                            skillId: skill.skillId,
-                            available: false,
-                            kind: null,
-                            currentCommit: updated.commit,
-                            nextCommit: null
-                          }
-                        }))
-                      }
-                      return next
-                    })
+                    perform(
+                      skill.skillId,
+                      async (operationId) => {
+                        const next = await window.desktop.skills.update({
+                          skillId: skill.skillId,
+                          confirmUnreviewed,
+                          operationId
+                        })
+                        const updated = next.installed.find(
+                          (candidate) => candidate.skillId === skill.skillId
+                        )
+                        if (skill.source === 'github' && updated !== undefined) {
+                          // Keep the row on "Latest pinned" after the pin moves instead of
+                          // falling back to a never-checked "Update" state.
+                          setUpdateChecks((current) => ({
+                            ...current,
+                            [skill.skillId]: {
+                              skillId: skill.skillId,
+                              available: false,
+                              kind: null,
+                              currentCommit: updated.commit,
+                              nextCommit: null
+                            }
+                          }))
+                        }
+                        return next
+                      },
+                      true
+                    )
                   }
                   onUninstall={(cascade) =>
                     perform(skill.skillId, () =>
@@ -235,12 +302,15 @@ export function WritingSkillsSettings({
                     variant='outline'
                     disabled={skill.installed || busy !== null}
                     onClick={() =>
-                      perform(skill.skillId, () =>
-                        window.desktop.skills.install({
-                          source: 'curated',
-                          skillId: skill.skillId,
-                          operationId: crypto.randomUUID()
-                        })
+                      perform(
+                        skill.skillId,
+                        (operationId) =>
+                          window.desktop.skills.install({
+                            source: 'curated',
+                            skillId: skill.skillId,
+                            operationId
+                          }),
+                        true
                       )
                     }
                   >
@@ -317,11 +387,11 @@ export function WritingSkillsSettings({
                   size='sm'
                   disabled={busy !== null}
                   onClick={() =>
-                    perform('github-install', async () => {
+                    perform('github-install', async (operationId) => {
                       const next = await window.desktop.skills.install({
                         source: 'github',
                         inspectionId: inspection.inspectionId,
-                        operationId: crypto.randomUUID()
+                        operationId
                       })
                       setInspection(null)
                       return next

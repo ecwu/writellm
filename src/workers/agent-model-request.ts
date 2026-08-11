@@ -6,6 +6,11 @@ import {
   type AgentProviderRetryState,
   parseRetryAfterMs
 } from './agent-provider-stream'
+import {
+  apiKeyForProvider,
+  buildAgentProviderModel,
+  loadAgentStreamSimple
+} from './agent-provider-runtime'
 
 export async function runAgentModelRequest(
   request: AgentUtilityRequest,
@@ -14,23 +19,15 @@ export async function runAgentModelRequest(
 ): Promise<AgentRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
-  const [{ Agent }, { streamSimple }] = await Promise.all([
+  const [{ Agent }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
-    import('@earendil-works/pi-ai/api/openai-completions')
+    loadAgentStreamSimple(request.config.api ?? 'openai-completions')
   ])
-  const model = {
-    id: request.config.model,
-    name: request.config.model,
-    api: 'openai-completions' as const,
-    provider: request.config.providerId,
-    baseUrl: request.config.baseUrl,
-    reasoning: false,
-    input: ['text' as const],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: request.modelLimits?.contextWindowTokens ?? 131_072,
-    maxTokens: request.input.maxOutputTokens,
-    compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const }
-  }
+  const model = buildAgentProviderModel({
+    config: request.config,
+    modelLimits: request.modelLimits,
+    maxOutputTokens: request.input.maxOutputTokens
+  })
   let lastResponseStatus: number | undefined
   let retryAfterMs: number | undefined
   let retryState: AgentProviderRetryState | undefined
@@ -43,7 +40,7 @@ export async function runAgentModelRequest(
       messages: []
     },
     getApiKey: (providerId) =>
-      providerId === request.config.providerId ? request.credential : undefined,
+      apiKeyForProvider(request.credential, request.config.providerId, providerId),
     streamFn: (activeModel, context, options) => {
       const retrying = createRetryingAgentProviderStream({
         signal: options?.signal,
@@ -57,6 +54,8 @@ export async function runAgentModelRequest(
               : { temperature: request.input.temperature }),
             maxTokens: request.input.maxOutputTokens,
             maxRetries: 0,
+            headers: request.credential.headers,
+            env: request.credential.env,
             maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
             timeoutMs: undefined,
             onResponse: async (response, responseModel) => {

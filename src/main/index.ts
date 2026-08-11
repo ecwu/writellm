@@ -47,7 +47,7 @@ import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
 import { ModelExecutionService } from './providers/model-execution-service'
 import { AgentSessionService } from './agent/session-service'
 import { SkillService } from './skills/skill-service'
-import { SkillRouter } from './skills/skill-router'
+import { WritingSkillRuntime } from './skills/skill-router'
 import { installSkillE2eFixture } from './skills/skill-test-seam'
 import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
@@ -221,10 +221,9 @@ if (!hasSingleInstanceLock) {
         utilityProcess,
         logCollector
       )
-      const skillRouter = new SkillRouter(
+      const writingSkillRuntime = new WritingSkillRuntime(
         skills,
-        agentModel,
-        loggerSystem.createModuleLogger('agent', 'skill-router')
+        loggerSystem.createModuleLogger('agent', 'writing-skill-runtime')
       )
       const auxiliaryModel = new AuxiliaryModelClient(
         join(__dirname, 'background-worker.js'),
@@ -409,7 +408,7 @@ if (!hasSingleInstanceLock) {
             agentCatalog: agentProviderCatalog,
             runtime: agentModel,
             contextBuilder: agentTools.contextBuilder(),
-            skillRouter,
+            skillRouter: writingSkillRuntime,
             tools: agentTools,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),

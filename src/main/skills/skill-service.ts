@@ -34,6 +34,7 @@ import {
   validateCuratedSkillCatalog
 } from './catalog'
 import { formatWriteLlmSkill, virtualSkillPath, type WriteLlmSkill } from './prompt'
+import { loadManifestSkillWithPi } from './native-loader'
 
 const INSPECTION_TTL_MS = 15 * 60 * 1_000
 const GITHUB_JSON_MAX_BYTES = 8 * 1_024 * 1_024
@@ -565,7 +566,11 @@ export class SkillService {
       throw new SkillServiceError('skill_resource_not_found', 'Writing skill resource not found')
     }
     const bytes = await readFile(this.#filePath(skill.skillId, skill.commit, relativePath))
-    if (bytes.byteLength !== file.byteSize || sha256(bytes) !== file.sha256) {
+    if (
+      bytes.byteLength !== file.byteSize ||
+      sha256(bytes) !== file.sha256 ||
+      gitBlobSha(bytes) !== file.gitBlobSha
+    ) {
       const err = new SkillServiceError(
         'skill_integrity_failed',
         'Writing skill resource failed integrity check'
@@ -592,19 +597,37 @@ export class SkillService {
     if (entry === undefined)
       throw new SkillServiceError('skill_manifest_invalid', 'SKILL.md is missing')
     const bytes = await readFile(this.#filePath(manifest.skillId, manifest.commit, entry.path))
-    if (bytes.byteLength !== entry.byteSize || sha256(bytes) !== entry.sha256) {
+    if (
+      bytes.byteLength !== entry.byteSize ||
+      sha256(bytes) !== entry.sha256 ||
+      gitBlobSha(bytes) !== entry.gitBlobSha
+    ) {
       throw new SkillServiceError('skill_integrity_failed', 'Writing skill failed integrity check')
     }
+    const document = decodeUtf8(bytes)
     const parsed = parseSkillDocument(
-      decodeUtf8(bytes),
+      document,
       basenameForSkill(manifest.directory, manifest.repository)
     )
+    const virtualUri = virtualSkillPath(manifest.skillId, manifest.commit)
+    const native = await loadManifestSkillWithPi({
+      name: parsed.name,
+      document,
+      virtualUri
+    })
+    if (
+      native.name !== parsed.name ||
+      native.description !== parsed.description ||
+      native.content !== parsed.body
+    ) {
+      throw new SkillServiceError('skill_manifest_invalid', 'Pi parsed inconsistent skill metadata')
+    }
     return {
       skillId: manifest.skillId,
       name: parsed.name,
       description: parsed.description,
       content: parsed.body,
-      filePath: virtualSkillPath(manifest.skillId, manifest.commit),
+      filePath: virtualUri,
       ...(parsed.disableModelInvocation ? { disableModelInvocation: true } : {}),
       commit: manifest.commit,
       license,

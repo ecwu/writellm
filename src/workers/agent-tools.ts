@@ -160,6 +160,18 @@ export const readCitationsParameters = Type.Object(
   strict
 )
 
+export const readWritingSkillParameters = Type.Object(
+  {
+    uri: Type.String({
+      minLength: 1,
+      maxLength: 2_048,
+      pattern: '^writellm://skills/',
+      description: 'An exact Writing Skill virtual URI listed in the system prompt.'
+    })
+  },
+  strict
+)
+
 const sectionRef = Type.Union([
   Type.Object({ kind: Type.Literal('existing'), sectionId: uuid() }, strict),
   Type.Object(
@@ -843,6 +855,16 @@ export class AgentToolBridge {
           this.#execute('read_citations', toolCallId, args, signal)
       },
       {
+        name: 'read_writing_skill',
+        label: 'Read writing skill',
+        description:
+          'Read one run-authorized Writing Skill entrypoint or reference by its exact virtual URI. In Auto mode, reading an entrypoint selects the only primary skill for this run.',
+        parameters: readWritingSkillParameters,
+        executionMode: 'parallel',
+        execute: (toolCallId, args, signal) =>
+          this.#execute('read_writing_skill', toolCallId, args, signal)
+      },
+      {
         name: 'inspect_change',
         label: 'Inspect change',
         description: 'Inspect the authoritative state and result of a proposal in this session.',
@@ -930,9 +952,11 @@ export class AgentToolBridge {
       : { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }
     const serialized = JSON.stringify(result)
     const content =
-      toolName === 'search_knowledge' || toolName === 'read_citations'
-        ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${serialized}\n</UNTRUSTED_EXTERNAL>`
-        : `<MANUSCRIPT_DATA tool="${toolName}">\n${serialized}\n</MANUSCRIPT_DATA>`
+      toolName === 'read_writing_skill'
+        ? `<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">\n${serialized}\n</WRITELLM_SKILL_GUIDANCE>`
+        : toolName === 'search_knowledge' || toolName === 'read_citations'
+          ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${serialized}\n</UNTRUSTED_EXTERNAL>`
+          : `<MANUSCRIPT_DATA tool="${toolName}">\n${serialized}\n</MANUSCRIPT_DATA>`
     return {
       content: [{ type: 'text' as const, text: content }],
       details: result

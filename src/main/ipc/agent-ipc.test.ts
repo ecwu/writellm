@@ -148,6 +148,24 @@ describe('Agent session IPC', () => {
     expect(value.sessions.setThinkingLevel).toHaveBeenCalledTimes(1)
     expect(value.catalog.setLastThinkingLevel).toHaveBeenCalledTimes(1)
   })
+
+  it('persists Writing Skill selection through the idle-only session command', async () => {
+    const value = harness()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSetSkillSelection, {
+        projectSessionId,
+        agentSessionId,
+        selection: { mode: 'explicit', skillId: 'nature-writing' }
+      })
+    ).resolves.toMatchObject({
+      agentSessionId,
+      skillSelection: { mode: 'explicit', skillId: 'nature-writing' }
+    })
+    expect(value.sessions.setSkillSelection).toHaveBeenCalledWith(agentSessionId, {
+      mode: 'explicit',
+      skillId: 'nature-writing'
+    })
+  })
 })
 
 function harness() {
@@ -188,6 +206,10 @@ function harness() {
     setThinkingLevel: vi.fn((_sessionId: string, level: string) => ({
       ...session,
       thinkingLevel: level
+    })),
+    setSkillSelection: vi.fn(async (_sessionId: string, selection: unknown) => ({
+      ...session,
+      skillSelection: selection
     })),
     listEventPage: vi.fn(() => {
       order.push('replay')

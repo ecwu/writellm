@@ -8,6 +8,8 @@ import {
   providerConfigSchema
 } from './providers'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
+import { agentRuntimeAuthSchema } from './agent-auth'
+export { agentRuntimeAuthSchema, type AgentRuntimeAuth } from './agent-auth'
 
 export const AGENT_EVENT_SCHEMA_VERSION = 2
 export const AGENT_RUNTIME_VERSION = '0.80.10'
@@ -77,15 +79,6 @@ export const agentHistorySchema = z
       context.addIssue({ code: 'custom', message: 'Agent history exceeds the runtime bound' })
     }
   })
-
-export const agentRuntimeAuthSchema = z
-  .object({
-    apiKey: z.string().min(1).max(16_384).optional(),
-    headers: z.record(z.string().min(1).max(200), z.string().max(16_384).nullable()).optional(),
-    env: z.record(z.string().min(1).max(200), z.string().max(16_384)).optional()
-  })
-  .strict()
-export type AgentRuntimeAuth = z.infer<typeof agentRuntimeAuthSchema>
 
 const boundedPiCompatSchema = z
   .record(z.string().min(1).max(100), z.json())
@@ -303,6 +296,16 @@ export const agentCompactionSummaryPayloadSchema = z
     timestamp: z.number().int().nonnegative()
   })
   .strict()
+export const agentApprovalDecisionPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    proposalId: z.uuid(),
+    decision: z.enum(['approved', 'rejected']),
+    continueRequested: z.boolean(),
+    actor: z.literal('user'),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
 export const mutationProposalStatusSchema = z.enum([
   'pending',
   'approved',
@@ -328,4 +331,5 @@ export type AgentSessionStatus = z.infer<typeof agentSessionStatusSchema>
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>
 export type AgentEventType = z.infer<typeof agentEventTypeSchema>
 export type AgentCompactionSummaryPayload = z.infer<typeof agentCompactionSummaryPayloadSchema>
+export type AgentApprovalDecisionPayload = z.infer<typeof agentApprovalDecisionPayloadSchema>
 export type MutationProposalStatus = z.infer<typeof mutationProposalStatusSchema>
