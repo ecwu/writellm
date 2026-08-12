@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.11 remains authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.12 tag and macOS arm64 App build are authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -16,6 +16,21 @@ Status markers:
 
 ## Current checkpoint
 
+### Maintenance: v0.2026.8.12 local tag and macOS App
+
+- [x] Set the release identifier to `0.2026.8.12`, verify the complete current worktree, create one
+  local release-candidate commit and annotated `v0.2026.8.12` tag, then build and verify the
+  unsigned macOS arm64 App with the no-identity unpacked package gate.
+
+Authorization: on 2026-08-12 the user explicitly requested the `v0.2026.8.12` tag and App build.
+This authorizes the necessary local commit and tag plus an unsigned macOS arm64 App. Push, hosted
+CI, signing/notarization, GitHub Release, and promotion remain out of scope.
+
+Local evidence: `check:fast`; recovery fixture verification with all 23 cases; `git diff --check`;
+the no-identity macOS arm64 unpacked package gate with 12/12 packaged runtime smoke scenarios and
+15/15 packaged Real-Electron scenarios; bundle version `0.2026.8` / build `2026.8.12`; and a
+verified no-Team-ID ad-hoc/linker signature. The final App is rebuilt from the clean annotated tag.
+
 ### Checkpoint 28.1: Agent Flow Polish
 
 - [x] Replace the session-list-first Agent sidebar with a continuous conversation canvas that
@@ -30,8 +45,9 @@ Status markers:
   pass the applicable local verification gates.
 
 Authorization: on 2026-08-12 the user approved the decision-complete CP28.1 plan and explicitly
-requested implementation. ADR 015 is accepted. No hosted CI, packaging, release, commit, push, or
-promotion is authorized.
+requested implementation. ADR 015 is accepted. The later `v0.2026.8.12` request authorizes the
+local candidate commit, tag, and unsigned macOS arm64 App build; push, hosted CI, signed release,
+and promotion remain unauthorized.
 
 Local evidence: 90 focused tests; `check:fast`; `check:electron` with 135 passing files, 715 passing
 tests, one opt-in benchmark skipped, and a successful production build; fresh `check:e2e` with

@@ -78,7 +78,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "34808fbdbde258c0e4993de8d517330d3a49ef4df35b3e8a7e693c14f04a88f3",
+      "sourceSha256": "2b0daad8f18efe79654a126aa0d87f6503f9a86658399c30893fa3eeb2f9edae",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",
@@ -131,7 +131,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "ce552a97e6104a79d880aa695ccd6d1214d112878b41b13df8e9583b87c3fedd",
+      "sourceSha256": "442795255830bb1cd1be4133eebae07396f8ffc559c8210d9087b929147028fa",
       "tests": [
         "persists partial output as interrupted and aborts the model request on project close",
         "persists manual review as a completed wait state and locks only that conversation",

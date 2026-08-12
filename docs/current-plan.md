@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.11 remains authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.12 tag and macOS arm64 App build are authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -30,7 +30,11 @@ Real-Electron gate with all 23 scenarios passing without flakes or skips; the gr
 covering Request changes, a new revision run with re-authorized evidence, Apply and continue, one
 accepted manuscript mutation, reopen, Undo, archive, and restore; a clean scoped Impeccable
 detector; and `git diff --check`. Packaging, release, hosted CI, commit, push, and promotion were
-not run.
+not run during implementation. On 2026-08-12 the user authorized the local `v0.2026.8.12` commit,
+tag, and macOS arm64 App build. The no-identity unpacked package gate passed 12/12 packaged runtime
+smoke scenarios and 15/15 packaged Real-Electron scenarios, with bundle version `0.2026.8`, build
+`2026.8.12`, and no Apple Team identity. Push, hosted CI, signed release, and promotion remain out
+of scope.
 
 Checkpoint 27.9 remains locally complete. It replaces the editable section heading's single-line
 input with an unbounded soft-wrapping shadcn textarea that grows with its content while retaining
@@ -248,10 +252,10 @@ authorized. On 2026-08-10 the user stopped the remaining `v0.2026.8.10` macOS x6
 the account exhausted its included Actions minutes, then directed that every workflow be disabled
 for every trigger. The repository preserves the definitions only as `.yml.disabled` files, and the
 two remote workflows are manually disabled. Restoring any workflow requires new explicit user
-approval. Checkpoint 27.6 has that approval; do not start a subsequent product checkpoint without
-new explicit user approval.
+approval. Checkpoint 28.1 and its local `v0.2026.8.12` tag/App build have that approval; do not
+start a subsequent product checkpoint without new explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.11` (`v0.2026.8.11` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.12` (`v0.2026.8.12` as the Git tag). Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
