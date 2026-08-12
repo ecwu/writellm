@@ -38,6 +38,8 @@ import {
   type UpdateSkillInput
 } from '../shared/contracts/skills'
 import {
+  agentArchiveSessionInputSchema,
+  agentArchiveSessionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentEventPageInputSchema,
@@ -45,10 +47,14 @@ import {
   agentListProposalsResultSchema,
   agentListRunsInputSchema,
   agentListRunsResultSchema,
+  agentListSessionsInputSchema,
   agentListSessionsResultSchema,
-  agentProjectInputSchema,
+  agentGenerateSessionTitleInputSchema,
+  agentGenerateSessionTitleResultSchema,
   agentQueueInputSchema,
   agentRendererEventSchema,
+  agentRestoreSessionInputSchema,
+  agentRestoreSessionResultSchema,
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
@@ -256,9 +262,13 @@ import {
   citationExpansionResultSchema,
   knowledgeSearchInputSchema,
   knowledgeSearchResultSchema,
+  readableCitationResolutionInputSchema,
+  readableCitationResolutionResultSchema,
   type ExpandedCitation,
   type KnowledgeSearchInput,
-  type KnowledgeSearchResult
+  type KnowledgeSearchResult,
+  type ReadableCitationResolutionInput,
+  type ReadableCitationResolutionResult
 } from '../shared/contracts/search'
 
 export interface DesktopApi {
@@ -398,11 +408,26 @@ export interface DesktopApi {
     deleteSection(input: DeleteSectionRequest): Promise<ManuscriptWorkspace>
   }
   agent: {
-    listSessions(input: { projectSessionId: string }): Promise<AgentSessionRecord[]>
+    listSessions(input: {
+      projectSessionId: string
+      status?: 'active' | 'archived'
+    }): Promise<AgentSessionRecord[]>
     createSession(input: {
       projectSessionId: string
-      title: string
+      title?: string
       modelSelection?: AgentModelSelection | null
+    }): Promise<AgentSessionRecord>
+    generateSessionTitle(input: {
+      projectSessionId: string
+      agentSessionId: string
+    }): Promise<AgentSessionRecord>
+    archiveSession(input: {
+      projectSessionId: string
+      agentSessionId: string
+    }): Promise<AgentSessionRecord>
+    restoreSession(input: {
+      projectSessionId: string
+      agentSessionId: string
     }): Promise<AgentSessionRecord>
     setApprovalMode(input: {
       projectSessionId: string
@@ -458,12 +483,9 @@ export interface DesktopApi {
       agentSessionId: string
       proposalId: string
     }): Promise<ApproveMutationProposalResult>
-    rejectProposal(input: {
-      projectSessionId: string
-      agentSessionId: string
-      proposalId: string
-      reason: string
-    }): Promise<MutationProposalActionResult>
+    rejectProposal(
+      input: ReturnType<typeof rejectMutationProposalInputSchema.parse>
+    ): Promise<MutationProposalActionResult>
     undoProposal(input: {
       projectSessionId: string
       agentSessionId: string
@@ -532,6 +554,9 @@ export interface DesktopApi {
       projectSessionId: string
       citationIds: string[]
     }): Promise<ExpandedCitation[]>
+    resolveReadableCitation(
+      input: ReadableCitationResolutionInput
+    ): Promise<ReadableCitationResolutionResult>
   }
   providers: {
     snapshot(): Promise<ProviderSettingsSnapshot>
@@ -1098,7 +1123,7 @@ const desktopApi: DesktopApi = {
       return agentListSessionsResultSchema.parse(
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentListSessions,
-          agentProjectInputSchema.parse(input)
+          agentListSessionsInputSchema.parse(input)
         )
       )
     },
@@ -1107,6 +1132,30 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentCreateSession,
           agentCreateSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async generateSessionTitle(input) {
+      return agentGenerateSessionTitleResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentGenerateSessionTitle,
+          agentGenerateSessionTitleInputSchema.parse(input)
+        )
+      )
+    },
+    async archiveSession(input) {
+      return agentArchiveSessionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentArchiveSession,
+          agentArchiveSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async restoreSession(input) {
+      return agentRestoreSessionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentRestoreSession,
+          agentRestoreSessionInputSchema.parse(input)
         )
       )
     },
@@ -1188,7 +1237,11 @@ const desktopApi: DesktopApi = {
         const parsed = agentRendererEventSchema.parse(value)
         if (parsed.projectSessionId !== subscription.projectSessionId) return
         const sessionId =
-          parsed.kind === 'durable' ? parsed.event.agentSessionId : parsed.agentSessionId
+          parsed.kind === 'durable'
+            ? parsed.event.agentSessionId
+            : parsed.kind === 'session'
+              ? parsed.session.agentSessionId
+              : parsed.agentSessionId
         if (sessionId !== subscription.agentSessionId) return
         if (parsed.kind === 'durable') {
           if (parsed.event.sequence <= lastSequence) return
@@ -1466,6 +1519,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.knowledgeExpandCitations,
           citationExpansionInputSchema.parse(input)
+        )
+      )
+    },
+    async resolveReadableCitation(input) {
+      return readableCitationResolutionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeResolveReadableCitation,
+          readableCitationResolutionInputSchema.parse(input)
         )
       )
     }

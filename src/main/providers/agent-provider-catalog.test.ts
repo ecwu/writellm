@@ -98,6 +98,7 @@ describe('AgentProviderCatalogService', () => {
   it('projects exact Pi Thinking levels only for built-in non-manual models', async () => {
     const { database, catalog } = await createHarness()
     const snapshot = await catalog.snapshot()
+    expect(snapshot.defaultThinkingLevel).toBe('medium')
     const bedrock = snapshot.presets.find((preset) => preset.presetId === 'builtin:amazon-bedrock')
     const nova = bedrock?.models.find((model) => model.id === 'amazon.nova-2-lite-v1:0')
 

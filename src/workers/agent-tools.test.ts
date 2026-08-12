@@ -100,6 +100,13 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ])
     expect(tools.slice(0, 9).every((tool) => tool.executionMode === 'parallel')).toBe(true)
     expect(tools.slice(9).every((tool) => tool.executionMode === 'sequential')).toBe(true)
+    const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
+    expect(skillReader?.description).toContain('do not reread an entrypoint')
+    expect(skillReader?.description).toContain('no more than four task-relevant references')
+    expect(skillReader?.description).toContain(
+      'do not mix Skill reads with non-Skill tools in the same assistant response'
+    )
+    expect(skillReader?.description).toContain('wait for their results before using other tools')
     expect(
       tools.find((tool) => tool.name === 'submit_outline_change')?.prepareArguments
     ).toBeUndefined()

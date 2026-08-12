@@ -36,7 +36,18 @@ export const agentUserMessagePayloadSchema = z
   .object({
     content: z.string().min(1).max(262_144),
     delivery: z.enum(['prompt', 'steer', 'follow_up']),
-    timestamp: z.number().int().nonnegative()
+    timestamp: z.number().int().nonnegative(),
+    presentation: z
+      .discriminatedUnion('kind', [
+        z.object({ kind: z.literal('approval_continuation') }).strict(),
+        z
+          .object({
+            kind: z.literal('review_feedback'),
+            displayContent: z.string().trim().min(1).max(4_096)
+          })
+          .strict()
+      ])
+      .optional()
   })
   .strict()
 
@@ -327,6 +338,7 @@ export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>
 export type AgentRuntimeMessage = z.infer<typeof agentRuntimeMessageSchema>
 export type AgentSessionRunResult = z.infer<typeof agentSessionRunResultSchema>
 export type AgentAssistantMessagePayload = z.infer<typeof agentAssistantMessagePayloadSchema>
+export type AgentUserMessagePayload = z.infer<typeof agentUserMessagePayloadSchema>
 export type AgentSessionStatus = z.infer<typeof agentSessionStatusSchema>
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>
 export type AgentEventType = z.infer<typeof agentEventTypeSchema>

@@ -6,6 +6,7 @@ export const SKILL_MAX_FILES = 32
 export const SKILL_MAX_TOTAL_BYTES = 48 * 1024
 export const SKILL_MAX_ENTRYPOINT_BYTES = 24 * 1024
 export const SKILL_MAX_REFERENCE_BYTES = 8 * 1024
+export const SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES = 64 * 1024
 
 export const skillIdSchema = z
   .string()

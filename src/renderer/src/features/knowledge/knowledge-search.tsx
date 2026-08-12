@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import { ExpandedCitationPreview } from './citation-preview'
 
 export function KnowledgeSearch(props: {
   projectSessionId: string
@@ -230,64 +231,15 @@ export function KnowledgeSearch(props: {
               <Spinner /> Loading citation…
             </div>
           ) : citation ? (
-            <div className='grid gap-4'>
-              <div className='whitespace-pre-wrap text-sm leading-6'>{citation.text}</div>
-              {citation.assetRefs.map((assetRef) => (
-                <SearchAsset
-                  key={assetRef}
-                  projectSessionId={props.projectSessionId}
-                  knowledgeItemId={citation.knowledgeItemId}
-                  parseRevisionId={citation.parseRevisionId}
-                  assetRef={assetRef}
-                />
-              ))}
-              <div className='grid gap-1 border-t pt-3 text-xs text-muted-foreground'>
-                <span>Citation: {citation.citationId}</span>
-                <span>Parse revision: {citation.parseRevisionId}</span>
-                <span>Source blocks: {citation.sourceBlockIds.join(', ')}</span>
-              </div>
-            </div>
+            <ExpandedCitationPreview
+              projectSessionId={props.projectSessionId}
+              citation={citation}
+            />
           ) : (
             <p className='py-8 text-sm text-destructive'>Citation is no longer available.</p>
           )}
         </DialogContent>
       </Dialog>
     </section>
-  )
-}
-
-function SearchAsset(props: {
-  projectSessionId: string
-  knowledgeItemId: string
-  parseRevisionId: string
-  assetRef: string
-}): React.JSX.Element {
-  const query = useQuery({
-    queryKey: [
-      'search-citation-asset',
-      props.projectSessionId,
-      props.knowledgeItemId,
-      props.parseRevisionId,
-      props.assetRef
-    ],
-    queryFn: () => window.desktop.knowledge.parsedAsset(props),
-    staleTime: Number.POSITIVE_INFINITY
-  })
-  if (!query.data) {
-    return (
-      <div className='flex min-h-24 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground'>
-        {query.isLoading ? 'Loading linked image…' : `Image unavailable: ${props.assetRef}`}
-      </div>
-    )
-  }
-  return (
-    <figure className='grid gap-1'>
-      <img
-        src={`data:${query.data.mimeType};base64,${query.data.dataBase64}`}
-        alt={`Source asset ${props.assetRef}`}
-        className='max-h-[32rem] w-auto max-w-full rounded-md border object-contain'
-      />
-      <figcaption className='text-xs text-muted-foreground'>{props.assetRef}</figcaption>
-    </figure>
   )
 }

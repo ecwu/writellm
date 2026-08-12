@@ -5,9 +5,12 @@ import {
   citationExpansionInputSchema,
   citationExpansionResultSchema,
   knowledgeSearchInputSchema,
-  knowledgeSearchResultSchema
+  knowledgeSearchResultSchema,
+  readableCitationResolutionInputSchema,
+  readableCitationResolutionResultSchema
 } from '../../shared/contracts/search'
 import type { ProjectManager } from '../project/project-manager'
+import { resolveReadableCitation } from '../search/readable-citation-resolver'
 import { authorizeSender } from './authorize-sender'
 
 export function registerSearchIpc(options: {
@@ -73,8 +76,61 @@ export function registerSearchIpc(options: {
       release?.()
     }
   })
+  ipc.handle(IPC_CHANNELS.knowledgeResolveReadableCitation, async (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = readableCitationResolutionInputSchema.parse(rawInput)
+    const context = options.manager.assertActiveSession(input.projectSessionId)
+    const controller = new AbortController()
+    const release = context.operations?.track(controller)
+    const startedAt = Date.now()
+    try {
+      const result = await resolveReadableCitation({
+        database: context.database,
+        retrieval: context.retrieval,
+        retrievalAvailable: context.projectIndex?.isRetrievalAvailable() === true,
+        input,
+        signal: controller.signal
+      })
+      options.manager.assertActiveSession(input.projectSessionId)
+      const parsed = readableCitationResolutionResultSchema.parse(result)
+      options.logger.info(
+        {
+          event: 'knowledge.readable_citation_resolution.completed',
+          projectSessionId: input.projectSessionId,
+          sectionRevisionId: input.sectionRevisionId,
+          blockId: input.blockId,
+          status: parsed.status,
+          candidateCount:
+            parsed.status === 'resolved'
+              ? 1
+              : parsed.status === 'ambiguous'
+                ? parsed.citations.length
+                : 0,
+          durationMs: Date.now() - startedAt
+        },
+        'Resolved a readable manuscript citation'
+      )
+      return parsed
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'knowledge.readable_citation_resolution.failed',
+          err,
+          projectSessionId: input.projectSessionId,
+          sectionRevisionId: input.sectionRevisionId,
+          blockId: input.blockId,
+          durationMs: Date.now() - startedAt
+        },
+        'Readable manuscript citation resolution failed'
+      )
+      throw new Error('Readable citation could not be resolved', { cause: err })
+    } finally {
+      release?.()
+    }
+  })
   return () => {
     ipc.removeHandler(IPC_CHANNELS.knowledgeSearch)
     ipc.removeHandler(IPC_CHANNELS.knowledgeExpandCitations)
+    ipc.removeHandler(IPC_CHANNELS.knowledgeResolveReadableCitation)
   }
 }

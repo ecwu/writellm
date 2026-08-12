@@ -102,6 +102,38 @@ describe('RecentProjectsRepository', () => {
     database.close()
   })
 
+  it('replaces a stale project ID when a project is recreated at the same path', async () => {
+    const database = await openTestDatabase()
+    const repository = new RecentProjectsRepository(database)
+    const projectPath = '/projects/recreated'
+    const oldProjectId = '11111111-1111-4111-8111-111111111111'
+    const newProjectId = '22222222-2222-4222-8222-222222222222'
+
+    await repository.upsert({
+      projectId: oldProjectId,
+      projectPath,
+      displayName: 'Recreated',
+      lastOpenedAt: '2026-07-14T10:00:00.000Z'
+    })
+    await repository.upsert({
+      projectId: newProjectId,
+      projectPath,
+      displayName: 'Recreated',
+      lastOpenedAt: '2026-07-14T11:00:00.000Z'
+    })
+
+    await expect(repository.list()).resolves.toEqual([
+      {
+        projectId: newProjectId,
+        projectPath,
+        displayName: 'Recreated',
+        lastOpenedAt: '2026-07-14T11:00:00.000Z'
+      }
+    ])
+    await expect(repository.find(oldProjectId)).resolves.toBeNull()
+    database.close()
+  })
+
   it('finds one recent project by stable project ID', async () => {
     const database = await openTestDatabase()
     const repository = new RecentProjectsRepository(database)

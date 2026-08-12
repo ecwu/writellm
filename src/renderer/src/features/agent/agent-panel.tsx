@@ -14,7 +14,8 @@ import type {
 } from '../../../../shared/contracts/providers'
 import {
   AlertCircle,
-  ArrowLeft,
+  Archive,
+  ArchiveRestore,
   Bot,
   Check,
   ChevronDown,
@@ -24,10 +25,12 @@ import {
   FilePenLine,
   FolderOpen,
   MessageSquarePlus,
+  MoreHorizontal,
   RotateCcw,
   Settings2,
   Send,
   TextCursorInput,
+  TriangleAlert,
   Undo2,
   X
 } from 'lucide-react'
@@ -49,9 +52,17 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList
 } from '@/components/ui/command'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,14 +70,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle
-} from '@/components/ui/empty'
 import { Field, FieldLabel } from '@/components/ui/field'
 import {
   InputGroup,
@@ -74,15 +77,6 @@ import {
   InputGroupButton,
   InputGroupTextarea
 } from '@/components/ui/input-group'
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle
-} from '@/components/ui/item'
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker'
 import { Message, MessageContent, MessageFooter, MessageHeader } from '@/components/ui/message'
 import {
@@ -96,8 +90,8 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Textarea } from '@/components/ui/textarea'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
@@ -105,7 +99,6 @@ import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
   aggregateAgentUsage,
-  agentReviewState,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
@@ -117,8 +110,8 @@ import {
   mergeAgentEvents,
   protectTerminalAgentRuns,
   projectAgentTimeline,
+  type AgentActivityStatus,
   type AgentCitationDisplay,
-  type AgentReviewState,
   type AgentTimelineItem,
   type AgentToolActivity,
   toolWasStopped
@@ -135,8 +128,10 @@ export function AgentPanel(props: {
   open: boolean
   onOpenChange(open: boolean): void
   onOpenSettings(): void
+  onOpenSkillSettings(): void
   projectSessionId: string
   activeSectionId: string | null
+  sectionTitles: Readonly<Record<string, string>>
   currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
   flushCurrent(): Promise<boolean>
@@ -150,10 +145,17 @@ export function AgentPanel(props: {
   const [proposals, setProposals] = useState<MutationProposalRecord[]>([])
   const [streaming, setStreaming] = useState<Record<string, string>>({})
   const [prompt, setPrompt] = useState('')
-  const [scope, setScope] = useState<AgentStartScope>('section')
+  const [scopePreference, setScopePreference] = useState<'auto' | AgentStartScope>('auto')
+  const [reviewFeedback, setReviewFeedback] = useState('')
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
-  const [screen, setScreen] = useState<'sessions' | 'conversation'>('sessions')
+  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [continuationFailure, setContinuationFailure] = useState<{
+    kind: 'approval' | 'revision'
+    proposalId: string
+  } | null>(null)
+  const [titleGeneratingIds, setTitleGeneratingIds] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -167,7 +169,49 @@ export function AgentPanel(props: {
   const activeSessionIdRef = useRef<string | null>(null)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
   const skillRoutingPendingRef = useRef<Set<string>>(new Set())
+  const draftStateRef = useRef(
+    new Map<
+      string,
+      { prompt: string; reviewFeedback: string; scopePreference: 'auto' | AgentStartScope }
+    >()
+  )
+  const previousDraftKeyRef = useRef('new')
+  const draftProjectSessionIdRef = useRef(props.projectSessionId)
+  const promptRef = useRef(prompt)
+  const reviewFeedbackRef = useRef(reviewFeedback)
+  const scopePreferenceRef = useRef(scopePreference)
   activeSessionIdRef.current = activeSessionId
+  promptRef.current = prompt
+  reviewFeedbackRef.current = reviewFeedback
+  scopePreferenceRef.current = scopePreference
+
+  useEffect(() => {
+    if (draftProjectSessionIdRef.current === props.projectSessionId) return
+    draftProjectSessionIdRef.current = props.projectSessionId
+    draftStateRef.current.clear()
+    previousDraftKeyRef.current = 'new'
+    setActiveSessionId(null)
+    setPrompt('')
+    setReviewFeedback('')
+    setScopePreference('auto')
+    setContinuationFailure(null)
+  }, [props.projectSessionId])
+
+  useEffect(() => {
+    const nextKey = activeSessionId ?? 'new'
+    const previousKey = previousDraftKeyRef.current
+    if (previousKey === nextKey) return
+    draftStateRef.current.set(previousKey, {
+      prompt: promptRef.current,
+      reviewFeedback: reviewFeedbackRef.current,
+      scopePreference: scopePreferenceRef.current
+    })
+    const next = draftStateRef.current.get(nextKey)
+    setPrompt(next?.prompt ?? '')
+    setReviewFeedback(next?.reviewFeedback ?? '')
+    setScopePreference(next?.scopePreference ?? 'auto')
+    previousDraftKeyRef.current = nextKey
+  }, [activeSessionId])
 
   useEffect(() => {
     skillRoutingPendingRef.current = new Set(
@@ -177,24 +221,40 @@ export function AgentPanel(props: {
     )
   }, [runs])
 
-  const refreshSessions = useCallback(async (): Promise<AgentSessionRecord[]> => {
-    const next = await window.desktop.agent.listSessions({
-      projectSessionId: props.projectSessionId
-    })
-    setSessions(next)
-    setActiveSessionId((current) =>
-      current !== null && next.some((session) => session.agentSessionId === current)
-        ? current
-        : (next[0]?.agentSessionId ?? null)
-    )
-    return next
-  }, [props.projectSessionId])
+  const refreshSessions = useCallback(
+    async (preferAttention = false): Promise<AgentSessionRecord[]> => {
+      const [active, archived] = await Promise.all([
+        window.desktop.agent.listSessions({
+          projectSessionId: props.projectSessionId,
+          status: 'active'
+        }),
+        window.desktop.agent.listSessions({
+          projectSessionId: props.projectSessionId,
+          status: 'archived'
+        })
+      ])
+      const next = [...active, ...archived]
+      setSessions(next)
+      setActiveSessionId((current) => {
+        if (
+          !preferAttention &&
+          current !== null &&
+          next.some((session) => session.agentSessionId === current)
+        ) {
+          return current
+        }
+        return selectAttentionSession(active)?.agentSessionId ?? null
+      })
+      return next
+    },
+    [props.projectSessionId]
+  )
 
   const refreshSessionTruth = useCallback(
     async (
       agentSessionId: string
     ): Promise<{ runs: AgentRunRecord[]; proposals: MutationProposalRecord[] }> => {
-      const [nextRuns, nextProposals, nextSessions] = await Promise.all([
+      const [nextRuns, nextProposals, activeSessions, archivedSessions] = await Promise.all([
         window.desktop.agent.listRuns({
           projectSessionId: props.projectSessionId,
           agentSessionId
@@ -204,9 +264,15 @@ export function AgentPanel(props: {
           agentSessionId
         }),
         window.desktop.agent.listSessions({
-          projectSessionId: props.projectSessionId
+          projectSessionId: props.projectSessionId,
+          status: 'active'
+        }),
+        window.desktop.agent.listSessions({
+          projectSessionId: props.projectSessionId,
+          status: 'archived'
         })
       ])
+      const nextSessions = [...activeSessions, ...archivedSessions]
       setSessions(nextSessions)
       if (activeSessionIdRef.current !== agentSessionId) {
         return { runs: nextRuns, proposals: nextProposals }
@@ -221,11 +287,10 @@ export function AgentPanel(props: {
   useEffect(() => {
     if (!props.open) return
     let disposed = false
-    setScreen('sessions')
     setLoading(true)
     setError(null)
     void Promise.all([
-      refreshSessions(),
+      refreshSessions(true),
       window.desktop.providers.snapshot(),
       window.desktop.skills.snapshot()
     ])
@@ -280,6 +345,17 @@ export function AgentPanel(props: {
         { projectSessionId: props.projectSessionId, agentSessionId: activeSessionId },
         (rendererEvent) => {
           if (disposed) return
+          if (rendererEvent.kind === 'session') {
+            setSessions((current) => upsertSession(current, rendererEvent.session))
+            setTitleGeneratingIds((current) =>
+              updateSet(
+                current,
+                rendererEvent.session.agentSessionId,
+                rendererEvent.titleGenerating
+              )
+            )
+            return
+          }
           if (rendererEvent.kind === 'delta') {
             setStreaming((current) => ({
               ...current,
@@ -393,13 +469,9 @@ export function AgentPanel(props: {
     selection: props.selection
   })
 
-  useEffect(() => {
-    if (scope === 'selection' && !selectionIsAvailable) setScope('section')
-    if (scope === 'section' && props.activeSectionId === null) setScope('project')
-  }, [props.activeSectionId, scope, selectionIsAvailable])
-
   const activeSession =
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
+  const activeSessionArchived = activeSession?.status === 'archived'
   const skillSelection: SkillSelection = activeSession?.skillSelection ?? { mode: 'auto' }
   const activeRun = runs.find((run) => run.status === 'running') ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
@@ -413,6 +485,16 @@ export function AgentPanel(props: {
     return () => window.clearInterval(timer)
   }, [isAgentWorking])
   const usage = useMemo(() => aggregateAgentUsage(events, runs), [events, runs])
+  const usageDetails = [
+    usage.retryCount > 0
+      ? `${usage.retryCount} provider ${usage.retryCount === 1 ? 'retry' : 'retries'}.`
+      : null,
+    usage.skillRouteRequests > 0
+      ? `Includes ${usage.skillRouteRequests} historical Writing Skill routing request${usage.skillRouteRequests === 1 ? '' : 's'}.`
+      : null
+  ]
+    .filter((detail) => detail !== null)
+    .join(' ')
   const contextUsage = useMemo(() => latestAgentContextUsage(events), [events])
   const latestRun = runs[0] ?? null
   const contextLimits = activeRun?.modelLimits ?? latestRun?.modelLimits ?? null
@@ -431,8 +513,20 @@ export function AgentPanel(props: {
           ? 'awaiting_review'
           : (activeSession?.workflowState ?? 'idle')
   const conversationLocked = workflowState === 'awaiting_review' || workflowState === 'generating'
+  const scope = effectiveScope(scopePreference, selectionIsAvailable, props.activeSectionId)
+  const otherWorkingSession =
+    sessions.find(
+      (session) =>
+        session.status === 'active' &&
+        session.workflowState === 'running' &&
+        session.agentSessionId !== activeSessionId
+    ) ?? null
   const selectedModel = useMemo(
-    () => resolveSelectedModel(providerCatalog, activeSession?.modelSelection ?? null),
+    () =>
+      resolveSelectedModel(
+        providerCatalog,
+        activeSession?.modelSelection ?? providerCatalog.defaultSelection
+      ),
     [activeSession?.modelSelection, providerCatalog]
   )
   const modelReady =
@@ -462,22 +556,36 @@ export function AgentPanel(props: {
 
   const createSession = async (): Promise<AgentSessionRecord> => {
     const created = await window.desktop.agent.createSession({
-      projectSessionId: props.projectSessionId,
-      title: `Conversation ${sessions.length + 1}`
+      projectSessionId: props.projectSessionId
+    })
+    draftStateRef.current.set(created.agentSessionId, {
+      prompt: promptRef.current,
+      reviewFeedback: reviewFeedbackRef.current,
+      scopePreference: scopePreferenceRef.current
     })
     setSessions((current) => [created, ...current])
     setActiveSessionId(created.agentSessionId)
-    setScreen('conversation')
     return created
   }
 
+  const beginNewConversation = (): void => {
+    setActiveSessionId(null)
+    setEvents([])
+    setRuns([])
+    setProposals([])
+    setStreaming({})
+    setContinuationFailure(null)
+    setSessionSwitcherOpen(false)
+  }
+
   const setApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
-    if (activeSession === null || activeRun !== null) return
+    if (activeSessionArchived || activeRun !== null || conversationLocked) return
     setBusy(true)
     try {
+      const session = activeSession ?? (await createSession())
       const updated = await window.desktop.agent.setApprovalMode({
         projectSessionId: props.projectSessionId,
-        agentSessionId: activeSession.agentSessionId,
+        agentSessionId: session.agentSessionId,
         mode
       })
       setSessions((current) =>
@@ -494,13 +602,14 @@ export function AgentPanel(props: {
   }
 
   const setModelSelection = async (selection: AgentModelSelection): Promise<void> => {
-    if (activeSession === null || activeRun !== null || conversationLocked) return
+    if (activeSessionArchived || activeRun !== null || conversationLocked) return
     setBusy(true)
     setError(null)
     try {
+      const session = activeSession ?? (await createSession())
       const updated = await window.desktop.agent.setModelSelection({
         projectSessionId: props.projectSessionId,
-        agentSessionId: activeSession.agentSessionId,
+        agentSessionId: session.agentSessionId,
         selection
       })
       setSessions((current) =>
@@ -519,13 +628,14 @@ export function AgentPanel(props: {
   }
 
   const setThinkingLevel = async (level: AgentThinkingLevel): Promise<void> => {
-    if (activeSession === null || activeRun !== null || conversationLocked) return
+    if (activeSessionArchived || activeRun !== null || conversationLocked) return
     setBusy(true)
     setError(null)
     try {
+      const session = activeSession ?? (await createSession())
       const updated = await window.desktop.agent.setThinkingLevel({
         projectSessionId: props.projectSessionId,
-        agentSessionId: activeSession.agentSessionId,
+        agentSessionId: session.agentSessionId,
         level
       })
       setSessions((current) =>
@@ -533,6 +643,7 @@ export function AgentPanel(props: {
           session.agentSessionId === updated.agentSessionId ? updated : session
         )
       )
+      setProviderCatalog((current) => ({ ...current, defaultThinkingLevel: level }))
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -541,13 +652,14 @@ export function AgentPanel(props: {
   }
 
   const setSkillSelection = async (selection: SkillSelection): Promise<void> => {
-    if (activeSession === null || activeRun !== null || conversationLocked) return
+    if (activeSessionArchived || activeRun !== null || conversationLocked) return
     setBusy(true)
     setError(null)
     try {
+      const session = activeSession ?? (await createSession())
       const updated = await window.desktop.agent.setSkillSelection({
         projectSessionId: props.projectSessionId,
-        agentSessionId: activeSession.agentSessionId,
+        agentSessionId: session.agentSessionId,
         selection
       })
       setSessions((current) =>
@@ -565,7 +677,82 @@ export function AgentPanel(props: {
 
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
-    setScreen('conversation')
+    setContinuationFailure(null)
+    setSessionSwitcherOpen(false)
+  }
+
+  const regenerateTitle = async (session: AgentSessionRecord): Promise<void> => {
+    if (
+      session.status !== 'active' ||
+      session.workflowState !== 'idle' ||
+      titleGeneratingIds.has(session.agentSessionId)
+    )
+      return
+    setTitleGeneratingIds((current) => updateSet(current, session.agentSessionId, true))
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.generateSessionTitle({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      setSessions((current) => upsertSession(current, updated))
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setTitleGeneratingIds((current) => updateSet(current, session.agentSessionId, false))
+    }
+  }
+
+  const archiveSession = async (session: AgentSessionRecord): Promise<void> => {
+    if (
+      session.status !== 'active' ||
+      session.workflowState !== 'idle' ||
+      titleGeneratingIds.has(session.agentSessionId)
+    )
+      return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.archiveSession({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      setSessions((current) => upsertSession(current, updated))
+      if (activeSessionIdRef.current === session.agentSessionId) {
+        setActiveSessionId((current) =>
+          current === session.agentSessionId
+            ? (sessions.find(
+                (candidate) =>
+                  candidate.agentSessionId !== session.agentSessionId &&
+                  candidate.status === 'active'
+              )?.agentSessionId ?? null)
+            : current
+        )
+      }
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const restoreSession = async (session: AgentSessionRecord): Promise<void> => {
+    if (session.status !== 'archived') return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await window.desktop.agent.restoreSession({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: session.agentSessionId
+      })
+      setSessions((current) => upsertSession(current, updated))
+      setActiveSessionId(updated.agentSessionId)
+      setSessionSwitcherOpen(false)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const startRun = async (
@@ -574,22 +761,27 @@ export function AgentPanel(props: {
     allowWhileBusy = false,
     skipEditorFlush = false,
     _selectionOverride?: SkillSelection,
-    reuseSkillFromRunId?: string
-  ): Promise<void> => {
+    reuseSkillFromRunId?: string,
+    rejectedProposalId?: string
+  ): Promise<boolean> => {
     const trimmed = content.trim()
     if (
       trimmed.length === 0 ||
+      activeSessionArchived ||
       (!allowWhileBusy && busy) ||
-      ((activeRun !== null || conversationLocked) && approvedProposalId === undefined) ||
-      (!modelReady && approvedProposalId === undefined)
+      ((activeRun !== null || conversationLocked) &&
+        approvedProposalId === undefined &&
+        rejectedProposalId === undefined) ||
+      (!modelReady && approvedProposalId === undefined && rejectedProposalId === undefined) ||
+      otherWorkingSession !== null
     )
-      return
+      return false
     setBusy(true)
     setError(null)
     try {
       if (!skipEditorFlush && !(await props.flushCurrent())) {
         setError('Save the active section before starting the Agent.')
-        return
+        return false
       }
       const session = activeSession ?? (await createSession())
       const run = await window.desktop.agent.startRun({
@@ -597,6 +789,7 @@ export function AgentPanel(props: {
         agentSessionId: session.agentSessionId,
         prompt: trimmed,
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
+        ...(rejectedProposalId === undefined ? {} : { rejectedProposalId }),
         scope,
         ...(reuseSkillFromRunId === undefined ? {} : { reuseSkillFromRunId }),
         editorContext: editorContextForScope(
@@ -614,9 +807,11 @@ export function AgentPanel(props: {
         )
       )
       setPrompt('')
+      return true
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
+      return false
     } finally {
       setBusy(false)
     }
@@ -689,7 +884,7 @@ export function AgentPanel(props: {
 
   const proposalAction = async (
     proposal: MutationProposalRecord,
-    action: 'approve' | 'approve_continue' | 'reject' | 'undo' | 'cancel_image'
+    action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void> => {
     setBusy(true)
     setError(null)
@@ -730,7 +925,7 @@ export function AgentPanel(props: {
           result.outcome !== 'refresh_required' &&
           (result.outcome === 'applied' || result.outcome === 'already_satisfied')
         ) {
-          await startRun(
+          const continued = await startRun(
             'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
             result.proposal.proposalId,
             true,
@@ -738,16 +933,47 @@ export function AgentPanel(props: {
             undefined,
             proposal.agentRunId
           )
+          if (!continued) {
+            setContinuationFailure({ kind: 'approval', proposalId: result.proposal.proposalId })
+          } else {
+            setContinuationFailure(null)
+          }
         }
         await refreshSessionTruth(proposal.agentSessionId)
-      } else if (action === 'reject') {
+      } else if (action === 'request_changes' || action === 'reject') {
+        const reason =
+          action === 'request_changes'
+            ? reviewFeedback.trim()
+            : 'Rejected by the user in the Agent panel.'
+        if (reason.length === 0) return
         const result = await window.desktop.agent.rejectProposal({
           projectSessionId: props.projectSessionId,
           agentSessionId: proposal.agentSessionId,
           proposalId: proposal.proposalId,
-          reason: 'Rejected by the user in the Agent panel.'
+          reason,
+          continueRequested: action === 'request_changes'
         })
         updateProposals(result.proposal)
+        if (action === 'request_changes') {
+          const continued = await startRun(
+            'Revise the rejected proposal from the stored review feedback.',
+            undefined,
+            true,
+            true,
+            undefined,
+            proposal.agentRunId,
+            result.proposal.proposalId
+          )
+          if (!continued) {
+            setContinuationFailure({ kind: 'revision', proposalId: result.proposal.proposalId })
+          } else {
+            setReviewFeedback('')
+            setContinuationFailure(null)
+          }
+        } else {
+          setReviewFeedback('')
+          setContinuationFailure(null)
+        }
         await refreshSessionTruth(proposal.agentSessionId)
       } else if (action === 'cancel_image') {
         await window.desktop.agent.cancelImageGeneration({
@@ -783,517 +1009,861 @@ export function AgentPanel(props: {
     }
   }
 
+  const retryableRun = latestRun?.status === 'failed' || latestRun?.status === 'interrupted'
+  const failedContinuationProposal =
+    continuationFailure === null
+      ? null
+      : (proposals.find((proposal) => proposal.proposalId === continuationFailure.proposalId) ??
+        null)
+
   return (
-    <aside
-      className={
-        props.open
-          ? '@container/agent flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
-          : 'hidden'
-      }
-      data-testid='agent-panel'
-      aria-label='Writing agent side chat'
-    >
-      {screen === 'sessions' ? (
-        <>
-          <header className='flex min-w-0 items-start gap-3 overflow-hidden border-b px-4 py-3'>
-            <div className='min-w-0 flex-1'>
-              <h2 className='flex items-center gap-2 font-semibold'>
-                <Bot className='size-4' /> Writing agent
-              </h2>
-              <p className='mt-0.5 text-xs text-muted-foreground'>
-                Choose a conversation or start a new one.
-              </p>
-            </div>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={busy}
-              onClick={() => void createSession().catch((cause) => setError(errorMessage(cause)))}
-            >
-              <MessageSquarePlus /> New
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              aria-label='Close writing agent'
-              onClick={() => props.onOpenChange(false)}
-            >
-              <X />
-            </Button>
-          </header>
-          <div className='min-h-0 flex-1 overflow-y-auto p-2' data-testid='agent-session-list'>
-            {loading ? (
-              <Marker role='status' className='px-3 py-4'>
-                <MarkerIcon>
-                  <Spinner />
-                </MarkerIcon>
-                <MarkerContent>Loading conversations…</MarkerContent>
-              </Marker>
-            ) : sessions.length === 0 ? (
-              <Empty className='min-h-64 border-0'>
-                <EmptyHeader>
-                  <EmptyMedia variant='icon'>
-                    <Bot />
-                  </EmptyMedia>
-                  <EmptyTitle>Start a writing conversation</EmptyTitle>
-                  <EmptyDescription>
-                    Agent edits stay reviewable proposals until you approve them.
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void createSession().catch((cause) => setError(errorMessage(cause)))
-                    }
-                  >
-                    <MessageSquarePlus data-icon='inline-start' /> New conversation
-                  </Button>
-                </EmptyContent>
-              </Empty>
-            ) : (
-              <ItemGroup className='gap-1'>
-                {sessions.map((session) => {
-                  const sessionWorkflowState =
-                    session.agentSessionId === activeSessionId && activeRun !== null
-                      ? 'running'
-                      : session.workflowState
-                  return (
-                    <Item key={session.agentSessionId} size='sm' className='min-w-0 p-0'>
-                      <Button
-                        variant='ghost'
-                        className='grid h-auto w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] justify-start gap-3 overflow-hidden px-3 py-3 text-left @sm/agent:grid-cols-[auto_minmax(0,1fr)_auto]'
-                        disabled={busy}
-                        data-testid={`agent-session-${session.agentSessionId}`}
-                        onClick={() => openSession(session.agentSessionId)}
-                      >
-                        <ItemMedia variant='icon'>
-                          <Bot />
-                        </ItemMedia>
-                        <ItemContent className='min-w-0'>
-                          <ItemTitle className='block w-full truncate'>{session.title}</ItemTitle>
-                          <ItemDescription className='line-clamp-1'>
-                            {formatSessionUpdatedAt(session.updatedAt)}
-                          </ItemDescription>
-                        </ItemContent>
-                        <ItemActions className='col-span-2 min-w-0 justify-between @sm/agent:col-span-1 @sm/agent:justify-end'>
-                          {sessionWorkflowState === 'awaiting_review' ? (
-                            <Badge variant='warning'>Approval needed</Badge>
-                          ) : sessionWorkflowState === 'generating' ? (
-                            <Badge variant='secondary'>
-                              <Spinner /> Generating
-                            </Badge>
-                          ) : sessionWorkflowState === 'running' ? (
-                            <Badge variant='secondary'>
-                              <Spinner /> Working
-                            </Badge>
-                          ) : !session.compatible ? (
-                            <Badge variant='destructive'>Read only</Badge>
-                          ) : session.status === 'archived' ? (
-                            <Badge variant='outline'>Archived</Badge>
-                          ) : (
-                            <ChevronRight className='text-muted-foreground' />
-                          )}
-                        </ItemActions>
-                      </Button>
-                    </Item>
-                  )
-                })}
-              </ItemGroup>
-            )}
-          </div>
-          {error ? <AgentErrorAlert message={error} className='m-3 mt-0' /> : null}
-        </>
-      ) : (
-        <>
-          <header
-            className='grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 overflow-hidden border-b px-3 py-2.5'
-            data-testid='agent-conversation-header'
-          >
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              aria-label='Back to conversations'
-              onClick={() => setScreen('sessions')}
-            >
-              <ArrowLeft />
-            </Button>
-            <div className='min-w-0 flex-1'>
-              <h2 className='truncate text-sm font-semibold'>
-                {activeSession?.title ?? 'Conversation'}
-              </h2>
-            </div>
-            {activeSession ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    aria-label={`Approval mode: ${approvalModeLabel(activeSession.approvalMode)}`}
-                    disabled={busy || activeRun !== null || conversationLocked}
-                  >
-                    <span className='hidden @sm/agent:inline'>
-                      {approvalModeLabel(activeSession.approvalMode)}
-                    </span>
-                    <ChevronDown data-icon='inline-end' />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
-                  <DropdownMenuGroup>
-                    {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
-                      <DropdownMenuItem key={mode} onSelect={() => void setApprovalMode(mode)}>
-                        {activeSession.approvalMode === mode ? (
-                          <Check />
-                        ) : (
-                          <span className='size-4' />
-                        )}
-                        {approvalModeLabel(mode)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              aria-label='Close writing agent'
-              onClick={() => props.onOpenChange(false)}
-            >
-              <X />
-            </Button>
-          </header>
-
-          <div
-            className='grid min-w-0 grid-cols-1 gap-2 overflow-hidden border-b px-4 py-2 text-xs text-muted-foreground @sm/agent:grid-cols-[minmax(0,1fr)_auto]'
-            data-testid='agent-status'
-          >
-            <div className='flex min-w-0 flex-wrap items-center gap-2 overflow-hidden'>
-              {workflowState === 'running' && activeRun ? (
-                <>
-                  <Spinner />
-                  <span className='shimmer'>
-                    {activeRun.skillSnapshot.routingStatus === 'pending'
-                      ? 'Preparing writing guidance…'
-                      : `Working · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`}
-                  </span>
-                  <TruncatedBadge value={activeRun.providerLabel || activeRun.providerId} />
-                  <TruncatedBadge value={activeRun.modelLabel || activeRun.modelId} />
-                  <Badge variant='outline'>
-                    Thinking: {thinkingLevelLabel(activeRun.thinkingLevel)}
-                  </Badge>
-                  <Badge variant='outline'>{skillModeLabel(activeRun)}</Badge>
-                  {activeRun.skillSnapshot.primary ? (
-                    <TruncatedBadge
-                      value={`${activeRun.skillSnapshot.primary.name} · ${activeRun.skillSnapshot.primary.commit.slice(0, 8)}`}
-                    />
-                  ) : null}
-                  {activeRun.skillSnapshot.routingStatus === 'degraded' ? (
-                    <Badge variant='warning'>Skill routing degraded</Badge>
-                  ) : null}
-                </>
-              ) : workflowState === 'generating' ? (
-                <>
-                  <Spinner />
-                  <span>Generating image</span>
-                </>
-              ) : workflowState === 'awaiting_review' ? (
-                <Badge variant='warning'>Waiting for review</Badge>
-              ) : (
-                <>
-                  <Badge variant='outline'>Idle</Badge>
-                  {activeSession !== null ? (
-                    <AgentModelPicker
-                      presets={availableModelPresets}
-                      selection={activeSession.modelSelection}
-                      disabled={busy || conversationLocked}
-                      onSelect={setModelSelection}
-                    />
-                  ) : null}
-                  {activeSession !== null ? (
-                    <AgentThinkingPicker
-                      levels={supportedThinkingLevels}
-                      value={activeSession.thinkingLevel}
-                      disabled={
-                        busy || conversationLocked || !modelReady || !activeSession.compatible
-                      }
-                      onSelect={setThinkingLevel}
-                    />
-                  ) : null}
-                  {activeSession?.modelSelection !== null && !modelReady ? (
-                    <Badge variant='destructive'>Choose an enabled model</Badge>
-                  ) : null}
-                </>
-              )}
-            </div>
-            <span
-              className='min-w-0 truncate tabular-nums @sm/agent:text-right'
-              title={
-                usage.skillRouteRequests > 0
-                  ? `Includes ${usage.skillRouteRequests} historical Writing Skill routing request${usage.skillRouteRequests === 1 ? '' : 's'}.`
-                  : undefined
-              }
-            >
-              {usage.inputTokens.toLocaleString()} in · {usage.outputTokens.toLocaleString()} out
-              {usage.retryCount > 0 ? ` · ${usage.retryCount} retries` : ''}
-              {usage.skillRouteRequests > 0
-                ? ` · ${usage.skillRouteRequests} skill route${usage.skillRouteRequests === 1 ? '' : 's'}`
-                : ''}
-            </span>
-            {contextLimits !== null ? (
-              <div
-                className='flex min-w-0 items-center gap-2 @sm/agent:col-span-2'
-                title={`${contextUsage?.used.toLocaleString() ?? 'No usage'} / ${contextLimits.contextWindowTokens.toLocaleString()} context tokens; input limit ${contextLimits.inputLimitTokens?.toLocaleString() ?? 'context-derived'}; output limit ${contextLimits.outputLimitTokens?.toLocaleString() ?? 'provider default'}; source ${contextLimits.source}; resolved ${contextLimits.resolvedAt ?? 'legacy'}`}
+    <>
+      <aside
+        className={
+          props.open
+            ? '@container/agent flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background'
+            : 'hidden'
+        }
+        data-testid='agent-panel'
+        aria-label='Writing agent side chat'
+      >
+        <header
+          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b px-3 py-2.5'
+          data-testid='agent-conversation-header'
+        >
+          <ConversationSwitcher
+            open={sessionSwitcherOpen}
+            onOpenChange={setSessionSwitcherOpen}
+            sessions={sessions}
+            activeSession={activeSession}
+            titleGeneratingIds={titleGeneratingIds}
+            busy={busy}
+            onNew={beginNewConversation}
+            onOpen={openSession}
+            onArchive={archiveSession}
+            onRestore={restoreSession}
+            onRegenerateTitle={regenerateTitle}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                aria-label='Conversation actions'
+                data-testid='agent-conversation-menu'
               >
-                <Progress value={contextPercent} className='h-1.5 flex-1' />
-                <span className='tabular-nums'>
-                  {contextUsage?.estimated ? '~' : ''}
-                  {contextUsage?.used.toLocaleString() ?? '—'} /{' '}
-                  {contextLimits.contextWindowTokens.toLocaleString()}
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => setDetailsOpen(true)}>
+                  <Settings2 /> Details
+                </DropdownMenuItem>
+                {activeSessionArchived && activeSession ? (
+                  <DropdownMenuItem onSelect={() => void restoreSession(activeSession)}>
+                    <ArchiveRestore /> Restore
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant='ghost'
+            size='icon-sm'
+            aria-label='Close writing agent'
+            onClick={() => props.onOpenChange(false)}
+          >
+            <X />
+          </Button>
+        </header>
+
+        <div
+          className='flex min-h-9 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground'
+          data-testid='agent-status'
+          role='status'
+        >
+          {activeSessionArchived ? <Archive className='size-3.5' /> : null}
+          {workflowState === 'running' ? <Spinner /> : null}
+          {workflowState === 'awaiting_review' ? (
+            <AlertCircle className='size-3.5 text-warning' />
+          ) : null}
+          <span className={workflowState === 'running' ? 'shimmer' : undefined}>
+            {activeSessionArchived
+              ? 'Archived · read only'
+              : workflowState === 'running'
+                ? choosingSkill
+                  ? 'Loading writing guidance'
+                  : `Working · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
+                : workflowState === 'generating'
+                  ? 'Generating an image'
+                  : workflowState === 'awaiting_review'
+                    ? 'Ready for review'
+                    : 'Ready'}
+          </span>
+        </div>
+
+        <div className='min-h-0 flex-1'>
+          {loading ? (
+            <Marker role='status' className='p-4'>
+              <MarkerIcon>
+                <Spinner />
+              </MarkerIcon>
+              <MarkerContent>Loading conversation…</MarkerContent>
+            </Marker>
+          ) : activeSession === null ? (
+            <div className='flex size-full items-center justify-center px-8 text-center text-sm text-muted-foreground'>
+              Start with a request below. A conversation is created only when you send it.
+            </div>
+          ) : (
+            <EventTimeline
+              events={events}
+              proposals={proposals}
+              runs={runs}
+              now={clockNow}
+              streaming={streaming}
+              currentRevisionIds={effectiveRevisionIds}
+              sectionTitles={props.sectionTitles}
+              onProposalAction={proposalAction}
+              busy={busy || activeSessionArchived}
+            />
+          )}
+        </div>
+
+        <div
+          className='flex min-w-0 flex-col gap-3 border-t px-4 py-3'
+          data-testid='agent-composer'
+        >
+          {error ? <AgentErrorAlert message={error} /> : null}
+          {otherWorkingSession !== null ? (
+            <Marker role='status'>
+              <MarkerIcon>
+                <Spinner />
+              </MarkerIcon>
+              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                <span className='truncate'>Agent is working in {otherWorkingSession.title}</span>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => openSession(otherWorkingSession.agentSessionId)}
+                >
+                  Open
+                </Button>
+              </MarkerContent>
+            </Marker>
+          ) : activeSessionArchived && activeSession ? (
+            <Marker role='status'>
+              <MarkerIcon>
+                <Archive />
+              </MarkerIcon>
+              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                <span>Archived conversations are read only.</span>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={busy}
+                  onClick={() => void restoreSession(activeSession)}
+                >
+                  <ArchiveRestore data-icon='inline-start' /> Restore
+                </Button>
+              </MarkerContent>
+            </Marker>
+          ) : waitingProposal !== undefined ? (
+            <ReviewBar
+              proposal={waitingProposal}
+              feedback={reviewFeedback}
+              busy={busy}
+              outdated={isSectionProposalOutdated(waitingProposal, effectiveRevisionIds)}
+              onFeedbackChange={setReviewFeedback}
+              onAction={proposalAction}
+            />
+          ) : workflowState === 'generating' ? (
+            <Marker role='status'>
+              <MarkerIcon>
+                <Spinner />
+              </MarkerIcon>
+              <MarkerContent>
+                Generating an image. Review will appear here when it is ready.
+              </MarkerContent>
+            </Marker>
+          ) : continuationFailure !== null && failedContinuationProposal !== null ? (
+            <Marker role='alert'>
+              <MarkerIcon>
+                <AlertCircle className='text-destructive' />
+              </MarkerIcon>
+              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                <span>
+                  {continuationFailure.kind === 'approval'
+                    ? 'Change applied, continuation failed'
+                    : 'Feedback saved, revision failed'}
                 </span>
-              </div>
-            ) : null}
-            {workflowState === 'awaiting_review' && waitingProposal !== undefined ? (
-              <Marker role='status' className='min-w-0 @sm/agent:col-span-2'>
-                <MarkerIcon>
-                  <AlertCircle className='text-warning' />
-                </MarkerIcon>
-                <MarkerContent>
-                  Waiting for {proposalKindLabel(waitingProposal.kind)} approval
-                </MarkerContent>
-              </Marker>
-            ) : workflowState === 'generating' ? (
-              <div className='min-w-0 @sm/agent:col-span-2'>
-                This conversation will resume after image generation finishes.
-              </div>
-            ) : null}
-          </div>
-
-          <div className='min-h-0 flex-1'>
-            {loading ? (
-              <Marker role='status' className='p-4'>
-                <MarkerIcon>
-                  <Spinner />
-                </MarkerIcon>
-                <MarkerContent>Loading conversation…</MarkerContent>
-              </Marker>
-            ) : activeSession === null ? (
-              <Empty className='min-h-64 border-0'>
-                <EmptyHeader>
-                  <EmptyMedia variant='icon'>
-                    <Bot />
-                  </EmptyMedia>
-                  <EmptyTitle>Conversation unavailable</EmptyTitle>
-                </EmptyHeader>
-                <EmptyContent>
-                  <Button variant='outline' onClick={() => setScreen('sessions')}>
-                    <ArrowLeft data-icon='inline-start' /> Back to conversations
-                  </Button>
-                </EmptyContent>
-              </Empty>
-            ) : (
-              <EventTimeline
-                events={events}
-                proposals={proposals}
-                runs={runs}
-                now={clockNow}
-                streaming={streaming}
-                currentRevisionIds={effectiveRevisionIds}
-                onProposalAction={proposalAction}
-                busy={busy}
-              />
-            )}
-          </div>
-
-          <div
-            className='flex min-w-0 flex-col gap-3 overflow-hidden border-t px-4 py-3'
-            data-testid='agent-composer'
-          >
-            {error ? <AgentErrorAlert message={error} /> : null}
-            {activeRun === null && !conversationLocked ? (
-              <ToggleGroup
-                type='single'
-                value={scope}
-                variant='outline'
-                size='sm'
-                className='grid w-full grid-cols-3'
-                aria-label='Agent context scope'
-                onValueChange={(value) => {
-                  if (value) setScope(value as AgentStartScope)
-                }}
-              >
-                <ToggleGroupItem
-                  value='selection'
-                  disabled={!selectionIsAvailable}
-                  aria-label='Selection'
-                >
-                  <TextCursorInput /> Selection
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value='section'
-                  disabled={props.activeSectionId === null}
-                  aria-label='Section'
-                >
-                  <FilePenLine /> Section
-                </ToggleGroupItem>
-                <ToggleGroupItem value='project' aria-label='Project'>
-                  <FolderOpen /> Project
-                </ToggleGroupItem>
-              </ToggleGroup>
-            ) : null}
-            <Field data-disabled={busy || conversationLocked || choosingSkill}>
-              <FieldLabel htmlFor='agent-message' className='sr-only'>
-                Agent message
-              </FieldLabel>
-              <InputGroup
-                data-disabled={
-                  busy || conversationLocked || choosingSkill || activeSession?.compatible === false
-                }
-              >
-                <InputGroupTextarea
-                  id='agent-message'
-                  value={prompt}
-                  placeholder={
-                    activeRun
-                      ? choosingSkill
-                        ? 'Preparing writing guidance…'
-                        : 'Steer the current turn or queue a follow-up…'
-                      : workflowState === 'generating'
-                        ? 'Image generation is in progress…'
-                        : workflowState === 'awaiting_review'
-                          ? 'Review the pending proposal before continuing…'
-                          : 'Ask the writing agent…'
-                  }
-                  rows={3}
-                  disabled={
-                    busy ||
-                    conversationLocked ||
-                    choosingSkill ||
-                    activeSession?.compatible === false
-                  }
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === '/' &&
-                      prompt.length === 0 &&
-                      activeRun === null &&
-                      !conversationLocked
-                    ) {
-                      event.preventDefault()
-                      setSkillPickerOpen(true)
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={busy}
+                  onClick={() => {
+                    if (continuationFailure.kind === 'approval') {
+                      void startRun(
+                        'Continue the requested writing task from the applied manuscript.',
+                        failedContinuationProposal.proposalId,
+                        false,
+                        true,
+                        undefined,
+                        failedContinuationProposal.agentRunId
+                      ).then((started) => {
+                        if (started) setContinuationFailure(null)
+                      })
+                    } else {
+                      void startRun(
+                        'Revise the rejected proposal from the stored review feedback.',
+                        undefined,
+                        false,
+                        true,
+                        undefined,
+                        failedContinuationProposal.agentRunId,
+                        failedContinuationProposal.proposalId
+                      ).then((started) => {
+                        if (started) setContinuationFailure(null)
+                      })
                     }
                   }}
+                >
+                  <RotateCcw data-icon='inline-start' />
+                  {continuationFailure.kind === 'approval' ? 'Continue task' : 'Retry revision'}
+                </Button>
+              </MarkerContent>
+            </Marker>
+          ) : !modelReady ? (
+            <Button variant='outline' className='w-full' onClick={props.onOpenSettings}>
+              <Settings2 data-icon='inline-start' /> Set up an Agent model
+            </Button>
+          ) : (
+            <>
+              <ContextScopeChip
+                preference={scopePreference}
+                effectiveScope={scope}
+                selectionAvailable={selectionIsAvailable}
+                activeSectionId={props.activeSectionId}
+                sectionTitle={
+                  props.activeSectionId === null
+                    ? undefined
+                    : props.sectionTitles[props.activeSectionId]
+                }
+                disabled={busy || activeRun !== null}
+                onChange={setScopePreference}
+              />
+              <Field data-disabled={busy || choosingSkill || activeSession?.compatible === false}>
+                <FieldLabel htmlFor='agent-message' className='sr-only'>
+                  Agent message
+                </FieldLabel>
+                <InputGroup
+                  data-disabled={busy || choosingSkill || activeSession?.compatible === false}
+                >
+                  <InputGroupTextarea
+                    id='agent-message'
+                    value={prompt}
+                    placeholder={
+                      activeRun
+                        ? choosingSkill
+                          ? 'Loading writing guidance…'
+                          : 'Queue a follow-up…'
+                        : 'Ask the writing agent…'
+                    }
+                    rows={3}
+                    disabled={busy || choosingSkill || activeSession?.compatible === false}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      const action = agentComposerKeyAction({
+                        key: event.key,
+                        shiftKey: event.shiftKey,
+                        metaKey: event.metaKey,
+                        ctrlKey: event.ctrlKey,
+                        isComposing: event.nativeEvent.isComposing,
+                        running: activeRun !== null
+                      })
+                      if (action === 'none' || action === 'newline') return
+                      event.preventDefault()
+                      if (action === 'steer') void queueMessage('steer')
+                      else if (action === 'follow_up') void queueMessage('follow_up')
+                      else void startRun(prompt)
+                    }}
+                  />
+                  <InputGroupAddon align='block-end' className='justify-between gap-2'>
+                    <span className='text-xs text-muted-foreground'>
+                      Shift+Enter for a new line
+                    </span>
+                    <div className='flex items-center gap-1'>
+                      {activeRun !== null ? (
+                        <>
+                          <div className='flex items-center'>
+                            <InputGroupButton
+                              size='sm'
+                              aria-label='Queue follow-up'
+                              disabled={busy || prompt.trim().length === 0}
+                              onClick={() => void queueMessage('follow_up')}
+                            >
+                              <Send data-icon='inline-start' /> Queue
+                            </InputGroupButton>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <InputGroupButton
+                                  size='icon-sm'
+                                  aria-label='Choose send behavior'
+                                  disabled={busy}
+                                >
+                                  <ChevronDown />
+                                </InputGroupButton>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align='end'>
+                                <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
+                                  <Send /> Queue follow-up
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
+                                  <ChevronRight /> Steer now
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <ComposerAction
+                            size='icon-sm'
+                            variant='destructive'
+                            label='Stop'
+                            disabled={busy}
+                            onClick={() => void stopRun()}
+                          >
+                            <CircleStop />
+                          </ComposerAction>
+                        </>
+                      ) : (
+                        <>
+                          {retryableRun && latestPrompt ? (
+                            <ComposerAction
+                              size='icon-sm'
+                              variant='outline'
+                              label='Try again'
+                              disabled={busy}
+                              onClick={() =>
+                                void startRun(
+                                  latestPrompt,
+                                  undefined,
+                                  false,
+                                  false,
+                                  retrySkillSelection(latestRun),
+                                  latestRun?.agentRunId
+                                )
+                              }
+                            >
+                              <RotateCcw />
+                            </ComposerAction>
+                          ) : null}
+                          <InputGroupButton
+                            size='sm'
+                            aria-label='Send'
+                            disabled={
+                              busy ||
+                              prompt.trim().length === 0 ||
+                              activeSession?.compatible === false
+                            }
+                            onClick={() => void startRun(prompt)}
+                          >
+                            <Send data-icon='inline-start' /> Send
+                          </InputGroupButton>
+                        </>
+                      )}
+                    </div>
+                  </InputGroupAddon>
+                </InputGroup>
+              </Field>
+            </>
+          )}
+        </div>
+      </aside>
+      <AgentDetailsDialog
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        session={activeSession}
+        activeRun={activeRun}
+        latestRun={latestRun}
+        events={events}
+        proposals={proposals}
+        usage={usage}
+        usageDetails={usageDetails}
+        contextUsage={contextUsage}
+        contextLimits={contextLimits}
+        contextPercent={contextPercent}
+        availableModelPresets={availableModelPresets}
+        modelSelection={activeSession?.modelSelection ?? providerCatalog.defaultSelection}
+        thinkingLevel={
+          activeSession?.thinkingLevel ?? providerCatalog.defaultThinkingLevel ?? 'medium'
+        }
+        supportedThinkingLevels={supportedThinkingLevels}
+        modelReady={modelReady}
+        skillSnapshot={skillSnapshot}
+        skillSelection={skillSelection}
+        skillPickerOpen={skillPickerOpen}
+        busy={busy || conversationLocked || activeRun !== null}
+        onModelSelect={setModelSelection}
+        onThinkingSelect={setThinkingLevel}
+        onSkillPickerOpenChange={setSkillPickerOpen}
+        onSkillSelect={setSkillSelection}
+        onApprovalModeSelect={setApprovalMode}
+        onOpenSettings={props.onOpenSkillSettings}
+      />
+    </>
+  )
+}
+
+function ConversationSwitcher(props: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  sessions: AgentSessionRecord[]
+  activeSession: AgentSessionRecord | null
+  titleGeneratingIds: ReadonlySet<string>
+  busy: boolean
+  onNew(): void
+  onOpen(agentSessionId: string): void
+  onArchive(session: AgentSessionRecord): Promise<void>
+  onRestore(session: AgentSessionRecord): Promise<void>
+  onRegenerateTitle(session: AgentSessionRecord): Promise<void>
+}): React.JSX.Element {
+  const active = props.sessions.filter((session) => session.status === 'active')
+  const archived = props.sessions.filter((session) => session.status === 'archived')
+  return (
+    <Popover open={props.open} onOpenChange={props.onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          variant='ghost'
+          className='h-8 min-w-0 justify-start gap-2 px-2'
+          data-testid='agent-conversation-switcher'
+        >
+          <Bot className='shrink-0' />
+          <span className='truncate font-semibold'>
+            {props.activeSession?.title ?? 'New conversation'}
+          </span>
+          {props.activeSession &&
+          props.titleGeneratingIds.has(props.activeSession.agentSessionId) ? (
+            <Spinner className='shrink-0' aria-label='Generating conversation title' />
+          ) : (
+            <ChevronDown className='shrink-0' />
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align='start' className='w-[min(24rem,calc(100vw-2rem))] p-0'>
+        <Command>
+          <CommandInput placeholder='Search conversations…' />
+          <CommandList>
+            <CommandEmpty>No matching conversation.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value='new conversation' onSelect={props.onNew}>
+                <MessageSquarePlus /> New conversation
+              </CommandItem>
+            </CommandGroup>
+            <ConversationCommandGroup
+              heading='Active'
+              sessions={active}
+              busy={props.busy}
+              titleGeneratingIds={props.titleGeneratingIds}
+              onOpen={props.onOpen}
+              onArchive={props.onArchive}
+              onRestore={props.onRestore}
+              onRegenerateTitle={props.onRegenerateTitle}
+            />
+            <ConversationCommandGroup
+              heading='Archived'
+              sessions={archived}
+              busy={props.busy}
+              titleGeneratingIds={props.titleGeneratingIds}
+              onOpen={props.onOpen}
+              onArchive={props.onArchive}
+              onRestore={props.onRestore}
+              onRegenerateTitle={props.onRegenerateTitle}
+            />
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ConversationCommandGroup(props: {
+  heading: string
+  sessions: AgentSessionRecord[]
+  titleGeneratingIds: ReadonlySet<string>
+  busy: boolean
+  onOpen(agentSessionId: string): void
+  onArchive(session: AgentSessionRecord): Promise<void>
+  onRestore(session: AgentSessionRecord): Promise<void>
+  onRegenerateTitle(session: AgentSessionRecord): Promise<void>
+}): React.JSX.Element | null {
+  if (props.sessions.length === 0) return null
+  return (
+    <CommandGroup heading={props.heading}>
+      {props.sessions.map((session) => {
+        const actionBlocked =
+          session.workflowState !== 'idle' || props.titleGeneratingIds.has(session.agentSessionId)
+        return (
+          <CommandItem
+            key={session.agentSessionId}
+            value={`${session.title} ${sessionStatusLabel(session)}`}
+            className='gap-2'
+            data-testid={`agent-session-${session.agentSessionId}`}
+            onSelect={() => props.onOpen(session.agentSessionId)}
+          >
+            {session.workflowState === 'running' || session.workflowState === 'generating' ? (
+              <Spinner />
+            ) : session.workflowState === 'awaiting_review' ? (
+              <AlertCircle className='text-warning' />
+            ) : session.status === 'archived' ? (
+              <Archive />
+            ) : (
+              <MessageSquarePlus />
+            )}
+            <span className='min-w-0 flex-1 truncate'>{session.title}</span>
+            <span className='text-xs text-muted-foreground'>{sessionStatusLabel(session)}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='icon-xs'
+                  aria-label={`Conversation actions for ${session.title}`}
+                  disabled={props.busy}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                {session.status === 'active' ? (
+                  <>
+                    <DropdownMenuItem
+                      disabled={actionBlocked || !session.compatible}
+                      onSelect={() => void props.onRegenerateTitle(session)}
+                    >
+                      <RotateCcw /> Regenerate title
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={actionBlocked}
+                      onSelect={() => void props.onArchive(session)}
+                    >
+                      <Archive /> Archive
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem onSelect={() => void props.onRestore(session)}>
+                    <ArchiveRestore /> Restore
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </CommandItem>
+        )
+      })}
+    </CommandGroup>
+  )
+}
+
+function ContextScopeChip(props: {
+  preference: 'auto' | AgentStartScope
+  effectiveScope: AgentStartScope
+  selectionAvailable: boolean
+  activeSectionId: string | null
+  sectionTitle?: string
+  disabled: boolean
+  onChange(value: 'auto' | AgentStartScope): void
+}): React.JSX.Element {
+  const effectiveLabel =
+    props.effectiveScope === 'selection'
+      ? 'Selected text'
+      : props.effectiveScope === 'section'
+        ? `This section${props.sectionTitle ? ` · ${props.sectionTitle}` : ''}`
+        : 'Whole manuscript'
+  const label = props.preference === 'auto' ? effectiveLabel : effectiveLabel
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant='outline'
+          size='sm'
+          className='w-fit max-w-full rounded-full font-normal'
+          disabled={props.disabled}
+          aria-label={`Context: ${label}`}
+        >
+          {props.effectiveScope === 'selection' ? (
+            <TextCursorInput />
+          ) : props.effectiveScope === 'section' ? (
+            <FilePenLine />
+          ) : (
+            <FolderOpen />
+          )}
+          <span className='truncate'>{label}</span>
+          <ChevronDown />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align='start' side='top' className='w-72 p-0'>
+        <Command>
+          <CommandList>
+            <CommandGroup heading='Context'>
+              <CommandItem onSelect={() => props.onChange('auto')}>
+                {props.preference === 'auto' ? <Check /> : <Bot />} Auto
+              </CommandItem>
+              <CommandItem
+                disabled={!props.selectionAvailable}
+                onSelect={() => props.onChange('selection')}
+              >
+                {props.preference === 'selection' ? <Check /> : <TextCursorInput />} Selected text
+              </CommandItem>
+              <CommandItem
+                disabled={props.activeSectionId === null}
+                onSelect={() => props.onChange('section')}
+              >
+                {props.preference === 'section' ? <Check /> : <FilePenLine />} This section
+              </CommandItem>
+              <CommandItem onSelect={() => props.onChange('project')}>
+                {props.preference === 'project' ? <Check /> : <FolderOpen />} Whole manuscript
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ReviewBar(props: {
+  proposal: MutationProposalRecord
+  feedback: string
+  busy: boolean
+  outdated: boolean
+  onFeedbackChange(value: string): void
+  onAction(
+    proposal: MutationProposalRecord,
+    action: 'approve' | 'approve_continue' | 'request_changes' | 'reject'
+  ): Promise<void>
+}): React.JSX.Element {
+  if (props.outdated) {
+    return (
+      <div className='flex items-center justify-between gap-3' data-testid='agent-review-bar'>
+        <p className='text-sm text-muted-foreground'>The manuscript changed after this proposal.</p>
+        <Button
+          disabled={props.busy}
+          onClick={() => void props.onAction(props.proposal, 'approve')}
+        >
+          <RotateCcw data-icon='inline-start' /> Refresh proposal
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <div className='flex min-w-0 flex-col gap-3' data-testid='agent-review-bar'>
+      <Textarea
+        value={props.feedback}
+        rows={2}
+        maxLength={4_096}
+        placeholder='Describe what should change…'
+        aria-label='Review feedback'
+        disabled={props.busy}
+        onChange={(event) => props.onFeedbackChange(event.target.value)}
+      />
+      <div className='flex flex-wrap items-center justify-end gap-2'>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              aria-label='More review actions'
+              disabled={props.busy}
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuItem onSelect={() => void props.onAction(props.proposal, 'approve')}>
+              <Check /> Apply only
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void props.onAction(props.proposal, 'reject')}>
+              <X /> Reject proposal
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
+          variant='outline'
+          disabled={props.busy || props.feedback.trim().length === 0}
+          onClick={() => void props.onAction(props.proposal, 'request_changes')}
+        >
+          Request changes
+        </Button>
+        <Button
+          disabled={props.busy}
+          onClick={() => void props.onAction(props.proposal, 'approve_continue')}
+        >
+          <Check data-icon='inline-start' /> Apply & continue
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function AgentDetailsDialog(props: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  session: AgentSessionRecord | null
+  activeRun: AgentRunRecord | null
+  latestRun: AgentRunRecord | null
+  events: AgentEventRecord[]
+  proposals: MutationProposalRecord[]
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    retryCount: number
+    skillRouteRequests: number
+  }
+  usageDetails: string
+  contextUsage: ReturnType<typeof latestAgentContextUsage>
+  contextLimits: AgentRunRecord['modelLimits'] | null
+  contextPercent: number
+  availableModelPresets: AgentProviderCatalog['presets']
+  modelSelection: AgentModelSelection | null
+  thinkingLevel: AgentThinkingLevel
+  supportedThinkingLevels: AgentThinkingLevel[]
+  modelReady: boolean
+  skillSnapshot: SkillsSnapshot | null
+  skillSelection: SkillSelection
+  skillPickerOpen: boolean
+  busy: boolean
+  onModelSelect(selection: AgentModelSelection): Promise<void>
+  onThinkingSelect(level: AgentThinkingLevel): Promise<void>
+  onSkillPickerOpenChange(open: boolean): void
+  onSkillSelect(selection: SkillSelection): Promise<void>
+  onApprovalModeSelect(mode: AgentApprovalMode): Promise<void>
+  onOpenSettings(): void
+}): React.JSX.Element {
+  const timeline = useMemo(
+    () =>
+      projectAgentTimeline(props.events, props.proposals, props.latestRun ? [props.latestRun] : []),
+    [props.events, props.latestRun, props.proposals]
+  )
+  const tools = timeline.flatMap((item) =>
+    item.type === 'activity' ? item.tools : item.type === 'proposal' ? [item.tool] : []
+  )
+  const readonly =
+    props.busy || props.session?.status === 'archived' || props.session?.compatible === false
+  const run = props.activeRun ?? props.latestRun
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Agent details</DialogTitle>
+          <DialogDescription>
+            Conversation settings, usage, and technical diagnostics.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='grid gap-5'>
+          <section className='grid gap-3'>
+            <h3 className='text-sm font-semibold'>Conversation</h3>
+            <div className='flex flex-wrap items-center gap-2'>
+              <AgentModelPicker
+                presets={props.availableModelPresets}
+                selection={props.modelSelection}
+                disabled={readonly}
+                onSelect={props.onModelSelect}
+              />
+              <AgentThinkingPicker
+                levels={props.supportedThinkingLevels}
+                value={props.thinkingLevel}
+                disabled={readonly || !props.modelReady}
+                onSelect={props.onThinkingSelect}
+              />
+              <SkillPicker
+                open={props.skillPickerOpen}
+                onOpenChange={props.onSkillPickerOpenChange}
+                snapshot={props.skillSnapshot}
+                selection={props.skillSelection}
+                disabled={readonly}
+                onSelect={(selection) => void props.onSkillSelect(selection)}
+                onOpenSettings={props.onOpenSettings}
+              />
+            </div>
+            <div className='flex flex-wrap gap-2'>
+              {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={
+                    (props.session?.approvalMode ?? 'manual') === mode ? 'secondary' : 'outline'
+                  }
+                  size='sm'
+                  disabled={readonly}
+                  onClick={() => void props.onApprovalModeSelect(mode)}
+                >
+                  {approvalModeLabel(mode)}
+                </Button>
+              ))}
+            </div>
+          </section>
+          <section className='grid gap-3'>
+            <h3 className='text-sm font-semibold'>Usage</h3>
+            <dl className='grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 text-sm'>
+              <dt className='text-muted-foreground'>Tokens</dt>
+              <dd className='tabular-nums'>
+                {props.usage.inputTokens.toLocaleString()} in ·{' '}
+                {props.usage.outputTokens.toLocaleString()} out
+              </dd>
+              <dt className='text-muted-foreground'>Retries</dt>
+              <dd>{props.usage.retryCount}</dd>
+              <dt className='text-muted-foreground'>Run time</dt>
+              <dd>{run ? formatAgentDuration(elapsedRunMs(run, Date.now())) : '—'}</dd>
+              <dt className='text-muted-foreground'>Model</dt>
+              <dd className='max-w-64 truncate'>
+                {run ? `${run.providerLabel} · ${run.modelLabel}` : '—'}
+              </dd>
+              <dt className='text-muted-foreground'>Thinking</dt>
+              <dd>{run ? thinkingLevelLabel(run.thinkingLevel) : '—'}</dd>
+              <dt className='text-muted-foreground'>Error code</dt>
+              <dd>{run?.errorCode ?? '—'}</dd>
+            </dl>
+            {props.contextLimits ? (
+              <div className='grid gap-2 text-xs text-muted-foreground'>
+                <div className='flex justify-between gap-3'>
+                  <span>Context</span>
+                  <span className='tabular-nums'>
+                    {props.contextUsage?.estimated ? '~' : ''}
+                    {props.contextUsage?.used.toLocaleString() ?? '—'} /{' '}
+                    {props.contextLimits.contextWindowTokens.toLocaleString()}
+                  </span>
+                </div>
+                <Progress value={props.contextPercent} />
+              </div>
+            ) : null}
+            {props.usageDetails ? (
+              <p className='text-xs text-muted-foreground'>{props.usageDetails}</p>
+            ) : null}
+          </section>
+          <section className='grid gap-3'>
+            <h3 className='text-sm font-semibold'>Technical activity</h3>
+            {tools.length === 0 ? (
+              <p className='text-sm text-muted-foreground'>
+                No tool activity in this conversation.
+              </p>
+            ) : (
+              <div className='grid gap-4'>
+                {tools.map((tool) => (
+                  <ToolActivityRow key={tool.eventId} tool={tool} stopped={toolWasStopped(tool)} />
+                ))}
+              </div>
+            )}
+            {props.events
+              .filter((event) => event.type === 'assistant_message')
+              .slice(-1)
+              .map((event) => (
+                <BoundedJsonDetails
+                  key={event.agentEventId}
+                  label='Provider metadata'
+                  value={event.payload.metadata}
                 />
-                <InputGroupAddon align='block-end' className='flex-wrap justify-end'>
-                  {activeRun ? (
-                    <>
-                      <ComposerAction
-                        size='icon-sm'
-                        variant='outline'
-                        label='Steer'
-                        disabled={busy || choosingSkill || prompt.trim().length === 0}
-                        onClick={() => void queueMessage('steer')}
-                      >
-                        <ChevronRight data-icon='inline-start' />
-                      </ComposerAction>
-                      <ComposerAction
-                        size='icon-sm'
-                        variant='outline'
-                        label='Follow up'
-                        disabled={busy || choosingSkill || prompt.trim().length === 0}
-                        onClick={() => void queueMessage('follow_up')}
-                      >
-                        <Send data-icon='inline-start' />
-                      </ComposerAction>
-                      <ComposerAction
-                        size='icon-sm'
-                        variant='destructive'
-                        label='Stop'
-                        disabled={busy}
-                        onClick={() => void stopRun()}
-                      >
-                        <CircleStop data-icon='inline-start' />
-                      </ComposerAction>
-                    </>
-                  ) : conversationLocked ? (
-                    <Badge variant={workflowState === 'awaiting_review' ? 'warning' : 'secondary'}>
-                      {workflowState === 'generating' ? <Spinner /> : <AlertCircle />}
-                      {workflowState === 'generating' ? 'Generating image' : 'Approval required'}
-                    </Badge>
-                  ) : (
-                    <>
-                      <SkillPicker
-                        open={skillPickerOpen}
-                        onOpenChange={setSkillPickerOpen}
-                        snapshot={skillSnapshot}
-                        selection={skillSelection}
-                        disabled={busy}
-                        onSelect={(selection) => void setSkillSelection(selection)}
-                        onOpenSettings={props.onOpenSettings}
-                      />
-                      {latestPrompt ? (
-                        <ComposerAction
-                          size='icon-sm'
-                          variant='outline'
-                          label='Retry'
-                          disabled={busy}
-                          onClick={() =>
-                            void startRun(
-                              latestPrompt,
-                              undefined,
-                              false,
-                              false,
-                              retrySkillSelection(latestRun),
-                              latestRun?.agentRunId
-                            )
-                          }
-                        >
-                          <RotateCcw data-icon='inline-start' />
-                        </ComposerAction>
-                      ) : null}
-                      {events.length > 0 ? (
-                        <ComposerAction
-                          size='icon-sm'
-                          variant='outline'
-                          label='Continue'
-                          disabled={busy}
-                          onClick={() =>
-                            void startRun(
-                              'Continue from the previous response.',
-                              undefined,
-                              false,
-                              false,
-                              undefined,
-                              latestRun?.agentRunId
-                            )
-                          }
-                        >
-                          <ChevronRight data-icon='inline-start' />
-                        </ComposerAction>
-                      ) : null}
-                      <InputGroupButton
-                        size='sm'
-                        aria-label='Send'
-                        disabled={
-                          busy ||
-                          prompt.trim().length === 0 ||
-                          activeSession?.compatible === false ||
-                          !modelReady
-                        }
-                        onClick={() => void startRun(prompt)}
-                      >
-                        <Send data-icon='inline-start' />
-                        <span className='hidden @sm/agent:inline'>Send</span>
-                      </InputGroupButton>
-                    </>
-                  )}
-                </InputGroupAddon>
-              </InputGroup>
-            </Field>
-          </div>
-        </>
-      )}
-    </aside>
+              ))}
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1304,10 +1874,11 @@ function EventTimeline(props: {
   now: number
   streaming: Record<string, string>
   currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
   busy: boolean
   onProposalAction(
     proposal: MutationProposalRecord,
-    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
 }): React.JSX.Element {
   const timeline = useMemo(
@@ -1349,6 +1920,7 @@ function EventTimeline(props: {
                   citationsById={citationsById}
                   busy={props.busy}
                   currentRevisionIds={props.currentRevisionIds}
+                  sectionTitles={props.sectionTitles}
                   onProposalAction={props.onProposalAction}
                 />
               </MessageScrollerItem>
@@ -1387,21 +1959,22 @@ function TimelineItem(props: {
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
   onProposalAction(
     proposal: MutationProposalRecord,
-    action: 'approve' | 'approve_continue' | 'reject' | 'undo'
+    action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
 }): React.JSX.Element {
   const { item } = props
-  const run =
-    item.type === 'run_interrupted' || item.type === 'run_completed'
-      ? props.runs.find((candidate) => candidate.agentRunId === item.terminal.runId)
-      : undefined
   if (item.type === 'user') {
     return (
       <Message align='end'>
         <MessageContent>
-          <MessageHeader>{deliveryLabel(item.payload.delivery)}</MessageHeader>
+          <MessageHeader>
+            {item.payload.presentation?.kind === 'review_feedback'
+              ? 'Requested changes'
+              : deliveryLabel(item.payload.delivery)}
+          </MessageHeader>
           <Bubble variant='muted' align='end'>
             <BubbleContent className='whitespace-pre-wrap'>{item.payload.content}</BubbleContent>
           </Bubble>
@@ -1418,14 +1991,6 @@ function TimelineItem(props: {
               <AgentMarkdown content={item.payload.content} />
             </BubbleContent>
           </Bubble>
-          <MessageFooter className='flex-wrap gap-x-2 gap-y-1'>
-            <span>{item.payload.metadata.usage.inputTokens ?? 0} in</span>
-            <span>{item.payload.metadata.usage.outputTokens ?? 0} out</span>
-            {item.payload.metadata.retryCount > 0 ? (
-              <span>{item.payload.metadata.retryCount} retries</span>
-            ) : null}
-            {item.payload.interrupted ? <Badge variant='destructive'>Interrupted</Badge> : null}
-          </MessageFooter>
         </MessageContent>
       </Message>
     )
@@ -1442,8 +2007,13 @@ function TimelineItem(props: {
           )}
         </MarkerIcon>
         <MarkerContent>
-          {item.payload.decision === 'approved' ? 'Change approved' : 'Change rejected'}
-          {item.payload.continueRequested ? ' · Continued conversation' : ''}
+          {item.payload.decision === 'approved'
+            ? item.payload.continueRequested
+              ? 'Applied · continuing'
+              : 'Applied'
+            : item.payload.continueRequested
+              ? 'Requested changes'
+              : 'Proposal rejected'}
         </MarkerContent>
       </Marker>
     )
@@ -1455,14 +2025,13 @@ function TimelineItem(props: {
         citationsById={props.citationsById}
         busy={props.busy}
         currentRevisionIds={props.currentRevisionIds}
+        sectionTitles={props.sectionTitles}
         onAction={props.onProposalAction}
       />
     )
   }
   if (item.type === 'run_interrupted') {
-    if (item.terminal.outcome === 'awaiting_review') {
-      return <ReviewTerminal terminal={item.terminal} proposals={props.proposals} />
-    }
+    if (item.terminal.outcome === 'awaiting_review') return <span className='hidden' />
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -1473,58 +2042,17 @@ function TimelineItem(props: {
           )}
         </MarkerIcon>
         <MarkerContent>
-          {agentTerminalLabel(item.terminal.code)} · {formatAgentDuration(item.terminal.durationMs)}
-          {run ? ` · ${skillModeLabel(run)}` : ''}
-          {run?.skillSnapshot.primary
-            ? ` · ${run.skillSnapshot.primary.name} ${run.skillSnapshot.primary.commit.slice(0, 8)}`
-            : ''}
-          {run?.skillSnapshot.routingStatus === 'degraded' ? ' · Skill routing degraded' : ''}
+          {item.terminal.code === 'user_stopped'
+            ? 'Stopped'
+            : agentTerminalLabel(item.terminal.code)}
         </MarkerContent>
       </Marker>
     )
   }
-  if (item.type === 'run_completed') {
-    if (item.terminal.outcome === 'awaiting_review') {
-      return <ReviewTerminal terminal={item.terminal} proposals={props.proposals} />
-    }
-    return (
-      <Marker role='status'>
-        <MarkerIcon>
-          <Check className='text-success' />
-        </MarkerIcon>
-        <MarkerContent>
-          Run completed · {formatAgentDuration(item.terminal.durationMs)}
-          {run ? ` · ${skillModeLabel(run)}` : ''}
-          {run?.skillSnapshot.primary
-            ? ` · ${run.skillSnapshot.primary.name} ${run.skillSnapshot.primary.commit.slice(0, 8)}`
-            : ''}
-          {run?.skillSnapshot.routingStatus === 'degraded' ? ' · Skill routing degraded' : ''}
-        </MarkerContent>
-      </Marker>
-    )
-  }
+  if (item.type === 'run_completed') return <span className='hidden' />
   return (
     <Marker variant='separator'>
-      <MarkerContent>
-        Context summarized through event {item.payload.coveredThroughSequence}; full history
-        retained.
-      </MarkerContent>
-    </Marker>
-  )
-}
-
-function ReviewTerminal(props: {
-  terminal: Extract<AgentTimelineItem, { type: 'run_completed' }>['terminal']
-  proposals: MutationProposalRecord[]
-}): React.JSX.Element {
-  const state = agentReviewState(props.terminal.runId, props.proposals)
-  const presentation = reviewStatePresentation(state)
-  return (
-    <Marker role='status'>
-      <MarkerIcon>{presentation.icon}</MarkerIcon>
-      <MarkerContent>
-        {presentation.label} · {formatAgentDuration(props.terminal.durationMs)}
-      </MarkerContent>
+      <MarkerContent>Earlier conversation summarized</MarkerContent>
     </Marker>
   )
 }
@@ -1536,7 +2064,9 @@ function ActivityGroup(props: {
   return (
     <Collapsible
       className='group/activity min-w-0 max-w-full overflow-hidden'
-      defaultOpen={item.status === 'error' || item.status === 'stopped'}
+      defaultOpen={
+        item.status === 'partial' || item.status === 'error' || item.status === 'stopped'
+      }
       data-testid='agent-activity-group'
       data-status={item.status}
     >
@@ -1545,6 +2075,14 @@ function ActivityGroup(props: {
           <MarkerIcon>{activityIcon(item.status)}</MarkerIcon>
           <MarkerContent className={item.status === 'running' ? 'shimmer' : undefined}>
             {item.summary}
+            {item.failedCount > 0 ? (
+              <Badge
+                className='ml-2 align-middle'
+                variant={item.status === 'partial' ? 'warning' : 'destructive'}
+              >
+                {item.failedCount} of {item.tools.length} failed
+              </Badge>
+            ) : null}
             {item.status === 'stopped' ? ' · Stopped' : ''}
           </MarkerContent>
           <ChevronDown className='ml-auto transition-transform group-data-[state=open]/activity:rotate-180' />
@@ -1552,9 +2090,12 @@ function ActivityGroup(props: {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className='mt-3 ml-2 flex min-w-0 flex-col gap-3 overflow-hidden border-l pl-4'>
-          {item.tools.map((tool) => (
-            <ToolActivityRow key={tool.eventId} tool={tool} stopped={item.status === 'stopped'} />
-          ))}
+          {item.citations.length > 0 ? <CitationAttachments citations={item.citations} /> : null}
+          {item.failedCount > 0 ? (
+            <p className='text-xs text-muted-foreground'>
+              Some actions did not complete. Open Details for diagnostics.
+            </p>
+          ) : null}
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -1612,6 +2153,7 @@ function ProposalMessage(props: {
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
   onAction(
     proposal: MutationProposalRecord,
     action: 'approve' | 'approve_continue' | 'reject' | 'undo' | 'cancel_image'
@@ -1648,7 +2190,7 @@ function ProposalMessage(props: {
       <div className='flex flex-wrap gap-1 text-xs'>
         {preview.affectedSectionIds.map((sectionId) => (
           <Badge key={sectionId} className='max-w-full' variant='outline' title={sectionId}>
-            Section {sectionId.slice(0, 8)}
+            {props.sectionTitles[sectionId] ?? `Section ${sectionId.slice(0, 8)}`}
           </Badge>
         ))}
         {blockOperationDisplays(proposal).map((operation) => (
@@ -1679,41 +2221,6 @@ function ProposalMessage(props: {
         </p>
       ) : null}
       <div className='grid w-full min-w-0 gap-2 @xl/agent:flex @xl/agent:flex-wrap @xl/agent:justify-end'>
-        {isPending ? (
-          <>
-            <Button
-              variant='outline'
-              size='sm'
-              className='w-full @xl/agent:w-auto'
-              disabled={props.busy}
-              onClick={() => void props.onAction(proposal, 'reject')}
-            >
-              <X data-icon='inline-start' /> Reject
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              className='w-full @xl/agent:w-auto'
-              disabled={props.busy || isOutdated}
-              onClick={() => void props.onAction(proposal, 'approve_continue')}
-            >
-              <Check data-icon='inline-start' /> Approve & Continue
-            </Button>
-            <Button
-              size='sm'
-              className='w-full @xl/agent:w-auto'
-              disabled={props.busy}
-              onClick={() => void props.onAction(proposal, 'approve')}
-            >
-              {isOutdated ? (
-                <RotateCcw data-icon='inline-start' />
-              ) : (
-                <Check data-icon='inline-start' />
-              )}
-              {isOutdated ? 'Review update' : 'Approve'}
-            </Button>
-          </>
-        ) : null}
         {proposal.status === 'generating' ? (
           <Button
             variant='outline'
@@ -1734,7 +2241,15 @@ function ProposalMessage(props: {
           <FilePenLine className='size-4' />
           {isPending ? 'Review required' : 'Proposal result'}
         </MessageHeader>
-        <Bubble variant='outline' className='w-full max-w-full' data-testid='agent-proposal-bubble'>
+        <Bubble
+          variant='outline'
+          className={
+            isPending
+              ? 'w-full max-w-full border-primary/50 ring-2 ring-primary/10'
+              : 'w-full max-w-full'
+          }
+          data-testid='agent-proposal-bubble'
+        >
           <BubbleContent className='flex w-full min-w-0 flex-col gap-3'>
             <div className='grid min-w-0 gap-2 @sm/agent:grid-cols-[minmax(0,1fr)_auto] @sm/agent:items-center'>
               <span className='min-w-0 flex-1 wrap-anywhere font-medium'>{preview.summary}</span>
@@ -1764,16 +2279,6 @@ function ProposalMessage(props: {
                 <CollapsibleContent className='pt-3'>{detail}</CollapsibleContent>
               </Collapsible>
             )}
-            <MessageFooter>
-              {proposal.status === 'pending' && props.item.tool.result === null
-                ? 'Running'
-                : toolWasStopped(props.item.tool)
-                  ? 'Stopped'
-                  : props.item.tool.result?.isError
-                    ? 'Error'
-                    : 'Complete'}{' '}
-              · {formatAgentDuration(props.item.tool.durationMs)}
-            </MessageFooter>
           </BubbleContent>
         </Bubble>
       </MessageContent>
@@ -1806,8 +2311,10 @@ function CitationAttachments(props: { citations: AgentCitationDisplay[] }): Reac
   )
 }
 
-function activityIcon(status: 'running' | 'error' | 'complete' | 'stopped'): React.JSX.Element {
+function activityIcon(status: AgentActivityStatus): React.JSX.Element {
   if (status === 'running') return <Spinner />
+  if (status === 'partial')
+    return <TriangleAlert className='text-warning-foreground dark:text-warning' />
   if (status === 'error') return <AlertCircle className='text-destructive' />
   if (status === 'stopped') return <CircleStop className='text-destructive' />
   return <Check className='text-success' />
@@ -1835,29 +2342,6 @@ function elapsedRunMs(run: AgentRunRecord | null, now: number): number {
   return Math.max(0, end - start)
 }
 
-function reviewStatePresentation(state: AgentReviewState): {
-  label: string
-  icon: React.JSX.Element
-} {
-  switch (state) {
-    case 'approved':
-      return { label: 'Review approved', icon: <Check className='text-success' /> }
-    case 'rejected':
-      return { label: 'Review rejected', icon: <X className='text-destructive' /> }
-    case 'failed':
-      return {
-        label: 'Review could not be applied',
-        icon: <AlertCircle className='text-destructive' />
-      }
-    case 'undone':
-      return { label: 'Approved change undone', icon: <RotateCcw /> }
-    case 'resolved':
-      return { label: 'Review resolved', icon: <Check className='text-success' /> }
-    default:
-      return { label: 'Waiting for review', icon: <AlertCircle className='text-warning' /> }
-  }
-}
-
 function AgentErrorAlert(props: { message: string; className?: string }): React.JSX.Element {
   return (
     <Alert variant='destructive' className={props.className}>
@@ -1865,19 +2349,6 @@ function AgentErrorAlert(props: { message: string; className?: string }): React.
       <AlertTitle>Agent action failed</AlertTitle>
       <AlertDescription>{props.message}</AlertDescription>
     </Alert>
-  )
-}
-
-function TruncatedBadge(props: { value: string }): React.JSX.Element {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge className='max-w-40 truncate' variant='outline'>
-          {props.value}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent className='max-w-80 wrap-anywhere'>{props.value}</TooltipContent>
-    </Tooltip>
   )
 }
 
@@ -2004,13 +2475,22 @@ function SkillPicker({
   )
 }
 
-function formatSessionUpdatedAt(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Updated recently'
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date)
+function upsertSession(
+  sessions: AgentSessionRecord[],
+  updated: AgentSessionRecord
+): AgentSessionRecord[] {
+  return sessions.some((session) => session.agentSessionId === updated.agentSessionId)
+    ? sessions.map((session) =>
+        session.agentSessionId === updated.agentSessionId ? updated : session
+      )
+    : [updated, ...sessions]
+}
+
+function updateSet(current: Set<string>, value: string, included: boolean): Set<string> {
+  const next = new Set(current)
+  if (included) next.add(value)
+  else next.delete(value)
+  return next
 }
 
 function selectionAvailable(props: {
@@ -2063,8 +2543,8 @@ function editorContextForScope(
 }
 
 function deliveryLabel(delivery: 'prompt' | 'steer' | 'follow_up'): string {
-  if (delivery === 'steer') return 'Steering message'
-  if (delivery === 'follow_up') return 'Follow-up message'
+  if (delivery === 'steer') return 'Steered'
+  if (delivery === 'follow_up') return 'Queued'
   return 'You'
 }
 
@@ -2119,23 +2599,59 @@ function retrySkillSelection(run: AgentRunRecord | null): SkillSelection {
   return run.skillSnapshot.mode === 'none' ? { mode: 'none' } : { mode: 'auto' }
 }
 
-function skillModeLabel(run: AgentRunRecord): string {
-  if (run.skillSnapshot.mode === 'none') return 'No skill'
-  if (run.skillSnapshot.mode === 'explicit') return 'Explicit skill'
-  return 'Auto skill'
-}
-
 function approvalModeLabel(mode: AgentApprovalMode): string {
-  if (mode === 'manual') return 'Manual'
-  if (mode === 'section_auto') return 'Section auto'
-  return 'YOLO'
+  if (mode === 'manual') return 'Review every change'
+  if (mode === 'section_auto') return 'Apply section edits automatically'
+  return 'Apply all eligible edits automatically'
 }
 
-function proposalKindLabel(kind: MutationProposalRecord['kind']): string {
-  if (kind === 'brief_update') return 'Brief'
-  if (kind === 'outline_patch') return 'Outline'
-  if (kind === 'generated_image_insert') return 'Image'
-  return 'Section'
+export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {
+  return (
+    active.find((session) => session.workflowState === 'running') ??
+    active.find(
+      (session) =>
+        session.workflowState === 'generating' || session.workflowState === 'awaiting_review'
+    ) ??
+    active[0] ??
+    null
+  )
+}
+
+export function effectiveScope(
+  preference: 'auto' | AgentStartScope,
+  selectionIsAvailable: boolean,
+  activeSectionId: string | null
+): AgentStartScope {
+  if (preference === 'selection') {
+    if (selectionIsAvailable) return 'selection'
+    return activeSectionId === null ? 'project' : 'section'
+  }
+  if (preference === 'section') return activeSectionId === null ? 'project' : 'section'
+  if (preference === 'project') return 'project'
+  if (selectionIsAvailable) return 'selection'
+  return activeSectionId === null ? 'project' : 'section'
+}
+
+export function agentComposerKeyAction(input: {
+  key: string
+  shiftKey: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  isComposing: boolean
+  running: boolean
+}): 'none' | 'newline' | 'send' | 'follow_up' | 'steer' {
+  if (input.key !== 'Enter' || input.isComposing) return 'none'
+  if (input.shiftKey) return 'newline'
+  if (!input.running) return 'send'
+  return input.metaKey || input.ctrlKey ? 'steer' : 'follow_up'
+}
+
+function sessionStatusLabel(session: AgentSessionRecord): string {
+  if (session.status === 'archived') return 'Archived'
+  if (session.workflowState === 'running' || session.workflowState === 'generating')
+    return 'Working'
+  if (session.workflowState === 'awaiting_review') return 'Review'
+  return 'Ready'
 }
 
 function resolveSelectedModel(

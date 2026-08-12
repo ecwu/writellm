@@ -252,6 +252,44 @@ describe('project database', () => {
     database.close()
   })
 
+  it('reopens when user-authored content mentions MinerU capability markers', async () => {
+    const root = await temporaryRoot('凭证术语文稿')
+    const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc018')
+    const objective =
+      'Compare signature=, encrypted_url_ciphertext, and recovery_capability handling.'
+    const database = await initializeProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    const section = await database.kysely
+      .selectFrom('sections')
+      .select('section_id')
+      .executeTakeFirstOrThrow()
+    await database.kysely
+      .updateTable('sections')
+      .set({ objective })
+      .where('section_id', '=', section.section_id)
+      .executeTakeFirstOrThrow()
+    database.close()
+
+    const reopened = await openProjectDatabase({
+      projectRoot: root,
+      manifest: projectManifest,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    expect(
+      await reopened.kysely
+        .selectFrom('sections')
+        .select('objective')
+        .where('section_id', '=', section.section_id)
+        .executeTakeFirstOrThrow()
+    ).toEqual({ objective })
+    reopened.close()
+  })
+
   it('materializes the strict CP19.5 job vocabulary without a paused schema state', async () => {
     const root = await temporaryRoot('严格任务状态')
     const projectManifest = manifest('019c6a5c-8d34-7a8e-a602-3d37a52dc009')

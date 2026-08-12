@@ -48,6 +48,25 @@ describe('Agent mutation IPC', () => {
     expect(value.sender.send).not.toHaveBeenCalled()
   })
 
+  it('records whether rejection should continue into a revision run', async () => {
+    const value = harness()
+    await value.invoke(IPC_CHANNELS.agentProposalReject, {
+      projectSessionId,
+      agentSessionId,
+      proposalId,
+      reason: 'Preserve the original structure.',
+      continueRequested: true
+    })
+
+    expect(value.agentSessions.recordApprovalDecision).toHaveBeenCalledWith({
+      agentSessionId,
+      agentRunId: actionResult.proposal.agentRunId,
+      proposalId,
+      decision: 'rejected',
+      continueRequested: true
+    })
+  })
+
   it('rejects stale project sessions and unauthorized renderer origins before mutation', async () => {
     const value = harness()
     await expect(
@@ -70,9 +89,21 @@ describe('Agent mutation IPC', () => {
       )
     ).toThrow('Unauthorized IPC sender')
   })
+
+  it('rejects every proposal write after its conversation is archived', async () => {
+    const value = harness(approvalResult, true)
+    await expect(
+      value.invoke(IPC_CHANNELS.agentProposalUndo, {
+        projectSessionId,
+        agentSessionId,
+        proposalId
+      })
+    ).rejects.toThrow('archived')
+    expect(value.service.undo).not.toHaveBeenCalled()
+  })
 })
 
-function harness(approveResult: ApproveMutationProposalResult = approvalResult) {
+function harness(approveResult: ApproveMutationProposalResult = approvalResult, archived = false) {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   const ipc: AgentMutationIpcMain = {
     handle: vi.fn((channel, handler) => handlers.set(channel, handler as never)),
@@ -83,6 +114,12 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult) 
     reject: vi.fn(() => actionResult),
     undo: vi.fn(async () => actionResult)
   }
+  const agentSessions = {
+    listSessions: vi.fn((status: 'active' | 'archived') =>
+      status === (archived ? 'archived' : 'active') ? [{ agentSessionId }] : []
+    ),
+    recordApprovalDecision: vi.fn()
+  }
   const manager = {
     assertMutationSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')
@@ -90,7 +127,7 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult) 
     }),
     assertActiveSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')
-      return { agentMutations: service }
+      return { agentMutations: service, agentSessions }
     })
   }
   registerAgentMutationIpc({
@@ -110,7 +147,7 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult) 
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input: unknown) =>
     Promise.resolve(handlers.get(channel)?.(event as never, input as never))
-  return { handlers, invoke, sender, service }
+  return { handlers, invoke, sender, service, agentSessions }
 }
 
 const now = '2026-07-21T00:00:00.000Z'

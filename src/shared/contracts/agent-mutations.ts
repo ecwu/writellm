@@ -489,7 +489,8 @@ const proposalActionBase = {
 export const approveMutationProposalInputSchema = strictObject(proposalActionBase)
 export const rejectMutationProposalInputSchema = strictObject({
   ...proposalActionBase,
-  reason: z.string().trim().min(1).max(4_096)
+  reason: z.string().trim().min(1).max(4_096),
+  continueRequested: z.boolean().default(false)
 })
 export const undoMutationProposalInputSchema = strictObject(proposalActionBase)
 export const cancelImageGenerationInputSchema = strictObject(proposalActionBase)

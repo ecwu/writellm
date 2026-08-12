@@ -17,6 +17,7 @@
     { "id": "manuscript.outline-conflict-preserves-draft", "tiers": [] },
     { "id": "manuscript.rich-media-reopen-export", "tiers": ["packaged"] },
     { "id": "manuscript.section-conflict-reloads-canonical", "tiers": [] },
+    { "id": "manuscript.section-title-wraps", "tiers": [] },
     { "id": "manuscript.workspace-survives-reopen", "tiers": ["packaged"] },
     { "id": "project.create-conflict-preserves-data", "tiers": [] },
     { "id": "project.lifecycle-restart", "tiers": ["critical", "packaged"] },

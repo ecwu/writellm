@@ -154,7 +154,17 @@ test(
       const chunks: Buffer[] = []
       request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
       request.on('end', () => {
-        JSON.parse(Buffer.concat(chunks).toString())
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+        const bodyText = JSON.stringify(body)
+        if (bodyText.includes('Create a concise title for the delimited')) {
+          sendCompletion(
+            response,
+            bodyText.includes('Prepare the first update')
+              ? 'First section update'
+              : 'Second section update'
+          )
+          return
+        }
         agentCall += 1
         if (agentCall === 1 || agentCall === 2) {
           const index = agentCall
@@ -228,20 +238,25 @@ test(
 
       await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      await panel.getByLabel('Agent model').click()
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      const details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /Refresh Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Refresh E2E model/ }).click()
-      await panel.getByRole('radio', { name: 'Section', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      await panel.getByRole('button', { name: /Context:/ }).click()
+      await launched.page.getByRole('option', { name: 'This section', exact: true }).click()
       await panel.getByLabel('Agent message').fill('Prepare the first update.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
-      await expect(panel.getByText('Waiting for review', { exact: true }).first()).toBeVisible()
-      await expect(panel.getByLabel('Agent message')).toBeDisabled()
-      await panel.getByRole('button', { name: 'Back to conversations' }).click()
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      await panel.getByRole('radio', { name: 'Section', exact: true }).click()
+      await expect(panel.getByText('Ready for review', { exact: true }).first()).toBeVisible()
+      await expect(panel.getByLabel('Review feedback')).toBeVisible()
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
+      await panel.getByRole('button', { name: /Context:/ }).click()
+      await launched.page.getByRole('option', { name: 'This section', exact: true }).click()
       await panel.getByLabel('Agent message').fill('Prepare the second update.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect
@@ -290,18 +305,19 @@ test(
       if (firstProposal === undefined || secondProposal === undefined) {
         throw new Error('Expected two proposals')
       }
-      await panel.getByRole('button', { name: 'Back to conversations' }).click()
-      await panel.getByRole('button', { name: /Conversation 1/ }).click()
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: /First section update/ }).click()
       const firstCard = panel.getByTestId(`agent-proposal-${firstProposal.proposalId}`)
-      await firstCard.getByRole('button', { name: 'Approve', exact: true }).click()
+      await panel.getByRole('button', { name: 'More review actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Apply only', exact: true }).click()
       await expect(firstCard.getByText('applied', { exact: true })).toBeVisible()
       await expect(sectionEditor(launched.page)).toContainText('First update applied')
 
-      await panel.getByRole('button', { name: 'Back to conversations' }).click()
-      await panel.getByRole('button', { name: /Conversation 2/ }).click()
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: /Second section update/ }).click()
       const secondCard = panel.getByTestId(`agent-proposal-${secondProposal.proposalId}`)
       await expect(secondCard.getByText('outdated', { exact: true })).toBeVisible()
-      await secondCard.getByRole('button', { name: 'Review update', exact: true }).click()
+      await panel.getByRole('button', { name: 'Refresh proposal', exact: true }).click()
       await expect
         .poll(async () => {
           const proposals = await launched.page.evaluate(async (agentSessionId) => {
@@ -351,7 +367,8 @@ test(
       await expect(launched.page.getByText('Agent action failed', { exact: true })).toHaveCount(0)
       await expect(sectionEditor(launched.page)).toContainText('Second original')
 
-      await replacementCard.getByRole('button', { name: 'Approve', exact: true }).click()
+      await panel.getByRole('button', { name: 'More review actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Apply only', exact: true }).click()
       await expect(replacementCard.getByText('applied', { exact: true })).toBeVisible()
       await expect(sectionEditor(launched.page)).toContainText('First update applied')
       await expect(sectionEditor(launched.page)).toContainText('Second update applied')

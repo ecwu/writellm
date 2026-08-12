@@ -217,6 +217,41 @@ describe('AgentModelClient', () => {
     expect(child.kill).toHaveBeenCalledOnce()
   })
 
+  it('returns a recoverable error for invalid tool arguments without terminating the worker', async () => {
+    const child = new ToolBridgeUtilityProcess(false, true)
+    const channel = createFakeMessageChannel()
+    const handler = vi.fn()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => channel as never
+    )
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      new AbortController().signal,
+      () => undefined,
+      handler
+    )
+
+    await handle.completion
+
+    expect(handler).not.toHaveBeenCalled()
+    expect(child.toolResponse).toMatchObject({
+      type: 'tool_response',
+      ok: false,
+      error: {
+        code: 'invalid_arguments',
+        category: 'validation',
+        recovery: { action: 'fix_arguments', tool: 'search_knowledge' }
+      }
+    })
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
   it('waits for in-flight tool handling to drain after an Agent stop', async () => {
     const child = new ToolBridgeUtilityProcess()
     const channel = createFakeMessageChannel()
@@ -294,7 +329,10 @@ class ToolBridgeUtilityProcess extends EventEmitter {
   readonly kill = vi.fn(() => true)
   toolResponse: unknown
 
-  constructor(private readonly staleProjectCapability = false) {
+  constructor(
+    private readonly staleProjectCapability = false,
+    private readonly invalidArguments = false
+  ) {
     super()
   }
 
@@ -327,7 +365,7 @@ class ToolBridgeUtilityProcess extends EventEmitter {
         modelRequestId: request.modelRequestId,
         toolName: 'search_knowledge',
         args: {
-          query: 'evidence',
+          query: this.invalidArguments ? '' : 'evidence',
           knowledgeItemIds: [],
           fileExtensions: [],
           parseRevisionIds: [],

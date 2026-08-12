@@ -22,6 +22,14 @@ const DURABLE_JOB_TYPES = new Set([
   'artifact_cleanup'
 ])
 
+// User-authored project content may discuss these marker strings. Restrict the value scan to
+// fields that can carry external workflow references or durable job metadata.
+const EXTERNAL_REFERENCE_COLUMNS = {
+  parse_tasks: ['remote_task_id', 'trace_id'],
+  parse_revisions: ['remote_task_id'],
+  jobs: ['payload_json', 'progress_json', 'deduplication_key', 'error_json']
+} as const
+
 /** Verify that project persistence contains no reusable MinerU URL capability. */
 export function assertNoPersistedMineruCapabilities(database: Database.Database): void {
   const objects = database
@@ -50,25 +58,34 @@ export function assertNoPersistedMineruCapabilities(database: Database.Database)
     }
   }
 
-  for (const table of objects.filter(({ sql }) => sql?.toLowerCase().startsWith('create table'))) {
-    const columns = database
-      .prepare(`PRAGMA table_info(${quoteIdentifier(table.name)})`)
-      .all() as Array<{ name: string; type: string }>
-    for (const column of columns.filter(({ type }) => /char|clob|text|blob/i.test(type))) {
-      const columnName = quoteIdentifier(column.name)
-      const tableName = quoteIdentifier(table.name)
+  for (const [tableName, externalReferenceColumns] of Object.entries(EXTERNAL_REFERENCE_COLUMNS)) {
+    const table = objects.find(
+      ({ name, sql }) => name === tableName && sql?.toLowerCase().startsWith('create table')
+    )
+    if (table === undefined) continue
+    const columns = new Set(
+      (
+        database.prepare(`PRAGMA table_info(${quoteIdentifier(table.name)})`).all() as Array<{
+          name: string
+        }>
+      ).map(({ name }) => name)
+    )
+    for (const columnName of externalReferenceColumns) {
+      if (!columns.has(columnName)) continue
+      const quotedColumnName = quoteIdentifier(columnName)
+      const quotedTableName = quoteIdentifier(table.name)
       const row = database
         .prepare(
-          `SELECT 1 FROM ${tableName}
-             WHERE lower(CAST(${columnName} AS TEXT)) LIKE '%signature=%'
-                OR lower(CAST(${columnName} AS TEXT)) LIKE '%_url_ciphertext%'
-                OR lower(CAST(${columnName} AS TEXT)) LIKE '%recovery_capability%'
+          `SELECT 1 FROM ${quotedTableName}
+             WHERE lower(CAST(${quotedColumnName} AS TEXT)) LIKE '%signature=%'
+                OR lower(CAST(${quotedColumnName} AS TEXT)) LIKE '%_url_ciphertext%'
+                OR lower(CAST(${quotedColumnName} AS TEXT)) LIKE '%recovery_capability%'
              LIMIT 1`
         )
         .get()
       if (row !== undefined) {
         throw new Error(
-          `Project database contains a forbidden MinerU capability value in ${table.name}.${column.name}`
+          `Project database contains a forbidden MinerU capability value in ${table.name}.${columnName}`
         )
       }
     }

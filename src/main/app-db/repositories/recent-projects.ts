@@ -41,43 +41,41 @@ export class RecentProjectsRepository {
   async upsert(pointer: UpsertRecentProjectPointer): Promise<void> {
     const now = this.now()
 
-    await this.database.kysely
-      .insertInto('recent_projects')
-      .values({
-        project_id: pointer.projectId,
-        project_path: pointer.projectPath,
-        display_name: pointer.displayName,
-        last_opened_at: pointer.lastOpenedAt,
-        created_at: now,
-        updated_at: now
-      })
-      .onConflict((conflict) =>
-        conflict.column('project_id').doUpdateSet({
-          project_path: pointer.projectPath,
-          display_name: pointer.displayName,
-          last_opened_at: pointer.lastOpenedAt,
-          updated_at: now
-        })
-      )
-      .execute()
-
-    const kept = await this.database.kysely
-      .selectFrom('recent_projects')
-      .select('project_id')
-      .orderBy('last_opened_at', 'desc')
-      .orderBy('project_id', 'asc')
-      .limit(RECENT_PROJECT_LIMIT)
-      .execute()
-    if (kept.length > 0) {
-      await this.database.kysely
-        .deleteFrom('recent_projects')
-        .where(
-          'project_id',
-          'not in',
-          kept.map((row) => row.project_id)
+    this.database.immediate((database) => {
+      database
+        .prepare('DELETE FROM recent_projects WHERE project_path = ? AND project_id <> ?')
+        .run(pointer.projectPath, pointer.projectId)
+      database
+        .prepare(
+          `INSERT INTO recent_projects
+             (project_id, project_path, display_name, last_opened_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id) DO UPDATE SET
+             project_path = excluded.project_path,
+             display_name = excluded.display_name,
+             last_opened_at = excluded.last_opened_at,
+             updated_at = excluded.updated_at`
         )
-        .execute()
-    }
+        .run(
+          pointer.projectId,
+          pointer.projectPath,
+          pointer.displayName,
+          pointer.lastOpenedAt,
+          now,
+          now
+        )
+      database
+        .prepare(
+          `DELETE FROM recent_projects
+            WHERE project_id NOT IN (
+              SELECT project_id
+                FROM recent_projects
+               ORDER BY last_opened_at DESC, project_id ASC
+               LIMIT ?
+            )`
+        )
+        .run(RECENT_PROJECT_LIMIT)
+    })
   }
 
   async remove(projectId: string): Promise<boolean> {

@@ -196,6 +196,72 @@
     padding-inline: 0;
   }
 
+  .manuscript-preview-body,
+  .manuscript-preview-body .bn-editor,
+  .manuscript-preview-body .bn-block-group,
+  .manuscript-preview-body .bn-block-outer,
+  .manuscript-preview-body .bn-block,
+  .manuscript-preview-body .bn-block-content,
+  .manuscript-preview-body .bn-inline-content,
+  .manuscript-preview-body .bn-react-node-view-renderer,
+  .manuscript-preview-body [data-file-block] .bn-file-block-content-wrapper {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .manuscript-preview-body .bn-editor {
+    padding-inline: 0;
+  }
+
+  .manuscript-preview-body .bn-inline-content {
+    overflow-wrap: anywhere;
+  }
+
+  .manuscript-preview-body [data-content-type="table"] .tableWrapper,
+  .manuscript-preview-body [data-content-type="codeBlock"] > pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .manuscript-preview-body [data-file-block] .bn-visual-media-wrapper,
+  .manuscript-preview-body [data-file-block] .bn-visual-media {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .writing-editor .writellm-readable-citation {
+    margin-inline: -0.02em;
+    padding-inline: 0.12em;
+    border-radius: calc(var(--radius) - 6px);
+    color: var(--foreground);
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in oklab, var(--primary) 55%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.16em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    cursor: pointer;
+  }
+
+  .writing-editor .writellm-readable-citation:hover {
+    background-color: color-mix(in oklab, var(--primary) 16%, transparent);
+  }
+
+  .writing-editor .writellm-readable-citation:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (forced-colors: active) {
+    .writing-editor .writellm-readable-citation {
+      border: 1px solid LinkText;
+      color: LinkText;
+      background-color: Canvas;
+      text-decoration-color: LinkText;
+    }
+  }
+
   @media (max-width: 767px) {
     .writing-editor .bn-editor {
       padding-inline: 54px;

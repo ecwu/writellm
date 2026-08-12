@@ -5,7 +5,8 @@ import {
   agentHistorySchema,
   agentQueueCommandSchema,
   agentRunStartSchema,
-  agentRuntimeMessageSchema
+  agentRuntimeMessageSchema,
+  agentUserMessagePayloadSchema
 } from './agent'
 
 const config = {
@@ -56,6 +57,23 @@ describe('Agent contracts', () => {
         systemPrompt: 'refreshed system'
       })
     ).toMatchObject({ operation: 'follow_up', ...ids })
+  })
+
+  it('keeps historical user messages readable while bounding review presentation metadata', () => {
+    const historical = { content: 'Draft this.', delivery: 'prompt', timestamp: 1 }
+    expect(agentUserMessagePayloadSchema.parse(historical)).toEqual(historical)
+    expect(
+      agentUserMessagePayloadSchema.parse({
+        ...historical,
+        presentation: { kind: 'review_feedback', displayContent: 'Keep the opening.' }
+      }).presentation
+    ).toEqual({ kind: 'review_feedback', displayContent: 'Keep the opening.' })
+    expect(() =>
+      agentUserMessagePayloadSchema.parse({
+        ...historical,
+        presentation: { kind: 'review_feedback', displayContent: 'x'.repeat(4_097) }
+      })
+    ).toThrow()
   })
 
   it('rejects oversized history and stale response envelope shapes', () => {

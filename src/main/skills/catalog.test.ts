@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import {
+  SKILL_MAX_ENTRYPOINT_BYTES,
+  SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES
+} from '../../shared/contracts/skills'
 import { CURATED_SKILL_CATALOG, validateCuratedSkillCatalog } from './catalog'
 
 describe('curated writing skill catalog', () => {
@@ -16,6 +20,11 @@ describe('curated writing skill catalog', () => {
         expect(file.path).toMatch(/\.(?:md|txt)$/i)
         expect(file.gitBlobSha).toMatch(/^[a-f0-9]{40}$/)
         expect(file.byteSize).toBeGreaterThan(0)
+        expect(file.byteSize).toBeLessThanOrEqual(
+          file.path === 'SKILL.md'
+            ? SKILL_MAX_ENTRYPOINT_BYTES
+            : SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES
+        )
       }
     }
     expect(

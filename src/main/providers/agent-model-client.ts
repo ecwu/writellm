@@ -18,8 +18,10 @@ import {
 } from '../../shared/contracts/agent'
 import {
   AGENT_TOOL_RESULT_SCHEMA_VERSION,
+  agentToolRequestEnvelopeSchema,
   agentToolRequestSchema,
   agentToolResponseSchema,
+  type AgentToolRequestEnvelope,
   type AgentToolRequest,
   type AgentToolResponse
 } from '../../shared/contracts/agent-tools'
@@ -227,47 +229,62 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     }
     port.on('message', (event) => {
       const task = (async () => {
-        const parsed = agentToolRequestSchema.safeParse(event.data)
+        const envelope = agentToolRequestEnvelopeSchema.safeParse(event.data)
         if (
-          !parsed.success ||
-          parsed.data.projectSessionId !== request.projectSessionId ||
-          parsed.data.agentSessionId !== request.agentSessionId ||
-          parsed.data.agentRunId !== request.agentRunId
+          !envelope.success ||
+          envelope.data.projectSessionId !== request.projectSessionId ||
+          envelope.data.agentSessionId !== request.agentSessionId ||
+          envelope.data.agentRunId !== request.agentRunId
         ) {
           failProtocol(
-            parsed.success ? new Error('Agent tool request capability mismatch') : parsed.error
+            envelope.success ? new Error('Agent tool request capability mismatch') : envelope.error
           )
           return
         }
+        const parsed = agentToolRequestSchema.safeParse(envelope.data)
         let response: AgentToolResponse
-        try {
-          response =
-            onToolRequest === undefined
-              ? unavailableToolResponse(parsed.data)
-              : await onToolRequest(parsed.data, controller.signal)
-        } catch (err) {
-          this.log.error(
+        if (!parsed.success) {
+          this.log.warn(
             {
-              event: 'agent_tool_bridge.handler_failed',
-              err,
+              event: 'agent_tool_bridge.arguments_invalid',
+              err: parsed.error,
               agentRunId: request.agentRunId,
-              toolCallId: parsed.data.toolCallId,
-              toolName: parsed.data.toolName
+              toolCallId: envelope.data.toolCallId,
+              toolName: envelope.data.toolName
             },
-            'Agent tool bridge handler failed'
+            'Agent tool bridge rejected invalid tool arguments'
           )
-          response = internalToolResponse(parsed.data)
+          response = invalidArgumentsToolResponse(envelope.data)
+        } else {
+          try {
+            response =
+              onToolRequest === undefined
+                ? unavailableToolResponse(parsed.data)
+                : await onToolRequest(parsed.data, controller.signal)
+          } catch (err) {
+            this.log.error(
+              {
+                event: 'agent_tool_bridge.handler_failed',
+                err,
+                agentRunId: request.agentRunId,
+                toolCallId: parsed.data.toolCallId,
+                toolName: parsed.data.toolName
+              },
+              'Agent tool bridge handler failed'
+            )
+            response = internalToolResponse(parsed.data)
+          }
         }
         const validated = agentToolResponseSchema.safeParse(response)
         if (
           !validated.success ||
-          validated.data.requestId !== parsed.data.requestId ||
-          validated.data.projectSessionId !== parsed.data.projectSessionId ||
-          validated.data.agentSessionId !== parsed.data.agentSessionId ||
-          validated.data.agentRunId !== parsed.data.agentRunId ||
-          validated.data.toolCallId !== parsed.data.toolCallId ||
-          validated.data.toolName !== parsed.data.toolName ||
-          validated.data.modelRequestId !== parsed.data.modelRequestId
+          validated.data.requestId !== envelope.data.requestId ||
+          validated.data.projectSessionId !== envelope.data.projectSessionId ||
+          validated.data.agentSessionId !== envelope.data.agentSessionId ||
+          validated.data.agentRunId !== envelope.data.agentRunId ||
+          validated.data.toolCallId !== envelope.data.toolCallId ||
+          validated.data.toolName !== envelope.data.toolName ||
+          validated.data.modelRequestId !== envelope.data.modelRequestId
         ) {
           failProtocol(
             validated.success
@@ -516,6 +533,27 @@ function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
       category: 'transient',
       message: 'Agent read tools are unavailable',
       recovery: { action: 'retry', maxAttempts: 1 }
+    }
+  }
+}
+
+function invalidArgumentsToolResponse(request: AgentToolRequestEnvelope): AgentToolResponse {
+  return {
+    type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+    requestId: request.requestId,
+    projectSessionId: request.projectSessionId,
+    agentSessionId: request.agentSessionId,
+    agentRunId: request.agentRunId,
+    toolCallId: request.toolCallId,
+    modelRequestId: request.modelRequestId,
+    toolName: request.toolName,
+    ok: false,
+    error: {
+      code: 'invalid_arguments',
+      category: 'validation',
+      message: 'Agent tool arguments are invalid',
+      recovery: { action: 'fix_arguments', tool: request.toolName }
     }
   }
 }

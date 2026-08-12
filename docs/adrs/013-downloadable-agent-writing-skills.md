@@ -118,6 +118,11 @@ discovery, no network authority for skills, and no direct mutation authority.
   dependency closure at run start and injects their complete entrypoints on every turn while
   retaining the same lazy reference capability. A selected explicit Skill that becomes unavailable
   blocks new runs without silently changing the session setting.
+- Writing Skill reads are a preparation phase rather than independent downstream reads. Explicit
+  mode does not reread an entrypoint already injected into the system prompt. Auto reads at most one
+  candidate entrypoint in an otherwise Skill-only assistant response. The model may then issue up to
+  four task-relevant reference reads together, but waits for every selected result before using
+  manuscript, knowledge, citation, generation, checking, or submission tools in a later response.
 - Prompt order is fixed: global safety/tool/writing/citation policy, companion note, Pi-formatted
   primary/dependency blocks and complete references, trusted writing requirements, then manuscript
   data. Optional references are removed whole before the existing outline reduction. If mandatory

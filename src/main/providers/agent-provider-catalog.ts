@@ -155,9 +155,11 @@ export class AgentProviderCatalogService {
       models.getProviders().map((provider) => this.#summarizeProvider(provider, models))
     )
     const defaultSelection = await this.settings.getDefaultAgentModelSelection()
+    const defaultThinkingLevel = await this.settings.getLastAgentThinkingLevel()
     return agentProviderCatalogSchema.parse({
       presets: presets.sort((left, right) => left.name.localeCompare(right.name)),
-      defaultSelection
+      defaultSelection,
+      defaultThinkingLevel
     })
   }
 

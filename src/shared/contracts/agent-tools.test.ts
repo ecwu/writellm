@@ -4,6 +4,7 @@ import {
   agentToolRequestSchema,
   getWritingContextArgsSchema,
   readCitationsArgsSchema,
+  readWritingSkillResultSchema,
   readSectionArgsSchema,
   searchKnowledgeArgsSchema
 } from './agent-tools'
@@ -33,11 +34,43 @@ describe('Agent read-tool contracts', () => {
     })
     expect(readCitationsArgsSchema.safeParse({ citationIds: [] }).success).toBe(false)
     expect(
+      readCitationsArgsSchema.parse({
+        requests: [
+          {
+            citationId: `citation-${'a'.repeat(40)}`,
+            maxChars: 16_384
+          }
+        ]
+      })
+    ).toMatchObject({ citationIds: [], requests: [{ offset: 0, maxChars: 16_384 }] })
+    expect(
       searchKnowledgeArgsSchema.safeParse({
         query: 'evidence',
         projectSessionId: capability.projectSessionId
       }).success
     ).toBe(false)
+  })
+
+  it('accepts curated progressive references above the custom-skill reference limit', () => {
+    expect(
+      readWritingSkillResultSchema.parse({
+        skillId: 'nature-writing',
+        commit: 'a'.repeat(40),
+        relativePath: 'SKILL.md',
+        sha256: 'b'.repeat(64),
+        byteSize: 6_488,
+        content: 'Skill guidance',
+        references: [
+          {
+            relativePath: 'references/introduction.md',
+            uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/references/introduction.md`,
+            sha256: 'c'.repeat(64),
+            byteSize: 15_709
+          }
+        ],
+        dependencies: []
+      })
+    ).toMatchObject({ references: [{ byteSize: 15_709 }] })
   })
 
   it('binds requests to session, run, tool call, and model request capabilities', () => {
@@ -64,6 +97,23 @@ describe('Agent read-tool contracts', () => {
         }
       }).success
     ).toBe(false)
+    expect(
+      agentToolRequestSchema.parse({
+        ...capability,
+        toolName: 'read_citations',
+        args: {
+          requests: [
+            {
+              citationId: `citation-${'a'.repeat(40)}`,
+              maxChars: 16_384
+            }
+          ]
+        }
+      })
+    ).toMatchObject({
+      toolName: 'read_citations',
+      args: { citationIds: [], requests: [{ offset: 0, maxChars: 16_384 }] }
+    })
   })
 
   it('rejects unknown tools and argument payloads beyond the bridge bound', () => {

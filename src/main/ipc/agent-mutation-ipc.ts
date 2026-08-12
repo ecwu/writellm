@@ -33,12 +33,25 @@ export function registerAgentMutationIpc(options: {
     if (context.agentMutations === null) throw new Error('Agent mutations are unavailable')
     return context.agentMutations
   }
+  const assertWritableSession = (projectSessionId: string, agentSessionId: string): void => {
+    const sessions = options.manager.assertActiveSession(projectSessionId).agentSessions
+    if (sessions === null) throw new Error('Agent sessions are unavailable')
+    if (
+      !sessions.listSessions('active').some((session) => session.agentSessionId === agentSessionId)
+    ) {
+      const archived = sessions
+        .listSessions('archived')
+        .some((session) => session.agentSessionId === agentSessionId)
+      throw new Error(archived ? 'Agent session is archived' : 'Agent session does not exist')
+    }
+  }
   const recordDecision = async (input: {
     projectSessionId: string
     agentSessionId: string
     agentRunId: string
     proposalId: string
     decision: 'approved' | 'rejected'
+    continueRequested?: boolean
   }): Promise<void> => {
     const sessions = options.manager.assertActiveSession(input.projectSessionId).agentSessions
     await sessions?.recordApprovalDecision({
@@ -46,7 +59,7 @@ export function registerAgentMutationIpc(options: {
       agentRunId: input.agentRunId,
       proposalId: input.proposalId,
       decision: input.decision,
-      continueRequested: false
+      continueRequested: input.continueRequested ?? false
     })
   }
   const lifecycle = async <T>(
@@ -75,6 +88,7 @@ export function registerAgentMutationIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = approveMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.approve', input.proposalId, async () => {
+      assertWritableSession(input.projectSessionId, input.agentSessionId)
       const result = approveMutationProposalResultSchema.parse(
         await service(input.projectSessionId).approve(input)
       )
@@ -91,13 +105,15 @@ export function registerAgentMutationIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = rejectMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.reject', input.proposalId, async () => {
+      assertWritableSession(input.projectSessionId, input.agentSessionId)
       const result = mutationProposalActionResultSchema.parse(
         service(input.projectSessionId).reject(input)
       )
       await recordDecision({
         ...input,
         agentRunId: result.proposal.agentRunId,
-        decision: 'rejected'
+        decision: 'rejected',
+        continueRequested: input.continueRequested
       })
       return result
     })
@@ -106,6 +122,7 @@ export function registerAgentMutationIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = undoMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.undo', input.proposalId, async () => {
+      assertWritableSession(input.projectSessionId, input.agentSessionId)
       const result = mutationProposalActionResultSchema.parse(
         await service(input.projectSessionId).undo(input)
       )
@@ -116,6 +133,7 @@ export function registerAgentMutationIpc(options: {
   ipc.handle(IPC_CHANNELS.agentCancelImageGeneration, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = cancelImageGenerationInputSchema.parse(rawInput)
+    assertWritableSession(input.projectSessionId, input.agentSessionId)
     return cancelImageGenerationResultSchema.parse({
       cancelled: service(input.projectSessionId).cancelImageGeneration(
         input.agentSessionId,

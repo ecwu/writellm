@@ -32,6 +32,19 @@ mac:
   notarize: false
 dmg:
   artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  iconSize: 80
+  iconTextSize: 12
 linux:
   target:
     - AppImage

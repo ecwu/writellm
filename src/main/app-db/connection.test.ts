@@ -11,6 +11,8 @@ import type { AppDatabaseSchema } from './database-types'
 import { migration0001 } from './migrations/0001-application-state'
 import { migration0002 } from './migrations/0002-agent-model-catalogs'
 import { migration0003 } from './migrations/0003-agent-model-preferences'
+import { migration0004 } from './migrations/0004-credential-bindings'
+import { migration0005 } from './migrations/0005-agent-skills'
 import { credentialBindingFingerprint } from '../providers/credential-binding'
 
 const temporaryDirectories: string[] = []
@@ -120,7 +122,9 @@ describe('application database', () => {
 
     const backupNames = await readdir(join(userData, 'backups'))
     expect(backupNames).toHaveLength(1)
-    expect(backupNames[0]).toMatch(/^migration-v1-to-v5-[0-9a-f-]+\.sqlite$/u)
+    expect(backupNames[0]).toMatch(
+      new RegExp(`^migration-v1-to-v${APP_SCHEMA_VERSION}-[0-9a-f-]+\\.sqlite$`, 'u')
+    )
     const backup = new Database(join(userData, 'backups', backupNames[0] as string), {
       readonly: true,
       fileMustExist: true
@@ -150,6 +154,80 @@ describe('application database', () => {
     } finally {
       backup.close()
     }
+  })
+
+  it('keeps the newest pointer per project path when upgrading the recent-project schema', async () => {
+    const userData = await temporaryUserData()
+    const databasePath = join(userData, 'app.sqlite')
+    const legacy = await openDatabase<AppDatabaseSchema>({
+      path: databasePath,
+      applicationId: APP_DATABASE_APPLICATION_ID,
+      applicationVersion: '0.5.0-test',
+      databaseRole: 'app',
+      migrations: [migration0001, migration0002, migration0003, migration0004, migration0005],
+      log
+    })
+    legacy.immediate((database) => {
+      const insert = database.prepare(
+        `INSERT INTO recent_projects
+           (project_id, project_path, display_name, last_opened_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      insert.run(
+        '11111111-1111-4111-8111-111111111111',
+        '/projects/recreated',
+        'Recreated',
+        '2026-07-14T10:00:00.000Z',
+        '2026-07-14T10:00:00.000Z',
+        '2026-07-14T10:00:00.000Z'
+      )
+      insert.run(
+        '22222222-2222-4222-8222-222222222222',
+        '/projects/recreated',
+        'Recreated',
+        '2026-07-14T11:00:00.000Z',
+        '2026-07-14T11:00:00.000Z',
+        '2026-07-14T11:00:00.000Z'
+      )
+    })
+    legacy.close()
+
+    const upgraded = await openAppDatabase({
+      path: databasePath,
+      applicationVersion: '1.0.0-test',
+      log
+    })
+    expect(
+      await upgraded.kysely
+        .selectFrom('recent_projects')
+        .select(['project_id', 'project_path', 'last_opened_at'])
+        .execute()
+    ).toEqual([
+      {
+        project_id: '22222222-2222-4222-8222-222222222222',
+        project_path: '/projects/recreated',
+        last_opened_at: '2026-07-14T11:00:00.000Z'
+      }
+    ])
+    expect(() =>
+      upgraded.immediate((database) =>
+        database
+          .prepare(
+            `INSERT INTO recent_projects
+               (project_id, project_path, display_name, last_opened_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            '33333333-3333-4333-8333-333333333333',
+            '/projects/recreated',
+            'Duplicate',
+            '2026-07-14T12:00:00.000Z',
+            '2026-07-14T12:00:00.000Z',
+            '2026-07-14T12:00:00.000Z'
+          )
+      )
+    ).toThrow()
+    upgraded.close()
   })
 
   it('invalidates editable endpoint credentials while backfilling immutable built-ins', async () => {

@@ -76,6 +76,8 @@
     "pdfjs-dist": "6.1.200",
     "pino": "^10.1.0",
     "pino-roll": "^4.0.0",
+    "prosemirror-state": "1.4.4",
+    "prosemirror-view": "1.42.1",
     "radix-ui": "^1.6.2",
     "react-diff-viewer-continued": "4.4.0",
     "react-markdown": "10.1.0",

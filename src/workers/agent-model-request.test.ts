@@ -106,4 +106,51 @@ describe('runAgentModelRequest', () => {
     expect(JSON.stringify(result)).not.toContain('agent-secret')
     expect(JSON.stringify(result)).not.toContain('Write a line.')
   })
+
+  it('preserves the provider diagnostic when a utility request fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: { message: 'temperature is unsupported' } }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' }
+          })
+        )
+      )
+    )
+    const request: AgentUtilityRequest = {
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc302',
+      config: {
+        role: 'agent',
+        providerId: 'openai-compatible',
+        baseUrl: 'https://agent.example.test/v1',
+        model: 'writer-model',
+        modelRevision: 'writer-rev-1',
+        timeoutMs: 5_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null
+      },
+      credential: { apiKey: 'agent-secret' },
+      modelLimits: {
+        contextWindowTokens: 131_072,
+        inputLimitTokens: null,
+        outputLimitTokens: null,
+        source: 'legacy_fallback',
+        catalogModelKey: null,
+        resolvedAt: null
+      },
+      input: {
+        systemPrompt: 'Create a title.',
+        prompt: 'Conversation data.',
+        maxOutputTokens: 64,
+        temperature: 0
+      }
+    }
+
+    await expect(runAgentModelRequest(request, () => undefined)).rejects.toThrow(
+      'temperature is unsupported'
+    )
+  })
 })

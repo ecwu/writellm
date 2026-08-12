@@ -41,7 +41,8 @@ export const agentSessionRecordSchema = strictObject({
   thinkingLevel: agentThinkingLevelSchema.default('off'),
   skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
   createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime()
+  updatedAt: z.iso.datetime(),
+  archivedAt: z.iso.datetime().nullable().default(null)
 })
 
 export const agentRunRecordSchema = strictObject({
@@ -105,6 +106,9 @@ export const agentSessionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema
 })
+export const agentListSessionsInputSchema = agentProjectInputSchema.extend({
+  status: agentSessionStatusSchema.default('active')
+})
 export const agentCreateSessionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   title: z.string().trim().min(1).max(500).default('New conversation'),
@@ -127,6 +131,12 @@ export const agentSetSkillSelectionInputSchema = agentSessionInputSchema.extend(
   selection: skillSelectionSchema
 })
 export const agentSetSkillSelectionResultSchema = agentSessionRecordSchema
+export const agentGenerateSessionTitleInputSchema = agentSessionInputSchema
+export const agentGenerateSessionTitleResultSchema = agentSessionRecordSchema
+export const agentArchiveSessionInputSchema = agentSessionInputSchema
+export const agentArchiveSessionResultSchema = agentSessionRecordSchema
+export const agentRestoreSessionInputSchema = agentSessionInputSchema
+export const agentRestoreSessionResultSchema = agentSessionRecordSchema
 export const agentListSessionsResultSchema = z
   .array(agentSessionRecordSchema)
   .max(AGENT_SESSION_LIMIT)
@@ -156,10 +166,18 @@ export const agentStartRunInputSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   prompt: z.string().trim().min(1).max(262_144),
   approvedProposalId: z.uuid().optional(),
+  rejectedProposalId: z.uuid().optional(),
   reuseSkillFromRunId: agentRunIdSchema.optional(),
   scope: agentStartScopeSchema,
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {
+  if (input.approvedProposalId !== undefined && input.rejectedProposalId !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['rejectedProposalId'],
+      message: 'Approved and rejected proposal continuations are mutually exclusive'
+    })
+  }
   if (input.scope === 'project') {
     if (
       input.editorContext.activeSectionId !== null ||
@@ -228,9 +246,16 @@ export const agentDeltaRendererEventSchema = strictObject({
   agentRunId: agentRunIdSchema,
   delta: z.string().min(1).max(65_536)
 })
+export const agentSessionRendererEventSchema = strictObject({
+  kind: z.literal('session'),
+  projectSessionId: projectSessionIdSchema,
+  session: agentSessionRecordSchema,
+  titleGenerating: z.boolean()
+})
 export const agentRendererEventSchema = z.discriminatedUnion('kind', [
   agentDurableRendererEventSchema,
-  agentDeltaRendererEventSchema
+  agentDeltaRendererEventSchema,
+  agentSessionRendererEventSchema
 ])
 
 export type AgentSessionRecord = z.infer<typeof agentSessionRecordSchema>

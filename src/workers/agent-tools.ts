@@ -858,7 +858,7 @@ export class AgentToolBridge {
         name: 'read_writing_skill',
         label: 'Read writing skill',
         description:
-          'Read one run-authorized Writing Skill entrypoint or reference by its exact virtual URI. In Auto mode, reading an entrypoint selects the only primary skill for this run.',
+          'Read one run-authorized Writing Skill entrypoint or reference by its exact virtual URI. Treat Skill loading as a preparation phase: do not reread an entrypoint already present in a complete <skill> block; in Auto mode, first read at most one candidate SKILL.md by itself. Then read no more than four task-relevant references, do not mix Skill reads with non-Skill tools in the same assistant response, and wait for their results before using other tools.',
         parameters: readWritingSkillParameters,
         executionMode: 'parallel',
         execute: (toolCallId, args, signal) =>

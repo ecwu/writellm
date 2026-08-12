@@ -24,6 +24,10 @@ test(
           const body = JSON.parse(Buffer.concat(chunks).toString()) as {
             messages?: Array<{ role?: string; content?: unknown }>
           }
+          if (JSON.stringify(body).includes('Create a concise title for the delimited')) {
+            sendCompletion(response, 'Short draft writing')
+            return
+          }
           requests.push(body)
           const lastMessage = body.messages?.at(-1)
           if (
@@ -34,12 +38,15 @@ test(
             sendToolCall(response, autoSkillUri)
             return
           }
-          sendCompletion(
-            response,
+          const content =
             lastMessage?.role === 'tool'
               ? 'An Auto skill fixture draft.'
               : 'A global skill fixture draft.'
-          )
+          if (JSON.stringify(lastMessage?.content).includes('Write a short draft.')) {
+            setTimeout(() => sendCompletion(response, content), 1_500)
+            return
+          }
+          sendCompletion(response, content)
         })
         return
       }
@@ -88,23 +95,46 @@ test(
 
       await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      await panel.getByLabel('Agent model').click()
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      let details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
-      await panel.getByRole('button', { name: 'Choose writing skill' }).click()
+      await details.getByRole('button', { name: 'Choose writing skill' }).click()
       await launched.page.getByRole('option', { name: /e2e-writing/ }).click()
+      await details.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(details).toBeHidden()
       await panel.getByLabel('Agent message').fill('Write a short draft.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
+
+      const runStatus = panel.getByTestId('agent-status')
+      await expect(runStatus.getByText(/Working ·/)).toBeVisible()
+      await expect(runStatus.locator('[data-slot="badge"]')).toHaveCount(0)
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await expect(details).toContainText('E2E Agent · Writer model')
+      await expect(details).toContainText('Thinking')
+      await expect(details).toContainText('e2e-writing')
+      await details.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(details).toBeHidden()
 
       await expect(panel.getByText('A global skill fixture draft.', { exact: true })).toBeVisible()
       await panel.getByRole('button', { name: 'Close writing agent' }).click()
       await launched.page.getByTestId('agent-menubar-trigger').click()
-      await panel.getByRole('button', { name: /^Conversation 1/ }).click()
-      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toContainText(
+      await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
+        'Short draft writing'
+      )
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await expect(details.getByRole('button', { name: 'Choose writing skill' })).toContainText(
         'e2e-writing'
       )
+      await details.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(details).toBeHidden()
       await panel.getByLabel('Agent message').fill('Write a second short draft.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect(panel.getByText('A global skill fixture draft.', { exact: true })).toHaveCount(2)
@@ -143,12 +173,16 @@ test(
       if (installedSkill === undefined) throw new Error('Installed E2E writing skill is missing')
       autoSkillUri = `writellm://skills/${encodeURIComponent(installedSkill.skillId)}/${installedSkill.commit}/SKILL.md`
 
-      await panel.getByRole('button', { name: 'Back to conversations' }).click()
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      await expect(panel.getByLabel('Agent model')).toContainText('Writer model')
-      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toContainText(
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await expect(details.getByRole('button', { name: 'Choose writing skill' })).toContainText(
         'Auto'
       )
+      await details.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(details).toBeHidden()
       await panel.getByLabel('Agent message').fill('Use Auto writing skill.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect(panel.getByText('An Auto skill fixture draft.', { exact: true })).toBeVisible()

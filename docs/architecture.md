@@ -654,6 +654,21 @@ An unchanged content hash is a no-op and must not create a new revision. Revisio
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
 
+Canonical readable citation labels (`[Source: exact title, p. N]` and
+`【来源：准确标题，第 N 页】`, with the page omitted when unavailable) remain ordinary editable
+manuscript text. The section editor may recognize and decorate those labels through ProseMirror,
+but the decoration must not change BlockNote JSON, revision identity, autosave behavior, copied
+text, or Markdown round-trips. Whole-manuscript preview decoration remains deferred.
+
+Interactive citation preview is provenance-gated. Main validates the active project session,
+revision, and stable block ID, then walks the bounded revision lineage from newest to oldest and
+considers only applied proposals that created, updated, or replaced that block. Candidate
+`citationId` values come only from each proposal's persisted provenance and are expanded through
+the active retrieval index before NFC-and-trim exact title and optional page matching. The
+resolver never searches or guesses across the project by title. A copied or manually authored
+label without qualifying block provenance remains highlighted but cannot open source content;
+removed or rebuilt sources fail closed as unavailable.
+
 ### Block mutations
 
 Agent and programmatic changes use domain operations rather than arbitrary JSON Patch:
@@ -925,6 +940,12 @@ primary Skill; a second primary conflicts. Dependency entrypoints are supplied w
 and at most four manifest-listed primary reference files may be read afterward. Skill guidance is
 delimited below global policy and is never treated as manuscript data. Durable events store only
 IDs, pins, relative paths, hashes, and byte counts, never Skill bodies or private paths.
+
+Writing Skill reads form a preparation barrier for downstream work. An already injected explicit
+entrypoint is not reread; Auto selects at most one candidate entrypoint in an otherwise Skill-only
+assistant response. The model may then issue up to four task-relevant reference reads together,
+but it waits for all selected reference results before issuing manuscript, knowledge, citation,
+generation, checking, or submission tools in a later assistant response.
 
 Read-only tools may execute in parallel when their results are independent.
 

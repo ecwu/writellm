@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 27.6 is locally complete; local candidate v0.2026.8.11 is authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-11
+Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.11 remains authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-12
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -9,6 +9,90 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 28.1 is locally complete. It turns the existing Agent sidebar into one continuous writing
+flow: opening resumes the active or attention-requiring conversation, empty projects show a lazy
+draft composer, conversation history moves into a searchable header switcher, context scope is
+inferred behind one editable control, and runtime metadata moves into progressive disclosure.
+Running messages queue by default, while proposal review becomes a focused composer with Apply and
+continue as the primary action and bounded feedback-driven revision as a new immutable run.
+
+Accepted ADR 015 preserves Agent Harness Protocol v4, typed proposal and revision boundaries,
+request-scoped execution, existing persistence tables, and the fixed worker roles. The checkpoint
+adds no Agent tool, database migration, direct-write authority, durable job, subagent, plugin,
+shell, or arbitrary filesystem/network access. The user approved the decision-complete plan and
+explicitly requested implementation on 2026-08-12.
+
+Local evidence includes 90 focused contract, provider-catalog, Main/IPC, session-service, view-model,
+and Renderer tests; `check:fast`; `check:electron` with 135 passing Electron-hosted test files, 715
+passing tests, one opt-in benchmark skipped, and a successful production build; a fresh full
+Real-Electron gate with all 23 scenarios passing without flakes or skips; the grounded Agent flow
+covering Request changes, a new revision run with re-authorized evidence, Apply and continue, one
+accepted manuscript mutation, reopen, Undo, archive, and restore; a clean scoped Impeccable
+detector; and `git diff --check`. Packaging, release, hosted CI, commit, push, and promotion were
+not run.
+
+Checkpoint 27.9 remains locally complete. It replaces the editable section heading's single-line
+input with an unbounded soft-wrapping shadcn textarea that grows with its content while retaining
+the existing 500-character title contract. Enter saves the title and moves focus into the section
+body; pasted line breaks are normalized to spaces so section titles remain logical single-line
+metadata. The sidebar and outline tree retain their compact single-line navigation treatment. This
+checkpoint is Renderer-only and does not change manuscript persistence, IPC, export, or Agent
+behavior.
+
+The user approved the decision-complete plan and explicitly requested implementation on
+2026-08-11. Local evidence includes the focused desktop/narrow-window Real-Electron scenario;
+`check:fast`; `check:electron` with 134 passing Electron-hosted test files, 704 passing tests, one
+opt-in benchmark skipped, and a successful production build; a clean scoped Impeccable detector;
+and scoped `git diff --check`. Packaging, release, hosted CI, commit, push, and promotion remain out
+of scope.
+
+Checkpoint 27.8 is locally complete. It replaces generic numbered Agent conversation labels with a
+bounded, request-scoped title flow and completes the already-present active/archived session
+lifecycle. The first prompt produces an immediate local fallback title while one non-blocking
+single-shot request through the conversation's selected Agent model may replace it; manual
+regeneration uses bounded durable history. Active and archived conversations remain project-local,
+archiving is reversible and idle-only, and archived history is read-only. The checkpoint reuses
+`agent_sessions` and `model_requests`; it adds no table, Agent tool, durable job, provider role, or
+independent title-model setting.
+
+The user approved the decision-complete plan and explicitly requested implementation on
+2026-08-11 after confirming Checkpoint 27.7 acceptance. Local evidence includes 54 focused title,
+archive, contract, broker, and IPC tests; `check:fast`; `check:electron` with 133 passing
+Electron-hosted test files, 697 passing tests, and one opt-in benchmark skipped; a successful
+production build; 22/22 full Real-Electron E2E scenarios including automatic/manual title flows,
+keyboard menus, archived read-only history, and restore; a clean Impeccable detector; and
+`git diff --check`.
+
+A same-day packaged-runtime follow-up reproduced title generation failures with selected reasoning
+models. The title transport had applied a non-reasoning profile universally: Codex Responses
+rejected the explicit temperature while a DeepSeek reasoning model exhausted the 64-token budget
+without visible title text. Title requests now use catalog reasoning metadata: non-reasoning models
+retain the 64-token deterministic profile, while reasoning models omit the incompatible temperature
+and receive a bounded 512-token transport allowance; the durable title remains sanitized to 80
+Unicode characters. Worker failures also preserve the provider diagnostic for safe Main-process
+logging. The user authorized a fresh local App build. Follow-up evidence includes 36/36 focused
+service/worker tests, `check:fast`, the complete `check:electron` gate, the 23-case recovery-fixture
+verifier, and an unsigned macOS arm64 unpacked package with all 12 packaged smoke scenarios and
+15/15 packaged E2E scenarios passing. Release, hosted CI, commit, push, and promotion were not run.
+
+Checkpoint 27.7 is locally complete. The editable section editor recognizes the canonical English
+and Chinese readable citation labels as ordinary text and adds non-destructive ProseMirror
+decorations with mouse and keyboard activation. Main resolves previews only from accepted proposal
+provenance attached to the stable block along the bounded revision lineage, expands the persisted
+`citationId` values through the active index, and uses NFC-and-trim exact title plus optional page
+matching. The resolver does not guess from project-wide titles; copied or manually authored labels
+without qualifying provenance remain highlighted and report an unavailable association. The
+checkpoint does not change the manuscript schema, citation policy, autosave/revision behavior,
+Markdown round-trips, or whole-manuscript preview.
+
+Local evidence includes a frozen dependency install; 23 focused parser, extension, resolver, IPC,
+session-validation, and safe-logging tests; `check:fast`; `check:electron` with 132 passing
+Electron-hosted test files, 686 passing tests, and one opt-in benchmark skipped; a successful fresh
+production build; the focused grounded Agent Real-Electron scenario covering keyboard and mouse
+preview activation, exact source content, focus restoration, reopen, and undo; a clean Impeccable
+detector; and `git diff --check`. Package, release, hosted CI, commit, push, and promotion were not
+run.
 
 Checkpoint 27.6 is locally complete. It replaces the out-of-band Writing Skill model pre-router with
 Pi-native progressive disclosure inside the formal Agent turn. Auto mode exposes a bounded,

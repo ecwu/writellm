@@ -38,7 +38,7 @@ export interface AgentToolActivity {
   stopped: boolean
 }
 
-export type AgentActivityStatus = 'running' | 'error' | 'complete' | 'stopped'
+export type AgentActivityStatus = 'running' | 'partial' | 'error' | 'complete' | 'stopped'
 
 export type AgentRunTerminal = {
   runId: string | null
@@ -66,6 +66,7 @@ export type AgentTimelineItem =
       tools: AgentToolActivity[]
       status: AgentActivityStatus
       summary: string
+      failedCount: number
       citations: AgentCitationDisplay[]
     }
   | {
@@ -248,6 +249,7 @@ export function projectAgentTimeline(
       tools,
       status: activityStatus(tools, terminal?.status),
       summary: summarizeAgentActivity(tools),
+      failedCount: failedAgentToolCount(tools),
       citations: dedupeCitationDisplays(
         tools.flatMap((tool) =>
           tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
@@ -261,7 +263,15 @@ export function projectAgentTimeline(
       const parsed = agentUserMessagePayloadSchema.safeParse(event.payload)
       if (!parsed.success) continue
       flushTools()
-      items.push({ type: 'user', id: event.agentEventId, payload: parsed.data })
+      if (parsed.data.presentation?.kind === 'approval_continuation') continue
+      items.push({
+        type: 'user',
+        id: event.agentEventId,
+        payload:
+          parsed.data.presentation?.kind === 'review_feedback'
+            ? { ...parsed.data, content: parsed.data.presentation.displayContent }
+            : parsed.data
+      })
       continue
     }
     if (event.type === 'assistant_message') {
@@ -309,6 +319,18 @@ export function projectAgentTimeline(
       const parsed = agentApprovalDecisionPayloadSchema.safeParse(event.payload)
       if (!parsed.success) continue
       flushTools()
+      if (
+        parsed.data.decision === 'rejected' &&
+        parsed.data.continueRequested &&
+        orderedEvents.some((candidate) => {
+          if (candidate.sequence <= event.sequence || candidate.type !== 'user_message')
+            return false
+          const message = agentUserMessagePayloadSchema.safeParse(candidate.payload)
+          return message.success && message.data.presentation?.kind === 'review_feedback'
+        })
+      ) {
+        continue
+      }
       const previous = items.at(-1)
       if (
         previous?.type === 'approval_decision' &&
@@ -406,7 +428,8 @@ export function activityStatus(
   tools: AgentToolActivity[],
   terminalStatus?: AgentRunTerminal['status']
 ): AgentActivityStatus {
-  if (tools.some((tool) => tool.result?.isError === true && !toolWasStopped(tool))) return 'error'
+  const failedCount = failedAgentToolCount(tools)
+  if (failedCount > 0) return failedCount === tools.length ? 'error' : 'partial'
   if (
     tools.some((tool) => toolWasStopped(tool)) ||
     (terminalStatus !== undefined && tools.some((tool) => tool.result === null))
@@ -414,6 +437,10 @@ export function activityStatus(
     return 'stopped'
   if (tools.some((tool) => tool.result === null)) return 'running'
   return 'complete'
+}
+
+export function failedAgentToolCount(tools: AgentToolActivity[]): number {
+  return tools.filter((tool) => tool.result?.isError === true && !toolWasStopped(tool)).length
 }
 
 export function toolWasStopped(tool: AgentToolActivity): boolean {
@@ -567,23 +594,32 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
     counts.set(tool.call.toolName, (counts.get(tool.call.toolName) ?? 0) + 1)
 
   const summaries: string[] = []
-  const contextCount = counts.get('get_writing_context') ?? 0
-  if (contextCount > 0)
-    summaries.push(
-      contextCount === 1 ? 'Read writing context' : `Read writing context ${contextCount} times`
-    )
+  const contextCount = (counts.get('get_writing_context') ?? 0) + (counts.get('read_outline') ?? 0)
+  if (contextCount > 0) summaries.push('Reading the manuscript')
   const sectionCount = counts.get('read_section') ?? 0
   if (sectionCount > 0)
     summaries.push(`Read ${sectionCount} ${sectionCount === 1 ? 'section' : 'sections'}`)
+  const manuscriptSearchCount = counts.get('search_manuscript') ?? 0
+  if (manuscriptSearchCount > 0) summaries.push('Searching the manuscript')
   const searchCount = counts.get('search_knowledge') ?? 0
-  if (searchCount > 0)
-    summaries.push(
-      searchCount === 1 ? 'Searched knowledge' : `Searched knowledge ${searchCount} times`
-    )
+  if (searchCount > 0) summaries.push('Searching sources')
   const citationCount = counts.get('read_citations') ?? 0
-  if (citationCount > 0)
-    summaries.push(citationCount === 1 ? 'Read citations' : `Read citations ${citationCount} times`)
-  const knownCount = contextCount + sectionCount + searchCount + citationCount
+  if (citationCount > 0) summaries.push('Checking source evidence')
+  const inspectCount = counts.get('inspect_change') ?? 0
+  if (inspectCount > 0) summaries.push('Reviewing the change')
+  const checkCount = counts.get('check_draft') ?? 0
+  if (checkCount > 0) summaries.push('Checking the draft')
+  const skillCount = counts.get('read_writing_skill') ?? 0
+  if (skillCount > 0) summaries.push('Loading writing guidance')
+  const knownCount =
+    contextCount +
+    sectionCount +
+    manuscriptSearchCount +
+    searchCount +
+    citationCount +
+    inspectCount +
+    checkCount +
+    skillCount
   if (tools.length > knownCount) {
     const otherCount = tools.length - knownCount
     summaries.push(`Ran ${otherCount} ${otherCount === 1 ? 'action' : 'actions'}`)
@@ -613,7 +649,12 @@ export function findLatestPrompt(events: AgentEventRecord[]): string | null {
   for (const event of [...events].reverse()) {
     if (event.type !== 'user_message') continue
     const parsed = agentUserMessagePayloadSchema.safeParse(event.payload)
-    if (parsed.success && parsed.data.delivery === 'prompt') return parsed.data.content
+    if (!parsed.success || parsed.data.delivery !== 'prompt') continue
+    if (parsed.data.presentation?.kind === 'approval_continuation') continue
+    if (parsed.data.presentation?.kind === 'review_feedback') {
+      return parsed.data.presentation.displayContent
+    }
+    return parsed.data.content
   }
   return null
 }

@@ -53,6 +53,25 @@ async function saveEditorText(page: Page, text: string): Promise<void> {
   await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
 }
 
+function titleMetrics(element: HTMLElement): {
+  height: number
+  lineHeight: number
+  clientWidth: number
+  scrollWidth: number
+  clientHeight: number
+  scrollHeight: number
+} {
+  const style = getComputedStyle(element)
+  return {
+    height: element.getBoundingClientRect().height,
+    lineHeight: Number.parseFloat(style.lineHeight),
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight
+  }
+}
+
 async function moveSectionUp(page: Page, sourceTitle: string): Promise<void> {
   await page.getByRole('button', { name: 'Edit outline', exact: true }).click()
   const outline = page.getByRole('dialog', { name: 'Outline editor' })
@@ -76,6 +95,8 @@ test(
   scenario('manuscript.workspace-survives-reopen', ['@packaged']),
   async ({ testRoot }) => {
     const projectName = 'Writing workspace'
+    const manuscriptTitle =
+      'From Intent to Control: Language Models for Edge–Cloud Orchestration—Problem Space, Agency, Assurance, and Evidence'
     const projectRoot = join(testRoot, `${projectName}.writellm`)
     const launched = await launchApp({
       userData: join(testRoot, 'user-data'),
@@ -101,14 +122,14 @@ test(
 
       await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
       const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
-      await brief.getByLabel('Title').fill('Field Notes')
+      await brief.getByLabel('Title').fill(manuscriptTitle)
       await brief.getByLabel('Purpose').fill('A durable multi-section writing workflow.')
       await brief.getByLabel('Audience').fill('Researchers')
       await brief.getByRole('button', { name: 'Save brief' }).click()
       await expect(brief.getByText('Saved', { exact: true })).toBeVisible()
       await brief.getByRole('button', { name: 'Close', exact: true }).first().click()
       await expect(brief).not.toBeVisible()
-      await expectBriefTitle(launched.page, 'Field Notes')
+      await expectBriefTitle(launched.page, manuscriptTitle)
 
       await launched.page.getByLabel('Section title').fill('Introduction')
       await launched.page.getByLabel('Section title').press('Tab')
@@ -163,13 +184,13 @@ test(
       await expect(outlinePanel.getByRole('tree', { name: 'Manuscript sections' })).toBeVisible()
       await conclusionTreeItem.locator('button[id^="outline-tree-item-"]').click()
       await expect(outlinePanel.getByLabel('Section objective')).toBeVisible()
-      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
 
       await outlinePanel.getByRole('button', { name: 'Preview all', exact: true }).click()
+      const previewDialog = launched.page.getByTestId('whole-manuscript-preview-dialog')
+      const previewScroll = launched.page.getByTestId('whole-manuscript-preview-scroll')
       const preview = launched.page.getByTestId('whole-manuscript-preview')
       await expect(preview).toBeVisible()
-      await expect(preview.getByRole('heading', { name: 'Field Notes' })).toBeVisible()
+      await expect(preview.getByRole('heading', { name: manuscriptTitle })).toBeVisible()
       const previewText = await preview.textContent()
       expect(previewText?.indexOf('Conclusion')).toBeLessThan(
         previewText?.indexOf('Introduction') ?? 0
@@ -177,8 +198,31 @@ test(
       expect(previewText).toContain('Opening evidence')
       expect(previewText).toContain('Final synthesis')
       expect(previewText).toContain('Supporting context')
+      expect(previewText).not.toContain('Frame the opening evidence.')
+      await expect
+        .poll(() =>
+          previewDialog.evaluate((element) => {
+            const bounds = element.getBoundingClientRect()
+            return (
+              bounds.left >= 0 &&
+              bounds.right <= window.innerWidth &&
+              bounds.top >= 0 &&
+              bounds.bottom <= window.innerHeight &&
+              element.scrollWidth <= element.clientWidth
+            )
+          })
+        )
+        .toBe(true)
+      await expect
+        .poll(() => previewScroll.evaluate((element) => element.scrollWidth <= element.clientWidth))
+        .toBe(true)
+      await expect
+        .poll(() => preview.evaluate((element) => element.scrollWidth <= element.clientWidth))
+        .toBe(true)
       await launched.page.keyboard.press('Escape')
       await expect(preview).not.toBeVisible()
+      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
       await outlinePanel.getByRole('button', { name: 'Done', exact: true }).click()
       await expect(outlinePanel).not.toBeVisible()
       await expect(
@@ -192,7 +236,7 @@ test(
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Open project' }).click()
       await expectActiveProject(launched.page, projectName)
-      await expectBriefTitle(launched.page, 'Field Notes')
+      await expectBriefTitle(launched.page, manuscriptTitle)
       const outlineSections = launched.page.getByTestId(/^outline-section-/)
       await expect(outlineSections.filter({ hasText: 'Conclusion' })).toBeVisible()
       await expect(outlineSections.filter({ hasText: 'Introduction' })).toBeVisible()
@@ -263,7 +307,7 @@ test(
       await expect(relaunched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await relaunched.page.getByRole('button', { name: 'Open project' }).click()
       await expectActiveProject(relaunched.page, projectName)
-      await expectBriefTitle(relaunched.page, 'Field Notes')
+      await expectBriefTitle(relaunched.page, manuscriptTitle)
       await relaunched.page
         .getByTestId(/^outline-section-/)
         .filter({ hasText: 'Introduction' })
@@ -391,6 +435,77 @@ test(
       await expect(editor).not.toContainText('Local stale draft')
       await closeProject(launched.page)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'wraps long section titles while preserving single-line metadata and keyboard flow',
+  scenario('manuscript.section-title-wraps'),
+  async ({ testRoot }) => {
+    const projectName = 'Adaptive section title'
+    const longTitle =
+      'Language-Model Agency and Systems Orchestration Across Evidence-Constrained Research Pipelines — 语言模型在复杂研究流程中的自主性、系统编排与证据边界'
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+
+    try {
+      await createProject(launched.page, projectName)
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      const title = launched.page.getByLabel('Section title')
+
+      await browserWindow.evaluate((window) => {
+        window.unmaximize()
+        window.setContentSize(900, 800)
+      })
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+      await expect(title).toHaveAttribute('maxlength', '500')
+      await title.fill('Evidence orchestration\n跨语言研究')
+      await expect(title).toHaveValue('Evidence orchestration 跨语言研究')
+
+      await title.fill(longTitle)
+      const desktopMetrics = await title.evaluate(titleMetrics)
+      expect(desktopMetrics.height).toBeGreaterThan(desktopMetrics.lineHeight * 1.5)
+      expect(desktopMetrics.scrollWidth).toBeLessThanOrEqual(desktopMetrics.clientWidth + 1)
+      expect(desktopMetrics.scrollHeight - desktopMetrics.clientHeight).toBeLessThanOrEqual(4)
+
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+      const narrowMetrics = await title.evaluate(titleMetrics)
+      expect(narrowMetrics.height).toBeGreaterThan(narrowMetrics.lineHeight * 1.5)
+      expect(narrowMetrics.scrollWidth).toBeLessThanOrEqual(narrowMetrics.clientWidth + 1)
+      expect(narrowMetrics.scrollHeight - narrowMetrics.clientHeight).toBeLessThanOrEqual(4)
+
+      await title.press('Enter')
+      await expect(sectionEditor(launched.page)).toBeFocused()
+
+      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+      const sidebarTitle = launched.page
+        .getByTestId(/^outline-section-/)
+        .getByText(longTitle, { exact: true })
+      await expect(sidebarTitle).toBeVisible()
+      await expect
+        .poll(() =>
+          sidebarTitle.evaluate((element) => {
+            const style = getComputedStyle(element)
+            return {
+              overflow: style.overflow,
+              textOverflow: style.textOverflow,
+              whiteSpace: style.whiteSpace
+            }
+          })
+        )
+        .toEqual({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+
+      await closeProject(launched.page)
+      await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
+      await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+      await expect(launched.page.locator('textarea#section-title')).toHaveValue(longTitle)
     } finally {
       await launched.app.close()
     }
@@ -641,6 +756,29 @@ test(
           }
         }, mermaidPreview)
       ).toEqual({ activeElements: 0, eventAttributes: 0, remoteLinks: 0 })
+
+      await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+      const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
+      await outline.getByRole('button', { name: 'Preview all', exact: true }).click()
+      const manuscriptPreview = launched.page.getByTestId('whole-manuscript-preview')
+      const manuscriptImage = manuscriptPreview.getByRole('img', { name: 'Uploaded pixel' })
+      await expect(manuscriptPreview).toBeVisible()
+      await expect(manuscriptPreview.getByRole('img', { name: 'Flow' })).toBeVisible()
+      await expect(manuscriptPreview.getByRole('math')).toBeVisible()
+      await expect(
+        manuscriptPreview.getByRole('textbox', { name: 'Display formula caption' })
+      ).toHaveValue('Energy')
+      await expect
+        .poll(() =>
+          manuscriptImage.evaluate((element) => (element as HTMLImageElement).naturalWidth)
+        )
+        .toBeGreaterThan(0)
+      expect(await manuscriptImage.getAttribute('src')).toMatch(
+        /^writellm:\/\/bundle\/project-asset\//
+      )
+      await launched.page.keyboard.press('Escape')
+      await expect(manuscriptPreview).not.toBeVisible()
+      await outline.getByRole('button', { name: 'Done', exact: true }).click()
 
       await launched.page.getByRole('button', { name: 'Section actions', exact: true }).click()
       await launched.page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()

@@ -1,5 +1,4 @@
 import type { IpcMainInvokeEvent } from 'electron'
-import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { registerSearchIpc } from './search-ipc'
@@ -40,15 +39,23 @@ function harness() {
       }
     ])
   }
+  const logger = { info: vi.fn(), error: vi.fn() }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (!active || value !== projectSessionId) throw new Error('stale project session')
-      return { retrieval, projectIndex: { isRetrievalAvailable: () => retrievalAvailable } }
+      return {
+        retrieval,
+        projectIndex: { isRetrievalAvailable: () => retrievalAvailable },
+        database: {
+          immediate: (operation: (database: unknown) => unknown) =>
+            operation({ prepare: () => ({ all: () => [] }) })
+        }
+      }
     })
   }
   registerSearchIpc({
     manager: manager as never,
-    logger: pino({ level: 'silent' }),
+    logger,
     developmentUrl: 'http://localhost:5173',
     ipc: {
       handle: (channel, handler) => handlers.set(channel, handler as never),
@@ -60,6 +67,7 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   return {
     handlers,
+    logger,
     manager,
     retrieval,
     revoke: () => {
@@ -75,7 +83,7 @@ function harness() {
 
 describe('search IPC', () => {
   it('validates bounded search defaults and expands citations through a separate method', async () => {
-    const { invoke, retrieval } = harness()
+    const { invoke, logger, retrieval } = harness()
     await expect(
       invoke(IPC_CHANNELS.knowledgeSearch, { projectSessionId, query: 'evidence' })
     ).resolves.toEqual({ mode: 'none', rerankStatus: 'disabled', hits: [] })
@@ -92,6 +100,26 @@ describe('search IPC', () => {
         citationIds: [citationId]
       })
     ).resolves.toMatchObject([{ citationId, text: 'Expanded source' }])
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeResolveReadableCitation, {
+        projectSessionId,
+        sectionRevisionId: '44444444-4444-4444-8444-444444444444',
+        blockId: 'grounded-paragraph',
+        title: 'Source',
+        pageIndex: 0
+      })
+    ).resolves.toEqual({ status: 'unavailable', reason: 'unlinked' })
+    const completion = logger.info.mock.calls.find(
+      ([fields]) => fields.event === 'knowledge.readable_citation_resolution.completed'
+    )?.[0]
+    expect(completion).toMatchObject({
+      projectSessionId,
+      sectionRevisionId: '44444444-4444-4444-8444-444444444444',
+      blockId: 'grounded-paragraph',
+      status: 'unavailable',
+      candidateCount: 0
+    })
+    expect(completion).not.toHaveProperty('title')
   })
 
   it('rejects unauthorized, malformed, and stale requests before and after asynchronous work', async () => {
@@ -108,12 +136,41 @@ describe('search IPC', () => {
       )
     ).rejects.toThrow('Unauthorized IPC sender')
     await expect(
+      Promise.resolve(
+        first.handlers.get(IPC_CHANNELS.knowledgeResolveReadableCitation)?.(
+          unauthorized as never,
+          {
+            projectSessionId,
+            sectionRevisionId: '44444444-4444-4444-8444-444444444444',
+            blockId: 'grounded-paragraph',
+            title: 'Source'
+          } as never
+        )
+      )
+    ).rejects.toThrow('Unauthorized IPC sender')
+    await expect(
       first.invoke(IPC_CHANNELS.knowledgeSearch, {
         projectSessionId,
         query: 'evidence',
         limits: { fts: 1001 }
       })
     ).rejects.toThrow()
+    await expect(
+      first.invoke(IPC_CHANNELS.knowledgeResolveReadableCitation, {
+        projectSessionId,
+        sectionRevisionId: '44444444-4444-4444-8444-444444444444',
+        blockId: '',
+        title: 'Source'
+      })
+    ).rejects.toThrow()
+    await expect(
+      first.invoke(IPC_CHANNELS.knowledgeResolveReadableCitation, {
+        projectSessionId: '99999999-9999-4999-8999-999999999999',
+        sectionRevisionId: '44444444-4444-4444-8444-444444444444',
+        blockId: 'grounded-paragraph',
+        title: 'Source'
+      })
+    ).rejects.toThrow('stale project session')
     expect(first.retrieval.search).not.toHaveBeenCalled()
 
     const second = harness()

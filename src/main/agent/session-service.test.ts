@@ -114,6 +114,36 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('persists presentation-only metadata while keeping the full model prompt', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Revision feedback')
+    const prompt =
+      'The user rejected the section update. Address this feedback: use a quieter opening.'
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt,
+      presentation: {
+        kind: 'review_feedback',
+        displayContent: 'Use a quieter opening.'
+      },
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(runtime.active().input.prompt).toBe(prompt)
+    expect(service.listEventPage(session.agentSessionId, 0, 10).events[0]?.payload).toMatchObject({
+      content: prompt,
+      presentation: {
+        kind: 'review_feedback',
+        displayContent: 'Use a quieter opening.'
+      }
+    })
+    runtime.active().resolve()
+    await started.completion
+    database.close()
+  })
+
   it('publishes the queued prompt and marks routing failed when skill routing errors', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -333,6 +363,7 @@ describe('AgentSessionService', () => {
       })
     ).toThrow('active')
     expect(() => service.setThinkingLevel(session.agentSessionId, 'low')).toThrow('active')
+    expect(() => service.archiveSession(session.agentSessionId)).toThrow('run must finish')
 
     runtime.active().resolve()
     await started.completion
@@ -1203,6 +1234,9 @@ describe('AgentSessionService', () => {
         editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
       })
     ).rejects.toThrow('waiting for review')
+    expect(() => service.archiveSession(session.agentSessionId)).toThrow(
+      'pending proposal before archive'
+    )
 
     database.immediate((native) => {
       native
@@ -1226,6 +1260,9 @@ describe('AgentSessionService', () => {
         editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
       })
     ).rejects.toThrow('waiting for image generation')
+    expect(() => service.archiveSession(session.agentSessionId)).toThrow(
+      'generation must finish before archive'
+    )
 
     database.immediate((native) => {
       native
@@ -1493,7 +1530,257 @@ describe('AgentSessionService', () => {
     expect(new Set(sequences).size).toBe(200)
     database.close()
   })
+
+  it('uses an immediate bounded fallback title and generates one durable automatic title', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    let resolveTitle: ((result: TitleResult) => void) | undefined
+    const pendingTitle = new Promise<TitleResult>((resolve) => {
+      resolveTitle = resolve
+    })
+    const generateTitle = vi.fn((_input: TitleGenerationInput) => pendingTitle)
+    const published: Array<{ title: string; titleGenerating: boolean }> = []
+    const service = createService(database, runtime, undefined, {
+      generateTitle,
+      publishSession: (event) => {
+        published.push({ title: event.session.title, titleGenerating: event.titleGenerating })
+      }
+    })
+    const session = service.createSession()
+    const first = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: '分析第三季度欧洲市场的增长机会与主要风险',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(service.listSessions()[0]?.title).toBe('分析第三季度欧洲市场的增长机会与主要风险')
+    expect(generateTitle).toHaveBeenCalledOnce()
+    expect(generateTitle.mock.calls[0]?.[0]).toMatchObject({
+      credential: 'agent-secret',
+      request: { maxOutputTokens: 64, temperature: 0 }
+    })
+    expect(Buffer.byteLength(generateTitle.mock.calls[0]?.[0].request.prompt ?? '')).toBeLessThan(
+      17_000
+    )
+    expect(published).toContainEqual({
+      title: '分析第三季度欧洲市场的增长机会与主要风险',
+      titleGenerating: true
+    })
+    expect(() => service.archiveSession(session.agentSessionId)).toThrow(
+      'title must finish before archive'
+    )
+    await expect(service.generateSessionTitle(session.agentSessionId)).rejects.toThrow(
+      'title must finish'
+    )
+
+    resolveTitle?.(titleResult('「欧洲市场增长机会」', 'automatic-title'))
+    await vi.waitFor(() => expect(service.listSessions()[0]?.title).toBe('欧洲市场增长机会'))
+    const request = await database.kysely
+      .selectFrom('model_requests')
+      .select(['agent_run_id', 'status', 'operation_kind', 'input_items', 'output_items'])
+      .where('agent_run_id', '=', first.agentRunId)
+      .where('status', '=', 'succeeded')
+      .executeTakeFirstOrThrow()
+    expect(request).toMatchObject({
+      status: 'succeeded',
+      operation_kind: 'agent',
+      input_items: 1,
+      output_items: 1
+    })
+
+    runtime.active().resolve()
+    await first.completion
+    const second = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Continue with recommendations.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(generateTitle).toHaveBeenCalledOnce()
+    runtime.active().resolve()
+    await second.completion
+    database.close()
+  })
+
+  it('uses a compatible lightweight budget for reasoning-model titles', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const generateTitle = vi.fn(async (_input: TitleGenerationInput) =>
+      titleResult('Reasoning model title', 'reasoning-title')
+    )
+    const resolve = vi.fn(async () => ({
+      presetId: 'builtin:openai-codex',
+      presetName: 'OpenAI Codex',
+      providerId: 'openai-codex',
+      timeoutMs: 60_000,
+      model: {
+        id: 'gpt-reasoning',
+        name: 'GPT Reasoning',
+        api: 'openai-codex-responses',
+        provider: 'openai-codex',
+        baseUrl: 'https://chatgpt.com/backend-api',
+        reasoning: true,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200_000,
+        maxTokens: 128_000
+      },
+      auth: { auth: { apiKey: 'codex-secret' }, source: 'Stored OAuth credential' }
+    }))
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve } as never,
+      generateTitle
+    })
+    const session = service.createSession(undefined, undefined, {
+      presetId: 'builtin:openai-codex',
+      modelId: 'gpt-reasoning'
+    })
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Explain why this title request needs a reasoning-compatible budget.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    await vi.waitFor(() => expect(generateTitle).toHaveBeenCalledOnce())
+    expect(generateTitle.mock.calls[0]?.[0].request).toMatchObject({ maxOutputTokens: 512 })
+    expect(generateTitle.mock.calls[0]?.[0].request).not.toHaveProperty('temperature')
+    await vi.waitFor(() => expect(service.listSessions()[0]?.title).toBe('Reasoning model title'))
+    runtime.active().resolve()
+    await started.completion
+    database.close()
+  })
+
+  it('regenerates a title from bounded history and does not overwrite newer session state', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    let resolveAutomatic: ((result: TitleResult) => void) | undefined
+    const automatic = new Promise<TitleResult>((resolve) => {
+      resolveAutomatic = resolve
+    })
+    const generateTitle = vi
+      .fn()
+      .mockImplementationOnce(() => automatic)
+      .mockResolvedValueOnce(titleResult('## Market strategy refresh.', 'manual-title'))
+    const service = createService(database, runtime, undefined, { generateTitle })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: `Review market strategy ${'evidence '.repeat(3_000)}`,
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    database.immediate((native) =>
+      native
+        .prepare('UPDATE agent_sessions SET title = ? WHERE agent_session_id = ?')
+        .run('Newer authoritative title', session.agentSessionId)
+    )
+    resolveAutomatic?.(titleResult('Stale automatic title', 'stale-title'))
+    await vi.waitFor(() => expect(generateTitle).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(service.listSessions()[0]?.title).toBe('Newer authoritative title')
+    )
+    runtime.active().resolve()
+    await started.completion
+
+    const regenerated = await service.generateSessionTitle(session.agentSessionId)
+    expect(regenerated.title).toBe('Market strategy refresh')
+    expect(Buffer.byteLength(generateTitle.mock.calls[1]?.[0].request.prompt ?? '')).toBeLessThan(
+      17_000
+    )
+    database.close()
+  })
+
+  it('keeps the fallback on title failure and cancels an in-flight title request on close', async () => {
+    const failureDatabase = await createDatabase()
+    const failureRuntime = new FakeAgentRuntime()
+    const failedService = createService(failureDatabase, failureRuntime, undefined, {
+      generateTitle: vi.fn(async (_input: TitleGenerationInput): Promise<TitleResult> => {
+        throw new Error('provider title failure')
+      })
+    })
+    const failedSession = failedService.createSession()
+    const failedRun = await failedService.startRun({
+      agentSessionId: failedSession.agentSessionId,
+      prompt: 'Keep this useful fallback title',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() =>
+      expect(failedService.listSessions()[0]?.title).toBe('Keep this useful fallback title')
+    )
+    expect(failureRuntime.active().input.agentRunId).toBe(failedRun.agentRunId)
+    failureRuntime.active().resolve()
+    await failedRun.completion
+    failureDatabase.close()
+
+    const closeDatabase = await createDatabase()
+    const closeRuntime = new FakeAgentRuntime()
+    const aborted = vi.fn()
+    const closingService = createService(closeDatabase, closeRuntime, undefined, {
+      generateTitle: vi.fn(
+        (input: TitleGenerationInput) =>
+          new Promise<TitleResult>((_resolve, reject) => {
+            input.signal.addEventListener(
+              'abort',
+              () => {
+                aborted()
+                reject(input.signal.reason)
+              },
+              { once: true }
+            )
+          })
+      )
+    })
+    const closingSession = closingService.createSession()
+    await closingService.startRun({
+      agentSessionId: closingSession.agentSessionId,
+      prompt: 'Cancel title request on project close',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await closingService.close()
+    expect(aborted).toHaveBeenCalledOnce()
+    closeDatabase.close()
+  })
+
+  it('archives and restores idle conversations idempotently while rejecting archived writes', async () => {
+    const database = await createDatabase()
+    const service = createService(database, new FakeAgentRuntime())
+    const session = service.createSession()
+
+    const archived = service.archiveSession(session.agentSessionId)
+    expect(archived).toMatchObject({ status: 'archived', archivedAt: expect.any(String) })
+    expect(service.listSessions()).toEqual([])
+    expect(service.listSessions('archived')).toEqual([archived])
+    expect(service.archiveSession(session.agentSessionId)).toEqual(archived)
+    expect(() => service.setApprovalMode(session.agentSessionId, 'yolo')).toThrow('archived')
+    expect(() => service.setThinkingLevel(session.agentSessionId, 'high')).toThrow('archived')
+    await expect(
+      service.setSkillSelection(session.agentSessionId, { mode: 'none' })
+    ).rejects.toThrow('archived')
+    await expect(service.generateSessionTitle(session.agentSessionId)).rejects.toThrow('archived')
+    await expect(
+      service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'This write must remain blocked.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).rejects.toThrow('archived')
+
+    const restored = service.restoreSession(session.agentSessionId)
+    expect(restored).toMatchObject({ status: 'active', archivedAt: null })
+    expect(service.restoreSession(session.agentSessionId)).toEqual(restored)
+    database.close()
+  })
 })
+
+type TitleResult = {
+  text: string
+  stopReason: 'stop'
+  metadata: ReturnType<typeof metadata>
+}
+
+type TitleGenerationInput = Parameters<NonNullable<AgentSessionServiceOptions['generateTitle']>>[0]
+
+function titleResult(text: string, responseId: string): TitleResult {
+  return { text, stopReason: 'stop', metadata: metadata(responseId) }
+}
 
 interface FakeActiveRun {
   config: ProviderConfig
@@ -1588,6 +1875,9 @@ function createService(
       | 'summarizeHistory'
       | 'messageTokenBudget'
       | 'publishDelta'
+      | 'publishSession'
+      | 'generateTitle'
+      | 'resolveModelLimits'
       | 'skillRouter'
     >
   > = {}

@@ -9,7 +9,7 @@ const agentSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc901'
 const agentRunId = '019c6a5c-8d34-7a8e-a602-3d37a52dc902'
 type ListedProposal = Pick<
   MutationProposalRecord,
-  'proposalId' | 'agentSessionId' | 'agentRunId' | 'kind' | 'status'
+  'proposalId' | 'agentSessionId' | 'agentRunId' | 'kind' | 'status' | 'rejectedReason'
 >
 
 describe('Agent session IPC', () => {
@@ -73,7 +73,8 @@ describe('Agent session IPC', () => {
         agentSessionId,
         agentRunId,
         kind: 'brief_update',
-        status: 'applied'
+        status: 'applied',
+        rejectedReason: null
       }
     ])
 
@@ -104,6 +105,100 @@ describe('Agent session IPC', () => {
     )
     expect(continuedPrompt).not.toContain(proposalId)
     expect(continuedPrompt).not.toContain('{')
+    expect(value.sessions.startRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({ presentation: { kind: 'approval_continuation' } })
+    )
+  })
+
+  it('builds rejected proposal revisions from persisted feedback and reuses the Skill snapshot', async () => {
+    const value = harness()
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc906'
+    value.mutations.list.mockReturnValue([
+      {
+        proposalId,
+        agentSessionId,
+        agentRunId,
+        kind: 'section_patch',
+        status: 'rejected',
+        rejectedReason: 'Keep the opening restrained and preserve the quoted evidence.'
+      }
+    ])
+
+    await value.invoke(IPC_CHANNELS.agentStartRun, {
+      projectSessionId,
+      agentSessionId,
+      prompt: 'Renderer text must not replace the review feedback.',
+      rejectedProposalId: proposalId,
+      scope: 'project',
+      editorContext: {
+        activeSectionId: null,
+        activeBlockId: null,
+        selectedBlockIds: []
+      }
+    })
+
+    expect(value.sessions.requireRun).toHaveBeenCalledWith(agentRunId)
+    expect(value.sessions.startRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'Keep the opening restrained and preserve the quoted evidence.'
+        ),
+        presentation: {
+          kind: 'review_feedback',
+          displayContent: 'Keep the opening restrained and preserve the quoted evidence.'
+        }
+      })
+    )
+    expect(value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt).not.toContain(
+      'Renderer text must not replace'
+    )
+    expect(value.sessions.recordApprovalDecision).not.toHaveBeenCalled()
+  })
+
+  it('rejects revision continuations with the wrong proposal state or an active blocker', async () => {
+    const value = harness()
+    const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc906'
+    value.mutations.list.mockReturnValue([
+      {
+        proposalId,
+        agentSessionId,
+        agentRunId,
+        kind: 'section_patch',
+        status: 'pending',
+        rejectedReason: null
+      }
+    ])
+    const input = {
+      projectSessionId,
+      agentSessionId,
+      prompt: 'Retry revision.',
+      rejectedProposalId: proposalId,
+      scope: 'project',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    await expect(value.invoke(IPC_CHANNELS.agentStartRun, input)).rejects.toThrow('not authorized')
+
+    value.mutations.list.mockReturnValue([
+      {
+        proposalId,
+        agentSessionId,
+        agentRunId,
+        kind: 'section_patch',
+        status: 'rejected',
+        rejectedReason: 'Try again.'
+      },
+      {
+        proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc907',
+        agentSessionId,
+        agentRunId,
+        kind: 'section_patch',
+        status: 'generating',
+        rejectedReason: null
+      }
+    ])
+    await expect(value.invoke(IPC_CHANNELS.agentStartRun, input)).rejects.toThrow(
+      'waiting for image generation'
+    )
   })
 
   it('rejects stale project capabilities and unauthorized senders', async () => {
@@ -123,6 +218,36 @@ describe('Agent session IPC', () => {
         { projectSessionId } as never
       )
     ).toThrow('Unauthorized IPC sender')
+  })
+
+  it('filters session lifecycle queries and projects title, archive, and restore commands', async () => {
+    const value = harness()
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentListSessions, { projectSessionId, status: 'archived' })
+    ).resolves.toHaveLength(1)
+    expect(value.sessions.listSessions).toHaveBeenCalledWith('archived')
+    await expect(
+      value.invoke(IPC_CHANNELS.agentListSessions, { projectSessionId, status: 'deleted' })
+    ).rejects.toThrow()
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentGenerateSessionTitle, {
+        projectSessionId,
+        agentSessionId
+      })
+    ).resolves.toMatchObject({ title: 'Generated title' })
+    expect(value.sessions.generateSessionTitle).toHaveBeenCalledWith(agentSessionId)
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentArchiveSession, { projectSessionId, agentSessionId })
+    ).resolves.toMatchObject({ status: 'archived', archivedAt: expect.any(String) })
+    expect(value.sessions.archiveSession).toHaveBeenCalledWith(agentSessionId)
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentRestoreSession, { projectSessionId, agentSessionId })
+    ).resolves.toMatchObject({ status: 'active', archivedAt: null })
+    expect(value.sessions.restoreSession).toHaveBeenCalledWith(agentSessionId)
   })
 
   it('accepts only an exactly supported Thinking level and remembers explicit changes', async () => {
@@ -197,11 +322,19 @@ function harness() {
     modelSelection: { presetId: 'builtin:anthropic', modelId: 'claude-writer' },
     thinkingLevel: 'off' as const,
     createdAt: '2026-07-21T00:00:00.000Z',
-    updatedAt: '2026-07-21T00:00:00.000Z'
+    updatedAt: '2026-07-21T00:00:00.000Z',
+    archivedAt: null
   }
   const sessions = {
     listSessions: vi.fn(() => [session]),
     createSession: vi.fn(),
+    generateSessionTitle: vi.fn(async () => ({ ...session, title: 'Generated title' })),
+    archiveSession: vi.fn(() => ({
+      ...session,
+      status: 'archived' as const,
+      archivedAt: '2026-07-22T00:00:00.000Z'
+    })),
+    restoreSession: vi.fn(() => ({ ...session, status: 'active' as const, archivedAt: null })),
     setModelSelection: vi.fn(),
     setThinkingLevel: vi.fn((_sessionId: string, level: string) => ({
       ...session,

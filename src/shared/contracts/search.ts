@@ -116,3 +116,33 @@ export const expandedCitationSchema = knowledgeSearchHitSchema
 
 export const citationExpansionResultSchema = z.array(expandedCitationSchema).max(20)
 export type ExpandedCitation = z.infer<typeof expandedCitationSchema>
+
+export const readableCitationResolutionInputSchema = projectSessionInputSchema
+  .extend({
+    sectionRevisionId: z.uuid(),
+    blockId: z.string().min(1).max(256),
+    title: z.string().trim().min(1).max(512),
+    pageIndex: z.number().int().nonnegative().optional()
+  })
+  .strict()
+
+export const readableCitationResolutionResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('resolved'), citation: expandedCitationSchema }).strict(),
+  z
+    .object({
+      status: z.literal('ambiguous'),
+      citations: z.array(expandedCitationSchema).min(2).max(20)
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('unavailable'),
+      reason: z.enum(['unlinked', 'source_missing', 'index_unavailable', 'resolution_limit'])
+    })
+    .strict()
+])
+
+export type ReadableCitationResolutionInput = z.infer<typeof readableCitationResolutionInputSchema>
+export type ReadableCitationResolutionResult = z.infer<
+  typeof readableCitationResolutionResultSchema
+>

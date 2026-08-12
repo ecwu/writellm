@@ -3,7 +3,8 @@ import type { Logger } from 'pino'
 import {
   agentRendererEventSchema,
   type AgentEventRecord,
-  type AgentRendererEvent
+  type AgentRendererEvent,
+  type AgentSessionRecord
 } from '../../shared/contracts/agent-ipc'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 
@@ -81,10 +82,21 @@ export class AgentEventBroker {
     this.#publish(agentRendererEventSchema.parse({ kind: 'delta', projectSessionId, ...input }))
   }
 
+  publishSession(
+    projectSessionId: string,
+    input: { session: AgentSessionRecord; titleGenerating: boolean }
+  ): void {
+    this.#publish(agentRendererEventSchema.parse({ kind: 'session', projectSessionId, ...input }))
+  }
+
   #publish(event: AgentRendererEvent): void {
     for (const [key, subscription] of this.#subscriptions) {
       const agentSessionId =
-        event.kind === 'durable' ? event.event.agentSessionId : event.agentSessionId
+        event.kind === 'durable'
+          ? event.event.agentSessionId
+          : event.kind === 'session'
+            ? event.session.agentSessionId
+            : event.agentSessionId
       if (
         subscription.projectSessionId !== event.projectSessionId ||
         subscription.agentSessionId !== agentSessionId

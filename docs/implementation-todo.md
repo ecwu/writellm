@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 27.6 is locally complete; local candidate v0.2026.8.11 is authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-11
+Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.11 remains authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-12
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -15,6 +15,211 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 28.1: Agent Flow Polish
+
+- [x] Replace the session-list-first Agent sidebar with a continuous conversation canvas that
+  resumes the running, review-requiring, or most recent active conversation and lazily creates a
+  new session only on first use.
+- [x] Distill the header, context scope, composer, activity timeline, runtime details, keyboard
+  behavior, and cross-session active-run state into one progressively disclosed writing flow.
+- [x] Add focused proposal review with Apply and continue as the primary action, bounded feedback
+  revision as a new immutable run, safe partial-failure recovery, and unchanged typed mutation and
+  revision authority.
+- [x] Add focused contracts, Main/IPC, Renderer, accessibility, and Real-Electron coverage, then
+  pass the applicable local verification gates.
+
+Authorization: on 2026-08-12 the user approved the decision-complete CP28.1 plan and explicitly
+requested implementation. ADR 015 is accepted. No hosted CI, packaging, release, commit, push, or
+promotion is authorized.
+
+Local evidence: 90 focused tests; `check:fast`; `check:electron` with 135 passing files, 715 passing
+tests, one opt-in benchmark skipped, and a successful production build; fresh `check:e2e` with
+23/23 Real-Electron scenarios and no failures, flakes, or skips; a clean scoped Impeccable
+detector; and `git diff --check`. The grounded Agent scenario proves feedback-only presentation,
+Main-owned revision continuation, per-run citation re-authorization, revised proposal review,
+Apply and continue, exactly one accepted manuscript mutation, reopen, Undo, title regeneration,
+archive, and restore. Package, release, hosted CI, commit, push, and promotion were not run.
+
+### Checkpoint 27.9: Adaptive section titles
+
+- [x] Replace the editable section heading's single-line input with an unlimited soft-wrapping
+  shadcn textarea, preserve logical single-line title metadata, move focus into the body after an
+  Enter-triggered save, and keep sidebar and outline navigation compact. Add focused desktop and
+  narrow-window Real-Electron coverage plus the applicable local verification gates.
+
+Authorization: on 2026-08-11 the user approved the decision-complete adaptive-title plan and
+explicitly requested implementation. This checkpoint is Renderer-only; manuscript persistence,
+IPC, export, Agent behavior, packaging, release, hosted CI, commit, push, and promotion remain out
+of scope.
+
+Local evidence: the focused `manuscript.section-title-wraps` Real-Electron scenario at desktop and
+narrow widths; `check:fast`; `check:electron` with 134 passing Electron-hosted test files, 704
+passing tests, one opt-in benchmark skipped, and a successful production build; a clean scoped
+Impeccable detector; and scoped `git diff --check`.
+
+### Maintenance: Whole-manuscript preview hardening
+
+- [x] Keep the whole-manuscript preview inside the viewport, omit section objectives from the
+  assembled reading surface, and resolve project images through the existing session-bound asset
+  capability without widening Renderer authority.
+
+Authorization: on 2026-08-11 the user reported viewport overflow, section objectives appearing as
+manuscript content, and broken project images in the whole-manuscript preview, then approved the
+decision-complete local Renderer repair plan. Package, release, hosted CI, commit, push, and
+promotion remain out of scope.
+
+Local evidence: 4/4 focused project-asset URL tests; `check:fast`; `check:electron` with 134 passing
+Electron-hosted test files, 704 passing tests, one opt-in benchmark skipped, and a successful
+production build; the focused narrow-window workspace and rich-media preview Real-Electron
+scenarios; a clean scoped Impeccable detector; and scoped `git diff --check`.
+
+### Maintenance: Agent partial tool-failure summary
+
+- [x] Distinguish a partially failed Agent activity group from a wholly failed group, show the
+  failed-operation count without obscuring successful work, and add focused Renderer coverage.
+
+Authorization: on 2026-08-11 the user reported that one failed operation makes the aggregate Agent
+activity summary look wholly failed and explicitly requested a display improvement. This is a
+Renderer-only presentation repair; it does not change Agent tools, execution, persistence, or
+authority. Hosted CI, package, release, commit, push, and promotion remain out of scope.
+
+Local evidence: 15/15 focused Agent view-model tests; `check:fast` with the full Biome check plus
+Node and Renderer typechecks; a clean scoped Impeccable detector; and scoped `git diff --check`.
+
+### Maintenance: Post-repair macOS arm64 package rebuild
+
+- [x] Rebuild the current workspace as an unpacked macOS arm64 App plus DMG/ZIP, run the complete
+  no-identity package gate, and verify runtime evidence, DMG layout, signature state, sizes, and
+  checksums.
+
+Authorization: on 2026-08-11 the user explicitly requested a fresh App and DMG after the MinerU
+capability-invariant false-positive repair. This authorizes only the local unsigned macOS arm64
+package; commit, push, hosted CI, signing/notarization, release, and promotion remain out of scope.
+
+Local evidence: exact pnpm 11.17.0; Electron 43.1.0 ABI 148; arm64 `better-sqlite3` 12.11.1 and
+`sqlite-vec` 0.1.9 inventory; a successful production build; 23 recovery fixture cases from 21
+sources; all 12 packaged smoke scenarios; 15/15 packaged Real-Electron E2E scenarios with no
+failures, flakes, or skips; an arm64 unpacked App with bundle version `2026.8.11`; and an immutable
+read-only DMG mount containing `WriteLLM.app`, `Applications -> /Applications`, the configured
+background, and the exact generated ICNS bytes. The App is intentionally ad-hoc/no-Team-ID and is
+not notarized. `WriteLLM-0.2026.8.11-arm64.dmg` is 257,528,314 bytes with SHA-256
+`94814c96a93cd58b9c6a70f06548d615c3501a7932b7fec9665757f0f43d12bf`; the companion ZIP is
+254,341,328 bytes with SHA-256
+`2b49454ff68a6b000c366477464e9f23977c34fa0503c0ba1eb808af810728db`.
+
+### Maintenance: MinerU capability invariant false-positive repair
+
+- [x] Keep persisted MinerU URL capabilities fail-closed while excluding manuscript and other
+  user-authored content from the value scan; add focused regression coverage and verify that the
+  affected project opens without rewriting its content.
+
+Authorization: on 2026-08-11 the user reported that a forced quit left a project in the generic
+recovery-required state and explicitly requested the repair. Runtime evidence showed an
+integrity-valid database whose `sections.objective` contained the ordinary text
+`recovery_capability`; the global text-column scan misclassified that manuscript text as a
+persisted MinerU capability. No hosted CI, package, release, commit, push, or promotion work is
+authorized.
+
+Local evidence: exact pnpm 11.17.0; 2 focused Electron-hosted files with 21 passing tests;
+`check:fast`; `check:electron` with 134 passing files, 704 passing tests, one opt-in benchmark
+skipped, and a successful production build; scoped `git diff --check`; and an immutable read-only
+inspection of the affected project showing `quick_check=ok`, no foreign-key errors, zero forbidden
+schema or operational values, one permitted manuscript marker, and an unchanged database SHA-256
+before and after inspection.
+
+### Maintenance: Branded drag-to-Applications DMG
+
+- [x] Replace the default Electron artwork with a generated WriteLLM icon, explicitly fix the
+  macOS DMG app/Applications layout, build the local arm64 artifacts, and verify the mounted DMG,
+  packaged icon, runtime gates, checksums, and intentionally unsigned distribution status.
+
+Authorization: on 2026-08-11 the user requested a friend-distributable macOS DMG with a
+drag-to-Applications Finder window and a new application icon. Hosted CI, workflow restoration,
+commit, push, signing/notarization credential enrollment, and production promotion remain out of
+scope.
+
+Local evidence: exact pnpm 11.17.0; a successful production build; Electron ABI 148 with arm64
+`better-sqlite3` and `sqlite-vec`; the 12-scenario packaged smoke; 15/15 packaged Real-Electron E2E
+scenarios with no failures, flakes, or skips; a read-only mounted DMG containing `WriteLLM.app`, an
+`Applications -> /Applications` link, the standard drag arrow background, and the exact generated
+ICNS bytes; an intentionally ad-hoc/no-Team-ID application signature; and inspected DMG/ZIP
+artifacts. `WriteLLM-0.2026.8.11-arm64.dmg` is 257,527,981 bytes with SHA-256
+`db866481280a10c9148489c3583e0bf347956fcd7d1aac73b75f9a965c8dfc9f`; the companion ZIP is
+254,339,825 bytes with SHA-256
+`5a3af3a9874bd5aa59c4f426a9ecb4c741750c90f256d5791f8b2c206d69aa8b`.
+
+### Checkpoint 27.8: Agent conversation titles and archive lifecycle
+
+- [x] Generate an immediate bounded fallback title from the first prompt, run one non-blocking
+  recorded title request through the selected conversation model, and support idle-only manual
+  regeneration from bounded durable history.
+- [x] Add status-filtered session listing plus idempotent idle-only archive/restore IPC while
+  keeping archived history readable and every session mutation fail-closed.
+- [x] Add Active/Archived Agent views, accessible row/header menus, local title progress, archived
+  read-only behavior, focused coverage, Real-Electron evidence, and the applicable local gates.
+
+Authorization: on 2026-08-11 the user approved the decision-complete plan, confirmed Checkpoint
+27.7 acceptance, and explicitly requested Checkpoint 27.8 implementation. The user later authorized
+a fresh local App build after reporting a packaged-runtime title failure. Release, hosted CI,
+commit, push, and promotion work remain unauthorized.
+
+Local evidence: 54 focused title, archive, contract, broker, and IPC tests; `check:fast`;
+`check:electron` with 133 passing Electron-hosted test files, 697 passing tests, and one opt-in
+benchmark skipped; a successful production build; 22/22 full Real-Electron E2E scenarios including
+automatic/manual title flows, keyboard menus, archived read-only history, and restore; a clean
+Impeccable detector; and `git diff --check`. A same-day runtime follow-up made title request
+parameters reasoning-aware after Codex rejected the explicit temperature and DeepSeek exhausted the
+non-reasoning output budget. Follow-up evidence includes 36/36 focused service/worker tests,
+`check:fast`, the complete `check:electron` gate, the 23-case recovery-fixture verifier, and an
+unsigned macOS arm64 unpacked package with 12/12 packaged smoke scenarios and 15/15 packaged E2E
+scenarios. Release, hosted CI, commit, push, and promotion were not run.
+
+### Maintenance: Distill the Agent run summary
+
+- [x] Replace the active-run badge cluster with one primary status and a progressively disclosed
+  run-details control; keep model, Thinking, Writing Skill provenance, and warnings accessible
+  without giving every datum equal visual weight. Remove redundant ordinary-state badges and keep
+  the visible usage summary limited to input/output tokens.
+
+Authorization: on 2026-08-11 the user reported that the Agent sidebar run summary had become
+visually confusing as model, Thinking, and Writing Skill metadata accumulated, and explicitly
+requested the simplification. This is a Renderer-only presentation repair; Agent execution,
+persistence, selection, and provenance remain unchanged. Hosted CI, package, release, commit,
+push, and promotion remain out of scope.
+
+Local evidence: `check:fast`; a successful production build; the focused
+`agent.global-writing-skill` Real-Electron scenario with active-run assertions for zero ordinary
+badges plus accessible provider/model/Thinking/Skill details; a clean scoped Impeccable detector;
+visual inspection of the active run and open details popover; and scoped `git diff --check`.
+
+### Checkpoint 27.7: Editor citation highlighting and source preview
+
+- [x] Recognize the canonical English and Chinese readable citation labels in the section editor,
+  highlight them without changing BlockNote JSON, and resolve clicks only through accepted Agent
+  proposal provenance before opening the existing source preview. Add bounded Main-owned
+  resolution, typed IPC, keyboard and error states, focused coverage, Real-Electron evidence, and
+  the applicable local verification gates. Manuscript schema, citation policy, whole-manuscript
+  preview, hosted CI, packaging, release, commit, push, and promotion remain out of scope.
+
+Authorization: on 2026-08-11 the user approved the decision-complete Checkpoint 27.7 plan and
+explicitly requested implementation.
+
+Local evidence: frozen dependency installation; 23 focused parser, extension, resolver, IPC,
+session-validation, and safe-logging tests; `check:fast`; `check:electron` with 132 passing
+Electron-hosted test files, 686 passing tests, and one opt-in benchmark skipped; a successful fresh
+production build; the focused grounded Agent Real-Electron scenario covering keyboard and mouse
+preview activation, exact source content, focus restoration, reopen, and undo; a clean Impeccable
+detector; and `git diff --check`. Package, release, hosted CI, commit, push, and promotion were not
+run.
+
+### Maintenance: Recent project path de-duplication
+
+- [x] Keep only the newest recent-project pointer for each canonical project path, clean existing
+  duplicate pointers during application database migration 0006, and prevent future duplicates
+  with transactional replacement plus a database uniqueness constraint. Focused repository and
+  migration coverage (2 files / 10 tests), `check:fast`, and `check:electron` (129 passing files /
+  665 passing tests, one opt-in benchmark skipped, and a successful production build) pass.
 
 ### Checkpoint 27.6: Pi-native progressive Writing Skills
 
@@ -33,6 +238,16 @@ Status markers:
 - [x] Pass focused native-loader/Auto/Explicit/protocol/provider/migration/UI tests, `check:fast`,
   `check:electron`, production build, `check:e2e`, the Impeccable detector, and
   `git diff --check`.
+- [x] Repair the production-discovered Protocol v4 validation regressions: permit
+  `read_citations` requests-only pagination, keep ordinary invalid tool arguments recoverable,
+  and align progressive curated Writing Skill metadata with its bounded resource contract.
+  Focused regression coverage (4 files / 15 tests), `check:fast`, `check:electron` (129 files /
+  663 tests plus one opt-in benchmark skipped), the production build, and `git diff --check` pass.
+- [x] Stage Writing Skill preparation before downstream Agent tools: avoid redundant explicit
+  entrypoint reads, select at most four task-relevant references, wait for their results, and do
+  not mix Skill reads with non-Skill tools in one assistant response. Focused prompt/tool coverage
+  (2 files / 9 tests), `check:fast`, `check:electron` (129 passing files / 666 passing tests and one
+  opt-in benchmark skipped), the production build, and `git diff --check` pass.
 
 Authorization: on 2026-08-10 the user explicitly approved and requested implementation of the
 decision-complete Checkpoint 27.6 plan. On 2026-08-11 the user authorized the local

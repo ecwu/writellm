@@ -85,6 +85,46 @@ describe('Agent renderer view model', () => {
     expect(findToolResult(events, 'tool-1')).toMatchObject({ isError: false })
   })
 
+  it('hides synthesized approval prompts and presents only original review feedback', () => {
+    const events = [
+      record(1, 'approval_decision', {
+        schemaVersion: 2,
+        proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc426',
+        decision: 'rejected',
+        continueRequested: true,
+        actor: 'user',
+        timestamp: 1
+      }),
+      record(2, 'user_message', {
+        content: 'The user approved the proposal. Continue from the authoritative manuscript.',
+        delivery: 'prompt',
+        timestamp: 1,
+        presentation: { kind: 'approval_continuation' }
+      }),
+      record(3, 'user_message', {
+        content: 'The user rejected the section update. Address this feedback: quieter opening.',
+        delivery: 'prompt',
+        timestamp: 2,
+        presentation: {
+          kind: 'review_feedback',
+          displayContent: 'Use a quieter opening.'
+        }
+      })
+    ]
+    const timeline = projectAgentTimeline(events)
+
+    expect(timeline).toMatchObject([
+      {
+        type: 'user',
+        payload: {
+          content: 'Use a quieter opening.',
+          presentation: { kind: 'review_feedback' }
+        }
+      }
+    ])
+    expect(findLatestPrompt(events)).toBe('Use a quieter opening.')
+  })
+
   it('aggregates bounded usage and retries without provider secrets', () => {
     const events = [
       record(1, 'assistant_message', {
@@ -249,12 +289,13 @@ describe('Agent renderer view model', () => {
     expect(timeline[1]).toMatchObject({
       type: 'activity',
       status: 'complete',
-      summary: 'Read 1 section, searched knowledge',
+      summary: 'Read 1 section, searching sources',
+      failedCount: 0,
       citations: [{ citationId, title: 'Source paper.pdf', page: 2 }]
     })
   })
 
-  it('prioritizes errors over incomplete work and keeps proposals standalone', () => {
+  it('distinguishes a partial failure from a wholly failed activity group', () => {
     const events = [
       assistantRecord(1, 'I will inspect the draft.'),
       toolCallRecord(2, 'read-one', 'read_section'),
@@ -262,12 +303,13 @@ describe('Agent renderer view model', () => {
       toolResultRecord(4, 'proposal', 'submit_section_change'),
       toolCallRecord(5, 'read-two', 'read_section'),
       toolCallRecord(6, 'search', 'search_knowledge'),
-      toolResultRecord(7, 'search', 'search_knowledge', {
+      toolResultRecord(7, 'read-two', 'read_section'),
+      toolResultRecord(8, 'search', 'search_knowledge', {
         isError: true,
         error: { code: 'search_failed', message: 'Search failed safely.' },
         result: null
       }),
-      assistantRecord(8, 'I need another approach.')
+      assistantRecord(9, 'I need another approach.')
     ]
 
     const timeline = projectAgentTimeline(events)
@@ -280,7 +322,31 @@ describe('Agent renderer view model', () => {
     ])
     expect(timeline[1]).toMatchObject({ type: 'activity', status: 'running' })
     expect(timeline[2]).toMatchObject({ type: 'proposal', proposal: null })
-    expect(timeline[3]).toMatchObject({ type: 'activity', status: 'error' })
+    expect(timeline[3]).toMatchObject({
+      type: 'activity',
+      status: 'partial',
+      failedCount: 1
+    })
+
+    const failed = projectAgentTimeline([
+      toolCallRecord(1, 'read-one', 'read_section'),
+      toolCallRecord(2, 'read-two', 'read_section'),
+      toolResultRecord(3, 'read-one', 'read_section', {
+        isError: true,
+        error: { code: 'not_found', message: 'Section was not found.' },
+        result: null
+      }),
+      toolResultRecord(4, 'read-two', 'read_section', {
+        isError: true,
+        error: { code: 'not_found', message: 'Section was not found.' },
+        result: null
+      })
+    ])
+    expect(failed[0]).toMatchObject({
+      type: 'activity',
+      status: 'error',
+      failedCount: 2
+    })
   })
 
   it('projects only the latest leaf of a refreshed proposal chain', () => {

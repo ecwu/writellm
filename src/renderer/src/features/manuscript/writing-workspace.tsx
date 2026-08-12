@@ -20,10 +20,10 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
@@ -40,6 +40,8 @@ const editorSaveStateLabels: Record<SaveState, string> = {
   conflict: 'Conflict',
   failed: 'Save failed'
 }
+
+const SECTION_TITLE_MAX_LENGTH = 500
 
 export function WritingWorkspace(props: {
   projectSessionId: string
@@ -176,6 +178,13 @@ export function WritingWorkspace(props: {
           item.section.sectionId,
           item.section.currentRevisionId
         ])
+      ),
+    [workspace]
+  )
+  const sectionTitles = useMemo(
+    () =>
+      Object.fromEntries(
+        (workspace?.sections ?? []).map((item) => [item.section.sectionId, item.section.title])
       ),
     [workspace]
   )
@@ -692,17 +701,27 @@ export function WritingWorkspace(props: {
               ) : editorQuery.data && activeSummary ? (
                 <section className='flex flex-col gap-2'>
                   <div className='flex min-w-0 items-start gap-2'>
-                    <Input
+                    <Textarea
                       id='section-title'
                       aria-label='Section title'
+                      rows={1}
+                      maxLength={SECTION_TITLE_MAX_LENGTH}
                       value={metadataTitle}
                       onBlur={() => void saveMetadata()}
                       onChange={(event) => {
-                        metadataDraftRef.current.title = event.target.value
+                        const title = normalizeSectionTitleDraft(event.target.value)
+                        metadataDraftRef.current.title = title
                         setMetadataError(false)
-                        setMetadataTitle(event.target.value)
+                        setMetadataTitle(title)
                       }}
-                      className='h-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-4xl font-semibold tracking-tight shadow-none focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+                        event.preventDefault()
+                        void saveMetadata().then((saved) => {
+                          if (saved) editorRef.current?.focus()
+                        })
+                      }}
+                      className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-4xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
                     />
                     <div className='flex shrink-0 items-center gap-2 pt-1'>
                       <Badge variant='outline' className='max-md:hidden'>
@@ -792,9 +811,11 @@ export function WritingWorkspace(props: {
               <AgentPanel
                 open
                 onOpenChange={props.onAgentOpenChange}
-                onOpenSettings={props.onOpenSkillSettings}
+                onOpenSettings={props.onOpenSettings}
+                onOpenSkillSettings={props.onOpenSkillSettings}
                 projectSessionId={props.projectSessionId}
                 activeSectionId={activeSectionId}
+                sectionTitles={sectionTitles}
                 currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
                 flushCurrent={flushCurrent}
@@ -851,6 +872,7 @@ export function WritingWorkspace(props: {
       ) : null}
 
       <ManuscriptPreview
+        projectSessionId={props.projectSessionId}
         open={previewOpen}
         assembly={previewQuery.data}
         loading={previewQuery.isPending || previewQuery.isFetching}
@@ -859,6 +881,10 @@ export function WritingWorkspace(props: {
       />
     </SidebarProvider>
   )
+}
+
+function normalizeSectionTitleDraft(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ')
 }
 
 function useMediaQuery(query: string): boolean {

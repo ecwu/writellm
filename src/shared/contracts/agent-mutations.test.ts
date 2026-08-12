@@ -3,6 +3,7 @@ import {
   AGENT_MUTATION_OPERATION_LIMIT,
   briefUpdateSchema,
   outlinePatchSchema,
+  rejectMutationProposalInputSchema,
   sectionPatchSchema
 } from './agent-mutations'
 
@@ -11,6 +12,20 @@ const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc612'
 const revisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc613'
 
 describe('Agent mutation contracts', () => {
+  it('keeps ordinary rejection compatible while allowing an explicit continuation request', () => {
+    const base = {
+      projectSessionId: manuscriptId,
+      agentSessionId: revisionId,
+      proposalId: sectionId,
+      reason: 'Try a quieter opening.'
+    }
+    expect(rejectMutationProposalInputSchema.parse(base).continueRequested).toBe(false)
+    expect(
+      rejectMutationProposalInputSchema.parse({ ...base, continueRequested: true })
+        .continueRequested
+    ).toBe(true)
+  })
+
   it('defaults version and citations while rejecting untyped or capability-bearing fields', () => {
     expect(
       briefUpdateSchema.parse({

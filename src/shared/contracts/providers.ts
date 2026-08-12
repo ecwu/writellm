@@ -158,7 +158,8 @@ export type AgentProviderPresetSummary = z.infer<typeof agentProviderPresetSumma
 
 export const agentProviderCatalogSchema = z.object({
   presets: z.array(agentProviderPresetSummarySchema).max(200),
-  defaultSelection: agentModelSelectionSchema.nullable()
+  defaultSelection: agentModelSelectionSchema.nullable(),
+  defaultThinkingLevel: agentThinkingLevelSchema.optional()
 })
 export type AgentProviderCatalog = z.infer<typeof agentProviderCatalogSchema>
 

@@ -31,7 +31,7 @@ test(
     const userData = join(testRoot, 'thinking-user-data')
     const launched = await launchApp({ userData, dialogPaths: [testRoot, testRoot] })
     try {
-      const selected = await launched.page.evaluate(async () => {
+      await launched.page.evaluate(async () => {
         const initial = (await window.desktop.providers.snapshot()).agentCatalog
         const preset = initial.presets.find(
           (candidate) =>
@@ -72,8 +72,10 @@ test(
       await createProject(launched.page, 'Thinking Alpha')
       await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      const thinking = panel.getByTestId('agent-thinking-selector')
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      let details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      let thinking = details.getByTestId('agent-thinking-selector')
       await expect(thinking).toHaveAttribute('aria-label', 'Thinking level: Medium')
 
       await thinking.focus()
@@ -89,8 +91,13 @@ test(
         return session.agentSessionId
       }, alphaProjectSessionId)
 
-      await panel.getByLabel('Back to conversations').click()
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      thinking = details.getByTestId('agent-thinking-selector')
       await expect(thinking).toHaveAttribute('aria-label', 'Thinking level: High')
       await thinking.click()
       await launched.page.getByRole('menuitemradio', { name: 'Low', exact: true }).click()
@@ -111,37 +118,32 @@ test(
         )
         .toEqual({ first: 'high', newest: 'low' })
 
+      await launched.page.keyboard.press('Escape')
       await panel.getByLabel('Close writing agent').click()
       await closeProject(launched.page)
       await createProject(launched.page, 'Thinking Beta')
       await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
-      await launched.page
-        .getByTestId('agent-panel')
-        .getByRole('button', { name: 'New', exact: true })
-        .click()
-      await expect(launched.page.getByTestId('agent-thinking-selector')).toHaveAttribute(
-        'aria-label',
-        'Thinking level: Low'
-      )
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      await expect(
+        launched.page
+          .getByRole('dialog', { name: 'Agent details' })
+          .getByTestId('agent-thinking-selector')
+      ).toHaveAttribute('aria-label', 'Thinking level: Low')
       const betaProjectSessionId = await currentProjectSessionId(launched.page)
       await expect(
         launched.page.evaluate(async (projectSessionId) => {
-          const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-          return {
-            thinkingLevel: session?.thinkingLevel,
-            modelSelection: session?.modelSelection
-          }
+          return window.desktop.agent.listSessions({ projectSessionId })
         }, betaProjectSessionId)
-      ).resolves.toEqual({ thinkingLevel: 'low', modelSelection: selected })
+      ).resolves.toEqual([])
 
       await launched.page.reload()
       await expectActiveProject(launched.page, 'Thinking Beta')
       await expect(
         launched.page.evaluate(async (projectSessionId) => {
-          const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
-          return session?.thinkingLevel
+          return window.desktop.agent.listSessions({ projectSessionId })
         }, betaProjectSessionId)
-      ).resolves.toBe('low')
+      ).resolves.toEqual([])
     } finally {
       await launched.app.close()
     }

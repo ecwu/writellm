@@ -414,6 +414,17 @@ if (!hasSingleInstanceLock) {
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
+            publishSession: (event) => agentEvents.publishSession(projectSessionId, event),
+            generateTitle: (input) =>
+              agentModel.run(
+                input.config,
+                input.credential,
+                input.request,
+                input.signal,
+                () => undefined,
+                projectSessionId,
+                input.modelLimits
+              ),
             summarizeHistory: async (input) => {
               const result = await modelExecution.runAgent(
                 database,

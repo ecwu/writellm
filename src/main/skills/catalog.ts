@@ -1,3 +1,8 @@
+import {
+  SKILL_MAX_ENTRYPOINT_BYTES,
+  SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES
+} from '../../shared/contracts/skills'
+
 export interface CuratedSkillFile {
   path: string
   byteSize: number
@@ -103,6 +108,15 @@ export function validateCuratedSkillCatalog(): void {
     }
     if (new Set(entry.files.map((file) => file.path)).size !== entry.files.length) {
       throw new Error(`Curated skill ${entry.skillId} repeats an allowlisted file`)
+    }
+    for (const item of entry.files) {
+      const limit =
+        item.path === 'SKILL.md'
+          ? SKILL_MAX_ENTRYPOINT_BYTES
+          : SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES
+      if (item.byteSize < 1 || item.byteSize > limit) {
+        throw new Error(`Curated skill ${entry.skillId} file ${item.path} exceeds its byte limit`)
+      }
     }
     for (const dependency of entry.dependencies) {
       if (!ids.has(dependency)) throw new Error(`Curated skill dependency ${dependency} is unknown`)

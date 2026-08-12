@@ -7,9 +7,10 @@
       "id": "app-schema-history",
       "category": "migration",
       "source": "src/main/app-db/connection.test.ts",
-      "sourceSha256": "36024bd0fa12df964288fee3877d871b02dba5b647b304be1478f49301a378e5",
+      "sourceSha256": "4d65d2135de7c8ae8268428bb110df11d1330f3cb9bcff4b0f604b89ce52fdad",
       "tests": [
-        "upgrades the v1 application schema, preserves data, and verifies a pre-migration backup"
+        "upgrades the v1 application schema, preserves data, and verifies a pre-migration backup",
+        "keeps the newest pointer per project path when upgrading the recent-project schema"
       ]
     },
     {
@@ -130,12 +131,14 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "caca6bc126a221e72e15ff983fa1d2eadd3cde8c6bd9682ea92c6233679109e1",
+      "sourceSha256": "ce552a97e6104a79d880aa695ccd6d1214d112878b41b13df8e9583b87c3fedd",
       "tests": [
         "persists partial output as interrupted and aborts the model request on project close",
         "persists manual review as a completed wait state and locks only that conversation",
         "persists tool provenance and authorizes exactly one linked post-tool model call",
-        "rejects a tool request carrying a mismatched project-session capability"
+        "rejects a tool request carrying a mismatched project-session capability",
+        "keeps the fallback on title failure and cancels an in-flight title request on close",
+        "archives and restores idle conversations idempotently while rejecting archived writes"
       ]
     },
     {

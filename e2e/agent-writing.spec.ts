@@ -174,6 +174,7 @@ test(
     let outlineVersion = 0
     let sectionId = ''
     let agentCall = 0
+    let titleCall = 0
     const requestBodies: unknown[] = []
     const server = createServer((request, response) => {
       const port = (server.address() as AddressInfo).port
@@ -249,6 +250,18 @@ test(
         request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
         request.on('end', () => {
           const body = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+          if (JSON.stringify(body).includes('Create a concise title for the delimited')) {
+            titleCall += 1
+            setTimeout(
+              () =>
+                sendCompletion(
+                  response,
+                  titleCall === 1 ? 'Grounded evidence proposal' : 'Grounded evidence revision'
+                ),
+              500
+            )
+            return
+          }
           requestBodies.push(body)
           agentCall += 1
           if (agentCall === 1) {
@@ -312,7 +325,7 @@ test(
                       {
                         clientRef: 'grounded-paragraph',
                         blockType: 'paragraph',
-                        text: 'Grounded revision from Agent.'
+                        text: 'Grounded revision from Agent. [Source: agent evidence.pdf, p. 1]'
                       }
                     ]
                   }
@@ -323,6 +336,69 @@ test(
             return
           }
           if (agentCall === 5) {
+            sendToolCall(response, {
+              responseId: 'agent-revision-search-response',
+              toolCallId: 'agent-revision-search-tool',
+              name: 'search_knowledge',
+              args: {
+                query: 'durable systems',
+                knowledgeItemIds: [],
+                fileExtensions: [],
+                parseRevisionIds: [],
+                limit: 10,
+                rerank: false
+              }
+            })
+            return
+          }
+          if (agentCall === 6) {
+            const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
+            if (citationId === undefined || sectionId === '') {
+              response.writeHead(500, { 'content-type': 'application/json' })
+              response.end(JSON.stringify({ error: { message: 'Revision context missing' } }))
+              return
+            }
+            sendToolCall(response, {
+              responseId: 'agent-revision-citation-response',
+              toolCallId: 'agent-revision-citation-tool',
+              name: 'read_citations',
+              args: { citationIds: [citationId], requests: [] }
+            })
+            return
+          }
+          if (agentCall === 7) {
+            const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
+            if (citationId === undefined || sectionId === '') {
+              response.writeHead(500, { 'content-type': 'application/json' })
+              response.end(JSON.stringify({ error: { message: 'Re-expanded evidence missing' } }))
+              return
+            }
+            sendToolCall(response, {
+              responseId: 'agent-revision-response',
+              toolCallId: 'agent-revision-tool',
+              name: 'submit_section_change',
+              args: {
+                sectionId,
+                operations: [
+                  {
+                    type: 'insertTextBlocks',
+                    anchor: null,
+                    placement: 'end',
+                    blocks: [
+                      {
+                        clientRef: 'revised-grounded-paragraph',
+                        blockType: 'paragraph',
+                        text: 'Grounded revision from Agent. [Source: agent evidence.pdf, p. 1]'
+                      }
+                    ]
+                  }
+                ],
+                citationIds: [citationId]
+              }
+            })
+            return
+          }
+          if (agentCall === 8) {
             sendCompletion(response, 'I found **evidence** and prepared a reviewable proposal.')
             return
           }
@@ -431,25 +507,36 @@ test(
       await agentTrigger.click()
       const panel = launched.page.getByTestId('agent-panel')
       await expect(panel).toBeVisible()
-      await expect(panel.getByTestId('agent-session-list')).toBeVisible()
-      await panel.getByRole('button', { name: 'New', exact: true }).click()
-      await panel.getByLabel('Agent model').click()
+      await expect(panel.getByRole('button', { name: 'Set up an Agent model' })).toBeVisible()
+      await expect(panel.getByLabel('Agent message')).toHaveCount(0)
+      await expect(panel.getByText(/created only when you send it/i)).toBeVisible()
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      const details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
-      await panel.getByRole('radio', { name: 'Section', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      await expect(panel.getByLabel('Agent message')).toBeVisible()
+      await panel.getByRole('button', { name: /Context:/ }).click()
+      await launched.page.getByRole('option', { name: 'This section', exact: true }).click()
       await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(panel.getByLabel('Generating conversation title')).toBeVisible()
+      await expect(panel.getByTestId('agent-conversation-header')).toContainText(
+        'Grounded evidence proposal'
+      )
       const searchActivity = panel.getByTestId('agent-activity-group').filter({
-        hasText: 'Searched knowledge'
+        hasText: 'Searching sources'
       })
       await expect(searchActivity).toBeVisible()
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
       await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
-      await expect(panel.getByText('Waiting for review', { exact: true }).first()).toBeVisible()
+      await expect(panel.getByText('Ready for review', { exact: true }).first()).toBeVisible()
       await expect(panel.getByText('Run failed', { exact: true })).toHaveCount(0)
-      await expect(panel.getByLabel('Agent message')).toBeDisabled()
-      await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
+      await expect(panel.getByLabel('Agent message')).toHaveCount(0)
+      await expect(panel.getByLabel('Review feedback')).toBeVisible()
       await expect.poll(() => requestBodies.length).toBe(4)
       const waitingTruth = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -474,20 +561,13 @@ test(
       await expect(proposalDiff).toHaveAttribute('data-layout', 'split')
       await expect(panel.getByText('Before', { exact: true })).toBeVisible()
       await expect(panel.getByText('After', { exact: true })).toBeVisible()
-      for (const name of ['Reject', 'Approve & Continue', 'Approve']) {
-        const action = panel.getByRole('button', { name, exact: true })
-        await expect(action).toBeVisible()
-        await expect(action).toBeEnabled()
-      }
-      const rejectAction = panel.getByRole('button', { name: 'Reject', exact: true })
-      await rejectAction.focus()
-      await expect(rejectAction).toBeFocused()
-      await launched.page.keyboard.press('Tab')
       await expect(
-        panel.getByRole('button', { name: 'Approve & Continue', exact: true })
-      ).toBeFocused()
-      await launched.page.keyboard.press('Tab')
-      await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeFocused()
+        panel.getByRole('button', { name: 'Request changes', exact: true })
+      ).toBeDisabled()
+      await expect(
+        panel.getByRole('button', { name: 'Apply & continue', exact: true })
+      ).toBeEnabled()
+      await expect(panel.getByRole('button', { name: 'More review actions' })).toBeEnabled()
       await panel.getByRole('radio', { name: 'Unified', exact: true }).click()
       await expect(proposalDiff).toHaveAttribute('data-layout', 'unified')
       const sourceAttachment = panel
@@ -500,13 +580,23 @@ test(
       await expect
         .poll(() => panel.evaluate((element) => element.scrollWidth <= element.clientWidth))
         .toBe(true)
-      await panel.getByRole('button', { name: 'Approve & Continue', exact: true }).click()
+      await panel.getByLabel('Review feedback').fill('Keep the wording restrained and concise.')
+      await expect(
+        panel.getByRole('button', { name: 'Request changes', exact: true })
+      ).toBeEnabled()
+      await panel.getByRole('button', { name: 'Request changes', exact: true }).click()
+      await expect(
+        panel.getByText('Keep the wording restrained and concise.', { exact: true })
+      ).toBeVisible()
+      await expect(panel.getByText('Review required', { exact: true }).last()).toBeVisible()
+      await expect.poll(() => requestBodies.length).toBe(7)
+      await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(panel.getByText('applied', { exact: true })).toBeVisible()
-      await expect(panel.getByText(/^Review approved ·/)).toBeVisible()
-      await expect(panel.getByText('Waiting for review', { exact: true })).toHaveCount(0)
+      await expect(panel.getByText('Applied · continuing', { exact: true })).toBeVisible()
+      await expect(panel.getByText('Ready for review', { exact: true })).toHaveCount(0)
       const approvalContinuation =
         'The user approved the proposed section update, and it is now applied. Treat the resulting manuscript state as authoritative. Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
-      await expect(panel.getByText(approvalContinuation, { exact: true })).toBeVisible()
+      await expect(panel.getByText(approvalContinuation, { exact: true })).toHaveCount(0)
       await expect(
         panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
       ).toBeVisible()
@@ -514,6 +604,24 @@ test(
         panel.locator('strong').getByText('evidence', { exact: true }).first()
       ).toBeVisible()
       await expect(editor).toContainText('Grounded revision from Agent.')
+      const inlineCitation = editor.getByRole('button', {
+        name: 'Preview source: agent evidence.pdf'
+      })
+      await expect(inlineCitation).toBeVisible()
+      await inlineCitation.focus()
+      await expect(inlineCitation).toBeFocused()
+      await launched.page.keyboard.press('Enter')
+      const sourcePreview = launched.page.getByRole('dialog', { name: 'agent evidence.pdf' })
+      await expect(sourcePreview).toBeVisible()
+      await expect(
+        sourcePreview.getByText(/durable systems preserve traceable revisions/)
+      ).toBeVisible()
+      await sourcePreview.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(inlineCitation).toBeFocused()
+      await inlineCitation.click()
+      await expect(sourcePreview).toBeVisible()
+      await sourcePreview.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(inlineCitation).toBeFocused()
 
       const appliedTruth = await launched.page.evaluate(async (expectedSectionId) => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -526,7 +634,7 @@ test(
           projectSessionId,
           agentSessionId: session.agentSessionId
         })
-        const proposal = proposals[0]
+        const proposal = proposals.find((candidate) => candidate.status === 'applied')
         if (proposal === undefined) throw new Error('Agent proposal missing')
         const eventPage = await window.desktop.agent.listEvents({
           projectSessionId,
@@ -558,6 +666,10 @@ test(
       expect(appliedTruth.userMessages.at(-1)).toBe(approvalContinuation)
       expect(appliedTruth.userMessages.at(-1)).not.toContain(appliedTruth.proposal.proposalId)
       expect(appliedTruth.userMessages.at(-1)).not.toContain('{')
+      expect(JSON.stringify(requestBodies[4])).toContain('Keep the wording restrained and concise.')
+      expect(JSON.stringify(requestBodies[4])).not.toContain(
+        'Revise the rejected proposal from the stored review feedback.'
+      )
       expect(appliedTruth.proposal.payload.preview.citedSources).toHaveLength(1)
       expect(appliedTruth.retryCounts).toContain(1)
       expect(appliedTruth.revision).toMatchObject({
@@ -586,8 +698,9 @@ test(
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
-      await expect(panel.getByTestId('agent-session-list')).toBeVisible()
-      await panel.getByRole('button', { name: /Conversation 1/ }).click()
+      await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
+        'Grounded evidence proposal'
+      )
       await expect(panel.getByText('applied', { exact: true }).first()).toBeVisible()
       const reopenedTruth = await launched.page.evaluate(async (expectedAgentSessionId) => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -600,7 +713,7 @@ test(
         })
         return {
           sessionIds: sessions.map((session) => session.agentSessionId),
-          proposal: proposals[0]
+          proposal: proposals.find((proposal) => proposal.status === 'applied')
         }
       }, appliedTruth.agentSessionId)
       expect(reopenedTruth.sessionIds).toContain(appliedTruth.agentSessionId)
@@ -624,7 +737,10 @@ test(
           projectSessionId,
           sectionId: expectedSectionId
         })
-        return { proposal: proposals[0], revision: loaded.revision }
+        return {
+          proposal: proposals.find((proposal) => proposal.status === 'undone'),
+          revision: loaded.revision
+        }
       }, sectionId)
       expect(undoneTruth.proposal?.status).toBe('undone')
       expect(undoneTruth.revision).toMatchObject({
@@ -635,8 +751,35 @@ test(
         agentProposalId: null
       })
 
-      expect(requestBodies).toHaveLength(5)
+      expect(requestBodies).toHaveLength(8)
       expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
+
+      await panel.getByTestId('agent-conversation-switcher').click()
+      let currentConversation = launched.page.getByTestId(
+        `agent-session-${appliedTruth.agentSessionId}`
+      )
+      await currentConversation.getByLabel(/Conversation actions/).click()
+      await launched.page.getByRole('menuitem', { name: 'Regenerate title', exact: true }).click()
+      await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
+        'Grounded evidence revision'
+      )
+
+      await panel.getByTestId('agent-conversation-switcher').click()
+      currentConversation = launched.page.getByTestId(
+        `agent-session-${appliedTruth.agentSessionId}`
+      )
+      await currentConversation.getByLabel(/Conversation actions/).click()
+      await launched.page.getByRole('menuitem', { name: 'Archive', exact: true }).click()
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByTestId(`agent-session-${appliedTruth.agentSessionId}`).click()
+      await expect(
+        panel.getByText('Archived conversations are read only.', { exact: true })
+      ).toBeVisible()
+      await expect(panel.getByLabel('Agent message')).toHaveCount(0)
+      await panel.getByRole('button', { name: 'Restore', exact: true }).click()
+      await expect(panel.getByLabel('Agent message')).toBeVisible()
+      await expect(panel.getByLabel('Agent message')).toBeEnabled()
+      expect(titleCall).toBe(2)
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>

@@ -1,4 +1,8 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
+import type {
+  ExpandedCitation,
+  ReadableCitationResolutionResult
+} from '../../../../shared/contracts/search'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
 import {
   getDefaultReactSlashMenuItems,
@@ -6,14 +10,26 @@ import {
   useCreateBlockNote
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { AlertCircle, Check, Sigma, Workflow } from 'lucide-react'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { AlertCircle, Check, FileSearch, Sigma, Workflow } from 'lucide-react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
 import { useTheme } from '@/theme-provider'
+import { CitationCandidatePicker, ExpandedCitationPreview } from '../knowledge/citation-preview'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 import { logicalAssetId, resolveProjectAssetUrl } from './project-asset-url'
+import {
+  readableCitationExtension,
+  type ReadableCitationActivation
+} from './readable-citation-extension'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
@@ -23,6 +39,7 @@ export interface EditorSelectionContext {
 }
 
 export interface SectionEditorHandle {
+  focus(): void
   flush(): Promise<void>
   finalFlush(request: {
     projectSessionId: string
@@ -34,6 +51,21 @@ export interface SectionEditorHandle {
   exportNativeJson(): Promise<void>
   exportMarkdown(): Promise<void>
 }
+
+type CitationDialogState =
+  | { phase: 'loading'; request: ReadableCitationActivation }
+  | { phase: 'resolved'; request: ReadableCitationActivation; citation: ExpandedCitation }
+  | {
+      phase: 'ambiguous'
+      request: ReadableCitationActivation
+      citations: ExpandedCitation[]
+    }
+  | {
+      phase: 'unavailable'
+      request: ReadableCitationActivation
+      reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
+    }
+  | { phase: 'error'; request: ReadableCitationActivation }
 
 export const SectionEditor = forwardRef<
   SectionEditorHandle,
@@ -48,6 +80,10 @@ export const SectionEditor = forwardRef<
   const { resolvedTheme } = useTheme()
   const closingRef = useRef(false)
   const pendingAssetResolutionsRef = useRef(new Set<Promise<string>>())
+  const baseRef = useRef(props.revision)
+  const citationActivationHandlerRef = useRef<(activation: ReadableCitationActivation) => void>(
+    () => undefined
+  )
   const initialContent =
     props.revision.content.length === 0
       ? [
@@ -68,6 +104,11 @@ export const SectionEditor = forwardRef<
     {
       schema: approvedEditorSchema,
       initialContent,
+      extensions: [
+        readableCitationExtension({
+          onActivate: (activation) => citationActivationHandlerRef.current(activation)
+        })
+      ],
       uploadFile: async (file) => {
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
           throw new Error('Only PNG, JPEG, and WebP images are supported')
@@ -99,12 +140,52 @@ export const SectionEditor = forwardRef<
   )
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
-  const baseRef = useRef(props.revision)
+  const [citationDialog, setCitationDialog] = useState<CitationDialogState | null>(null)
+  const citationRequestSequenceRef = useRef(0)
+  const citationTriggerRef = useRef<HTMLElement | null>(null)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const runningRef = useRef<Promise<void> | null>(null)
   const replacingImportedDocumentRef = useRef(false)
   const saveBlockedRef = useRef(false)
+
+  const resolveCitation = useCallback(
+    (request: ReadableCitationActivation): void => {
+      const sequence = ++citationRequestSequenceRef.current
+      citationTriggerRef.current = request.element
+      setCitationDialog({ phase: 'loading', request })
+      void window.desktop.knowledge
+        .resolveReadableCitation({
+          projectSessionId: props.projectSessionId,
+          sectionRevisionId: baseRef.current.sectionRevisionId,
+          blockId: request.blockId,
+          title: request.citation.title,
+          ...(request.citation.pageIndex === undefined
+            ? {}
+            : { pageIndex: request.citation.pageIndex })
+        })
+        .then((result) => {
+          if (citationRequestSequenceRef.current !== sequence) return
+          if (result.status === 'resolved') {
+            setCitationDialog({ phase: 'resolved', request, citation: result.citation })
+          } else if (result.status === 'ambiguous') {
+            setCitationDialog({ phase: 'ambiguous', request, citations: result.citations })
+          } else {
+            setCitationDialog({ phase: 'unavailable', request, reason: result.reason })
+          }
+        })
+        .catch(() => {
+          if (citationRequestSequenceRef.current === sequence) {
+            setCitationDialog({ phase: 'error', request })
+          }
+        })
+    },
+    [props.projectSessionId]
+  )
+
+  useEffect(() => {
+    citationActivationHandlerRef.current = resolveCitation
+  }, [resolveCitation])
 
   useEffect(() => {
     props.onSaveStateChange?.(saveState)
@@ -264,6 +345,9 @@ export const SectionEditor = forwardRef<
   }, [editor])
 
   useImperativeHandle(ref, () => ({
+    focus() {
+      editor.focus()
+    },
     async flush() {
       if (timerRef.current !== undefined) {
         clearTimeout(timerRef.current)
@@ -441,9 +525,129 @@ export const SectionEditor = forwardRef<
           project is reopened.
         </p>
       )}
+      <CitationSourceDialog
+        projectSessionId={props.projectSessionId}
+        state={citationDialog}
+        onOpenChange={(open) => {
+          if (open) return
+          citationRequestSequenceRef.current += 1
+          setCitationDialog(null)
+        }}
+        onRetry={resolveCitation}
+        onSelect={(request, citation) =>
+          setCitationDialog({ phase: 'resolved', request, citation })
+        }
+        onCloseAutoFocus={(event) => {
+          const trigger = citationTriggerRef.current
+          if (trigger === null || !trigger.isConnected) return
+          event.preventDefault()
+          trigger.focus()
+        }}
+      />
     </div>
   )
 })
+
+function CitationSourceDialog(props: {
+  projectSessionId: string
+  state: CitationDialogState | null
+  onOpenChange(open: boolean): void
+  onRetry(request: ReadableCitationActivation): void
+  onSelect(request: ReadableCitationActivation, citation: ExpandedCitation): void
+  onCloseAutoFocus(event: Event): void
+}): React.JSX.Element {
+  const state = props.state
+  const title =
+    state?.phase === 'resolved'
+      ? state.citation.title
+      : state?.phase === 'ambiguous'
+        ? 'Choose source evidence'
+        : state?.phase === 'loading'
+          ? 'Resolving citation'
+          : state?.phase === 'error'
+            ? 'Source preview unavailable'
+            : 'Source link unavailable'
+  const description =
+    state?.phase === 'resolved'
+      ? `${state.citation.headingPath.join(' / ') || 'Normalized source chunk'}${
+          state.citation.page === undefined ? '' : ` · Page ${state.citation.page + 1}`
+        }`
+      : state?.phase === 'ambiguous'
+        ? 'This citation is linked to more than one evidence chunk. Choose the one to preview.'
+        : state?.phase === 'loading'
+          ? 'Checking accepted Agent proposal provenance and the active knowledge index.'
+          : state?.phase === 'error'
+            ? 'The citation resolver failed unexpectedly. Retry without leaving the editor.'
+            : unavailableMessage(state?.phase === 'unavailable' ? state.reason : 'unlinked')
+
+  return (
+    <Dialog open={state !== null} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        className='max-h-[85vh] max-w-3xl! overflow-y-auto'
+        onCloseAutoFocus={props.onCloseAutoFocus}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {state?.phase === 'loading' ? (
+          <div
+            className='flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground'
+            role='status'
+          >
+            <Spinner /> Resolving source link…
+          </div>
+        ) : null}
+        {state?.phase === 'resolved' ? (
+          <ExpandedCitationPreview
+            projectSessionId={props.projectSessionId}
+            citation={state.citation}
+          />
+        ) : null}
+        {state?.phase === 'ambiguous' ? (
+          <CitationCandidatePicker
+            citations={state.citations}
+            onSelect={(citation) => props.onSelect(state.request, citation)}
+          />
+        ) : null}
+        {state?.phase === 'unavailable' ? (
+          <div className='flex gap-3 rounded-md bg-muted/50 px-4 py-3 text-sm' role='status'>
+            <FileSearch className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
+            <p>{unavailableMessage(state.reason)}</p>
+          </div>
+        ) : null}
+        {state?.phase === 'error' ? (
+          <div className='flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/50 px-4 py-3 text-sm'>
+            <p>The source preview could not be loaded. The citation text is unchanged.</p>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => props.onRetry(state.request)}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function unavailableMessage(
+  reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
+): string {
+  switch (reason) {
+    case 'unlinked':
+      return 'No verifiable source association was found for this citation. It may have been entered or copied manually.'
+    case 'source_missing':
+      return 'The linked source is no longer available in the active knowledge index.'
+    case 'index_unavailable':
+      return 'The knowledge index is still preparing. Try this citation again when indexing is complete.'
+    case 'resolution_limit':
+      return 'The citation is older than the bounded provenance history available for interactive preview.'
+  }
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

@@ -1,6 +1,8 @@
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import {
+  agentArchiveSessionInputSchema,
+  agentArchiveSessionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentEventPageInputSchema,
@@ -8,9 +10,13 @@ import {
   agentListProposalsResultSchema,
   agentListRunsInputSchema,
   agentListRunsResultSchema,
+  agentListSessionsInputSchema,
   agentListSessionsResultSchema,
-  agentProjectInputSchema,
+  agentGenerateSessionTitleInputSchema,
+  agentGenerateSessionTitleResultSchema,
   agentQueueInputSchema,
+  agentRestoreSessionInputSchema,
+  agentRestoreSessionResultSchema,
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
@@ -78,8 +84,10 @@ export function registerAgentIpc(options: {
 
   ipc.handle(IPC_CHANNELS.agentListSessions, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentProjectInputSchema.parse(raw)
-    return agentListSessionsResultSchema.parse(readService(input.projectSessionId).listSessions())
+    const input = agentListSessionsInputSchema.parse(raw)
+    return agentListSessionsResultSchema.parse(
+      readService(input.projectSessionId).listSessions(input.status)
+    )
   })
   ipc.handle(IPC_CHANNELS.agentCreateSession, async (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -104,6 +112,35 @@ export function registerAgentIpc(options: {
         )
       )
     })
+  })
+  ipc.handle(IPC_CHANNELS.agentGenerateSessionTitle, async (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentGenerateSessionTitleInputSchema.parse(raw)
+    return lifecycle('agent.session.generate_title', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      return agentGenerateSessionTitleResultSchema.parse(
+        await service.generateSessionTitle(input.agentSessionId)
+      )
+    })
+  })
+  ipc.handle(IPC_CHANNELS.agentArchiveSession, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentArchiveSessionInputSchema.parse(raw)
+    return lifecycle('agent.session.archive', () =>
+      agentArchiveSessionResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.archiveSession(input.agentSessionId)
+      )
+    )
+  })
+  ipc.handle(IPC_CHANNELS.agentRestoreSession, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentRestoreSessionInputSchema.parse(raw)
+    return lifecycle('agent.session.restore', () =>
+      agentRestoreSessionResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.restoreSession(input.agentSessionId)
+      )
+    )
   })
   ipc.handle(IPC_CHANNELS.agentSetModelSelection, async (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -210,6 +247,10 @@ export function registerAgentIpc(options: {
       if (service === null) throw new Error('Agent sessions are unavailable')
       let prompt = input.prompt
       let reuseSkillFromRunId = input.reuseSkillFromRunId
+      let presentation:
+        | { kind: 'approval_continuation' }
+        | { kind: 'review_feedback'; displayContent: string }
+        | undefined
       if (input.approvedProposalId !== undefined) {
         if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
         const proposal = context.agentMutations
@@ -237,6 +278,55 @@ export function registerAgentIpc(options: {
         })
         reuseSkillFromRunId ??= proposal.agentRunId
         prompt = approvalContinuationPrompt(proposal, input.prompt)
+        presentation = { kind: 'approval_continuation' }
+        options.logger.info(
+          {
+            event: 'agent.run.review_continuation_authorized',
+            agentSessionId: input.agentSessionId,
+            proposalId: proposal.proposalId,
+            sourceRunId: proposal.agentRunId,
+            decision: 'approved'
+          },
+          'Authorized Agent review continuation'
+        )
+      } else if (input.rejectedProposalId !== undefined) {
+        if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
+        const proposal = context.agentMutations
+          .list(input.agentSessionId)
+          .find((candidate) => candidate.proposalId === input.rejectedProposalId)
+        if (
+          proposal === undefined ||
+          proposal.status !== 'rejected' ||
+          proposal.rejectedReason === null
+        ) {
+          throw new Error('Rejected proposal revision is not authorized')
+        }
+        const blocker = context.agentMutations
+          .list(input.agentSessionId)
+          .find((candidate) => ['pending', 'generating'].includes(candidate.status))
+        if (blocker !== undefined) {
+          throw new Error(
+            blocker.status === 'generating'
+              ? 'Agent conversation is waiting for image generation'
+              : 'Agent conversation is waiting for review'
+          )
+        }
+        reuseSkillFromRunId = proposal.agentRunId
+        prompt = rejectedProposalRevisionPrompt(proposal)
+        presentation = {
+          kind: 'review_feedback',
+          displayContent: proposal.rejectedReason
+        }
+        options.logger.info(
+          {
+            event: 'agent.run.review_continuation_authorized',
+            agentSessionId: input.agentSessionId,
+            proposalId: proposal.proposalId,
+            sourceRunId: proposal.agentRunId,
+            decision: 'rejected'
+          },
+          'Authorized Agent review continuation'
+        )
       }
       const reuseRun =
         reuseSkillFromRunId === undefined ? undefined : service.requireRun(reuseSkillFromRunId)
@@ -248,7 +338,8 @@ export function registerAgentIpc(options: {
         agentSessionId: input.agentSessionId,
         prompt,
         editorContext: input.editorContext,
-        reuseSkillSnapshot
+        reuseSkillSnapshot,
+        presentation
       })
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
     })
@@ -311,6 +402,9 @@ export function registerAgentIpc(options: {
   const channels = [
     IPC_CHANNELS.agentListSessions,
     IPC_CHANNELS.agentCreateSession,
+    IPC_CHANNELS.agentGenerateSessionTitle,
+    IPC_CHANNELS.agentArchiveSession,
+    IPC_CHANNELS.agentRestoreSession,
     IPC_CHANNELS.agentSetApprovalMode,
     IPC_CHANNELS.agentSetModelSelection,
     IPC_CHANNELS.agentSetThinkingLevel,
@@ -361,4 +455,19 @@ function approvalContinuationPrompt(
       ? `The user approved the proposed ${subject}; the current manuscript already satisfies it.`
       : `The user approved the proposed ${subject}, and it is now applied.`
   return `${result} Treat the resulting manuscript state as authoritative. ${requestedContinuation.trim()}`
+}
+
+function rejectedProposalRevisionPrompt(proposal: MutationProposalRecord): string {
+  if (proposal.rejectedReason === null) {
+    throw new Error('Rejected proposal feedback is unavailable')
+  }
+  const subject =
+    proposal.kind === 'brief_update'
+      ? 'brief update'
+      : proposal.kind === 'outline_patch'
+        ? 'outline update'
+        : proposal.kind === 'generated_image_insert'
+          ? 'generated image'
+          : 'section update'
+  return `The user rejected the proposed ${subject}. Address this feedback:\n\n${proposal.rejectedReason}\n\nTreat the current manuscript state as authoritative. Re-read the relevant manuscript context and submit a revised typed proposal when a change is still needed.`
 }

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentEventPageInputSchema,
+  agentListSessionsInputSchema,
   agentRendererEventSchema,
+  agentSessionRecordSchema,
   agentSetThinkingLevelInputSchema,
   agentStartRunInputSchema
 } from './agent-ipc'
@@ -60,6 +62,30 @@ describe('Agent IPC contracts', () => {
     ).toThrow('selected blocks')
   })
 
+  it('allows exactly one proposal continuation source', () => {
+    const base = {
+      projectSessionId,
+      agentSessionId,
+      prompt: 'Continue the task.',
+      scope: 'section' as const,
+      editorContext: {
+        activeSectionId: sectionId,
+        activeBlockId: null,
+        selectedBlockIds: []
+      }
+    }
+    expect(
+      agentStartRunInputSchema.parse({ ...base, rejectedProposalId: agentRunId }).rejectedProposalId
+    ).toBe(agentRunId)
+    expect(() =>
+      agentStartRunInputSchema.parse({
+        ...base,
+        approvedProposalId: agentRunId,
+        rejectedProposalId: agentRunId
+      })
+    ).toThrow('mutually exclusive')
+  })
+
   it('bounds replay pages and renderer deltas', () => {
     expect(() =>
       agentEventPageInputSchema.parse({
@@ -95,5 +121,34 @@ describe('Agent IPC contracts', () => {
         level: 'extreme'
       })
     ).toThrow()
+  })
+
+  it('defaults session queries to active and projects archived timestamps and title state', () => {
+    expect(agentListSessionsInputSchema.parse({ projectSessionId }).status).toBe('active')
+    expect(() =>
+      agentListSessionsInputSchema.parse({ projectSessionId, status: 'deleted' })
+    ).toThrow()
+    const session = agentSessionRecordSchema.parse({
+      agentSessionId,
+      title: 'Archived title',
+      status: 'archived',
+      compatible: true,
+      approvalMode: 'manual',
+      workflowState: 'idle',
+      modelSelection: null,
+      thinkingLevel: 'off',
+      skillSelection: { mode: 'auto' },
+      createdAt: '2026-08-11T10:00:00.000Z',
+      updatedAt: '2026-08-11T11:00:00.000Z',
+      archivedAt: '2026-08-11T11:00:00.000Z'
+    })
+    expect(
+      agentRendererEventSchema.parse({
+        kind: 'session',
+        projectSessionId,
+        session,
+        titleGenerating: true
+      })
+    ).toMatchObject({ kind: 'session', session: { archivedAt: session.archivedAt } })
   })
 })

@@ -102,7 +102,9 @@ export async function runAgentModelRequest(
     throw new Error('Agent completed without an assistant response')
   }
   if (finalMessage.stopReason === 'error') {
-    const error: Error & { status?: number } = new Error('Agent provider request failed')
+    const error: Error & { status?: number } = new Error(
+      finalMessage.errorMessage || 'Agent provider request failed'
+    )
     if (retryState?.exhausted) {
       error.name = 'ProviderRetriesExhaustedError'
       error.message = 'Agent provider request failed after 5 attempts'

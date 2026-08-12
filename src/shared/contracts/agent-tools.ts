@@ -12,6 +12,7 @@ import {
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import { projectSessionIdSchema } from './projects'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
+import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
 
 export const AGENT_TOOL_ARGUMENT_BYTES = 65_536
 export const AGENT_TOOL_RESULT_BYTES = 262_144
@@ -141,7 +142,7 @@ export const readWritingSkillResultSchema = strictObject({
         relativePath: z.string().min(1).max(1_024),
         uri: z.string().min(1).max(2_048).startsWith('writellm://skills/'),
         sha256: z.string().regex(/^[a-f0-9]{64}$/),
-        byteSize: z.number().int().positive().max(8_192)
+        byteSize: z.number().int().positive().max(SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES)
       })
     )
     .max(31)
@@ -210,7 +211,6 @@ export const searchKnowledgeArgsSchema = strictObject({
 export const readCitationsArgsSchema = strictObject({
   citationIds: z
     .array(z.string().regex(/^citation-[a-f0-9]{40}$/))
-    .min(1)
     .max(AGENT_CITATION_RESULT_LIMIT)
     .default([]),
   requests: z
@@ -472,6 +472,12 @@ const toolRequestBase = {
   modelRequestId: agentModelRequestIdSchema
 }
 
+export const agentToolRequestEnvelopeSchema = strictObject({
+  ...toolRequestBase,
+  toolName: agentToolNameSchema,
+  args: z.unknown()
+}).superRefine((request, context) => addByteIssue(request.args, AGENT_TOOL_ARGUMENT_BYTES, context))
+
 export const agentToolRequestSchema = z
   .discriminatedUnion('toolName', [
     strictObject({
@@ -721,6 +727,7 @@ export type AgentReadToolName = z.infer<typeof agentReadToolNameSchema>
 export type ToolResultMeta = z.infer<typeof toolResultMetaSchema>
 export type AgentToolName = z.infer<typeof agentToolNameSchema>
 export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>
+export type AgentToolRequestEnvelope = z.infer<typeof agentToolRequestEnvelopeSchema>
 export type AgentToolRequest = z.infer<typeof agentToolRequestSchema>
 export type AgentToolResponse = z.infer<typeof agentToolResponseSchema>
 export type GetWritingContextArgs = z.infer<typeof getWritingContextArgsSchema>
