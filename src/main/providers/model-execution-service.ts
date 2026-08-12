@@ -96,6 +96,70 @@ export class ModelExecutionService {
     )
   }
 
+  async runAgentWithResolvedProvider(
+    database: ProjectDatabase,
+    rawInput: AgentRunInput,
+    correlation: ModelRequestCorrelation,
+    resolved: {
+      config: Extract<ProviderConfig, { role: 'agent' }>
+      credential: string
+      modelLimits: AgentModelLimits
+    },
+    signal: AbortSignal,
+    onEvent: (event: AgentStreamEvent) => void = () => undefined
+  ): Promise<{ result: AgentRunResult; modelRequestId: string }> {
+    const input = agentRunInputSchema.parse(rawInput)
+    const repository = new ModelRequestRepository(database, this.options.log)
+    const record = await repository.start({
+      operation: 'agent',
+      provider: resolved.config,
+      request: input,
+      inputItems: 1,
+      ...correlation
+    })
+    try {
+      const result = await this.options.agent.run(
+        resolved.config,
+        resolved.credential,
+        input,
+        signal,
+        onEvent,
+        correlation.projectSessionId,
+        resolved.modelLimits
+      )
+      await repository.succeed(record.modelRequestId, {
+        metadata: result.metadata,
+        outputItems: result.text.length === 0 ? 0 : 1
+      })
+      return { result, modelRequestId: record.modelRequestId }
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'model_execution.failed',
+          err,
+          modelRequestId: record.modelRequestId,
+          role: 'agent'
+        },
+        'Resolved Agent model execution failed'
+      )
+      try {
+        if (signal.aborted || isAbortError(err)) await repository.abort(record.modelRequestId)
+        else await repository.fail(record.modelRequestId, classifySafeError(err))
+      } catch (recordErr) {
+        this.options.log.error(
+          {
+            event: 'model_execution.record_failure.failed',
+            err: recordErr,
+            modelRequestId: record.modelRequestId,
+            role: 'agent'
+          },
+          'Failed to persist resolved Agent model execution failure'
+        )
+      }
+      throw err
+    }
+  }
+
   embedBatch(
     database: ProjectDatabase,
     rawInput: EmbeddingBatchInput,

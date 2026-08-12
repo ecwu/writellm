@@ -17,6 +17,7 @@ export const accentPreferenceSchema = z.enum([
   'rose',
   'orange'
 ])
+export const citationDisplayModeSchema = z.enum(['full', 'numbered', 'icon'])
 
 export const setThemePreferenceInputSchema = z.object({
   preference: themePreferenceSchema
@@ -30,6 +31,12 @@ export const setAccentPreferenceInputSchema = z
   .strict()
 export type AccentPreference = z.infer<typeof accentPreferenceSchema>
 export type SetAccentPreferenceInput = z.infer<typeof setAccentPreferenceInputSchema>
+
+export const setCitationDisplayModeInputSchema = z
+  .object({ mode: citationDisplayModeSchema })
+  .strict()
+export type CitationDisplayMode = z.infer<typeof citationDisplayModeSchema>
+export type SetCitationDisplayModeInput = z.infer<typeof setCitationDisplayModeInputSchema>
 
 export const setDefaultAgentApprovalModeInputSchema = z
   .object({ mode: agentApprovalModeSchema })

@@ -244,6 +244,33 @@
     cursor: pointer;
   }
 
+  .writing-editor .writellm-readable-citation-source-hidden {
+    display: inline-block;
+    width: 0;
+    overflow: hidden;
+    color: transparent;
+    pointer-events: none;
+  }
+
+  .writing-editor .writellm-readable-citation-numbered,
+  .writing-editor .writellm-readable-citation-icon {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.25rem;
+    line-height: 1.25rem;
+    vertical-align: baseline;
+    white-space: nowrap;
+  }
+
+  .writing-editor .writellm-readable-citation-icon {
+    padding-inline: 0.24em;
+  }
+
+  .writing-editor .writellm-readable-citation-icon > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
   .writing-editor .writellm-readable-citation:hover {
     background-color: color-mix(in oklab, var(--primary) 16%, transparent);
   }

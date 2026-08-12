@@ -706,7 +706,12 @@ export const agentToolResultPayloadSchema = strictObject({
   isError: z.boolean(),
   result: z.record(z.string(), z.unknown()).nullable(),
   error: z
-    .object({ code: z.string().min(1).max(100), message: z.string().min(1).max(1_000) })
+    .object({
+      code: z.string().min(1).max(100),
+      message: z.string().min(1).max(1_000),
+      retryable: z.boolean().optional(),
+      operationId: z.string().min(1).max(256).optional()
+    })
     .strict()
     .nullable(),
   citationIds: z

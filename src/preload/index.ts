@@ -2,13 +2,17 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   accentPreferenceSchema,
   appInfoSchema,
+  citationDisplayModeSchema,
   setAccentPreferenceInputSchema,
+  setCitationDisplayModeInputSchema,
   setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema,
   type AppInfo,
   type AccentPreference,
+  type CitationDisplayMode,
   type SetAccentPreferenceInput,
+  type SetCitationDisplayModeInput,
   type SetThemePreferenceInput,
   type ThemePreference,
   type SetDefaultAgentApprovalModeInput
@@ -42,6 +46,8 @@ import {
   agentArchiveSessionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
+  agentCompactSessionInputSchema,
+  agentCompactSessionResultSchema,
   agentEventPageInputSchema,
   agentEventPageSchema,
   agentListProposalsResultSchema,
@@ -49,6 +55,8 @@ import {
   agentListRunsResultSchema,
   agentListSessionsInputSchema,
   agentListSessionsResultSchema,
+  agentProjectActivitySnapshotSchema,
+  agentProjectActivitySubscriptionInputSchema,
   agentGenerateSessionTitleInputSchema,
   agentGenerateSessionTitleResultSchema,
   agentQueueInputSchema,
@@ -66,8 +74,11 @@ import {
   agentSetSkillSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
+  agentStopCompactionInputSchema,
+  agentStopCompactionResultSchema,
   agentSubscriptionInputSchema,
   type AgentEventPage,
+  type AgentProjectActivitySnapshot,
   type AgentRendererEvent,
   type AgentRunRecord,
   type AgentSessionRecord
@@ -201,6 +212,8 @@ import {
   manuscriptAssetImportReferenceInputSchema,
   manuscriptAssetImportReferenceResultSchema,
   manuscriptAssetResultSchema,
+  manuscriptReferenceIndexInputSchema,
+  manuscriptReferenceIndexSchema,
   manuscriptWorkspaceInputSchema,
   manuscriptWorkspaceSchema,
   moveSectionRequestSchema,
@@ -214,6 +227,7 @@ import {
   type DeleteSectionRequest,
   type EditorFlushRequest,
   type ManuscriptAssembly,
+  type ManuscriptReferenceIndex,
   type ManuscriptWorkspace,
   type ManuscriptWorkspaceInput,
   type MoveSectionRequest,
@@ -278,6 +292,8 @@ export interface DesktopApi {
     setThemePreference(input: SetThemePreferenceInput): Promise<ThemePreference>
     getAccentPreference(): Promise<AccentPreference>
     setAccentPreference(input: SetAccentPreferenceInput): Promise<AccentPreference>
+    getCitationDisplayMode(): Promise<CitationDisplayMode>
+    setCitationDisplayMode(input: SetCitationDisplayModeInput): Promise<CitationDisplayMode>
     getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
     setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
   }
@@ -367,7 +383,6 @@ export interface DesktopApi {
       sectionId: string
       sectionRevisionId: string
       contentHash: string
-      markdown: string
     }): Promise<{ relativePath: string }>
     uploadAsset(input: {
       projectSessionId: string
@@ -400,6 +415,7 @@ export interface DesktopApi {
   }
   manuscript: {
     workspace(input: ManuscriptWorkspaceInput): Promise<ManuscriptWorkspace>
+    references(input: ManuscriptWorkspaceInput): Promise<ManuscriptReferenceIndex>
     preview(input: ManuscriptWorkspaceInput): Promise<ManuscriptAssembly>
     updateBrief(input: UpdateManuscriptBriefRequest): Promise<ManuscriptWorkspace>
     createSection(input: CreateSectionRequest): Promise<ManuscriptWorkspace>
@@ -474,10 +490,27 @@ export interface DesktopApi {
       content: string
     }): Promise<void>
     abortRun(input: { projectSessionId: string; agentRunId: string }): Promise<void>
+    compactSession(input: {
+      projectSessionId: string
+      agentSessionId: string
+    }): Promise<{ compactionId: string }>
+    stopCompaction(input: {
+      projectSessionId: string
+      agentSessionId: string
+      compactionId: string
+    }): Promise<void>
     subscribeEvents(
       input: { projectSessionId: string; agentSessionId: string; afterSequence?: number },
       listener: (event: AgentRendererEvent) => void
     ): Promise<() => void>
+    subscribeActivity(
+      input: { projectSessionId: string },
+      listener: (event: AgentRendererEvent) => void
+    ): Promise<{
+      snapshot: AgentProjectActivitySnapshot
+      activate: () => Promise<void>
+      unsubscribe: () => void
+    }>
     approveProposal(input: {
       projectSessionId: string
       agentSessionId: string
@@ -632,6 +665,19 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.appSetAccentPreference,
           setAccentPreferenceInputSchema.parse(input)
+        )
+      )
+    },
+    async getCitationDisplayMode() {
+      return citationDisplayModeSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.appGetCitationDisplayMode)
+      )
+    },
+    async setCitationDisplayMode(input) {
+      return citationDisplayModeSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.appSetCitationDisplayMode,
+          setCitationDisplayModeInputSchema.parse(input)
         )
       )
     },
@@ -1069,6 +1115,14 @@ const desktopApi: DesktopApi = {
         )
       )
     },
+    async references(input) {
+      return manuscriptReferenceIndexSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptGetReferences,
+          manuscriptReferenceIndexInputSchema.parse(input)
+        )
+      )
+    },
     async preview(input) {
       return manuscriptAssemblySchema.parse(
         await ipcRenderer.invoke(
@@ -1226,6 +1280,22 @@ const desktopApi: DesktopApi = {
     async abortRun(input) {
       await ipcRenderer.invoke(IPC_CHANNELS.agentAbortRun, agentRunInputSchema.parse(input))
     },
+    async compactSession(input) {
+      return agentCompactSessionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentCompactSession,
+          agentCompactSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async stopCompaction(input) {
+      agentStopCompactionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentStopCompaction,
+          agentStopCompactionInputSchema.parse(input)
+        )
+      )
+    },
     async subscribeEvents(input, listener) {
       const subscription = agentSubscriptionInputSchema.parse({
         ...input,
@@ -1236,6 +1306,7 @@ const desktopApi: DesktopApi = {
       const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
         const parsed = agentRendererEventSchema.parse(value)
         if (parsed.projectSessionId !== subscription.projectSessionId) return
+        if (parsed.kind === 'activity') return
         const sessionId =
           parsed.kind === 'durable'
             ? parsed.event.agentSessionId
@@ -1290,6 +1361,45 @@ const desktopApi: DesktopApi = {
       return () => {
         ipcRenderer.removeListener(IPC_CHANNELS.agentEvent, handler)
         void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeEvents, subscription)
+      }
+    },
+    async subscribeActivity(input, listener) {
+      const subscription = agentProjectActivitySubscriptionInputSchema.parse({
+        ...input,
+        subscriptionId: globalThis.crypto.randomUUID()
+      })
+      let replaying = true
+      let disposed = false
+      const queued: AgentRendererEvent[] = []
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const parsed = agentRendererEventSchema.parse(value)
+        if (parsed.projectSessionId !== subscription.projectSessionId || disposed) return
+        if (replaying) queued.push(parsed)
+        else listener(parsed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.agentActivity, handler)
+      try {
+        const snapshot = agentProjectActivitySnapshotSchema.parse(
+          await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeActivity, subscription)
+        )
+        return {
+          snapshot,
+          activate: async () => {
+            if (disposed || !replaying) return
+            await ipcRenderer.invoke(IPC_CHANNELS.agentCompleteActivitySnapshot, subscription)
+            replaying = false
+            for (const event of queued.splice(0)) listener(event)
+          },
+          unsubscribe: () => {
+            disposed = true
+            ipcRenderer.removeListener(IPC_CHANNELS.agentActivity, handler)
+            void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeActivity, subscription)
+          }
+        }
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.agentActivity, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeActivity, subscription)
+        throw err
       }
     },
     async approveProposal(input) {

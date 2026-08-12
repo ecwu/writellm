@@ -2,7 +2,8 @@ import { z } from 'zod'
 
 export const MANUSCRIPT_BRIEF_SCHEMA_VERSION = 1
 export const SECTION_CONTENT_SCHEMA_VERSION = 2
-export const SECTION_COUNT_ALGORITHM_VERSION = 1
+export const SECTION_COUNT_ALGORITHM_VERSION = 2
+export const sectionCountAlgorithmVersionSchema = z.union([z.literal(1), z.literal(2)])
 export const SECTION_MATERIALIZATION_FORMAT_VERSION = 1
 export const SECTION_MATERIALIZATION_ENVELOPE_SCHEMA_VERSION = 1
 export const MAX_SECTION_DOCUMENT_BYTES = 2 * 1024 * 1024
@@ -487,7 +488,7 @@ export const sectionRevisionSchema = z
     priorRevisionId: sectionRevisionIdSchema.nullable(),
     wordCount: z.number().int().nonnegative(),
     characterCount: z.number().int().nonnegative(),
-    countAlgorithmVersion: z.literal(SECTION_COUNT_ALGORITHM_VERSION),
+    countAlgorithmVersion: sectionCountAlgorithmVersionSchema,
     agentRunId: z.string().min(1).max(256).nullable(),
     agentToolCallId: z.string().min(1).max(256).nullable(),
     agentProposalId: z.string().min(1).max(256).nullable(),
@@ -496,6 +497,14 @@ export const sectionRevisionSchema = z
   .strict()
 
 export const sectionRevisionSummarySchema = sectionRevisionSchema.omit({ content: true }).strict()
+export const currentSectionRevisionSchema = sectionRevisionSchema.refine(
+  (revision) => revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION,
+  'Current section revision must use the active count algorithm'
+)
+export const currentSectionRevisionSummarySchema = sectionRevisionSummarySchema.refine(
+  (revision) => revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION,
+  'Current section revision must use the active count algorithm'
+)
 
 export const appendSectionRevisionInputSchema = z
   .object({
@@ -516,7 +525,7 @@ const manuscriptSectionCollectionSchema = z
     z
       .object({
         section: sectionSchema,
-        revision: sectionRevisionSchema
+        revision: currentSectionRevisionSchema
       })
       .strict()
   )
@@ -545,7 +554,9 @@ const manuscriptSectionCollectionSchema = z
   })
 
 const manuscriptSectionSummaryCollectionSchema = z
-  .array(z.object({ section: sectionSchema, revision: sectionRevisionSummarySchema }).strict())
+  .array(
+    z.object({ section: sectionSchema, revision: currentSectionRevisionSummarySchema }).strict()
+  )
   .max(MAX_MANUSCRIPT_SECTIONS)
   .superRefine((sections, context) => {
     const ids = new Set<string>()
@@ -592,6 +603,36 @@ export const manuscriptWorkspaceSchema = z
   })
   .strict()
 
+export const manuscriptReferenceOccurrenceSchema = z
+  .object({
+    sectionId: sectionIdSchema,
+    sectionRevisionId: sectionRevisionIdSchema,
+    blockId: blockIdSchema,
+    ordinal: z.number().int().nonnegative().max(100_000),
+    raw: z.string().min(1).max(1_024),
+    syntax: z.enum(['english', 'chinese']),
+    title: z.string().min(1).max(512),
+    pageIndex: z.number().int().nonnegative().optional()
+  })
+  .strict()
+
+export const manuscriptReferenceEntrySchema = z
+  .object({
+    number: z.number().int().positive().max(50_000),
+    title: z.string().min(1).max(512),
+    count: z.number().int().positive().max(50_000),
+    occurrences: z.array(manuscriptReferenceOccurrenceSchema).min(1).max(50_000)
+  })
+  .strict()
+  .refine((entry) => entry.count === entry.occurrences.length, 'Reference count is inconsistent')
+
+export const manuscriptReferenceIndexSchema = z
+  .object({
+    outlineVersion: z.number().int().positive(),
+    entries: z.array(manuscriptReferenceEntrySchema).max(50_000)
+  })
+  .strict()
+
 export const editorSessionInputSchema = z
   .object({ projectSessionId: z.string().min(1).max(256) })
   .strict()
@@ -610,7 +651,7 @@ export const saveSectionDocumentInputSchema = loadSectionInputSchema
   })
   .strict()
 export const editorSectionSchema = z
-  .object({ section: sectionSchema, revision: sectionRevisionSchema })
+  .object({ section: sectionSchema, revision: currentSectionRevisionSchema })
   .strict()
 export const openEditorResultSchema = z
   .object({ activeSection: editorSectionSchema.nullable() })
@@ -658,8 +699,7 @@ export const exportNativeJsonInputSchema = loadSectionInputSchema
 export const exportMarkdownInputSchema = loadSectionInputSchema
   .extend({
     sectionRevisionId: sectionRevisionIdSchema,
-    contentHash: contentHashSchema,
-    markdown: z.string().max(MAX_SECTION_DOCUMENT_BYTES)
+    contentHash: contentHashSchema
   })
   .strict()
 export const exportResultSchema = z.object({ relativePath: z.string().min(1).max(1_024) }).strict()
@@ -698,6 +738,7 @@ export const manuscriptAssetImportReferenceResultSchema = z
   .strict()
 
 export const manuscriptWorkspaceInputSchema = editorSessionInputSchema
+export const manuscriptReferenceIndexInputSchema = editorSessionInputSchema
 export const updateManuscriptBriefRequestSchema = editorSessionInputSchema
   .extend({ update: updateManuscriptBriefInputSchema })
   .strict()
@@ -747,6 +788,9 @@ export type AppendSectionRevisionInput = z.input<typeof appendSectionRevisionInp
 export type ManuscriptAssembly = z.infer<typeof manuscriptAssemblySchema>
 export type SectionRevisionSummary = z.infer<typeof sectionRevisionSummarySchema>
 export type ManuscriptWorkspace = z.infer<typeof manuscriptWorkspaceSchema>
+export type ManuscriptReferenceOccurrence = z.infer<typeof manuscriptReferenceOccurrenceSchema>
+export type ManuscriptReferenceEntry = z.infer<typeof manuscriptReferenceEntrySchema>
+export type ManuscriptReferenceIndex = z.infer<typeof manuscriptReferenceIndexSchema>
 export type SaveSectionDocumentInput = z.infer<typeof saveSectionDocumentInputSchema>
 export type SaveSectionDocumentResult = z.infer<typeof saveSectionDocumentResultSchema>
 export type SaveSectionDocumentResponse = z.infer<typeof saveSectionDocumentResponseSchema>

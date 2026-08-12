@@ -464,11 +464,13 @@ function reconstructError(input: {
   message: string
   stack?: string
   httpStatus?: number
-}): Error & { status?: number } {
-  const error: Error & { status?: number } = new Error(input.message)
+  code?: 'context_overflow'
+}): Error & { status?: number; code?: 'context_overflow' } {
+  const error: Error & { status?: number; code?: 'context_overflow' } = new Error(input.message)
   error.name = input.name
   if (input.stack !== undefined) error.stack = input.stack
   if (input.httpStatus !== undefined) error.status = input.httpStatus
+  if (input.code !== undefined) error.code = input.code
   return error
 }
 

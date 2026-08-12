@@ -5,7 +5,8 @@ import {
   manuscriptWorkspaceSchema,
   MAX_BRIEF_EXTENSIBLE_BYTES,
   MAX_BRIEF_EXTENSIBLE_DEPTH,
-  MAX_SECTION_NESTING_DEPTH
+  MAX_SECTION_NESTING_DEPTH,
+  sectionRevisionSummarySchema
 } from './manuscript'
 
 const paragraph = (id: string, text = '正文') => ({
@@ -196,7 +197,7 @@ describe('approved BlockNote document contract', () => {
       priorRevisionId: null,
       wordCount: 0,
       characterCount: 0,
-      countAlgorithmVersion: 1 as const,
+      countAlgorithmVersion: 2 as const,
       agentRunId: null,
       agentToolCallId: null,
       agentProposalId: null,
@@ -220,6 +221,9 @@ describe('approved BlockNote document contract', () => {
       wordCount: 0,
       characterCount: 0
     }
+    expect(
+      sectionRevisionSummarySchema.safeParse({ ...revision, countAlgorithmVersion: 1 }).success
+    ).toBe(true)
     expect(manuscriptWorkspaceSchema.safeParse(workspace).success).toBe(false)
   })
 })

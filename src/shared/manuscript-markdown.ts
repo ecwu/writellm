@@ -10,9 +10,17 @@ import {
   type ManuscriptMarkdownLoss,
   type ManuscriptMarkdownLossReport
 } from './contracts/manuscript-export'
+import {
+  buildManuscriptReferenceIndex,
+  findReadableCitations,
+  normalizeCitationTitle,
+  referenceNumberMap,
+  replaceReadableCitations
+} from './readable-citation'
 
 type Block = BlockNoteBlockValue
 type TextNode = Extract<BlockNoteInlineContent, { type: 'text' }>
+const CITATION_MARKER_PATTERN = /\uE000citation:(\d+)\uE001/gu
 
 export function manuscriptToMarkdown(
   manuscript: ManuscriptAssembly,
@@ -20,6 +28,15 @@ export function manuscriptToMarkdown(
 ): { markdown: string; lossReport: ManuscriptMarkdownLossReport } {
   const losses: ManuscriptMarkdownLoss[] = []
   const chunks: string[] = []
+  const citationNumbers = referenceNumberMap(
+    buildManuscriptReferenceIndex(
+      manuscript.sections.map((item) => ({
+        sectionId: item.section.sectionId,
+        sectionRevisionId: item.revision.sectionRevisionId,
+        content: item.revision.content
+      }))
+    )
+  )
   for (const item of manuscript.sections) {
     chunks.push(`${'#'.repeat(item.section.level)} ${escapeHeading(item.section.title)}`)
     const body = blocksToMarkdown(
@@ -27,7 +44,8 @@ export function manuscriptToMarkdown(
       item.section.sectionId,
       assetPath,
       losses,
-      0
+      0,
+      citationNumbers
     )
     if (body !== '') chunks.push(body)
   }
@@ -37,15 +55,47 @@ export function manuscriptToMarkdown(
   }
 }
 
+export function manuscriptSectionToMarkdown(
+  manuscript: ManuscriptAssembly,
+  sectionId: string,
+  assetPath: (logicalUrl: string) => string
+): { markdown: string; lossReport: ManuscriptMarkdownLossReport } {
+  const item = manuscript.sections.find((candidate) => candidate.section.sectionId === sectionId)
+  if (item === undefined) throw new Error('Manuscript section was not found')
+  const losses: ManuscriptMarkdownLoss[] = []
+  const citationNumbers = referenceNumberMap(
+    buildManuscriptReferenceIndex(
+      manuscript.sections.map((candidate) => ({
+        sectionId: candidate.section.sectionId,
+        sectionRevisionId: candidate.revision.sectionRevisionId,
+        content: candidate.revision.content
+      }))
+    )
+  )
+  const body = blocksToMarkdown(
+    item.revision.content,
+    sectionId,
+    assetPath,
+    losses,
+    0,
+    citationNumbers
+  )
+  return {
+    markdown: body === '' ? '' : `${body.trimEnd()}\n`,
+    lossReport: manuscriptMarkdownLossReportSchema.parse({ formatVersion: 1, losses })
+  }
+}
+
 function blocksToMarkdown(
   blocks: BlockNoteDocument,
   sectionId: string,
   assetPath: (logicalUrl: string) => string,
   losses: ManuscriptMarkdownLoss[],
-  depth: number
+  depth: number,
+  citationNumbers: ReadonlyMap<string, number>
 ): string {
   return blocks
-    .map((block) => blockToMarkdown(block, sectionId, assetPath, losses, depth))
+    .map((block) => blockToMarkdown(block, sectionId, assetPath, losses, depth, citationNumbers))
     .filter((value) => value !== '')
     .join('\n\n')
 }
@@ -55,7 +105,8 @@ function blockToMarkdown(
   sectionId: string,
   assetPath: (logicalUrl: string) => string,
   losses: ManuscriptMarkdownLoss[],
-  depth: number
+  depth: number,
+  citationNumbers: ReadonlyMap<string, number>
 ): string {
   reportBlockProperties(block, sectionId, losses)
   if (
@@ -72,63 +123,84 @@ function blockToMarkdown(
       'Nested block structure is emitted sequentially because Markdown cannot preserve this nesting.'
     )
   }
-  const children = blocksToMarkdown(block.children, sectionId, assetPath, losses, depth + 1)
+  const children = blocksToMarkdown(
+    block.children,
+    sectionId,
+    assetPath,
+    losses,
+    depth + 1,
+    citationNumbers
+  )
   let body: string
   switch (block.type) {
     case 'paragraph':
-      body = renderInline(textContent(block), block, sectionId, losses)
+      body = renderInline(textContent(block), block, sectionId, losses, citationNumbers)
       break
     case 'heading': {
       const props = block.props as { level: number }
-      body = `${'#'.repeat(props.level)} ${renderInline(textContent(block), block, sectionId, losses)}`
+      body = `${'#'.repeat(props.level)} ${renderInline(textContent(block), block, sectionId, losses, citationNumbers)}`
       break
     }
     case 'bulletListItem':
-      body = `${'  '.repeat(depth)}- ${renderInline(textContent(block), block, sectionId, losses)}`
+      body = `${'  '.repeat(depth)}- ${renderInline(textContent(block), block, sectionId, losses, citationNumbers)}`
       break
     case 'numberedListItem': {
       const props = block.props as { start?: number }
-      body = `${'  '.repeat(depth)}${props.start ?? 1}. ${renderInline(textContent(block), block, sectionId, losses)}`
+      body = `${'  '.repeat(depth)}${props.start ?? 1}. ${renderInline(textContent(block), block, sectionId, losses, citationNumbers)}`
       break
     }
     case 'checkListItem': {
       const props = block.props as { checked: boolean }
-      body = `${'  '.repeat(depth)}- [${props.checked ? 'x' : ' '}] ${renderInline(textContent(block), block, sectionId, losses)}`
+      body = `${'  '.repeat(depth)}- [${props.checked ? 'x' : ' '}] ${renderInline(textContent(block), block, sectionId, losses, citationNumbers)}`
       break
     }
     case 'quote':
-      body = renderInline(textContent(block), block, sectionId, losses)
+      body = renderInline(textContent(block), block, sectionId, losses, citationNumbers)
         .split('\n')
         .map((line) => `> ${line}`)
         .join('\n')
       break
     case 'codeBlock': {
-      const source = inlinePlainText(textContent(block))
+      const originalSource = inlinePlainText(textContent(block))
+      const source = replaceReadableCitations(originalSource, citationNumbers)
+      if (source !== originalSource) reportCitationLoss(losses, sectionId, block.id)
       const props = block.props as { language: string }
       const fence = longestFence(source)
       body = `${fence}${props.language}\n${source}\n${fence}`
       break
     }
     case 'table':
-      body = renderTable(block, block.content as BlockNoteTableContent, sectionId, losses)
+      body = renderTable(
+        block,
+        block.content as BlockNoteTableContent,
+        sectionId,
+        losses,
+        citationNumbers
+      )
       break
     case 'image': {
       const props = block.props as { name: string; caption: string; url: string }
       const alt = escapeInline(props.name || props.caption || 'Image')
       body = `![${alt}](${assetPath(props.url)})`
-      if (props.caption !== '') body += `\n\n_${escapeInline(props.caption)}_`
+      if (props.caption !== '') {
+        body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`
+      }
       break
     }
     case 'mermaid': {
       const props = block.props as { source: string; caption: string }
       body = `\`\`\`mermaid\n${props.source}\n\`\`\``
-      if (props.caption !== '') body += `\n\n_${escapeInline(props.caption)}_`
+      if (props.caption !== '') {
+        body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`
+      }
       break
     }
     case 'math': {
       const props = block.props as { source: string; caption: string }
       body = `$$\n${props.source}\n$$`
-      if (props.caption !== '') body += `\n\n_${escapeInline(props.caption)}_`
+      if (props.caption !== '') {
+        body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`
+      }
       break
     }
   }
@@ -140,9 +212,14 @@ function renderInline(
   content: readonly BlockNoteInlineContent[],
   block: Block,
   sectionId: string,
-  losses: ManuscriptMarkdownLoss[]
+  losses: ManuscriptMarkdownLoss[],
+  citationNumbers: ReadonlyMap<string, number>
 ): string {
-  return content
+  const numbered = numberInlineCitations(content, citationNumbers)
+  if (numbered.changed) {
+    reportCitationLoss(losses, sectionId, block.id)
+  }
+  return numbered.content
     .map((node) => {
       if (node.type === 'link') {
         return `[${node.content.map((child) => renderStyledText(child, block, sectionId, losses)).join('')}](${node.href})`
@@ -150,6 +227,86 @@ function renderInline(
       return renderStyledText(node, block, sectionId, losses)
     })
     .join('')
+}
+
+function renderCitationText(
+  text: string,
+  block: Block,
+  sectionId: string,
+  losses: ManuscriptMarkdownLoss[],
+  citationNumbers: ReadonlyMap<string, number>
+): string {
+  const citations = findReadableCitations(text)
+  if (citations.length === 0) return escapeInline(text)
+  let result = ''
+  let cursor = 0
+  for (const citation of citations) {
+    result += text.slice(cursor, citation.from)
+    const number = citationNumbers.get(normalizeCitationTitle(citation.title))
+    result += number === undefined ? citation.raw : `\uE000citation:${number}\uE001`
+    cursor = citation.to
+  }
+  reportCitationLoss(losses, sectionId, block.id)
+  return escapeInline(result + text.slice(cursor)).replace(CITATION_MARKER_PATTERN, '[$1]')
+}
+
+function reportCitationLoss(
+  losses: ManuscriptMarkdownLoss[],
+  sectionId: string,
+  blockId: string
+): void {
+  addLoss(
+    losses,
+    'citation_numbering',
+    sectionId,
+    blockId,
+    'Readable citation labels are exported as manuscript-wide numeric markers.'
+  )
+}
+
+function numberInlineCitations(
+  content: readonly BlockNoteInlineContent[],
+  citationNumbers: ReadonlyMap<string, number>
+): { content: BlockNoteInlineContent[]; changed: boolean } {
+  const plain = inlinePlainText(content)
+  const citations = findReadableCitations(plain)
+  if (citations.length === 0) return { content: [...content], changed: false }
+
+  let offset = 0
+  const transformText = (node: TextNode): TextNode | null => {
+    const start = offset
+    const end = start + node.text.length
+    offset = end
+    let cursor = 0
+    let text = ''
+    for (const citation of citations) {
+      if (citation.to <= start || citation.from >= end) continue
+      const localFrom = Math.max(0, citation.from - start)
+      const localTo = Math.min(node.text.length, citation.to - start)
+      text += node.text.slice(cursor, localFrom)
+      if (citation.from >= start && citation.from < end) {
+        const number = citationNumbers.get(normalizeCitationTitle(citation.title))
+        text += number === undefined ? citation.raw : `\uE000citation:${number}\uE001`
+      }
+      cursor = Math.max(cursor, localTo)
+    }
+    text += node.text.slice(cursor)
+    return text === '' ? null : { ...node, text }
+  }
+
+  const transformed: BlockNoteInlineContent[] = []
+  for (const node of content) {
+    if (node.type === 'text') {
+      const next = transformText(node)
+      if (next !== null) transformed.push(next)
+      continue
+    }
+    const children = node.content
+      .map(transformText)
+      .filter((child): child is TextNode => child !== null)
+    if (children.length > 0) transformed.push({ ...node, content: children })
+  }
+  return { content: transformed, changed: true }
 }
 
 function renderStyledText(
@@ -186,7 +343,7 @@ function renderStyledText(
       'Inline highlight color is not represented in Markdown.'
     )
   }
-  let value = escapeInline(node.text)
+  let value = escapeInline(node.text).replace(CITATION_MARKER_PATTERN, '[$1]')
   if (styles.code === true) value = renderCodeSpan(node.text)
   if (styles.bold === true) value = `**${value}**`
   if (styles.italic === true) value = `*${value}*`
@@ -198,7 +355,8 @@ function renderTable(
   block: Block,
   content: BlockNoteTableContent,
   sectionId: string,
-  losses: ManuscriptMarkdownLoss[]
+  losses: ManuscriptMarkdownLoss[],
+  citationNumbers: ReadonlyMap<string, number>
 ): string {
   const rows = content.rows
   if (rows.length === 0) return ''
@@ -246,7 +404,7 @@ function renderTable(
         'Table row or column spans are flattened in Markdown.'
       )
     }
-    return renderInline(value, block, sectionId, losses)
+    return renderInline(value, block, sectionId, losses, citationNumbers)
       .replace(/\|/g, '\\|')
       .replace(/\n/g, '<br>')
   }

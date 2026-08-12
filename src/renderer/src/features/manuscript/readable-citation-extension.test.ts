@@ -53,4 +53,48 @@ describe('readable citation BlockNote extension', () => {
 
     expect(buildReadableCitationDecorations(editor._tiptapEditor.state.doc).find()).toHaveLength(1)
   })
+
+  it('renders numbered and icon widgets while revealing the full citation at the caret', () => {
+    const editor = BlockNoteEditor.create({
+      schema: approvedEditorSchema,
+      initialContent: [
+        { id: 'citation-block', type: 'paragraph', content: 'Claim [Source: Evidence.pdf].' }
+      ]
+    })
+    const numbers = new Map([['Evidence.pdf', 7]])
+    const numbered = buildReadableCitationDecorations(editor._tiptapEditor.state.doc, {
+      mode: 'numbered',
+      numberByTitle: numbers
+    }).find()
+    expect(numbered).toHaveLength(2)
+    expect(
+      numbered.some(
+        (decoration) =>
+          (decoration as unknown as { type: { attrs?: Record<string, string> } }).type.attrs
+            ?.class === 'writellm-readable-citation-source-hidden'
+      )
+    ).toBe(true)
+    const widget = numbered.find(
+      (decoration) =>
+        typeof (decoration as unknown as { type: { toDOM?: unknown } }).type.toDOM === 'function'
+    ) as unknown as { type: { spec: { key: string }; toDOM: () => HTMLElement } }
+    expect(widget.type.spec.key).toContain('numbered:7')
+
+    const icon = buildReadableCitationDecorations(editor._tiptapEditor.state.doc, {
+      mode: 'icon',
+      numberByTitle: numbers
+    }).find()
+    const iconWidget = icon.find(
+      (decoration) =>
+        typeof (decoration as unknown as { type: { toDOM?: unknown } }).type.toDOM === 'function'
+    ) as unknown as { type: { spec: { key: string }; toDOM: () => HTMLElement } }
+    expect(iconWidget.type.spec.key).toContain('icon:7')
+
+    const fullAtCaret = buildReadableCitationDecorations(
+      editor._tiptapEditor.state.doc,
+      { mode: 'numbered', numberByTitle: numbers },
+      { from: 10, to: 10 }
+    ).find()
+    expect(fullAtCaret).toHaveLength(1)
+  })
 })

@@ -142,6 +142,114 @@ describe('AgentModelClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
+  it('preserves the safe context-overflow code across the Worker boundary', async () => {
+    const child = new OverflowSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      new AbortController().signal,
+      () => undefined
+    )
+
+    await expect(handle.completion).rejects.toMatchObject({
+      code: 'context_overflow',
+      status: 400,
+      message: 'Agent provider context window exceeded'
+    })
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('keeps three session runs isolated in one worker and cancels only the targeted run', async () => {
+    const child = new ControlledSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const controllers = [new AbortController(), new AbortController(), new AbortController()]
+    const inputs = [
+      sessionInput(),
+      {
+        ...sessionInput(),
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc445',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc446',
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc447'
+      },
+      {
+        ...sessionInput(),
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc448',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc449',
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc450'
+      }
+    ]
+    const handles = inputs.map((input, index) =>
+      client.beginSessionRun(
+        config,
+        'process-secret',
+        input,
+        controllers[index]?.signal ?? new AbortController().signal,
+        () => undefined
+      )
+    )
+
+    await vi.waitFor(() => expect(child.runs).toHaveLength(3))
+    controllers[1]?.abort()
+    await expect(handles[1]?.completion).rejects.toMatchObject({ name: 'AbortError' })
+    child.complete(inputs[0].agentRunId)
+    child.complete(inputs[2].agentRunId)
+    await expect(handles[0]?.completion).resolves.toMatchObject({ outcome: 'finished' })
+    await expect(handles[2]?.completion).resolves.toMatchObject({ outcome: 'finished' })
+    expect(child.cancelledRunIds).toEqual([inputs[1].agentRunId])
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('rejects every active session run when the shared worker exits', async () => {
+    const child = new ControlledSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const handles = [
+      sessionInput(),
+      {
+        ...sessionInput(),
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc455',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc456',
+        modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc457'
+      }
+    ].map((input) =>
+      client.beginSessionRun(
+        config,
+        'process-secret',
+        input,
+        new AbortController().signal,
+        () => undefined
+      )
+    )
+
+    await vi.waitFor(() => expect(child.runs).toHaveLength(2))
+    child.emit('exit', 1)
+
+    await Promise.all(
+      handles.map((handle) =>
+        expect(handle.completion).rejects.toThrow('exited before responding (1)')
+      )
+    )
+  })
+
   it('routes a capability-bound tool request over the dedicated transferred port', async () => {
     const child = new ToolBridgeUtilityProcess()
     const channel = createFakeMessageChannel()
@@ -323,6 +431,54 @@ class SessionUtilityProcess extends EventEmitter {
       this.emit('message', { type: 'result', ...envelope, status: 'completed' })
     })
   })
+}
+
+class OverflowSessionUtilityProcess extends EventEmitter {
+  readonly kill = vi.fn(() => true)
+  readonly postMessage = vi.fn((request: Record<string, unknown>) => {
+    if (request.operation !== 'run_start') return
+    queueMicrotask(() =>
+      this.emit('message', {
+        type: 'error',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId,
+        agentSessionId: request.agentSessionId,
+        agentRunId: request.agentRunId,
+        error: {
+          name: 'ProviderError',
+          message: 'Agent provider context window exceeded',
+          httpStatus: 400,
+          code: 'context_overflow'
+        }
+      })
+    )
+  })
+}
+
+class ControlledSessionUtilityProcess extends EventEmitter {
+  readonly kill = vi.fn(() => true)
+  readonly runs: Array<Record<string, unknown>> = []
+  readonly cancelledRunIds: string[] = []
+  readonly postMessage = vi.fn((request: Record<string, unknown>) => {
+    if (request.operation === 'run_start') this.runs.push(request)
+    if (request.operation === 'cancel' && typeof request.agentRunId === 'string') {
+      this.cancelledRunIds.push(request.agentRunId)
+    }
+  })
+
+  complete(agentRunId: string): void {
+    const request = this.runs.find((candidate) => candidate.agentRunId === agentRunId)
+    if (request === undefined) throw new Error('Unknown controlled Agent run')
+    this.emit('message', {
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      status: 'completed',
+      outcome: 'finished'
+    })
+  }
 }
 
 class ToolBridgeUtilityProcess extends EventEmitter {

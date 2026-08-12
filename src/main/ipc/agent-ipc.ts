@@ -5,6 +5,8 @@ import {
   agentArchiveSessionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
+  agentCompactSessionInputSchema,
+  agentCompactSessionResultSchema,
   agentEventPageInputSchema,
   agentEventPageSchema,
   agentListProposalsResultSchema,
@@ -12,6 +14,8 @@ import {
   agentListRunsResultSchema,
   agentListSessionsInputSchema,
   agentListSessionsResultSchema,
+  agentProjectActivitySnapshotSchema,
+  agentProjectActivitySubscriptionInputSchema,
   agentGenerateSessionTitleInputSchema,
   agentGenerateSessionTitleResultSchema,
   agentQueueInputSchema,
@@ -28,6 +32,8 @@ import {
   agentSetSkillSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
+  agentStopCompactionInputSchema,
+  agentStopCompactionResultSchema,
   agentSubscriptionInputSchema
 } from '../../shared/contracts/agent-ipc'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -371,6 +377,27 @@ export function registerAgentIpc(options: {
       mutationContext(input.projectSessionId).agentSessions?.abort(input.agentRunId)
     )
   })
+  ipc.handle(IPC_CHANNELS.agentCompactSession, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentCompactSessionInputSchema.parse(raw)
+    return lifecycle('agent.compaction.start', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      return agentCompactSessionResultSchema.parse(
+        await service.compactSession(input.agentSessionId)
+      )
+    })
+  })
+  ipc.handle(IPC_CHANNELS.agentStopCompaction, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentStopCompactionInputSchema.parse(raw)
+    return lifecycle('agent.compaction.stop', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      await service.stopCompaction(input.agentSessionId, input.compactionId)
+      return agentStopCompactionResultSchema.parse({})
+    })
+  })
   ipc.handle(IPC_CHANNELS.agentSubscribeEvents, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentSubscriptionInputSchema.parse(raw)
@@ -401,6 +428,33 @@ export function registerAgentIpc(options: {
     const input = agentSubscriptionInputSchema.parse(raw)
     options.broker.unsubscribe(event.sender.id, input.subscriptionId)
   })
+  ipc.handle(IPC_CHANNELS.agentSubscribeActivity, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentProjectActivitySubscriptionInputSchema.parse(raw)
+    const service = readService(input.projectSessionId)
+    options.broker.subscribeActivity({
+      sender: event.sender,
+      projectSessionId: input.projectSessionId,
+      subscriptionId: input.subscriptionId
+    })
+    try {
+      return agentProjectActivitySnapshotSchema.parse(service.projectActivitySnapshot())
+    } catch (err) {
+      options.broker.unsubscribe(event.sender.id, input.subscriptionId)
+      throw err
+    }
+  })
+  ipc.handle(IPC_CHANNELS.agentCompleteActivitySnapshot, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentProjectActivitySubscriptionInputSchema.parse(raw)
+    options.manager.assertActiveSession(input.projectSessionId)
+    options.broker.completeActivitySnapshot(event.sender.id, input.subscriptionId)
+  })
+  ipc.handle(IPC_CHANNELS.agentUnsubscribeActivity, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentProjectActivitySubscriptionInputSchema.parse(raw)
+    options.broker.unsubscribe(event.sender.id, input.subscriptionId)
+  })
 
   const channels = [
     IPC_CHANNELS.agentListSessions,
@@ -419,9 +473,14 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentSteerRun,
     IPC_CHANNELS.agentFollowUpRun,
     IPC_CHANNELS.agentAbortRun,
+    IPC_CHANNELS.agentCompactSession,
+    IPC_CHANNELS.agentStopCompaction,
     IPC_CHANNELS.agentSubscribeEvents,
     IPC_CHANNELS.agentCompleteReplay,
-    IPC_CHANNELS.agentUnsubscribeEvents
+    IPC_CHANNELS.agentUnsubscribeEvents,
+    IPC_CHANNELS.agentSubscribeActivity,
+    IPC_CHANNELS.agentCompleteActivitySnapshot,
+    IPC_CHANNELS.agentUnsubscribeActivity
   ]
   return {
     revokeSession(projectSessionId) {

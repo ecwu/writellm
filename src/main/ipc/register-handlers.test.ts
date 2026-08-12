@@ -1,7 +1,11 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
-import type { AccentPreference, ThemePreference } from '../../shared/contracts/app'
+import type {
+  AccentPreference,
+  CitationDisplayMode,
+  ThemePreference
+} from '../../shared/contracts/app'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   registerIpcHandlers,
@@ -17,6 +21,7 @@ function harness() {
   }
   let preference: ThemePreference = 'system'
   let accent: AccentPreference = 'neutral'
+  let citationDisplayMode: CitationDisplayMode = 'full'
   const appSettings = {
     getThemePreference: vi.fn(async () => preference),
     setThemePreference: vi.fn(async (next: ThemePreference) => {
@@ -26,6 +31,11 @@ function harness() {
     getAccentPreference: vi.fn(async () => accent),
     setAccentPreference: vi.fn(async (next: AccentPreference) => {
       accent = next
+      return next
+    }),
+    getCitationDisplayMode: vi.fn(async () => citationDisplayMode),
+    setCitationDisplayMode: vi.fn(async (next: CitationDisplayMode) => {
+      citationDisplayMode = next
       return next
     })
   }
@@ -85,5 +95,21 @@ describe('application IPC', () => {
       invoke(IPC_CHANNELS.appSetAccentPreference, { preference: 'green' })
     ).resolves.toBe('green')
     expect(appSettings.setAccentPreference).toHaveBeenCalledWith('green')
+  })
+
+  it('authorizes and validates citation display settings', async () => {
+    const { appSettings, handlers, unauthorized, invoke } = harness()
+
+    await expect(invoke(IPC_CHANNELS.appGetCitationDisplayMode)).resolves.toBe('full')
+    await expect(invoke(IPC_CHANNELS.appSetCitationDisplayMode, { mode: 'icon' })).resolves.toBe(
+      'icon'
+    )
+    expect(appSettings.setCitationDisplayMode).toHaveBeenCalledWith('icon')
+    await expect(
+      Promise.resolve(handlers.get(IPC_CHANNELS.appGetCitationDisplayMode)?.(unauthorized as never))
+    ).rejects.toThrow('Unauthorized IPC sender')
+    await expect(
+      invoke(IPC_CHANNELS.appSetCitationDisplayMode, { mode: 'compact' })
+    ).rejects.toThrow()
   })
 })

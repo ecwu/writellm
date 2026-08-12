@@ -7,16 +7,22 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import type { AccentPreference, ThemePreference } from '../../shared/contracts/app'
+import type {
+  AccentPreference,
+  CitationDisplayMode,
+  ThemePreference
+} from '../../shared/contracts/app'
 
 export type ResolvedTheme = 'light' | 'dark'
 
 interface ThemeContextValue {
   preference: ThemePreference
   accent: AccentPreference
+  citationDisplayMode: CitationDisplayMode
   resolvedTheme: ResolvedTheme
   setPreference(preference: ThemePreference): Promise<void>
   setAccent(preference: AccentPreference): Promise<void>
+  setCitationDisplayMode(mode: CitationDisplayMode): Promise<void>
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -40,6 +46,7 @@ function reportThemeError(event: string, error: unknown): void {
 export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [preference, setPreferenceState] = useState<ThemePreference>('system')
   const [accent, setAccentState] = useState<AccentPreference>('neutral')
+  const [citationDisplayMode, setCitationDisplayModeState] = useState<CitationDisplayMode>('full')
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(systemTheme)
 
   useEffect(() => {
@@ -59,6 +66,14 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
       })
       .catch((error) => {
         reportThemeError('renderer.accent_preference_load_failed', error)
+      })
+    void window.desktop.app
+      .getCitationDisplayMode()
+      .then((storedMode) => {
+        if (current) setCitationDisplayModeState(storedMode)
+      })
+      .catch((error) => {
+        reportThemeError('renderer.citation_display_mode_load_failed', error)
       })
 
     return () => {
@@ -118,9 +133,35 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }, [])
 
+  const setCitationDisplayMode = useCallback(async (mode: CitationDisplayMode): Promise<void> => {
+    try {
+      const persisted = await window.desktop.app.setCitationDisplayMode({ mode })
+      setCitationDisplayModeState(persisted)
+    } catch (error) {
+      reportThemeError('renderer.citation_display_mode_save_failed', error)
+      throw error
+    }
+  }, [])
+
   const value = useMemo(
-    () => ({ preference, accent, resolvedTheme, setPreference, setAccent }),
-    [preference, accent, resolvedTheme, setPreference, setAccent]
+    () => ({
+      preference,
+      accent,
+      citationDisplayMode,
+      resolvedTheme,
+      setPreference,
+      setAccent,
+      setCitationDisplayMode
+    }),
+    [
+      preference,
+      accent,
+      citationDisplayMode,
+      resolvedTheme,
+      setPreference,
+      setAccent,
+      setCitationDisplayMode
+    ]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

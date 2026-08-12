@@ -36,9 +36,11 @@ application layer.
 
 Every application-wrapped dynamic payload uses a named delimiter and escapes delimiter-significant
 characters before composition. Each block states whether its content has instruction semantics.
-This applies to project context, Skill references, conversation material used for titles or
-compaction, and Main-authored review-continuation context. It does not reclassify the current user
-request or trusted brief requirements as untrusted.
+This applies to project context, installed Skill entrypoints and references, conversation material
+used for titles or compaction, and Main-authored review-continuation context. A Pi-formatted Skill
+invocation is therefore content inside one application-owned semantic block, not an independently
+closable outer prompt layer. This does not reclassify the current user request or trusted brief
+requirements as untrusted.
 
 Keep one provider-neutral prompt contract. A provider- or model-specific fork requires a later ADR
 with measured behavioral evidence, a fallback, and parity tests. Prompt changes remain source

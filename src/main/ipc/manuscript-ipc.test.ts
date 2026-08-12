@@ -53,7 +53,7 @@ const workspace: ManuscriptWorkspace = {
         priorRevisionId: null,
         wordCount: 0,
         characterCount: 0,
-        countAlgorithmVersion: 1,
+        countAlgorithmVersion: 2,
         agentRunId: null,
         agentToolCallId: null,
         agentProposalId: null,
@@ -73,6 +73,27 @@ function harness() {
   }
   const manuscript = {
     getWorkspace: vi.fn(() => workspace),
+    getReferenceIndex: vi.fn(() => ({
+      outlineVersion: 1,
+      entries: [
+        {
+          number: 1,
+          title: 'Source',
+          count: 1,
+          occurrences: [
+            {
+              sectionId: 'section-1',
+              sectionRevisionId: 'revision-1',
+              blockId: 'block-1',
+              ordinal: 0,
+              raw: '[Source: Source]',
+              syntax: 'english',
+              title: 'Source'
+            }
+          ]
+        }
+      ]
+    })),
     assemble: vi.fn(() => ({
       ...workspace,
       sections: workspace.sections.map((item) => ({
@@ -129,6 +150,16 @@ describe('manuscript IPC', () => {
     const preview = await invoke(IPC_CHANNELS.manuscriptGetPreview, { projectSessionId })
     expect(preview).toHaveProperty('sections.0.revision.content', [])
     expect(manuscript.assemble).toHaveBeenCalledOnce()
+  })
+
+  it('returns the bounded whole-manuscript reference index', () => {
+    const { invoke, manuscript } = harness()
+    const result = invoke(IPC_CHANNELS.manuscriptGetReferences, { projectSessionId })
+    expect(result).toEqual({
+      outlineVersion: 1,
+      entries: [expect.objectContaining({ number: 1, title: 'Source', count: 1 })]
+    })
+    expect(manuscript.getReferenceIndex).toHaveBeenCalledOnce()
   })
 
   it('authorizes the sender and rejects stale project capabilities', () => {

@@ -1,11 +1,23 @@
-import type {
-  AgentEventRecord,
-  AgentRunRecord,
-  AgentSessionRecord,
-  AgentStartScope
+import {
+  MAX_CONCURRENT_AGENT_RUNS,
+  type AgentEventRecord,
+  type AgentLiveCompactionSnapshot,
+  type AgentRendererEvent,
+  type AgentRunRecord,
+  type AgentSessionRecord,
+  type AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
-import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import { agentApprovalModeSchema, type AgentApprovalMode } from '../../../../shared/contracts/agent'
+import {
+  generateImageArgsSchema,
+  modelSubmitSectionChangeArgsSchema,
+  type MutationProposalRecord
+} from '../../../../shared/contracts/agent-mutations'
+import {
+  agentApprovalModeSchema,
+  agentCompactionSummaryPayloadSchema,
+  type AgentApprovalMode
+} from '../../../../shared/contracts/agent'
+import { agentToolCallPayloadSchema } from '../../../../shared/contracts/agent-tools'
 import type { SkillSelection, SkillsSnapshot } from '../../../../shared/contracts/skills'
 import type {
   AgentModelSelection,
@@ -25,6 +37,7 @@ import {
   FileText,
   FilePenLine,
   FolderOpen,
+  ListCollapse,
   MessageSquarePlus,
   MoreHorizontal,
   RotateCcw,
@@ -38,6 +51,16 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import {
   Attachment,
   AttachmentContent,
@@ -140,6 +163,7 @@ export function AgentPanel(props: {
   sectionTitles: Readonly<Record<string, string>>
   currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
+  onFollowSection(sectionId: string): Promise<boolean>
   flushCurrent(): Promise<boolean>
   refreshManuscript(): Promise<void>
   onError(message: string): void
@@ -149,7 +173,14 @@ export function AgentPanel(props: {
   const [events, setEvents] = useState<AgentEventRecord[]>([])
   const [runs, setRuns] = useState<AgentRunRecord[]>([])
   const [proposals, setProposals] = useState<MutationProposalRecord[]>([])
-  const [streaming, setStreaming] = useState<Record<string, string>>({})
+  const [streamingBySession, setStreamingBySession] = useState<
+    Record<string, Record<string, string>>
+  >({})
+  const [activeRunLimit, setActiveRunLimit] = useState(MAX_CONCURRENT_AGENT_RUNS)
+  const [, setActiveRunIds] = useState<Set<string>>(() => new Set())
+  const [activeCompactions, setActiveCompactions] = useState<AgentLiveCompactionSnapshot[]>([])
+  const [activeWorkCount, setActiveWorkCount] = useState(0)
+  const [compactionConfirmOpen, setCompactionConfirmOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [scopePreference, setScopePreference] = useState<'auto' | AgentStartScope>('auto')
   const [reviewFeedback, setReviewFeedback] = useState('')
@@ -202,6 +233,11 @@ export function AgentPanel(props: {
     setReviewFeedback('')
     setScopePreference('auto')
     setContinuationFailure(null)
+    setStreamingBySession({})
+    setActiveRunIds(new Set())
+    setActiveCompactions([])
+    setActiveWorkCount(0)
+    setActiveRunLimit(MAX_CONCURRENT_AGENT_RUNS)
   }, [props.projectSessionId])
 
   useEffect(() => {
@@ -332,6 +368,131 @@ export function AgentPanel(props: {
   }, [props.open])
 
   useEffect(() => {
+    if (!props.open) return
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    const removeStreamingRun = (agentSessionId: string, agentRunId: string): void => {
+      setStreamingBySession((current) => {
+        const sessionStreaming = current[agentSessionId]
+        if (sessionStreaming?.[agentRunId] === undefined) return current
+        const nextSessionStreaming = { ...sessionStreaming }
+        delete nextSessionStreaming[agentRunId]
+        return { ...current, [agentSessionId]: nextSessionStreaming }
+      })
+    }
+    const onActivity = (rendererEvent: AgentRendererEvent): void => {
+      if (disposed) return
+      const sectionId = sectionFollowTargetForAgentEvent(rendererEvent, activeSessionIdRef.current)
+      if (sectionId !== null) void props.onFollowSection(sectionId)
+      if (rendererEvent.kind === 'activity') {
+        setActiveRunLimit(rendererEvent.snapshot.limit)
+        setActiveRunIds(new Set(rendererEvent.snapshot.runs.map((run) => run.agentRunId)))
+        setActiveCompactions(rendererEvent.snapshot.compactions)
+        setActiveWorkCount(rendererEvent.snapshot.activeCount)
+        return
+      }
+      if (rendererEvent.kind === 'session') {
+        setSessions((current) => upsertSession(current, rendererEvent.session))
+        setTitleGeneratingIds((current) =>
+          updateSet(current, rendererEvent.session.agentSessionId, rendererEvent.titleGenerating)
+        )
+        return
+      }
+      if (rendererEvent.kind === 'delta') {
+        setActiveRunIds((current) => new Set(current).add(rendererEvent.agentRunId))
+        setStreamingBySession((current) => {
+          const sessionStreaming = current[rendererEvent.agentSessionId] ?? {}
+          return {
+            ...current,
+            [rendererEvent.agentSessionId]: {
+              ...sessionStreaming,
+              [rendererEvent.agentRunId]:
+                `${sessionStreaming[rendererEvent.agentRunId] ?? ''}${rendererEvent.delta}`.slice(
+                  0,
+                  2_097_152
+                )
+            }
+          }
+        })
+        if (
+          activeSessionIdRef.current === rendererEvent.agentSessionId &&
+          skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)
+        ) {
+          void refreshSessionTruth(rendererEvent.agentSessionId).catch((cause) =>
+            props.onError(errorMessage(cause))
+          )
+        }
+        return
+      }
+      const runId = rendererEvent.event.agentRunId
+      if (runId !== null) {
+        setActiveRunIds((current) => {
+          const next = new Set(current)
+          if (
+            rendererEvent.event.type === 'run_completed' ||
+            rendererEvent.event.type === 'run_interrupted'
+          ) {
+            next.delete(runId)
+          } else {
+            next.add(runId)
+          }
+          return next
+        })
+      }
+      if (
+        runId !== null &&
+        (rendererEvent.event.type === 'assistant_message' ||
+          rendererEvent.event.type === 'run_completed' ||
+          rendererEvent.event.type === 'run_interrupted')
+      ) {
+        removeStreamingRun(rendererEvent.event.agentSessionId, runId)
+      }
+      if (
+        rendererEvent.event.type === 'run_completed' ||
+        rendererEvent.event.type === 'run_interrupted'
+      ) {
+        void refreshSessions().catch((cause) => props.onError(errorMessage(cause)))
+      }
+    }
+    void window.desktop.agent
+      .subscribeActivity({ projectSessionId: props.projectSessionId }, onActivity)
+      .then(async (subscription) => {
+        if (disposed) {
+          subscription.unsubscribe()
+          return
+        }
+        unsubscribe = subscription.unsubscribe
+        setActiveRunLimit(subscription.snapshot.limit)
+        setActiveRunIds(new Set(subscription.snapshot.runs.map((run) => run.agentRunId)))
+        setActiveCompactions(subscription.snapshot.compactions)
+        setActiveWorkCount(subscription.snapshot.activeCount)
+        setStreamingBySession(
+          Object.fromEntries(
+            subscription.snapshot.runs.map((run) => [
+              run.agentSessionId,
+              run.partialText.length === 0 ? {} : { [run.agentRunId]: run.partialText }
+            ])
+          )
+        )
+        await subscription.activate()
+      })
+      .catch(() => {
+        if (!disposed) props.onError('Live Agent activity is unavailable.')
+      })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [
+    props.onError,
+    props.onFollowSection,
+    props.open,
+    props.projectSessionId,
+    refreshSessions,
+    refreshSessionTruth
+  ])
+
+  useEffect(() => {
     if (!props.open || activeSessionId === null) return
     let disposed = false
     let unsubscribe: (() => void) | undefined
@@ -339,7 +500,6 @@ export function AgentPanel(props: {
     setEvents([])
     setRuns([])
     setProposals([])
-    setStreaming({})
     terminalRunIdsRef.current = new Set()
     setError(null)
     void refreshSessionTruth(activeSessionId).catch(() => {
@@ -364,24 +524,9 @@ export function AgentPanel(props: {
             return
           }
           if (rendererEvent.kind === 'delta') {
-            setStreaming((current) => ({
-              ...current,
-              [rendererEvent.agentRunId]:
-                `${current[rendererEvent.agentRunId] ?? ''}${rendererEvent.delta}`.slice(
-                  0,
-                  2_097_152
-                )
-            }))
-            // Deltas only exist after skill preparation finished and generation started; refresh
-            // once so the composer leaves the "Preparing writing guidance…" state without a
-            // tool result or the terminal event.
-            if (skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)) {
-              void refreshSessionTruth(activeSessionId).catch((cause) =>
-                props.onError(errorMessage(cause))
-              )
-            }
             return
           }
+          if (rendererEvent.kind === 'activity') return
           setEvents((current) => mergeAgentEvents(current, rendererEvent.event))
           const terminalRunId = rendererEvent.event.agentRunId
           if (
@@ -391,21 +536,6 @@ export function AgentPanel(props: {
           ) {
             terminalRunIdsRef.current.add(terminalRunId)
             setRuns((current) => applyAgentTerminalEvent(current, rendererEvent.event))
-            setStreaming((current) => {
-              const next = { ...current }
-              delete next[terminalRunId]
-              return next
-            })
-          }
-          if (rendererEvent.event.type === 'assistant_message') {
-            const runId = rendererEvent.event.agentRunId
-            if (runId !== null) {
-              setStreaming((current) => {
-                const next = { ...current }
-                delete next[runId]
-                return next
-              })
-            }
           }
           if (
             rendererEvent.event.type === 'user_message' &&
@@ -481,9 +611,12 @@ export function AgentPanel(props: {
   const activeSessionArchived = activeSession?.status === 'archived'
   const skillSelection: SkillSelection = activeSession?.skillSelection ?? { mode: 'auto' }
   const activeRun = runs.find((run) => run.status === 'running') ?? null
+  const activeCompaction =
+    activeCompactions.find((item) => item.agentSessionId === activeSessionId) ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
+  const streaming = activeSessionId === null ? {} : (streamingBySession[activeSessionId] ?? {})
   const hasStreamingRun = Object.keys(streaming).length > 0
-  const isAgentWorking = activeRun !== null || hasStreamingRun
+  const isAgentWorking = activeRun !== null || activeCompaction !== null || hasStreamingRun
   const [clockNow, setClockNow] = useState(() => Date.now())
   useEffect(() => {
     if (!isAgentWorking) return
@@ -514,19 +647,24 @@ export function AgentPanel(props: {
   const workflowState =
     activeRun !== null
       ? 'running'
-      : generatingProposal !== undefined
-        ? 'generating'
-        : waitingProposal !== undefined
-          ? 'awaiting_review'
-          : (activeSession?.workflowState ?? 'idle')
-  const conversationLocked = workflowState === 'awaiting_review' || workflowState === 'generating'
+      : activeCompaction !== null
+        ? 'compacting'
+        : generatingProposal !== undefined
+          ? 'generating'
+          : waitingProposal !== undefined
+            ? 'awaiting_review'
+            : (activeSession?.workflowState ?? 'idle')
+  const conversationLocked =
+    workflowState === 'awaiting_review' ||
+    workflowState === 'generating' ||
+    workflowState === 'compacting'
   const scope = effectiveScope(scopePreference, selectionIsAvailable, props.activeSectionId)
-  const otherWorkingSession =
+  const agentCapacityReached = activeRun === null && activeWorkCount >= activeRunLimit
+  const workingSession =
     sessions.find(
       (session) =>
         session.status === 'active' &&
-        session.workflowState === 'running' &&
-        session.agentSessionId !== activeSessionId
+        (session.workflowState === 'running' || session.workflowState === 'compacting')
     ) ?? null
   const selectedModel = useMemo(
     () =>
@@ -585,7 +723,6 @@ export function AgentPanel(props: {
     setEvents([])
     setRuns([])
     setProposals([])
-    setStreaming({})
     setContinuationFailure(null)
     setSessionSwitcherOpen(false)
   }
@@ -748,6 +885,47 @@ export function AgentPanel(props: {
     }
   }
 
+  const compactSession = async (): Promise<void> => {
+    if (activeSession === null || activeSession.workflowState !== 'idle') return
+    setBusy(true)
+    setError(null)
+    try {
+      await window.desktop.agent.compactSession({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId
+      })
+      setCompactionConfirmOpen(false)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const stopCompaction = async (): Promise<void> => {
+    if (activeCompaction === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      await window.desktop.agent.stopCompaction({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeCompaction.agentSessionId,
+        compactionId: activeCompaction.compactionId
+      })
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const canCompact =
+    activeSession?.status === 'active' &&
+    activeSession.compatible &&
+    workflowState === 'idle' &&
+    hasManualCompactionHead(events) &&
+    activeWorkCount < activeRunLimit
+
   const restoreSession = async (session: AgentSessionRecord): Promise<void> => {
     if (session.status !== 'archived') return
     setBusy(true)
@@ -785,7 +963,7 @@ export function AgentPanel(props: {
         approvedProposalId === undefined &&
         rejectedProposalId === undefined) ||
       (!modelReady && approvedProposalId === undefined && rejectedProposalId === undefined) ||
-      otherWorkingSession !== null
+      agentCapacityReached
     )
       return false
     setBusy(true)
@@ -818,6 +996,7 @@ export function AgentPanel(props: {
           terminalRunIdsRef.current
         )
       )
+      setActiveRunIds((current) => new Set(current).add(run.agentRunId))
       setPrompt('')
       return true
     } catch (cause) {
@@ -1072,6 +1251,14 @@ export function AgentPanel(props: {
                 <DropdownMenuItem onSelect={() => setDetailsOpen(true)}>
                   <Settings2 /> Details
                 </DropdownMenuItem>
+                {!activeSessionArchived && activeSession ? (
+                  <DropdownMenuItem
+                    disabled={!canCompact}
+                    onSelect={() => setCompactionConfirmOpen(true)}
+                  >
+                    <ListCollapse /> Summarize earlier conversation
+                  </DropdownMenuItem>
+                ) : null}
                 {activeSessionArchived && activeSession ? (
                   <DropdownMenuItem onSelect={() => void restoreSession(activeSession)}>
                     <ArchiveRestore /> Restore
@@ -1096,22 +1283,28 @@ export function AgentPanel(props: {
           role='status'
         >
           {activeSessionArchived ? <Archive className='size-3.5' /> : null}
-          {workflowState === 'running' ? <Spinner /> : null}
+          {workflowState === 'running' || workflowState === 'compacting' ? <Spinner /> : null}
           {workflowState === 'awaiting_review' ? (
             <AlertCircle className='size-3.5 text-warning' />
           ) : null}
-          <span className={workflowState === 'running' ? 'shimmer' : undefined}>
+          <span
+            className={
+              workflowState === 'running' || workflowState === 'compacting' ? 'shimmer' : undefined
+            }
+          >
             {activeSessionArchived
               ? 'Archived · read only'
               : workflowState === 'running'
                 ? choosingSkill
                   ? 'Loading writing guidance'
                   : `${currentActivity ?? (hasStreamingRun ? 'Writing an update' : 'Preparing the next step')} · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
-                : workflowState === 'generating'
-                  ? 'Generating an image'
-                  : workflowState === 'awaiting_review'
-                    ? 'Ready for review'
-                    : 'Ready'}
+                : workflowState === 'compacting'
+                  ? 'Summarizing earlier conversation…'
+                  : workflowState === 'generating'
+                    ? 'Generating an image'
+                    : workflowState === 'awaiting_review'
+                      ? 'Ready for review'
+                      : 'Ready'}
           </span>
         </div>
 
@@ -1146,20 +1339,25 @@ export function AgentPanel(props: {
           data-testid='agent-composer'
         >
           {error ? <AgentErrorAlert message={error} /> : null}
-          {otherWorkingSession !== null ? (
+          {agentCapacityReached ? (
             <Marker role='status'>
               <MarkerIcon>
-                <Spinner />
+                <TriangleAlert />
               </MarkerIcon>
               <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                <span className='truncate'>Agent is working in {otherWorkingSession.title}</span>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => openSession(otherWorkingSession.agentSessionId)}
-                >
-                  Open
-                </Button>
+                <span>
+                  {activeRunLimit} Agent runs are already working. Your draft is saved; wait for one
+                  to finish or stop one.
+                </span>
+                {workingSession === null ? null : (
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => openSession(workingSession.agentSessionId)}
+                  >
+                    Open working conversation
+                  </Button>
+                )}
               </MarkerContent>
             </Marker>
           ) : activeSessionArchived && activeSession ? (
@@ -1195,6 +1393,23 @@ export function AgentPanel(props: {
               </MarkerIcon>
               <MarkerContent>
                 Generating an image. Review will appear here when it is ready.
+              </MarkerContent>
+            </Marker>
+          ) : workflowState === 'compacting' ? (
+            <Marker role='status'>
+              <MarkerIcon>
+                <Spinner />
+              </MarkerIcon>
+              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                <span>Summarizing earlier conversation…</span>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={busy}
+                  onClick={() => void stopCompaction()}
+                >
+                  <CircleStop data-icon='inline-start' /> Stop
+                </Button>
               </MarkerContent>
             </Marker>
           ) : continuationFailure !== null && failedContinuationProposal !== null ? (
@@ -1409,7 +1624,8 @@ export function AgentPanel(props: {
                           disabled={
                             busy ||
                             prompt.trim().length === 0 ||
-                            activeSession?.compatible === false
+                            activeSession?.compatible === false ||
+                            agentCapacityReached
                           }
                           onClick={() => void startRun(prompt)}
                         >
@@ -1455,6 +1671,28 @@ export function AgentPanel(props: {
         onApprovalModeSelect={setApprovalMode}
         onOpenSettings={props.onOpenSkillSettings}
       />
+      <AlertDialog open={compactionConfirmOpen} onOpenChange={setCompactionConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Summarize earlier conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This creates an AI-generated, lossy context checkpoint for future replies. Original
+              conversation events are kept and remain available in the timeline.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void compactSession()}>
+              {busy ? (
+                <Spinner data-icon='inline-start' />
+              ) : (
+                <ListCollapse data-icon='inline-start' />
+              )}
+              Summarize
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -1555,7 +1793,9 @@ function ConversationCommandGroup(props: {
             data-testid={`agent-session-${session.agentSessionId}`}
             onSelect={() => props.onOpen(session.agentSessionId)}
           >
-            {session.workflowState === 'running' || session.workflowState === 'generating' ? (
+            {session.workflowState === 'running' ||
+            session.workflowState === 'generating' ||
+            session.workflowState === 'compacting' ? (
               <Spinner />
             ) : session.workflowState === 'awaiting_review' ? (
               <AlertCircle className='text-warning' />
@@ -2132,11 +2372,79 @@ function TimelineItem(props: {
   if (item.type === 'run_completed') {
     return <RunDurationMarker durationMs={item.terminal.durationMs} />
   }
+  if (item.type === 'compaction_started') {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <Spinner />
+        </MarkerIcon>
+        <MarkerContent>Summarizing earlier conversation…</MarkerContent>
+      </Marker>
+    )
+  }
+  if (item.type === 'compaction_failed') {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          {item.payload.aborted ? <CircleStop /> : <AlertCircle className='text-destructive' />}
+        </MarkerIcon>
+        <MarkerContent>
+          {item.payload.aborted ? 'Conversation summary stopped' : 'Conversation summary failed'}
+          {item.payload.retryable ? ' · original history preserved' : ''}
+        </MarkerContent>
+      </Marker>
+    )
+  }
+  return <CompactionCheckpointMarker payload={item.payload} />
+}
+
+function CompactionCheckpointMarker(props: {
+  payload: Extract<AgentTimelineItem, { type: 'compaction_summary' }>['payload']
+}): React.JSX.Element {
+  if (!('schemaVersion' in props.payload)) {
+    return (
+      <Marker variant='separator'>
+        <MarkerContent>Earlier conversation summarized · legacy checkpoint</MarkerContent>
+      </Marker>
+    )
+  }
+  const payload = props.payload
   return (
-    <Marker variant='separator'>
-      <MarkerContent>Earlier conversation summarized</MarkerContent>
-    </Marker>
+    <Collapsible className='group/checkpoint min-w-0 max-w-full'>
+      <CollapsibleTrigger className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+        <Marker variant='separator'>
+          <MarkerIcon>
+            <ListCollapse />
+          </MarkerIcon>
+          <MarkerContent>
+            Earlier conversation summarized · {compactionTriggerLabel(payload.trigger)}
+          </MarkerContent>
+          <ChevronDown className='ml-auto transition-transform group-data-[state=open]/checkpoint:rotate-180' />
+        </Marker>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className='mt-3 ml-2 flex min-w-0 flex-col gap-2 border-l pl-4 text-xs text-muted-foreground'>
+          <p>
+            Covered events {payload.coveredFromSequence}–{payload.coveredThroughSequence} · step{' '}
+            {payload.stepIndex}
+          </p>
+          <p>
+            Estimated context {payload.estimatedTokensBefore.toLocaleString()} →{' '}
+            {payload.estimatedTokensAfter.toLocaleString()} tokens
+          </p>
+          <p>AI-generated context checkpoint, not manuscript authority.</p>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
+}
+
+function compactionTriggerLabel(
+  trigger: 'auto_threshold' | 'manual' | 'provider_overflow'
+): string {
+  if (trigger === 'manual') return 'manual'
+  if (trigger === 'provider_overflow') return 'provider overflow recovery'
+  return 'context limit'
 }
 
 function RunDurationMarker(props: { durationMs: number }): React.JSX.Element {
@@ -2733,7 +3041,9 @@ function approvalModeCompactLabel(mode: AgentApprovalMode): string {
 
 export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {
   return (
-    active.find((session) => session.workflowState === 'running') ??
+    active.find(
+      (session) => session.workflowState === 'running' || session.workflowState === 'compacting'
+    ) ??
     active.find(
       (session) =>
         session.workflowState === 'generating' || session.workflowState === 'awaiting_review'
@@ -2741,6 +3051,49 @@ export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessi
     active[0] ??
     null
   )
+}
+
+export function hasManualCompactionHead(events: readonly AgentEventRecord[]): boolean {
+  let coveredThroughSequence = 0
+  for (const event of events) {
+    if (event.type !== 'compaction_summary') continue
+    const checkpoint = agentCompactionSummaryPayloadSchema.safeParse(event.payload)
+    if (checkpoint.success) {
+      coveredThroughSequence = checkpoint.data.coveredThroughSequence
+    }
+  }
+  return (
+    events.filter(
+      (event) =>
+        event.sequence > coveredThroughSequence &&
+        (event.type === 'run_completed' || event.type === 'run_interrupted')
+    ).length >= 2
+  )
+}
+
+export function sectionFollowTargetForAgentEvent(
+  rendererEvent: AgentRendererEvent,
+  activeSessionId: string | null
+): string | null {
+  if (
+    activeSessionId === null ||
+    rendererEvent.kind !== 'durable' ||
+    rendererEvent.event.agentSessionId !== activeSessionId ||
+    rendererEvent.event.type !== 'tool_call'
+  ) {
+    return null
+  }
+  const call = agentToolCallPayloadSchema.safeParse(rendererEvent.event.payload)
+  if (!call.success) return null
+  if (call.data.toolName === 'submit_section_change') {
+    const args = modelSubmitSectionChangeArgsSchema.safeParse(call.data.args)
+    return args.success ? args.data.sectionId : null
+  }
+  if (call.data.toolName === 'generate_image') {
+    const args = generateImageArgsSchema.safeParse(call.data.args)
+    return args.success ? args.data.sectionId : null
+  }
+  return null
 }
 
 export function effectiveScope(
@@ -2774,7 +3127,11 @@ export function agentComposerKeyAction(input: {
 
 function sessionStatusLabel(session: AgentSessionRecord): string {
   if (session.status === 'archived') return 'Archived'
-  if (session.workflowState === 'running' || session.workflowState === 'generating')
+  if (
+    session.workflowState === 'running' ||
+    session.workflowState === 'generating' ||
+    session.workflowState === 'compacting'
+  )
     return 'Working'
   if (session.workflowState === 'awaiting_review') return 'Review'
   return 'Ready'

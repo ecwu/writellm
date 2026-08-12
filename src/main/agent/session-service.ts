@@ -4,13 +4,16 @@ import {
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
   agentAssistantMessagePayloadSchema,
-  agentCompactionSummaryPayloadSchema,
+  agentCompactionCheckpointPayloadSchema,
+  agentCompactionFailedPayloadSchema,
+  agentCompactionStartedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
   agentRuntimeModelSchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
   type AgentApprovalMode,
+  type AgentCompactionTrigger,
   type AgentEditorContext,
   type AgentEventType,
   type AgentHistoryMessage,
@@ -25,14 +28,18 @@ import {
   estimateAgentTokens
 } from '../../shared/agent-context-budget'
 import {
+  AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
   AGENT_EVENT_PAGE_MAX_BYTES,
+  MAX_CONCURRENT_AGENT_RUNS,
+  agentProjectActivitySnapshotSchema,
   agentEventPageSchema,
   agentEventRecordSchema,
   agentRunRecordSchema,
   agentSessionRecordSchema,
   type AgentEventPage,
   type AgentEventRecord,
+  type AgentProjectActivitySnapshot,
   type AgentRunRecord,
   type AgentSessionRecord
 } from '../../shared/contracts/agent-ipc'
@@ -100,12 +107,16 @@ import {
   SESSION_TITLE_SYSTEM_PROMPT,
   TOOL_CONTINUATION_REQUEST
 } from './prompts/task-prompts'
+import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
+import {
+  buildNextCompactionMaterial,
+  latestSuccessfulCheckpoint,
+  loadContinuousRuntimeHistory,
+  loadRuntimeTailAfterSequence,
+  uncheckpointedEnvelope
+} from './context-checkpoint'
 
-const HISTORY_EVENT_LIMIT = 200
-const HISTORY_BYTE_LIMIT = 2_097_152
 const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
-const COMPACTION_SOURCE_EVENT_LIMIT = 120
-const COMPACTION_SOURCE_TEXT_LIMIT = 196_608
 const SESSION_TITLE_OUTPUT_TOKENS = 64
 const SESSION_TITLE_REASONING_OUTPUT_TOKENS = 512
 
@@ -120,13 +131,17 @@ interface ActiveRun {
   readonly operationId: string
   readonly controller: AbortController
   handle: AgentSessionRunHandle | null
-  phase: 'routing' | 'running'
+  phase: 'routing' | 'compacting' | 'running'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
   readonly thinkingLevel: AgentThinkingLevel
   readonly runtimeModel?: AgentRuntimeModel
   readonly modelLimits: AgentModelLimits
+  readonly credential: string
+  currentRequest: string
+  readonly maxOutputTokens: number
+  readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
   readonly snapshots: Map<string, WritingSnapshot>
@@ -136,7 +151,26 @@ interface ActiveRun {
   systemPrompt: string
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
+  overflowRetryAttempted: boolean
   completion: Promise<void>
+}
+
+interface ActiveCompaction {
+  readonly compactionId: string
+  readonly agentSessionId: string
+  readonly trigger: 'manual'
+  phase: 'planning' | 'summarizing'
+  readonly startedAt: string
+  readonly controller: AbortController
+  completion: Promise<void>
+}
+
+interface StartingRun {
+  readonly agentSessionId: string
+  readonly agentRunId: string
+  readonly startedAt: string
+  readonly controller: AbortController
+  completion: Promise<StartedAgentRun>
 }
 
 export interface AgentSessionServiceOptions {
@@ -161,6 +195,7 @@ export interface AgentSessionServiceOptions {
     session: AgentSessionRecord
     titleGenerating: boolean
   }) => void | Promise<void>
+  publishActivity?: (snapshot: AgentProjectActivitySnapshot) => void | Promise<void>
   generateTitle?: (input: {
     config: Extract<ProviderConfig, { role: 'agent' }>
     credential: string
@@ -170,8 +205,13 @@ export interface AgentSessionServiceOptions {
   }) => Promise<AgentRunResult>
   summarizeHistory?: (input: {
     agentSessionId: string
-    agentRunId: string
-    sourceText: string
+    agentRunId: string | null
+    compactionId: string
+    trigger: AgentCompactionTrigger
+    config: Extract<ProviderConfig, { role: 'agent' }>
+    credential: string
+    modelLimits: AgentModelLimits
+    sourcePayloadJson: string
     coveredThroughSequence: number
     estimatedInputTokens: number
     signal: AbortSignal
@@ -193,7 +233,11 @@ export class AgentSessionService {
     string,
     { controller: AbortController; completion: Promise<AgentSessionRecord> }
   >()
-  #active: ActiveRun | undefined
+  readonly #startingRuns = new Map<string, StartingRun>()
+  readonly #activeRuns = new Map<string, ActiveRun>()
+  readonly #activeCompactions = new Map<string, ActiveCompaction>()
+  readonly #workBySession = new Map<string, string>()
+  readonly #contextPlanner = new AgentContextPlanner()
 
   constructor(private readonly options: AgentSessionServiceOptions) {
     this.#now = options.now ?? (() => new Date())
@@ -330,7 +374,9 @@ export class AgentSessionService {
             row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
-          workflowState: row.workflow_state,
+          workflowState: this.#sessionIsCompacting(row.agent_session_id)
+            ? 'compacting'
+            : row.workflow_state,
           modelSelection:
             row.provider_preset_id === null || row.selected_model_id === null
               ? null
@@ -431,7 +477,7 @@ export class AgentSessionService {
   }
 
   setApprovalMode(agentSessionId: string, mode: AgentApprovalMode): AgentSessionRecord {
-    if (this.#active?.agentSessionId === agentSessionId) {
+    if (this.#workBySession.has(agentSessionId)) {
       throw new Error('Agent approval mode cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -458,7 +504,7 @@ export class AgentSessionService {
     selection: AgentModelSelection,
     thinkingLevel: AgentThinkingLevel = 'off'
   ): AgentSessionRecord {
-    if (this.#active?.agentSessionId === agentSessionId) {
+    if (this.#workBySession.has(agentSessionId)) {
       throw new Error('Agent model cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -489,7 +535,7 @@ export class AgentSessionService {
   }
 
   setThinkingLevel(agentSessionId: string, level: AgentThinkingLevel): AgentSessionRecord {
-    if (this.#active?.agentSessionId === agentSessionId) {
+    if (this.#workBySession.has(agentSessionId)) {
       throw new Error('Agent Thinking level cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -516,7 +562,7 @@ export class AgentSessionService {
     agentSessionId: string,
     selection: SkillSelection
   ): Promise<AgentSessionRecord> {
-    if (this.#active?.agentSessionId === agentSessionId) {
+    if (this.#workBySession.has(agentSessionId)) {
       throw new Error('Writing Skill selection cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -765,7 +811,7 @@ export class AgentSessionService {
     return run
   }
 
-  async startRun(input: {
+  startRun(input: {
     agentSessionId: string
     prompt: string
     editorContext: AgentEditorContext
@@ -776,10 +822,57 @@ export class AgentSessionService {
     reuseSkillSnapshot?: SkillRunSnapshot
     presentation?: AgentUserMessagePayload['presentation']
   }): Promise<StartedAgentRun> {
-    if (this.#active !== undefined) throw new Error('An Agent run is already active')
-    const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
-    const editorContext = agentEditorContextSchema.parse(input.editorContext)
-    const operationId = input.operationId ?? this.#createId()
+    try {
+      const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
+      const editorContext = agentEditorContextSchema.parse(input.editorContext)
+      const operationId = input.operationId ?? this.#createId()
+      const agentRunId = this.#createId()
+      const controller = new AbortController()
+      this.#assertCompatibleSession(input.agentSessionId)
+      this.#assertConversationReady(input.agentSessionId)
+      this.#reserveRunSlot(input.agentSessionId, agentRunId, controller)
+      const starting: StartingRun = {
+        agentSessionId: input.agentSessionId,
+        agentRunId,
+        startedAt: this.#now().toISOString(),
+        controller,
+        completion: Promise.resolve({ agentRunId, completion: Promise.resolve() })
+      }
+      this.#startingRuns.set(agentRunId, starting)
+      void this.#publishActivitySnapshot()
+      starting.completion = this.#startReservedRun({
+        ...input,
+        prompt,
+        editorContext,
+        operationId,
+        agentRunId,
+        controller
+      }).finally(() => {
+        this.#startingRuns.delete(agentRunId)
+        if (!this.#activeRuns.has(agentRunId)) {
+          this.#releaseRunSlot(input.agentSessionId, agentRunId)
+        }
+      })
+      return starting.completion
+    } catch (err) {
+      return Promise.reject(err)
+    }
+  }
+
+  async #startReservedRun(input: {
+    agentSessionId: string
+    prompt: string
+    editorContext: AgentEditorContext
+    systemPrompt?: string
+    maxOutputTokens?: number
+    temperature?: number
+    reuseSkillSnapshot?: SkillRunSnapshot
+    presentation?: AgentUserMessagePayload['presentation']
+    operationId: string
+    agentRunId: string
+    controller: AbortController
+  }): Promise<StartedAgentRun> {
+    input.controller.signal.throwIfAborted()
     const skillSelection = this.#sessionSkillSelection(input.agentSessionId)
     if (skillSelection.mode === 'explicit') {
       if (this.options.skillRouter?.validateSelection === undefined) {
@@ -803,22 +896,19 @@ export class AgentSessionService {
         )
       }
     }
-    const agentRunId = this.#createId()
-    this.#assertCompatibleSession(input.agentSessionId)
-    this.#assertConversationReady(input.agentSessionId)
+    input.controller.signal.throwIfAborted()
     return withLogContext(
       {
-        operationId,
+        operationId: input.operationId,
         projectId: this.options.projectId,
         projectSessionId: this.options.projectSessionId,
         agentSessionId: input.agentSessionId,
-        agentRunId
+        agentRunId: input.agentRunId
       },
       () =>
         this.#withSessionProvider(input.agentSessionId, async (config, credential, resolved) => {
-          const controller = new AbortController()
           const modelLimits =
-            (await this.options.resolveModelLimits?.(config, controller.signal)) ??
+            (await this.options.resolveModelLimits?.(config, input.controller.signal)) ??
             legacyModelLimits()
           const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
           agentMessageBudget(maxOutputTokens, modelLimits)
@@ -836,10 +926,10 @@ export class AgentSessionService {
           const now = this.#now()
           const automaticTitle = this.#insertRunAndUserEvent({
             agentSessionId: input.agentSessionId,
-            agentRunId,
+            agentRunId: input.agentRunId,
             config,
-            editorContext,
-            prompt,
+            editorContext: input.editorContext,
+            prompt: input.prompt,
             approvalMode,
             thinkingLevel,
             modelLimits,
@@ -849,17 +939,21 @@ export class AgentSessionService {
           })
           const active: ActiveRun = {
             agentSessionId: input.agentSessionId,
-            agentRunId,
-            operationId,
-            controller,
+            agentRunId: input.agentRunId,
+            operationId: input.operationId,
+            controller: input.controller,
             handle: null,
             phase: 'routing',
             config,
-            editorContext,
+            editorContext: input.editorContext,
             approvalMode,
             thinkingLevel,
             runtimeModel,
             modelLimits,
+            credential,
+            currentRequest: input.prompt,
+            maxOutputTokens,
+            ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             authorizedModelRequestIds: new Set(),
             pendingModelRequestIds: new Set(),
             snapshots: new Map(),
@@ -869,28 +963,8 @@ export class AgentSessionService {
             systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
             partialText: '',
             reviewPause: null,
+            overflowRetryAttempted: false,
             completion: Promise.resolve()
-          }
-          this.#active = active
-          if (automaticTitle !== null) {
-            const fallback = this.#requireSessionRecord(input.agentSessionId)
-            void this.#publishSession(fallback, this.options.generateTitle !== undefined)
-            if (this.options.generateTitle !== undefined) {
-              const titleController = new AbortController()
-              void this.#beginTitleRequest({
-                agentSessionId: input.agentSessionId,
-                agentRunId,
-                operationId,
-                config,
-                credential,
-                modelLimits,
-                context: buildSessionTitleContext([{ sequence: 1, role: 'user', content: prompt }]),
-                expectedTitle: automaticTitle,
-                controller: titleController,
-                automatic: true,
-                reasoningModel: resolved?.model.reasoning ?? false
-              }).catch(() => undefined)
-            }
           }
           let markPrepared: () => void = () => undefined
           const prepared = new Promise<void>((resolve) => {
@@ -898,7 +972,7 @@ export class AgentSessionService {
           })
           active.completion = this.#prepareAndRun(active, {
             credential,
-            prompt,
+            prompt: input.prompt,
             skillSelection,
             reuseSkillSnapshot: input.reuseSkillSnapshot,
             maxOutputTokens,
@@ -910,22 +984,53 @@ export class AgentSessionService {
               return this.#settleSetupFailure(active, err)
             })
             .finally(() => {
-              if (this.#active === active) this.#active = undefined
+              if (this.#activeRuns.get(active.agentRunId) === active) {
+                this.#activeRuns.delete(active.agentRunId)
+              }
+              this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
             })
+          this.#activeRuns.set(active.agentRunId, active)
+          void this.#publishActivitySnapshot()
+          void this.#publishSession(
+            input.agentSessionId,
+            automaticTitle !== null && this.options.generateTitle !== undefined
+          )
+          if (automaticTitle !== null) {
+            if (this.options.generateTitle !== undefined) {
+              const titleController = new AbortController()
+              void this.#beginTitleRequest({
+                agentSessionId: input.agentSessionId,
+                agentRunId: input.agentRunId,
+                operationId: input.operationId,
+                config,
+                credential,
+                modelLimits,
+                context: buildSessionTitleContext([
+                  { sequence: 1, role: 'user', content: input.prompt }
+                ]),
+                expectedTitle: automaticTitle,
+                controller: titleController,
+                automatic: true,
+                reasoningModel: resolved?.model.reasoning ?? false
+              }).catch(() => undefined)
+            }
+          }
           this.options.log.info(
             {
               event: 'agent.run.started',
               agentSessionId: input.agentSessionId,
-              agentRunId,
+              agentRunId: input.agentRunId,
               phase: 'skill_preparation',
-              thinkingLevel
+              thinkingLevel,
+              activeCount: this.#workBySession.size,
+              concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
             },
             'Agent run started and entered writing skill preparation'
           )
           // Legacy/test integrations without a skill runtime have no observable preparation phase.
           // Keep their existing ready-on-return contract while production returns immediately.
           if (this.options.skillRouter === undefined) await prepared
-          return { agentRunId, completion: active.completion }
+          return { agentRunId: input.agentRunId, completion: active.completion }
         })
     )
   }
@@ -942,23 +1047,6 @@ export class AgentSessionService {
       markPrepared: () => void
     }
   ): Promise<void> {
-    let history: AgentHistoryMessage[]
-    try {
-      history = await this.#prepareRuntimeHistory({
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        prompt: input.prompt,
-        maxOutputTokens: input.maxOutputTokens,
-        modelLimits: active.modelLimits,
-        signal: active.controller.signal
-      })
-    } catch (err) {
-      throw new AgentRunSetupError(
-        active.controller.signal.aborted ? 'user_stopped' : 'compaction_failed',
-        err
-      )
-    }
-
     if (this.options.skillRouter !== undefined) {
       try {
         const routed = await this.options.skillRouter.route({
@@ -1068,6 +1156,26 @@ export class AgentSessionService {
     this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
     active.systemPrompt =
       builtContext?.systemPrompt ?? active.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT
+    let history: AgentHistoryMessage[]
+    const currentRequest = builtContext?.userRequest ?? input.prompt
+    active.currentRequest = currentRequest
+    try {
+      history = await this.#prepareRuntimeHistory({
+        active,
+        credential: input.credential,
+        currentRequest,
+        maxOutputTokens: input.maxOutputTokens
+      })
+    } catch (err) {
+      throw new AgentRunSetupError(
+        active.controller.signal.aborted
+          ? 'user_stopped'
+          : err instanceof AgentCurrentTurnTooLargeError
+            ? 'current_turn_too_large'
+            : 'agent_context_failed',
+        err
+      )
+    }
     active.controller.signal.throwIfAborted()
     active.handle = this.options.runtime.beginSessionRun(
       active.config,
@@ -1079,7 +1187,7 @@ export class AgentSessionService {
         modelRequestId,
         systemPrompt: active.systemPrompt,
         history,
-        prompt: builtContext?.userRequest ?? input.prompt,
+        prompt: currentRequest,
         maxOutputTokens: input.maxOutputTokens,
         modelLimits: active.modelLimits,
         thinkingLevel: active.thinkingLevel,
@@ -1144,8 +1252,8 @@ export class AgentSessionService {
   }
 
   async abort(agentRunId: string): Promise<void> {
-    const active = this.#active
-    if (active === undefined || active.agentRunId !== agentRunId) {
+    const active = this.#activeRuns.get(agentRunId)
+    if (active === undefined) {
       const run = this.requireRun(agentRunId)
       if (run.status !== 'running') return
       throw new Error('Agent run is not active')
@@ -1153,20 +1261,181 @@ export class AgentSessionService {
     active.controller.abort(
       new AgentRunCancellationError('user_stopped', 'Agent run stopped by user')
     )
+    this.options.log.info(
+      {
+        event: 'agent.run.stop_requested',
+        agentSessionId: active.agentSessionId,
+        agentRunId,
+        activeCount: this.#workBySession.size
+      },
+      'Agent run stop requested'
+    )
     await active.completion
   }
 
+  async compactSession(agentSessionId: string): Promise<{ compactionId: string }> {
+    this.#assertCompatibleSession(agentSessionId)
+    this.#assertSessionIdle(agentSessionId, 'compressing earlier conversation')
+    this.#assertConversationReady(agentSessionId)
+    if (buildNextCompactionMaterial({ database: this.options.database, agentSessionId }) === null) {
+      throw new Error('This conversation does not yet have an earlier completed turn to compress')
+    }
+    const compactionId = this.#createId()
+    const controller = new AbortController()
+    this.#reserveWorkSlot(agentSessionId, compactionId, 'manual_compaction', controller)
+    const active: ActiveCompaction = {
+      compactionId,
+      agentSessionId,
+      trigger: 'manual',
+      phase: 'planning',
+      startedAt: this.#now().toISOString(),
+      controller,
+      completion: Promise.resolve()
+    }
+    this.#activeCompactions.set(compactionId, active)
+    try {
+      await this.#appendCompactionStarted({
+        agentSessionId,
+        agentRunId: null,
+        compactionId,
+        trigger: 'manual'
+      })
+    } catch (err) {
+      this.#activeCompactions.delete(compactionId)
+      this.#releaseWorkSlot(agentSessionId, compactionId, 'manual_compaction')
+      throw err
+    }
+    active.completion = this.#executeManualCompaction(active).finally(() => {
+      if (this.#activeCompactions.get(compactionId) === active) {
+        this.#activeCompactions.delete(compactionId)
+      }
+      this.#releaseWorkSlot(agentSessionId, compactionId, 'manual_compaction')
+      void this.#publishSession(agentSessionId, false)
+    })
+    void this.#publishActivitySnapshot()
+    await this.#publishSession(agentSessionId, false)
+    void active.completion.catch(() => undefined)
+    return { compactionId }
+  }
+
+  async stopCompaction(agentSessionId: string, compactionId: string): Promise<void> {
+    const active = this.#activeCompactions.get(compactionId)
+    if (active === undefined || active.agentSessionId !== agentSessionId) {
+      throw new Error('Conversation compaction is not active')
+    }
+    active.controller.abort(new Error('Conversation compaction stopped by user'))
+    await active.completion
+  }
+
+  async #executeManualCompaction(active: ActiveCompaction): Promise<void> {
+    try {
+      await this.#withSessionProvider(active.agentSessionId, async (config, credential) => {
+        const modelLimits =
+          (await this.options.resolveModelLimits?.(config, active.controller.signal)) ??
+          legacyModelLimits()
+        active.phase = 'summarizing'
+        void this.#publishActivitySnapshot()
+        const steps = await this.#runRollingCompaction({
+          agentSessionId: active.agentSessionId,
+          agentRunId: null,
+          compactionId: active.compactionId,
+          trigger: 'manual',
+          config,
+          credential,
+          modelLimits,
+          signal: active.controller.signal,
+          maxSteps: 8,
+          targetTokens: 0
+        })
+        if (steps === 0)
+          throw new Error('Conversation compaction had no complete head to summarize')
+      })
+      this.options.log.info(
+        {
+          event: 'agent.compaction.manual_completed',
+          agentSessionId: active.agentSessionId,
+          compactionId: active.compactionId
+        },
+        'Manual Agent context compaction completed'
+      )
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.compaction.manual_failed',
+          err,
+          agentSessionId: active.agentSessionId,
+          compactionId: active.compactionId
+        },
+        'Manual Agent context compaction failed'
+      )
+      await this.#appendCompactionFailed({
+        agentSessionId: active.agentSessionId,
+        agentRunId: null,
+        compactionId: active.compactionId,
+        trigger: 'manual',
+        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
+        retryable: !active.controller.signal.aborted,
+        aborted: active.controller.signal.aborted
+      })
+    }
+  }
+
   async close(): Promise<void> {
-    const active = this.#active
-    active?.controller.abort(new AgentRunCancellationError('project_closed', 'Project is closing'))
+    const cancellation = new AgentRunCancellationError('project_closed', 'Project is closing')
+    const startingRuns = [...this.#startingRuns.values()]
+    for (const starting of startingRuns) starting.controller.abort(cancellation)
+    for (const active of this.#activeRuns.values()) active.controller.abort(cancellation)
     const titleRequests = [...this.#titleRequests.values()]
     for (const request of titleRequests) {
       request.controller.abort(new Error('Project is closing'))
     }
+    const compactions = [...this.#activeCompactions.values()]
+    for (const compaction of compactions) {
+      compaction.controller.abort(new Error('Project is closing'))
+    }
+    await Promise.allSettled(startingRuns.map((starting) => starting.completion))
+    const activeRuns = [...this.#activeRuns.values()]
+    for (const active of activeRuns) active.controller.abort(cancellation)
     await Promise.allSettled([
-      ...(active === undefined ? [] : [active.completion]),
-      ...titleRequests.map((request) => request.completion)
+      ...activeRuns.map((active) => active.completion),
+      ...titleRequests.map((request) => request.completion),
+      ...compactions.map((compaction) => compaction.completion)
     ])
+  }
+
+  projectActivitySnapshot(): AgentProjectActivitySnapshot {
+    const activeRuns = [...this.#activeRuns.values()].map((active) => {
+      const persisted = this.requireRun(active.agentRunId)
+      return {
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        phase: active.phase,
+        partialText: truncateUtf8(active.partialText, AGENT_LIVE_PARTIAL_MAX_BYTES),
+        startedAt: persisted.startedAt
+      }
+    })
+    const startingRuns = [...this.#startingRuns.values()]
+      .filter((starting) => !this.#activeRuns.has(starting.agentRunId))
+      .map((starting) => ({
+        agentSessionId: starting.agentSessionId,
+        agentRunId: starting.agentRunId,
+        phase: 'routing' as const,
+        partialText: '',
+        startedAt: starting.startedAt
+      }))
+    const compactions = [...this.#activeCompactions.values()].map((compaction) => ({
+      compactionId: compaction.compactionId,
+      agentSessionId: compaction.agentSessionId,
+      trigger: compaction.trigger,
+      phase: compaction.phase,
+      startedAt: compaction.startedAt
+    }))
+    return agentProjectActivitySnapshotSchema.parse({
+      limit: MAX_CONCURRENT_AGENT_RUNS,
+      activeCount: this.#workBySession.size,
+      runs: [...startingRuns, ...activeRuns],
+      compactions
+    })
   }
 
   recoverInterruptedRuns(): number {
@@ -1201,7 +1470,70 @@ export class AgentSessionService {
         'Recovered Agent runs left active by a terminated process'
       )
     }
+    this.#recoverInterruptedCompactions()
     return recovered
+  }
+
+  #recoverInterruptedCompactions(): number {
+    const now = this.#now()
+    const rows = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT started.agent_session_id, started.agent_run_id,
+                    json_extract(started.payload_json, '$.compactionId') AS compaction_id,
+                    json_extract(started.payload_json, '$.trigger') AS trigger
+               FROM agent_events AS started
+              WHERE started.type = 'compaction_started'
+                AND NOT EXISTS (
+                  SELECT 1 FROM agent_events AS terminal
+                   WHERE terminal.agent_session_id = started.agent_session_id
+                     AND (
+                       terminal.type = 'compaction_failed'
+                       OR (
+                         terminal.type = 'compaction_summary'
+                         AND json_extract(terminal.payload_json, '$.finalStep') = 1
+                       )
+                     )
+                     AND json_extract(terminal.payload_json, '$.compactionId') =
+                         json_extract(started.payload_json, '$.compactionId')
+                )`
+          )
+          .all() as Array<{
+          agent_session_id: string
+          agent_run_id: string | null
+          compaction_id: string
+          trigger: AgentCompactionTrigger
+        }>
+    )
+    for (const row of rows) {
+      this.options.database.immediate((database) => {
+        insertEvent(database, {
+          eventId: this.#createId(),
+          sessionId: row.agent_session_id,
+          runId: row.agent_run_id,
+          type: 'compaction_failed',
+          payload: agentCompactionFailedPayloadSchema.parse({
+            schemaVersion: 2,
+            compactionId: row.compaction_id,
+            trigger: row.trigger,
+            code: 'process_restarted',
+            retryable: true,
+            aborted: true,
+            timestamp: now.getTime()
+          }),
+          modelRequestId: null,
+          createdAt: now.toISOString()
+        })
+      })
+    }
+    if (rows.length > 0) {
+      this.options.log.warn(
+        { event: 'agent.compaction.recovered', count: rows.length },
+        'Recovered interrupted Agent context compactions'
+      )
+    }
+    return rows.length
   }
 
   async recordApprovalDecision(input: {
@@ -1237,8 +1569,12 @@ export class AgentSessionService {
     rawContent: string
   ): Promise<void> {
     const active = this.#requireActive(agentRunId)
-    if (active.phase === 'routing' || active.handle === null) {
-      throw new Error('Writing skill selection is still in progress')
+    if (active.phase !== 'running' || active.handle === null) {
+      throw new Error(
+        active.phase === 'compacting'
+          ? 'Earlier conversation is still being summarized'
+          : 'Writing skill selection is still in progress'
+      )
     }
     const handle = active.handle
     if (active.reviewPause !== null) {
@@ -1315,7 +1651,10 @@ export class AgentSessionService {
   async #handleRuntimeEvent(agentRunId: string, event: AgentRuntimeEvent): Promise<void> {
     const active = this.#requireActive(agentRunId)
     if (event.type === 'assistant_delta') {
-      active.partialText = `${active.partialText}${event.delta}`.slice(0, 2_097_152)
+      active.partialText = truncateUtf8(
+        `${active.partialText}${event.delta}`,
+        AGENT_LIVE_PARTIAL_MAX_BYTES
+      )
       await this.#publishDelta(active.agentSessionId, active.agentRunId, event.delta)
       return
     }
@@ -1653,7 +1992,12 @@ export class AgentSessionService {
         contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
         isError: true,
         result: null,
-        error: { code: safe.code, message: safe.message },
+        error: {
+          code: safe.code,
+          message: safe.message,
+          retryable: safe.retryable,
+          operationId: active.operationId
+        },
         citationIds: [],
         knowledgeItemIds: [],
         parseRevisionIds: [],
@@ -1722,11 +2066,37 @@ export class AgentSessionService {
         { event: 'agent.run.completed', agentRunId: active.agentRunId, sequence: event.sequence },
         'Agent run completed'
       )
-    } catch (err) {
+    } catch (caught) {
+      let err = caught
       this.options.log.error(
         { event: 'agent.run.failed', err, agentRunId: active.agentRunId },
         'Agent run did not complete'
       )
+      if (isContextOverflowError(err)) {
+        const activityOccurred = this.#runHasReplayUnsafeActivity(active)
+        if (!activityOccurred && !active.overflowRetryAttempted) {
+          active.overflowRetryAttempted = true
+          try {
+            await this.#restartAfterContextOverflow(active)
+            return await this.#settleRun(active)
+          } catch (recoveryErr) {
+            this.options.log.error(
+              {
+                event: 'agent.run.context_overflow_recovery_failed',
+                err: recoveryErr,
+                agentRunId: active.agentRunId
+              },
+              'Agent context overflow recovery failed'
+            )
+            err = new AgentRunContextOverflowError('context_overflow', recoveryErr)
+          }
+        } else {
+          err = new AgentRunContextOverflowError(
+            activityOccurred ? 'context_overflow_after_activity' : 'context_overflow',
+            err
+          )
+        }
+      }
       const termination = classifyRunFailure(err, active.controller.signal)
       this.options.log.warn(
         {
@@ -1771,8 +2141,158 @@ export class AgentSessionService {
         eventPayload: { code: termination.code, status: termination.status }
       })
     } finally {
-      if (this.#active === active) this.#active = undefined
+      if (this.#activeRuns.get(active.agentRunId) === active) {
+        this.#activeRuns.delete(active.agentRunId)
+      }
+      this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
     }
+  }
+
+  #runHasReplayUnsafeActivity(active: ActiveRun): boolean {
+    if (active.partialText.length > 0) return true
+    return this.options.database.immediate((database) => {
+      const event = database
+        .prepare(
+          `SELECT 1 FROM agent_events
+            WHERE agent_run_id = ?
+              AND (
+                (type = 'assistant_message'
+                  AND length(COALESCE(json_extract(payload_json, '$.content'), '')) > 0)
+                OR type IN (
+                  'tool_attempted', 'tool_preflight_failed', 'tool_call', 'tool_result',
+                  'approval_decision'
+                )
+              )
+            LIMIT 1`
+        )
+        .pluck()
+        .get(active.agentRunId)
+      if (event === 1) return true
+      return (
+        database
+          .prepare('SELECT 1 FROM mutation_proposals WHERE agent_run_id = ? LIMIT 1')
+          .pluck()
+          .get(active.agentRunId) === 1
+      )
+    })
+  }
+
+  async #restartAfterContextOverflow(active: ActiveRun): Promise<void> {
+    await this.#abortPendingModelRequests(active, 'context_overflow_retry')
+    const historyBefore = loadContinuousRuntimeHistory(
+      this.options.database,
+      active.agentSessionId,
+      active.agentRunId
+    )
+    const checkpoint = latestSuccessfulCheckpoint(this.options.database, active.agentSessionId)
+    const envelope = uncheckpointedEnvelope(
+      this.options.database,
+      active.agentSessionId,
+      checkpoint?.coveredThroughSequence ?? 0,
+      active.agentRunId
+    )
+    const plan = this.#contextPlanner.plan({
+      modelLimits: active.modelLimits,
+      requestedOutputTokens: active.maxOutputTokens,
+      systemPrompt: active.systemPrompt,
+      history: historyBefore,
+      currentRequest: active.currentRequest,
+      uncheckpointedEventCount: envelope.eventCount,
+      uncheckpointedPayloadBytes: envelope.payloadBytes
+    })
+    const compactionId = this.#createId()
+    active.phase = 'compacting'
+    void this.#publishActivitySnapshot()
+    await this.#appendCompactionStarted({
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      compactionId,
+      trigger: 'provider_overflow'
+    })
+    let steps: number
+    try {
+      steps = await this.#runRollingCompaction({
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        compactionId,
+        trigger: 'provider_overflow',
+        config: active.config,
+        credential: active.credential,
+        modelLimits: active.modelLimits,
+        signal: active.controller.signal,
+        maxSteps: 4,
+        targetTokens: plan.compactionTargetTokens
+      })
+      if (steps === 0) throw new Error('Provider overflow recovery found no history to compact')
+    } catch (err) {
+      await this.#appendCompactionFailed({
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        compactionId,
+        trigger: 'provider_overflow',
+        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
+        retryable: !active.controller.signal.aborted,
+        aborted: active.controller.signal.aborted
+      })
+      throw err
+    }
+    const history = boundHistoryByCompleteTurns(
+      loadContinuousRuntimeHistory(this.options.database, active.agentSessionId, active.agentRunId),
+      plan.conversationBudgetTokens
+    )
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    const modelRequestId = (
+      await repository.start({
+        operation: 'agent',
+        provider: active.config,
+        request: { prompt: active.currentRequest, delivery: 'prompt', retry: 'context_overflow' },
+        thinkingLevel: active.thinkingLevel,
+        inputItems: 1,
+        operationId: active.operationId,
+        agentRunId: active.agentRunId,
+        projectSessionId: this.options.projectSessionId
+      })
+    ).modelRequestId
+    active.authorizedModelRequestIds.add(modelRequestId)
+    active.pendingModelRequestIds.add(modelRequestId)
+    const snapshot = active.snapshots.values().next().value as WritingSnapshot | undefined
+    if (snapshot !== undefined) active.snapshots.set(modelRequestId, snapshot)
+    active.handle = this.options.runtime.beginSessionRun(
+      active.config,
+      active.credential,
+      {
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        modelRequestId,
+        systemPrompt: active.systemPrompt,
+        history: agentHistorySchema.parse(history),
+        prompt: active.currentRequest,
+        maxOutputTokens: active.maxOutputTokens,
+        modelLimits: active.modelLimits,
+        thinkingLevel: active.thinkingLevel,
+        ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
+        ...(active.temperature === undefined ? {} : { temperature: active.temperature })
+      },
+      active.controller.signal,
+      (event) => this.#handleRuntimeEvent(active.agentRunId, event),
+      (request, signal) => this.#handleToolRequest(active.agentRunId, request, signal)
+    )
+    active.phase = 'running'
+    void this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.run.context_overflow_retried',
+        agentRunId: active.agentRunId,
+        modelRequestId
+      },
+      'Agent run retried once after a pre-activity context overflow'
+    )
   }
 
   async #abortPendingModelRequests(active: ActiveRun, reason: string): Promise<void> {
@@ -2145,7 +2665,7 @@ export class AgentSessionService {
     if (this.#titleRequests.has(agentSessionId)) {
       throw new Error(`Conversation title must finish before ${action}`)
     }
-    if (this.#active?.agentSessionId === agentSessionId || session.workflowState === 'running') {
+    if (this.#workBySession.has(agentSessionId) || session.workflowState === 'running') {
       throw new Error(`Agent run must finish before ${action}`)
     }
     if (session.workflowState === 'generating') {
@@ -2156,15 +2676,22 @@ export class AgentSessionService {
     }
   }
 
-  async #publishSession(session: AgentSessionRecord, titleGenerating: boolean): Promise<void> {
+  async #publishSession(
+    sessionOrId: AgentSessionRecord | string,
+    titleGenerating: boolean
+  ): Promise<void> {
+    const agentSessionId =
+      typeof sessionOrId === 'string' ? sessionOrId : sessionOrId.agentSessionId
     try {
+      const session =
+        typeof sessionOrId === 'string' ? this.#requireSessionRecord(sessionOrId) : sessionOrId
       await this.options.publishSession?.({ session, titleGenerating })
     } catch (err) {
       this.options.log.warn(
         {
           event: 'agent.session.delivery_failed',
           err,
-          agentSessionId: session.agentSessionId
+          agentSessionId
         },
         'Agent session renderer delivery failed without changing durable truth'
       )
@@ -2373,6 +2900,7 @@ export class AgentSessionService {
       return inserted
     })
     await this.#publishDurable(event)
+    await this.#publishSession(this.#requireSessionRecord(input.agentSessionId), false)
     return event
   }
 
@@ -2465,178 +2993,258 @@ export class AgentSessionService {
   }
 
   async #prepareRuntimeHistory(input: {
-    agentSessionId: string
-    agentRunId: string
-    prompt: string
+    active: ActiveRun
+    credential: string
+    currentRequest: string
     maxOutputTokens: number
+  }): Promise<AgentHistoryMessage[]> {
+    const active = input.active
+    let history = loadContinuousRuntimeHistory(
+      this.options.database,
+      active.agentSessionId,
+      active.agentRunId
+    )
+    const checkpoint = latestSuccessfulCheckpoint(this.options.database, active.agentSessionId)
+    const envelope = uncheckpointedEnvelope(
+      this.options.database,
+      active.agentSessionId,
+      checkpoint?.coveredThroughSequence ?? 0,
+      active.agentRunId
+    )
+    let plan = this.#contextPlanner.plan({
+      modelLimits: active.modelLimits,
+      requestedOutputTokens: input.maxOutputTokens,
+      systemPrompt: active.systemPrompt,
+      history,
+      currentRequest: input.currentRequest,
+      uncheckpointedEventCount: envelope.eventCount,
+      uncheckpointedPayloadBytes: envelope.payloadBytes
+    })
+    if (this.options.messageTokenBudget !== undefined) {
+      plan = {
+        ...plan,
+        conversationBudgetTokens: Math.min(
+          plan.conversationBudgetTokens,
+          this.options.messageTokenBudget
+        ),
+        compactionTargetTokens: Math.min(
+          plan.compactionTargetTokens,
+          Math.floor(this.options.messageTokenBudget * 0.5)
+        ),
+        requiresCompaction:
+          plan.requiresCompaction || plan.historyTokens > this.options.messageTokenBudget
+      }
+    }
+    if (!plan.requiresCompaction) return agentHistorySchema.parse(history)
+
+    const compactionId = this.#createId()
+    active.phase = 'compacting'
+    void this.#publishActivitySnapshot()
+    await this.#appendCompactionStarted({
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      compactionId,
+      trigger: 'auto_threshold'
+    })
+    try {
+      const steps = await this.#runRollingCompaction({
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        compactionId,
+        trigger: 'auto_threshold',
+        config: active.config,
+        credential: input.credential,
+        modelLimits: active.modelLimits,
+        signal: active.controller.signal,
+        maxSteps: 4,
+        targetTokens: plan.compactionTargetTokens
+      })
+      if (steps === 0) throw new Error('No complete historical turn was available for compaction')
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.compaction.failed', err, agentRunId: active.agentRunId, compactionId },
+        'Automatic Agent context compaction failed'
+      )
+      await this.#appendCompactionFailed({
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        compactionId,
+        trigger: 'auto_threshold',
+        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
+        retryable: !active.controller.signal.aborted,
+        aborted: active.controller.signal.aborted
+      })
+      if (active.controller.signal.aborted) throw err
+    } finally {
+      active.phase = 'routing'
+      void this.#publishActivitySnapshot()
+    }
+    history = loadContinuousRuntimeHistory(
+      this.options.database,
+      active.agentSessionId,
+      active.agentRunId
+    )
+    const bounded = boundHistoryByCompleteTurns(history, plan.conversationBudgetTokens)
+    if (bounded.length < history.length) {
+      this.options.log.warn(
+        {
+          event: 'agent.compaction.fallback_applied',
+          agentRunId: active.agentRunId,
+          retainedMessages: bounded.length,
+          omittedMessages: history.length - bounded.length
+        },
+        'Agent context continued with deterministic complete-turn fallback'
+      )
+    }
+    return agentHistorySchema.parse(bounded)
+  }
+
+  async #runRollingCompaction(input: {
+    agentSessionId: string
+    agentRunId: string | null
+    compactionId: string
+    trigger: AgentCompactionTrigger
+    config: Extract<ProviderConfig, { role: 'agent' }>
+    credential: string
     modelLimits: AgentModelLimits
     signal: AbortSignal
-  }): Promise<AgentHistoryMessage[]> {
-    let history = this.#loadRuntimeHistory(input.agentSessionId, input.agentRunId)
-    const tokenBudget =
-      this.options.messageTokenBudget ??
-      agentMessageBudget(input.maxOutputTokens, input.modelLimits)
-    const estimatedInputTokens = estimateAgentTokens(history) + estimateAgentTokens(input.prompt)
-    if (estimatedInputTokens <= tokenBudget || this.#hasCompactionSummary(input.agentSessionId)) {
-      return history
+    maxSteps: number
+    targetTokens: number
+  }): Promise<number> {
+    const summarize = this.options.summarizeHistory
+    if (summarize === undefined) throw new Error('Agent context compaction is unavailable')
+    let completedSteps = 0
+    for (let stepIndex = 1; stepIndex <= input.maxSteps; stepIndex += 1) {
+      input.signal.throwIfAborted()
+      const material = buildNextCompactionMaterial({
+        database: this.options.database,
+        agentSessionId: input.agentSessionId,
+        ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId })
+      })
+      if (material === null) break
+      const estimatedTokensBefore = estimateAgentTokens(material.sourcePayloadJson)
+      const summarized = await summarize({
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId,
+        compactionId: input.compactionId,
+        trigger: input.trigger,
+        config: input.config,
+        credential: input.credential,
+        modelLimits: input.modelLimits,
+        sourcePayloadJson: material.sourcePayloadJson,
+        coveredThroughSequence: material.coveredThroughSequence,
+        estimatedInputTokens: estimatedTokensBefore,
+        signal: input.signal
+      })
+      const summary = boundCheckpointSummary(
+        summarized.summary.trim().slice(0, 32_768),
+        input.targetTokens > 0 ? Math.max(256, input.targetTokens) : 24_000
+      )
+      if (summary.length === 0) throw new Error('Agent compaction returned an empty summary')
+      const tail = loadRuntimeTailAfterSequence(
+        this.options.database,
+        input.agentSessionId,
+        material.coveredThroughSequence,
+        input.agentRunId ?? undefined
+      )
+      const checkpointTokens = estimateAgentTokens(summary)
+      const tailTokens = estimateAgentTokens(tail)
+      const estimatedTokensAfter = checkpointTokens + tailTokens
+      const finalStep =
+        estimatedTokensAfter <= input.targetTokens ||
+        !material.hasMoreCompactionCandidate ||
+        stepIndex === input.maxSteps
+      const payload = agentCompactionCheckpointPayloadSchema.parse({
+        schemaVersion: 2,
+        compactionId: input.compactionId,
+        trigger: input.trigger,
+        stepIndex,
+        finalStep,
+        previousCheckpointEventId: material.previousCheckpoint?.eventId ?? null,
+        coveredFromSequence: material.coveredFromSequence,
+        coveredThroughSequence: material.coveredThroughSequence,
+        summary,
+        proposalOutcomes: material.proposalOutcomes,
+        approvalDecisions: material.approvalDecisions,
+        citationIds: material.citationIds,
+        toolOutcomes: material.toolOutcomes,
+        estimatedTokensBefore,
+        estimatedTokensAfter,
+        checkpointTokens,
+        tailTokens,
+        timestamp: this.#now().getTime()
+      })
+      await this.#appendAndPublishEvent({
+        sessionId: input.agentSessionId,
+        runId: input.agentRunId,
+        type: 'compaction_summary',
+        payload,
+        modelRequestId: summarized.modelRequestId
+      })
+      completedSteps = stepIndex
+      this.options.log.info(
+        {
+          event: 'agent.compaction.step_completed',
+          agentRunId: input.agentRunId,
+          compactionId: input.compactionId,
+          stepIndex,
+          finalStep,
+          coveredThroughSequence: material.coveredThroughSequence,
+          estimatedTokensBefore,
+          estimatedTokensAfter
+        },
+        'Agent rolling context checkpoint step completed'
+      )
+      if (finalStep) break
     }
-    if (this.options.summarizeHistory === undefined) return history
-    const source = this.#loadCompactionSource(input.agentSessionId, input.agentRunId)
-    if (source === null) return history
-    const summarized = await this.options.summarizeHistory({
-      agentSessionId: input.agentSessionId,
-      agentRunId: input.agentRunId,
-      sourceText: source.text,
-      coveredThroughSequence: source.coveredThroughSequence,
-      estimatedInputTokens,
-      signal: input.signal
-    })
-    const payload = agentCompactionSummaryPayloadSchema.parse({
-      summary: summarized.summary,
-      coveredThroughSequence: source.coveredThroughSequence,
-      estimatedInputTokens,
-      timestamp: this.#now().getTime()
-    })
+    return completedSteps
+  }
+
+  async #appendCompactionStarted(input: {
+    agentSessionId: string
+    agentRunId: string | null
+    compactionId: string
+    trigger: AgentCompactionTrigger
+  }): Promise<void> {
     await this.#appendAndPublishEvent({
       sessionId: input.agentSessionId,
       runId: input.agentRunId,
-      type: 'compaction_summary',
-      payload,
-      modelRequestId: summarized.modelRequestId
+      type: 'compaction_started',
+      payload: agentCompactionStartedPayloadSchema.parse({
+        schemaVersion: 2,
+        compactionId: input.compactionId,
+        trigger: input.trigger,
+        phase: 'planning',
+        timestamp: this.#now().getTime()
+      }),
+      modelRequestId: null
     })
-    this.options.log.info(
-      {
-        event: 'agent.compaction.completed',
-        agentRunId: input.agentRunId,
-        coveredThroughSequence: source.coveredThroughSequence,
-        estimatedInputTokens
-      },
-      'Agent session history was compacted once'
-    )
-    history = this.#loadRuntimeHistory(input.agentSessionId, input.agentRunId)
-    return history
   }
 
-  #loadRuntimeHistory(agentSessionId: string, excludeRunId?: string): AgentHistoryMessage[] {
-    const summary = this.#latestCompactionSummary(agentSessionId)
-    const coveredThroughSequence = summary?.coveredThroughSequence ?? 0
-    const rows = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT type, payload_json
-               FROM agent_events
-              WHERE agent_session_id = ?
-                AND type IN ('user_message', 'assistant_message')
-                AND sequence > ?
-                AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
-              ORDER BY sequence DESC
-              LIMIT ?`
-          )
-          .all(
-            agentSessionId,
-            coveredThroughSequence,
-            excludeRunId ?? null,
-            excludeRunId ?? null,
-            HISTORY_EVENT_LIMIT
-          ) as Array<{
-          type: 'user_message' | 'assistant_message'
-          payload_json: string
-        }>
-    )
-    const history: AgentHistoryMessage[] = []
-    let bytes = 2
-    if (summary !== null) {
-      const message: AgentHistoryMessage = {
-        role: 'user',
-        content: `<writellm_session_summary>\n${summary.summary}\n</writellm_session_summary>`,
-        timestamp: summary.timestamp
-      }
-      history.push(message)
-      bytes += new TextEncoder().encode(JSON.stringify(message)).byteLength + 1
-    }
-    for (const row of rows.reverse()) {
-      const parsed = JSON.parse(row.payload_json) as unknown
-      let message: AgentHistoryMessage
-      if (row.type === 'user_message') {
-        const payload = agentUserMessagePayloadSchema.parse(parsed)
-        message = { role: 'user', content: payload.content, timestamp: payload.timestamp }
-      } else {
-        const payload = agentAssistantMessagePayloadSchema.parse(parsed)
-        if (payload.interrupted || payload.stopReason === 'toolUse') continue
-        const { interrupted: _interrupted, ...complete } = payload
-        message = { role: 'assistant', message: complete }
-      }
-      const messageBytes = new TextEncoder().encode(JSON.stringify(message)).byteLength + 1
-      if (bytes + messageBytes > HISTORY_BYTE_LIMIT) continue
-      history.push(message)
-      bytes += messageBytes
-    }
-    return agentHistorySchema.parse(history)
-  }
-
-  #hasCompactionSummary(agentSessionId: string): boolean {
-    return this.#latestCompactionSummary(agentSessionId) !== null
-  }
-
-  #latestCompactionSummary(agentSessionId: string): {
-    summary: string
-    coveredThroughSequence: number
-    timestamp: number
-  } | null {
-    const row = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT payload_json FROM agent_events
-            WHERE agent_session_id = ? AND type = 'compaction_summary'
-            ORDER BY sequence DESC LIMIT 1`
-          )
-          .get(agentSessionId) as { payload_json: string } | undefined
-    )
-    return row === undefined
-      ? null
-      : agentCompactionSummaryPayloadSchema.parse(JSON.parse(row.payload_json))
-  }
-
-  #loadCompactionSource(
-    agentSessionId: string,
-    excludeRunId: string
-  ): { text: string; coveredThroughSequence: number } | null {
-    const rows = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT sequence, type, payload_json
-             FROM agent_events
-            WHERE agent_session_id = ?
-              AND type IN ('user_message', 'assistant_message')
-              AND (agent_run_id IS NULL OR agent_run_id <> ?)
-            ORDER BY sequence
-            LIMIT ?`
-          )
-          .all(agentSessionId, excludeRunId, COMPACTION_SOURCE_EVENT_LIMIT) as Array<{
-          sequence: number
-          type: 'user_message' | 'assistant_message'
-          payload_json: string
-        }>
-    )
-    if (rows.length < 2) return null
-    const fragments: string[] = []
-    let bytes = 0
-    let coveredThroughSequence = 0
-    for (const row of rows) {
-      const payload = JSON.parse(row.payload_json) as Record<string, unknown>
-      const content = typeof payload['content'] === 'string' ? payload['content'] : ''
-      const fragment = `${row.type === 'user_message' ? 'USER' : 'ASSISTANT'}: ${content}\n`
-      const fragmentBytes = new TextEncoder().encode(fragment).byteLength
-      if (bytes + fragmentBytes > COMPACTION_SOURCE_TEXT_LIMIT) break
-      fragments.push(fragment)
-      bytes += fragmentBytes
-      coveredThroughSequence = row.sequence
-    }
-    if (fragments.length < 2 || coveredThroughSequence === 0) return null
-    return { text: fragments.join(''), coveredThroughSequence }
+  async #appendCompactionFailed(input: {
+    agentSessionId: string
+    agentRunId: string | null
+    compactionId: string
+    trigger: AgentCompactionTrigger
+    code: string
+    retryable: boolean
+    aborted: boolean
+  }): Promise<void> {
+    await this.#appendAndPublishEvent({
+      sessionId: input.agentSessionId,
+      runId: input.agentRunId,
+      type: 'compaction_failed',
+      payload: agentCompactionFailedPayloadSchema.parse({
+        schemaVersion: 2,
+        compactionId: input.compactionId,
+        trigger: input.trigger,
+        code: input.code,
+        retryable: input.retryable,
+        aborted: input.aborted,
+        timestamp: this.#now().getTime()
+      }),
+      modelRequestId: null
+    })
   }
 
   async #publishDelta(agentSessionId: string, agentRunId: string, delta: string): Promise<void> {
@@ -2651,11 +3259,104 @@ export class AgentSessionService {
   }
 
   #requireActive(agentRunId: string): ActiveRun {
-    const active = this.#active
-    if (active === undefined || active.agentRunId !== agentRunId) {
+    const active = this.#activeRuns.get(agentRunId)
+    if (active === undefined) {
       throw new Error('Agent run is not active')
     }
     return active
+  }
+
+  #reserveRunSlot(agentSessionId: string, agentRunId: string, controller: AbortController): void {
+    this.#reserveWorkSlot(agentSessionId, agentRunId, 'run', controller)
+  }
+
+  #reserveWorkSlot(
+    agentSessionId: string,
+    workId: string,
+    kind: 'run' | 'manual_compaction',
+    controller: AbortController
+  ): void {
+    if (this.#workBySession.has(agentSessionId)) {
+      this.options.log.warn(
+        {
+          event: 'agent.work.slot_rejected',
+          agentSessionId,
+          workId,
+          kind,
+          reason: 'conversation_active',
+          activeCount: this.#workBySession.size,
+          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+        },
+        'Agent work slot rejected because the conversation is already active'
+      )
+      throw new Error('Agent work is already active in this conversation')
+    }
+    if (this.#workBySession.size >= MAX_CONCURRENT_AGENT_RUNS) {
+      this.options.log.warn(
+        {
+          event: 'agent.work.slot_rejected',
+          agentSessionId,
+          workId,
+          kind,
+          reason: 'project_capacity',
+          activeCount: this.#workBySession.size,
+          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+        },
+        'Agent work slot rejected because the project reached its concurrency limit'
+      )
+      throw new Error(
+        `Up to ${MAX_CONCURRENT_AGENT_RUNS} Agent tasks can work at once. Stop one or wait for it to finish.`
+      )
+    }
+    controller.signal.throwIfAborted()
+    this.#workBySession.set(agentSessionId, workId)
+    this.options.log.info(
+      {
+        event: 'agent.work.slot_acquired',
+        agentSessionId,
+        workId,
+        kind,
+        activeCount: this.#workBySession.size,
+        concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+      },
+      'Agent work slot acquired'
+    )
+  }
+
+  #releaseRunSlot(agentSessionId: string, agentRunId: string): void {
+    this.#releaseWorkSlot(agentSessionId, agentRunId, 'run')
+  }
+
+  #releaseWorkSlot(
+    agentSessionId: string,
+    workId: string,
+    kind: 'run' | 'manual_compaction'
+  ): void {
+    if (this.#workBySession.get(agentSessionId) !== workId) return
+    this.#workBySession.delete(agentSessionId)
+    void this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.work.slot_released',
+        agentSessionId,
+        workId,
+        kind,
+        activeCount: this.#workBySession.size,
+        concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+      },
+      'Agent work slot released'
+    )
+  }
+
+  async #publishActivitySnapshot(): Promise<void> {
+    try {
+      await this.options.publishActivity?.(this.projectActivitySnapshot())
+    } catch (err) {
+      this.options.log.warn(
+        { event: 'agent.activity.delivery_failed', err, activeCount: this.#workBySession.size },
+        'Agent project activity delivery failed without changing run truth'
+      )
+    }
   }
 
   #assertSessionExists(agentSessionId: string): void {
@@ -2666,6 +3367,17 @@ export class AgentSessionService {
         .get(agentSessionId)
     )
     if (exists !== 1) throw new Error('Agent session does not exist')
+  }
+
+  #sessionIsCompacting(agentSessionId: string): boolean {
+    return (
+      [...this.#activeCompactions.values()].some(
+        (compaction) => compaction.agentSessionId === agentSessionId
+      ) ||
+      [...this.#activeRuns.values()].some(
+        (run) => run.agentSessionId === agentSessionId && run.phase === 'compacting'
+      )
+    )
   }
 
   #sessionApprovalMode(agentSessionId: string): AgentApprovalMode {
@@ -2829,7 +3541,12 @@ function emptyMetadata(model: string): AgentAssistantMessagePayload['metadata'] 
 type AgentRunTermination =
   | {
       status: 'failed'
-      code: 'provider_timeout' | 'provider_retries_exhausted' | 'run_failed'
+      code:
+        | 'provider_timeout'
+        | 'provider_retries_exhausted'
+        | 'context_overflow'
+        | 'context_overflow_after_activity'
+        | 'run_failed'
     }
   | { status: 'interrupted'; code: 'user_stopped' | 'project_closed' | 'run_interrupted' }
 
@@ -2853,6 +3570,16 @@ class AgentRunSetupError extends Error {
   }
 }
 
+class AgentRunContextOverflowError extends Error {
+  constructor(
+    readonly code: 'context_overflow' | 'context_overflow_after_activity',
+    cause: unknown
+  ) {
+    super(code, { cause })
+    this.name = 'AgentRunContextOverflowError'
+  }
+}
+
 function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermination {
   if (signal.aborted && signal.reason instanceof AgentRunCancellationError) {
     return { status: 'interrupted', code: signal.reason.code }
@@ -2863,6 +3590,9 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
   if (error instanceof Error && error.name === 'ProviderRetriesExhaustedError') {
     return { status: 'failed', code: 'provider_retries_exhausted' }
   }
+  if (error instanceof AgentRunContextOverflowError) {
+    return { status: 'failed', code: error.code }
+  }
   if (signal.aborted) return { status: 'interrupted', code: 'run_interrupted' }
   if (
     error instanceof Error &&
@@ -2872,6 +3602,32 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
     return { status: 'interrupted', code: 'run_interrupted' }
   }
   return { status: 'failed', code: 'run_failed' }
+}
+
+function isContextOverflowError(error: unknown, depth = 0): boolean {
+  if (depth > 6 || error === null || typeof error !== 'object') return false
+  const candidate = error as {
+    name?: unknown
+    message?: unknown
+    code?: unknown
+    status?: unknown
+    statusCode?: unknown
+    cause?: unknown
+  }
+  const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : ''
+  const message = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : ''
+  const status = candidate.statusCode ?? candidate.status
+  if (
+    code.includes('context_length') ||
+    code.includes('context_window') ||
+    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
+      message
+    ) ||
+    (status === 400 && /context|token limit/u.test(message))
+  ) {
+    return true
+  }
+  return isContextOverflowError(candidate.cause, depth + 1)
 }
 
 function toolResponseCapability(request: AgentToolRequest) {
@@ -2942,6 +3698,120 @@ function safeToolError(
     }
   }
   return { code: 'internal', message: 'Agent tool failed', retryable: false }
+}
+
+function truncateUtf8(value: string, maximumBytes: number): string {
+  if (Buffer.byteLength(value) <= maximumBytes) return value
+  let low = 0
+  let high = Math.min(value.length, maximumBytes)
+  while (low < high) {
+    const midpoint = Math.ceil((low + high) / 2)
+    if (Buffer.byteLength(value.slice(0, midpoint)) <= maximumBytes) low = midpoint
+    else high = midpoint - 1
+  }
+  if (
+    low > 0 &&
+    low < value.length &&
+    value.charCodeAt(low - 1) >= 0xd800 &&
+    value.charCodeAt(low - 1) <= 0xdbff &&
+    value.charCodeAt(low) >= 0xdc00 &&
+    value.charCodeAt(low) <= 0xdfff
+  ) {
+    low -= 1
+  }
+  return value.slice(0, low)
+}
+
+function boundHistoryByCompleteTurns(
+  history: readonly AgentHistoryMessage[],
+  tokenBudget: number
+): AgentHistoryMessage[] {
+  const checkpoint = isCheckpointHistoryMessage(history[0]) ? history[0] : undefined
+  const tail = checkpoint === undefined ? history : history.slice(1)
+  const turns: AgentHistoryMessage[][] = []
+  for (const message of tail) {
+    if (message.role === 'user' || turns.length === 0) turns.push([])
+    turns.at(-1)?.push(message)
+  }
+  const selected: AgentHistoryMessage[][] = []
+  const checkpointTokens = checkpoint === undefined ? 0 : estimateAgentTokens(checkpoint)
+  const checkpointBytes =
+    checkpoint === undefined ? 0 : Buffer.byteLength(JSON.stringify(checkpoint))
+  let keepCheckpoint =
+    checkpoint !== undefined && checkpointTokens <= tokenBudget && checkpointBytes + 3 <= 2_097_152
+  const needsOmissionMarker =
+    estimateAgentTokens(history) > tokenBudget ||
+    Buffer.byteLength(JSON.stringify(history)) > 2_097_152 ||
+    history.length > 200
+  const omissionMarker: AgentHistoryMessage | undefined = needsOmissionMarker
+    ? {
+        role: 'user',
+        content:
+          '<WRITELLM_CONTEXT_OMISSION instructionSemantics="false" authority="none">Older complete turns were omitted by deterministic context fallback. Raw Agent events remain authoritative.</WRITELLM_CONTEXT_OMISSION>',
+        timestamp: 0
+      }
+    : undefined
+  const markerTokens = omissionMarker === undefined ? 0 : estimateAgentTokens(omissionMarker)
+  const markerBytes =
+    omissionMarker === undefined ? 0 : Buffer.byteLength(JSON.stringify(omissionMarker))
+  if (keepCheckpoint && checkpointTokens + markerTokens > tokenBudget) keepCheckpoint = false
+  let tokens = keepCheckpoint ? checkpointTokens : 0
+  let bytes = keepCheckpoint ? checkpointBytes + 3 : 2
+  let messages = keepCheckpoint ? 1 : 0
+  if (omissionMarker !== undefined && markerTokens <= tokenBudget - tokens) {
+    tokens += markerTokens
+    bytes += markerBytes + 1
+    messages += 1
+  }
+  for (const turn of turns.reverse()) {
+    const turnTokens = estimateAgentTokens(turn)
+    const turnBytes = Buffer.byteLength(JSON.stringify(turn)) + 1
+    if (
+      tokens + turnTokens > tokenBudget ||
+      bytes + turnBytes > 2_097_152 ||
+      messages + turn.length > 200
+    ) {
+      break
+    }
+    selected.push(turn)
+    tokens += turnTokens
+    bytes += turnBytes
+    messages += turn.length
+  }
+  return [
+    ...(keepCheckpoint && checkpoint !== undefined ? [checkpoint] : []),
+    ...(omissionMarker !== undefined && messages > selected.flat().length + (keepCheckpoint ? 1 : 0)
+      ? [omissionMarker]
+      : []),
+    ...selected.reverse().flat()
+  ]
+}
+
+function isCheckpointHistoryMessage(
+  message: AgentHistoryMessage | undefined
+): message is Extract<AgentHistoryMessage, { role: 'user' }> {
+  return message?.role === 'user' && message.content.startsWith('<WRITELLM_CONTEXT_CHECKPOINT ')
+}
+
+function boundCheckpointSummary(summary: string, tokenBudget: number): string {
+  if (estimateAgentTokens(summary) <= tokenBudget) return summary
+  const characters = Array.from(summary)
+  let low = 1
+  let high = characters.length
+  let best = 1
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2)
+    const firstCount = Math.max(1, Math.floor(count * 0.65))
+    const candidate = `${characters.slice(0, firstCount).join('')}\n[checkpoint shortened deterministically]\n${characters.slice(-(count - firstCount)).join('')}`
+    if (estimateAgentTokens(candidate) <= tokenBudget) {
+      best = count
+      low = count + 1
+    } else {
+      high = count - 1
+    }
+  }
+  const firstCount = Math.max(1, Math.floor(best * 0.65))
+  return `${characters.slice(0, firstCount).join('')}\n[checkpoint shortened deterministically]\n${characters.slice(-(best - firstCount)).join('')}`
 }
 
 function findToolErrorHttpStatus(error: unknown, depth = 0): number | undefined {

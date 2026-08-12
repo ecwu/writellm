@@ -431,6 +431,85 @@ describe('ManuscriptService', () => {
     database.close()
   })
 
+  it('builds the reference index from current revisions in outline order', async () => {
+    const { database, service } = await fixture()
+    const root = service.assemble().sections[0]
+    if (root === undefined) throw new Error('Missing root fixture')
+    const obsolete = service.appendRevision({
+      sectionId: root.section.sectionId,
+      baseRevisionId: root.revision.sectionRevisionId,
+      baseContentHash: root.revision.contentHash,
+      content: [{ ...paragraph('[Source: Obsolete source]'), id: 'obsolete-citation' }]
+    })
+    service.appendRevision({
+      sectionId: root.section.sectionId,
+      baseRevisionId: obsolete.sectionRevisionId,
+      baseContentHash: obsolete.contentHash,
+      content: [{ ...paragraph('[Source: Café, p. 1]'), id: 'root-citation' }]
+    })
+    const second = service.createSection({
+      baseOutlineVersion: service.assemble().outlineVersion,
+      title: 'Second',
+      position: 1
+    })
+    const secondCurrent = service
+      .assemble()
+      .sections.find(({ section }) => section.sectionId === second.sectionId)
+    if (secondCurrent === undefined) throw new Error('Missing second section fixture')
+    service.appendRevision({
+      sectionId: second.sectionId,
+      baseRevisionId: secondCurrent.revision.sectionRevisionId,
+      baseContentHash: secondCurrent.revision.contentHash,
+      content: [
+        {
+          ...paragraph('【来源：Café，第 9 页】 and [Source: café]'),
+          id: 'second-citations'
+        }
+      ]
+    })
+
+    const index = service.getReferenceIndex()
+
+    expect(index.outlineVersion).toBe(service.assemble().outlineVersion)
+    expect(index.entries).toEqual([
+      {
+        number: 1,
+        title: 'Café',
+        count: 2,
+        occurrences: [
+          expect.objectContaining({
+            sectionId: root.section.sectionId,
+            blockId: 'root-citation',
+            ordinal: 0,
+            pageIndex: 0
+          }),
+          expect.objectContaining({
+            sectionId: second.sectionId,
+            blockId: 'second-citations',
+            ordinal: 0,
+            pageIndex: 8,
+            title: 'Café'
+          })
+        ]
+      },
+      {
+        number: 2,
+        title: 'café',
+        count: 1,
+        occurrences: [
+          expect.objectContaining({
+            sectionId: second.sectionId,
+            blockId: 'second-citations',
+            ordinal: 1,
+            title: 'café'
+          })
+        ]
+      }
+    ])
+    expect(JSON.stringify(index)).not.toContain('Obsolete source')
+    database.close()
+  })
+
   it('logs the original transformed error without logging brief or body content', async () => {
     const error = vi.fn()
     const info = vi.fn()

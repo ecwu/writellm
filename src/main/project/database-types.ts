@@ -206,7 +206,9 @@ export interface AgentEventTable {
     | 'tool_result'
     | 'run_interrupted'
     | 'run_completed'
+    | 'compaction_started'
     | 'compaction_summary'
+    | 'compaction_failed'
   payload_json: string
   model_request_id: string | null
   created_at: string

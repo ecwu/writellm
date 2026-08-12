@@ -8,7 +8,6 @@ import {
 } from 'electron'
 import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth'
 import { isAbsolute, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
 import { createShutdownCoordinator } from './bootstrap/shutdown-coordinator'
@@ -419,6 +418,8 @@ if (!hasSingleInstanceLock) {
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
             publishSession: (event) => agentEvents.publishSession(projectSessionId, event),
+            publishActivity: (snapshot) =>
+              agentEvents.publishActivitySnapshot(projectSessionId, snapshot),
             generateTitle: (input) =>
               agentModel.run(
                 input.config,
@@ -430,41 +431,32 @@ if (!hasSingleInstanceLock) {
                 input.modelLimits
               ),
             summarizeHistory: async (input) => {
-              const result = await modelExecution.runAgent(
+              const execution = await modelExecution.runAgentWithResolvedProvider(
                 database,
                 {
                   systemPrompt: HISTORY_COMPACTION_SYSTEM_PROMPT,
-                  prompt: formatHistoryCompactionInput(input.sourceText),
-                  maxOutputTokens: 4_096,
-                  temperature: 0
+                  prompt: formatHistoryCompactionInput(input.sourcePayloadJson),
+                  maxOutputTokens: 4_096
                 },
                 {
-                  operationId: randomUUID(),
-                  agentRunId: input.agentRunId,
+                  operationId: input.compactionId,
+                  ...(input.agentRunId === null ? {} : { agentRunId: input.agentRunId }),
                   projectSessionId
+                },
+                {
+                  config: input.config,
+                  credential: input.credential,
+                  modelLimits: input.modelLimits
                 },
                 input.signal,
                 () => undefined
               )
-              if (result.text.trim().length === 0) {
+              if (execution.result.text.trim().length === 0) {
                 throw new Error('Agent compaction returned an empty summary')
               }
-              const row = database.immediate(
-                (native) =>
-                  native
-                    .prepare(
-                      `SELECT model_request_id FROM model_requests
-                      WHERE agent_run_id = ? AND operation_kind = 'agent'
-                      ORDER BY created_at DESC, model_request_id DESC LIMIT 1`
-                    )
-                    .get(input.agentRunId) as { model_request_id: string } | undefined
-              )
-              if (row === undefined) {
-                throw new Error('Agent compaction model request was not recorded')
-              }
               return {
-                summary: result.text.trim().slice(0, 32_768),
-                modelRequestId: row.model_request_id
+                summary: execution.result.text.trim().slice(0, 32_768),
+                modelRequestId: execution.modelRequestId
               }
             },
             log: loggerSystem.createModuleLogger('agent', 'session')

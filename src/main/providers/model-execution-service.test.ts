@@ -130,6 +130,76 @@ function service(options?: {
 }
 
 describe('ModelExecutionService', () => {
+  it('returns the exact model request ID for concurrent resolved-model calls', async () => {
+    const project = await database()
+    const agent: AgentModelRuntime = {
+      run: vi.fn(async (_config, _credential, input) => {
+        if (input.prompt === 'slow compaction') {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        return { text: input.prompt, stopReason: 'stop' as const, metadata: metadata('writer') }
+      })
+    }
+    const execution = service({ agent })
+    const resolved = {
+      config: {
+        role: 'agent' as const,
+        providerId: 'openai-compatible' as const,
+        baseUrl: 'https://agent.example.test/v1',
+        model: 'session-writer',
+        modelRevision: 'session-writer-r1',
+        timeoutMs: 1_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null
+      },
+      credential: 'session-secret',
+      modelLimits: {
+        contextWindowTokens: 32_000,
+        inputLimitTokens: 24_000,
+        outputLimitTokens: 4_096,
+        source: 'models_dev' as const,
+        catalogModelKey: 'test/session-writer',
+        resolvedAt: '2026-08-12T00:00:00.000Z'
+      }
+    }
+    const signal = new AbortController().signal
+    const [compaction, title] = await Promise.all([
+      execution.runAgentWithResolvedProvider(
+        project,
+        { systemPrompt: 'summarize', prompt: 'slow compaction', maxOutputTokens: 1_000 },
+        { operationId: 'compaction-id', projectSessionId: 'project-session-id' },
+        resolved,
+        signal
+      ),
+      execution.runAgentWithResolvedProvider(
+        project,
+        { systemPrompt: 'title', prompt: 'fast title', maxOutputTokens: 64 },
+        { operationId: 'title-id', projectSessionId: 'project-session-id' },
+        resolved,
+        signal
+      )
+    ])
+
+    expect(compaction.result.text).toBe('slow compaction')
+    expect(title.result.text).toBe('fast title')
+    expect(compaction.modelRequestId).not.toBe(title.modelRequestId)
+    const rows = await project.kysely
+      .selectFrom('model_requests')
+      .select(['model_request_id', 'operation_id', 'status'])
+      .orderBy('operation_id')
+      .execute()
+    expect(rows).toEqual([
+      {
+        model_request_id: compaction.modelRequestId,
+        operation_id: 'compaction-id',
+        status: 'succeeded'
+      },
+      { model_request_id: title.modelRequestId, operation_id: 'title-id', status: 'succeeded' }
+    ])
+    project.close()
+  })
+
   it('routes embedding through its dedicated gateway and durably records safe metadata', async () => {
     const project = await database()
     const result = await service().embedBatch(

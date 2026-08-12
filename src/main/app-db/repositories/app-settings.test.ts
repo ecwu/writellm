@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openAppDatabase } from '../connection'
 import {
   DEFAULT_ACCENT_PREFERENCE,
+  DEFAULT_CITATION_DISPLAY_MODE,
   DEFAULT_THEME_PREFERENCE,
   THEME_PREFERENCE_KEY,
   AppSettingsRepository
@@ -76,6 +77,22 @@ describe('AppSettingsRepository', () => {
     await expect(repository.getAccentPreference()).resolves.toBe(DEFAULT_ACCENT_PREFERENCE)
     await expect(repository.setAccentPreference('violet')).resolves.toBe('violet')
     await expect(repository.getAccentPreference()).resolves.toBe('violet')
+    database.close()
+  })
+
+  it('defaults, persists, and safely recovers the citation display mode', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await expect(repository.getCitationDisplayMode()).resolves.toBe(DEFAULT_CITATION_DISPLAY_MODE)
+    await expect(repository.setCitationDisplayMode('numbered')).resolves.toBe('numbered')
+    await expect(repository.getCitationDisplayMode()).resolves.toBe('numbered')
+    await database.kysely
+      .updateTable('app_settings')
+      .set({ value_json: '"compact"' })
+      .where('key', '=', 'editor.citation-display-mode.v1')
+      .execute()
+    await expect(repository.getCitationDisplayMode()).resolves.toBe(DEFAULT_CITATION_DISPLAY_MODE)
     database.close()
   })
 

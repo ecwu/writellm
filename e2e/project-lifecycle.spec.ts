@@ -559,10 +559,7 @@ test(
         }
       })
       await launched.page.evaluate(async (input) => {
-        await window.desktop.editor.exportMarkdown({
-          ...input,
-          markdown: 'Export final flush'
-        })
+        await window.desktop.editor.exportMarkdown(input)
         await window.desktop.editor.exportNativeJson({
           projectSessionId: input.projectSessionId,
           sectionId: input.sectionId

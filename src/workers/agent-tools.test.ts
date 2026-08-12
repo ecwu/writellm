@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
+import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
 import {
   AgentReadToolBridge,
   getWritingContextParameters,
@@ -100,6 +101,13 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ])
     expect(tools.slice(0, 9).every((tool) => tool.executionMode === 'parallel')).toBe(true)
     expect(tools.slice(9).every((tool) => tool.executionMode === 'sequential')).toBe(true)
+    expect(tools).toHaveLength(AGENT_MODEL_VISIBLE_TOOL_SPECS.length)
+    tools.forEach((tool, index) => {
+      const shared = AGENT_MODEL_VISIBLE_TOOL_SPECS[index]
+      expect(tool.name).toBe(shared?.name)
+      expect(tool.description).toBe(shared?.description)
+      expect(tool.parameters).toBe(shared?.parameters)
+    })
     const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
     expect(skillReader?.description).toContain('do not reread an entrypoint')
     expect(skillReader?.description).toContain('no more than four task-relevant references')

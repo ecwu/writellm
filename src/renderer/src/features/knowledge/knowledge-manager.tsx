@@ -64,6 +64,7 @@ export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
   onOpenManuscript(): void
+  onOpenReferences(): void
   onOpenSettings(): void
   onError(message: string): void
 }): React.JSX.Element {
@@ -249,6 +250,7 @@ export function KnowledgeManager(props: {
           activeWorkspace='knowledge'
           onOpenKnowledge={() => undefined}
           onOpenManuscript={props.onOpenManuscript}
+          onOpenReferences={props.onOpenReferences}
           onOpenSettings={props.onOpenSettings}
         />
         <KnowledgeSidebar

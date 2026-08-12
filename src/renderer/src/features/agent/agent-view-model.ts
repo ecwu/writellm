@@ -1,6 +1,8 @@
 import {
   agentApprovalDecisionPayloadSchema,
   agentAssistantMessagePayloadSchema,
+  agentCompactionFailedPayloadSchema,
+  agentCompactionStartedPayloadSchema,
   agentCompactionSummaryPayloadSchema,
   agentUserMessagePayloadSchema
 } from '../../../../shared/contracts/agent'
@@ -18,6 +20,8 @@ type AgentToolCallPayload = ReturnType<typeof agentToolCallPayloadSchema.parse>
 type AgentUserMessagePayload = ReturnType<typeof agentUserMessagePayloadSchema.parse>
 type AgentAssistantMessagePayload = ReturnType<typeof agentAssistantMessagePayloadSchema.parse>
 type AgentCompactionSummaryPayload = ReturnType<typeof agentCompactionSummaryPayloadSchema.parse>
+type AgentCompactionStartedPayload = ReturnType<typeof agentCompactionStartedPayloadSchema.parse>
+type AgentCompactionFailedPayload = ReturnType<typeof agentCompactionFailedPayloadSchema.parse>
 type AgentApprovalDecisionPayload = ReturnType<typeof agentApprovalDecisionPayloadSchema.parse>
 type AgentTerminalEvent = AgentEventRecord & {
   type: 'run_interrupted' | 'run_completed'
@@ -78,7 +82,9 @@ export type AgentTimelineItem =
   | { type: 'approval_decision'; id: string; payload: AgentApprovalDecisionPayload }
   | { type: 'run_interrupted'; id: string; terminal: AgentRunTerminal }
   | { type: 'run_completed'; id: string; terminal: AgentRunTerminal }
+  | { type: 'compaction_started'; id: string; payload: AgentCompactionStartedPayload }
   | { type: 'compaction_summary'; id: string; payload: AgentCompactionSummaryPayload }
+  | { type: 'compaction_failed'; id: string; payload: AgentCompactionFailedPayload }
 
 export function mergeAgentEvents(
   current: AgentEventRecord[],
@@ -365,6 +371,20 @@ export function projectAgentTimeline(
       if (!parsed.success) continue
       flushTools()
       items.push({ type: 'compaction_summary', id: event.agentEventId, payload: parsed.data })
+      continue
+    }
+    if (event.type === 'compaction_started') {
+      const parsed = agentCompactionStartedPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) continue
+      flushTools()
+      items.push({ type: 'compaction_started', id: event.agentEventId, payload: parsed.data })
+      continue
+    }
+    if (event.type === 'compaction_failed') {
+      const parsed = agentCompactionFailedPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) continue
+      flushTools()
+      items.push({ type: 'compaction_failed', id: event.agentEventId, payload: parsed.data })
     }
   }
   flushTools()

@@ -362,8 +362,15 @@ export async function runAgentSession(
     if (lastAssistantRetriesExhausted) {
       throw new AgentProviderRetriesExhaustedError(lastAssistantHttpStatus)
     }
-    const error: Error & { status?: number } = new Error('Agent provider request failed')
+    const contextOverflow = isContextOverflowFailure(
+      lastAssistant.errorMessage,
+      lastAssistantHttpStatus
+    )
+    const error: Error & { status?: number; code?: string } = new Error(
+      contextOverflow ? 'Agent provider context window exceeded' : 'Agent provider request failed'
+    )
     if (lastAssistantHttpStatus !== undefined) error.status = lastAssistantHttpStatus
+    if (contextOverflow) error.code = 'context_overflow'
     throw error
   }
   if (lastAssistant.stopReason === 'aborted') {
@@ -372,6 +379,19 @@ export async function runAgentSession(
     throw error
   }
   return { outcome: awaitingReview ? 'awaiting_review' : 'finished' }
+}
+
+function isContextOverflowFailure(
+  message: string | undefined,
+  status: number | undefined
+): boolean {
+  const normalized = message?.toLowerCase() ?? ''
+  return (
+    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
+      normalized
+    ) ||
+    (status === 400 && /context|token limit/u.test(normalized))
+  )
 }
 
 function pausesForReview(details: unknown): boolean {

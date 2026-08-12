@@ -5,6 +5,8 @@ import {
   createSectionRequestSchema,
   deleteSectionRequestSchema,
   manuscriptAssemblySchema,
+  manuscriptReferenceIndexInputSchema,
+  manuscriptReferenceIndexSchema,
   manuscriptWorkspaceInputSchema,
   manuscriptWorkspaceSchema,
   moveSectionRequestSchema,
@@ -87,6 +89,39 @@ export function registerManuscriptIpc(options: {
           durationMs: Date.now() - startedAt
         },
         'Manuscript workspace load failed'
+      )
+      throw err
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptGetReferences, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptReferenceIndexInputSchema.parse(input)
+    const startedAt = Date.now()
+    try {
+      const result = manuscriptReferenceIndexSchema.parse(
+        options.manager.assertActiveSession(parsed.projectSessionId).manuscript.getReferenceIndex()
+      )
+      options.logger.info(
+        {
+          event: 'manuscript.references.loaded',
+          projectSessionId: parsed.projectSessionId,
+          referenceCount: result.entries.length,
+          occurrenceCount: result.entries.reduce((total, entry) => total + entry.count, 0),
+          durationMs: Date.now() - startedAt
+        },
+        'Manuscript reference index loaded'
+      )
+      return result
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'manuscript.references.load_failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          durationMs: Date.now() - startedAt
+        },
+        'Manuscript reference index load failed'
       )
       throw err
     }
@@ -222,6 +257,7 @@ export function registerManuscriptIpc(options: {
   return () => {
     for (const channel of [
       IPC_CHANNELS.manuscriptGetWorkspace,
+      IPC_CHANNELS.manuscriptGetReferences,
       IPC_CHANNELS.manuscriptGetPreview,
       IPC_CHANNELS.manuscriptUpdateBrief,
       IPC_CHANNELS.manuscriptCreateSection,

@@ -268,7 +268,18 @@ export interface RerankGateway {
 
 Pi owns the interactive agent loop and tool-call event model. AI SDK Core may implement embedding and reranking adapters. Provider configuration and trace metadata are normalized above both libraries.
 
-The active interactive boundary is the sessionful `AgentSessionRuntime` hosted in the `agent-worker`. Main owns durable session/run/event state, per-call `model_requests`, version compatibility, and persist-before-publish ordering in `project.sqlite`; the worker owns only the request-scoped Pi loop. The older single-shot `AgentModelRuntime` remains as a CP14 compatibility surface with no product caller. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage is an explicit non-choice because durable agent history must live in the project database.
+The active interactive boundary is the sessionful `AgentSessionRuntime` hosted in the single
+`agent-worker` process. Main owns durable session/run/event state, per-call `model_requests`,
+version compatibility, and persist-before-publish ordering in `project.sqlite`; the worker owns
+only request-scoped Pi loops. One project may have at most three Agent work reservations in
+different conversations, while each conversation remains single-line. A reservation is a run or a
+manual context compaction; automatic compaction reuses its run reservation. Slot reservation in
+Main precedes asynchronous preparation and covers routing, compaction, model, and tool work. The
+older single-shot `AgentModelRuntime` remains the request-scoped auxiliary model boundary for
+bounded conversation-title generation and rolling compaction; interactive Agent turns use
+`AgentSessionRuntime`. The low-level `Agent` class is used directly; the Pi harness's JSONL session
+storage is an explicit non-choice because durable agent history must live in the project database.
+See ADR 018 and ADR 019.
 
 Pin the package manager in `package.json`. Pin exact Pi package versions and major versions for Electron, electron-vite, AI SDK, BlockNote, and native dependencies. Pi and BlockNote API changes must be reviewed rather than accepted through broad version ranges.
 
@@ -635,7 +646,11 @@ Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, bloc
 remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
 `manuscript/exports/` and never silently replaces native BlockNote JSON. The completed Checkpoint
 24 whole-manuscript packages reuse this conversion boundary and add verified asset portability,
-deterministic manifests, explicit loss reporting, and atomic publication.
+deterministic manifests, explicit loss reporting, and atomic publication. Section and whole-
+manuscript Markdown conversion are both Main/shared-owned and derive the same current manuscript
+reference index. Canonical citations are emitted only as manuscript-wide `[n]` markers, without a
+References appendix or reversible mapping; single-section exports retain global numbers and may
+therefore contain gaps. Importing those markers does not recover citation identity.
 
 ### Manual editing
 
@@ -656,9 +671,23 @@ Because only one project is active, collaboration infrastructure such as Yjs is 
 
 Canonical readable citation labels (`[Source: exact title, p. N]` and
 `【来源：准确标题，第 N 页】`, with the page omitted when unavailable) remain ordinary editable
-manuscript text. The section editor may recognize and decorate those labels through ProseMirror,
-but the decoration must not change BlockNote JSON, revision identity, autosave behavior, copied
-text, or Markdown round-trips. Whole-manuscript preview decoration remains deferred.
+manuscript text. Shared parsing uses one English/Chinese canonical rule; titles group by NFC plus
+trim with case preserved, and page does not split a source. The current outline and body first-
+occurrence order derives manuscript-wide numbers dynamically. The section editor may present the
+labels in full, as `[n]`, or as a reference icon through ProseMirror decorations, but presentation
+must not change BlockNote JSON, revision identity, autosave behavior, copied text, or Agent/LLM
+input. Compact citations reveal their full editable text when the caret enters them.
+
+The References rail is a derived, bounded view over current revisions. It keeps the editor mounted,
+shows the manuscript-wide number, exact title, and occurrence count, and uses section/revision/block
+occurrences only to invoke the existing provenance-gated resolver. The active section may overlay a
+Renderer-local occurrence snapshot for unsaved edits; persisted revisions remain authoritative.
+
+Section count algorithm v2 replaces valid canonical citations with boundary whitespace before the
+fixed Unicode word and non-whitespace character rules run, so a citation contributes zero without
+joining surrounding words. Every current and new revision must be v2. Retained historical bodies
+are migrated and recalculated; a retention-pruned row keeps its original v1 counts and version
+because its body cannot be reconstructed.
 
 Interactive citation preview is provenance-gated. Main validates the active project session,
 revision, and stable block ID, then walks the bounded revision lineage from newest to oldest and
@@ -887,27 +916,42 @@ Persist normalized project-local records for:
 
 - agent session;
 - agent run/turn;
-- ordered Agent events (`user_message`, `assistant_message`, `tool_attempted`, `tool_preflight_failed`, `tool_call`, `tool_result`, `approval_decision`, `run_interrupted`, `run_completed`, `compaction_summary`);
+- ordered Agent events (`user_message`, `assistant_message`, `tool_attempted`, `tool_preflight_failed`, `tool_call`, `tool_result`, `approval_decision`, `run_interrupted`, `run_completed`, `compaction_started`, `compaction_summary`, `compaction_failed`);
 - model request metadata and usage;
 - mutation proposals and decisions.
 
 Pi runtime events stream to the renderer for responsive UI, but durable records are created before the corresponding external operation or mutation can become authoritative.
 
-The initial persistence schema is limited to `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. `mutation_proposals` owns decision status, decision time, rejection reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or `applied_outline_version`), and the optional section `undo_revision_id`. Do not add separate `mutation_applications`, `accepted_source_links`, or a compaction subsystem before real usage proves they are necessary. A bounded compaction summary, if needed, is an ordinary `agent_events` row.
+The persistence schema is limited to `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. `mutation_proposals` owns decision status, decision time, rejection reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or `applied_outline_version`), and the optional section `undo_revision_id`. Do not add separate `mutation_applications`, `accepted_source_links`, a compaction table, or a long-term-memory table before real usage proves they are necessary. Compaction lifecycle records and rolling checkpoints are ordinary `agent_events` rows; raw events and current project business rows remain authoritative.
 
 ### Context construction
 
-Do not send the whole project on every turn. A `ContextBuilder` constructs a bounded context from:
+Do not send the whole project on every turn. Main resolves the conversation model and Writing Skill,
+builds the final system prompt and current request, then uses a pure `AgentContextPlanner` to account
+for the exact model-visible tool schemas, reserved output, model input/context limits, and a
+five-percent safety buffer clamped to 4,096–16,384 tokens. If fixed context plus the current request
+cannot fit, fail as `current_turn_too_large`; never recursively truncate the current request.
+
+A `ContextBuilder` constructs current authoritative context from:
 
 - manuscript brief;
 - outline, section objectives, statuses, and word counts;
 - active section and selected blocks;
 - neighboring section summaries where useful;
 - explicit user attachments or selected knowledge citations;
-- prior conversation after compaction;
+- the latest successful rolling checkpoint plus a continuous recent tail;
 - tool descriptions and safety policy.
 
 Full manuscript and knowledge access is through tools with pagination and size limits.
+
+Automatic compaction is triggered by the final conversation budget or before the 200-event/2-MiB
+runtime envelope could omit uncheckpointed history. It advances only across continuous complete
+run/turn boundaries, persists each successful step immediately, and targets checkpoint plus tail at
+the smaller of 24,000 tokens or half the conversation budget. Automatic work is limited to four
+steps and manual work to eight. Failure preserves the latest successful checkpoint and continues
+with deterministic complete-turn and typed-tool-fact reduction. Provider overflow is retried once
+only before assistant, tool, proposal, or other external activity; overflow after activity is never
+replayed. See ADR 019.
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
@@ -927,10 +971,10 @@ requires a separate decision with behavioral evidence, fallback behavior, and pa
 
 Every application-wrapped dynamic payload uses a named block, declares whether it has instruction
 semantics, and escapes block-significant characters before composition. This includes project
-context, optional Skill references, title and compaction inputs, and Main-authored review
-continuations. Full prompts, Skill bodies, manuscript content, and conversation content are never
-logged. Tests freeze layer order, escape behavior, task-template invariants, and the 65,536-byte
-system-prompt budget. See ADR 017.
+context, installed Skill entrypoints and optional references, title and compaction inputs, and
+Main-authored review continuations. Full prompts, Skill bodies, manuscript content, and
+conversation content are never logged. Tests freeze layer order, escape behavior, task-template
+invariants, and the 65,536-byte system-prompt budget. See ADR 017.
 
 ### Agent Harness Protocol v4 tools
 
@@ -1037,10 +1081,11 @@ stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritati
 WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
 `formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog of at most 32 complete entries and
 16 KiB; truncation is logged as `skill_catalog_truncated`. Explicit prompt composition uses
-`formatSkillInvocation` for the frozen primary and dependency entrypoints on every turn. Prompt
-order remains global policy, companion/catalog or invocation guidance, trusted requirements, then
-manuscript data. Model-visible locations use `writellm://skills/...`, never private filesystem
-paths.
+`formatSkillInvocation` for the frozen primary and dependency entrypoints on every turn, then
+places each invocation inside one escaped application-owned `WRITING_SKILL_ENTRYPOINT` semantic
+block. Prompt order remains global policy, companion/catalog or invocation guidance, trusted
+requirements, then manuscript data. Model-visible locations use `writellm://skills/...`, never
+private filesystem paths.
 
 Custom-skill update availability is an ephemeral result of the user's explicit GitHub check. Main
 persists only the confirmed immutable commit pin; it does not persist or automatically trust a
@@ -1073,7 +1118,11 @@ interface AgentToolRequest {
 }
 ```
 
-The bridge uses one dedicated transferable `MessagePort` per active run. Its request and response envelopes repeat the run, tool-call, and source-model capabilities; model-facing arguments contain none of those capabilities.
+The bridge uses one dedicated transferable `MessagePort` per active run. Up to three ports and Pi
+loops may coexist in the one worker process, and every controller, queue command, authorization,
+and tool capability remains indexed by its exact run. Its request and response envelopes repeat
+the run, tool-call, and source-model capabilities; model-facing arguments contain none of those
+capabilities.
 
 Main:
 

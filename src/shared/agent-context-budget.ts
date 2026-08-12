@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { UserMessage } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentModelLimits } from './contracts/agent'
@@ -6,6 +7,56 @@ export const AGENT_CONTEXT_WINDOW_TOKENS = 131_072
 export const AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS = 16_384
 export const AGENT_DEFAULT_OUTPUT_TOKENS = 8_192
 export const AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS = 4_096
+const PROJECTABLE_READ_TOOLS = new Set([
+  'get_writing_context',
+  'read_outline',
+  'read_section',
+  'search_knowledge',
+  'search_manuscript',
+  'read_citations',
+  'read_writing_skill',
+  'inspect_change',
+  'check_draft'
+])
+const SAFE_FACT_KEYS = new Set([
+  'schemaVersion',
+  'ok',
+  'toolName',
+  'toolCallId',
+  'modelRequestId',
+  'code',
+  'retryable',
+  'operationId',
+  'proposalId',
+  'status',
+  'kind',
+  'sectionId',
+  'revisionId',
+  'briefVersion',
+  'outlineVersion',
+  'knowledgeItemId',
+  'knowledgeItemIds',
+  'parseRevisionId',
+  'parseRevisionIds',
+  'citationId',
+  'citationIds',
+  'contentHash',
+  'blockHash',
+  'sha256',
+  'title',
+  'page',
+  'pageFrom',
+  'pageTo',
+  'cursor',
+  'nextCursor',
+  'count',
+  'limit',
+  'totalBlocks',
+  'totalSections',
+  'totalChars',
+  'truncated',
+  'isError'
+])
 
 export function agentOutputLimit(
   requestedTokens: number,
@@ -38,6 +89,15 @@ export class AgentModelCapacityError extends Error {
   ) {
     super('The configured model cannot fit WriteLLM’s minimum safe Agent context budget')
     this.name = 'AgentModelCapacityError'
+  }
+}
+
+export class AgentCurrentTurnTooLargeError extends Error {
+  readonly code = 'current_turn_too_large'
+
+  constructor() {
+    super('The current Agent turn exceeds the bounded provider context')
+    this.name = 'AgentCurrentTurnTooLargeError'
   }
 }
 
@@ -89,43 +149,83 @@ export function boundAgentContextByTokens(
       tokens += groupTokens
       continue
     }
-    if (selected.length === 0) selected.push(truncateTurn(group, budget))
+    if (selected.length === 0) {
+      const projected = projectReadToolResults(group)
+      const projectedTokens = estimateAgentTokens(projected)
+      if (projectedTokens <= budget) {
+        selected.push(projected)
+        tokens += projectedTokens
+        continue
+      }
+      throw new AgentCurrentTurnTooLargeError()
+    }
   }
   return selected.reverse().flat()
 }
 
+function projectReadToolResults(messages: AgentMessage[]): AgentMessage[] {
+  return messages.map((message) => {
+    if (!isProjectableToolResult(message)) return message
+    const facts = projectSafeFacts(message.details)
+    return {
+      ...message,
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            projected: true,
+            toolName: message.toolName,
+            toolCallId: message.toolCallId,
+            isError: message.isError,
+            facts
+          })
+        }
+      ],
+      details: facts
+    }
+  })
+}
+
+function isProjectableToolResult(
+  message: AgentMessage
+): message is Extract<AgentMessage, { role: 'toolResult' }> {
+  return (
+    message !== null &&
+    typeof message === 'object' &&
+    'role' in message &&
+    message.role === 'toolResult' &&
+    PROJECTABLE_READ_TOOLS.has(message.toolName)
+  )
+}
+
+function projectSafeFacts(value: unknown, depth = 0): unknown {
+  if (depth > 4 || value === null) return null
+  if (typeof value === 'boolean' || typeof value === 'number') return value
+  if (typeof value === 'string') {
+    if (value.length <= 512 && !looksLikePrivatePath(value)) return value
+    return {
+      redacted: true,
+      originalCharacters: Array.from(value).length,
+      sha256: createHash('sha256').update(value).digest('hex')
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 100).map((entry) => projectSafeFacts(entry, depth + 1))
+  }
+  if (typeof value !== 'object') return null
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => SAFE_FACT_KEYS.has(key))
+      .map(([key, entry]) => [key, projectSafeFacts(entry, depth + 1)])
+  )
+}
+
+function looksLikePrivatePath(value: string): boolean {
+  return /^(?:\/(?:Users|home|private|var)\/|[A-Za-z]:\\)/u.test(value)
+}
+
 export function contextWouldTruncate(messages: AgentMessage[], tokenBudget: number): boolean {
   return estimateAgentTokens(messages) > tokenBudget
-}
-
-function truncateTurn(group: AgentMessage[], budget: number): AgentMessage[] {
-  for (const maximumStringLength of [8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16]) {
-    const candidate = truncateStrings(group, maximumStringLength) as AgentMessage[]
-    if (estimateAgentTokens(candidate) <= budget) return candidate
-  }
-  const timestamp = group.find(isUserMessage)?.timestamp ?? Date.now()
-  return [
-    {
-      role: 'user',
-      content: '[The current turn exceeded the bounded provider context and was safely truncated.]',
-      timestamp
-    }
-  ]
-}
-
-function truncateStrings(value: unknown, maximum: number): unknown {
-  if (typeof value === 'string') {
-    if (value.length <= maximum) return value
-    const suffixLength = Math.min(64, Math.floor(maximum / 4))
-    return `${value.slice(0, maximum - suffixLength)}…${value.slice(-suffixLength)}`
-  }
-  if (Array.isArray(value)) return value.map((item) => truncateStrings(item, maximum))
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, truncateStrings(child, maximum)])
-    )
-  }
-  return value
 }
 
 function isUserMessage(message: AgentMessage): message is UserMessage {

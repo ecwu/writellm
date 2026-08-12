@@ -42,4 +42,42 @@ describe('AgentEventBroker', () => {
       broker.publishDelta(projectSessionId, { agentSessionId, agentRunId, delta: 'ignored' })
     ).not.toThrow()
   })
+
+  it('queues project-wide activity while the live-run snapshot is being installed', () => {
+    const sent: Array<{ channel: string; value: unknown }> = []
+    const broker = new AgentEventBroker(log)
+    broker.subscribeActivity({
+      sender: {
+        id: 9,
+        isDestroyed: () => false,
+        send: (channel, value) => sent.push({ channel, value })
+      },
+      projectSessionId,
+      subscriptionId
+    })
+    broker.publishDelta(projectSessionId, { agentSessionId, agentRunId, delta: 'snapshot-race' })
+    expect(sent).toEqual([])
+
+    broker.completeActivitySnapshot(9, subscriptionId)
+    broker.publishActivitySnapshot(projectSessionId, {
+      limit: 3,
+      activeCount: 0,
+      runs: [],
+      compactions: []
+    })
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        channel: 'agent:activity',
+        value: expect.objectContaining({ kind: 'delta', delta: 'snapshot-race' })
+      }),
+      expect.objectContaining({
+        channel: 'agent:activity',
+        value: expect.objectContaining({
+          kind: 'activity',
+          snapshot: { limit: 3, activeCount: 0, runs: [], compactions: [] }
+        })
+      })
+    ])
+  })
 })

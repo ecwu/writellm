@@ -173,9 +173,11 @@ test(
     const zipBytes = await evidenceZip()
     let parseTaskId = ''
     let outlineVersion = 0
+    let sourceSectionId = ''
     let sectionId = ''
     let agentCall = 0
     let titleCall = 0
+    let compactionCall = 0
     const requestBodies: unknown[] = []
     const server = createServer((request, response) => {
       const port = (server.address() as AddressInfo).port
@@ -263,6 +265,14 @@ test(
             )
             return
           }
+          if (JSON.stringify(body).includes('CONTEXT CHECKPOINT COMPACTION')) {
+            compactionCall += 1
+            sendCompletion(
+              response,
+              '- Objective\nPreserve the grounded writing task.\n- Active constraints\nKeep citations authoritative.\n- Decisions and rationale\nUse verified project evidence.\n- Verified progress\nA grounded proposal was applied.\n- Proposal outcomes\nThe section proposal was applied.\n- Evidence and citation IDs\nRetain the recorded citation ID.\n- Active work and blockers\nNone.\n- Next actions\nContinue from the current manuscript.\n- Critical references\nThe project evidence record.'
+            )
+            return
+          }
           requestBodies.push(body)
           agentCall += 1
           if (agentCall === 1) {
@@ -313,30 +323,34 @@ test(
               response.end(JSON.stringify({ error: { message: 'Expanded evidence missing' } }))
               return
             }
-            sendToolCall(response, {
-              responseId: 'agent-proposal-response',
-              toolCallId: 'agent-proposal-tool',
-              name: 'submit_section_change',
-              text: 'The source supports a bounded revision. I will prepare it for review.',
-              args: {
-                sectionId,
-                operations: [
-                  {
-                    type: 'insertTextBlocks',
-                    anchor: null,
-                    placement: 'end',
-                    blocks: [
+            setTimeout(
+              () =>
+                sendToolCall(response, {
+                  responseId: 'agent-proposal-response',
+                  toolCallId: 'agent-proposal-tool',
+                  name: 'submit_section_change',
+                  text: 'The source supports a bounded revision. I will prepare it for review.',
+                  args: {
+                    sectionId,
+                    operations: [
                       {
-                        clientRef: 'grounded-paragraph',
-                        blockType: 'paragraph',
-                        text: 'Grounded revision from Agent. [Source: agent evidence.pdf, p. 1]'
+                        type: 'insertTextBlocks',
+                        anchor: null,
+                        placement: 'end',
+                        blocks: [
+                          {
+                            clientRef: 'grounded-paragraph',
+                            blockType: 'paragraph',
+                            text: 'Grounded revision from Agent. [Source: agent evidence.pdf, p. 1]'
+                          }
+                        ]
                       }
-                    ]
+                    ],
+                    citationIds: [citationId]
                   }
-                ],
-                citationIds: [citationId]
-              }
-            })
+                }),
+              1_500
+            )
             return
           }
           if (agentCall === 5) {
@@ -461,6 +475,26 @@ test(
       await launched.page.keyboard.press('ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
 
+      await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
+      const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
+      await outline.getByRole('button', { name: 'New section', exact: true }).click()
+      const createSection = launched.page.getByRole('dialog', { name: 'Create section' })
+      await createSection.getByLabel('Section title').fill('Agent revision target')
+      await createSection.getByRole('button', { name: 'Create', exact: true }).click()
+      await expect(createSection).not.toBeVisible()
+      await outline.getByRole('button', { name: 'Open in editor', exact: true }).click()
+      await expect(outline).not.toBeVisible()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
+      await editor.click()
+      await launched.page.keyboard.type('Target section baseline.')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      await launched.page
+        .getByTestId(/^outline-section-/)
+        .filter({ hasText: 'Introduction' })
+        .click()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
+
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       const knowledge = launched.page.getByTestId('knowledge-workspace')
       await knowledge.getByTestId('knowledge-upload-button').click()
@@ -489,18 +523,27 @@ test(
         .toBe(true)
 
       await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-      ;({ outlineVersion, sectionId } = await launched.page.evaluate(async () => {
+      ;({ outlineVersion, sourceSectionId, sectionId } = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
           ?.projectSessionId
         if (projectSessionId === undefined) throw new Error('Project session missing')
         const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
-        const section = workspace.sections.find((item) => item.section.title === 'Introduction')
-        if (section === undefined) throw new Error('Introduction section missing')
+        const source = workspace.sections.find((item) => item.section.title === 'Introduction')
+        const target = workspace.sections.find(
+          (item) => item.section.title === 'Agent revision target'
+        )
+        if (source === undefined || target === undefined) throw new Error('Agent sections missing')
         return {
           outlineVersion: workspace.outlineVersion,
-          sectionId: section.section.sectionId
+          sourceSectionId: source.section.sectionId,
+          sectionId: target.section.sectionId
         }
       }))
+
+      await editor.click()
+      await launched.page.keyboard.type(
+        ` Unsaved before Agent follow.${' Additional source-section text.'.repeat(80)}`
+      )
 
       const browserWindow = await launched.app.browserWindow(launched.page)
       await browserWindow.evaluate((window) => {
@@ -531,8 +574,10 @@ test(
       await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toBeVisible()
       await expect(panel.getByLabel('Agent message')).toBeVisible()
       await panel.getByRole('button', { name: /Context:/ }).click()
-      await launched.page.getByRole('option', { name: 'This section', exact: true }).click()
-      await panel.getByLabel('Agent message').fill('Ground this section in the imported evidence.')
+      await launched.page.getByRole('option', { name: 'Whole manuscript', exact: true }).click()
+      await panel
+        .getByLabel('Agent message')
+        .fill('Ground the Agent revision target section in the imported evidence.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect(panel.getByLabel('Generating conversation title')).toBeVisible()
       await expect(panel.getByTestId('agent-conversation-header')).toContainText(
@@ -555,6 +600,37 @@ test(
           }
         )
       ).toBeVisible()
+      const conversationSwitcher = panel.getByTestId('agent-conversation-switcher')
+      await conversationSwitcher.focus()
+      await expect(conversationSwitcher).toBeFocused()
+      const manuscriptScroller = launched.page.locator('[data-slot="sidebar-inset"]')
+      await manuscriptScroller.evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+      })
+      await expect
+        .poll(() => manuscriptScroller.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0)
+      await browserWindow.evaluate((window) => window.setContentSize(1000, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
+      await expect
+        .poll(() => launched.page.getByLabel('Section title').inputValue())
+        .toBe('Agent revision target')
+      await expect(conversationSwitcher).toBeFocused()
+      await expect.poll(() => manuscriptScroller.evaluate((element) => element.scrollTop)).toBe(0)
+      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
+      const sourceTruth = await launched.page.evaluate(async (expectedSourceSectionId) => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (projectSessionId === undefined) throw new Error('Project session missing')
+        const preview = await window.desktop.manuscript.preview({ projectSessionId })
+        return JSON.stringify(
+          preview.sections.find((item) => item.section.sectionId === expectedSourceSectionId)
+            ?.revision.content
+        )
+      }, sourceSectionId)
+      expect(sourceTruth).toContain('Unsaved before Agent follow.')
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
       await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
       await expect(panel.getByText('Ready for review', { exact: true }).first()).toBeVisible()
@@ -619,8 +695,13 @@ test(
       await expect(panel.getByText('applied', { exact: true })).toBeVisible()
       await expect(panel.getByText('Applied · continuing', { exact: true })).toBeVisible()
       await expect(panel.getByText('Ready for review', { exact: true })).toHaveCount(0)
-      const approvalContinuation =
-        'The user approved the proposed section update, and it is now applied. Treat the resulting manuscript state as authoritative. Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
+      const approvalContinuation = `<AUTHORITATIVE_REVIEW_STATE instructionSemantics="true">
+The user approved the proposed Section update, and it is now applied. Treat the resulting manuscript state as authoritative.
+</AUTHORITATIVE_REVIEW_STATE>
+
+<CURRENT_USER_REQUEST instructionSemantics="true">
+Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.
+</CURRENT_USER_REQUEST>`
       await expect(panel.getByText(approvalContinuation, { exact: true })).toHaveCount(0)
       await expect(
         panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
@@ -723,6 +804,7 @@ test(
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
       await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
         'Grounded evidence proposal'
       )
@@ -743,6 +825,23 @@ test(
       }, appliedTruth.agentSessionId)
       expect(reopenedTruth.sessionIds).toContain(appliedTruth.agentSessionId)
       expect(reopenedTruth.proposal?.status).toBe('applied')
+
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page
+        .getByRole('menuitem', { name: 'Summarize earlier conversation', exact: true })
+        .click()
+      const compactionDialog = launched.page.getByRole('alertdialog', {
+        name: 'Summarize earlier conversation?'
+      })
+      await expect(compactionDialog).toContainText('lossy context checkpoint')
+      await compactionDialog.getByRole('button', { name: 'Summarize', exact: true }).click()
+      await expect(panel.getByText('Earlier conversation summarized · manual')).toBeVisible()
+      await panel.getByText('Earlier conversation summarized · manual').click()
+      await expect(
+        panel.getByText('AI-generated context checkpoint, not manuscript authority.')
+      ).toBeVisible()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
+      expect(compactionCall).toBe(1)
 
       await panel.getByRole('button', { name: 'Undo', exact: true }).click()
       await expect(panel.getByText('undone', { exact: true })).toBeVisible()

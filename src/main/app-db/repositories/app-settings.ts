@@ -1,8 +1,10 @@
 import type { Logger } from 'pino'
 import {
   accentPreferenceSchema,
+  citationDisplayModeSchema,
   themePreferenceSchema,
   type AccentPreference,
+  type CitationDisplayMode,
   type ThemePreference
 } from '../../../shared/contracts/app'
 import {
@@ -23,12 +25,14 @@ import {
 export const THEME_PREFERENCE_KEY = 'theme.preference'
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
 export const DEFAULT_ACCENT_PREFERENCE: AccentPreference = 'neutral'
+export const DEFAULT_CITATION_DISPLAY_MODE: CitationDisplayMode = 'full'
 export const DEFAULT_AGENT_APPROVAL_MODE: AgentApprovalMode = 'manual'
 const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
 const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
 const AGENT_LAST_THINKING_LEVEL_KEY = 'agent.last-thinking-level.v1'
 const ACCENT_PREFERENCE_KEY = 'theme.accent'
+const CITATION_DISPLAY_MODE_KEY = 'editor.citation-display-mode.v1'
 const modelLimitsCacheSchema = z.record(
   z.string().regex(/^[a-f0-9]{64}$/),
   z.object({ limits: agentModelLimitsSchema, refreshedAt: z.iso.datetime() }).strict()
@@ -98,6 +102,21 @@ export class AppSettingsRepository {
   async setAccentPreference(preference: AccentPreference): Promise<AccentPreference> {
     const value = accentPreferenceSchema.parse(preference)
     await this.#writeSetting(ACCENT_PREFERENCE_KEY, value)
+    return value
+  }
+
+  async getCitationDisplayMode(): Promise<CitationDisplayMode> {
+    return this.#readSetting(
+      CITATION_DISPLAY_MODE_KEY,
+      citationDisplayModeSchema,
+      DEFAULT_CITATION_DISPLAY_MODE,
+      'app.settings.invalid_citation_display_mode'
+    )
+  }
+
+  async setCitationDisplayMode(mode: CitationDisplayMode): Promise<CitationDisplayMode> {
+    const value = citationDisplayModeSchema.parse(mode)
+    await this.#writeSetting(CITATION_DISPLAY_MODE_KEY, value)
     return value
   }
 

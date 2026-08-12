@@ -11,7 +11,7 @@ import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-li
 import { agentRuntimeAuthSchema } from './agent-auth'
 export { agentRuntimeAuthSchema, type AgentRuntimeAuth } from './agent-auth'
 
-export const AGENT_EVENT_SCHEMA_VERSION = 2
+export const AGENT_EVENT_SCHEMA_VERSION = 3
 export const AGENT_RUNTIME_VERSION = '0.80.10'
 
 export const agentSessionIdSchema = z.uuid()
@@ -251,7 +251,8 @@ const agentRuntimeDiagnosticErrorSchema = z
     name: z.string().max(200),
     message: z.string().max(4_096),
     stack: z.string().max(32_768).optional(),
-    httpStatus: z.number().int().min(100).max(599).optional()
+    httpStatus: z.number().int().min(100).max(599).optional(),
+    code: z.literal('context_overflow').optional()
   })
   .strict()
 
@@ -297,13 +298,69 @@ export const agentEventTypeSchema = z.enum([
   'approval_decision',
   'run_interrupted',
   'run_completed',
-  'compaction_summary'
+  'compaction_started',
+  'compaction_summary',
+  'compaction_failed'
 ])
-export const agentCompactionSummaryPayloadSchema = z
+export const agentCompactionTriggerSchema = z.enum([
+  'auto_threshold',
+  'manual',
+  'provider_overflow'
+])
+export const agentLegacyCompactionSummaryPayloadSchema = z
   .object({
     summary: z.string().min(1).max(32_768),
     coveredThroughSequence: z.number().int().positive(),
     estimatedInputTokens: z.number().int().positive(),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
+export const agentCompactionCheckpointPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    compactionId: z.uuid(),
+    trigger: agentCompactionTriggerSchema,
+    stepIndex: z.number().int().positive().max(8),
+    finalStep: z.boolean(),
+    previousCheckpointEventId: agentEventIdSchema.nullable(),
+    coveredFromSequence: z.number().int().positive(),
+    coveredThroughSequence: z.number().int().positive(),
+    summary: z.string().min(1).max(32_768),
+    proposalOutcomes: z.array(z.record(z.string(), z.unknown())).max(256),
+    approvalDecisions: z.array(z.record(z.string(), z.unknown())).max(256),
+    citationIds: z.array(z.string().regex(/^citation-[a-f0-9]{40}$/u)).max(1_000),
+    toolOutcomes: z.array(z.record(z.string(), z.unknown())).max(512),
+    estimatedTokensBefore: z.number().int().nonnegative(),
+    estimatedTokensAfter: z.number().int().nonnegative(),
+    checkpointTokens: z.number().int().nonnegative(),
+    tailTokens: z.number().int().nonnegative(),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
+  .refine((value) => value.coveredFromSequence <= value.coveredThroughSequence, {
+    message: 'Compaction checkpoint coverage is invalid'
+  })
+export const agentCompactionSummaryPayloadSchema = z.union([
+  agentLegacyCompactionSummaryPayloadSchema,
+  agentCompactionCheckpointPayloadSchema
+])
+export const agentCompactionStartedPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    compactionId: z.uuid(),
+    trigger: agentCompactionTriggerSchema,
+    phase: z.enum(['planning', 'summarizing']),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
+export const agentCompactionFailedPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    compactionId: z.uuid(),
+    trigger: agentCompactionTriggerSchema,
+    code: z.string().min(1).max(200),
+    retryable: z.boolean(),
+    aborted: z.boolean(),
     timestamp: z.number().int().nonnegative()
   })
   .strict()
@@ -343,5 +400,11 @@ export type AgentSessionStatus = z.infer<typeof agentSessionStatusSchema>
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>
 export type AgentEventType = z.infer<typeof agentEventTypeSchema>
 export type AgentCompactionSummaryPayload = z.infer<typeof agentCompactionSummaryPayloadSchema>
+export type AgentCompactionCheckpointPayload = z.infer<
+  typeof agentCompactionCheckpointPayloadSchema
+>
+export type AgentCompactionStartedPayload = z.infer<typeof agentCompactionStartedPayloadSchema>
+export type AgentCompactionFailedPayload = z.infer<typeof agentCompactionFailedPayloadSchema>
+export type AgentCompactionTrigger = z.infer<typeof agentCompactionTriggerSchema>
 export type AgentApprovalDecisionPayload = z.infer<typeof agentApprovalDecisionPayloadSchema>
 export type MutationProposalStatus = z.infer<typeof mutationProposalStatusSchema>

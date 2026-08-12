@@ -141,7 +141,7 @@ export async function initializeProjectDatabase(options: {
           prior_revision_id: null,
           word_count: 0,
           character_count: 0,
-          count_algorithm_version: 1,
+          count_algorithm_version: 2,
           agent_run_id: null,
           agent_tool_call_id: null,
           agent_proposal_id: null,

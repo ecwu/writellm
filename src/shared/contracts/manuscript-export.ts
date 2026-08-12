@@ -53,7 +53,8 @@ export const manuscriptMarkdownLossSchema = z
       'table_header_inference',
       'table_multiple_header_rows',
       'nested_block_structure',
-      'preview_width'
+      'preview_width',
+      'citation_numbering'
     ]),
     sectionId: z.string().min(1).max(256),
     blockId: z.string().min(1).max(256),

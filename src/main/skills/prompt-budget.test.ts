@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildAgentPolicy } from '../agent/prompts/agent-policy'
+import { formatPromptBlock } from '../agent/prompts/prompt-block'
 import { SKILL_COMPANION_NOTE } from '../agent/prompts/skill-companion'
 import { MAX_SYSTEM_PROMPT_BYTES } from '../agent/context'
 import { formatWriteLlmSkill } from './prompt'
@@ -7,7 +8,7 @@ import { formatWriteLlmSkill } from './prompt'
 describe('writing skill prompt budget baseline', () => {
   it('stages bounded Skill preparation before downstream tools', () => {
     expect(SKILL_COMPANION_NOTE).toContain(
-      'If a complete <skill> block is already present, do not call read_writing_skill for its SKILL.md again.'
+      'If a complete WRITING_SKILL_ENTRYPOINT block is already present, do not call read_writing_skill for its SKILL.md again.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
       'read exactly one candidate SKILL.md and make no other tool calls in that assistant response.'
@@ -30,19 +31,26 @@ describe('writing skill prompt budget baseline', () => {
       content: '',
       filePath: `writellm://skills/x/${'0'.repeat(40)}/SKILL.md`
     })
+    const entrypoint = formatPromptBlock({
+      tag: 'WRITING_SKILL_ENTRYPOINT',
+      content: wrapper,
+      instructionSemantics: 'true'
+    })
     expect({
       max: MAX_SYSTEM_PROMPT_BYTES,
       policy: Buffer.byteLength(buildAgentPolicy()),
       companion: Buffer.byteLength(SKILL_COMPANION_NOTE),
       emptyInvocation: Buffer.byteLength(wrapper),
+      wrappedEntrypoint: Buffer.byteLength(entrypoint),
       fixedEnvelope: Buffer.byteLength(
         '<TRUSTED_WRITING_REQUIREMENTS instructionSemantics="true">\nnull\n</TRUSTED_WRITING_REQUIREMENTS>\n\n<MANUSCRIPT_DATA instructionSemantics="false">\n{}\n</MANUSCRIPT_DATA>'
       )
     }).toEqual({
       max: 65_536,
       policy: 6_877,
-      companion: 1_331,
+      companion: 1_348,
       emptyInvocation: 197,
+      wrappedEntrypoint: 292,
       fixedEnvelope: 165
     })
   })

@@ -70,6 +70,21 @@ describe('section content processing', () => {
     })
   })
 
+  it('excludes canonical citations without joining the surrounding words', () => {
+    const prepared = prepareSectionContent([
+      {
+        type: 'paragraph',
+        content: [
+          { text: 'alpha[Source: Research, p. 4]beta ' },
+          { text: '中文【来源：报告，第 2 页】结束' }
+        ]
+      }
+    ])
+    expect(prepared.countAlgorithmVersion).toBe(2)
+    expect(prepared.wordCount).toBe(6)
+    expect(prepared.characterCount).toBe(13)
+  })
+
   it('counts only rich-block captions while exposing bounded source and descriptions to Agent reads', () => {
     const content = [
       { type: 'image', props: { name: 'Alt description', caption: 'Image caption' }, children: [] },

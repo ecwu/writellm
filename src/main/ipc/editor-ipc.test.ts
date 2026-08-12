@@ -1,13 +1,23 @@
 import type { IpcMainInvokeEvent } from 'electron'
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { ManuscriptDomainError } from '../../shared/contracts/manuscript'
 import { registerEditorIpc, type EditorIpcMain } from './editor-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
 const snapshotClosingToken = '99999999-9999-4999-8999-999999999999'
+const temporaryDirectories: string[] = []
 
-function harness(options: { snapshotFlushTimeoutMs?: number } = {}) {
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true }))
+  )
+})
+
+function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: string } = {}) {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   const ipc: EditorIpcMain = {
     handle: vi.fn((channel, handler) => handlers.set(channel, handler as never)),
@@ -44,7 +54,7 @@ function harness(options: { snapshotFlushTimeoutMs?: number } = {}) {
         priorRevisionId: null,
         wordCount: 0,
         characterCount: 0,
-        countAlgorithmVersion: 1,
+        countAlgorithmVersion: 2,
         agentRunId: null,
         agentToolCallId: null,
         agentProposalId: null,
@@ -53,15 +63,22 @@ function harness(options: { snapshotFlushTimeoutMs?: number } = {}) {
     })),
     save: vi.fn()
   }
+  const manuscript = {
+    listSections: vi.fn(() => sections),
+    getSection: vi.fn((sectionId: string) =>
+      sections.find((section) => section.sectionId === sectionId)
+    ),
+    assemble: vi.fn()
+  }
+  const manuscriptAssets = {
+    markdownReference: vi.fn((assetId: string) => `assets/${assetId}.png`)
+  }
   const context = {
     projectSessionId,
+    projectRoot: options.projectRoot ?? join(tmpdir(), 'writellm-editor-ipc-unused'),
     editorPersistence,
-    manuscript: {
-      listSections: vi.fn(() => sections),
-      getSection: vi.fn((sectionId: string) =>
-        sections.find((section) => section.sectionId === sectionId)
-      )
-    }
+    manuscript,
+    manuscriptAssets
   }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
@@ -95,7 +112,18 @@ function harness(options: { snapshotFlushTimeoutMs?: number } = {}) {
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { context, editorPersistence, invoke, logger, manager, registration, sections, sender }
+  return {
+    context,
+    editorPersistence,
+    invoke,
+    logger,
+    manager,
+    manuscript,
+    manuscriptAssets,
+    registration,
+    sections,
+    sender
+  }
 }
 
 describe('editor IPC active-section final flush', () => {
@@ -283,6 +311,36 @@ describe('editor IPC active-section final flush', () => {
     expect(manager.completeSnapshotFlush).toHaveBeenCalledWith(snapshotClosingToken)
   })
 
+  it('exports one section with current CAS and manuscript-wide citation numbers', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'writellm-editor-markdown-'))
+    temporaryDirectories.push(projectRoot)
+    const { invoke, manuscript } = harness({ projectRoot })
+    manuscript.assemble.mockReturnValue(citationAssembly())
+
+    await expect(
+      invoke(IPC_CHANNELS.editorExportMarkdown, {
+        projectSessionId,
+        sectionId: 'section-2',
+        sectionRevisionId: 'revision-2',
+        contentHash: 'b'.repeat(64)
+      })
+    ).rejects.toThrow('Markdown export could not be completed')
+
+    const result = await invoke(IPC_CHANNELS.editorExportMarkdown, {
+      projectSessionId,
+      sectionId: 'section-2',
+      sectionRevisionId: 'revision-2',
+      contentHash: 'a'.repeat(64)
+    })
+    expect(result).toEqual({ relativePath: 'manuscript/exports/section-2-revision-2.md' })
+    const markdown = await readFile(
+      join(projectRoot, 'manuscript/exports/section-2-revision-2.md'),
+      'utf8'
+    )
+    expect(markdown).toBe('[2] and [1]\n')
+    expect(markdown).not.toContain('References')
+  })
+
   it('logs the original export error while the renderer receives no absolute path', async () => {
     const { editorPersistence, invoke, logger } = harness()
     const absolutePath = '/Users/private/project/manuscript/exports/section-1.blocknote.json'
@@ -313,8 +371,7 @@ describe('editor IPC active-section final flush', () => {
         projectSessionId,
         sectionId: 'section-1',
         sectionRevisionId: 'revision-1',
-        contentHash: 'a'.repeat(64),
-        markdown: '# Section'
+        contentHash: 'a'.repeat(64)
       })
     ).catch((err: unknown) => err)
     expect(markdownFailure).toBeInstanceOf(Error)
@@ -325,3 +382,80 @@ describe('editor IPC active-section final flush', () => {
     expect(markdownLog.err).toBe(original)
   })
 })
+
+function citationAssembly() {
+  const createdAt = '2026-07-16T00:00:00.000Z'
+  const section = (sectionId: string, position: number, title: string, text: string) => ({
+    section: {
+      sectionId,
+      manuscriptId: 'manuscript-1',
+      parentSectionId: null,
+      position,
+      level: 1,
+      title,
+      objective: null,
+      status: 'drafting' as const,
+      currentRevisionId: `revision-${position + 1}`,
+      createdAt,
+      updatedAt: createdAt
+    },
+    revision: {
+      sectionRevisionId: `revision-${position + 1}`,
+      sectionId,
+      revisionNumber: 1,
+      source: 'manual' as const,
+      sourceClass: 'manual_checkpoint' as const,
+      content: [
+        {
+          id: `citation-${position + 1}`,
+          type: 'paragraph' as const,
+          props: {
+            backgroundColor: 'default',
+            textColor: 'default',
+            textAlignment: 'left' as const
+          },
+          content: [{ type: 'text' as const, text, styles: {} }],
+          children: []
+        }
+      ],
+      contentSchemaVersion: 2,
+      contentHash: 'a'.repeat(64),
+      priorRevisionId: null,
+      wordCount: 0,
+      characterCount: 0,
+      countAlgorithmVersion: 2 as const,
+      agentRunId: null,
+      agentToolCallId: null,
+      agentProposalId: null,
+      createdAt
+    }
+  })
+  return {
+    manuscriptId: 'manuscript-1',
+    outlineVersion: 4,
+    brief: {
+      manuscriptBriefId: 'brief-1',
+      manuscriptId: 'manuscript-1',
+      version: 1,
+      schemaVersion: 1,
+      title: 'Citation export',
+      description: '',
+      topic: '',
+      targetAudience: '',
+      language: 'en',
+      styleTone: '',
+      scopeExclusions: '',
+      targetLength: '',
+      citationRequirements: '',
+      additionalInstructions: '',
+      extensible: {},
+      createdAt
+    },
+    sections: [
+      section('section-1', 0, 'First', '[Source: Alpha, p. 1]'),
+      section('section-2', 1, 'Second', '[Source: Beta] and 【来源：Alpha，第 9 页】')
+    ],
+    wordCount: 0,
+    characterCount: 0
+  }
+}

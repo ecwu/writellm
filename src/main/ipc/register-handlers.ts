@@ -2,7 +2,9 @@ import { app, ipcMain } from 'electron'
 import {
   accentPreferenceSchema,
   appInfoSchema,
+  citationDisplayModeSchema,
   setAccentPreferenceInputSchema,
+  setCitationDisplayModeInputSchema,
   setDefaultAgentApprovalModeInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema
@@ -75,6 +77,22 @@ export function registerIpcHandlers({
     return accentPreferenceSchema.parse(persisted)
   })
 
+  ipc.handle(IPC_CHANNELS.appGetCitationDisplayMode, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return citationDisplayModeSchema.parse(await appSettings.getCitationDisplayMode())
+  })
+
+  ipc.handle(IPC_CHANNELS.appSetCitationDisplayMode, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { mode } = setCitationDisplayModeInputSchema.parse(rawInput)
+    const persisted = await appSettings.setCitationDisplayMode(mode)
+    logger.info(
+      { event: 'app.settings.citation_display_mode_updated', mode: persisted },
+      'Citation display mode updated'
+    )
+    return citationDisplayModeSchema.parse(persisted)
+  })
+
   ipc.handle(IPC_CHANNELS.appGetDefaultAgentApprovalMode, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return agentApprovalModeSchema.parse(await appSettings.getDefaultAgentApprovalMode())
@@ -98,6 +116,8 @@ export function registerIpcHandlers({
       IPC_CHANNELS.appSetThemePreference,
       IPC_CHANNELS.appGetAccentPreference,
       IPC_CHANNELS.appSetAccentPreference,
+      IPC_CHANNELS.appGetCitationDisplayMode,
+      IPC_CHANNELS.appSetCitationDisplayMode,
       IPC_CHANNELS.appGetDefaultAgentApprovalMode,
       IPC_CHANNELS.appSetDefaultAgentApprovalMode
     ]) {

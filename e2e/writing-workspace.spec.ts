@@ -806,3 +806,194 @@ test(
     }
   }
 )
+
+test(
+  'switches citation display, filters counts, renumbers references, and exports global markers',
+  scenario('manuscript.citation-display-references-export'),
+  async ({ testRoot }) => {
+    const projectName = 'Citation display'
+    const projectRoot = join(testRoot, `${projectName}.writellm`)
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      const ids = await launched.page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (projectSessionId === undefined) throw new Error('Project session missing')
+        const initial = await window.desktop.manuscript.workspace({ projectSessionId })
+        const first = initial.sections[0]
+        if (first === undefined) throw new Error('Initial section missing')
+        const firstCurrent = await window.desktop.editor.loadSection({
+          projectSessionId,
+          sectionId: first.section.sectionId
+        })
+        const firstSaved = await window.desktop.editor.saveSectionDocument({
+          projectSessionId,
+          sectionId: first.section.sectionId,
+          baseRevisionId: firstCurrent.revision.sectionRevisionId,
+          baseContentHash: firstCurrent.revision.contentHash,
+          document: [
+            {
+              id: crypto.randomUUID(),
+              type: 'paragraph',
+              props: {
+                backgroundColor: 'default',
+                textColor: 'default',
+                textAlignment: 'left'
+              },
+              content: [
+                {
+                  type: 'text',
+                  text: 'Alpha [Source: Alpha report, p. 1] Omega',
+                  styles: {}
+                }
+              ],
+              children: []
+            }
+          ]
+        })
+        if (!firstSaved.ok) throw new Error(firstSaved.error.message)
+        const created = await window.desktop.manuscript.createSection({
+          projectSessionId,
+          create: {
+            baseOutlineVersion: initial.outlineVersion,
+            parentSectionId: null,
+            position: 1,
+            title: 'Second',
+            objective: null,
+            status: 'drafting'
+          }
+        })
+        const second = created.sections.find(
+          (item) => item.section.sectionId !== first.section.sectionId
+        )
+        if (second === undefined) throw new Error('Second section missing')
+        const secondCurrent = await window.desktop.editor.loadSection({
+          projectSessionId,
+          sectionId: second.section.sectionId
+        })
+        const secondSaved = await window.desktop.editor.saveSectionDocument({
+          projectSessionId,
+          sectionId: second.section.sectionId,
+          baseRevisionId: secondCurrent.revision.sectionRevisionId,
+          baseContentHash: secondCurrent.revision.contentHash,
+          document: [
+            {
+              id: crypto.randomUUID(),
+              type: 'paragraph',
+              props: {
+                backgroundColor: 'default',
+                textColor: 'default',
+                textAlignment: 'left'
+              },
+              content: [
+                { type: 'text', text: 'Beta [Source: Beta report] Gamma ', styles: {} },
+                { type: 'text', text: '【来源：Alpha report，第 9 页】', styles: { italic: true } }
+              ],
+              children: []
+            }
+          ]
+        })
+        if (!secondSaved.ok) throw new Error(secondSaved.error.message)
+        return {
+          projectSessionId,
+          firstSectionId: first.section.sectionId,
+          secondSectionId: second.section.sectionId
+        }
+      })
+      await launched.page.reload()
+      await expectActiveProject(launched.page, projectName)
+
+      await expect(
+        launched.page.getByTestId(`outline-word-count-${ids.firstSectionId}`)
+      ).toHaveText('2')
+      await expect(
+        launched.page.getByTestId(`outline-word-count-${ids.secondSectionId}`)
+      ).toHaveText('2')
+      await expect(
+        launched.page.getByText('4 words · 19 characters', { exact: true })
+      ).toBeVisible()
+
+      await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const settings = launched.page.getByRole('dialog', { name: 'Settings' })
+      await settings.getByRole('radio', { name: '[1]', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      await expect(
+        sectionEditor(launched.page).locator('.writellm-readable-citation-numbered')
+      ).toHaveText('[1]')
+
+      await launched.page.getByRole('button', { name: 'References', exact: true }).click()
+      const references = launched.page.locator('[aria-label="Manuscript references"]')
+      await expect(references.getByText('Alpha report', { exact: true })).toBeVisible()
+      await expect(references.getByText('2 citations', { exact: true })).toBeVisible()
+      await references.getByText('Alpha report', { exact: true }).click()
+      const unavailable = launched.page.getByRole('dialog', { name: 'Source link unavailable' })
+      await expect(unavailable).toContainText('No verifiable source association')
+      await launched.page.keyboard.press('Escape')
+
+      await launched.page.evaluate(() => window.resizeTo(700, 670))
+      await expect
+        .poll(() => launched.page.evaluate(() => window.matchMedia('(max-width: 767px)').matches))
+        .toBe(true)
+      await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
+      const mobileSidebar = launched.page.locator('[data-mobile="true"]')
+      await expect(
+        mobileSidebar
+          .locator('[aria-label="Manuscript references"]')
+          .getByText('Alpha report', { exact: true })
+      ).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+      await launched.page.evaluate(() => window.resizeTo(900, 670))
+      await expect
+        .poll(() => launched.page.evaluate(() => window.matchMedia('(min-width: 768px)').matches))
+        .toBe(true)
+
+      await moveSectionUp(launched.page, 'Second')
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await launched.page.getByTestId(`outline-section-${ids.firstSectionId}`).click()
+      await expect(
+        sectionEditor(launched.page).locator('.writellm-readable-citation-numbered')
+      ).toHaveText('[2]')
+
+      await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await settings.getByRole('radio', { name: 'Icon', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      const citationIcon = sectionEditor(launched.page).locator('.writellm-readable-citation-icon')
+      const iconGeometry = await citationIcon.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return {
+          width: bounds.width,
+          height: bounds.height,
+          display: getComputedStyle(element).display,
+          parent: element.parentElement?.className ?? null,
+          parentWidth: element.parentElement?.getBoundingClientRect().width ?? null
+        }
+      })
+      expect(iconGeometry.width).toBeGreaterThan(0)
+      expect(iconGeometry.height).toBeGreaterThan(0)
+      await expect(citationIcon.locator('svg')).toHaveCount(1)
+      await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await settings.getByRole('radio', { name: 'Full', exact: true }).click()
+      await launched.page.keyboard.press('Escape')
+      await expect(sectionEditor(launched.page)).toContainText('[Source: Alpha report, p. 1]')
+
+      await launched.page.getByRole('button', { name: 'Section actions', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()
+      const exportsDirectory = join(projectRoot, 'manuscript', 'exports')
+      await expect
+        .poll(async () => (await readdir(exportsDirectory)).filter((name) => name.endsWith('.md')))
+        .toHaveLength(1)
+      const exportName = (await readdir(exportsDirectory)).find((name) => name.endsWith('.md'))
+      if (exportName === undefined) throw new Error('Citation Markdown export missing')
+      const markdown = await readFile(join(exportsDirectory, exportName), 'utf8')
+      expect(markdown).toBe('Alpha [2] Omega\n')
+      expect(markdown).not.toContain('Alpha report')
+      expect(markdown).not.toContain('References')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)

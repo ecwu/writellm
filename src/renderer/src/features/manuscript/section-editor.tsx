@@ -28,6 +28,7 @@ import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
 import { logicalAssetId, resolveProjectAssetUrl } from './project-asset-url'
 import {
   readableCitationExtension,
+  refreshReadableCitationDecorations,
   type ReadableCitationActivation
 } from './readable-citation-extension'
 
@@ -72,18 +73,29 @@ export const SectionEditor = forwardRef<
   {
     projectSessionId: string
     revision: SectionRevision
+    autoFocus?: boolean
     onRevision(revision: SectionRevision): void
+    citationNumberByTitle: ReadonlyMap<string, number>
+    onCitationDocumentChange?(document: BlockNoteDocument): void
     onSaveStateChange?(state: SaveState): void
     onSelectionContextChange?(context: EditorSelectionContext): void
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
-  const { resolvedTheme } = useTheme()
+  const { resolvedTheme, citationDisplayMode } = useTheme()
   const closingRef = useRef(false)
   const pendingAssetResolutionsRef = useRef(new Set<Promise<string>>())
   const baseRef = useRef(props.revision)
   const citationActivationHandlerRef = useRef<(activation: ReadableCitationActivation) => void>(
     () => undefined
   )
+  const citationPresentationRef = useRef({
+    mode: citationDisplayMode,
+    numberByTitle: props.citationNumberByTitle
+  })
+  citationPresentationRef.current = {
+    mode: citationDisplayMode,
+    numberByTitle: props.citationNumberByTitle
+  }
   const initialContent =
     props.revision.content.length === 0
       ? [
@@ -106,7 +118,8 @@ export const SectionEditor = forwardRef<
       initialContent,
       extensions: [
         readableCitationExtension({
-          onActivate: (activation) => citationActivationHandlerRef.current(activation)
+          onActivate: (activation) => citationActivationHandlerRef.current(activation),
+          getPresentation: () => citationPresentationRef.current
         })
       ],
       uploadFile: async (file) => {
@@ -186,6 +199,12 @@ export const SectionEditor = forwardRef<
   useEffect(() => {
     citationActivationHandlerRef.current = resolveCitation
   }, [resolveCitation])
+
+  useEffect(() => {
+    void citationDisplayMode
+    void props.citationNumberByTitle
+    refreshReadableCitationDecorations(editor._tiptapEditor.view)
+  }, [citationDisplayMode, editor, props.citationNumberByTitle])
 
   useEffect(() => {
     props.onSaveStateChange?.(saveState)
@@ -324,8 +343,7 @@ export const SectionEditor = forwardRef<
         projectSessionId: props.projectSessionId,
         sectionId: revision.sectionId,
         sectionRevisionId: revision.sectionRevisionId,
-        contentHash: revision.contentHash,
-        markdown: exportRichMarkdown(editor, revision.content as ApprovedEditorBlock[])
+        contentHash: revision.contentHash
       })
     } catch (error) {
       setSaveState('failed')
@@ -340,9 +358,10 @@ export const SectionEditor = forwardRef<
   }, [])
 
   useEffect(() => {
+    if (props.autoFocus === false) return
     const frame = requestAnimationFrame(() => editor.focus())
     return () => cancelAnimationFrame(frame)
-  }, [editor])
+  }, [editor, props.autoFocus])
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -395,6 +414,9 @@ export const SectionEditor = forwardRef<
         slashMenu={false}
         editable={!readOnly && saveState !== 'conflict'}
         onChange={() => {
+          props.onCitationDocumentChange?.(
+            JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument
+          )
           if (replacingImportedDocumentRef.current) {
             replacingImportedDocumentRef.current = false
             return
@@ -724,28 +746,6 @@ async function resolveImportedImages(
       return { ...block, props: { ...block.props, url: result.logicalUrl }, children }
     })
   )
-}
-
-function exportRichMarkdown(
-  editor: ReturnType<typeof useCreateBlockNote<{ schema: typeof approvedEditorSchema }>>,
-  blocks: ApprovedEditorBlock[]
-): string {
-  const markdownBlocks = blocks.map(toMarkdownBlock)
-  return editor
-    .blocksToMarkdownLossy(markdownBlocks)
-    .replace(/```writellm-math\n([\s\S]*?)\n```/g, (_match, source: string) => `$$\n${source}\n$$`)
-}
-
-function toMarkdownBlock(block: ApprovedEditorBlock): ApprovedEditorBlock {
-  const children = block.children.map(toMarkdownBlock)
-  if (block.type !== 'mermaid' && block.type !== 'math') return { ...block, children }
-  return {
-    id: block.id,
-    type: 'codeBlock',
-    props: { language: block.type === 'mermaid' ? 'mermaid' : 'writellm-math' },
-    content: [{ type: 'text', text: block.props.source, styles: {} }],
-    children
-  } as ApprovedEditorBlock
 }
 
 function inlineText(content: unknown): string {

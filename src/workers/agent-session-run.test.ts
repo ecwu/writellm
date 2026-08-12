@@ -1,7 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRunStart, AgentRuntimeEvent } from '../shared/contracts/agent'
-import { boundAgentContextByTokens, estimateAgentTokens } from '../shared/agent-context-budget'
+import {
+  AgentCurrentTurnTooLargeError,
+  boundAgentContextByTokens
+} from '../shared/agent-context-budget'
 import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
 
 const request: AgentRunStart = {
@@ -82,7 +85,7 @@ afterEach(() => {
 })
 
 describe('runAgentSession', () => {
-  it('keeps complete recent turns and safely truncates an oversized current turn', () => {
+  it('keeps complete recent turns and rejects an oversized current turn without string truncation', () => {
     const messages = Array.from({ length: 101 }, (_, index) => ({
       role: 'user' as const,
       content: `turn-${index}`,
@@ -92,11 +95,12 @@ describe('runAgentSession', () => {
     expect(bounded).toHaveLength(101)
     expect(bounded[0]).toMatchObject({ content: 'turn-0' })
     expect(bounded.at(-1)).toMatchObject({ content: 'turn-100' })
-    const oversized = boundAgentContextByTokens(
-      [{ role: 'user', content: '界'.repeat(20_000), timestamp: 1 }],
-      4_096
-    )
-    expect(estimateAgentTokens(oversized)).toBeLessThanOrEqual(4_096)
+    expect(() =>
+      boundAgentContextByTokens(
+        [{ role: 'user', content: '界'.repeat(20_000), timestamp: 1 }],
+        4_096
+      )
+    ).toThrow(AgentCurrentTurnTooLargeError)
   })
 
   it('keeps the Thinking snapshot across retry, steer, and follow-up calls', async () => {
@@ -485,6 +489,45 @@ describe('runAgentSession', () => {
     await expect(stopping).rejects.toMatchObject({ name: 'AbortError' })
     expect(stopEvents).not.toContainEqual(
       expect.objectContaining({ type: 'model_call_finished', outcome: 'timed_out' })
+    )
+  })
+
+  it('preserves a real provider context overflow as a safe machine-readable error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 'context_length_exceeded',
+                message: 'Maximum context length exceeded for this model'
+              }
+            }),
+            { status: 400, headers: { 'content-type': 'application/json' } }
+          )
+        )
+      )
+    )
+    const events: AgentRuntimeEvent[] = []
+
+    let error: unknown
+    try {
+      await runAgentSession(
+        request,
+        (event) => events.push(event),
+        () => undefined,
+        undefined,
+        new FakeMessagePort() as never
+      )
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe('Agent provider context window exceeded')
+    expect((error as Error & { code?: string }).code).toBe('context_overflow')
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'model_call_finished', outcome: 'failed' })
     )
   })
 

@@ -25,6 +25,24 @@
       ]
     },
     {
+      "id": "agent-context-checkpoint-schema-history",
+      "category": "migration",
+      "source": "src/main/project/migrations/0027-agent-event-schema-v3.test.ts",
+      "sourceSha256": "ccfd5e8e1b49b2e669630ae97324b7c7e4c0f10fa33422d710f4be44df3bed78",
+      "tests": [
+        "preserves legacy summaries, upgrades compatible sessions, and accepts compaction lifecycle events"
+      ]
+    },
+    {
+      "id": "citation-count-schema-history",
+      "category": "migration",
+      "source": "src/main/project/migrations/0028-citation-counts-v2.test.ts",
+      "sourceSha256": "f64031876746e1b030cce37110758cd63b2f37b1627d5709741d010a273fb725",
+      "tests": [
+        "backfills retained bodies, preserves pruned history, and widens the version constraint"
+      ]
+    },
+    {
       "id": "wal-online-backup-and-restore",
       "category": "database-backup",
       "source": "src/main/db/backup.test.ts",
@@ -78,7 +96,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "2b0daad8f18efe79654a126aa0d87f6503f9a86658399c30893fa3eeb2f9edae",
+      "sourceSha256": "eafa83bd48e5bc005e12f85029290a833fc5616d18a2b67eaf080a57e4779c12",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",
@@ -120,7 +138,7 @@
       "id": "asset-backed-manuscript-export",
       "category": "export",
       "source": "src/main/manuscript/manuscript-export.test.ts",
-      "sourceSha256": "dc5af1df368f11c8fd4dba1581f65d567c7adca259f6fb081bda9cada0176f45",
+      "sourceSha256": "df1e2823547ba3f4a8e45697697669889198ceb2835ca34c6fe0d738a46662e4",
       "tests": [
         "publishes deterministic native and Markdown packages with verified referenced assets",
         "never overwrites an existing destination and cleans interrupted staging",
@@ -131,12 +149,21 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "442795255830bb1cd1be4133eebae07396f8ffc559c8210d9087b929147028fa",
+      "sourceSha256": "72d843bcebe334742229e1f78b7adeed361783a28480877cb411b6e8b6ad5494",
       "tests": [
+        "allows two runs plus one manual compaction and releases the slot after stop",
+        "cancels and settles every active conversation when the project closes",
+        "releases a reserved slot when asynchronous run preparation fails",
+        "retries one provider overflow only before activity and records a fresh model request",
+        "does not replay a provider overflow after assistant activity",
+        "recovers running rows after relaunch without claiming a false completion",
+        "closes an unmatched compaction start as process_restarted without resuming model work",
         "persists partial output as interrupted and aborts the model request on project close",
         "persists manual review as a completed wait state and locks only that conversation",
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "rejects a tool request carrying a mismatched project-session capability",
+        "continues the current run with deterministic complete-turn fallback after automatic failure",
+        "keeps the latest successful rolling checkpoint when a later step fails",
         "keeps the fallback on title failure and cancels an in-flight title request on close",
         "archives and restores idle conversations idempotently while rejecting archived writes"
       ]

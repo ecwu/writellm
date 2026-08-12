@@ -24,6 +24,8 @@ import { migration0023 } from './0023-agent-provider-selection'
 import { migration0024 } from './0024-writing-skills'
 import { migration0025 } from './0025-agent-thinking-level'
 import { migration0026 } from './0026-agent-session-skill-selection'
+import { migration0027 } from './0027-agent-event-schema-v3'
+import { migration0028 } from './0028-citation-counts-v2'
 
 export const projectMigrations = [
   migration0001,
@@ -51,5 +53,7 @@ export const projectMigrations = [
   migration0023,
   migration0024,
   migration0025,
-  migration0026
+  migration0026,
+  migration0027,
+  migration0028
 ] as const

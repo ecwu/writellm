@@ -18,6 +18,7 @@ import {
   type AgentToolResponse
 } from '../shared/contracts/agent-tools'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from '../shared/contracts/knowledge'
+import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
 
 const strict = { additionalProperties: false } as const
 const uuid = () => Type.String({ format: 'uuid' })
@@ -795,7 +796,11 @@ export class AgentToolBridge {
   }
 
   tools(): AgentTool[] {
-    return [
+    return AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => ({
+      ...tool,
+      execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
+    })) as AgentTool[]
+    /*return [
       {
         name: 'get_writing_context',
         label: 'Get writing context',
@@ -922,7 +927,7 @@ export class AgentToolBridge {
         execute: (toolCallId, args, signal) =>
           this.#execute('generate_image', toolCallId, args, signal)
       }
-    ]
+    ]*/
   }
 
   close(): void {

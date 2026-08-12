@@ -31,10 +31,42 @@ describe('Agent token context budget', () => {
     expect(bounded.at(-1)).toMatchObject({ role: 'user', content: 'newest' })
   })
 
-  it('never throws for an oversized current CJK turn and remains within budget', () => {
-    const bounded = boundAgentContextByTokens([user('界'.repeat(20_000), 1)], 4_096)
-    expect(bounded).toHaveLength(1)
+  it('rejects an oversized current CJK turn instead of recursively truncating strings', () => {
+    expect(() => boundAgentContextByTokens([user('界'.repeat(20_000), 1)], 4_096)).toThrow(
+      'current Agent turn exceeds'
+    )
+  })
+
+  it('replaces oversized current-turn read output with typed facts but never rewrites mutation output', () => {
+    const readResult = {
+      role: 'toolResult' as const,
+      toolCallId: 'tool-read',
+      toolName: 'search_knowledge',
+      content: [{ type: 'text' as const, text: 'PRIVATE SOURCE BODY '.repeat(5_000) }],
+      details: {
+        citationIds: [`citation-${'a'.repeat(40)}`],
+        knowledgeItemIds: ['019c6a5c-8d34-7a8e-a602-3d37a52dc421'],
+        title: '/Users/private/source.pdf',
+        body: 'must not survive'
+      },
+      isError: false,
+      timestamp: 2
+    } satisfies AgentMessage
+    const bounded = boundAgentContextByTokens([user('current request', 1), readResult], 4_096)
     expect(estimateAgentTokens(bounded)).toBeLessThanOrEqual(4_096)
+    expect(JSON.stringify(bounded)).toContain(`citation-${'a'.repeat(40)}`)
+    expect(JSON.stringify(bounded)).not.toContain('PRIVATE SOURCE BODY')
+    expect(JSON.stringify(bounded)).not.toContain('/Users/private')
+    expect(JSON.stringify(bounded)).not.toContain('must not survive')
+
+    const proposalResult = {
+      ...readResult,
+      toolCallId: 'tool-proposal',
+      toolName: 'submit_section_change'
+    } satisfies AgentMessage
+    expect(() =>
+      boundAgentContextByTokens([user('current request', 1), proposalResult], 4_096)
+    ).toThrow('current Agent turn exceeds')
   })
 
   it('combines input, output, context, and fixed safety reserves without clamping upward', () => {

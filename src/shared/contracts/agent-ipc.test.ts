@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AGENT_LIVE_PARTIAL_MAX_BYTES,
   agentEventPageInputSchema,
   agentListSessionsInputSchema,
   agentRendererEventSchema,
+  agentProjectActivitySnapshotSchema,
   agentSessionRecordSchema,
   agentSetThinkingLevelInputSchema,
   agentStartRunInputSchema
@@ -102,6 +104,38 @@ describe('Agent IPC contracts', () => {
         agentSessionId,
         agentRunId,
         delta: 'x'.repeat(65_537)
+      })
+    ).toThrow()
+  })
+
+  it('bounds project activity snapshots by slots and UTF-8 streaming bytes', () => {
+    const run = {
+      agentSessionId,
+      agentRunId,
+      phase: 'running' as const,
+      partialText: 'draft',
+      startedAt: '2026-08-12T09:00:00.000Z'
+    }
+    expect(
+      agentProjectActivitySnapshotSchema.parse({ limit: 3, activeCount: 1, runs: [run] })
+    ).toMatchObject({ limit: 3, activeCount: 1 })
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [
+          {
+            ...run,
+            partialText: 'é'.repeat(Math.floor(AGENT_LIVE_PARTIAL_MAX_BYTES / 2) + 1)
+          }
+        ]
+      })
+    ).toThrow('Live Agent output is too large')
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 3,
+        runs: [run, run, run, run]
       })
     ).toThrow()
   })

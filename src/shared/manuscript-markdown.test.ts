@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { manuscriptAssemblySchema } from './contracts/manuscript'
-import { manuscriptToMarkdown } from './manuscript-markdown'
+import { manuscriptSectionToMarkdown, manuscriptToMarkdown } from './manuscript-markdown'
 
 const createdAt = '2026-07-30T12:00:00.000Z'
 
@@ -224,6 +224,57 @@ $$
       expect.arrayContaining(['table_span', 'table_header_columns', 'table_multiple_header_rows'])
     )
   })
+
+  it('uses one manuscript-wide citation index for whole and single-section exports', () => {
+    const manuscript = manuscriptAssemblySchema.parse({
+      manuscriptId: 'manuscript-1',
+      outlineVersion: 4,
+      brief: {
+        manuscriptBriefId: 'brief-1',
+        manuscriptId: 'manuscript-1',
+        version: 1,
+        schemaVersion: 1,
+        title: 'Citation export',
+        description: '',
+        topic: '',
+        targetAudience: '',
+        language: 'en',
+        styleTone: '',
+        scopeExclusions: '',
+        targetLength: '',
+        citationRequirements: '',
+        additionalInstructions: '',
+        extensible: {},
+        createdAt
+      },
+      sections: [
+        section('section-1', null, 1, 'First', [
+          textBlock('paragraph', 'citation-1', [
+            { type: 'text', text: '[Source: Alpha, p. 1]', styles: {} }
+          ])
+        ]),
+        section('section-2', null, 1, 'Second', [
+          textBlock('paragraph', 'citation-2', [
+            { type: 'text', text: '[Source: Be', styles: { bold: true } },
+            { type: 'text', text: 'ta] and ', styles: {} },
+            { type: 'text', text: '【来源：Alpha，第 9 页】', styles: { italic: true } }
+          ])
+        ])
+      ],
+      wordCount: 0,
+      characterCount: 0
+    })
+    const whole = manuscriptToMarkdown(manuscript, (value) => value)
+    const single = manuscriptSectionToMarkdown(manuscript, 'section-2', (value) => value)
+
+    expect(whole.markdown).toContain('# First\n\n[1]')
+    expect(whole.markdown).toContain('# Second\n\n**[2]** and *[1]*')
+    expect(single.markdown).toBe('**[2]** and *[1]*\n')
+    expect(single.markdown).not.toContain('References')
+    expect(single.lossReport.losses).toEqual([
+      expect.objectContaining({ code: 'citation_numbering', blockId: 'citation-2' })
+    ])
+  })
 })
 
 function textBlock(
@@ -279,7 +330,7 @@ function section(
       priorRevisionId: null,
       wordCount: 1,
       characterCount: 1,
-      countAlgorithmVersion: 1,
+      countAlgorithmVersion: 2,
       agentRunId: null,
       agentToolCallId: null,
       agentProposalId: null,

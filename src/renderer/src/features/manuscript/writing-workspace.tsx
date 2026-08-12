@@ -1,17 +1,36 @@
 import type {
+  BlockNoteDocument,
+  ManuscriptReferenceEntry,
+  ManuscriptReferenceIndex,
   ManuscriptWorkspace,
   SectionRevision,
   SectionStatus,
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
+import type {
+  ExpandedCitation,
+  ReadableCitationResolutionResult
+} from '../../../../shared/contracts/search'
+import {
+  buildReferenceIndexFromOccurrences,
+  findDocumentCitationOccurrences,
+  referenceNumberMap
+} from '../../../../shared/readable-citation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Download, FileText, MoreHorizontal, Upload } from 'lucide-react'
+import { AlertCircle, Download, FileSearch, FileText, MoreHorizontal, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGroupRef } from 'react-resizable-panels'
 import { AppSidebar } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +44,10 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
+import {
+  CitationCandidatePicker,
+  ExpandedCitationPreview
+} from '@/features/knowledge/citation-preview'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
@@ -42,6 +65,18 @@ const editorSaveStateLabels: Record<SaveState, string> = {
 }
 
 const SECTION_TITLE_MAX_LENGTH = 500
+const REFERENCE_PREVIEW_OCCURRENCE_LIMIT = 20
+
+type ReferenceDialogState =
+  | { phase: 'loading'; entry: ManuscriptReferenceEntry }
+  | { phase: 'resolved'; entry: ManuscriptReferenceEntry; citation: ExpandedCitation }
+  | { phase: 'ambiguous'; entry: ManuscriptReferenceEntry; citations: ExpandedCitation[] }
+  | {
+      phase: 'unavailable'
+      entry: ManuscriptReferenceEntry
+      reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
+    }
+  | { phase: 'error'; entry: ManuscriptReferenceEntry }
 
 export function WritingWorkspace(props: {
   projectSessionId: string
@@ -62,6 +97,11 @@ export function WritingWorkspace(props: {
     queryKey: workspaceKey,
     queryFn: () => window.desktop.manuscript.workspace({ projectSessionId: props.projectSessionId })
   })
+  const referencesQuery = useQuery({
+    queryKey: ['manuscript-references', props.projectSessionId],
+    queryFn: () =>
+      window.desktop.manuscript.references({ projectSessionId: props.projectSessionId })
+  })
   const workspace = workspaceQuery.data
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
   const [briefOpen, setBriefOpen] = useState(false)
@@ -70,13 +110,26 @@ export function WritingWorkspace(props: {
   const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
-  const [activeWorkspace, setActiveWorkspace] = useState<'manuscript' | 'knowledge'>('manuscript')
+  const [activeWorkspace, setActiveWorkspace] = useState<'manuscript' | 'knowledge' | 'references'>(
+    'manuscript'
+  )
+  const [citationDraft, setCitationDraft] = useState<{
+    sectionId: string
+    sectionRevisionId: string
+    content: BlockNoteDocument
+  } | null>(null)
+  const [referenceDialog, setReferenceDialog] = useState<ReferenceDialogState | null>(null)
+  const referenceRequestSequenceRef = useRef(0)
   const [editorSaveState, setEditorSaveState] = useState<SaveState>('saved')
   const [metadataTitle, setMetadataTitle] = useState('')
   const [metadataError, setMetadataError] = useState(false)
   const [outlineEditOpen, setOutlineEditOpen] = useState(false)
+  const [editorAutoFocus, setEditorAutoFocus] = useState(true)
   const editorRef = useRef<SectionEditorHandle>(null)
+  const manuscriptScrollRef = useRef<HTMLElement>(null)
   const activeSectionIdRef = useRef<string | null>(null)
+  const pendingScrollSectionIdRef = useRef<string | null>(null)
+  const sectionSwitchLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftSectionIdRef = useRef<string | null>(null)
   const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
   const metadataCanonicalTitleRef = useRef<string | null>(null)
@@ -84,6 +137,73 @@ export function WritingWorkspace(props: {
   const outlineMutationLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
+
+  const effectiveReferenceIndex = useMemo<ManuscriptReferenceIndex>(() => {
+    const stored = referencesQuery.data
+    if (stored === undefined) return { outlineVersion: workspace?.outlineVersion ?? 1, entries: [] }
+    if (citationDraft === null || workspace === undefined) return stored
+    const sectionOrder = new Map(
+      workspace.sections.map((item, index) => [item.section.sectionId, index] as const)
+    )
+    const occurrences = stored.entries
+      .flatMap((entry) => entry.occurrences)
+      .filter((occurrence) => occurrence.sectionId !== citationDraft.sectionId)
+    occurrences.push(...findDocumentCitationOccurrences(citationDraft))
+    occurrences.sort((left, right) => {
+      const sectionDelta =
+        (sectionOrder.get(left.sectionId) ?? Number.MAX_SAFE_INTEGER) -
+        (sectionOrder.get(right.sectionId) ?? Number.MAX_SAFE_INTEGER)
+      return sectionDelta === 0 ? left.ordinal - right.ordinal : sectionDelta
+    })
+    return {
+      outlineVersion: workspace.outlineVersion,
+      entries: buildReferenceIndexFromOccurrences(occurrences).entries
+    }
+  }, [citationDraft, referencesQuery.data, workspace])
+  const citationNumberByTitle = useMemo(
+    () => referenceNumberMap(effectiveReferenceIndex),
+    [effectiveReferenceIndex]
+  )
+
+  const openReference = useCallback(
+    (entry: ManuscriptReferenceEntry): void => {
+      const sequence = ++referenceRequestSequenceRef.current
+      setReferenceDialog({ phase: 'loading', entry })
+      void (async () => {
+        let unavailableReason: Extract<
+          ReadableCitationResolutionResult,
+          { status: 'unavailable' }
+        >['reason'] = 'unlinked'
+        const occurrences = entry.occurrences.slice(0, REFERENCE_PREVIEW_OCCURRENCE_LIMIT)
+        for (const occurrence of occurrences) {
+          const result = await window.desktop.knowledge.resolveReadableCitation({
+            projectSessionId: props.projectSessionId,
+            sectionRevisionId: occurrence.sectionRevisionId,
+            blockId: occurrence.blockId,
+            title: occurrence.title,
+            ...(occurrence.pageIndex === undefined ? {} : { pageIndex: occurrence.pageIndex })
+          })
+          if (referenceRequestSequenceRef.current !== sequence) return
+          if (result.status === 'resolved') {
+            setReferenceDialog({ phase: 'resolved', entry, citation: result.citation })
+            return
+          }
+          if (result.status === 'ambiguous') {
+            setReferenceDialog({ phase: 'ambiguous', entry, citations: result.citations })
+            return
+          }
+          unavailableReason = result.reason
+        }
+        if (entry.occurrences.length > occurrences.length) unavailableReason = 'resolution_limit'
+        setReferenceDialog({ phase: 'unavailable', entry, reason: unavailableReason })
+      })().catch(() => {
+        if (referenceRequestSequenceRef.current === sequence) {
+          setReferenceDialog({ phase: 'error', entry })
+        }
+      })
+    },
+    [props.projectSessionId]
+  )
 
   useEffect(() => {
     if (!props.agentOpen) return
@@ -124,7 +244,12 @@ export function WritingWorkspace(props: {
 
   const mutation = useMutation({
     mutationFn: (operation: () => Promise<ManuscriptWorkspace>) => operation(),
-    onSuccess: (next) => queryClient.setQueryData(workspaceKey, next)
+    onSuccess: (next) => {
+      queryClient.setQueryData(workspaceKey, next)
+      void queryClient.invalidateQueries({
+        queryKey: ['manuscript-references', props.projectSessionId]
+      })
+    }
   })
 
   const activateSection = useCallback(
@@ -145,6 +270,7 @@ export function WritingWorkspace(props: {
         setMetadataError(false)
       }
       activeSectionIdRef.current = sectionId
+      setCitationDraft(null)
       setSelectionContext(null)
       setActiveSectionId(sectionId)
     },
@@ -268,20 +394,62 @@ export function WritingWorkspace(props: {
     }
   }, [props, saveMetadata])
 
-  const selectSection = useCallback(
-    async (sectionId: string): Promise<boolean> => {
-      if (sectionId === activeSectionId) return true
+  const switchSection = useCallback(
+    async (sectionId: string, source: 'user' | 'agent'): Promise<boolean> => {
+      if (sectionId === activeSectionIdRef.current) return true
       if (!(await flushCurrent())) return false
       try {
+        setEditorAutoFocus(source === 'user')
+        pendingScrollSectionIdRef.current = source === 'agent' ? sectionId : null
         await activateSection(sectionId)
         return true
       } catch {
+        if (pendingScrollSectionIdRef.current === sectionId) {
+          pendingScrollSectionIdRef.current = null
+        }
         props.onError('The selected section could not be activated.')
         return false
       }
     },
-    [activateSection, activeSectionId, flushCurrent, props]
+    [activateSection, flushCurrent, props]
   )
+
+  const enqueueSectionSwitch = useCallback(
+    (sectionId: string, source: 'user' | 'agent'): Promise<boolean> => {
+      const operation = sectionSwitchLockRef.current.then(() => switchSection(sectionId, source))
+      sectionSwitchLockRef.current = operation.then(
+        () => undefined,
+        () => undefined
+      )
+      return operation
+    },
+    [switchSection]
+  )
+
+  const selectSection = useCallback(
+    (sectionId: string): Promise<boolean> => enqueueSectionSwitch(sectionId, 'user'),
+    [enqueueSectionSwitch]
+  )
+
+  const followAgentSection = useCallback(
+    (sectionId: string): Promise<boolean> => enqueueSectionSwitch(sectionId, 'agent'),
+    [enqueueSectionSwitch]
+  )
+
+  useEffect(() => {
+    if (
+      activeSectionId === null ||
+      pendingScrollSectionIdRef.current !== activeSectionId ||
+      editorQuery.data?.revision.sectionId !== activeSectionId
+    ) {
+      return
+    }
+    pendingScrollSectionIdRef.current = null
+    const frame = window.requestAnimationFrame(() => {
+      manuscriptScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeSectionId, editorQuery.data])
 
   useEffect(() => {
     let disposed = false
@@ -391,11 +559,16 @@ export function WritingWorkspace(props: {
 
   const refreshAfterAgentMutation = useCallback(async (): Promise<void> => {
     try {
-      await queryClient.invalidateQueries({ queryKey: workspaceKey })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKey }),
+        queryClient.invalidateQueries({
+          queryKey: ['manuscript-references', props.projectSessionId]
+        })
+      ])
     } catch {
       props.onError('The applied Agent change could not be refreshed.')
     }
-  }, [props.onError, queryClient, workspaceKey])
+  }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
 
   const orderedIds = workspace?.sections.map((item) => item.section.sectionId) ?? []
   const activeIndex = activeSectionId === null ? -1 : orderedIds.indexOf(activeSectionId)
@@ -435,6 +608,11 @@ export function WritingWorkspace(props: {
   ])
 
   const updateRevision = (revision: SectionRevision): void => {
+    setCitationDraft({
+      sectionId: revision.sectionId,
+      sectionRevisionId: revision.sectionRevisionId,
+      content: revision.content
+    })
     queryClient.setQueryData<ManuscriptWorkspace>(workspaceKey, (current) => {
       if (!current) return current
       const sections = current.sections.map((item) => {
@@ -457,6 +635,9 @@ export function WritingWorkspace(props: {
       (current: Awaited<ReturnType<typeof window.desktop.editor.loadSection>> | undefined) =>
         current ? { ...current, revision } : current
     )
+    void queryClient.invalidateQueries({
+      queryKey: ['manuscript-references', props.projectSessionId]
+    })
   }
 
   const enqueueOutlineMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
@@ -637,6 +818,7 @@ export function WritingWorkspace(props: {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
+        onOpenReferences={() => setActiveWorkspace('references')}
         onOpenSettings={props.onOpenSettings}
         onError={props.onError}
       />
@@ -651,6 +833,9 @@ export function WritingWorkspace(props: {
       <AppSidebar
         projectName={props.projectName}
         workspace={workspace}
+        references={effectiveReferenceIndex}
+        referencesLoading={referencesQuery.isPending}
+        referencesError={referencesQuery.isError}
         activeWorkspace={activeWorkspace}
         activeSectionId={activeSectionId}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
@@ -660,6 +845,11 @@ export function WritingWorkspace(props: {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
         }}
+        onOpenReferences={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('references')
+        }}
+        onOpenReference={openReference}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenSettings={props.onOpenSettings}
       />
@@ -677,7 +867,7 @@ export function WritingWorkspace(props: {
           minSize={props.agentOpen && wideAgentLayout ? 520 : 0}
           collapsible={props.agentOpen}
         >
-          <SidebarInset className='size-full min-h-0 overflow-auto'>
+          <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
             <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
               <SidebarTrigger className='-ml-1' />
               <Badge className='ml-auto' variant='secondary'>
@@ -766,7 +956,16 @@ export function WritingWorkspace(props: {
                     key={`${props.projectSessionId}:${activeSummary.section.sectionId}:${editorQuery.data.revision.sectionRevisionId}`}
                     projectSessionId={props.projectSessionId}
                     revision={editorQuery.data.revision}
+                    citationNumberByTitle={citationNumberByTitle}
+                    autoFocus={editorAutoFocus}
                     onRevision={updateRevision}
+                    onCitationDocumentChange={(content) => {
+                      setCitationDraft({
+                        sectionId: editorQuery.data.revision.sectionId,
+                        sectionRevisionId: editorQuery.data.revision.sectionRevisionId,
+                        content
+                      })
+                    }}
                     onSaveStateChange={setEditorSaveState}
                     onSelectionContextChange={(context) => {
                       setSelectionContext({
@@ -818,6 +1017,7 @@ export function WritingWorkspace(props: {
                 sectionTitles={sectionTitles}
                 currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
+                onFollowSection={followAgentSection}
                 flushCurrent={flushCurrent}
                 refreshManuscript={refreshAfterAgentMutation}
                 onError={props.onError}
@@ -879,8 +1079,119 @@ export function WritingWorkspace(props: {
         error={previewQuery.isError}
         onOpenChange={setPreviewOpen}
       />
+      <ReferenceSourceDialog
+        projectSessionId={props.projectSessionId}
+        state={referenceDialog}
+        onOpenChange={(open) => {
+          if (open) return
+          referenceRequestSequenceRef.current += 1
+          setReferenceDialog(null)
+        }}
+        onRetry={openReference}
+        onSelect={(entry, citation) => {
+          setReferenceDialog({ phase: 'resolved', entry, citation })
+        }}
+      />
     </SidebarProvider>
   )
+}
+
+function ReferenceSourceDialog(props: {
+  projectSessionId: string
+  state: ReferenceDialogState | null
+  onOpenChange(open: boolean): void
+  onRetry(entry: ManuscriptReferenceEntry): void
+  onSelect(entry: ManuscriptReferenceEntry, citation: ExpandedCitation): void
+}): React.JSX.Element {
+  const state = props.state
+  const title =
+    state?.phase === 'resolved'
+      ? state.citation.title
+      : state?.phase === 'ambiguous'
+        ? 'Choose source evidence'
+        : state?.phase === 'loading'
+          ? `Resolving [${state.entry.number}]`
+          : state?.phase === 'error'
+            ? 'Source preview unavailable'
+            : 'Source link unavailable'
+  const description =
+    state?.phase === 'resolved'
+      ? `${state.citation.headingPath.join(' / ') || 'Normalized source chunk'}${
+          state.citation.page === undefined ? '' : ` · Page ${state.citation.page + 1}`
+        }`
+      : state?.phase === 'ambiguous'
+        ? 'This reference matches more than one evidence chunk. Choose the one to preview.'
+        : state?.phase === 'loading'
+          ? `Checking occurrences of ${state.entry.title} in manuscript order.`
+          : state?.phase === 'error'
+            ? 'The citation resolver failed unexpectedly. Retry without leaving the manuscript.'
+            : referenceUnavailableMessage(
+                state?.phase === 'unavailable' ? state.reason : 'unlinked'
+              )
+  return (
+    <Dialog open={state !== null} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[85vh] max-w-3xl! overflow-y-auto'>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {state?.phase === 'loading' ? (
+          <div
+            className='flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground'
+            role='status'
+          >
+            <Spinner /> Resolving source link…
+          </div>
+        ) : null}
+        {state?.phase === 'resolved' ? (
+          <ExpandedCitationPreview
+            projectSessionId={props.projectSessionId}
+            citation={state.citation}
+          />
+        ) : null}
+        {state?.phase === 'ambiguous' ? (
+          <CitationCandidatePicker
+            citations={state.citations}
+            onSelect={(citation) => props.onSelect(state.entry, citation)}
+          />
+        ) : null}
+        {state?.phase === 'unavailable' ? (
+          <div className='flex gap-3 rounded-md bg-muted/50 px-4 py-3 text-sm' role='status'>
+            <FileSearch className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
+            <p>{referenceUnavailableMessage(state.reason)}</p>
+          </div>
+        ) : null}
+        {state?.phase === 'error' ? (
+          <div className='flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/50 px-4 py-3 text-sm'>
+            <p>The source preview could not be loaded. The reference index is unchanged.</p>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => props.onRetry(state.entry)}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function referenceUnavailableMessage(
+  reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
+): string {
+  switch (reason) {
+    case 'unlinked':
+      return 'No verifiable source association was found for any occurrence of this reference.'
+    case 'source_missing':
+      return 'The linked source is no longer available in the active knowledge index.'
+    case 'index_unavailable':
+      return 'The knowledge index is still preparing. Try this reference again when indexing is complete.'
+    case 'resolution_limit':
+      return 'The reference is older than the bounded provenance history available for interactive preview.'
+  }
 }
 
 function normalizeSectionTitleDraft(value: string): string {

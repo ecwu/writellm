@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
+  agentCompactionSummaryPayloadSchema,
   agentHistorySchema,
   agentQueueCommandSchema,
   agentRunStartSchema,
@@ -32,7 +33,7 @@ const ids = {
 describe('Agent contracts', () => {
   it('pins the application-owned runtime and event schema versions', () => {
     expect(AGENT_RUNTIME_VERSION).toBe('0.80.10')
-    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(2)
+    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(3)
   })
 
   it('validates a capability-bound session run and queue command', () => {
@@ -74,6 +75,45 @@ describe('Agent contracts', () => {
         presentation: { kind: 'review_feedback', displayContent: 'x'.repeat(4_097) }
       })
     ).toThrow()
+  })
+
+  it('reads legacy checkpoints and validates continuous v2 checkpoint coverage', () => {
+    expect(
+      agentCompactionSummaryPayloadSchema.parse({
+        summary: 'Legacy summary',
+        coveredThroughSequence: 10,
+        estimatedInputTokens: 1_000,
+        timestamp: 1
+      })
+    ).toMatchObject({ summary: 'Legacy summary', coveredThroughSequence: 10 })
+    const checkpoint = {
+      schemaVersion: 2 as const,
+      compactionId: ids.requestId,
+      trigger: 'auto_threshold' as const,
+      stepIndex: 1,
+      finalStep: true,
+      previousCheckpointEventId: null,
+      coveredFromSequence: 11,
+      coveredThroughSequence: 20,
+      summary: 'Objective\nContinue safely.',
+      proposalOutcomes: [],
+      approvalDecisions: [],
+      citationIds: [],
+      toolOutcomes: [],
+      estimatedTokensBefore: 2_000,
+      estimatedTokensAfter: 500,
+      checkpointTokens: 300,
+      tailTokens: 200,
+      timestamp: 2
+    }
+    expect(agentCompactionSummaryPayloadSchema.parse(checkpoint)).toEqual(checkpoint)
+    expect(() =>
+      agentCompactionSummaryPayloadSchema.parse({
+        ...checkpoint,
+        coveredFromSequence: 21,
+        coveredThroughSequence: 20
+      })
+    ).toThrow('coverage is invalid')
   })
 
   it('rejects oversized history and stale response envelope shapes', () => {

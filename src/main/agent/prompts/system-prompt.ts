@@ -11,9 +11,17 @@ export function formatAgentSystemPrompt(input: {
   const requirements = input.context.brief
   const manuscript = { ...input.context, brief: null }
   const skillActive = input.mandatorySkill.length > 0 || input.references.length > 0
+  const mandatorySkill =
+    input.mandatorySkill.length === 0
+      ? ''
+      : formatPromptBlock({
+          tag: 'WRITING_SKILL_ENTRYPOINT',
+          content: input.mandatorySkill,
+          instructionSemantics: 'true'
+        })
   const skillSection = [
     skillActive ? SKILL_COMPANION_NOTE : '',
-    input.mandatorySkill,
+    mandatorySkill,
     ...input.references.map((reference) =>
       formatPromptBlock({
         tag: 'WRITING_SKILL_REFERENCE',

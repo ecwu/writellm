@@ -3,6 +3,7 @@ import {
   SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_COUNT_ALGORITHM_VERSION
 } from '../../shared/contracts/manuscript'
+import { stripReadableCitations } from '../../shared/readable-citation'
 
 const unicodeWordCharacter = /[\p{L}\p{N}]/u
 const cjkCharacter = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
@@ -147,7 +148,7 @@ export function prepareSectionContent(content: unknown[]): PreparedSectionConten
   const canonical = canonicalize(content, new Set()) as unknown[]
   const contentJson = JSON.stringify(canonical)
   const contentHash = createHash('sha256').update(contentJson).digest('hex')
-  const counts = countSectionText(extractSectionText(content))
+  const counts = countSectionText(stripReadableCitations(extractSectionText(content)))
   return {
     content,
     contentJson,

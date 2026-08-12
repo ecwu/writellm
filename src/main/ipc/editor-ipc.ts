@@ -38,6 +38,7 @@ import { resolveProjectPath } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
 import { authorizeSender } from './authorize-sender'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
+import { manuscriptSectionToMarkdown } from '../../shared/manuscript-markdown'
 
 export interface EditorIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -155,13 +156,18 @@ export function registerEditorIpc(options: {
         throw new Error('Markdown export source revision is stale')
       }
       const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${parsed.sectionRevisionId}.md`
-      const markdown = parsed.markdown.replace(
-        /writellm-asset:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/gi,
-        (_match, assetId: string) => context.manuscriptAssets.markdownReference(assetId)
+      const converted = manuscriptSectionToMarkdown(
+        context.manuscript.assemble(),
+        parsed.sectionId,
+        (logicalUrl) => {
+          const match = /^writellm-asset:([0-9a-f-]+)$/iu.exec(logicalUrl)
+          if (match?.[1] === undefined) throw new Error('Markdown asset reference is invalid')
+          return context.manuscriptAssets.markdownReference(match[1])
+        }
       )
       await writeAtomicFile(
         resolveProjectPath(context.projectRoot, relativePath),
-        Buffer.from(markdown)
+        Buffer.from(converted.markdown)
       )
       return exportResultSchema.parse({ relativePath })
     } catch (err) {

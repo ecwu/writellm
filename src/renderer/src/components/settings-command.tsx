@@ -16,7 +16,11 @@ import {
   X
 } from 'lucide-react'
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
-import type { AccentPreference, ThemePreference } from '../../../shared/contracts/app'
+import type {
+  AccentPreference,
+  CitationDisplayMode,
+  ThemePreference
+} from '../../../shared/contracts/app'
 import type { AgentApprovalMode } from '../../../shared/contracts/agent'
 import type { SkillsSnapshot } from '../../../shared/contracts/skills'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -79,7 +83,14 @@ export function SettingsCommand({
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
-  const { preference, accent, setPreference, setAccent } = useTheme()
+  const {
+    preference,
+    accent,
+    citationDisplayMode,
+    setPreference,
+    setAccent,
+    setCitationDisplayMode
+  } = useTheme()
 
   useEffect(() => {
     if (!open) return
@@ -141,6 +152,14 @@ export function SettingsCommand({
       setApprovalMode(await window.desktop.app.setDefaultAgentApprovalMode({ mode }))
     } catch {
       onError('Default Agent approval mode could not be saved.')
+    }
+  }
+
+  const selectCitationDisplayMode = async (mode: CitationDisplayMode): Promise<void> => {
+    try {
+      await setCitationDisplayMode(mode)
+    } catch {
+      onError('Citation display preference could not be saved.')
     }
   }
 
@@ -250,10 +269,12 @@ export function SettingsCommand({
                 theme={preference}
                 accent={accent}
                 approvalMode={approvalMode}
+                citationDisplayMode={citationDisplayMode}
                 closeAction={<SettingsCloseButton />}
                 onTheme={selectTheme}
                 onAccent={selectAccent}
                 onApprovalMode={selectApprovalMode}
+                onCitationDisplayMode={selectCitationDisplayMode}
                 onOpenLogs={onOpenLogs}
                 onExportDiagnostics={onExportDiagnostics}
               />
@@ -285,10 +306,12 @@ function GeneralSettings({
   theme,
   accent,
   approvalMode,
+  citationDisplayMode,
   closeAction,
   onTheme,
   onAccent,
   onApprovalMode,
+  onCitationDisplayMode,
   onOpenLogs,
   onExportDiagnostics
 }: {
@@ -296,10 +319,12 @@ function GeneralSettings({
   theme: ThemePreference
   accent: AccentPreference
   approvalMode: AgentApprovalMode
+  citationDisplayMode: CitationDisplayMode
   closeAction: React.ReactNode
   onTheme: (value: ThemePreference) => Promise<void>
   onAccent: (value: AccentPreference) => Promise<void>
   onApprovalMode: (value: AgentApprovalMode) => Promise<void>
+  onCitationDisplayMode: (value: CitationDisplayMode) => Promise<void>
   onOpenLogs: () => void
   onExportDiagnostics: () => void
 }): React.JSX.Element {
@@ -382,6 +407,28 @@ function GeneralSettings({
               <ToggleGroupItem value='manual'>Manual</ToggleGroupItem>
               <ToggleGroupItem value='section_auto'>Section auto</ToggleGroupItem>
               <ToggleGroupItem value='yolo'>YOLO</ToggleGroupItem>
+            </ToggleGroup>
+          </Field>
+
+          <Field>
+            <FieldTitle id='citation-display'>Citation display</FieldTitle>
+            <FieldDescription>
+              Choose how canonical source citations appear while editing. Stored manuscript text
+              remains unchanged.
+            </FieldDescription>
+            <ToggleGroup
+              type='single'
+              value={citationDisplayMode}
+              aria-labelledby='citation-display'
+              variant='outline'
+              className='flex-wrap justify-start'
+              onValueChange={(value) => {
+                if (value) void onCitationDisplayMode(value as CitationDisplayMode)
+              }}
+            >
+              <ToggleGroupItem value='full'>Full</ToggleGroupItem>
+              <ToggleGroupItem value='numbered'>[1]</ToggleGroupItem>
+              <ToggleGroupItem value='icon'>Icon</ToggleGroupItem>
             </ToggleGroup>
           </Field>
 

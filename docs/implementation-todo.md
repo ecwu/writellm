@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 28.3 Agent Prompt Architecture, Checkpoint 28.2, Checkpoint 28.1, and local candidate v0.2026.8.12 are complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Local candidate v0.2026.8.13 tag and unsigned macOS arm64 App build are locally complete above the locally complete Checkpoint 28.x worktree; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +15,146 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Maintenance: v0.2026.8.13 local tag and macOS App
+
+- [x] Set the release identifier to `0.2026.8.13`, verify the complete current worktree, create one
+  local release-candidate commit and annotated `v0.2026.8.13` tag, then build and verify the
+  unsigned macOS arm64 App, DMG, and ZIP with the no-identity package gate.
+
+Authorization: on 2026-08-12 the user explicitly requested the `0.2026.8.13` tag and a new App
+build. Following the established repository convention, the Git tag is `v0.2026.8.13`. This
+authorizes the necessary local commit, annotated tag, and unsigned macOS arm64 package artifacts.
+Push, hosted CI, Apple signing/notarization, GitHub Release, and promotion remain out of scope.
+
+Local evidence: `check:fast`; the complete Electron gate with 142 passing files and 773 passing
+tests plus one opt-in benchmark skip; fresh full Real-Electron with 25/25 scenarios; all 25
+recovery fixtures from 23 sources; `git diff --check`; and the no-identity macOS arm64 package gate
+with 12/12 packaged runtime smoke scenarios and 16/16 packaged Real-Electron scenarios. The bundle
+version is `0.2026.8`, the macOS build version is `2026.8.13`, and the App has a verified no-Team-ID
+ad-hoc/linker signature. The final App, DMG, ZIP, and package evidence are rebuilt from the clean
+annotated tag. Hosted CI, Apple signing/notarization, push, GitHub Release, and promotion were not
+run.
+
+### Maintenance: Checkpoint 28.x Audit Remediation And Verification Hardening
+
+- [x] Remove the compaction path's duplicate semantic wrapper and escape pass while preserving the
+  typed safe projection and exact coverage metadata.
+- [x] Add an application-owned semantic boundary around mandatory Writing Skill entrypoints and
+  close the narrow active-run/manual-compaction slot-release windows.
+- [x] Add the missing focused Main reference-index, whole-export loss, and section-export coverage;
+  then run the approved Electron, E2E, recovery, Impeccable, and diff gates.
+
+Authorization: on 2026-08-12 the user approved the decision-complete Checkpoint 28.x audit
+remediation plan and explicitly requested implementation. This maintenance does not reopen
+Checkpoint 28.6 or authorize new IPC, migrations, Renderer authority, package/release, hosted CI,
+commit, tag, push, or publication work.
+
+Local evidence: 7 focused Electron-hosted files / 82 passing tests; `check:fast` passed;
+`check:electron` passed with 142 Electron-hosted test files, 773 passing tests, one opt-in benchmark
+skipped, and a successful production build; the fresh full Real-Electron gate passed 25/25
+scenarios without flakes or skips; all 25 recovery fixtures from 23 sources passed; the single-pass
+Impeccable detector over the current uncommitted Renderer implementation files was clean; and
+`git diff --check` passed. This is a four-test maintenance increment above the unchanged Checkpoint
+28.6 baseline of 142 files / 769 passing tests. Package/release, hosted CI, commit, tag, push, and
+publication were not run.
+
+### Checkpoint 28.6: Configurable Citation Presentation And References
+
+- [x] Keep canonical readable citation labels in BlockNote revisions while adding application-level
+  full, numbered, and icon presentation modes plus a manuscript-wide References rail surface.
+- [x] Make citation-free word and character counts authoritative through count algorithm v2 and a
+  forward-only project migration that preserves pruned historical revision rows.
+- [x] Route section and whole-manuscript Markdown through one Main/shared numbered-citation export
+  boundary without changing LLM prompts, proposal provenance, or manuscript identity.
+- [x] Add focused shared/Main/IPC/Renderer/migration/export coverage and run the applicable local
+  Electron, E2E, recovery, Impeccable, and diff verification gates.
+
+Authorization: on 2026-08-12 the user supplied and explicitly requested implementation of the
+decision-complete Checkpoint 28.6 plan. The work is additive to the completed Checkpoint 28.5
+worktree and does not authorize package/release, hosted CI, commit, push, or publication work.
+
+Local evidence: 71 focused citation, count, contract, repository, IPC, migration, export, and
+Renderer tests passed; `check:fast` passed; `check:electron` passed with 142 Electron-hosted test
+files, 769 passing tests, one opt-in benchmark skipped, and a successful production build; the
+fresh full Real-Electron gate passed 25/25 scenarios without flakes or skips; all 25 recovery
+fixtures from 23 sources passed; the scoped Impeccable detector was clean; and `git diff --check`
+passed. Package/release, hosted CI, commit, push, and publication were not run.
+
+### Checkpoint 28.5: Rolling Context Checkpoints And Safe Recovery
+
+- [x] Accept ADR 019, amend ADR 018, and align the architecture/current-plan baseline around three
+  project-level Agent work slots, rolling conversation checkpoints, and deterministic recovery.
+- [x] Add Agent event schema v3 and migration 0027 while preserving raw Agent events and project
+  business rows as the only authority and retaining legacy checkpoint readability.
+- [x] Plan the final model-visible context after model, Writing Skill, system prompt, tool schema,
+  and current-request resolution; build continuous rolling checkpoints plus a bounded recent tail.
+- [x] Add typed compaction projections, exact model-request correlation, failure fallback, and
+  context-overflow retry only before any assistant/tool/proposal side effect.
+- [x] Add capability-bound manual compact/stop IPC, project activity, conversation-menu controls,
+  timeline markers, restart recovery, and focused Main/Worker/Renderer/security coverage.
+- [x] Run the approved focused gates, `check:fast`, `check:electron`, fresh E2E, recovery fixtures,
+  package verification, the scoped Impeccable detector, and `git diff --check`.
+
+Authorization: on 2026-08-12 the user supplied the decision-complete Checkpoint 28.5 plan and
+explicitly requested implementation. The checkpoint adds no compaction or long-term-memory table,
+durable job, worker, auxiliary model, cross-session memory, editable prompt/token setting, release,
+hosted CI, commit, push, or publication work.
+
+Local evidence: the focused contract, migration, planner, session, Worker, provider, IPC, broker,
+Renderer, prompt, and safety suites passed; `check:fast` passed; `check:electron` passed with 140
+files and 758 tests, one opt-in benchmark skipped, plus the production build; the fresh full
+Real-Electron suite passed 24/24 without flakes or skips; all 24 recovery fixtures from 22 sources
+passed; the scoped Impeccable detector returned no findings; and `git diff --check` was clean. The
+required no-identity macOS arm64 package gate passed all 12 packaged runtime smoke scenarios and
+16/16 packaged Real-Electron scenarios, verified the Agent Worker/native inventory, the unpacked
+App, DMG, ZIP, and no Apple Team identity. No signed release, hosted CI, commit, tag, push, or
+publication was performed.
+
+### Maintenance: Follow active Agent section edits
+
+- [x] Follow the currently visible Agent conversation into the target section when a live
+  `submit_section_change` or `generate_image` call starts, while preserving current manual edits,
+  Agent-panel focus, background-conversation isolation, and the existing Renderer authority.
+- [x] Add focused parser and Real-Electron coverage, then run the applicable Renderer, Electron,
+  E2E, Impeccable, and diff verification gates.
+
+Authorization: on 2026-08-12 the user approved the decision-complete plan and explicitly requested
+implementation. This maintenance is Renderer-only and adds no IPC, persistence, Agent protocol,
+mutation authority, package, release, hosted CI, commit, push, or promotion work.
+
+Local evidence: the focused Agent panel suite passed 5/5; two focused Real-Electron Agent scenarios
+passed without flakes or skips, covering save-before-follow, focus preservation, scroll reset,
+narrow-window behavior, background-conversation isolation, and historical replay; `check:fast`
+passed; and `check:electron` passed on its confirming run with 137 files and 733 tests, one opt-in
+benchmark skipped, plus the production build. The first full Electron run exposed one unrelated
+scheduler timing timeout; its focused retry and the complete confirming run both passed. The scoped
+Impeccable detector returned no findings, and `git diff --check` was clean. No package, release,
+hosted CI, commit, push, or promotion was performed.
+
+### Checkpoint 28.4: Multi-Conversation Agent Concurrency
+
+- [x] Allow at most three request-scoped Agent runs in different conversations while preserving
+  one active run per conversation, targeted cancellation, and the fixed single agent-worker role.
+- [x] Add a project-scoped, capability-bound activity snapshot and live subscription so background
+  conversation status and bounded partial output remain visible while switching conversations.
+- [x] Keep the existing revision-checked proposal boundary authoritative under concurrent runs and
+  harden the Agent composer for capacity, failure, narrow-window, and draft-preservation states.
+- [x] Add focused Main, Worker, IPC, Renderer, conflict, and Real-Electron coverage; run the full
+  local Electron, E2E, package, Impeccable, recovery, and diff verification gates.
+
+Authorization: on 2026-08-12 the user approved the decision-complete concurrency plan and
+explicitly requested implementation. The accepted scope adds no database migration, durable job,
+worker type, extra worker process, configurable limit, queue, release, hosted CI, commit, push, or
+promotion.
+
+Local evidence: `check:fast` passed; `check:electron` passed with 137 files and 731 tests, with one
+opt-in benchmark skipped, plus the production build; the full Real-Electron suite passed 24/24
+without flakes or skips; all 23 recovery fixtures and the scoped Impeccable detector passed; and
+`git diff --check` was clean. The required no-identity macOS arm64 package gate passed 12/12 runtime
+smoke scenarios and 16/16 packaged Real-Electron scenarios, including the concurrency scenario,
+and verified the unpacked App, DMG, ZIP, native inventory, and no Apple Team identity. No signed
+release, hosted CI, commit, tag, push, or promotion was performed.
 
 ### Checkpoint 28.3: Agent Prompt Architecture
 
@@ -41,10 +181,17 @@ semantic block.
 
 ### Maintenance: Reviewed Writing Skill catalog expansion
 
-- [~] Review the user-supplied CCFA and Nature repositories against WriteLLM's text-only,
+- [x] Review the user-supplied CCFA and Nature repositories against WriteLLM's text-only,
   no-shell, no-network Writing Skill authority; add only compatible, commit- and blob-pinned
   catalog entries; and verify the focused catalog/service boundary plus the applicable local
   gates.
+
+Evidence: added `ccf-visual-composer`, `ccf-paper-reviewer`, `ccf-integrity-auditor`, and
+`nature-statistics` with reviewed commit pins, UTF-8 text allowlists, byte sizes, and Git blob
+SHAs. Focused catalog/service/prompt-budget coverage passed (3 files, 10 tests), `check:fast`
+passed, `check:electron` passed (137 files and 723 tests, with 1 benchmark skipped, plus the
+production build), and the focused Real-Electron `agent.global-writing-skill` scenario passed.
+No package, release, hosted CI, commit, push, or promotion was performed as part of this task.
 
 Authorization: on 2026-08-12 the user explicitly asked to supplement WriteLLM's existing Writing
 Skill registry from `mikubaka88/CCFA-Skills` and `Yuan1z0825/nature-skills`. This maintenance does
@@ -535,6 +682,11 @@ Authoritative detail:
 
 ## Documentation maintenance
 
+- [x] 2026-08-12: Draft a planning-only post-Checkpoint-28 writing-experience roadmap covering
+  proposed Checkpoints 29-44. Keep it inactive, preserve Checkpoint 28 as the current workstream,
+  and require separate approval before Checkpoint 29 or any later checkpoint starts. No
+  architecture decision, implementation authority, migration, package, release, commit, push, or
+  publication scope changed.
 - [x] 2026-08-06: Reduce `current-plan.md` to the active checkpoint, completed baseline, next
   authorized work, and deferred scope; reduce this tracker to active work and document routing;
   correct stale Checkpoint 24 status in the architecture entry points. No architecture decision,
@@ -558,6 +710,7 @@ Authoritative detail:
 | Long-lived decisions | [`adrs/`](adrs/) |
 | Checkpoints 24–26 | [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md) |
 | Checkpoints 20–23 | [`implementation-todo/phase-9.md`](implementation-todo/phase-9.md) |
+| Planning-only Checkpoints 29–44 | [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md) |
 | Earlier phases | Matching file under [`implementation-todo/`](implementation-todo/) |
 | Cross-phase maintenance | [`implementation-todo/maintenance.md`](implementation-todo/maintenance.md) |
 | Completed chronology | [`history/implementation-log.md`](history/implementation-log.md) |

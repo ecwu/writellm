@@ -20,12 +20,15 @@ export const AGENT_EVENT_PAGE_LIMIT = 50
 export const AGENT_EVENT_PAGE_MAX_BYTES = 4 * 1024 * 1024
 export const AGENT_SESSION_LIMIT = 200
 export const AGENT_RUN_LIMIT = 200
+export const MAX_CONCURRENT_AGENT_RUNS = 3
+export const AGENT_LIVE_PARTIAL_MAX_BYTES = 2 * 1024 * 1024
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 
 export const agentSessionWorkflowStateSchema = z.enum([
   'idle',
   'running',
+  'compacting',
   'awaiting_review',
   'generating'
 ])
@@ -227,11 +230,87 @@ export const agentQueueInputSchema = agentRunInputSchema.extend({
   content: z.string().trim().min(1).max(262_144)
 })
 
+export const agentCompactSessionInputSchema = agentSessionInputSchema
+export const agentCompactSessionResultSchema = strictObject({ compactionId: z.uuid() })
+export const agentStopCompactionInputSchema = agentSessionInputSchema.extend({
+  compactionId: z.uuid()
+})
+export const agentStopCompactionResultSchema = strictObject({})
+
 export const agentSubscriptionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
   subscriptionId: z.uuid(),
   afterSequence: z.number().int().nonnegative().default(0)
+})
+
+export const agentProjectActivitySubscriptionInputSchema = strictObject({
+  projectSessionId: projectSessionIdSchema,
+  subscriptionId: z.uuid()
+})
+
+export const agentLiveRunSnapshotSchema = strictObject({
+  agentSessionId: agentSessionIdSchema,
+  agentRunId: agentRunIdSchema,
+  phase: z.enum(['routing', 'compacting', 'running']),
+  partialText: z.string(),
+  startedAt: z.iso.datetime()
+}).superRefine((snapshot, context) => {
+  if (new TextEncoder().encode(snapshot.partialText).byteLength > AGENT_LIVE_PARTIAL_MAX_BYTES) {
+    context.addIssue({
+      code: 'custom',
+      path: ['partialText'],
+      message: 'Live Agent output is too large'
+    })
+  }
+})
+
+export const agentLiveCompactionSnapshotSchema = strictObject({
+  compactionId: z.uuid(),
+  agentSessionId: agentSessionIdSchema,
+  trigger: z.enum(['auto_threshold', 'manual', 'provider_overflow']),
+  phase: z.enum(['planning', 'summarizing']),
+  startedAt: z.iso.datetime()
+})
+
+export const agentProjectActivitySnapshotSchema = strictObject({
+  limit: z.literal(MAX_CONCURRENT_AGENT_RUNS),
+  activeCount: z.number().int().min(0).max(MAX_CONCURRENT_AGENT_RUNS),
+  runs: z.array(agentLiveRunSnapshotSchema).max(MAX_CONCURRENT_AGENT_RUNS),
+  compactions: z.array(agentLiveCompactionSnapshotSchema).max(MAX_CONCURRENT_AGENT_RUNS).default([])
+}).superRefine((snapshot, context) => {
+  if (snapshot.activeCount !== snapshot.runs.length + snapshot.compactions.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['activeCount'],
+      message: 'Active Agent count must match the live work snapshots'
+    })
+  }
+  if (new Set(snapshot.runs.map((run) => run.agentRunId)).size !== snapshot.runs.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['runs'],
+      message: 'Agent run snapshots must be unique'
+    })
+  }
+  if (new Set(snapshot.runs.map((run) => run.agentSessionId)).size !== snapshot.runs.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['runs'],
+      message: 'Agent conversation snapshots must be unique'
+    })
+  }
+  const sessionIds = [
+    ...snapshot.runs.map((run) => run.agentSessionId),
+    ...snapshot.compactions.map((compaction) => compaction.agentSessionId)
+  ]
+  if (new Set(sessionIds).size !== sessionIds.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['compactions'],
+      message: 'Agent work snapshots must be unique per conversation'
+    })
+  }
 })
 
 export const agentDurableRendererEventSchema = strictObject({
@@ -252,10 +331,16 @@ export const agentSessionRendererEventSchema = strictObject({
   session: agentSessionRecordSchema,
   titleGenerating: z.boolean()
 })
+export const agentActivityRendererEventSchema = strictObject({
+  kind: z.literal('activity'),
+  projectSessionId: projectSessionIdSchema,
+  snapshot: agentProjectActivitySnapshotSchema
+})
 export const agentRendererEventSchema = z.discriminatedUnion('kind', [
   agentDurableRendererEventSchema,
   agentDeltaRendererEventSchema,
-  agentSessionRendererEventSchema
+  agentSessionRendererEventSchema,
+  agentActivityRendererEventSchema
 ])
 
 export type AgentSessionRecord = z.infer<typeof agentSessionRecordSchema>
@@ -265,3 +350,6 @@ export type AgentEventRecord = z.infer<typeof agentEventRecordSchema>
 export type AgentEventPage = z.infer<typeof agentEventPageSchema>
 export type AgentStartScope = z.infer<typeof agentStartScopeSchema>
 export type AgentRendererEvent = z.infer<typeof agentRendererEventSchema>
+export type AgentLiveRunSnapshot = z.infer<typeof agentLiveRunSnapshotSchema>
+export type AgentLiveCompactionSnapshot = z.infer<typeof agentLiveCompactionSnapshotSchema>
+export type AgentProjectActivitySnapshot = z.infer<typeof agentProjectActivitySnapshotSchema>

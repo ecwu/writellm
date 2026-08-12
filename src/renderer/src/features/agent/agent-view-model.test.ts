@@ -575,6 +575,75 @@ describe('Agent renderer view model', () => {
     expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'rejected' }])).toBe('rejected')
   })
 
+  it('projects started, checkpoint detail, and failed compaction markers without inventing a run', () => {
+    const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+    const timeline = projectAgentTimeline([
+      {
+        ...record(1, 'compaction_started', {
+          schemaVersion: 2,
+          compactionId,
+          trigger: 'manual',
+          phase: 'planning',
+          timestamp: 1
+        }),
+        agentRunId: null,
+        modelRequestId: null
+      },
+      {
+        ...record(2, 'compaction_summary', {
+          schemaVersion: 2,
+          compactionId,
+          trigger: 'manual',
+          stepIndex: 1,
+          finalStep: true,
+          previousCheckpointEventId: null,
+          coveredFromSequence: 1,
+          coveredThroughSequence: 10,
+          summary: 'Objective\nPreserve the thesis.',
+          proposalOutcomes: [],
+          approvalDecisions: [],
+          citationIds: [],
+          toolOutcomes: [],
+          estimatedTokensBefore: 12_000,
+          estimatedTokensAfter: 4_000,
+          checkpointTokens: 2_000,
+          tailTokens: 2_000,
+          timestamp: 2
+        }),
+        agentRunId: null
+      },
+      {
+        ...record(3, 'compaction_failed', {
+          schemaVersion: 2,
+          compactionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc500',
+          trigger: 'auto_threshold',
+          code: 'compaction_failed',
+          retryable: true,
+          aborted: false,
+          timestamp: 3
+        }),
+        agentRunId: null,
+        modelRequestId: null
+      }
+    ])
+
+    expect(timeline.map((item) => item.type)).toEqual([
+      'compaction_started',
+      'compaction_summary',
+      'compaction_failed'
+    ])
+    expect(timeline[1]).toMatchObject({
+      type: 'compaction_summary',
+      payload: {
+        trigger: 'manual',
+        coveredFromSequence: 1,
+        coveredThroughSequence: 10,
+        estimatedTokensBefore: 12_000,
+        estimatedTokensAfter: 4_000
+      }
+    })
+  })
+
   it('labels every Main-emitted terminal code instead of falling back to interrupted', () => {
     expect(agentTerminalLabel('provider_timeout')).toBe('Provider request timed out')
     expect(agentTerminalLabel('provider_retries_exhausted')).toBe(

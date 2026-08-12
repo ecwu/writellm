@@ -10,6 +10,7 @@ import {
   agentRuntimeCancelSchema,
   type AgentRuntimeMessage
 } from '../shared/contracts/agent'
+import { MAX_CONCURRENT_AGENT_RUNS } from '../shared/contracts/agent-ipc'
 import { runAgentModelRequest } from './agent-model-request'
 import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
 import { withLogContext } from '../main/observability/log-context'
@@ -188,8 +189,32 @@ async function handleSessionRun(
     async () => {
       let response: AgentRuntimeMessage
       const controller = new AbortController()
+      let acquired = false
       try {
-        if (activeSessionRuns.size > 0) throw new Error('Agent worker already has an active run')
+        if (
+          [...activeSessionRuns.values()].some(
+            (active) => active.agentSessionId === request.agentSessionId
+          )
+        ) {
+          workerLog?.('warn', 'agent.worker.run_rejected', 'Rejected duplicate conversation run', {
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            reason: 'conversation_active',
+            activeCount: activeSessionRuns.size,
+            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+          })
+          throw new Error('Agent worker already has an active run for this conversation')
+        }
+        if (activeSessionRuns.size >= MAX_CONCURRENT_AGENT_RUNS) {
+          workerLog?.('warn', 'agent.worker.run_rejected', 'Rejected Agent run at capacity', {
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            reason: 'worker_capacity',
+            activeCount: activeSessionRuns.size,
+            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+          })
+          throw new Error('Agent worker reached its active run limit')
+        }
         if (toolPort === undefined)
           throw new Error('Agent session run requires a dedicated tool port')
         const active = {
@@ -200,9 +225,12 @@ async function handleSessionRun(
           control: undefined as AgentSessionRunControl | undefined
         }
         activeSessionRuns.set(request.requestId, active)
+        acquired = true
         workerLog?.('info', 'agent.worker.run_started', 'Agent worker run started', {
           agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId
+          agentRunId: request.agentRunId,
+          activeCount: activeSessionRuns.size,
+          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
         })
         const result = await runAgentSession(
           request,
@@ -231,10 +259,6 @@ async function handleSessionRun(
           status: 'completed',
           outcome: result.outcome
         }
-        workerLog?.('info', 'agent.worker.run_completed', 'Agent worker run completed', {
-          agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId
-        })
       } catch (err) {
         const error =
           err instanceof Error ? err : new Error('Agent session run failed', { cause: err })
@@ -254,7 +278,15 @@ async function handleSessionRun(
           error: serializeError(error)
         }
       } finally {
-        activeSessionRuns.delete(request.requestId)
+        if (acquired) {
+          activeSessionRuns.delete(request.requestId)
+          workerLog?.('info', 'agent.worker.run_released', 'Agent worker run released', {
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            activeCount: activeSessionRuns.size,
+            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+          })
+        }
       }
       parentPort.postMessage(response)
     }
@@ -266,19 +298,27 @@ function serializeError(error: Error): {
   message: string
   stack?: string
   httpStatus?: number
+  code?: 'context_overflow'
 } {
   const httpStatus = findHttpStatus(error)
-  const message = safeDiagnosticMessage(error, httpStatus)
+  const code = isContextOverflowError(error) ? 'context_overflow' : undefined
+  const message = safeDiagnosticMessage(error, httpStatus, code)
   const stack = safeStack(error.stack, message)
   return {
     name: error.name.slice(0, 200),
     message,
     ...(stack === undefined ? {} : { stack }),
-    ...(httpStatus === undefined ? {} : { httpStatus })
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(code === undefined ? {} : { code })
   }
 }
 
-function safeDiagnosticMessage(error: Error, httpStatus?: number): string {
+function safeDiagnosticMessage(
+  error: Error,
+  httpStatus?: number,
+  code?: 'context_overflow'
+): string {
+  if (code === 'context_overflow') return 'Agent provider context window exceeded'
   if (error.name === 'ProviderTimeoutError') return 'Agent provider request timed out'
   if (error.name === 'ProviderRetriesExhaustedError') {
     return 'Agent provider request failed after 5 attempts'
@@ -287,6 +327,29 @@ function safeDiagnosticMessage(error: Error, httpStatus?: number): string {
   return httpStatus === undefined
     ? 'Agent model request failed'
     : `Agent model request failed with HTTP ${httpStatus}`
+}
+
+function isContextOverflowError(error: unknown, depth = 0): boolean {
+  if (depth > 6 || error === null || typeof error !== 'object') return false
+  const candidate = error as {
+    code?: unknown
+    message?: unknown
+    status?: unknown
+    statusCode?: unknown
+    cause?: unknown
+  }
+  const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : ''
+  const message = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : ''
+  const status = candidate.statusCode ?? candidate.status
+  return (
+    code.includes('context_length') ||
+    code.includes('context_window') ||
+    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
+      message
+    ) ||
+    (status === 400 && /context|token limit/u.test(message)) ||
+    isContextOverflowError(candidate.cause, depth + 1)
+  )
 }
 
 function safeStack(stack: string | undefined, message: string): string | undefined {

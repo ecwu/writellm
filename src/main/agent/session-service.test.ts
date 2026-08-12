@@ -37,6 +37,373 @@ afterEach(async () => {
 })
 
 describe('AgentSessionService', () => {
+  it('runs three conversations concurrently, rejects 3+1, and targets queue and stop by run', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const sessions = ['One', 'Two', 'Three', 'Four'].map((title) => service.createSession(title))
+    const editorContext = {
+      activeSectionId: null,
+      activeBlockId: null,
+      selectedBlockIds: []
+    }
+
+    const firstSession = sessions[0]
+    const fourthSession = sessions[3]
+    if (firstSession === undefined || fourthSession === undefined) {
+      throw new Error('Expected four test conversations')
+    }
+    const first = await service.startRun({
+      agentSessionId: firstSession.agentSessionId,
+      prompt: 'First request',
+      editorContext
+    })
+    await expect(
+      service.startRun({
+        agentSessionId: firstSession.agentSessionId,
+        prompt: 'Duplicate request',
+        editorContext
+      })
+    ).rejects.toThrow('already active in this conversation')
+    const [second, third] = await Promise.all(
+      sessions.slice(1, 3).map((session, index) =>
+        service.startRun({
+          agentSessionId: session.agentSessionId,
+          prompt: `Concurrent request ${index + 2}`,
+          editorContext
+        })
+      )
+    )
+
+    expect(service.projectActivitySnapshot()).toMatchObject({
+      limit: 3,
+      activeCount: 3,
+      runs: expect.arrayContaining([
+        expect.objectContaining({ agentRunId: first.agentRunId }),
+        expect.objectContaining({ agentRunId: second.agentRunId }),
+        expect.objectContaining({ agentRunId: third.agentRunId })
+      ])
+    })
+    await expect(
+      service.startRun({
+        agentSessionId: fourthSession.agentSessionId,
+        prompt: 'Fourth request',
+        editorContext
+      })
+    ).rejects.toThrow('Up to 3 Agent tasks can work at once')
+
+    await service.followUp(second.agentRunId, 'Queue only on the second run')
+    expect(runtime.active(second.agentRunId).commands).toHaveLength(1)
+    expect(runtime.active(first.agentRunId).commands).toHaveLength(0)
+    await service.abort(second.agentRunId)
+    expect(service.requireRun(second.agentRunId)).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped'
+    })
+    expect(service.requireRun(first.agentRunId).status).toBe('running')
+    expect(service.requireRun(third.agentRunId).status).toBe('running')
+
+    const fourth = await service.startRun({
+      agentSessionId: fourthSession.agentSessionId,
+      prompt: 'Fourth request after release',
+      editorContext
+    })
+    runtime.active(first.agentRunId).resolve()
+    runtime.active(third.agentRunId).resolve()
+    runtime.active(fourth.agentRunId).resolve()
+    await Promise.all([first.completion, third.completion, fourth.completion])
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    database.close()
+  })
+
+  it('allows two runs plus one manual compaction and releases the slot after stop', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn(
+      (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) =>
+        new Promise<{ summary: string; modelRequestId: string }>((_resolve, reject) => {
+          input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true })
+        })
+    )
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const [manualSession, runSessionOne, runSessionTwo, blockedSession] = [
+      'Manual',
+      'Run one',
+      'Run two',
+      'Blocked'
+    ].map((title) => service.createSession(title))
+    if (!manualSession || !runSessionOne || !runSessionTwo || !blockedSession) {
+      throw new Error('Expected four test conversations')
+    }
+    const editorContext = {
+      activeSectionId: null,
+      activeBlockId: null,
+      selectedBlockIds: []
+    }
+    for (const prompt of ['Old turn one', 'Old turn two']) {
+      const run = await service.startRun({
+        agentSessionId: manualSession.agentSessionId,
+        prompt,
+        editorContext
+      })
+      runtime.active(run.agentRunId).resolve()
+      await run.completion
+    }
+    const [first, second] = await Promise.all(
+      [runSessionOne, runSessionTwo].map((session) =>
+        service.startRun({
+          agentSessionId: session.agentSessionId,
+          prompt: session.title,
+          editorContext
+        })
+      )
+    )
+
+    const { compactionId } = await service.compactSession(manualSession.agentSessionId)
+    await vi.waitFor(() => expect(summarizeHistory).toHaveBeenCalledOnce())
+    expect(service.projectActivitySnapshot()).toMatchObject({
+      limit: 3,
+      activeCount: 3,
+      runs: expect.arrayContaining([
+        expect.objectContaining({ agentRunId: first.agentRunId }),
+        expect.objectContaining({ agentRunId: second.agentRunId })
+      ]),
+      compactions: [
+        expect.objectContaining({
+          compactionId,
+          agentSessionId: manualSession.agentSessionId,
+          trigger: 'manual',
+          phase: 'summarizing'
+        })
+      ]
+    })
+    expect(
+      service
+        .listSessions()
+        .find((session) => session.agentSessionId === manualSession.agentSessionId)
+    ).toMatchObject({ workflowState: 'compacting' })
+    await expect(
+      service.startRun({
+        agentSessionId: blockedSession.agentSessionId,
+        prompt: 'Fourth project task',
+        editorContext
+      })
+    ).rejects.toThrow('Up to 3 Agent tasks can work at once')
+
+    await service.stopCompaction(manualSession.agentSessionId, compactionId)
+    expect(service.projectActivitySnapshot()).toMatchObject({ activeCount: 2, compactions: [] })
+    expect(
+      service
+        .listEvents(manualSession.agentSessionId)
+        .filter((event) => event.type === 'compaction_failed')
+    ).toEqual([
+      expect.objectContaining({
+        agentRunId: null,
+        payload: expect.objectContaining({ code: 'aborted', aborted: true })
+      })
+    ])
+
+    runtime.active(first.agentRunId).resolve()
+    runtime.active(second.agentRunId).resolve()
+    await Promise.all([first.completion, second.completion])
+    database.close()
+  })
+
+  it('cancels and settles every active conversation when the project closes', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const sessions = ['Close one', 'Close two', 'Close three'].map((title) =>
+      service.createSession(title)
+    )
+    const runs = await Promise.all(
+      sessions.map((session) =>
+        service.startRun({
+          agentSessionId: session.agentSessionId,
+          prompt: `Keep ${session.title} active`,
+          editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+        })
+      )
+    )
+
+    await service.close()
+
+    expect(runs.map((run) => service.requireRun(run.agentRunId).status)).toEqual([
+      'interrupted',
+      'interrupted',
+      'interrupted'
+    ])
+    expect(service.projectActivitySnapshot()).toMatchObject({ activeCount: 0, runs: [] })
+    database.close()
+  })
+
+  it('releases a reserved slot when asynchronous run preparation fails', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    let validationCount = 0
+    const activityCounts: number[] = []
+    const service = createService(database, runtime, undefined, {
+      publishActivity: (snapshot) => {
+        activityCounts.push(snapshot.activeCount)
+      },
+      skillRouter: {
+        validateSelection: async () => {
+          validationCount += 1
+          if (validationCount === 1) return
+          throw new Error('Skill disappeared')
+        },
+        route: async () => {
+          throw new Error('Routing must not start')
+        }
+      }
+    })
+    const failedSession = service.createSession('Missing skill')
+    await service.setSkillSelection(failedSession.agentSessionId, {
+      mode: 'explicit',
+      skillId: 'missing-skill'
+    })
+
+    await expect(
+      service.startRun({
+        agentSessionId: failedSession.agentSessionId,
+        prompt: 'This preparation will fail.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).rejects.toThrow('unavailable')
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    expect(activityCounts).toEqual([1, 0])
+    database.close()
+  })
+
+  it('keeps run cleanup registered when current-session delivery lookup fails', async () => {
+    const opened = await createDatabase()
+    const fault = faultNextImmediate(opened)
+    const runtime = new FakeAgentRuntime()
+    const original = new Error('simulated current-session lookup failure')
+    const warn = vi.fn()
+    const failureLog = { info: vi.fn(), warn, error: vi.fn() } as unknown as typeof log
+    let runSnapshots = 0
+    const service = createService(fault.database, runtime, undefined, {
+      log: failureLog,
+      publishActivity: (snapshot) => {
+        if (snapshot.activeCount !== 1 || snapshot.runs.length !== 1) return
+        runSnapshots += 1
+        if (runSnapshots === 2) fault.failNext(original)
+      }
+    })
+    const firstSession = service.createSession('Delivery lookup failure')
+    const started = await service.startRun({
+      agentSessionId: firstSession.agentSessionId,
+      prompt: 'Keep the cleanup chain registered.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(
+      warn.mock.calls.find(([fields]) => fields.event === 'agent.session.delivery_failed')?.[0]
+    ).toEqual(
+      expect.objectContaining({ err: original, agentSessionId: firstSession.agentSessionId })
+    )
+    runtime.active(started.agentRunId).resolve()
+    await started.completion
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+
+    const nextSession = service.createSession('Slot remains reusable')
+    const next = await service.startRun({
+      agentSessionId: nextSession.agentSessionId,
+      prompt: 'Use the released slot.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    runtime.active(next.agentRunId).resolve()
+    await next.completion
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    fault.database.close()
+  })
+
+  it('keeps manual-compaction cleanup registered when session delivery lookup fails', async () => {
+    const opened = await createDatabase()
+    const fault = faultNextImmediate(opened)
+    const runtime = new FakeAgentRuntime()
+    const original = new Error('simulated compaction session lookup failure')
+    const warn = vi.fn()
+    const failureLog = { info: vi.fn(), warn, error: vi.fn() } as unknown as typeof log
+    let armDeliveryFailure = false
+    const summarizeHistory = vi.fn(
+      (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) =>
+        new Promise<{ summary: string; modelRequestId: string }>((_resolve, reject) => {
+          input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true })
+        })
+    )
+    const service = createService(fault.database, runtime, undefined, {
+      log: failureLog,
+      summarizeHistory,
+      publishActivity: (snapshot) => {
+        if (armDeliveryFailure && snapshot.compactions.length === 1) {
+          armDeliveryFailure = false
+          fault.failNext(original)
+        }
+      }
+    })
+    const session = service.createSession('Compaction delivery failure')
+    for (const prompt of ['Historical turn one', 'Historical turn two']) {
+      const run = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt,
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      runtime.active(run.agentRunId).resolve()
+      await run.completion
+    }
+
+    armDeliveryFailure = true
+    const { compactionId } = await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(summarizeHistory).toHaveBeenCalledOnce())
+    expect(
+      warn.mock.calls.find(([fields]) => fields.event === 'agent.session.delivery_failed')?.[0]
+    ).toEqual(expect.objectContaining({ err: original, agentSessionId: session.agentSessionId }))
+    await service.stopCompaction(session.agentSessionId, compactionId)
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+
+    const nextSession = service.createSession('Slot after compaction failure')
+    const next = await service.startRun({
+      agentSessionId: nextSession.agentSessionId,
+      prompt: 'Use the released compaction slot.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    runtime.active(next.agentRunId).resolve()
+    await next.completion
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    fault.database.close()
+  })
+
+  it('fails oversized current input as current_turn_too_large before starting Pi', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime, undefined, {
+      resolveModelLimits: async () => ({
+        contextWindowTokens: 32_000,
+        inputLimitTokens: 24_000,
+        outputLimitTokens: 4_096,
+        source: 'models_dev',
+        catalogModelKey: 'test/small-model',
+        resolvedAt: '2026-08-12T00:00:00.000Z'
+      })
+    })
+    const session = service.createSession('Oversized current turn')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: `永不截断🙂${'界'.repeat(20_000)}`,
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await started.completion
+
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'current_turn_too_large'
+    })
+    expect(() => runtime.active(started.agentRunId)).toThrow('No fake Agent run is active')
+    database.close()
+  })
+
   it('returns a pending run before skill routing and permits only Stop until routing completes', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -691,6 +1058,112 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('retries one provider overflow only before activity and records a fresh model request', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn(
+      async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
+        const repository = new ModelRequestRepository(database, log)
+        const request = await repository.start({
+          operation: 'agent',
+          provider: config,
+          request: { purpose: 'overflow_compaction' },
+          inputItems: 1,
+          operationId: input.compactionId,
+          ...(input.agentRunId === null ? {} : { agentRunId: input.agentRunId }),
+          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+        })
+        await repository.succeed(request.modelRequestId, {
+          metadata: metadata('overflow-compaction-response'),
+          outputItems: 1
+        })
+        return {
+          summary: 'Objective\nPreserve the earlier completed turn.',
+          modelRequestId: request.modelRequestId
+        }
+      }
+    )
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const session = service.createSession()
+    const earlier = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Earlier completed request',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    runtime.active(earlier.agentRunId).resolve()
+    await earlier.completion
+
+    const retried = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Current request',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const firstModelRequestId = runtime.active(retried.agentRunId).input.modelRequestId
+    runtime.active(retried.agentRunId).reject(contextOverflowError())
+    await vi.waitFor(() => {
+      expect(runtime.active(retried.agentRunId).input.modelRequestId).not.toBe(firstModelRequestId)
+    })
+    const retryModelRequestId = runtime.active(retried.agentRunId).input.modelRequestId
+    expect(summarizeHistory).toHaveBeenCalledOnce()
+    expect(summarizeHistory.mock.calls[0]?.[0]).toMatchObject({
+      agentRunId: retried.agentRunId,
+      trigger: 'provider_overflow'
+    })
+
+    runtime.active(retried.agentRunId).reject(contextOverflowError())
+    await retried.completion
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      agentRunId: retried.agentRunId,
+      status: 'failed',
+      errorCode: 'context_overflow'
+    })
+    expect(
+      service
+        .listEvents(session.agentSessionId)
+        .filter((event) => event.type === 'compaction_summary')
+    ).toHaveLength(1)
+    const runRequests = await database.kysely
+      .selectFrom('model_requests')
+      .select(['model_request_id', 'status'])
+      .where('agent_run_id', '=', retried.agentRunId)
+      .execute()
+    expect(runRequests.map((request) => request.model_request_id)).toEqual(
+      expect.arrayContaining([firstModelRequestId, retryModelRequestId])
+    )
+    expect(runRequests.filter((request) => request.status === 'aborted')).toHaveLength(2)
+    database.close()
+  })
+
+  it('does not replay a provider overflow after assistant activity', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn()
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Do not replay tools or partial output',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    await active.emit({ type: 'assistant_delta', delta: 'Partial visible answer' })
+    active.reject(contextOverflowError())
+    await started.completion
+
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'context_overflow_after_activity'
+    })
+    expect(service.listEvents(session.agentSessionId)).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        payload: expect.objectContaining({ content: 'Partial visible answer', interrupted: true })
+      })
+    )
+    database.close()
+  })
+
   it('records an explicit user stop and blocks queueing after cancellation', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -722,20 +1195,70 @@ describe('AgentSessionService', () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const first = createService(database, runtime)
-    const session = first.createSession()
-    const started = await first.startRun({
-      agentSessionId: session.agentSessionId,
-      prompt: 'Draft.',
-      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
-    })
-    expect(started.agentRunId).toBeTypeOf('string')
+    const sessions = [first.createSession('First'), first.createSession('Second')]
+    const started = await Promise.all(
+      sessions.map((session) =>
+        first.startRun({
+          agentSessionId: session.agentSessionId,
+          prompt: 'Draft.',
+          editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+        })
+      )
+    )
+    expect(started).toHaveLength(2)
 
     const relaunched = createService(database, new FakeAgentRuntime())
-    expect(relaunched.recoverInterruptedRuns()).toBe(1)
-    expect(
-      await database.kysely.selectFrom('agent_runs').select('status').executeTakeFirstOrThrow()
-    ).toEqual({ status: 'interrupted' })
-    expect(relaunched.listEvents(session.agentSessionId).at(-1)?.type).toBe('run_interrupted')
+    expect(relaunched.recoverInterruptedRuns()).toBe(2)
+    expect(await database.kysely.selectFrom('agent_runs').select('status').execute()).toEqual([
+      { status: 'interrupted' },
+      { status: 'interrupted' }
+    ])
+    for (const session of sessions) {
+      expect(relaunched.listEvents(session.agentSessionId).at(-1)?.type).toBe('run_interrupted')
+    }
+    database.close()
+  })
+
+  it('closes an unmatched compaction start as process_restarted without resuming model work', async () => {
+    const database = await createDatabase()
+    const first = createService(database, new FakeAgentRuntime())
+    const session = first.createSession('Interrupted compaction')
+    const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+    database.immediate((native) => {
+      native
+        .prepare(
+          `INSERT INTO agent_events (
+             agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+           ) VALUES (?, ?, 1, 'compaction_started', ?, ?)`
+        )
+        .run(
+          '019c6a5c-8d34-7a8e-a602-3d37a52dc498',
+          session.agentSessionId,
+          JSON.stringify({
+            schemaVersion: 2,
+            compactionId,
+            trigger: 'manual',
+            phase: 'planning',
+            timestamp: Date.parse('2026-08-12T00:00:00.000Z')
+          }),
+          '2026-08-12T00:00:00.000Z'
+        )
+    })
+
+    const relaunched = createService(database, new FakeAgentRuntime())
+    expect(relaunched.recoverInterruptedRuns()).toBe(0)
+    expect(relaunched.listEvents(session.agentSessionId).at(-1)).toMatchObject({
+      agentRunId: null,
+      type: 'compaction_failed',
+      payload: {
+        schemaVersion: 2,
+        compactionId,
+        trigger: 'manual',
+        code: 'process_restarted',
+        retryable: true,
+        aborted: true
+      }
+    })
     database.close()
   })
 
@@ -1356,16 +1879,25 @@ describe('AgentSessionService', () => {
   it('creates one recorded raw-event compaction summary only under token pressure', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
+    let service!: AgentSessionService
     const summarizeHistory = vi.fn(
       async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
+        expect(service.projectActivitySnapshot()).toMatchObject({
+          activeCount: 1,
+          compactions: [],
+          runs: [expect.objectContaining({ phase: 'compacting' })]
+        })
+        expect(
+          service.listSessions().find((session) => session.agentSessionId === input.agentSessionId)
+        ).toMatchObject({ workflowState: 'compacting' })
         const repository = new ModelRequestRepository(database, log)
         const request = await repository.start({
           operation: 'agent',
           provider: config,
           request: { purpose: 'compaction', coveredThroughSequence: input.coveredThroughSequence },
           inputItems: 1,
-          operationId: 'compaction-operation',
-          agentRunId: input.agentRunId,
+          operationId: input.compactionId,
+          ...(input.agentRunId === null ? {} : { agentRunId: input.agentRunId }),
           projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
         })
         await repository.succeed(request.modelRequestId, {
@@ -1378,7 +1910,7 @@ describe('AgentSessionService', () => {
         }
       }
     )
-    const service = createService(database, runtime, undefined, {
+    service = createService(database, runtime, undefined, {
       messageTokenBudget: 4_096,
       summarizeHistory
     })
@@ -1409,7 +1941,10 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     expect(summarizeHistory).toHaveBeenCalledOnce()
-    expect(summarizeHistory.mock.calls[0]?.[0].sourceText).toContain('USER: 界')
+    expect(summarizeHistory.mock.calls[0]?.[0].sourcePayloadJson).toContain(
+      '"authority":"events-and-current-business-rows"'
+    )
+    expect(summarizeHistory.mock.calls[0]?.[0].sourcePayloadJson).toContain('"type":"user_message"')
     expect(runtime.active().input.history).toEqual([
       expect.objectContaining({
         role: 'user',
@@ -1423,7 +1958,7 @@ describe('AgentSessionService', () => {
     expect(summaries[0]).toMatchObject({
       agentRunId: second.agentRunId,
       modelRequestId: expect.any(String),
-      payload: { coveredThroughSequence: 2 }
+      payload: { coveredFromSequence: 1, coveredThroughSequence: 3, schemaVersion: 2 }
     })
     runtime.active().reject(workerExitError())
     await second.completion
@@ -1441,6 +1976,225 @@ describe('AgentSessionService', () => {
     ).toHaveLength(1)
     runtime.active().reject(workerExitError())
     await third.completion
+    database.close()
+  })
+
+  it('continues the current run with deterministic complete-turn fallback after automatic failure', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime, undefined, {
+      messageTokenBudget: 4_096,
+      summarizeHistory: vi.fn(async () => {
+        throw new Error('summary provider unavailable')
+      })
+    })
+    const session = service.createSession('Automatic fallback')
+    const first = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: '界'.repeat(2_500),
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const firstActive = runtime.active(first.agentRunId)
+    await firstActive.emit({
+      type: 'model_call_finished',
+      modelRequestId: firstActive.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('fallback-source')
+    })
+    await firstActive.emit({
+      type: 'assistant_message',
+      modelRequestId: firstActive.input.modelRequestId,
+      message: assistant('文'.repeat(2_500), 'fallback-source')
+    })
+    firstActive.resolve()
+    await first.completion
+
+    const second = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Continue despite summary failure.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(runtime.active(second.agentRunId).input.history).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('<WRITELLM_CONTEXT_OMISSION')
+      })
+    ])
+    expect(JSON.stringify(runtime.active(second.agentRunId).input.history)).not.toContain(
+      '界'.repeat(100)
+    )
+    expect(service.requireRun(second.agentRunId).status).toBe('running')
+    expect(service.listEvents(session.agentSessionId)).toContainEqual(
+      expect.objectContaining({
+        agentRunId: second.agentRunId,
+        type: 'compaction_failed',
+        payload: expect.objectContaining({
+          trigger: 'auto_threshold',
+          code: 'compaction_failed',
+          retryable: true,
+          aborted: false
+        })
+      })
+    )
+    runtime.active(second.agentRunId).resolve()
+    await second.completion
+    database.close()
+  })
+
+  it('persists every successful rolling step with continuous, non-overlapping coverage', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn(
+      async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
+        const repository = new ModelRequestRepository(database, log)
+        const request = await repository.start({
+          operation: 'agent',
+          provider: config,
+          request: { purpose: 'manual_compaction', through: input.coveredThroughSequence },
+          inputItems: 1,
+          operationId: input.compactionId,
+          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+        })
+        await repository.succeed(request.modelRequestId, {
+          metadata: metadata(`manual-step-${input.coveredThroughSequence}`),
+          outputItems: 1
+        })
+        return {
+          summary: `Objective\nRolling checkpoint through ${input.coveredThroughSequence}.`,
+          modelRequestId: request.modelRequestId
+        }
+      }
+    )
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const session = service.createSession('Long rolling history')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      native.transaction(() => {
+        for (let sequence = 1; sequence <= 600; sequence += 1) {
+          const userTurn = sequence % 2 === 1
+          insert.run(
+            crypto.randomUUID(),
+            session.agentSessionId,
+            sequence,
+            userTurn ? 'user_message' : 'run_completed',
+            JSON.stringify(
+              userTurn
+                ? { content: `turn-${sequence}`, delivery: 'prompt', timestamp: sequence }
+                : { outcome: 'finished' }
+            ),
+            '2026-08-12T00:00:00.000Z'
+          )
+        }
+      })()
+    })
+
+    const { compactionId } = await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+    const summaries = service
+      .listEvents(session.agentSessionId)
+      .filter((event) => event.type === 'compaction_summary')
+    expect(summaries).toHaveLength(3)
+    expect(
+      summaries.map((event) => {
+        const payload = event.payload as {
+          compactionId: string
+          coveredFromSequence: number
+          coveredThroughSequence: number
+          finalStep: boolean
+        }
+        return {
+          compactionId: payload.compactionId,
+          from: payload.coveredFromSequence,
+          through: payload.coveredThroughSequence,
+          finalStep: payload.finalStep
+        }
+      })
+    ).toEqual([
+      { compactionId, from: 1, through: 238, finalStep: false },
+      { compactionId, from: 239, through: 476, finalStep: false },
+      { compactionId, from: 477, through: 598, finalStep: true }
+    ])
+    database.close()
+  })
+
+  it('keeps the latest successful rolling checkpoint when a later step fails', async () => {
+    const database = await createDatabase()
+    let attempt = 0
+    const summarizeHistory = vi.fn(
+      async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
+        attempt += 1
+        if (attempt === 2) throw new Error('second summary request failed')
+        const repository = new ModelRequestRepository(database, log)
+        const request = await repository.start({
+          operation: 'agent',
+          provider: config,
+          request: { purpose: 'manual_compaction_partial' },
+          inputItems: 1,
+          operationId: input.compactionId,
+          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+        })
+        await repository.succeed(request.modelRequestId, {
+          metadata: metadata('manual-partial-step'),
+          outputItems: 1
+        })
+        return {
+          summary: 'Objective\nFirst rolling step survived.',
+          modelRequestId: request.modelRequestId
+        }
+      }
+    )
+    const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
+    const session = service.createSession('Partial rolling history')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      native.transaction(() => {
+        for (let sequence = 1; sequence <= 600; sequence += 1) {
+          const userTurn = sequence % 2 === 1
+          insert.run(
+            crypto.randomUUID(),
+            session.agentSessionId,
+            sequence,
+            userTurn ? 'user_message' : 'run_completed',
+            JSON.stringify(
+              userTurn
+                ? { content: `turn-${sequence}`, delivery: 'prompt', timestamp: sequence }
+                : { outcome: 'finished' }
+            ),
+            '2026-08-12T00:00:00.000Z'
+          )
+        }
+      })()
+    })
+
+    const { compactionId } = await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+    const compactionEvents = service
+      .listEvents(session.agentSessionId)
+      .filter((event) => event.type === 'compaction_summary' || event.type === 'compaction_failed')
+    expect(compactionEvents).toEqual([
+      expect.objectContaining({
+        type: 'compaction_summary',
+        payload: expect.objectContaining({
+          compactionId,
+          stepIndex: 1,
+          finalStep: false,
+          coveredFromSequence: 1,
+          coveredThroughSequence: 238
+        })
+      }),
+      expect.objectContaining({
+        type: 'compaction_failed',
+        payload: expect.objectContaining({ compactionId, code: 'compaction_failed' })
+      })
+    ])
     database.close()
   })
 
@@ -1795,7 +2549,8 @@ interface FakeActiveRun {
 }
 
 class FakeAgentRuntime implements AgentSessionRuntime {
-  #active: FakeActiveRun | undefined
+  readonly #active = new Map<string, FakeActiveRun>()
+  #latestRunId: string | undefined
 
   beginSessionRun(
     _config: ProviderConfig,
@@ -1827,7 +2582,7 @@ class FakeAgentRuntime implements AgentSessionRuntime {
     )
     const commands: Array<{ operation: 'steer' | 'follow_up'; modelRequestId: string }> = []
     const authorizations: Array<{ continuationId: string; modelRequestId: string }> = []
-    this.#active = {
+    const active = {
       config: _config,
       credential,
       input,
@@ -1841,6 +2596,8 @@ class FakeAgentRuntime implements AgentSessionRuntime {
       resolve,
       reject
     }
+    this.#active.set(input.agentRunId, active)
+    this.#latestRunId = input.agentRunId
     return {
       requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc431',
       completion,
@@ -1856,9 +2613,10 @@ class FakeAgentRuntime implements AgentSessionRuntime {
     }
   }
 
-  active(): FakeActiveRun {
-    if (this.#active === undefined) throw new Error('No fake Agent run is active')
-    return this.#active
+  active(agentRunId = this.#latestRunId): FakeActiveRun {
+    const active = agentRunId === undefined ? undefined : this.#active.get(agentRunId)
+    if (active === undefined) throw new Error('No fake Agent run is active')
+    return active
   }
 }
 
@@ -1871,11 +2629,13 @@ function createService(
       AgentSessionServiceOptions,
       | 'agentCatalog'
       | 'contextBuilder'
+      | 'log'
       | 'tools'
       | 'summarizeHistory'
       | 'messageTokenBudget'
       | 'publishDelta'
       | 'publishSession'
+      | 'publishActivity'
       | 'generateTitle'
       | 'resolveModelLimits'
       | 'skillRouter'
@@ -1914,6 +2674,26 @@ async function createDatabase(): Promise<ProjectDatabase> {
   })
 }
 
+function faultNextImmediate(database: ProjectDatabase): {
+  database: ProjectDatabase
+  failNext(error: Error): void
+} {
+  let nextFailure: Error | null = null
+  const faulting = Object.create(database) as ProjectDatabase
+  faulting.immediate = <T>(operation: Parameters<ProjectDatabase['immediate']>[0]): T => {
+    const failure = nextFailure
+    nextFailure = null
+    if (failure !== null) throw failure
+    return database.immediate(operation) as T
+  }
+  return {
+    database: faulting,
+    failNext(error) {
+      nextFailure = error
+    }
+  }
+}
+
 function metadata(
   responseId: string
 ): Extract<AgentRuntimeEvent, { type: 'model_call_finished' }>['metadata'] {
@@ -1942,6 +2722,13 @@ function assistant(content: string, responseId: string) {
     timestamp: Date.now(),
     interrupted: false
   }
+}
+
+function contextOverflowError(): Error & { code: string; status: number } {
+  return Object.assign(new Error('Maximum context length exceeded'), {
+    code: 'context_length_exceeded',
+    status: 400
+  })
 }
 
 function proposalToolResult(kind: 'brief_update' | 'outline_patch' | 'section_patch') {

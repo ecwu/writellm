@@ -1,0 +1,94 @@
+import type { AgentHistoryMessage, AgentModelLimits } from '../../shared/contracts/agent'
+import { AGENT_MODEL_VISIBLE_TOOL_ENVELOPE } from '../../shared/agent-tool-specs'
+import { agentOutputLimit, estimateAgentTokens } from '../../shared/agent-context-budget'
+
+export const AGENT_RUNTIME_HISTORY_EVENT_LIMIT = 200
+export const AGENT_RUNTIME_HISTORY_BYTE_LIMIT = 2 * 1024 * 1024
+export const AGENT_COMPACTION_TARGET_MAX_TOKENS = 24_000
+
+export interface AgentContextPlanInput {
+  readonly modelLimits: AgentModelLimits
+  readonly requestedOutputTokens: number
+  readonly systemPrompt: string
+  readonly history: readonly AgentHistoryMessage[]
+  readonly currentRequest: string
+  readonly uncheckpointedEventCount: number
+  readonly uncheckpointedPayloadBytes: number
+  readonly advertisedTools?: unknown
+}
+
+export interface AgentContextPlan {
+  readonly effectiveInputLimit: number
+  readonly reservedOutputTokens: number
+  readonly safetyBufferTokens: number
+  readonly systemPromptTokens: number
+  readonly advertisedToolTokens: number
+  readonly historyTokens: number
+  readonly currentRequestTokens: number
+  readonly conversationBudgetTokens: number
+  readonly compactionTargetTokens: number
+  readonly requiresCompaction: boolean
+  readonly reasons: readonly ('token_budget' | 'runtime_envelope')[]
+}
+
+export class AgentCurrentTurnTooLargeError extends Error {
+  readonly code = 'current_turn_too_large'
+
+  constructor(readonly plan: Omit<AgentContextPlan, 'requiresCompaction' | 'reasons'>) {
+    super('The current request and fixed Agent context exceed the selected model input limit')
+    this.name = 'AgentCurrentTurnTooLargeError'
+  }
+}
+
+export class AgentContextPlanner {
+  plan(input: AgentContextPlanInput): AgentContextPlan {
+    const reservedOutputTokens = agentOutputLimit(input.requestedOutputTokens, input.modelLimits)
+    const effectiveInputLimit = Math.floor(
+      Math.min(
+        input.modelLimits.inputLimitTokens ?? Number.POSITIVE_INFINITY,
+        input.modelLimits.contextWindowTokens - reservedOutputTokens
+      )
+    )
+    const safetyBufferTokens = clamp(Math.floor(effectiveInputLimit * 0.05), 4_096, 16_384)
+    const systemPromptTokens = estimateAgentTokens(input.systemPrompt)
+    const advertisedToolTokens = estimateAgentTokens(
+      input.advertisedTools ?? AGENT_MODEL_VISIBLE_TOOL_ENVELOPE
+    )
+    const historyTokens = estimateAgentTokens(input.history)
+    const currentRequestTokens = estimateAgentTokens(input.currentRequest)
+    const conversationBudgetTokens =
+      effectiveInputLimit -
+      safetyBufferTokens -
+      systemPromptTokens -
+      advertisedToolTokens -
+      currentRequestTokens
+    const base = {
+      effectiveInputLimit,
+      reservedOutputTokens,
+      safetyBufferTokens,
+      systemPromptTokens,
+      advertisedToolTokens,
+      historyTokens,
+      currentRequestTokens,
+      conversationBudgetTokens,
+      compactionTargetTokens: Math.max(
+        0,
+        Math.min(AGENT_COMPACTION_TARGET_MAX_TOKENS, Math.floor(conversationBudgetTokens * 0.5))
+      )
+    }
+    if (conversationBudgetTokens <= 0) throw new AgentCurrentTurnTooLargeError(base)
+    const reasons: Array<'token_budget' | 'runtime_envelope'> = []
+    if (historyTokens > conversationBudgetTokens) reasons.push('token_budget')
+    if (
+      input.uncheckpointedEventCount > AGENT_RUNTIME_HISTORY_EVENT_LIMIT ||
+      input.uncheckpointedPayloadBytes > AGENT_RUNTIME_HISTORY_BYTE_LIMIT
+    ) {
+      reasons.push('runtime_envelope')
+    }
+    return { ...base, requiresCompaction: reasons.length > 0, reasons }
+  }
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value))
+}

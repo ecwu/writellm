@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentSessionRecord } from '../../../../shared/contracts/agent-ipc'
-import { agentComposerKeyAction, effectiveScope, selectAttentionSession } from './agent-panel'
+import type {
+  AgentEventRecord,
+  AgentRendererEvent,
+  AgentSessionRecord
+} from '../../../../shared/contracts/agent-ipc'
+import {
+  agentComposerKeyAction,
+  effectiveScope,
+  hasManualCompactionHead,
+  sectionFollowTargetForAgentEvent,
+  selectAttentionSession
+} from './agent-panel'
+
+const activeSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc521'
+const backgroundSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc522'
+const targetSectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc523'
 
 describe('Agent panel flow selection', () => {
   it('restores running work before review attention and the latest ready conversation', () => {
@@ -13,6 +27,44 @@ describe('Agent panel flow selection', () => {
     expect(selectAttentionSession([ready, generating, review])).toBe(generating)
     expect(selectAttentionSession([ready])).toBe(ready)
     expect(selectAttentionSession([])).toBeNull()
+  })
+
+  it('keeps a compacting background conversation visible as active work', () => {
+    const ready = session('019c6a5c-8d34-7a8e-a602-3d37a52dc505', 'idle')
+    const compacting = session('019c6a5c-8d34-7a8e-a602-3d37a52dc506', 'compacting')
+    expect(selectAttentionSession([ready, compacting])).toBe(compacting)
+  })
+
+  it('enables manual compaction only for two completed tail runs after the latest checkpoint', () => {
+    const terminal = (sequence: number): AgentEventRecord => ({
+      agentEventId: `019c6a5c-8d34-7a8e-a602-${String(sequence).padStart(12, '0')}`,
+      agentSessionId: activeSessionId,
+      agentRunId: `019c6a5c-8d34-7a8e-a602-${String(sequence + 100).padStart(12, '0')}`,
+      sequence,
+      type: 'run_completed',
+      payload: { outcome: 'finished' },
+      modelRequestId: null,
+      createdAt: '2026-08-12T00:00:00.000Z'
+    })
+    const before = [terminal(1), terminal(2)]
+    expect(hasManualCompactionHead(before)).toBe(true)
+    const checkpoint: AgentEventRecord = {
+      agentEventId: '019c6a5c-8d34-7a8e-a602-3d37a52dc530',
+      agentSessionId: activeSessionId,
+      agentRunId: null,
+      sequence: 3,
+      type: 'compaction_summary',
+      payload: {
+        summary: 'Legacy checkpoint',
+        coveredThroughSequence: 2,
+        estimatedInputTokens: 10,
+        timestamp: 3
+      },
+      modelRequestId: null,
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }
+    expect(hasManualCompactionHead([...before, checkpoint, terminal(4)])).toBe(false)
+    expect(hasManualCompactionHead([...before, checkpoint, terminal(4), terminal(5)])).toBe(true)
   })
 
   it('infers Auto scope and safely degrades unavailable manual context', () => {
@@ -41,7 +93,131 @@ describe('Agent panel flow selection', () => {
     expect(agentComposerKeyAction({ ...key, running: true, ctrlKey: true })).toBe('steer')
     expect(agentComposerKeyAction({ ...key, isComposing: true })).toBe('none')
   })
+
+  it('follows valid live section-editing tools from the visible conversation', () => {
+    expect(
+      sectionFollowTargetForAgentEvent(
+        toolEvent('submit_section_change', {
+          sectionId: targetSectionId,
+          operations: [
+            {
+              type: 'insertTextBlocks',
+              anchor: null,
+              placement: 'end',
+              blocks: [{ blockType: 'paragraph', text: 'Agent draft' }]
+            }
+          ],
+          citationIds: []
+        }),
+        activeSessionId
+      )
+    ).toBe(targetSectionId)
+    expect(
+      sectionFollowTargetForAgentEvent(
+        toolEvent('generate_image', {
+          sectionId: targetSectionId,
+          anchor: null,
+          placement: 'end',
+          prompt: 'A concise scholarly diagram',
+          altText: 'A scholarly diagram',
+          caption: '',
+          aspectRatio: 'auto',
+          imageSize: '1K'
+        }),
+        activeSessionId
+      )
+    ).toBe(targetSectionId)
+  })
+
+  it('ignores background conversations, unrelated tools, and malformed section edits', () => {
+    const sectionEdit = toolEvent('submit_section_change', {
+      sectionId: targetSectionId,
+      operations: [],
+      citationIds: []
+    })
+    expect(sectionFollowTargetForAgentEvent(sectionEdit, activeSessionId)).toBeNull()
+    expect(
+      sectionFollowTargetForAgentEvent(
+        toolEvent('read_section', { sectionId: targetSectionId }, activeSessionId),
+        activeSessionId
+      )
+    ).toBeNull()
+    expect(
+      sectionFollowTargetForAgentEvent(
+        toolEvent(
+          'submit_section_change',
+          {
+            sectionId: targetSectionId,
+            operations: [
+              {
+                type: 'insertTextBlocks',
+                anchor: null,
+                placement: 'end',
+                blocks: [{ text: 'Background draft' }]
+              }
+            ],
+            citationIds: []
+          },
+          backgroundSessionId
+        ),
+        activeSessionId
+      )
+    ).toBeNull()
+    expect(sectionFollowTargetForAgentEvent(sectionEdit, null)).toBeNull()
+    expect(
+      sectionFollowTargetForAgentEvent(
+        {
+          kind: 'durable',
+          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc524',
+          event: {
+            agentEventId: '019c6a5c-8d34-7a8e-a602-3d37a52dc528',
+            agentSessionId: activeSessionId,
+            agentRunId: null,
+            sequence: 2,
+            type: 'compaction_started',
+            payload: {
+              schemaVersion: 2,
+              compactionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc529',
+              trigger: 'manual',
+              phase: 'planning',
+              timestamp: 2
+            },
+            modelRequestId: null,
+            createdAt: '2026-08-12T00:00:00.000Z'
+          }
+        },
+        activeSessionId
+      )
+    ).toBeNull()
+  })
 })
+
+function toolEvent(
+  toolName: string,
+  args: Record<string, unknown>,
+  agentSessionId = activeSessionId
+): AgentRendererEvent {
+  return {
+    kind: 'durable',
+    projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc524',
+    event: {
+      agentEventId: '019c6a5c-8d34-7a8e-a602-3d37a52dc525',
+      agentSessionId,
+      agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc526',
+      sequence: 1,
+      type: 'tool_call',
+      payload: {
+        toolCallId: 'tool-follow-section',
+        toolName,
+        contractVersion: 4,
+        args,
+        timestamp: 1
+      },
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc527',
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }
+  }
+}
 
 function session(
   agentSessionId: string,

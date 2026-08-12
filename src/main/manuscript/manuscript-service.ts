@@ -7,6 +7,7 @@ import {
   deleteSectionInputSchema,
   MANUSCRIPT_BRIEF_SCHEMA_VERSION,
   MAX_MANUSCRIPT_OUTLINE_DEPTH,
+  SECTION_COUNT_ALGORITHM_VERSION,
   ManuscriptDomainError,
   moveSectionInputSchema,
   type AppendSectionRevisionInput,
@@ -14,6 +15,7 @@ import {
   type DeleteSectionInput,
   type ManuscriptAssembly,
   type ManuscriptBrief,
+  type ManuscriptReferenceIndex,
   type ManuscriptWorkspace,
   type MoveSectionInput,
   type Section,
@@ -25,6 +27,7 @@ import {
   updateSectionInputSchema,
   blockNoteDocumentSchema
 } from '../../shared/contracts/manuscript'
+import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
 import type {
   ManuscriptBriefTable,
   ManuscriptTable,
@@ -507,6 +510,7 @@ export class ManuscriptService {
         }
         const current = this.#repository.revision(section.current_revision_id, database)
         if (current === undefined) throw new Error('Section current revision is missing')
+        assertCurrentCountAlgorithm(current)
         if (current.content_hash === prepared.contentHash) return current
         if (
           current.section_revision_id !== parsed.baseRevisionId ||
@@ -585,6 +589,7 @@ export class ManuscriptService {
       ).map((section) => {
         const revision = this.#repository.revision(section.current_revision_id, database)
         if (revision === undefined) throw new Error('Section current revision is missing')
+        assertCurrentCountAlgorithm(revision)
         return { section, revision }
       })
       return { manuscript, brief, sections }
@@ -613,6 +618,7 @@ export class ManuscriptService {
       ).map((section) => {
         const revision = this.#repository.revision(section.current_revision_id, database)
         if (revision === undefined) throw new Error('Section current revision is missing')
+        assertCurrentCountAlgorithm(revision)
         return { section, revision }
       })
       return { manuscript, brief, sections }
@@ -628,6 +634,18 @@ export class ManuscriptService {
       wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
       characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
     }
+  }
+
+  getReferenceIndex(): ManuscriptReferenceIndex {
+    const assembly = this.assemble()
+    const index = buildManuscriptReferenceIndex(
+      assembly.sections.map((item) => ({
+        sectionId: item.section.sectionId,
+        sectionRevisionId: item.revision.sectionRevisionId,
+        content: item.revision.content
+      }))
+    )
+    return { outlineVersion: assembly.outlineVersion, entries: index.entries }
   }
 
   #primary(database?: Database.Database): ManuscriptTable {
@@ -705,7 +723,7 @@ function revisionFromRow(row: SectionRevisionTable): SectionRevision {
     priorRevisionId: row.prior_revision_id,
     wordCount: row.word_count,
     characterCount: row.character_count,
-    countAlgorithmVersion: 1,
+    countAlgorithmVersion: countAlgorithmVersionFromRow(row),
     agentRunId: row.agent_run_id,
     agentToolCallId: row.agent_tool_call_id,
     agentProposalId: row.agent_proposal_id,
@@ -725,7 +743,7 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
     priorRevisionId: row.prior_revision_id,
     wordCount: row.word_count,
     characterCount: row.character_count,
-    countAlgorithmVersion: 1,
+    countAlgorithmVersion: countAlgorithmVersionFromRow(row),
     agentRunId: row.agent_run_id,
     agentToolCallId: row.agent_tool_call_id,
     agentProposalId: row.agent_proposal_id,
@@ -738,6 +756,19 @@ function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 {
     throw new Error('Section revision content schema version is unsupported')
   }
   return row.content_schema_version
+}
+
+function countAlgorithmVersionFromRow(row: SectionRevisionTable): 1 | 2 {
+  if (row.count_algorithm_version !== 1 && row.count_algorithm_version !== 2) {
+    throw new Error('Section revision count algorithm version is unsupported')
+  }
+  return row.count_algorithm_version
+}
+
+function assertCurrentCountAlgorithm(row: SectionRevisionTable): void {
+  if (row.count_algorithm_version !== SECTION_COUNT_ALGORITHM_VERSION) {
+    throw new Error('Current section revision count algorithm version is stale')
+  }
 }
 
 function siblingRows(rows: SectionTable[], parentId: string | null): SectionTable[] {

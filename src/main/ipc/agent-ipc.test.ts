@@ -32,6 +32,22 @@ describe('Agent session IPC', () => {
     expect(value.broker.completeReplay).toHaveBeenCalledWith(11, expect.any(String))
   })
 
+  it('installs project activity delivery before reading the live-run snapshot', async () => {
+    const value = harness()
+    const snapshot = await value.invoke(IPC_CHANNELS.agentSubscribeActivity, {
+      projectSessionId,
+      subscriptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
+    })
+
+    expect(snapshot).toMatchObject({ limit: 3, activeCount: 0, runs: [], compactions: [] })
+    expect(value.order).toEqual(['subscribe-activity', 'activity-snapshot'])
+    await value.invoke(IPC_CHANNELS.agentCompleteActivitySnapshot, {
+      projectSessionId,
+      subscriptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
+    })
+    expect(value.broker.completeActivitySnapshot).toHaveBeenCalledWith(11, expect.any(String))
+  })
+
   it('validates editor scope and starts a new immutable run through Main authority', async () => {
     const value = harness()
     const result = await value.invoke(IPC_CHANNELS.agentStartRun, {
@@ -296,6 +312,26 @@ describe('Agent session IPC', () => {
       skillId: 'nature-writing'
     })
   })
+
+  it('routes manual compact and stop through the active project capability', async () => {
+    const value = harness()
+    const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc908'
+    value.sessions.compactSession.mockResolvedValue({ compactionId })
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentCompactSession, { projectSessionId, agentSessionId })
+    ).resolves.toEqual({ compactionId })
+    expect(value.sessions.compactSession).toHaveBeenCalledWith(agentSessionId)
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentStopCompaction, {
+        projectSessionId,
+        agentSessionId,
+        compactionId
+      })
+    ).resolves.toEqual({})
+    expect(value.sessions.stopCompaction).toHaveBeenCalledWith(agentSessionId, compactionId)
+  })
 })
 
 function harness() {
@@ -362,7 +398,13 @@ function harness() {
     requireRun: vi.fn(() => run),
     steer: vi.fn(),
     followUp: vi.fn(),
-    abort: vi.fn()
+    abort: vi.fn(),
+    compactSession: vi.fn(),
+    stopCompaction: vi.fn(),
+    projectActivitySnapshot: vi.fn(() => {
+      order.push('activity-snapshot')
+      return { limit: 3, activeCount: 0, runs: [], compactions: [] }
+    })
   }
   const mutations = { list: vi.fn((): ListedProposal[] => []) }
   const manager = {
@@ -377,7 +419,9 @@ function harness() {
   }
   const broker = {
     subscribe: vi.fn(() => order.push('subscribe')),
+    subscribeActivity: vi.fn(() => order.push('subscribe-activity')),
     completeReplay: vi.fn(),
+    completeActivitySnapshot: vi.fn(),
     unsubscribe: vi.fn(),
     revokeSession: vi.fn(),
     clear: vi.fn()

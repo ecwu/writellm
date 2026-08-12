@@ -1,6 +1,12 @@
-import type { ManuscriptWorkspace, SectionStatus } from '../../../shared/contracts/manuscript'
+import type {
+  ManuscriptReferenceEntry,
+  ManuscriptReferenceIndex,
+  ManuscriptWorkspace,
+  SectionStatus
+} from '../../../shared/contracts/manuscript'
 import {
   BookOpen,
+  BookOpenText,
   CheckCircle2,
   Circle,
   CircleDot,
@@ -30,12 +36,17 @@ import {
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   projectName: string
   workspace: ManuscriptWorkspace | undefined
-  activeWorkspace: 'manuscript' | 'knowledge'
+  references: ManuscriptReferenceIndex
+  referencesLoading: boolean
+  referencesError: boolean
+  activeWorkspace: 'manuscript' | 'knowledge' | 'references'
   activeSectionId: string | null
   onSelectSection(sectionId: string): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
+  onOpenReferences(): void
+  onOpenReference(entry: ManuscriptReferenceEntry): void
   onOpenManuscript(): void
   onOpenSettings(): void
 }
@@ -43,12 +54,17 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 export function AppSidebar({
   projectName,
   workspace,
+  references,
+  referencesLoading,
+  referencesError,
   activeWorkspace,
   activeSectionId,
   onSelectSection,
   onOpenBrief,
   onOpenOutlineEditor,
   onOpenKnowledge,
+  onOpenReferences,
+  onOpenReference,
   onOpenManuscript,
   onOpenSettings,
   ...props
@@ -56,110 +72,183 @@ export function AppSidebar({
   const { setOpen } = useSidebar()
 
   return (
-    <Sidebar
-      collapsible='icon'
-      className='top-10 bottom-0 h-auto overflow-hidden *:data-[sidebar=sidebar]:flex-row'
-      {...props}
-    >
-      <WorkspaceRail
-        activeWorkspace={activeWorkspace}
-        onOpenKnowledge={onOpenKnowledge}
-        onOpenManuscript={() => {
-          setOpen(true)
-          onOpenManuscript()
-        }}
-        onOpenSettings={onOpenSettings}
-      />
+    <Sidebar collapsible='icon' className='top-10 bottom-0 h-auto overflow-hidden' {...props}>
+      <div className='flex min-h-0 flex-1'>
+        <WorkspaceRail
+          activeWorkspace={activeWorkspace}
+          onOpenKnowledge={onOpenKnowledge}
+          onOpenReferences={() => {
+            setOpen(true)
+            onOpenReferences()
+          }}
+          onOpenManuscript={() => {
+            setOpen(true)
+            onOpenManuscript()
+          }}
+          onOpenSettings={onOpenSettings}
+        />
 
-      <Sidebar collapsible='none' className='hidden min-w-0 flex-1 overflow-hidden md:flex'>
-        <SidebarHeader className='min-w-0 gap-3.5 overflow-hidden border-b p-4'>
-          <div className='flex w-full min-w-0 items-center gap-2 overflow-hidden'>
-            <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
-              {projectName}
+        <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
+          <SidebarHeader className='min-w-0 gap-3.5 overflow-hidden border-b p-4'>
+            <div className='flex w-full min-w-0 items-center gap-2 overflow-hidden'>
+              <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
+                {projectName}
+              </div>
+              <Badge className='shrink-0' variant='success'>
+                Active
+              </Badge>
             </div>
-            <Badge className='shrink-0' variant='success'>
-              Active
-            </Badge>
-          </div>
-          <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
-            <Button
-              className='w-full min-w-0 overflow-hidden px-2'
-              variant='outline'
-              size='sm'
-              onClick={onOpenBrief}
-            >
-              <span className='truncate'>Brief</span>
-            </Button>
-            <Button
-              className='w-full min-w-0 overflow-hidden px-2'
-              variant='outline'
-              size='sm'
-              onClick={onOpenOutlineEditor}
-            >
-              <Pencil /> <span className='truncate'>Edit outline</span>
-            </Button>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Outline</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {workspace?.sections.map(({ section, revision }) => (
-                  <SidebarMenuItem
-                    key={section.sectionId}
-                    style={{ paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px` }}
-                  >
-                    <SidebarMenuButton
-                      isActive={section.sectionId === activeSectionId}
-                      className='min-w-0'
-                      data-testid={`outline-section-${section.sectionId}`}
-                      onClick={() => onSelectSection(section.sectionId)}
-                    >
-                      <SidebarStatusIcon status={section.status} />
-                      <span className='min-w-0 flex-1 truncate'>{section.title}</span>
-                      <span
-                        className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
-                        data-testid={`outline-word-count-${section.sectionId}`}
+            <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
+              <Button
+                className='w-full min-w-0 overflow-hidden px-2'
+                variant='outline'
+                size='sm'
+                onClick={onOpenBrief}
+              >
+                <span className='truncate'>Brief</span>
+              </Button>
+              <Button
+                className='w-full min-w-0 overflow-hidden px-2'
+                variant='outline'
+                size='sm'
+                onClick={onOpenOutlineEditor}
+              >
+                <Pencil /> <span className='truncate'>Edit outline</span>
+              </Button>
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>
+                {activeWorkspace === 'references' ? 'References' : 'Outline'}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                {activeWorkspace === 'references' ? (
+                  <ReferenceList
+                    references={references}
+                    loading={referencesLoading}
+                    error={referencesError}
+                    onOpenReference={onOpenReference}
+                  />
+                ) : (
+                  <SidebarMenu>
+                    {workspace?.sections.map(({ section, revision }) => (
+                      <SidebarMenuItem
+                        key={section.sectionId}
+                        style={{
+                          paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px`
+                        }}
                       >
-                        {revision.wordCount}
-                      </span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-              {!workspace?.sections.length ? (
-                <Empty className='gap-2 border-0 p-4'>
-                  <EmptyHeader>
-                    <EmptyMedia variant='icon'>
-                      <FileText />
-                    </EmptyMedia>
-                    <EmptyTitle className='text-sm'>No sections yet</EmptyTitle>
-                    <EmptyDescription>Create a section to start the outline.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : null}
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter className='shrink-0 border-t p-4'>
-          <section
-            className='flex flex-col gap-1 text-xs text-muted-foreground'
-            aria-label='Manuscript statistics'
-          >
-            <p>
-              {workspace?.wordCount.toLocaleString() ?? 0} words ·{' '}
-              {workspace?.characterCount.toLocaleString() ?? 0} characters
-            </p>
-            <p>
-              {workspace?.sections.filter((item) => item.section.status === 'completed').length ??
-                0}
-              /{workspace?.sections.length ?? 0} sections completed
-            </p>
-          </section>
-        </SidebarFooter>
-      </Sidebar>
+                        <SidebarMenuButton
+                          isActive={section.sectionId === activeSectionId}
+                          className='min-w-0'
+                          data-testid={`outline-section-${section.sectionId}`}
+                          onClick={() => onSelectSection(section.sectionId)}
+                        >
+                          <SidebarStatusIcon status={section.status} />
+                          <span className='min-w-0 flex-1 truncate'>{section.title}</span>
+                          <span
+                            className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
+                            data-testid={`outline-word-count-${section.sectionId}`}
+                          >
+                            {revision.wordCount}
+                          </span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                )}
+                {activeWorkspace !== 'references' && !workspace?.sections.length ? (
+                  <Empty className='gap-2 border-0 p-4'>
+                    <EmptyHeader>
+                      <EmptyMedia variant='icon'>
+                        <FileText />
+                      </EmptyMedia>
+                      <EmptyTitle className='text-sm'>No sections yet</EmptyTitle>
+                      <EmptyDescription>Create a section to start the outline.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : null}
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter className='shrink-0 border-t p-4'>
+            <section
+              className='flex flex-col gap-1 text-xs text-muted-foreground'
+              aria-label='Manuscript statistics'
+            >
+              <p>
+                {workspace?.wordCount.toLocaleString() ?? 0} words ·{' '}
+                {workspace?.characterCount.toLocaleString() ?? 0} characters
+              </p>
+              <p>
+                {workspace?.sections.filter((item) => item.section.status === 'completed').length ??
+                  0}
+                /{workspace?.sections.length ?? 0} sections completed
+              </p>
+            </section>
+          </SidebarFooter>
+        </Sidebar>
+      </div>
     </Sidebar>
+  )
+}
+
+function ReferenceList(props: {
+  references: ManuscriptReferenceIndex
+  loading: boolean
+  error: boolean
+  onOpenReference(entry: ManuscriptReferenceEntry): void
+}): React.JSX.Element {
+  if (props.loading) {
+    return (
+      <p className='px-2 py-4 text-sm text-muted-foreground' role='status'>
+        Loading references…
+      </p>
+    )
+  }
+  if (props.error) {
+    return (
+      <p className='px-2 py-4 text-sm text-destructive' role='alert'>
+        References could not be loaded. Retry by reopening this panel.
+      </p>
+    )
+  }
+  if (props.references.entries.length === 0) {
+    return (
+      <Empty className='gap-2 border-0 p-4'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <BookOpenText />
+          </EmptyMedia>
+          <EmptyTitle className='text-sm'>No references yet</EmptyTitle>
+          <EmptyDescription>
+            Canonical citations in the manuscript will appear here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
+  return (
+    <SidebarMenu aria-label='Manuscript references'>
+      {props.references.entries.map((entry) => (
+        <SidebarMenuItem key={entry.title}>
+          <SidebarMenuButton
+            className='h-auto min-w-0 items-start gap-2 py-2'
+            tooltip={{ children: `Open source preview for ${entry.title}`, hidden: false }}
+            onClick={() => props.onOpenReference(entry)}
+          >
+            <span className='shrink-0 font-medium tabular-nums'>[{entry.number}]</span>
+            <span className='min-w-0 flex-1'>
+              <span className='line-clamp-2 block leading-5'>{entry.title}</span>
+              <span className='block text-[11px] text-muted-foreground'>
+                {entry.count} {entry.count === 1 ? 'citation' : 'citations'}
+              </span>
+            </span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
   )
 }
 
@@ -181,9 +270,10 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 }
 
 export function WorkspaceRail(props: {
-  activeWorkspace: 'manuscript' | 'knowledge'
+  activeWorkspace: 'manuscript' | 'knowledge' | 'references'
   onOpenKnowledge(): void
   onOpenManuscript(): void
+  onOpenReferences(): void
   onOpenSettings(): void
 }): React.JSX.Element {
   return (
@@ -213,6 +303,17 @@ export function WorkspaceRail(props: {
                 >
                   <ListTree />
                   <span>Manuscript</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip={{ children: 'References', hidden: false }}
+                  isActive={props.activeWorkspace === 'references'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenReferences}
+                >
+                  <BookOpenText />
+                  <span>References</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

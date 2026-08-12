@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MANUSCRIPT_LOSS_REPORT_FILE } from '../../shared/contracts/manuscript-export'
 import type { SnapshotBarrier } from '../project/project-snapshot'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
@@ -76,12 +77,24 @@ describe('whole-manuscript export', () => {
     })
     const markdownText = await readFile(join(markdownDestination, 'manuscript.md'), 'utf8')
     expect(markdownText).toContain('# Untitled Section')
+    expect(markdownText).toContain('Current body [1]')
     expect(markdownText).toContain(
       `![Fixture image](assets/${markdown.manifest.assets[0]?.sha256}.png)`
     )
     expect(markdownText).toContain('```mermaid')
     expect(markdown.lossReport?.losses).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'preview_width' })])
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'citation_numbering', blockId: 'paragraph' }),
+        expect.objectContaining({ code: 'preview_width' })
+      ])
+    )
+    const persistedLossReport = JSON.parse(
+      await readFile(join(markdownDestination, MANUSCRIPT_LOSS_REPORT_FILE), 'utf8')
+    ) as { losses: Array<{ code: string; blockId: string }> }
+    expect(persistedLossReport.losses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'citation_numbering', blockId: 'paragraph' })
+      ])
     )
     await expect(validateStagedExport(markdownDestination)).resolves.toEqual(markdown.manifest)
 
@@ -291,7 +304,13 @@ async function exportFixture(): Promise<{
           textColor: 'default',
           textAlignment: 'left'
         },
-        content: [{ type: 'text', text: 'Current body', styles: { bold: true } }],
+        content: [
+          {
+            type: 'text',
+            text: 'Current body [Source: Export Source, p. 2]',
+            styles: { bold: true }
+          }
+        ],
         children: []
       },
       {
