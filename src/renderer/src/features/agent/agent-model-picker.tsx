@@ -22,11 +22,13 @@ export function AgentModelPicker({
   presets,
   selection,
   disabled,
+  compact = false,
   onSelect
 }: {
   presets: AvailablePreset[]
   selection: AgentModelSelection | null
   disabled: boolean
+  compact?: boolean
   onSelect: (selection: AgentModelSelection) => void | Promise<void>
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -51,9 +53,13 @@ export function AgentModelPicker({
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant='outline'
+          variant={compact ? 'ghost' : 'outline'}
           size='sm'
-          className='h-7 min-w-0 max-w-full justify-start @sm/agent:max-w-72'
+          className={
+            compact
+              ? 'h-6 min-w-0 max-w-40 justify-start px-2'
+              : 'h-7 min-w-0 max-w-full justify-start @sm/agent:max-w-72'
+          }
           aria-label='Agent model'
           data-testid='agent-model-selector'
           disabled={disabled}
@@ -64,13 +70,16 @@ export function AgentModelPicker({
           <span className='min-w-0 flex-1 truncate text-left'>
             {selected === null
               ? 'Choose a model'
-              : `${selected.preset.name} · ${selected.model.name}`}
+              : compact
+                ? selected.model.name
+                : `${selected.preset.name} · ${selected.model.name}`}
           </span>
           <ChevronDown data-icon='inline-end' />
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align='start'
+        align={compact ? 'end' : 'start'}
+        side={compact ? 'top' : 'bottom'}
         className='w-80 max-w-[calc(100vw-2rem)] p-0'
         data-testid='agent-model-picker'
       >

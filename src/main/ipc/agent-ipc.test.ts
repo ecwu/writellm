@@ -100,8 +100,13 @@ describe('Agent session IPC', () => {
       continueRequested: true
     })
     const continuedPrompt = value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt
-    expect(continuedPrompt).toBe(
-      'The user approved the proposed Brief update, and it is now applied. Treat the resulting manuscript state as authoritative. Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
+    expect(continuedPrompt).toContain('<AUTHORITATIVE_REVIEW_STATE instructionSemantics="true">')
+    expect(continuedPrompt).toContain(
+      'The user approved the proposed Brief update, and it is now applied. Treat the resulting manuscript state as authoritative.'
+    )
+    expect(continuedPrompt).toContain('<CURRENT_USER_REQUEST instructionSemantics="true">')
+    expect(continuedPrompt).toContain(
+      'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
     )
     expect(continuedPrompt).not.toContain(proposalId)
     expect(continuedPrompt).not.toContain('{')

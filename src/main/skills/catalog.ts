@@ -97,6 +97,127 @@ export const CURATED_SKILL_CATALOG = [
       file('references/table-style-guide.md', 7703, '1808267ad1857e4684cbba68717341e3028066bc'),
       file('references/venue-adapters.md', 7416, '678d3a622de28e0a9eca8316ddd4d0c9220af6a4')
     ]
+  },
+  {
+    skillId: 'ccf-visual-composer',
+    displayName: 'CCF Visual Composer',
+    description:
+      'Design publication-grade scientific figures, tables, method and architecture diagrams, captions, palettes, and visual QA without inventing evidence.',
+    repository: 'mikubaka88/CCFA-Skills',
+    directory: 'ccf-visual-composer',
+    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    license: 'MIT',
+    dependencies: [],
+    files: [
+      file('SKILL.md', 8925, 'a6c8a24149183bc8f669dee0bc644a20fa80d354'),
+      file(
+        'references/architecture-diagram-generation.md',
+        9499,
+        'facfc6cb8c2de4aa4cc8d430fb0bccf330c8f09c'
+      ),
+      file('references/figure-table-layout.md', 2697, '586238bf76b57f39e4d6ec84fb2fa4117b4c2d29'),
+      file(
+        'references/palette-and-accessibility.md',
+        2280,
+        'cabf780bb0ee110a8e80bf570a3e5a76cb7ed7d8'
+      ),
+      file('references/plot-inspiration-map.md', 3688, '345ea7febbb76060a4d1492a27af6affdb0c5790'),
+      file('references/python-plot-recipes.md', 5385, '1818e7de845413297674e639d05c80108d476d13'),
+      file('references/render-qa.md', 2935, 'cafb3e12b483c1c4512dc6205d40245ec0a0f815'),
+      file('references/visual-contract.md', 3066, '25ed058b5e41c307f9177740694e6aab1fd67f3b')
+    ]
+  },
+  {
+    skillId: 'ccf-paper-reviewer',
+    displayName: 'CCF Paper Reviewer',
+    description:
+      'Review scientific novelty, soundness, evidence, writing, venue fit, and revision priorities through reviewer and area-chair perspectives.',
+    repository: 'mikubaka88/CCFA-Skills',
+    directory: 'ccf-paper-reviewer',
+    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    license: 'MIT',
+    dependencies: [],
+    files: [
+      file('SKILL.md', 5394, '5c36a4c1b1755da138cdfa0d6b7357d97b618cc0'),
+      file('references/calibration-and-rank.md', 5193, '132b7f2305c56e1ce701405e0618f953b9d6292a'),
+      file('references/desk-checks.md', 1562, '64c36db86eb9c207d82189dffc44701ed067cf35'),
+      file('references/fixed-output-format.md', 4169, '926001c3b95509fe7553e435ccd84e0f5daa4371'),
+      file('references/review-workflow.md', 2685, '6da85ee77047def504e15106844930b0514a9cbb'),
+      file('references/reviewer-panel.md', 4669, 'fba621fedab1da0e42e796a65f5c8148451a7dfc'),
+      file('references/source-notes.md', 1130, '4ef3456f42b51105113842b784151ce0efc8b0e4'),
+      file(
+        'references/universal-review-rubric.md',
+        4856,
+        '7c027e0bb90498d6177f6ce088f1f0593c6a0102'
+      ),
+      file('references/venue-review-styles.md', 7287, 'edcdd077774148193f88440d0d49d1ce13051d13'),
+      file(
+        'references/writing-review/latex-format-audit.md',
+        2752,
+        '6643eae8ab21694a2c80656acb3826493762cf52'
+      ),
+      file(
+        'references/writing-review/paragraph-review-protocol.md',
+        2877,
+        '5c337d6758527f9257a668feefbe96db78daef3d'
+      ),
+      file(
+        'references/writing-review/review-checklists.md',
+        5045,
+        '0a1f19243f43251ace06c0ddd5467ec4c5104f80'
+      ),
+      file(
+        'references/writing-review/revision-actions.md',
+        9325,
+        'ab720630975695c8ff46ec445ad60455a93c5702'
+      ),
+      file(
+        'references/writing-review/source-notes.md',
+        1408,
+        '919912ee13bcb4cc71f254e0df90b4b6b33b47bf'
+      ),
+      file(
+        'references/writing-review/writing-review-rubric.md',
+        6927,
+        'e70c5f53f8a1e33382add5f3e0eb9fded8a15b6a'
+      )
+    ]
+  },
+  {
+    skillId: 'ccf-integrity-auditor',
+    displayName: 'CCF Integrity Auditor',
+    description:
+      'Audit claim-evidence alignment, numeric and terminology consistency, figure and table references, and existing citation support.',
+    repository: 'mikubaka88/CCFA-Skills',
+    directory: 'ccf-integrity-auditor',
+    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    license: 'MIT',
+    dependencies: [],
+    files: [file('SKILL.md', 2397, '026c877d3cff59b334f3af77ef51f640cc1ffa63')]
+  },
+  {
+    skillId: 'nature-statistics',
+    displayName: 'Nature Statistics',
+    description:
+      'Audit and revise statistical reporting, experimental units, replication, p values, uncertainty, multiple comparisons, and figure legends.',
+    repository: 'Yuan1z0825/nature-skills',
+    directory: 'skills/nature-statistics',
+    commit: '1ea82ffff20f40077bf84b74182f55eeaf3d111d',
+    license: 'Apache-2.0',
+    dependencies: [],
+    files: [
+      file('SKILL.md', 8248, 'e2b746e2d900d1173effb18f63eabb6ceb3bda81'),
+      file('references/common-failure-modes.md', 4206, 'b87f172c53145d19ceb4836a183a4080bbabd5d5'),
+      file('references/figure-statistics.md', 2905, 'b12bdfca75abeba2fe9bd21540d134651e8cc2a5'),
+      file(
+        'references/nature-article-requirements.md',
+        3420,
+        '8a09a2fa2f25274337d8c5a6ec40e3655697d8aa'
+      ),
+      file('references/reviewer-checklist.md', 3591, 'b97da8bece0f49388327ae383cacc97d090a6c84'),
+      file('references/source-basis.md', 3638, '5be35af49549928883041ffd9754724c324e2451'),
+      file('references/statistical-reporting.md', 4037, '47aec2e06c48c4313a80a3a26aabbc3fd886d2f8')
+    ]
   }
 ] as const satisfies readonly CuratedSkillCatalogEntry[]
 

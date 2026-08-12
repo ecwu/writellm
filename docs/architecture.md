@@ -911,6 +911,27 @@ Full manuscript and knowledge access is through tools with pagination and size l
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
+### Agent prompt architecture
+
+Application-owned Agent prompts live under `src/main/agent/prompts/` and are split by responsibility:
+base policy, system-prompt composition, Writing Skill companion guidance, bounded task templates,
+and dynamic-block encoding. Business services select a template and supply typed data; they do not
+own inline prompt prose.
+
+Prompt precedence is fixed: application safety and tool authority; application collaboration,
+academic-writing, and citation policy; the application Writing Skill companion; installed Skill
+entrypoints and selected references; trusted writing requirements; untrusted manuscript data;
+durable conversation history; and the current user request. Later content cannot redefine an
+earlier authority layer. Prompt text remains provider-neutral; a provider- or model-specific fork
+requires a separate decision with behavioral evidence, fallback behavior, and parity tests.
+
+Every application-wrapped dynamic payload uses a named block, declares whether it has instruction
+semantics, and escapes block-significant characters before composition. This includes project
+context, optional Skill references, title and compaction inputs, and Main-authored review
+continuations. Full prompts, Skill bodies, manuscript content, and conversation content are never
+logged. Tests freeze layer order, escape behavior, task-template invariants, and the 65,536-byte
+system-prompt budget. See ADR 017.
+
 ### Agent Harness Protocol v4 tools
 
 ```text

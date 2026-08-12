@@ -3,15 +3,22 @@ import {
   buildAgentPolicy,
   findOpaqueCitationMarker,
   usesReadableSourceFallback
-} from './writing-policy'
+} from './agent-policy'
 
 describe('Agent writing policy', () => {
-  it('keeps academic-writing and citation requirements explicit and bounded', () => {
+  it('keeps collaboration, academic-writing, and citation requirements explicit and bounded', () => {
     const policy = buildAgentPolicy()
 
+    expect(policy).toContain('OPERATING_POLICY')
+    expect(policy).toContain('COLLABORATION_POLICY')
     expect(policy).toContain('ACADEMIC_WRITING_POLICY')
     expect(policy).toContain('CITATION_POLICY')
     expect(policy).toContain('Never invent evidence, references, novelty')
+    expect(policy).toContain('Before the first substantial tool phase')
+    expect(policy).toContain('Never expose hidden reasoning or chain-of-thought')
+    expect(policy).toContain('Between materially different phases')
+    expect(policy).toContain('lead with the verified outcome')
+    expect(policy).toContain('continue through the relevant bounded reads')
     expect(policy).toContain('Never emit an opaque marker such as [xx]')
     expect(policy).toContain('[Source: exact source title, p. N]')
     expect(policy).toContain('【来源：准确来源标题，第 N 页】')

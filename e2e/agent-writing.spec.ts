@@ -96,7 +96,7 @@ async function closeProject(page: Page): Promise<void> {
 
 function sendToolCall(
   response: ServerResponse,
-  input: { responseId: string; toolCallId: string; name: string; args: unknown }
+  input: { responseId: string; toolCallId: string; name: string; args: unknown; text?: string }
 ): void {
   sendSse(response, [
     {
@@ -109,6 +109,7 @@ function sendToolCall(
           index: 0,
           delta: {
             role: 'assistant',
+            ...(input.text === undefined ? {} : { content: input.text }),
             tool_calls: [
               {
                 index: 0,
@@ -277,6 +278,7 @@ test(
               responseId: 'agent-search-response',
               toolCallId: 'agent-search-tool',
               name: 'search_knowledge',
+              text: 'I will search the project sources for evidence that can support this section.',
               args: {
                 query: 'durable systems',
                 knowledgeItemIds: [],
@@ -299,6 +301,7 @@ test(
               responseId: 'agent-citation-response',
               toolCallId: 'agent-citation-tool',
               name: 'read_citations',
+              text: 'The search found a relevant source. I will check its exact evidence next.',
               args: { citationIds: [citationId], requests: [] }
             })
             return
@@ -314,6 +317,7 @@ test(
               responseId: 'agent-proposal-response',
               toolCallId: 'agent-proposal-tool',
               name: 'submit_section_change',
+              text: 'The source supports a bounded revision. I will prepare it for review.',
               args: {
                 sectionId,
                 operations: [
@@ -340,6 +344,7 @@ test(
               responseId: 'agent-revision-search-response',
               toolCallId: 'agent-revision-search-tool',
               name: 'search_knowledge',
+              text: 'I will re-check the sources before revising the rejected proposal.',
               args: {
                 query: 'durable systems',
                 knowledgeItemIds: [],
@@ -362,6 +367,7 @@ test(
               responseId: 'agent-revision-citation-response',
               toolCallId: 'agent-revision-citation-tool',
               name: 'read_citations',
+              text: 'The source is still relevant. I will verify the evidence before revising.',
               args: { citationIds: [citationId], requests: [] }
             })
             return
@@ -377,6 +383,7 @@ test(
               responseId: 'agent-revision-response',
               toolCallId: 'agent-revision-tool',
               name: 'submit_section_change',
+              text: 'The feedback is addressed and the evidence is verified. I will prepare the revision.',
               args: {
                 sectionId,
                 operations: [
@@ -518,6 +525,10 @@ test(
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await launched.page.keyboard.press('Escape')
+      await expect(panel.getByTestId('agent-model-selector')).toContainText('Writer model')
+      await expect(panel.getByTestId('agent-thinking-selector')).toBeVisible()
+      await expect(panel.getByTestId('agent-approval-selector')).toContainText('Review changes')
+      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toBeVisible()
       await expect(panel.getByLabel('Agent message')).toBeVisible()
       await panel.getByRole('button', { name: /Context:/ }).click()
       await launched.page.getByRole('option', { name: 'This section', exact: true }).click()
@@ -531,6 +542,19 @@ test(
         hasText: 'Searching sources'
       })
       await expect(searchActivity).toBeVisible()
+      const searchedSourcesStep = searchActivity.getByText('Searched sources', { exact: true })
+      if (!(await searchedSourcesStep.isVisible())) {
+        await searchActivity.getByRole('button').first().click()
+      }
+      await expect(searchedSourcesStep).toBeVisible()
+      await expect(
+        panel.getByText(
+          'The search found a relevant source. I will check its exact evidence next.',
+          {
+            exact: true
+          }
+        )
+      ).toBeVisible()
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
       await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
       await expect(panel.getByText('Ready for review', { exact: true }).first()).toBeVisible()
@@ -538,6 +562,7 @@ test(
       await expect(panel.getByLabel('Agent message')).toHaveCount(0)
       await expect(panel.getByLabel('Review feedback')).toBeVisible()
       await expect.poll(() => requestBodies.length).toBe(4)
+      expect(JSON.stringify(requestBodies[0])).toContain('Before the first substantial tool phase')
       const waitingTruth = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
           ?.projectSessionId

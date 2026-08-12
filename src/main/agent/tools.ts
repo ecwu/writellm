@@ -31,7 +31,7 @@ import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
 import { AgentToolDomainError } from './read-tools'
 import { extractSectionAgentText } from '../manuscript/content'
-import { findOpaqueCitationMarker, usesReadableSourceFallback } from './writing-policy'
+import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 
 interface AgentToolResultMap {
   get_writing_context: WritingContextResult

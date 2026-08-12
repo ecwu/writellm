@@ -7,8 +7,8 @@ import {
   type WritingContextResult
 } from '../../shared/contracts/agent-tools'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
-import { buildAgentPolicy } from './writing-policy'
-import { SKILL_COMPANION_NOTE } from '../skills/prompt'
+import { buildAgentPolicy } from './prompts/agent-policy'
+import { formatAgentSystemPrompt } from './prompts/system-prompt'
 
 const MAX_CONTEXT_OUTLINE_SECTIONS = 200
 const MAX_SYSTEM_OUTLINE_SECTIONS = 80
@@ -146,15 +146,30 @@ export class AgentContextBuilder {
     const policy = buildAgentPolicy()
     const selectedReferences = [...(input.skillPrompt?.references ?? [])]
     let mandatorySkill = input.skillPrompt?.mandatory ?? ''
-    let systemPrompt = formatSystemPrompt(policy, systemContext, mandatorySkill, selectedReferences)
+    let systemPrompt = formatAgentSystemPrompt({
+      policy,
+      context: systemContext,
+      mandatorySkill,
+      references: selectedReferences
+    })
     while (byteLength(systemPrompt) > MAX_SYSTEM_PROMPT_BYTES && selectedReferences.length > 0) {
       selectedReferences.pop()
-      systemPrompt = formatSystemPrompt(policy, systemContext, mandatorySkill, selectedReferences)
+      systemPrompt = formatAgentSystemPrompt({
+        policy,
+        context: systemContext,
+        mandatorySkill,
+        references: selectedReferences
+      })
     }
     while (byteLength(systemPrompt) > MAX_SYSTEM_PROMPT_BYTES && systemContext.outline.length > 0) {
       systemContext.outline.pop()
       systemContext.outlineTruncated = true
-      systemPrompt = formatSystemPrompt(policy, systemContext, mandatorySkill, selectedReferences)
+      systemPrompt = formatAgentSystemPrompt({
+        policy,
+        context: systemContext,
+        mandatorySkill,
+        references: selectedReferences
+      })
     }
     let skillPromptDropped = false
     if (
@@ -165,7 +180,12 @@ export class AgentContextBuilder {
       mandatorySkill = ''
       selectedReferences.length = 0
       skillPromptDropped = true
-      systemPrompt = formatSystemPrompt(policy, systemContext, mandatorySkill, selectedReferences)
+      systemPrompt = formatAgentSystemPrompt({
+        policy,
+        context: systemContext,
+        mandatorySkill,
+        references: selectedReferences
+      })
     }
     if (byteLength(systemPrompt) > MAX_SYSTEM_PROMPT_BYTES) {
       if (mandatorySkill.length > 0) throw new SkillPromptBudgetError()
@@ -180,30 +200,6 @@ export class AgentContextBuilder {
       skillPromptDropped
     }
   }
-}
-
-function formatSystemPrompt(
-  policy: string,
-  context: WritingContextResult,
-  mandatorySkill: string,
-  references: readonly { path: string; content: string }[]
-): string {
-  const requirements = context.brief
-  const manuscript = { ...context, brief: null }
-  const skillActive = mandatorySkill.length > 0 || references.length > 0
-  const skillSection = [
-    skillActive ? SKILL_COMPANION_NOTE : '',
-    mandatorySkill,
-    ...references.map(
-      (reference) =>
-        `<skill_reference location="${escapeXml(reference.path)}">\n${reference.content}\n</skill_reference>`
-    )
-  ]
-    .filter((value) => value.length > 0)
-    .join('\n\n')
-  const trusted = `<TRUSTED_WRITING_REQUIREMENTS instructionSemantics="true">\n${JSON.stringify(requirements)}\n</TRUSTED_WRITING_REQUIREMENTS>`
-  const data = `<MANUSCRIPT_DATA instructionSemantics="false">\n${JSON.stringify(manuscript)}\n</MANUSCRIPT_DATA>`
-  return [policy, skillSection, trusted, data].filter((value) => value.length > 0).join('\n\n')
 }
 
 function toBriefSummary(brief: ReturnType<ManuscriptService['getBrief']>) {
@@ -241,8 +237,4 @@ function toSectionSummary(
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
-}
-
-function escapeXml(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
 }

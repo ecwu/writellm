@@ -72,6 +72,10 @@ test(
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
       await settings.getByRole('option', { name: 'Writing Skills' }).click()
       await expect(settings.getByRole('switch', { name: 'Enable e2e-writing' })).toBeVisible()
+      await expect(settings.getByText('CCF Visual Composer', { exact: true })).toBeVisible()
+      await expect(settings.getByText('CCF Paper Reviewer', { exact: true })).toBeVisible()
+      await expect(settings.getByText('CCF Integrity Auditor', { exact: true })).toBeVisible()
+      await expect(settings.getByText('Nature Statistics', { exact: true })).toBeVisible()
       await launched.page.keyboard.press('Escape')
 
       await createProject(launched.page, 'Skill project one')
@@ -110,7 +114,9 @@ test(
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
 
       const runStatus = panel.getByTestId('agent-status')
-      await expect(runStatus.getByText(/Working ·/)).toBeVisible()
+      await expect(runStatus).toContainText(
+        /Loading writing guidance|Preparing the next step|Writing an update/
+      )
       await expect(runStatus.locator('[data-slot="badge"]')).toHaveCount(0)
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

@@ -118,9 +118,9 @@ describe('Agent context and Main read tools', () => {
       }
     })
     expect(result.systemPrompt.indexOf('ACADEMIC_WRITING_POLICY')).toBeLessThan(
-      result.systemPrompt.indexOf('writellm_skill_companion')
+      result.systemPrompt.indexOf('WRITING_SKILL_COMPANION')
     )
-    expect(result.systemPrompt.indexOf('writellm_skill_companion')).toBeLessThan(
+    expect(result.systemPrompt.indexOf('WRITING_SKILL_COMPANION')).toBeLessThan(
       result.systemPrompt.indexOf('MANDATORY_SKILL')
     )
     expect(result.systemPrompt.indexOf('MANDATORY_SKILL')).toBeLessThan(

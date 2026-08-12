@@ -5,7 +5,7 @@ import type {
   AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
+import { agentApprovalModeSchema, type AgentApprovalMode } from '../../../../shared/contracts/agent'
 import type { SkillSelection, SkillsSnapshot } from '../../../../shared/contracts/skills'
 import type {
   AgentModelSelection,
@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleStop,
+  Clock3,
   FileText,
   FilePenLine,
   FolderOpen,
@@ -28,6 +29,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   Send,
   TextCursorInput,
   TriangleAlert,
@@ -68,6 +70,8 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -99,10 +103,12 @@ import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
   aggregateAgentUsage,
+  agentToolActivityLabel,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
+  currentAgentActivitySummary,
   formatAgentDuration,
   findLatestPrompt,
   isSectionProposalOutdated,
@@ -149,6 +155,7 @@ export function AgentPanel(props: {
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  const [detailsSkillPickerOpen, setDetailsSkillPickerOpen] = useState(false)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [continuationFailure, setContinuationFailure] = useState<{
@@ -553,6 +560,11 @@ export function AgentPanel(props: {
     }
     return result
   }, [props.currentRevisionIds, revisionTransitions])
+  const timeline = useMemo(
+    () => projectAgentTimeline(events, proposals, runs, clockNow),
+    [clockNow, events, proposals, runs]
+  )
+  const currentActivity = currentAgentActivitySummary(timeline, activeRun?.agentRunId ?? null)
 
   const createSession = async (): Promise<AgentSessionRecord> => {
     const created = await window.desktop.agent.createSession({
@@ -1094,7 +1106,7 @@ export function AgentPanel(props: {
               : workflowState === 'running'
                 ? choosingSkill
                   ? 'Loading writing guidance'
-                  : `Working · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
+                  : `${currentActivity ?? (hasStreamingRun ? 'Writing an update' : 'Preparing the next step')} · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
                 : workflowState === 'generating'
                   ? 'Generating an image'
                   : workflowState === 'awaiting_review'
@@ -1117,10 +1129,9 @@ export function AgentPanel(props: {
             </div>
           ) : (
             <EventTimeline
-              events={events}
+              timeline={timeline}
               proposals={proposals}
               runs={runs}
-              now={clockNow}
               streaming={streaming}
               currentRevisionIds={effectiveRevisionIds}
               sectionTitles={props.sectionTitles}
@@ -1238,143 +1249,178 @@ export function AgentPanel(props: {
               <Settings2 data-icon='inline-start' /> Set up an Agent model
             </Button>
           ) : (
-            <>
-              <ContextScopeChip
-                preference={scopePreference}
-                effectiveScope={scope}
-                selectionAvailable={selectionIsAvailable}
-                activeSectionId={props.activeSectionId}
-                sectionTitle={
-                  props.activeSectionId === null
-                    ? undefined
-                    : props.sectionTitles[props.activeSectionId]
-                }
-                disabled={busy || activeRun !== null}
-                onChange={setScopePreference}
-              />
-              <Field data-disabled={busy || choosingSkill || activeSession?.compatible === false}>
-                <FieldLabel htmlFor='agent-message' className='sr-only'>
-                  Agent message
-                </FieldLabel>
-                <InputGroup
-                  data-disabled={busy || choosingSkill || activeSession?.compatible === false}
-                >
-                  <InputGroupTextarea
-                    id='agent-message'
-                    value={prompt}
-                    placeholder={
-                      activeRun
-                        ? choosingSkill
-                          ? 'Loading writing guidance…'
-                          : 'Queue a follow-up…'
-                        : 'Ask the writing agent…'
+            <Field data-disabled={busy || choosingSkill || activeSession?.compatible === false}>
+              <FieldLabel htmlFor='agent-message' className='sr-only'>
+                Agent message
+              </FieldLabel>
+              <InputGroup
+                data-disabled={busy || choosingSkill || activeSession?.compatible === false}
+              >
+                <InputGroupTextarea
+                  id='agent-message'
+                  value={prompt}
+                  placeholder={
+                    activeRun
+                      ? choosingSkill
+                        ? 'Loading writing guidance…'
+                        : 'Queue a follow-up…'
+                      : 'Ask the writing agent…'
+                  }
+                  rows={3}
+                  disabled={busy || choosingSkill || activeSession?.compatible === false}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    const action = agentComposerKeyAction({
+                      key: event.key,
+                      shiftKey: event.shiftKey,
+                      metaKey: event.metaKey,
+                      ctrlKey: event.ctrlKey,
+                      isComposing: event.nativeEvent.isComposing,
+                      running: activeRun !== null
+                    })
+                    if (action === 'none' || action === 'newline') return
+                    event.preventDefault()
+                    if (action === 'steer') void queueMessage('steer')
+                    else if (action === 'follow_up') void queueMessage('follow_up')
+                    else void startRun(prompt)
+                  }}
+                />
+                <InputGroupAddon align='block-start' className='flex-wrap justify-between gap-1'>
+                  <ContextScopeChip
+                    preference={scopePreference}
+                    effectiveScope={scope}
+                    selectionAvailable={selectionIsAvailable}
+                    activeSectionId={props.activeSectionId}
+                    sectionTitle={
+                      props.activeSectionId === null
+                        ? undefined
+                        : props.sectionTitles[props.activeSectionId]
                     }
-                    rows={3}
-                    disabled={busy || choosingSkill || activeSession?.compatible === false}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    onKeyDown={(event) => {
-                      const action = agentComposerKeyAction({
-                        key: event.key,
-                        shiftKey: event.shiftKey,
-                        metaKey: event.metaKey,
-                        ctrlKey: event.ctrlKey,
-                        isComposing: event.nativeEvent.isComposing,
-                        running: activeRun !== null
-                      })
-                      if (action === 'none' || action === 'newline') return
-                      event.preventDefault()
-                      if (action === 'steer') void queueMessage('steer')
-                      else if (action === 'follow_up') void queueMessage('follow_up')
-                      else void startRun(prompt)
-                    }}
+                    disabled={busy || activeRun !== null || conversationLocked}
+                    onChange={setScopePreference}
                   />
-                  <InputGroupAddon align='block-end' className='justify-between gap-2'>
-                    <span className='text-xs text-muted-foreground'>
-                      Shift+Enter for a new line
-                    </span>
-                    <div className='flex items-center gap-1'>
-                      {activeRun !== null ? (
-                        <>
-                          <div className='flex items-center'>
-                            <InputGroupButton
-                              size='sm'
-                              aria-label='Queue follow-up'
-                              disabled={busy || prompt.trim().length === 0}
-                              onClick={() => void queueMessage('follow_up')}
-                            >
-                              <Send data-icon='inline-start' /> Queue
-                            </InputGroupButton>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <InputGroupButton
-                                  size='icon-sm'
-                                  aria-label='Choose send behavior'
-                                  disabled={busy}
-                                >
-                                  <ChevronDown />
-                                </InputGroupButton>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align='end'>
-                                <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
-                                  <Send /> Queue follow-up
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
-                                  <ChevronRight /> Steer now
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          <ComposerAction
-                            size='icon-sm'
-                            variant='destructive'
-                            label='Stop'
-                            disabled={busy}
-                            onClick={() => void stopRun()}
-                          >
-                            <CircleStop />
-                          </ComposerAction>
-                        </>
-                      ) : (
-                        <>
-                          {retryableRun && latestPrompt ? (
-                            <ComposerAction
-                              size='icon-sm'
-                              variant='outline'
-                              label='Try again'
-                              disabled={busy}
-                              onClick={() =>
-                                void startRun(
-                                  latestPrompt,
-                                  undefined,
-                                  false,
-                                  false,
-                                  retrySkillSelection(latestRun),
-                                  latestRun?.agentRunId
-                                )
-                              }
-                            >
-                              <RotateCcw />
-                            </ComposerAction>
-                          ) : null}
+                  <ApprovalModePicker
+                    value={activeSession?.approvalMode ?? 'manual'}
+                    disabled={busy || activeRun !== null || conversationLocked}
+                    onSelect={setApprovalMode}
+                  />
+                </InputGroupAddon>
+                <InputGroupAddon
+                  align='block-end'
+                  className='flex-wrap justify-between gap-x-2 gap-y-1'
+                >
+                  <div className='flex min-w-0 flex-1 flex-wrap items-center gap-1'>
+                    <AgentModelPicker
+                      compact
+                      presets={availableModelPresets}
+                      selection={activeSession?.modelSelection ?? providerCatalog.defaultSelection}
+                      disabled={busy || activeRun !== null || conversationLocked}
+                      onSelect={setModelSelection}
+                    />
+                    <AgentThinkingPicker
+                      compact
+                      levels={supportedThinkingLevels}
+                      value={
+                        activeSession?.thinkingLevel ??
+                        providerCatalog.defaultThinkingLevel ??
+                        'medium'
+                      }
+                      disabled={busy || activeRun !== null || conversationLocked}
+                      onSelect={setThinkingLevel}
+                    />
+                    <SkillPicker
+                      compact
+                      open={skillPickerOpen}
+                      onOpenChange={setSkillPickerOpen}
+                      snapshot={skillSnapshot}
+                      selection={skillSelection}
+                      disabled={busy || activeRun !== null || conversationLocked}
+                      onSelect={(selection) => void setSkillSelection(selection)}
+                      onOpenSettings={props.onOpenSkillSettings}
+                    />
+                  </div>
+                  <div className='ml-auto flex items-center gap-1'>
+                    {activeRun !== null ? (
+                      <>
+                        <div className='flex items-center'>
                           <InputGroupButton
                             size='sm'
-                            aria-label='Send'
-                            disabled={
-                              busy ||
-                              prompt.trim().length === 0 ||
-                              activeSession?.compatible === false
-                            }
-                            onClick={() => void startRun(prompt)}
+                            aria-label='Queue follow-up'
+                            disabled={busy || prompt.trim().length === 0}
+                            onClick={() => void queueMessage('follow_up')}
                           >
-                            <Send data-icon='inline-start' /> Send
+                            <Send data-icon='inline-start' /> Queue
                           </InputGroupButton>
-                        </>
-                      )}
-                    </div>
-                  </InputGroupAddon>
-                </InputGroup>
-              </Field>
-            </>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <InputGroupButton
+                                size='icon-sm'
+                                aria-label='Choose send behavior'
+                                disabled={busy}
+                              >
+                                <ChevronDown />
+                              </InputGroupButton>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align='end'>
+                              <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
+                                <Send /> Queue follow-up
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
+                                <ChevronRight /> Steer now
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        <ComposerAction
+                          size='icon-sm'
+                          variant='destructive'
+                          label='Stop'
+                          disabled={busy}
+                          onClick={() => void stopRun()}
+                        >
+                          <CircleStop />
+                        </ComposerAction>
+                      </>
+                    ) : (
+                      <>
+                        {retryableRun && latestPrompt ? (
+                          <ComposerAction
+                            size='icon-sm'
+                            variant='outline'
+                            label='Try again'
+                            disabled={busy}
+                            onClick={() =>
+                              void startRun(
+                                latestPrompt,
+                                undefined,
+                                false,
+                                false,
+                                retrySkillSelection(latestRun),
+                                latestRun?.agentRunId
+                              )
+                            }
+                          >
+                            <RotateCcw />
+                          </ComposerAction>
+                        ) : null}
+                        <InputGroupButton
+                          size='sm'
+                          aria-label='Send'
+                          disabled={
+                            busy ||
+                            prompt.trim().length === 0 ||
+                            activeSession?.compatible === false
+                          }
+                          onClick={() => void startRun(prompt)}
+                        >
+                          <Send data-icon='inline-start' /> Send
+                        </InputGroupButton>
+                      </>
+                    )}
+                  </div>
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
           )}
         </div>
       </aside>
@@ -1400,11 +1446,11 @@ export function AgentPanel(props: {
         modelReady={modelReady}
         skillSnapshot={skillSnapshot}
         skillSelection={skillSelection}
-        skillPickerOpen={skillPickerOpen}
+        skillPickerOpen={detailsSkillPickerOpen}
         busy={busy || conversationLocked || activeRun !== null}
         onModelSelect={setModelSelection}
         onThinkingSelect={setThinkingLevel}
-        onSkillPickerOpenChange={setSkillPickerOpen}
+        onSkillPickerOpenChange={setDetailsSkillPickerOpen}
         onSkillSelect={setSkillSelection}
         onApprovalModeSelect={setApprovalMode}
         onOpenSettings={props.onOpenSkillSettings}
@@ -1581,10 +1627,10 @@ function ContextScopeChip(props: {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant='outline'
-          size='sm'
-          className='w-fit max-w-full rounded-full font-normal'
+        <InputGroupButton
+          variant='ghost'
+          size='xs'
+          className='w-fit max-w-full font-normal'
           disabled={props.disabled}
           aria-label={`Context: ${label}`}
         >
@@ -1597,7 +1643,7 @@ function ContextScopeChip(props: {
           )}
           <span className='truncate'>{label}</span>
           <ChevronDown />
-        </Button>
+        </InputGroupButton>
       </PopoverTrigger>
       <PopoverContent align='start' side='top' className='w-72 p-0'>
         <Command>
@@ -1626,6 +1672,42 @@ function ContextScopeChip(props: {
         </Command>
       </PopoverContent>
     </Popover>
+  )
+}
+
+function ApprovalModePicker(props: {
+  value: AgentApprovalMode
+  disabled: boolean
+  onSelect(mode: AgentApprovalMode): void | Promise<void>
+}): React.JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <InputGroupButton
+          variant='ghost'
+          size='xs'
+          disabled={props.disabled}
+          aria-label={`Approval policy: ${approvalModeLabel(props.value)}`}
+          data-testid='agent-approval-selector'
+        >
+          <ShieldCheck />
+          <span className='max-w-40 truncate'>{approvalModeCompactLabel(props.value)}</span>
+          <ChevronDown />
+        </InputGroupButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end' side='top'>
+        <DropdownMenuRadioGroup
+          value={props.value}
+          onValueChange={(value) => void props.onSelect(agentApprovalModeSchema.parse(value))}
+        >
+          {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
+            <DropdownMenuRadioItem key={mode} value={mode}>
+              {approvalModeLabel(mode)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -1868,10 +1950,9 @@ function AgentDetailsDialog(props: {
 }
 
 function EventTimeline(props: {
-  events: AgentEventRecord[]
+  timeline: AgentTimelineItem[]
   proposals: MutationProposalRecord[]
   runs: AgentRunRecord[]
-  now: number
   streaming: Record<string, string>
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
@@ -1881,13 +1962,9 @@ function EventTimeline(props: {
     action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
 }): React.JSX.Element {
-  const timeline = useMemo(
-    () => projectAgentTimeline(props.events, props.proposals, props.runs, props.now),
-    [props.events, props.now, props.proposals, props.runs]
-  )
   const citationsById = useMemo(() => {
     const citations = new Map<string, AgentCitationDisplay>()
-    for (const item of timeline) {
+    for (const item of props.timeline) {
       if (item.type === 'activity') {
         for (const citation of item.citations) citations.set(citation.citationId, citation)
       } else if (item.type === 'proposal' && item.tool.result !== null) {
@@ -1897,15 +1974,15 @@ function EventTimeline(props: {
       }
     }
     return citations
-  }, [timeline])
-  const scrollAnchorIndex = agentTimelineScrollAnchorIndex(timeline)
+  }, [props.timeline])
+  const scrollAnchorIndex = agentTimelineScrollAnchorIndex(props.timeline)
 
   return (
     <MessageScrollerProvider autoScroll>
       <MessageScroller data-testid='agent-event-timeline'>
         <MessageScrollerViewport>
           <MessageScrollerContent className='gap-5 overflow-hidden px-4 py-4 pb-6'>
-            {timeline.map((item, index) => (
+            {props.timeline.map((item, index) => (
               <MessageScrollerItem
                 key={item.id}
                 messageId={item.id}
@@ -2031,7 +2108,9 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'run_interrupted') {
-    if (item.terminal.outcome === 'awaiting_review') return <span className='hidden' />
+    if (item.terminal.outcome === 'awaiting_review') {
+      return <RunDurationMarker durationMs={item.terminal.durationMs} />
+    }
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -2044,15 +2123,29 @@ function TimelineItem(props: {
         <MarkerContent>
           {item.terminal.code === 'user_stopped'
             ? 'Stopped'
-            : agentTerminalLabel(item.terminal.code)}
+            : agentTerminalLabel(item.terminal.code)}{' '}
+          · after {formatAgentDuration(item.terminal.durationMs)}
         </MarkerContent>
       </Marker>
     )
   }
-  if (item.type === 'run_completed') return <span className='hidden' />
+  if (item.type === 'run_completed') {
+    return <RunDurationMarker durationMs={item.terminal.durationMs} />
+  }
   return (
     <Marker variant='separator'>
       <MarkerContent>Earlier conversation summarized</MarkerContent>
+    </Marker>
+  )
+}
+
+function RunDurationMarker(props: { durationMs: number }): React.JSX.Element {
+  return (
+    <Marker role='status' variant='border'>
+      <MarkerIcon>
+        <Clock3 />
+      </MarkerIcon>
+      <MarkerContent>Worked for {formatAgentDuration(props.durationMs)}</MarkerContent>
     </Marker>
   )
 }
@@ -2090,6 +2183,11 @@ function ActivityGroup(props: {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className='mt-3 ml-2 flex min-w-0 flex-col gap-3 overflow-hidden border-l pl-4'>
+          <div className='flex min-w-0 flex-col gap-2'>
+            {item.tools.map((tool) => (
+              <AgentActivityStep key={tool.eventId} tool={tool} />
+            ))}
+          </div>
           {item.citations.length > 0 ? <CitationAttachments citations={item.citations} /> : null}
           {item.failedCount > 0 ? (
             <p className='text-xs text-muted-foreground'>
@@ -2099,6 +2197,23 @@ function ActivityGroup(props: {
         </div>
       </CollapsibleContent>
     </Collapsible>
+  )
+}
+
+function AgentActivityStep(props: { tool: AgentToolActivity }): React.JSX.Element {
+  const stopped = toolWasStopped(props.tool)
+  return (
+    <Marker data-testid={`agent-activity-step-${props.tool.call.toolCallId}`}>
+      <MarkerIcon>{toolResultIcon(props.tool, stopped)}</MarkerIcon>
+      <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-3'>
+        <span className='min-w-0 truncate text-foreground'>
+          {agentToolActivityLabel(props.tool)}
+        </span>
+        <span className='shrink-0 whitespace-nowrap text-xs'>
+          {toolResultLabel(props.tool, stopped)} · {formatAgentDuration(props.tool.durationMs)}
+        </span>
+      </MarkerContent>
+    </Marker>
   )
 }
 
@@ -2376,6 +2491,7 @@ function SkillPicker({
   snapshot,
   selection,
   disabled,
+  compact = false,
   onSelect,
   onOpenSettings
 }: {
@@ -2384,6 +2500,7 @@ function SkillPicker({
   snapshot: SkillsSnapshot | null
   selection: SkillSelection
   disabled: boolean
+  compact?: boolean
   onSelect: (selection: SkillSelection) => void
   onOpenSettings: () => void
 }): React.JSX.Element {
@@ -2395,7 +2512,9 @@ function SkillPicker({
       : null
   const label =
     selection.mode === 'auto'
-      ? 'Skill: Auto'
+      ? compact
+        ? 'Skill auto'
+        : 'Skill: Auto'
       : selection.mode === 'none'
         ? 'No skill'
         : (explicit?.displayName ?? 'Selected skill')
@@ -2405,7 +2524,8 @@ function SkillPicker({
         <PopoverTrigger asChild>
           <InputGroupButton
             size='sm'
-            variant='outline'
+            variant={compact ? 'ghost' : 'outline'}
+            className={compact ? 'h-6 px-2' : undefined}
             disabled={disabled}
             aria-label='Choose writing skill'
           >
@@ -2603,6 +2723,12 @@ function approvalModeLabel(mode: AgentApprovalMode): string {
   if (mode === 'manual') return 'Review every change'
   if (mode === 'section_auto') return 'Apply section edits automatically'
   return 'Apply all eligible edits automatically'
+}
+
+function approvalModeCompactLabel(mode: AgentApprovalMode): string {
+  if (mode === 'manual') return 'Review changes'
+  if (mode === 'section_auto') return 'Auto section edits'
+  return 'Auto eligible edits'
 }
 
 export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {

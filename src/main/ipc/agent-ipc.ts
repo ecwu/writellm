@@ -30,9 +30,12 @@ import {
   agentStartRunResultSchema,
   agentSubscriptionInputSchema
 } from '../../shared/contracts/agent-ipc'
-import type { MutationProposalRecord } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { AgentEventBroker } from '../agent/event-broker'
+import {
+  buildApprovalContinuationPrompt,
+  buildRejectedProposalRevisionPrompt
+} from '../agent/prompts/task-prompts'
 import type { ProjectManager } from '../project/project-manager'
 import {
   clampResolvedAgentThinkingLevel,
@@ -277,7 +280,7 @@ export function registerAgentIpc(options: {
           continueRequested: true
         })
         reuseSkillFromRunId ??= proposal.agentRunId
-        prompt = approvalContinuationPrompt(proposal, input.prompt)
+        prompt = buildApprovalContinuationPrompt(proposal, input.prompt)
         presentation = { kind: 'approval_continuation' }
         options.logger.info(
           {
@@ -312,7 +315,7 @@ export function registerAgentIpc(options: {
           )
         }
         reuseSkillFromRunId = proposal.agentRunId
-        prompt = rejectedProposalRevisionPrompt(proposal)
+        prompt = buildRejectedProposalRevisionPrompt(proposal)
         presentation = {
           kind: 'review_feedback',
           displayContent: proposal.rejectedReason
@@ -436,38 +439,4 @@ function requireCatalog(
 ): NonNullable<Parameters<typeof registerAgentIpc>[0]['catalog']> {
   if (catalog === undefined) throw new Error('Agent provider catalog is unavailable')
   return catalog
-}
-
-function approvalContinuationPrompt(
-  proposal: MutationProposalRecord,
-  requestedContinuation: string
-): string {
-  const subject =
-    proposal.kind === 'brief_update'
-      ? 'Brief update'
-      : proposal.kind === 'outline_patch'
-        ? 'Outline update'
-        : proposal.kind === 'generated_image_insert'
-          ? 'generated image'
-          : 'section update'
-  const result =
-    proposal.status === 'satisfied'
-      ? `The user approved the proposed ${subject}; the current manuscript already satisfies it.`
-      : `The user approved the proposed ${subject}, and it is now applied.`
-  return `${result} Treat the resulting manuscript state as authoritative. ${requestedContinuation.trim()}`
-}
-
-function rejectedProposalRevisionPrompt(proposal: MutationProposalRecord): string {
-  if (proposal.rejectedReason === null) {
-    throw new Error('Rejected proposal feedback is unavailable')
-  }
-  const subject =
-    proposal.kind === 'brief_update'
-      ? 'brief update'
-      : proposal.kind === 'outline_patch'
-        ? 'outline update'
-        : proposal.kind === 'generated_image_insert'
-          ? 'generated image'
-          : 'section update'
-  return `The user rejected the proposed ${subject}. Address this feedback:\n\n${proposal.rejectedReason}\n\nTreat the current manuscript state as authoritative. Re-read the relevant manuscript context and submit a revised typed proposal when a change is still needed.`
 }

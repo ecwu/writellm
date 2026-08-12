@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildAgentPolicy } from '../agent/writing-policy'
+import { buildAgentPolicy } from '../agent/prompts/agent-policy'
+import { SKILL_COMPANION_NOTE } from '../agent/prompts/skill-companion'
 import { MAX_SYSTEM_PROMPT_BYTES } from '../agent/context'
-import { formatWriteLlmSkill, SKILL_COMPANION_NOTE } from './prompt'
+import { formatWriteLlmSkill } from './prompt'
 
 describe('writing skill prompt budget baseline', () => {
   it('stages bounded Skill preparation before downstream tools', () => {
@@ -39,8 +40,8 @@ describe('writing skill prompt budget baseline', () => {
       )
     }).toEqual({
       max: 65_536,
-      policy: 5_218,
-      companion: 1_305,
+      policy: 6_877,
+      companion: 1_331,
       emptyInvocation: 197,
       fixedEnvelope: 165
     })

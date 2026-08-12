@@ -627,6 +627,55 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
   return summaries.length > 0 ? joinSummaryParts(summaries) : 'Worked on the request'
 }
 
+export function agentToolActivityLabel(tool: AgentToolActivity): string {
+  const running = tool.result === null && !toolWasStopped(tool)
+  switch (tool.call.toolName) {
+    case 'get_writing_context':
+      return running ? 'Reading manuscript context' : 'Read manuscript context'
+    case 'read_outline':
+      return running ? 'Reading the outline' : 'Read the outline'
+    case 'read_section':
+      return running ? 'Reading a section' : 'Read a section'
+    case 'search_manuscript':
+      return running ? 'Searching the manuscript' : 'Searched the manuscript'
+    case 'search_knowledge':
+      return running ? 'Searching sources' : 'Searched sources'
+    case 'read_citations':
+      return running ? 'Checking source evidence' : 'Checked source evidence'
+    case 'read_writing_skill':
+      return running ? 'Loading writing guidance' : 'Loaded writing guidance'
+    case 'inspect_change':
+      return running ? 'Reviewing the change' : 'Reviewed the change'
+    case 'check_draft':
+      return running ? 'Checking the draft' : 'Checked the draft'
+    case 'submit_brief_change':
+    case 'submit_outline_change':
+    case 'submit_section_change':
+    case 'propose_brief_update':
+    case 'propose_outline_patch':
+    case 'propose_section_patch':
+      return running ? 'Preparing a reviewable change' : 'Prepared a reviewable change'
+    case 'generate_image':
+      return running ? 'Generating an image' : 'Generated an image'
+  }
+}
+
+export function currentAgentActivitySummary(
+  timeline: AgentTimelineItem[],
+  runId: string | null
+): string | null {
+  if (runId === null) return null
+  for (const item of [...timeline].reverse()) {
+    if (item.type === 'activity' && item.runId === runId && item.status === 'running') {
+      return item.summary
+    }
+    if (item.type === 'proposal' && item.tool.runId === runId && item.tool.result === null) {
+      return agentToolActivityLabel(item.tool)
+    }
+  }
+  return null
+}
+
 function dedupeCitationDisplays(citations: AgentCitationDisplay[]): AgentCitationDisplay[] {
   const deduped = new Map<string, AgentCitationDisplay>()
   for (const citation of citations) {

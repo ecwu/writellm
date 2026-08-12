@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.12 tag and macOS arm64 App build are authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 28.3 Agent Prompt Architecture, Checkpoint 28.2, Checkpoint 28.1, and local candidate v0.2026.8.12 are complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -9,6 +9,49 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 28.3 is locally complete. It audits WriteLLM's application-owned Agent prompts against the
+current OpenAI Codex prompt organization, then consolidates base policy, prompt composition,
+Writing Skill companion guidance, and bounded task templates under one Main-owned prompt module.
+Dynamic project, Skill-reference, conversation, and review content receive explicit non-escapable
+semantic boundaries. The checkpoint may refine concise collaboration, autonomy, handoff, and final
+response guidance, but it adds no tool, authority, provider-specific prompt fork, persistence,
+migration, background job, or Renderer access.
+
+The user requested the audit and improvement on 2026-08-12. ADR 017 records the prompt ownership,
+precedence, composition, and verification contract. Local evidence includes 68 focused prompt,
+context, session, Skill-budget, and IPC tests; `check:fast`; `check:electron` with 137 passing
+Electron-hosted test files, 723 passing tests, one opt-in benchmark skipped, and a successful
+production build; and `git diff --check`. Packaging, release, hosted CI, commit, push, and
+promotion remain out of scope.
+
+Checkpoint 28.2 is locally complete. It corrects the over-concealment introduced by CP28.1: the
+Agent composer keeps context, approval policy, model, Thinking, and Writing Skill directly
+available; the running status names the current activity; activity summaries expand into
+individual human-readable steps; and the model provides concise progress messages between
+materially different tool phases. Raw tool names, bounded payloads, provider metadata, and token
+diagnostics remain in Details.
+
+Accepted ADR 016 changes presentation and progress messaging only. It adds no Agent authority,
+tool, event type, persistence, migration, worker role, background job, or filesystem/network
+access. The user explicitly requested this redesign on 2026-08-12 using the Codex task surface as
+the interaction reference. On 2026-08-12 the user additionally authorized a local unsigned macOS
+App build from the current CP28.2 worktree. Commit, tag, push, hosted CI, signed release, and
+promotion remain unauthorized.
+
+Local evidence includes 26 focused policy, view-model, and Renderer tests; `check:fast`;
+`check:electron` with 135 passing Electron-hosted test files, 716 passing tests, one opt-in
+benchmark skipped, and a successful production build; a fresh full Real-Electron gate with all 23
+scenarios passing without flakes or skips; all 23 recovery fixtures verified; a clean scoped
+Impeccable detector; and `git diff --check`. The Agent E2E proves the visible context, approval,
+model, Thinking, and Writing Skill controls, alternating progress messages and tool activity,
+expandable human-readable steps, and the existing grounded proposal flow. It also exposed and
+verified a fix that isolates the composer and Details Writing Skill popover state. The authorized
+no-identity macOS arm64 package gate then passed 12/12 packaged runtime smoke scenarios and 15/15
+packaged Real-Electron scenarios, verified app.sqlite integrity and no Apple Team identity, and
+produced the unpacked App, DMG, ZIP, and package evidence from source revision `daff1fc` plus the
+documented dirty CP28.2 worktree. Signed release, hosted CI, commit, tag, push, and promotion were
+not run.
 
 Checkpoint 28.1 is locally complete. It turns the existing Agent sidebar into one continuous writing
 flow: opening resumes the active or attention-requiring conversation, empty projects show a lazy

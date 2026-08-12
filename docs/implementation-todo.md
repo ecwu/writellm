@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Checkpoint 28.1 Agent Flow Polish is locally complete; local candidate v0.2026.8.12 tag and macOS arm64 App build are authorized; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 28.3 Agent Prompt Architecture, Checkpoint 28.2, Checkpoint 28.1, and local candidate v0.2026.8.12 are complete; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +15,69 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 28.3: Agent Prompt Architecture
+
+- [x] Inventory application-owned Agent prompts and compare their responsibilities with the
+  current OpenAI Codex base, mode/task-template, compaction, and runtime-context layering.
+- [x] Consolidate base policy, system composition, Writing Skill companion guidance, and bounded
+  task templates under one Main-owned prompt module without provider-specific copies.
+- [x] Give every dynamic prompt payload an explicit semantic boundary that content cannot close,
+  and freeze prompt precedence plus size-budget behavior with focused tests.
+- [x] Refine concise progress, autonomy, response, and checkpoint-handoff instructions; run the
+  applicable local verification gates and record exact evidence.
+
+Authorization: on 2026-08-12 the user asked to audit WriteLLM's prompts against OpenAI Codex and
+improve the project's currently scattered prompt management. ADR 017 is accepted for this bounded
+internal checkpoint. No tool, authority, provider-specific prompt fork, persistence, migration,
+background job, packaging, release, hosted CI, commit, push, or promotion is authorized.
+
+Local evidence: 68 focused prompt, context, session, Skill-budget, and IPC tests; `check:fast`;
+`check:electron` with 137 passing files, 723 passing tests, one opt-in benchmark skipped, and a
+successful production build; and `git diff --check`. The focused coverage proves fixed layer order,
+prompt-budget review, title and compaction handoffs, review-continuation integration, and that
+dynamic project, Skill-reference, conversation, and review content cannot close its declared
+semantic block.
+
+### Maintenance: Reviewed Writing Skill catalog expansion
+
+- [~] Review the user-supplied CCFA and Nature repositories against WriteLLM's text-only,
+  no-shell, no-network Writing Skill authority; add only compatible, commit- and blob-pinned
+  catalog entries; and verify the focused catalog/service boundary plus the applicable local
+  gates.
+
+Authorization: on 2026-08-12 the user explicitly asked to supplement WriteLLM's existing Writing
+Skill registry from `mikubaka88/CCFA-Skills` and `Yuan1z0825/nature-skills`. This maintenance does
+not authorize new tools, executable Skill content, arbitrary file/network access, packaging,
+release, hosted CI, commit, push, or promotion.
+
+### Checkpoint 28.2: Agent Progress Visibility
+
+- [x] Keep context, approval policy, model, Thinking, and Writing Skill as responsive quick controls
+  in the default composer while preserving the existing snapshot lock and Details diagnostics.
+- [x] Replace generic `Working` with the current human-readable activity plus elapsed time, expose
+  individual human-readable tool steps in the expandable activity row, and show completed duration.
+- [x] Require concise user-visible intent and finding updates between material tool phases without
+  exposing hidden reasoning or adding a new event/persistence contract.
+- [x] Add focused policy, view-model, Renderer, keyboard, narrow-layout, and Real-Electron coverage;
+  run the applicable local verification and Impeccable gates.
+
+Authorization: on 2026-08-12 the user explicitly requested this redesign using the supplied Codex
+screenshots as the reference and later authorized a local unsigned macOS App build from the current
+CP28.2 worktree. ADR 016 is accepted. Commit, tag, push, hosted CI, signed release, and promotion
+remain unauthorized.
+
+Local evidence: 26 focused policy, view-model, and Renderer tests; `check:fast`;
+`check:electron` with 135 passing files, 716 passing tests, one opt-in benchmark skipped, and a
+successful production build; fresh `check:e2e` with 23/23 Real-Electron scenarios and no failures,
+flakes, or skips; 23/23 recovery fixtures; a clean scoped Impeccable detector; and
+`git diff --check`. The grounded Agent scenario verifies the five visible quick controls, concise
+assistant progress between material tool phases, expandable human-readable tool steps, and the
+unchanged review boundary. The global Writing Skill scenario verifies isolated composer/Details
+popover state and immutable Skill snapshots. The authorized no-identity macOS arm64 package gate
+passed 12/12 packaged runtime smoke scenarios and 15/15 packaged Real-Electron scenarios, verified
+app.sqlite integrity and no Apple Team identity, and produced an unpacked App, DMG, ZIP, and package
+evidence from source revision `daff1fc` plus the documented dirty CP28.2 worktree.
 
 ### Maintenance: v0.2026.8.12 local tag and macOS App
 

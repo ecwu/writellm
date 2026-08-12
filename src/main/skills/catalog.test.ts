@@ -11,7 +11,11 @@ describe('curated writing skill catalog', () => {
     expect(CURATED_SKILL_CATALOG.map((entry) => entry.skillId)).toEqual([
       'nature-writing',
       'ccf-humanization',
-      'ccf-paper-writer'
+      'ccf-paper-writer',
+      'ccf-visual-composer',
+      'ccf-paper-reviewer',
+      'ccf-integrity-auditor',
+      'nature-statistics'
     ])
     for (const entry of CURATED_SKILL_CATALOG) {
       expect(entry.commit).toMatch(/^[a-f0-9]{40}$/)
@@ -30,5 +34,15 @@ describe('curated writing skill catalog', () => {
     expect(
       CURATED_SKILL_CATALOG.find((entry) => entry.skillId === 'ccf-paper-writer')?.dependencies
     ).toEqual(['ccf-humanization'])
+    expect(
+      CURATED_SKILL_CATALOG.filter((entry) =>
+        [
+          'ccf-visual-composer',
+          'ccf-paper-reviewer',
+          'ccf-integrity-auditor',
+          'nature-statistics'
+        ].includes(entry.skillId)
+      ).every((entry) => entry.dependencies.length === 0)
+    ).toBe(true)
   })
 })

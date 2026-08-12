@@ -4,10 +4,12 @@ import type { MutationProposalRecord } from '../../../../shared/contracts/agent-
 import {
   aggregateAgentUsage,
   agentReviewState,
+  agentToolActivityLabel,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   citationDisplaysForToolResult,
+  currentAgentActivitySummary,
   formatAgentDuration,
   findLatestPrompt,
   findToolResult,
@@ -293,6 +295,24 @@ describe('Agent renderer view model', () => {
       failedCount: 0,
       citations: [{ citationId, title: 'Source paper.pdf', page: 2 }]
     })
+  })
+
+  it('names the live activity and its individual steps without exposing raw tool names', () => {
+    const timeline = projectAgentTimeline([
+      toolCallRecord(1, 'read', 'read_section'),
+      toolResultRecord(2, 'read', 'read_section'),
+      assistantRecord(3, 'The section establishes the baseline. I will now check the sources.'),
+      toolCallRecord(4, 'search', 'search_knowledge')
+    ])
+    const activities = timeline.filter((item) => item.type === 'activity')
+
+    expect(currentAgentActivitySummary(timeline, base.agentRunId)).toBe('Searching sources')
+    expect(activities).toHaveLength(2)
+    const read = activities[0]?.tools[0]
+    const search = activities[1]?.tools[0]
+    if (read === undefined || search === undefined) throw new Error('Expected activity steps')
+    expect(agentToolActivityLabel(read)).toBe('Read a section')
+    expect(agentToolActivityLabel(search)).toBe('Searching sources')
   })
 
   it('distinguishes a partial failure from a wholly failed activity group', () => {

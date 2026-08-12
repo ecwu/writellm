@@ -16,11 +16,13 @@ export function AgentThinkingPicker({
   levels,
   value,
   disabled,
+  compact = false,
   onSelect
 }: {
   levels: AgentThinkingLevel[]
   value: AgentThinkingLevel
   disabled: boolean
+  compact?: boolean
   onSelect: (level: AgentThinkingLevel) => void | Promise<void>
 }): React.JSX.Element {
   const unavailable = levels.length === 1 && levels[0] === 'off'
@@ -28,16 +30,18 @@ export function AgentThinkingPicker({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant='outline'
+          variant={compact ? 'ghost' : 'outline'}
           size='sm'
-          className='h-7'
+          className={compact ? 'h-6 px-2' : 'h-7'}
           aria-label={`Thinking level: ${thinkingLevelLabel(value)}`}
           data-testid='agent-thinking-selector'
           disabled={disabled || unavailable}
           title={unavailable ? 'Thinking controls are unavailable for this model' : undefined}
         >
           <Brain />
-          <span className='hidden @sm/agent:inline'>Thinking: {thinkingLevelLabel(value)}</span>
+          <span className={compact ? 'hidden @sm/agent:inline' : undefined}>
+            {compact ? thinkingLevelLabel(value) : `Thinking: ${thinkingLevelLabel(value)}`}
+          </span>
           <ChevronDown data-icon='inline-end' />
         </Button>
       </DropdownMenuTrigger>
