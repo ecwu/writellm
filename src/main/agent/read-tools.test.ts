@@ -214,6 +214,33 @@ describe('Agent context and Main read tools', () => {
     database.close()
   })
 
+  it('returns Agent manuscript ranges in original UTF-16 coordinates', async () => {
+    const { database, manuscript } = await createManuscript()
+    const section = manuscript.listSections()[0]
+    if (section === undefined) throw new Error('Missing root section')
+    const current = manuscript.getRevision(section.currentRevisionId)
+    manuscript.appendRevision({
+      sectionId: section.sectionId,
+      baseRevisionId: current.sectionRevisionId,
+      baseContentHash: current.contentHash,
+      content: [block('unicode-block', 'Cafe\u0301 İstanbul')],
+      source: 'manual',
+      sourceClass: 'manual_checkpoint',
+      agentRunId: null,
+      agentToolCallId: null,
+      agentProposalId: null
+    })
+    const result = await createTools(manuscript).execute({
+      toolName: 'search_manuscript',
+      args: { query: 'café', sectionIds: [section.sectionId], limit: 10 },
+      editorContext: emptyEditorContext(),
+      signal: new AbortController().signal
+    })
+    expect(result.hits[0]?.matchRanges).toEqual([[0, 5]])
+    expect(result.hits[0]?.excerpt.slice(0, 5)).toBe('Cafe\u0301')
+    database.close()
+  })
+
   it('returns bounded citations, reports sources deleted during the run, and injects capability itself', async () => {
     const { database, manuscript } = await createManuscript()
     const search = vi.fn(async (input: { projectSessionId: string }) => {

@@ -76,3 +76,36 @@ maintenance without turning the active tracker back into a historical log.
   and 15/15 packaged E2E scenarios; and 22 recovery cases from 20 sources. Hosted Ubuntu and
   four-target evidence remains pending because no commit, push, tag, or workflow dispatch was
   authorized.
+
+## 2026-08-12
+
+- Locally completed Checkpoint 29 manuscript-wide literal Find and exact navigation under accepted
+  ADR 021. The implementation shares a locale-independent NFC matcher with the unchanged Agent
+  tool, maps projection ranges back to original UTF-16 semantic spans, revalidates current
+  authority before navigation, and adds the shadcn workspace Find surface with bounded pagination
+  and non-mutating editor decorations.
+- Final evidence: the 1,000-section/10,419,993-byte benchmark passed at p95 34.66 ms and maximum
+  synchronous Main slice 12.02 ms; `check:fast`; 146 Electron-hosted files and 798 tests; a
+  successful production build; 26/26 full Real-Electron scenarios; 25 recovery fixtures; clean
+  scoped Impeccable detection plus fresh finish review/remediation; and `git diff --check`.
+  Package/release, hosted CI, commit, tag, push, and publication were not run.
+- Advanced the active release metadata from `0.2026.8.13` to `0.2026.8.14`. The accepted mapping
+  keeps the package/application version at `0.2026.8` and advances macOS `CFBundleVersion` to
+  `2026.8.14`. No commit, tag, package, push, hosted CI, signing, or publication was performed.
+- Completed the Checkpoint 30 decision pass and recorded proposed ADR 022. The plan fixes the
+  writable prose/structured-skip matrix, exhaustive ephemeral capability, default-empty bounded
+  selection, one-transaction canonical application, post-commit materialization repair,
+  per-section Undo, optional ready-only project checkpoint, mounted-editor reconciliation,
+  performance gate, implementation slices, and acceptance matrix. Implementation remains
+  unauthorized pending separate approval.
+- Locally completed the subsequently authorized Checkpoint 30 implementation under accepted ADR
+  022. Find now progressively exposes literal Replace with exhaustive preview, fixed structured
+  skip reasons, default-empty bounded selection, exact revalidation, one-transaction canonical
+  application, repairable post-commit materialization, narrow per-section Undo, optional ready-
+  only project checkpoints, and mounted-editor reconciliation.
+- CP30 evidence passed 148 Electron-hosted test files and 807 tests, the production build, 27/27
+  full Real-Electron scenarios, 25 recovery fixtures, the 100-section/500-selection transaction
+  benchmark at p95 16.44 ms, clean scoped Impeccable detection, and `git diff --check`. Release
+  metadata advanced to `0.2026.8.15`; the no-identity macOS arm64 package gate passed 12 packaged
+  runtime smoke and 17 packaged E2E scenarios and produced a verified no-Team-ID App, DMG, and ZIP.
+  No commit, tag, hosted CI, Apple signing/notarization, push, publication, or promotion ran.

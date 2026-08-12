@@ -28,6 +28,7 @@ import {
 } from '../../shared/contracts/agent-tools'
 import { extractSectionAgentText } from '../manuscript/content'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
+import { findProjectionMatches } from '../../shared/manuscript-search'
 import type { RetrievalService } from '../search/retrieval-service'
 import { AgentContextBuilder } from './context'
 import type { WritingSnapshot } from './context'
@@ -362,7 +363,6 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     args: ReturnType<typeof searchManuscriptArgsSchema.parse>,
     snapshot: WritingSnapshot
   ): SearchManuscriptResult {
-    const query = args.query.normalize('NFC').toLocaleLowerCase()
     const allowed = new Set(args.sectionIds)
     const allHits: SearchManuscriptResult['hits'] = []
     for (const entry of snapshot.workspace.sections) {
@@ -371,20 +371,16 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       const content = snapshot.sectionContents.get(revision.sectionRevisionId)
       if (content === undefined) continue
       for (const block of flattenBlocks(content)) {
-        const normalized = block.text.normalize('NFC').toLocaleLowerCase()
-        const matchRanges: Array<[number, number]> = []
-        let start = normalized.indexOf(query)
-        while (start >= 0 && matchRanges.length < 100) {
-          matchRanges.push([start, start + query.length])
-          start = normalized.indexOf(query, start + Math.max(1, query.length))
-        }
+        const matchRanges = findProjectionMatches(block.text, args.query, false)
+          .matches.slice(0, 100)
+          .map(({ from, to }): [number, number] => [from, to])
         if (matchRanges.length === 0) continue
         const firstStart = matchRanges[0][0]
         allHits.push({
           sectionId: entry.section.sectionId,
           revisionId: revision.sectionRevisionId,
           blockId: block.blockId,
-          excerpt: block.text.slice(Math.max(0, firstStart - 200), firstStart + query.length + 600),
+          excerpt: block.text.slice(Math.max(0, firstStart - 200), matchRanges[0][1] + 600),
           matchRanges,
           headingPath: headingPath(snapshot, entry.section.sectionId)
         })

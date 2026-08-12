@@ -3,6 +3,7 @@ import {
   adjacentSectionAfterDelete,
   outlineMoveAvailability,
   outlineMoveTarget,
+  outlineSelectionTarget,
   sectionHasChildren,
   visibleOutlineSections
 } from './outline-tree'
@@ -62,5 +63,10 @@ describe('outline tree helpers', () => {
     expect(adjacentSectionAfterDelete(sections, 'child-b')).toBe('root-b')
     expect(adjacentSectionAfterDelete(sections, 'root-b')).toBe('child-b')
     expect(adjacentSectionAfterDelete([sections[0]], 'root-a')).toBeNull()
+  })
+
+  it('lets an exact Find target replace a still-valid prior outline selection', () => {
+    expect(outlineSelectionTarget(sections, 'root-b', 'root-b', 'child-a')).toBe('child-a')
+    expect(outlineSelectionTarget(sections, 'root-b', 'child-a')).toBe('root-b')
   })
 })

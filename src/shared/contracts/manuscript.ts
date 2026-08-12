@@ -687,6 +687,7 @@ export const editorFlushRequestSchema = z
     projectSessionId: z.string().min(1).max(256),
     closingToken: z.string().uuid(),
     purpose: z.enum(['close', 'snapshot', 'export', 'mutation']).optional(),
+    bodyRequired: z.boolean().default(true),
     sectionId: sectionIdSchema.optional(),
     sectionRevisionId: sectionRevisionIdSchema.optional()
   })

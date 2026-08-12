@@ -16,6 +16,22 @@ export interface OutlineMoveAvailability {
   outdent: boolean
 }
 
+export function outlineSelectionTarget(
+  sections: readonly Pick<Section, 'sectionId'>[],
+  selectedSectionId: string | null,
+  activeSectionId: string | null,
+  focusSectionId?: string
+): string | null {
+  const has = (sectionId: string | null | undefined): sectionId is string =>
+    sectionId !== null &&
+    sectionId !== undefined &&
+    sections.some((section) => section.sectionId === sectionId)
+  if (has(focusSectionId)) return focusSectionId
+  if (has(selectedSectionId)) return selectedSectionId
+  if (has(activeSectionId)) return activeSectionId
+  return sections[0]?.sectionId ?? null
+}
+
 export function visibleOutlineSections<T extends OutlineSection>(
   sections: readonly T[],
   collapsedSectionIds: ReadonlySet<string>

@@ -64,6 +64,7 @@ import {
   type OutlineMove,
   outlineMoveAvailability,
   outlineMoveTarget,
+  outlineSelectionTarget,
   sectionHasChildren,
   visibleOutlineSections
 } from './outline-tree'
@@ -112,6 +113,8 @@ export function OutlineEditPanel(props: {
   open: boolean
   workspace: ManuscriptWorkspace
   activeSectionId: string | null
+  focusTarget?: { sectionId: string; field: 'objective'; from: number; to: number } | null
+  onFocusTargetConsumed?(): void
   onRequestClose(): void
   onUpdateSection(
     sectionId: string,
@@ -149,6 +152,7 @@ export function OutlineEditPanel(props: {
   const [createParentId, setCreateParentId] = useState<string | null | undefined>(undefined)
   const [createTitle, setCreateTitle] = useState('')
   const [deleteSectionId, setDeleteSectionId] = useState<string | null>(null)
+  const objectiveRef = useRef<HTMLTextAreaElement>(null)
 
   const selectedSummary =
     selectedSectionId === null ? props.workspace.sections[0] : summariesById.get(selectedSectionId)
@@ -174,16 +178,35 @@ export function OutlineEditPanel(props: {
 
   useEffect(() => {
     if (!props.open) return
-    const fallback =
-      sections.find((section) => section.sectionId === props.activeSectionId) ?? sections[0]
-    if (
-      selectedSectionId === null ||
-      !sections.some((section) => section.sectionId === selectedSectionId)
-    ) {
-      setSelectedSectionId(fallback?.sectionId ?? null)
+    const next = outlineSelectionTarget(
+      sections,
+      selectedSectionId,
+      props.activeSectionId,
+      props.focusTarget?.sectionId
+    )
+    if (next !== selectedSectionId) {
+      setSelectedSectionId(next)
       setMobileDetailOpen(false)
     }
-  }, [props.activeSectionId, props.open, sections, selectedSectionId])
+  }, [props.activeSectionId, props.focusTarget?.sectionId, props.open, sections, selectedSectionId])
+
+  useEffect(() => {
+    const target = props.focusTarget
+    if (
+      !props.open ||
+      target === null ||
+      target === undefined ||
+      draft?.sectionId !== target.sectionId
+    )
+      return
+    const frame = window.requestAnimationFrame(() => {
+      objectiveRef.current?.focus({ preventScroll: true })
+      objectiveRef.current?.setSelectionRange(target.from, target.to)
+      objectiveRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' })
+      props.onFocusTargetConsumed?.()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [draft?.sectionId, props])
 
   useEffect(() => {
     if (!props.open || selectedSection === undefined) return
@@ -640,6 +663,7 @@ export function OutlineEditPanel(props: {
                               Section objective
                             </FieldLabel>
                             <Textarea
+                              ref={objectiveRef}
                               id='outline-section-objective'
                               value={draft.objective}
                               disabled={busy}

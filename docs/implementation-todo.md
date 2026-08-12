@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Local candidate v0.2026.8.13 tag and unsigned macOS arm64 App build are locally complete above the locally complete Checkpoint 28.x worktree; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 30 is locally complete; release metadata and the verified local macOS arm64 App are 0.2026.8.15; Checkpoint 31 has not started; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +15,94 @@ Status markers:
 - `[!]` blocked
 
 ## Current checkpoint
+
+### Checkpoint 30: Safe Manuscript-Wide Replacement
+
+- [x] Audit CP29 semantic targets against current revision, asset, materialization, Undo, version-
+  history, IPC, Renderer, and retention boundaries.
+- [x] Fix the writable-target/skip-reason matrix, exact replacement semantics, complete ephemeral
+  plan, capability lifetime, paging, memory/time/result, selection, and IPC bounds.
+- [x] Fix one-transaction canonical application, exact preconditions, multi-node transform,
+  revision/asset/count integration, repairable materialization, idempotence, and per-section Undo.
+- [x] Fix optional pre-change checkpoint behavior, mounted-editor reconciliation, Replace UI,
+  logging/security, implementation slices, performance gate, and acceptance matrix.
+- [x] Record proposed [`ADR 022`](adrs/022-safe-manuscript-wide-replacement.md) and update the
+  active plan and Phase 11 detail.
+- [x] Obtain explicit approval before CP30 implementation.
+- [x] Implement the accepted ADR 022 domain, Main/IPC authority, Replace workspace, and focused
+  verification.
+- [x] Pass the complete CP30 acceptance gates, bump to `0.2026.8.15`, and build the unsigned macOS
+  App for hands-on testing.
+
+Authorization: on 2026-08-12 the user explicitly requested CP30 implementation, a bump to the next
+local patch build (`0.2026.8.15`), and an App build for hands-on testing. ADR 022 is accepted and
+the implementation plus unsigned local package verification are authorized. Migration,
+dependency, hosted CI, signing/notarization, commit, tag, push, and publication remain outside
+scope.
+
+Decision evidence: ordinary inline/table prose and rich-media captions are the only writable
+targets; structured/metadata hits remain visible with skip reasons. One complete 15-minute
+Main-owned plan follows the serialized body/title flush, holds at most 2,000 candidates, and lets
+one application select at most 500 candidates across 100 sections. All selected canonical changes
+commit in one exact-precondition transaction, with materialization and optional project checkpoint
+outside it. Per-section Undo is a narrow session capability over retained revision lineage. The
+transaction benchmark gate is p95 <= 100 ms over 30 warmed 100-section/500-selection samples. ADR
+022 adds no migration, dependency, worker, durable job, index, provider, Agent schema/tool, or
+Renderer authority.
+
+Local evidence: 148 Electron-hosted test files and 807 tests passed with three opt-in files/tests
+skipped; the production build and 27/27 full Real-Electron scenarios passed; all 25 recovery
+fixtures from 23 sources passed; the 100-section/500-selection benchmark measured p50 8.79 ms,
+p95 16.44 ms, and max 17.21 ms; scoped Impeccable detection and `git diff --check` were clean. The
+no-identity macOS arm64 package gate passed 12/12 packaged runtime smoke scenarios and 17/17
+packaged E2E scenarios, verified package/application version `0.2026.8`, macOS build version
+`2026.8.15`, and a no-Team-ID ad-hoc/linker signature, and produced the App, DMG, and ZIP. No
+commit, tag, hosted CI, Apple signing/notarization, push, publication, or promotion was run.
+
+### Checkpoint 29: Manuscript-Wide Find And Navigation
+
+- [x] Fix literal Unicode semantics as locale-independent NFC plus optional `toLowerCase()`, with
+  explicit non-goals for compatibility, accent-insensitive, regex, fuzzy, and semantic matching.
+- [x] Define typed original BlockNote text spans and the two-layer hybrid linear/atomic offset
+  source map, including fail-closed grapheme boundaries and CP30 revalidation requirements.
+- [x] Fix authoritative snapshot, cursor, result/budget bounds, exact navigation, Find rail/sheet,
+  Agent compatibility, observability, security, implementation slices, and verification matrix.
+- [x] Record proposed [`ADR 021`](adrs/021-manuscript-find-and-offset-source-map.md), update the
+  active plan and Phase 11 detail, and make the 1,000-section/8-MiB p95 performance gate explicit.
+- [x] Implement and verify the pure Unicode projection matcher, typed source spans, surface
+  enumeration, fingerprinting, bounds, and performance fixture.
+- [x] Add strict Main/IPC search and revalidation boundaries and switch the unchanged Agent tool
+  schema to the shared original-offset matcher.
+- [x] Add the Find rail, Menubar/shortcut entry points, bounded result states, serialized
+  flush/revalidate/navigation, and non-mutating editor highlight.
+- [x] Complete focused, Electron, E2E, benchmark, Impeccable, and diff gates and record evidence.
+
+Authorization: on 2026-08-12 the user declared Checkpoint 28 complete and explicitly requested
+Checkpoint 29 implementation. The accepted scope is ADR 021 only. No migration, dependency,
+worker, index, package/release, hosted CI, commit, tag, push, or publication action is authorized.
+
+Local evidence: the 1,000-section/10,419,993-byte benchmark passed 30 measured samples after five
+warmups on Node v24.18.0 arm64 at p50 32.34 ms, p95 34.66 ms, and a 12.02 ms maximum synchronous
+Main slice, including 1,001 slow-path surfaces and one 75,000-unit slow-path surface;
+`check:fast`; `check:electron` with 146 passing files and 798 passing tests plus two opt-in
+benchmark skips and a successful build; fresh focused and full Real-Electron E2E with 26/26
+scenarios; all 25 recovery fixtures from 23 sources; a clean scoped Impeccable detector plus fresh
+finish review and remediation; and `git diff --check`. Package/release, hosted CI, commit, tag,
+push, and publication were not run.
+
+### Maintenance: v0.2026.8.14 release and bundle-build metadata
+
+- [x] Advance the release identifier from `0.2026.8.13` to `0.2026.8.14` and verify that the
+  platform mapping resolves the macOS bundle build version to `2026.8.14` while retaining the
+  valid application SemVer and `CFBundleShortVersionString` base `0.2026.8`.
+
+Authorization: on 2026-08-12 the user explicitly requested that the version and bundle advance to
+the next `0.2026.8.x` candidate. This metadata-only maintenance does not authorize a commit, tag,
+package build, push, hosted CI, signing/notarization, GitHub Release, or promotion.
+
+Local evidence: the release metadata resolver and builder arguments report release
+`0.2026.8.14`, package/application version `0.2026.8`, and macOS `CFBundleVersion`
+`2026.8.14`; `check:fast` and `git diff --check` passed.
 
 ### Maintenance: v0.2026.8.13 local tag and macOS App
 
@@ -682,8 +770,29 @@ Authoritative detail:
 
 ## Documentation maintenance
 
+- [x] 2026-08-12: Complete the Checkpoint 30 decision pass and record proposed ADR 022. Fix the
+  writable-target matrix, exact replacement input, exhaustive ephemeral plan, capability and
+  selection bounds, structural transform, one-transaction revision application, asset/count and
+  materialization behavior, parent retention, per-section Undo, optional history checkpoint,
+  mounted-editor reconciliation, Replace UI, safe logs, implementation slices, performance gate,
+  and acceptance matrix. Implementation remains unauthorized pending explicit approval.
+- [x] 2026-08-12: Complete the Checkpoint 29 decision pass and record proposed ADR 021. Fix the
+  product scope, Unicode semantics, typed semantic spans, hybrid offset source map, current-
+  snapshot pagination, exact flush/revalidate/navigation flow, shadcn Find surface, Agent adapter
+  compatibility, safe logging, bounded performance gate, implementation slices, and acceptance
+  matrix. Planning is complete; implementation remains unauthorized pending explicit approval.
+- [x] 2026-08-12: Revise the planning-only post-Checkpoint-28 roadmap after a merged dual review:
+  add a standing mature-library gate with 2026-08-12 pre-selection research, split oversized
+  checkpoints (34, 35, 37, 41, 43, 47) into A/B parts, reorder execution (CP45 ahead of CP33,
+  figure metadata before publishing, publishing before import, built-in templates separated from
+  user templates), and record cross-cutting corrections (match-range source mapping, snapshot
+  purity, batch-transaction model, binary-export determinism semantics, worker isolation for
+  hostile parsing, Main-owned PDF capture, fixed clone inclusion policy). The roadmap remains
+  planning-only; no checkpoint is authorized, and Checkpoint 29 still requires the recorded
+  activation conditions and separate user approval.
 - [x] 2026-08-12: Draft a planning-only post-Checkpoint-28 writing-experience roadmap covering
-  proposed Checkpoints 29-44. Keep it inactive, preserve Checkpoint 28 as the current workstream,
+  proposed Checkpoints 29-47, including safe staged manuscript import, LaTeX import, and LaTeX
+  publication. Keep it inactive, preserve Checkpoint 28 as the current workstream,
   and require separate approval before Checkpoint 29 or any later checkpoint starts. No
   architecture decision, implementation authority, migration, package, release, commit, push, or
   publication scope changed.
@@ -710,7 +819,7 @@ Authoritative detail:
 | Long-lived decisions | [`adrs/`](adrs/) |
 | Checkpoints 24–26 | [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md) |
 | Checkpoints 20–23 | [`implementation-todo/phase-9.md`](implementation-todo/phase-9.md) |
-| Planning-only Checkpoints 29–44 | [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md) |
+| Planning-only Checkpoints 29–47 | [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md) |
 | Earlier phases | Matching file under [`implementation-todo/`](implementation-todo/) |
 | Cross-phase maintenance | [`implementation-todo/maintenance.md`](implementation-todo/maintenance.md) |
 | Completed chronology | [`history/implementation-log.md`](history/implementation-log.md) |

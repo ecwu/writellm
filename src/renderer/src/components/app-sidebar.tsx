@@ -14,8 +14,11 @@ import {
   LibraryBig,
   ListTree,
   Pencil,
-  Settings2
+  Search,
+  Settings2,
+  X
 } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -39,16 +42,19 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   references: ManuscriptReferenceIndex
   referencesLoading: boolean
   referencesError: boolean
-  activeWorkspace: 'manuscript' | 'knowledge' | 'references'
+  activeWorkspace: 'manuscript' | 'knowledge' | 'references' | 'find'
   activeSectionId: string | null
   onSelectSection(sectionId: string): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
   onOpenReferences(): void
+  onOpenFind(): void
+  onCloseFind(): void
   onOpenReference(entry: ManuscriptReferenceEntry): void
   onOpenManuscript(): void
   onOpenSettings(): void
+  findPanel: React.ReactNode
 }
 
 export function AppSidebar({
@@ -64,12 +70,35 @@ export function AppSidebar({
   onOpenOutlineEditor,
   onOpenKnowledge,
   onOpenReferences,
+  onOpenFind,
+  onCloseFind,
   onOpenReference,
   onOpenManuscript,
   onOpenSettings,
+  findPanel,
   ...props
 }: AppSidebarProps): React.JSX.Element {
-  const { setOpen } = useSidebar()
+  const { isMobile, openMobile, setOpen, setOpenMobile } = useSidebar()
+  const findWasOpenOnMobileRef = useRef(false)
+
+  useEffect(() => {
+    if (activeWorkspace !== 'find') return
+    if (isMobile) setOpenMobile(true)
+    else setOpen(true)
+  }, [activeWorkspace, isMobile, setOpen, setOpenMobile])
+
+  useEffect(() => {
+    if (!isMobile || activeWorkspace !== 'find') {
+      findWasOpenOnMobileRef.current = false
+      return
+    }
+    if (openMobile) {
+      findWasOpenOnMobileRef.current = true
+    } else if (findWasOpenOnMobileRef.current) {
+      findWasOpenOnMobileRef.current = false
+      onCloseFind()
+    }
+  }, [activeWorkspace, isMobile, onCloseFind, openMobile])
 
   return (
     <Sidebar collapsible='icon' className='top-10 bottom-0 h-auto overflow-hidden' {...props}>
@@ -80,6 +109,10 @@ export function AppSidebar({
           onOpenReferences={() => {
             setOpen(true)
             onOpenReferences()
+          }}
+          onOpenFind={() => {
+            setOpen(true)
+            onOpenFind()
           }}
           onOpenManuscript={() => {
             setOpen(true)
@@ -94,83 +127,103 @@ export function AppSidebar({
               <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
                 {projectName}
               </div>
-              <Badge className='shrink-0' variant='success'>
+              <Badge className='shrink-0 max-md:hidden' variant='success'>
                 Active
               </Badge>
+              {activeWorkspace === 'find' ? (
+                <Button
+                  aria-label='Close Find'
+                  className='shrink-0'
+                  size='icon-sm'
+                  variant='ghost'
+                  onClick={() => {
+                    setOpenMobile(false)
+                    onCloseFind()
+                  }}
+                >
+                  <X />
+                </Button>
+              ) : null}
             </div>
-            <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
-              <Button
-                className='w-full min-w-0 overflow-hidden px-2'
-                variant='outline'
-                size='sm'
-                onClick={onOpenBrief}
-              >
-                <span className='truncate'>Brief</span>
-              </Button>
-              <Button
-                className='w-full min-w-0 overflow-hidden px-2'
-                variant='outline'
-                size='sm'
-                onClick={onOpenOutlineEditor}
-              >
-                <Pencil /> <span className='truncate'>Edit outline</span>
-              </Button>
-            </div>
+            {activeWorkspace !== 'find' ? (
+              <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
+                <Button
+                  className='w-full min-w-0 overflow-hidden px-2'
+                  variant='outline'
+                  size='sm'
+                  onClick={onOpenBrief}
+                >
+                  <span className='truncate'>Brief</span>
+                </Button>
+                <Button
+                  className='w-full min-w-0 overflow-hidden px-2'
+                  variant='outline'
+                  size='sm'
+                  onClick={onOpenOutlineEditor}
+                >
+                  <Pencil /> <span className='truncate'>Edit outline</span>
+                </Button>
+              </div>
+            ) : null}
           </SidebarHeader>
-          <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupLabel>
-                {activeWorkspace === 'references' ? 'References' : 'Outline'}
-              </SidebarGroupLabel>
-              <SidebarGroupContent>
-                {activeWorkspace === 'references' ? (
-                  <ReferenceList
-                    references={references}
-                    loading={referencesLoading}
-                    error={referencesError}
-                    onOpenReference={onOpenReference}
-                  />
-                ) : (
-                  <SidebarMenu>
-                    {workspace?.sections.map(({ section, revision }) => (
-                      <SidebarMenuItem
-                        key={section.sectionId}
-                        style={{
-                          paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px`
-                        }}
-                      >
-                        <SidebarMenuButton
-                          isActive={section.sectionId === activeSectionId}
-                          className='min-w-0'
-                          data-testid={`outline-section-${section.sectionId}`}
-                          onClick={() => onSelectSection(section.sectionId)}
+          <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
+            {activeWorkspace === 'find' ? (
+              findPanel
+            ) : (
+              <SidebarGroup>
+                <SidebarGroupLabel>
+                  {activeWorkspace === 'references' ? 'References' : 'Outline'}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  {activeWorkspace === 'references' ? (
+                    <ReferenceList
+                      references={references}
+                      loading={referencesLoading}
+                      error={referencesError}
+                      onOpenReference={onOpenReference}
+                    />
+                  ) : (
+                    <SidebarMenu>
+                      {workspace?.sections.map(({ section, revision }) => (
+                        <SidebarMenuItem
+                          key={section.sectionId}
+                          style={{
+                            paddingLeft: `${Math.min(5, Math.max(0, section.level - 1)) * 12}px`
+                          }}
                         >
-                          <SidebarStatusIcon status={section.status} />
-                          <span className='min-w-0 flex-1 truncate'>{section.title}</span>
-                          <span
-                            className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
-                            data-testid={`outline-word-count-${section.sectionId}`}
+                          <SidebarMenuButton
+                            isActive={section.sectionId === activeSectionId}
+                            className='min-w-0'
+                            data-testid={`outline-section-${section.sectionId}`}
+                            onClick={() => onSelectSection(section.sectionId)}
                           >
-                            {revision.wordCount}
-                          </span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                )}
-                {activeWorkspace !== 'references' && !workspace?.sections.length ? (
-                  <Empty className='gap-2 border-0 p-4'>
-                    <EmptyHeader>
-                      <EmptyMedia variant='icon'>
-                        <FileText />
-                      </EmptyMedia>
-                      <EmptyTitle className='text-sm'>No sections yet</EmptyTitle>
-                      <EmptyDescription>Create a section to start the outline.</EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                ) : null}
-              </SidebarGroupContent>
-            </SidebarGroup>
+                            <SidebarStatusIcon status={section.status} />
+                            <span className='min-w-0 flex-1 truncate'>{section.title}</span>
+                            <span
+                              className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
+                              data-testid={`outline-word-count-${section.sectionId}`}
+                            >
+                              {revision.wordCount}
+                            </span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  )}
+                  {activeWorkspace !== 'references' && !workspace?.sections.length ? (
+                    <Empty className='gap-2 border-0 p-4'>
+                      <EmptyHeader>
+                        <EmptyMedia variant='icon'>
+                          <FileText />
+                        </EmptyMedia>
+                        <EmptyTitle className='text-sm'>No sections yet</EmptyTitle>
+                        <EmptyDescription>Create a section to start the outline.</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  ) : null}
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
           </SidebarContent>
           <SidebarFooter className='shrink-0 border-t p-4'>
             <section
@@ -270,10 +323,11 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 }
 
 export function WorkspaceRail(props: {
-  activeWorkspace: 'manuscript' | 'knowledge' | 'references'
+  activeWorkspace: 'manuscript' | 'knowledge' | 'references' | 'find'
   onOpenKnowledge(): void
   onOpenManuscript(): void
   onOpenReferences(): void
+  onOpenFind(): void
   onOpenSettings(): void
 }): React.JSX.Element {
   return (
@@ -294,6 +348,17 @@ export function WorkspaceRail(props: {
         <SidebarGroup>
           <SidebarGroupContent className='px-1.5 md:px-0'>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip={{ children: 'Find', hidden: false }}
+                  isActive={props.activeWorkspace === 'find'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenFind}
+                >
+                  <Search />
+                  <span>Find</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip={{ children: 'Manuscript', hidden: false }}

@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -57,6 +58,116 @@ afterEach(async () => {
 })
 
 describe('ManuscriptService', () => {
+  it('applies an atomic replacement batch and appends a guarded undo revision', async () => {
+    const { database, service } = await fixture()
+    const root = service.assemble().sections[0]
+    if (root === undefined) throw new Error('Missing root fixture')
+    const seeded = service.appendRevision({
+      sectionId: root.section.sectionId,
+      baseRevisionId: root.revision.sectionRevisionId,
+      baseContentHash: root.revision.contentHash,
+      content: [paragraph('alpha alpha')]
+    })
+    const outlineVersion = service.assemble().outlineVersion
+    const applied = service.applyReplacementBatch({
+      outlineVersion,
+      replacement: 'beta',
+      sections: [
+        {
+          sectionId: root.section.sectionId,
+          baseRevisionId: seeded.sectionRevisionId,
+          baseContentHash: seeded.contentHash,
+          operations: [
+            {
+              target: {
+                kind: 'block_inline',
+                sectionId: root.section.sectionId,
+                revisionId: seeded.sectionRevisionId,
+                blockId: 'block-alpha alpha',
+                segments: [{ inlineIndex: 0, range: { from: 6, to: 11 } }],
+                flatRange: { from: 6, to: 11 }
+              },
+              sourceSliceHash: createHash('sha256').update('alpha').digest('hex')
+            }
+          ]
+        }
+      ]
+    })
+    expect(applied.revisions).toHaveLength(1)
+    expect(applied.revisions[0]).toMatchObject({
+      source: 'manual',
+      sourceClass: 'manual_checkpoint',
+      priorRevisionId: seeded.sectionRevisionId
+    })
+    expect(JSON.stringify(applied.revisions[0]?.content)).toContain('alpha beta')
+
+    const undone = service.undoReplacementRevision({
+      sectionId: root.section.sectionId,
+      appliedRevisionId: applied.revisions[0]?.sectionRevisionId ?? ''
+    })
+    expect(undone).toMatchObject({
+      source: 'undo',
+      sourceClass: 'manual_checkpoint',
+      priorRevisionId: applied.revisions[0]?.sectionRevisionId
+    })
+    expect(JSON.stringify(undone.content)).toContain('alpha alpha')
+    expect(() =>
+      service.undoReplacementRevision({
+        sectionId: root.section.sectionId,
+        appliedRevisionId: applied.revisions[0]?.sectionRevisionId ?? ''
+      })
+    ).toThrowError(expect.objectContaining({ code: 'section_revision_conflict' }))
+    database.close()
+  })
+
+  it('rolls back every replacement revision when any section precondition conflicts', async () => {
+    const { database, service } = await fixture()
+    const first = service.assemble().sections[0]
+    if (first === undefined) throw new Error('Missing root fixture')
+    const secondSection = service.createSection({
+      baseOutlineVersion: service.assemble().outlineVersion,
+      title: 'Second',
+      position: 1
+    })
+    const firstSeed = service.appendRevision({
+      sectionId: first.section.sectionId,
+      baseRevisionId: first.revision.sectionRevisionId,
+      baseContentHash: first.revision.contentHash,
+      content: [paragraph('alpha')]
+    })
+    const second = service
+      .getWorkspace()
+      .sections.find((entry) => entry.section.sectionId === secondSection.sectionId)
+    if (second === undefined) throw new Error('Missing second fixture')
+    const secondSeed = service.appendRevision({
+      sectionId: secondSection.sectionId,
+      baseRevisionId: second.revision.sectionRevisionId,
+      baseContentHash: second.revision.contentHash,
+      content: [paragraph('alpha')]
+    })
+    const revisionsBefore = database.immediate((native) =>
+      native.prepare('SELECT COUNT(*) FROM section_revisions').pluck().get()
+    )
+    expect(() =>
+      service.applyReplacementBatch({
+        outlineVersion: service.assemble().outlineVersion,
+        replacement: 'beta',
+        sections: [
+          replacementSection(first.section.sectionId, firstSeed),
+          {
+            ...replacementSection(secondSection.sectionId, secondSeed),
+            baseContentHash: '0'.repeat(64)
+          }
+        ]
+      })
+    ).toThrowError(expect.objectContaining({ code: 'section_revision_conflict' }))
+    expect(
+      database.immediate((native) =>
+        native.prepare('SELECT COUNT(*) FROM section_revisions').pluck().get()
+      )
+    ).toBe(revisionsBefore)
+    database.close()
+  })
   it('requires exactly one primary manuscript', async () => {
     const missing = await fixture()
     missing.database.immediate((database) =>
@@ -618,3 +729,27 @@ describe('ManuscriptService', () => {
     database.close()
   })
 })
+
+function replacementSection(
+  sectionId: string,
+  revision: { sectionRevisionId: string; contentHash: string }
+) {
+  return {
+    sectionId,
+    baseRevisionId: revision.sectionRevisionId,
+    baseContentHash: revision.contentHash,
+    operations: [
+      {
+        target: {
+          kind: 'block_inline' as const,
+          sectionId,
+          revisionId: revision.sectionRevisionId,
+          blockId: 'block-alpha',
+          segments: [{ inlineIndex: 0, range: { from: 0, to: 5 } }],
+          flatRange: { from: 0, to: 5 }
+        },
+        sourceSliceHash: createHash('sha256').update('alpha').digest('hex')
+      }
+    ]
+  }
+}

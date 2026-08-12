@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Local candidate v0.2026.8.13 tag and unsigned macOS arm64 App build are locally complete above the locally complete Checkpoint 28.x worktree; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Status: Checkpoint 30 is locally complete; release metadata and the verified local macOS arm64 App are 0.2026.8.15; Checkpoint 31 has not started; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-12
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -9,6 +9,91 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Checkpoint 30 safe manuscript-wide replacement is locally complete under accepted
+[`ADR 022`](adrs/022-safe-manuscript-wide-replacement.md) and the revised
+[`Phase 11 plan`](implementation-todo/phase-11.md#checkpoint-30-safe-manuscript-wide-replacement).
+On 2026-08-12 the user explicitly requested CP30 implementation, a bump to the next local patch
+build (`0.2026.8.15`), and an unsigned macOS App build for hands-on testing. This accepts ADR 022
+and authorizes the implementation and local package verification described here. No migration,
+dependency, hosted CI, signing/notarization, commit, tag, push, or publication is authorized.
+
+The decision reuses CP29 semantic spans but does not treat every Find hit as writable. Ordinary
+inline/table prose and rich-media captions are eligible. Title/objective, canonical citation,
+link, code-block, inline-code, mixed-structure, and unchanged hits are shown with fixed skip reasons
+and cannot be selected. Formula/Mermaid source and image identity remain outside the search
+surface. Replacement is exact single-line text of 0-4,096 well-formed UTF-16 code units; empty text
+means deletion, and CP30 adds no normalization, markup interpretation, regex, or semantic rewrite.
+
+Main owns one complete opaque 15-minute plan per project session. It reruns the CP29 matcher after
+the serialized active-body and pending-title flush, pages at most 2,000 exhaustive candidates,
+fails rather than applying a partial/budget-exhausted plan, and defaults selection to empty. One
+confirmed operation may select at most 500 eligible candidates across 100 sections. It revalidates
+the exact outline version and every selected revision, block, original string, and range before
+applying.
+
+All selected canonical body changes append one `manual` / `manual_checkpoint` revision per
+affected section in one immediate SQLite transaction; exact failure commits none. Counts, hashes,
+asset references, and current pointers use existing manuscript authority. Materialization remains
+post-commit repairable work and may return explicit pending-repair section IDs without implying a
+partial canonical batch. A bounded, session-scoped capability provides per-section Undo only while
+the replacement revision is still current; optional managed-project checkpoints are offered only
+when history is already ready.
+
+The implementation includes pure eligibility/transform, bounded planning, atomic application and
+Undo, IPC/editor reconciliation, Find/Replace UI, and verification. The 30-sample disposable-
+database performance fixture for 500 selections across 100 sections passed at p50 8.79 ms, p95
+16.44 ms, and max 17.21 ms. Final evidence includes `check:fast`; `check:electron` with 148 passing
+test files, 807 passing tests, three skipped opt-in files/tests, and a production build; fresh full
+Real-Electron E2E with 27/27 scenarios; 25 recovery fixtures from 23 sources; clean scoped
+Impeccable detection; and `git diff --check`. No dependency, migration, worker, durable job,
+persisted plan/history table, manuscript index, provider call, Agent tool/schema, or Renderer
+authority was added.
+
+Checkpoint 29 is locally complete against the decision-complete plan recorded in
+[`ADR 021`](adrs/021-manuscript-find-and-offset-source-map.md) and the
+[`Phase 11 plan`](implementation-todo/phase-11.md#checkpoint-29-manuscript-wide-find-and-navigation).
+On 2026-08-12 the user declared Checkpoint 28 complete and explicitly requested implementation.
+The completed work remains bounded to ADR 021; migration, dependency, worker, index, package/release, hosted
+CI, commit, tag, push, and publication work are not authorized.
+
+The plan adds literal manuscript-wide Find over section titles/objectives and visible current-
+revision BlockNote text, with section/subtree/status filters, bounded pagination, a workspace rail,
+`Cmd/Ctrl+F`, and exact flush/revalidate/navigate/highlight behavior. It adds no regular expression,
+fuzzy/semantic search, replacement, persisted search state, manuscript index, migration,
+dependency, worker, durable job, or Agent tool/schema change.
+
+The central technical decision is a two-layer offset source map:
+
+```text
+normalized/lowercased search-projection range
+-> original visible-surface UTF-16 range
+-> typed BlockNote text-node/property UTF-16 segments
+```
+
+Common NFC, length-preserving text uses one linear map. Only a surface with normalization or
+lowercase length changes uses extended-grapheme atomic runs; candidates may not end inside a
+non-reversible atom. Matching is locale-independent `NFC(...).toLowerCase()`, not NFKC, accent
+stripping, transliteration, or full Unicode case folding. Semantic spans, original-slice hashes,
+revision/outline authority, and active session are revalidated after the editor flush; navigation
+never guesses a nearby occurrence.
+
+The reproducible 1,000-section/10,419,993-byte benchmark passed after five warmups and 30 measured
+samples on Node v24.18.0 arm64: p50 32.34 ms, p95 34.66 ms, and maximum synchronous Main slice
+12.02 ms. Its 4,051 surfaces include 1,001 slow-path surfaces and one 75,000-UTF-16-unit
+decomposed-Unicode surface. Final evidence includes focused Unicode/source-map/Main/Agent/Renderer
+coverage; `check:fast`; `check:electron` with 146 passing test files, 798 passing tests, two opt-in
+benchmarks skipped, and a production build; fresh focused and full Real-Electron E2E with all
+26 scenarios passing; all 25 recovery fixtures from 23 sources; one clean scoped Impeccable
+detector run followed by a fresh finish review and remediation; and `git diff --check`.
+Package/release work is out of scope and was not run.
+
+The active release metadata is now `0.2026.8.15`. Under the accepted platform mapping, the valid
+package/application SemVer and macOS `CFBundleShortVersionString` remain `0.2026.8`, while the
+macOS `CFBundleVersion` is `2026.8.15`. The no-identity macOS arm64 package gate passed 12/12
+packaged runtime smoke scenarios and 17/17 packaged Real-Electron scenarios, verified a no-Team-
+ID ad-hoc/linker signature, and produced the local App, DMG, and ZIP. No commit, tag, hosted CI,
+Apple signing/notarization, push, publication, or promotion was performed.
 
 The local `v0.2026.8.13` release-candidate maintenance is locally complete above the completed
 Checkpoint 28.x worktree. It authorizes one local release-candidate commit, one annotated tag, and
@@ -410,10 +495,12 @@ authorized. On 2026-08-10 the user stopped the remaining `v0.2026.8.10` macOS x6
 the account exhausted its included Actions minutes, then directed that every workflow be disabled
 for every trigger. The repository preserves the definitions only as `.yml.disabled` files, and the
 two remote workflows are manually disabled. Restoring any workflow requires new explicit user
-approval. Checkpoint 28.x and its local `v0.2026.8.13` tag/App build have that approval; do not
-start a subsequent product checkpoint without new explicit user approval.
+approval. Checkpoint 28.x, its local `v0.2026.8.13` tag/App build, CP29 implementation, and the
+`0.2026.8.14` metadata advance and CP30/`0.2026.8.15` local App build have their recorded local
+authorization. Do not start a later
+product checkpoint or any hosted/release action without new explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.13` (`v0.2026.8.13` as the Git tag). Its
+The current release-candidate identifier is `0.2026.8.15`; no corresponding Git tag exists. Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS
@@ -480,10 +567,11 @@ Checkpoint 26.9 therefore remains incomplete and paused.
 
 ## Deferred
 
-- The planning-only post-Checkpoint-28 writing-experience roadmap lives in
-  [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md). It changes no current
-  Checkpoint 28 scope and does not authorize Checkpoint 29; activation requires recorded
-  Checkpoint 28 acceptance and separate user approval.
+- The post-Checkpoint-28 writing-experience roadmap lives in
+  [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md). CP29 is locally complete
+  under accepted ADR 021; CP30 is locally complete under accepted ADR 022. Checkpoints 31-47
+  remain planning-only and each requires later
+  decision-complete refinement and separate user approval.
 - Clone/Save As with a new `projectId`, multiple manuscripts, external-edit synchronization, and
   project-wide file watching.
 - Snap distribution and any auto-updater or update-feed subsystem.

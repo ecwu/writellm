@@ -162,6 +162,32 @@ describe('manuscript IPC', () => {
     expect(manuscript.getReferenceIndex).toHaveBeenCalledOnce()
   })
 
+  it('searches and revalidates through the session-bound Main boundary', async () => {
+    const { invoke, manager } = harness()
+    const result = await invoke(IPC_CHANNELS.manuscriptSearch, {
+      projectSessionId,
+      query: 'section',
+      caseSensitive: false,
+      scope: { type: 'manuscript' },
+      statuses: [],
+      limit: 25
+    })
+    expect(result).toMatchObject({ complete: true, resultCount: 1 })
+    const hit = (result as { hits: Array<Record<string, unknown>> }).hits[0]
+    expect(hit).toMatchObject({ target: { kind: 'section_title', sectionId: 'section-1' } })
+    if (hit === undefined) throw new Error('Expected one search hit')
+    const revalidated = await invoke(IPC_CHANNELS.manuscriptSearchRevalidate, {
+      projectSessionId,
+      query: 'section',
+      caseSensitive: false,
+      matchId: hit.matchId,
+      sourceSliceHash: hit.sourceSliceHash,
+      target: hit.target
+    })
+    expect(revalidated).toMatchObject({ status: 'valid', sectionId: 'section-1' })
+    expect(manager.assertActiveSession).toHaveBeenCalled()
+  })
+
   it('authorizes the sender and rejects stale project capabilities', () => {
     const { handlers, invoke } = harness()
     expect(() =>

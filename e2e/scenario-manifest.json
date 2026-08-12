@@ -16,6 +16,8 @@
     { "id": "manuscript.checkpoint-restore-preserves-history", "tiers": ["packaged"] },
     { "id": "manuscript.citation-display-references-export", "tiers": [] },
     { "id": "manuscript.exports-durable", "tiers": ["packaged"] },
+    { "id": "manuscript.find-navigation", "tiers": [] },
+    { "id": "manuscript.safe-replacement", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.outline-conflict-preserves-draft", "tiers": [] },
     { "id": "manuscript.rich-media-reopen-export", "tiers": ["packaged"] },
     { "id": "manuscript.section-conflict-reloads-canonical", "tiers": [] },

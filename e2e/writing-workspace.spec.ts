@@ -1,4 +1,4 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
@@ -89,6 +89,120 @@ async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
 }
+
+test(
+  'finds current manuscript text and preserves exact navigation across window sizes',
+  scenario('manuscript.find-navigation'),
+  async ({ testRoot }) => {
+    const projectName = 'Find navigation'
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await launched.page.getByLabel('Section title').fill('Searchable opening')
+      await launched.page.getByLabel('Section title').press('Tab')
+      await saveEditorText(launched.page, 'Before the exact needle phrase after it.')
+
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      const input = launched.page.getByTestId('manuscript-find-input')
+      await expect(input).toBeVisible()
+      await input.fill('needle phrase')
+      await expect(launched.page.getByText('1 results', { exact: true })).toBeVisible()
+      const result = launched.page
+        .locator('[data-slot="command-item"]')
+        .filter({ hasText: 'needle phrase' })
+      await expect(result).toBeVisible()
+
+      const screenshotDirectory = process.env.WRITELLM_CP29_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp29-find-desktop.png'),
+          animations: 'disabled'
+        })
+      }
+
+      await result.click()
+      await expect(launched.page.locator('.writellm-search-match')).toContainText('needle phrase')
+
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await expect(input).toBeVisible()
+      await expect(launched.page.getByRole('button', { name: 'Close Find' })).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp29-find-narrow.png'),
+          animations: 'disabled'
+        })
+      }
+      await launched.page
+        .locator('[data-slot="sheet-overlay"]')
+        .click({ position: { x: 600, y: 400 } })
+      await expect(input).not.toBeVisible()
+      await expect(launched.page.locator('.writellm-search-match')).toHaveCount(0)
+
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await expect(input).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+      await expect(input).not.toBeVisible()
+
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await expect(input).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Close Find' }).click()
+      await expect(input).not.toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'previews, selects, and atomically applies a safe manuscript replacement',
+  scenario('manuscript.safe-replacement', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Safe replacement')
+      await saveEditorText(launched.page, 'Alpha evidence and Alpha conclusion.')
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await launched.page.getByTestId('manuscript-find-input').fill('Alpha')
+      await expect(launched.page.getByText('2 results', { exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Replace', exact: true }).click()
+      await launched.page.getByLabel('Replace with').fill('Beta')
+      await launched.page.getByRole('button', { name: 'Review replacements' }).click()
+      await expect(launched.page.getByText('2 eligible · 0 skipped · 1 sections')).toBeVisible()
+      const candidates = launched.page.getByRole('checkbox', { name: /Select replacement in/u })
+      await expect(candidates).toHaveCount(2)
+      await candidates.nth(0).click()
+      await candidates.nth(1).click()
+
+      const screenshotDirectory = process.env.WRITELLM_CP30_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp30-replacement-review.png'),
+          animations: 'disabled'
+        })
+      }
+
+      await launched.page.getByRole('button', { name: 'Apply 2 replacements' }).click()
+      await expect(launched.page.getByText('Applied 2 replacements in 1 sections.')).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Close Find' }).click()
+      await expect(launched.page.locator('.bn-editor')).toContainText(
+        'Beta evidence and Beta conclusion.'
+      )
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
 
 test(
   'edits a brief and nested outline, reorders sections, previews, and reopens identically',

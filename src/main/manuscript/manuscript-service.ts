@@ -28,6 +28,10 @@ import {
   blockNoteDocumentSchema
 } from '../../shared/contracts/manuscript'
 import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
+import {
+  applyReplacementOperations,
+  type ReplacementOperation
+} from '../../shared/manuscript-replacement'
 import type {
   ManuscriptBriefTable,
   ManuscriptTable,
@@ -56,6 +60,18 @@ export interface ManuscriptServiceOptions {
   now?: () => Date
   createId?: () => string
   deletionGuard?: SectionDeletionGuard
+}
+
+export interface ReplacementBatchSection {
+  sectionId: string
+  baseRevisionId: string
+  baseContentHash: string
+  operations: ReplacementOperation[]
+}
+
+export interface ReplacementBatchResult {
+  revisions: SectionRevision[]
+  transactionDurationMs: number
 }
 
 export class ManuscriptService {
@@ -577,6 +593,172 @@ export class ManuscriptService {
       })
       throw err
     }
+  }
+
+  applyReplacementBatch(input: {
+    outlineVersion: number
+    replacement: string
+    sections: ReplacementBatchSection[]
+  }): ReplacementBatchResult {
+    const transactionStartedAt = performance.now()
+    const rows = this.#database.immediate((database) => {
+      const manuscript = this.#primary(database)
+      assertOutlineVersion(manuscript, input.outlineVersion)
+      const now = this.#now().toISOString()
+      const result: SectionRevisionTable[] = []
+      for (const planned of input.sections) {
+        const section = this.#repository.section(planned.sectionId, database)
+        if (section === undefined || section.manuscript_id !== manuscript.manuscript_id) {
+          throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+        }
+        const current = this.#repository.revision(section.current_revision_id, database)
+        if (current === undefined) throw new Error('Section current revision is missing')
+        assertCurrentCountAlgorithm(current)
+        if (
+          current.section_revision_id !== planned.baseRevisionId ||
+          current.content_hash !== planned.baseContentHash
+        ) {
+          throw new ManuscriptDomainError(
+            'section_revision_conflict',
+            'The section body has changed'
+          )
+        }
+        const currentDocument = blockNoteDocumentSchema.parse(JSON.parse(current.content_json))
+        const document = applyReplacementOperations(
+          currentDocument,
+          planned.operations,
+          input.replacement
+        )
+        const prepared = prepareSectionContent(document)
+        if (prepared.contentHash === current.content_hash) {
+          throw new ManuscriptDomainError(
+            'section_revision_conflict',
+            'Replacement no longer changes the section body'
+          )
+        }
+        const revisionId = this.#createId()
+        insertRevision(database, {
+          revisionId,
+          sectionId: section.section_id,
+          revisionNumber: current.revision_number + 1,
+          source: 'manual',
+          sourceClass: 'manual_checkpoint',
+          prepared,
+          priorRevisionId: current.section_revision_id,
+          agentRunId: null,
+          agentToolCallId: null,
+          agentProposalId: null,
+          createdAt: now
+        })
+        recordRevisionAssetReferences(database, revisionId, document, now)
+        const updated = database
+          .prepare(
+            `UPDATE sections SET current_revision_id = ?, updated_at = ?
+              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
+          )
+          .run(revisionId, now, section.section_id, current.section_revision_id)
+        if (updated.changes !== 1) {
+          throw new ManuscriptDomainError(
+            'section_revision_conflict',
+            'The section body has changed'
+          )
+        }
+        const row = this.#repository.revision(revisionId, database)
+        if (row === undefined) throw new Error('Replacement revision was not stored')
+        result.push(row)
+      }
+      return result
+    })
+    const transactionDurationMs = performance.now() - transactionStartedAt
+    this.#log.info(
+      {
+        event: 'manuscript.replacement_batch.applied',
+        projectId: this.#projectId,
+        sectionCount: rows.length,
+        replacementCount: input.sections.reduce(
+          (total, section) => total + section.operations.length,
+          0
+        ),
+        transactionDurationMs
+      },
+      'Replacement revisions applied atomically'
+    )
+    return { revisions: rows.map(revisionFromRow), transactionDurationMs }
+  }
+
+  undoReplacementRevision(input: {
+    sectionId: string
+    appliedRevisionId: string
+  }): SectionRevision {
+    const row = this.#database.immediate((database) => {
+      const manuscript = this.#primary(database)
+      const section = this.#repository.section(input.sectionId, database)
+      if (section === undefined || section.manuscript_id !== manuscript.manuscript_id) {
+        throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+      }
+      if (section.current_revision_id !== input.appliedRevisionId) {
+        throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
+      }
+      const applied = this.#repository.revision(input.appliedRevisionId, database)
+      if (
+        applied === undefined ||
+        applied.source !== 'manual' ||
+        applied.source_class !== 'manual_checkpoint' ||
+        applied.prior_revision_id === null
+      ) {
+        throw new ManuscriptDomainError(
+          'section_revision_conflict',
+          'Replacement revision is not undoable'
+        )
+      }
+      const parent = this.#repository.revision(applied.prior_revision_id, database)
+      if (parent === undefined || Number(parent.content_body_retained) !== 1) {
+        throw new ManuscriptDomainError(
+          'section_revision_conflict',
+          'Replacement parent revision is unavailable'
+        )
+      }
+      const document = blockNoteDocumentSchema.parse(JSON.parse(parent.content_json))
+      const prepared = prepareSectionContent(document)
+      const revisionId = this.#createId()
+      const now = this.#now().toISOString()
+      insertRevision(database, {
+        revisionId,
+        sectionId: section.section_id,
+        revisionNumber: applied.revision_number + 1,
+        source: 'undo',
+        sourceClass: 'manual_checkpoint',
+        prepared,
+        priorRevisionId: applied.section_revision_id,
+        agentRunId: null,
+        agentToolCallId: null,
+        agentProposalId: null,
+        createdAt: now
+      })
+      recordRevisionAssetReferences(database, revisionId, document, now)
+      const updated = database
+        .prepare(
+          `UPDATE sections SET current_revision_id = ?, updated_at = ?
+            WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
+        )
+        .run(revisionId, now, section.section_id, applied.section_revision_id)
+      if (updated.changes !== 1) {
+        throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
+      }
+      const created = this.#repository.revision(revisionId, database)
+      if (created === undefined) throw new Error('Replacement undo revision was not stored')
+      return created
+    })
+    this.#log.info(
+      {
+        event: 'manuscript.replacement_undo.applied',
+        projectId: this.#projectId,
+        sectionId: row.section_id,
+        sectionRevisionId: row.section_revision_id
+      },
+      'Replacement revision undone'
+    )
+    return revisionFromRow(row)
   }
 
   assemble(): ManuscriptAssembly {

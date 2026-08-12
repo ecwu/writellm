@@ -237,6 +237,37 @@ import {
   type UpdateSectionRequest
 } from '../shared/contracts/manuscript'
 import {
+  manuscriptSearchInputSchema,
+  manuscriptSearchNavigationInputSchema,
+  manuscriptSearchNavigationResultSchema,
+  manuscriptSearchResultSchema,
+  type ManuscriptSearchInput,
+  type ManuscriptSearchNavigationInput,
+  type ManuscriptSearchNavigationResult,
+  type ManuscriptSearchResult
+} from '../shared/contracts/manuscript-search'
+import {
+  manuscriptReplacementApplyInputSchema,
+  manuscriptReplacementApplyResultSchema,
+  manuscriptReplacementChangedEventSchema,
+  manuscriptReplacementDismissInputSchema,
+  manuscriptReplacementPageInputSchema,
+  manuscriptReplacementPageResultSchema,
+  manuscriptReplacementPlanInputSchema,
+  manuscriptReplacementPlanResultSchema,
+  manuscriptReplacementSubscriptionInputSchema,
+  manuscriptReplacementUndoInputSchema,
+  manuscriptReplacementUndoResultSchema,
+  type ManuscriptReplacementApplyInput,
+  type ManuscriptReplacementApplyResult,
+  type ManuscriptReplacementChangedEvent,
+  type ManuscriptReplacementPageInput,
+  type ManuscriptReplacementPageResult,
+  type ManuscriptReplacementPlanInput,
+  type ManuscriptReplacementPlanResult,
+  type ManuscriptReplacementUndoResult
+} from '../shared/contracts/manuscript-replacement'
+import {
   agentCustomPresetInputSchema,
   agentAuthFlowInputSchema,
   agentAuthInteractionEventSchema,
@@ -422,6 +453,26 @@ export interface DesktopApi {
     updateSection(input: UpdateSectionRequest): Promise<ManuscriptWorkspace>
     moveSection(input: MoveSectionRequest): Promise<ManuscriptWorkspace>
     deleteSection(input: DeleteSectionRequest): Promise<ManuscriptWorkspace>
+    search(input: ManuscriptSearchInput): Promise<ManuscriptSearchResult>
+    revalidateSearch(
+      input: ManuscriptSearchNavigationInput
+    ): Promise<ManuscriptSearchNavigationResult>
+    createReplacementPlan(
+      input: ManuscriptReplacementPlanInput
+    ): Promise<ManuscriptReplacementPlanResult>
+    replacementPage(input: ManuscriptReplacementPageInput): Promise<ManuscriptReplacementPageResult>
+    dismissReplacementPlan(input: { projectSessionId: string; planId: string }): Promise<void>
+    applyReplacement(
+      input: ManuscriptReplacementApplyInput
+    ): Promise<ManuscriptReplacementApplyResult>
+    undoReplacement(input: {
+      projectSessionId: string
+      undoCapability: string
+    }): Promise<ManuscriptReplacementUndoResult>
+    subscribeReplacementChanges(
+      input: { projectSessionId: string },
+      listener: (event: ManuscriptReplacementChangedEvent) => void
+    ): Promise<() => void>
   }
   agent: {
     listSessions(input: {
@@ -1170,6 +1221,81 @@ const desktopApi: DesktopApi = {
           deleteSectionRequestSchema.parse(input)
         )
       )
+    },
+    async search(input) {
+      return manuscriptSearchResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptSearch,
+          manuscriptSearchInputSchema.parse(input)
+        )
+      )
+    },
+    async revalidateSearch(input) {
+      return manuscriptSearchNavigationResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptSearchRevalidate,
+          manuscriptSearchNavigationInputSchema.parse(input)
+        )
+      )
+    },
+    async createReplacementPlan(input) {
+      return manuscriptReplacementPlanResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptReplacementPlan,
+          manuscriptReplacementPlanInputSchema.parse(input)
+        )
+      )
+    },
+    async replacementPage(input) {
+      return manuscriptReplacementPageResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptReplacementPage,
+          manuscriptReplacementPageInputSchema.parse(input)
+        )
+      )
+    },
+    async dismissReplacementPlan(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptReplacementDismiss,
+        manuscriptReplacementDismissInputSchema.parse(input)
+      )
+    },
+    async applyReplacement(input) {
+      return manuscriptReplacementApplyResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptReplacementApply,
+          manuscriptReplacementApplyInputSchema.parse(input)
+        )
+      )
+    },
+    async undoReplacement(input) {
+      return manuscriptReplacementUndoResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptReplacementUndo,
+          manuscriptReplacementUndoInputSchema.parse(input)
+        )
+      )
+    },
+    async subscribeReplacementChanges(input, listener) {
+      const subscription = manuscriptReplacementSubscriptionInputSchema.parse({
+        ...input,
+        subscriptionId: globalThis.crypto.randomUUID()
+      })
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const changed = manuscriptReplacementChangedEventSchema.parse(value)
+        if (changed.projectSessionId === input.projectSessionId) listener(changed)
+      }
+      ipcRenderer.on(IPC_CHANNELS.manuscriptReplacementChanged, handler)
+      try {
+        await ipcRenderer.invoke(IPC_CHANNELS.manuscriptReplacementSubscribe, subscription)
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.manuscriptReplacementChanged, handler)
+        throw err
+      }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.manuscriptReplacementChanged, handler)
+        void ipcRenderer.invoke(IPC_CHANNELS.manuscriptReplacementUnsubscribe, subscription)
+      }
     }
   },
   agent: {

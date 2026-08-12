@@ -280,12 +280,32 @@
     outline-offset: 2px;
   }
 
+  .writing-editor .writellm-search-match {
+    border-radius: calc(var(--radius) - 6px);
+    background-color: color-mix(in oklab, var(--warning) 58%, transparent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .writing-editor .writellm-search-match-block {
+    outline: 2px solid color-mix(in oklab, var(--warning) 72%, var(--foreground));
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+
   @media (forced-colors: active) {
     .writing-editor .writellm-readable-citation {
       border: 1px solid LinkText;
       color: LinkText;
       background-color: Canvas;
       text-decoration-color: LinkText;
+    }
+
+    .writing-editor .writellm-search-match,
+    .writing-editor .writellm-search-match-block {
+      outline: 2px solid Highlight;
+      background-color: Highlight;
+      color: HighlightText;
     }
   }
 

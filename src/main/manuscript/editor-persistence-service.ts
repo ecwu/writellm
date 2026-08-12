@@ -343,6 +343,14 @@ export class EditorPersistenceService {
                    AND agent_revision.prior_revision_id = section_revisions.section_revision_id
                )
                AND NOT EXISTS (
+                 SELECT 1 FROM section_revisions AS checkpoint_revision
+                 WHERE checkpoint_revision.source_class = 'manual_checkpoint'
+                   AND checkpoint_revision.content_body_retained = 1
+                   AND checkpoint_revision.prior_revision_id = section_revisions.section_revision_id
+                   AND checkpoint_revision.section_revision_id =
+                     (SELECT current_revision_id FROM sections WHERE section_id = ?)
+               )
+               AND NOT EXISTS (
                  SELECT 1 FROM mutation_proposals AS pending_proposal
                  WHERE pending_proposal.kind IN ('section_patch', 'generated_image_insert')
                    AND pending_proposal.status IN ('pending', 'generating')
@@ -351,11 +359,12 @@ export class EditorPersistenceService {
              ORDER BY revision_number DESC LIMIT -1 OFFSET ?
            )`
         )
-        .run(sectionId, sectionId, MANUAL_AUTOSAVE_BODY_LIMIT)
+        .run(sectionId, sectionId, sectionId, MANUAL_AUTOSAVE_BODY_LIMIT)
 
       // Manual checkpoints: older than 30 days drop entirely; 24h-30d compact to the
       // newest per day; sub-24h compact to the newest per hour bucket. The current
-      // revision and direct parents of accepted agent revisions are always retained.
+      // revision and direct parents of retained accepted-agent/manual-checkpoint revisions are
+      // always retained.
       database
         .prepare(
           `UPDATE section_revisions SET content_json = '[]', content_body_retained = 0
@@ -366,6 +375,14 @@ export class EditorPersistenceService {
                SELECT 1 FROM section_revisions AS agent_revision
                  WHERE agent_revision.source_class = 'agent_accepted'
                    AND agent_revision.prior_revision_id = section_revisions.section_revision_id
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM section_revisions AS checkpoint_revision
+                 WHERE checkpoint_revision.source_class = 'manual_checkpoint'
+                   AND checkpoint_revision.content_body_retained = 1
+                   AND checkpoint_revision.prior_revision_id = section_revisions.section_revision_id
+                   AND checkpoint_revision.section_revision_id =
+                     (SELECT current_revision_id FROM sections WHERE section_id = ?)
              )
              AND NOT EXISTS (
                SELECT 1 FROM mutation_proposals AS pending_proposal
@@ -398,7 +415,7 @@ export class EditorPersistenceService {
                )
              )`
         )
-        .run(sectionId, sectionId)
+        .run(sectionId, sectionId, sectionId)
 
       // Import-class bodies: retain only the latest IMPORT_BODY_LIMIT per section, counting
       // the current revision in the ranking; the outer guard keeps it regardless.

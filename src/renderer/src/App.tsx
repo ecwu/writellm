@@ -480,6 +480,7 @@ function App(): React.JSX.Element {
         }}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
         onToggleAgent={() => setAgentOpen(!agentOpen)}
+        onOpenFind={() => window.dispatchEvent(new Event('writellm:find'))}
       />
       {projectSessionId ? (
         <ProjectVersionHistory

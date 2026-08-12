@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMain } from 'electron'
+import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
@@ -14,6 +14,28 @@ import {
   updateSectionRequestSchema
 } from '../../shared/contracts/manuscript'
 import type { ProjectManager } from '../project/project-manager'
+import {
+  manuscriptSearchInputSchema,
+  manuscriptSearchNavigationInputSchema,
+  manuscriptSearchNavigationResultSchema,
+  manuscriptSearchResultSchema
+} from '../../shared/contracts/manuscript-search'
+import { ManuscriptSearchService } from '../manuscript/manuscript-search-service'
+import {
+  manuscriptReplacementApplyInputSchema,
+  manuscriptReplacementApplyResultSchema,
+  manuscriptReplacementChangedEventSchema,
+  manuscriptReplacementDismissInputSchema,
+  manuscriptReplacementPageInputSchema,
+  manuscriptReplacementPageResultSchema,
+  manuscriptReplacementPlanInputSchema,
+  manuscriptReplacementPlanResultSchema,
+  manuscriptReplacementSubscriptionInputSchema,
+  manuscriptReplacementUndoInputSchema,
+  manuscriptReplacementUndoResultSchema,
+  type ManuscriptReplacementChangedEvent
+} from '../../shared/contracts/manuscript-replacement'
+import { ManuscriptReplacementService } from '../manuscript/manuscript-replacement-service'
 import { authorizeSender } from './authorize-sender'
 
 export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
@@ -23,8 +45,47 @@ export function registerManuscriptIpc(options: {
   logger: Pick<Logger, 'info' | 'error'>
   developmentUrl?: string
   ipc?: ManuscriptIpcMain
-}): () => void {
+  flushForMutation?(
+    projectSessionId: string,
+    affectedSectionIds: readonly string[],
+    flushMetadata?: boolean
+  ): Promise<void>
+}): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
+  const replacementServices = new Map<string, ManuscriptReplacementService>()
+  const replacementSubscribers = new Map<string, Map<string, WebContents>>()
+  const replacementService = (projectSessionId: string): ManuscriptReplacementService => {
+    const context = options.manager.assertMutationSession(projectSessionId)
+    let service = replacementServices.get(projectSessionId)
+    if (service === undefined) {
+      service = new ManuscriptReplacementService({
+        manuscript: context.manuscript,
+        editorPersistence: context.editorPersistence,
+        log: options.logger
+      })
+      replacementServices.set(projectSessionId, service)
+    }
+    return service
+  }
+  const publishReplacementChanged = (event: ManuscriptReplacementChangedEvent): void => {
+    const parsed = manuscriptReplacementChangedEventSchema.parse(event)
+    for (const sender of replacementSubscribers.get(parsed.projectSessionId)?.values() ?? []) {
+      if (sender.isDestroyed()) continue
+      try {
+        sender.send(IPC_CHANNELS.manuscriptReplacementChanged, parsed)
+      } catch (err) {
+        options.logger.error(
+          {
+            event: 'manuscript.replacement_change.notification_failed',
+            err,
+            projectSessionId: parsed.projectSessionId,
+            sectionCount: parsed.sections.length
+          },
+          'Replacement change notification failed'
+        )
+      }
+    }
+  }
   const workspace = (projectSessionId: string) =>
     manuscriptWorkspaceSchema.parse(
       options.manager.assertActiveSession(projectSessionId).manuscript.getWorkspace()
@@ -254,17 +315,184 @@ export function registerManuscriptIpc(options: {
     )
   })
 
-  return () => {
-    for (const channel of [
-      IPC_CHANNELS.manuscriptGetWorkspace,
-      IPC_CHANNELS.manuscriptGetReferences,
-      IPC_CHANNELS.manuscriptGetPreview,
-      IPC_CHANNELS.manuscriptUpdateBrief,
-      IPC_CHANNELS.manuscriptCreateSection,
-      IPC_CHANNELS.manuscriptUpdateSection,
-      IPC_CHANNELS.manuscriptMoveSection,
-      IPC_CHANNELS.manuscriptDeleteSection
-    ])
-      ipc.removeHandler(channel)
+  ipc.handle(IPC_CHANNELS.manuscriptSearch, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptSearchInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const controller = new AbortController()
+    const release = context.operations?.track(controller)
+    try {
+      const service = new ManuscriptSearchService({
+        manuscript: context.manuscript,
+        log: options.logger
+      })
+      const result = await service.search(parsed, controller.signal)
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      const { metrics: _metrics, ...bounded } = result
+      return manuscriptSearchResultSchema.parse(bounded)
+    } finally {
+      release?.()
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptSearchRevalidate, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptSearchNavigationInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const controller = new AbortController()
+    const release = context.operations?.track(controller)
+    try {
+      const result = await new ManuscriptSearchService({
+        manuscript: context.manuscript,
+        log: options.logger
+      }).revalidate(parsed, controller.signal)
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      return manuscriptSearchNavigationResultSchema.parse(result)
+    } finally {
+      release?.()
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementPlan, async (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementPlanInputSchema.parse(rawInput)
+    const service = replacementService(input.projectSessionId)
+    const sectionIds = service.scopeSectionIds(input)
+    await options.flushForMutation?.(input.projectSessionId, sectionIds, true)
+    options.manager.assertMutationSession(input.projectSessionId)
+    const controller = new AbortController()
+    const release = options.manager
+      .assertActiveSession(input.projectSessionId)
+      .operations?.track(controller)
+    try {
+      return manuscriptReplacementPlanResultSchema.parse(
+        await service.createPlan(input, controller.signal)
+      )
+    } finally {
+      release?.()
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementPage, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementPageInputSchema.parse(rawInput)
+    return manuscriptReplacementPageResultSchema.parse(
+      replacementService(input.projectSessionId).page(input)
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementDismiss, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementDismissInputSchema.parse(rawInput)
+    replacementService(input.projectSessionId).dismiss(input.planId)
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementApply, async (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementApplyInputSchema.parse(rawInput)
+    const service = replacementService(input.projectSessionId)
+    const sectionIds = service.selectedSectionIds(input)
+    if (sectionIds !== null)
+      await options.flushForMutation?.(input.projectSessionId, sectionIds, true)
+    let checkpointCreated = false
+    if (
+      input.createCheckpoint &&
+      (await options.manager.versionHistoryState(input.projectSessionId)) === 'ready'
+    ) {
+      await options.manager.createCheckpoint(input.projectSessionId, {
+        name: `Before replacement ${new Date().toISOString()}`,
+        note: 'Automatic checkpoint before a confirmed manuscript replacement.'
+      })
+      checkpointCreated = true
+    }
+    options.manager.assertMutationSession(input.projectSessionId)
+    const result = manuscriptReplacementApplyResultSchema.parse(
+      await service.apply(input, checkpointCreated)
+    )
+    if (result.status === 'applied') {
+      publishReplacementChanged({
+        projectSessionId: input.projectSessionId,
+        reason: 'replacement',
+        sections: result.affectedSections.map(({ sectionId, sectionRevisionId }) => ({
+          sectionId,
+          sectionRevisionId
+        }))
+      })
+    }
+    return result
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementUndo, async (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementUndoInputSchema.parse(rawInput)
+    const service = replacementService(input.projectSessionId)
+    const sectionId = service.undoSectionId(input.undoCapability)
+    if (sectionId !== null)
+      await options.flushForMutation?.(input.projectSessionId, [sectionId], true)
+    options.manager.assertMutationSession(input.projectSessionId)
+    const result = manuscriptReplacementUndoResultSchema.parse(
+      await service.undo(input.undoCapability)
+    )
+    if (result.status === 'undone') {
+      publishReplacementChanged({
+        projectSessionId: input.projectSessionId,
+        reason: 'undo',
+        sections: [{ sectionId: result.sectionId, sectionRevisionId: result.sectionRevisionId }]
+      })
+    }
+    return result
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementSubscribe, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementSubscriptionInputSchema.parse(rawInput)
+    options.manager.assertActiveSession(input.projectSessionId)
+    const subscriptions =
+      replacementSubscribers.get(input.projectSessionId) ?? new Map<string, WebContents>()
+    subscriptions.set(input.subscriptionId, event.sender)
+    replacementSubscribers.set(input.projectSessionId, subscriptions)
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptReplacementUnsubscribe, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = manuscriptReplacementSubscriptionInputSchema.parse(rawInput)
+    const subscriptions = replacementSubscribers.get(input.projectSessionId)
+    if (subscriptions?.get(input.subscriptionId)?.id === event.sender.id) {
+      subscriptions.delete(input.subscriptionId)
+      if (subscriptions.size === 0) replacementSubscribers.delete(input.projectSessionId)
+    }
+  })
+
+  const channels = [
+    IPC_CHANNELS.manuscriptGetWorkspace,
+    IPC_CHANNELS.manuscriptGetReferences,
+    IPC_CHANNELS.manuscriptGetPreview,
+    IPC_CHANNELS.manuscriptUpdateBrief,
+    IPC_CHANNELS.manuscriptCreateSection,
+    IPC_CHANNELS.manuscriptUpdateSection,
+    IPC_CHANNELS.manuscriptMoveSection,
+    IPC_CHANNELS.manuscriptDeleteSection,
+    IPC_CHANNELS.manuscriptSearch,
+    IPC_CHANNELS.manuscriptSearchRevalidate,
+    IPC_CHANNELS.manuscriptReplacementPlan,
+    IPC_CHANNELS.manuscriptReplacementPage,
+    IPC_CHANNELS.manuscriptReplacementDismiss,
+    IPC_CHANNELS.manuscriptReplacementApply,
+    IPC_CHANNELS.manuscriptReplacementUndo,
+    IPC_CHANNELS.manuscriptReplacementSubscribe,
+    IPC_CHANNELS.manuscriptReplacementUnsubscribe
+  ] as const
+  return {
+    revokeSession(projectSessionId) {
+      replacementServices.get(projectSessionId)?.revoke()
+      replacementServices.delete(projectSessionId)
+      replacementSubscribers.delete(projectSessionId)
+    },
+    unregister() {
+      for (const service of replacementServices.values()) service.revoke()
+      replacementServices.clear()
+      replacementSubscribers.clear()
+      for (const channel of channels) ipc.removeHandler(channel)
+    }
   }
 }

@@ -1,4 +1,5 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
+import type { ManuscriptSearchTargetContract } from '../../../../shared/contracts/manuscript-search'
 import type {
   ExpandedCitation,
   ReadableCitationResolutionResult
@@ -31,6 +32,10 @@ import {
   refreshReadableCitationDecorations,
   type ReadableCitationActivation
 } from './readable-citation-extension'
+import {
+  manuscriptSearchHighlightExtension,
+  refreshSearchHighlight
+} from './search-highlight-extension'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
@@ -46,11 +51,14 @@ export interface SectionEditorHandle {
     projectSessionId: string
     closingToken: string
     purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
+    bodyRequired: boolean
   }): Promise<void>
   releaseMutationBarrier(): void
   importMarkdown(): Promise<void>
   exportNativeJson(): Promise<void>
   exportMarkdown(): Promise<void>
+  revealSearchTarget(target: ManuscriptSearchTargetContract): boolean
+  clearSearchTarget(): void
 }
 
 type CitationDialogState =
@@ -79,6 +87,7 @@ export const SectionEditor = forwardRef<
     onCitationDocumentChange?(document: BlockNoteDocument): void
     onSaveStateChange?(state: SaveState): void
     onSelectionContextChange?(context: EditorSelectionContext): void
+    onSearchTargetInvalidated?(): void
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
   const { resolvedTheme, citationDisplayMode } = useTheme()
@@ -92,6 +101,9 @@ export const SectionEditor = forwardRef<
     mode: citationDisplayMode,
     numberByTitle: props.citationNumberByTitle
   })
+  const searchTargetRef = useRef<ManuscriptSearchTargetContract | null>(null)
+  const searchInvalidatedRef = useRef(() => props.onSearchTargetInvalidated?.())
+  searchInvalidatedRef.current = () => props.onSearchTargetInvalidated?.()
   citationPresentationRef.current = {
     mode: citationDisplayMode,
     numberByTitle: props.citationNumberByTitle
@@ -120,6 +132,13 @@ export const SectionEditor = forwardRef<
         readableCitationExtension({
           onActivate: (activation) => citationActivationHandlerRef.current(activation),
           getPresentation: () => citationPresentationRef.current
+        }),
+        manuscriptSearchHighlightExtension({
+          getTarget: () => searchTargetRef.current,
+          onInvalidated: () => {
+            searchTargetRef.current = null
+            searchInvalidatedRef.current()
+          }
         })
       ],
       uploadFile: async (file) => {
@@ -402,7 +421,24 @@ export const SectionEditor = forwardRef<
     },
     importMarkdown,
     exportNativeJson,
-    exportMarkdown
+    exportMarkdown,
+    revealSearchTarget(target) {
+      if (target.kind === 'section_title' || target.kind === 'section_objective') return false
+      searchTargetRef.current = target
+      refreshSearchHighlight(editor.prosemirrorView)
+      const match = editor.prosemirrorView.dom.querySelector<HTMLElement>(
+        '[data-writellm-search-match="true"]'
+      )
+      match?.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      })
+      return match !== null
+    },
+    clearSearchTarget() {
+      searchTargetRef.current = null
+      refreshSearchHighlight(editor.prosemirrorView)
+    }
   }))
 
   return (

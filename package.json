@@ -2,7 +2,7 @@
   "name": "writellm",
   "version": "0.2026.8",
   "release": {
-    "version": "0.2026.8.13"
+    "version": "0.2026.8.15"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.17.0",
@@ -28,6 +28,8 @@
     "rebuild:native": "node scripts/prepare-native-target.mjs --install",
     "benchmark": "node scripts/benchmark-index.mjs",
     "benchmark:smoke": "node scripts/benchmark-index-100k.mjs",
+    "benchmark:manuscript-search": "node scripts/benchmark-manuscript-search.mjs",
+    "benchmark:manuscript-replacement": "node scripts/benchmark-manuscript-replacement.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:e2e:critical": "node scripts/run-e2e.mjs --suite=critical",
     "test:e2e:visible": "node scripts/run-e2e.mjs --visible",

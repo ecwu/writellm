@@ -11,6 +11,7 @@ import {
   History,
   Logs,
   Save,
+  Search,
   Settings2,
   TriangleAlert
 } from 'lucide-react'
@@ -49,6 +50,7 @@ interface AppMenubarProps {
   onOpenSettings: () => void
   onOpenLogs: () => void
   onToggleAgent: () => void
+  onOpenFind: () => void
 }
 
 export function AppMenubar({
@@ -72,7 +74,8 @@ export function AppMenubar({
   onClose,
   onOpenSettings,
   onOpenLogs,
-  onToggleAgent
+  onToggleAgent,
+  onOpenFind
 }: AppMenubarProps): React.JSX.Element {
   return (
     <div className='relative z-50 flex h-10 shrink-0 items-center border-b bg-background px-2'>
@@ -134,6 +137,15 @@ export function AppMenubar({
                 <FileText /> Close project
               </MenubarItem>
             </MenubarGroup>
+          </MenubarContent>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger>Edit</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem disabled={busy || !hasProject} onSelect={onOpenFind}>
+              <Search /> Find in manuscript
+              <MenubarShortcut>⌘F</MenubarShortcut>
+            </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
         <MenubarMenu>

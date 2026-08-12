@@ -61,7 +61,11 @@ export function registerEditorIpc(options: {
 }): {
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
-  flushForMutation(projectSessionId: string, affectedSectionIds: readonly string[]): Promise<void>
+  flushForMutation(
+    projectSessionId: string,
+    affectedSectionIds: readonly string[],
+    flushMetadata?: boolean
+  ): Promise<void>
   revokeSession(sessionId: string): void
   unregister(): void
 } {
@@ -419,11 +423,14 @@ export function registerEditorIpc(options: {
 
   const flushForMutation = async (
     projectSessionId: string,
-    affectedSectionIds: readonly string[]
+    affectedSectionIds: readonly string[],
+    flushMetadata = false
   ): Promise<void> => {
     const context = options.manager.assertMutationSession(projectSessionId)
     const activeSectionId = resolveActiveSection(context, activeSections)
-    if (activeSectionId === undefined || !affectedSectionIds.includes(activeSectionId)) return
+    if (activeSectionId === undefined) return
+    const bodyRequired = affectedSectionIds.includes(activeSectionId)
+    if (!bodyRequired && !flushMetadata) return
     const sender = Array.from(subscribers.get(projectSessionId)?.values() ?? []).find(
       (candidate) => !candidate.isDestroyed()
     )
@@ -444,15 +451,15 @@ export function registerEditorIpc(options: {
         })
         timer = setTimeout(() => {
           pending.delete(closingToken)
-          const err = new Error('Agent mutation editor flush timed out')
+          const err = new Error('Manuscript mutation editor flush timed out')
           options.logger.error(
             {
-              event: 'agent.mutation_barrier.timeout',
+              event: 'editor.mutation_barrier.timeout',
               err,
               projectSessionId,
               timeoutMs: snapshotFlushTimeoutMs
             },
-            'Agent mutation editor flush timed out'
+            'Manuscript mutation editor flush timed out'
           )
           reject(err)
         }, snapshotFlushTimeoutMs)
@@ -462,6 +469,7 @@ export function registerEditorIpc(options: {
             projectSessionId,
             closingToken,
             purpose: 'mutation',
+            bodyRequired,
             sectionId: activeSectionId,
             sectionRevisionId: currentRevision
           })
@@ -473,7 +481,7 @@ export function registerEditorIpc(options: {
         request.acknowledgedRevision !==
           context.manuscript.getSection(activeSectionId).currentRevisionId
       ) {
-        throw new Error('Agent mutation editor flush revision was not acknowledged')
+        throw new Error('Manuscript mutation editor flush revision was not acknowledged')
       }
     } finally {
       if (timer !== undefined) clearTimeout(timer)

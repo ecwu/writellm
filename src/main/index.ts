@@ -574,7 +574,8 @@ if (!hasSingleInstanceLock) {
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
         developmentUrl,
-        ipc
+        ipc,
+        flushForMutation: editorIpc.flushForMutation
       })
       const agentMutationIpc = registerAgentMutationIpc({
         manager: projectManager,
@@ -621,6 +622,7 @@ if (!hasSingleInstanceLock) {
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
+          unregisterManuscriptIpc.revokeSession(projectSessionId)
           agentMutationIpc.revokeSession(projectSessionId)
           agentIpc.revokeSession(projectSessionId)
           pdfPreview.revokeSession(projectSessionId)
@@ -674,7 +676,7 @@ if (!hasSingleInstanceLock) {
           unregisterProviderIpc()
           unregisterSearchIpc()
           unregisterKnowledgeIpc()
-          unregisterManuscriptIpc()
+          unregisterManuscriptIpc.unregister()
           agentMutationIpc.unregister()
           agentIpc.unregister()
           editorIpc.unregister()
