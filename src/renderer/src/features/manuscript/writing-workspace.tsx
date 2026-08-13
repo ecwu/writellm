@@ -237,6 +237,7 @@ export function WritingWorkspace(props: {
   >([])
   const [selectedReplacementIds, setSelectedReplacementIds] = useState<Set<string>>(new Set())
   const [replacementLoading, setReplacementLoading] = useState(false)
+  const [replacementLoadingMore, setReplacementLoadingMore] = useState(false)
   const [replacementApplying, setReplacementApplying] = useState(false)
   const [replacementMessage, setReplacementMessage] = useState<string | null>(null)
   const [replacementUndoCapabilities, setReplacementUndoCapabilities] = useState<string[]>([])
@@ -246,6 +247,9 @@ export function WritingWorkspace(props: {
     revisionId: string | null
   } | null>(null)
   const findRequestRef = useRef(0)
+  const replacementRequestRef = useRef(0)
+  const replacementPageRequestRef = useRef(0)
+  const replacementPagePendingRef = useRef(false)
   const workspaceSearchVersionRef = useRef(workspaceSearchVersion)
   const sectionTitleRef = useRef<HTMLTextAreaElement>(null)
 
@@ -626,6 +630,10 @@ export function WritingWorkspace(props: {
 
   const reviewReplacements = useCallback(async (): Promise<void> => {
     if (findQuery.length === 0) return
+    replacementPageRequestRef.current += 1
+    replacementPagePendingRef.current = false
+    setReplacementLoadingMore(false)
+    const sequence = ++replacementRequestRef.current
     setReplacementLoading(true)
     setReplacementMessage(null)
     setSelectedReplacementIds(new Set())
@@ -638,6 +646,17 @@ export function WritingWorkspace(props: {
         statuses: findStatuses,
         replacement
       })
+      if (replacementRequestRef.current !== sequence) {
+        if (plan.status === 'ready') {
+          void window.desktop.manuscript
+            .dismissReplacementPlan({
+              projectSessionId: props.projectSessionId,
+              planId: plan.planId
+            })
+            .catch(() => props.onError('The superseded replacement review could not be dismissed.'))
+        }
+        return
+      }
       setReplacementPlan(plan)
       setReplacementCandidates(plan.status === 'ready' ? plan.candidates : [])
       if (plan.status === 'unavailable') {
@@ -650,29 +669,50 @@ export function WritingWorkspace(props: {
         )
       }
     } catch {
-      setReplacementMessage('Replacement review could not be created. Retry after saving.')
+      if (replacementRequestRef.current === sequence) {
+        setReplacementMessage('Replacement review could not be created. Retry after saving.')
+      }
     } finally {
       editorRef.current?.releaseMutationBarrier()
-      setReplacementLoading(false)
+      if (replacementRequestRef.current === sequence) setReplacementLoading(false)
     }
   }, [
     currentFindScope,
     findCaseSensitive,
     findQuery,
     findStatuses,
+    props.onError,
     props.projectSessionId,
     replacement
   ])
 
   const loadMoreReplacements = useCallback(async (): Promise<void> => {
-    if (replacementPlan?.status !== 'ready' || replacementPlan.nextCursor === null) return
+    if (
+      replacementPlan?.status !== 'ready' ||
+      replacementPlan.nextCursor === null ||
+      replacementPagePendingRef.current
+    ) {
+      return
+    }
+    const planId = replacementPlan.planId
+    const cursor = replacementPlan.nextCursor
+    const reviewSequence = replacementRequestRef.current
+    const pageSequence = ++replacementPageRequestRef.current
+    replacementPagePendingRef.current = true
+    setReplacementLoadingMore(true)
     try {
       const page = await window.desktop.manuscript.replacementPage({
         projectSessionId: props.projectSessionId,
-        planId: replacementPlan.planId,
-        cursor: replacementPlan.nextCursor,
+        planId,
+        cursor,
         limit: 50
       })
+      if (
+        replacementRequestRef.current !== reviewSequence ||
+        replacementPageRequestRef.current !== pageSequence
+      ) {
+        return
+      }
       if (page.status !== 'ready') {
         setReplacementPlan(null)
         setReplacementMessage('This replacement review expired. Create a fresh review.')
@@ -681,12 +721,22 @@ export function WritingWorkspace(props: {
       setReplacementCandidates((current) => [...current, ...page.candidates])
       setReplacementPlan(page)
     } catch {
-      setReplacementMessage('More replacement candidates could not be loaded.')
+      if (replacementPageRequestRef.current === pageSequence) {
+        setReplacementMessage('More replacement candidates could not be loaded.')
+      }
+    } finally {
+      if (replacementPageRequestRef.current === pageSequence) {
+        replacementPagePendingRef.current = false
+        setReplacementLoadingMore(false)
+      }
     }
   }, [props.projectSessionId, replacementPlan])
 
   const applyReplacements = useCallback(async (): Promise<void> => {
     if (replacementPlan?.status !== 'ready' || selectedReplacementIds.size === 0) return
+    replacementPageRequestRef.current += 1
+    replacementPagePendingRef.current = false
+    setReplacementLoadingMore(false)
     setReplacementApplying(true)
     setReplacementMessage(null)
     try {
@@ -750,6 +800,71 @@ export function WritingWorkspace(props: {
       editorRef.current?.releaseMutationBarrier()
     }
   }, [props.projectSessionId, replacementUndoCapabilities])
+
+  const invalidateReplacementReview = useCallback((): void => {
+    replacementRequestRef.current += 1
+    replacementPageRequestRef.current += 1
+    replacementPagePendingRef.current = false
+    const planId = replacementPlan?.status === 'ready' ? replacementPlan.planId : null
+    setReplacementPlan(null)
+    setReplacementCandidates([])
+    setSelectedReplacementIds(new Set())
+    setReplacementMessage(null)
+    setReplacementLoading(false)
+    setReplacementLoadingMore(false)
+    if (planId === null) return
+    void window.desktop.manuscript
+      .dismissReplacementPlan({ projectSessionId: props.projectSessionId, planId })
+      .catch(() => props.onError('The previous replacement review could not be dismissed.'))
+  }, [props.onError, props.projectSessionId, replacementPlan])
+
+  const changeFindQuery = useCallback(
+    (query: string): void => {
+      invalidateReplacementReview()
+      setFindQuery(query)
+    },
+    [invalidateReplacementReview]
+  )
+
+  const changeFindCaseSensitive = useCallback(
+    (value: boolean): void => {
+      invalidateReplacementReview()
+      setFindCaseSensitive(value)
+    },
+    [invalidateReplacementReview]
+  )
+
+  const changeFindScope = useCallback(
+    (scope: ManuscriptFindScope): void => {
+      invalidateReplacementReview()
+      setFindScope(scope)
+    },
+    [invalidateReplacementReview]
+  )
+
+  const changeFindStatuses = useCallback(
+    (statuses: SectionStatus[]): void => {
+      invalidateReplacementReview()
+      setFindStatuses(statuses)
+    },
+    [invalidateReplacementReview]
+  )
+
+  const changeReplacement = useCallback(
+    (value: string): void => {
+      invalidateReplacementReview()
+      setReplacement(value)
+    },
+    [invalidateReplacementReview]
+  )
+
+  const changeReplaceOpen = useCallback(
+    (open: boolean): void => {
+      setReplaceOpen(open)
+      if (!open) invalidateReplacementReview()
+    },
+    [invalidateReplacementReview]
+  )
 
   useEffect(() => {
     if (activeWorkspace !== 'find') return
@@ -1038,13 +1153,19 @@ export function WritingWorkspace(props: {
     editorRef.current?.clearSearchTarget()
     setSelectedFindMatchId(null)
     setPendingSearchTarget(null)
+    setReplaceOpen(false)
+    invalidateReplacementReview()
     setActiveWorkspace('manuscript')
-  }, [])
+  }, [invalidateReplacementReview])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && activeWorkspace === 'find') {
-        closeFind()
+        if (replaceOpen) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          changeReplaceOpen(false)
+        } else closeFind()
         return
       }
       const modifier = event.metaKey || event.ctrlKey
@@ -1068,11 +1189,11 @@ export function WritingWorkspace(props: {
     }
     const handleSave = (): void => void flushCurrent()
     const handleFind = (): void => openFind()
-    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
     window.addEventListener('writellm:save', handleSave)
     window.addEventListener('writellm:find', handleFind)
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
       window.removeEventListener('writellm:save', handleSave)
       window.removeEventListener('writellm:find', handleFind)
     }
@@ -1085,7 +1206,9 @@ export function WritingWorkspace(props: {
     props.onAgentOpenChange,
     selectSection,
     closeFind,
-    openFind
+    changeReplaceOpen,
+    openFind,
+    replaceOpen
   ])
 
   const updateRevision = (revision: SectionRevision): void => {
@@ -1371,11 +1494,7 @@ export function WritingWorkspace(props: {
       <KnowledgeManager
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
-        onOpenManuscript={() => {
-          editorRef.current?.clearSearchTarget()
-          setSelectedFindMatchId(null)
-          setActiveWorkspace('manuscript')
-        }}
+        onOpenManuscript={closeFind}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
         onOpenIssues={() => setActiveWorkspace('issues')}
@@ -1461,13 +1580,13 @@ export function WritingWorkspace(props: {
         findPanel={
           <ManuscriptFindPanel
             query={findQuery}
-            onQueryChange={setFindQuery}
+            onQueryChange={changeFindQuery}
             caseSensitive={findCaseSensitive}
-            onCaseSensitiveChange={setFindCaseSensitive}
+            onCaseSensitiveChange={changeFindCaseSensitive}
             scope={findScope}
-            onScopeChange={setFindScope}
+            onScopeChange={changeFindScope}
             statuses={findStatuses}
-            onStatusesChange={setFindStatuses}
+            onStatusesChange={changeFindStatuses}
             result={findResult}
             loading={findLoading}
             loadingMore={findLoadingMore}
@@ -1478,17 +1597,19 @@ export function WritingWorkspace(props: {
               if (findResult?.nextCursor) void runFind(findResult.nextCursor)
             }}
             replaceOpen={replaceOpen}
-            onReplaceOpenChange={setReplaceOpen}
+            onReplaceOpenChange={changeReplaceOpen}
             replacement={replacement}
-            onReplacementChange={setReplacement}
+            onReplacementChange={changeReplacement}
             replacementPlan={replacementPlan}
             replacementCandidates={replacementCandidates}
             selectedCandidateIds={selectedReplacementIds}
-            onCandidateChecked={(candidateId, checked) =>
+            onCandidatesChecked={(candidateIds, checked) =>
               setSelectedReplacementIds((current) => {
                 const next = new Set(current)
-                if (checked) next.add(candidateId)
-                else next.delete(candidateId)
+                for (const candidateId of candidateIds) {
+                  if (checked) next.add(candidateId)
+                  else next.delete(candidateId)
+                }
                 return next
               })
             }
@@ -1501,6 +1622,7 @@ export function WritingWorkspace(props: {
             createCheckpoint={createReplacementCheckpoint}
             onCreateCheckpointChange={setCreateReplacementCheckpoint}
             replacementLoading={replacementLoading}
+            replacementLoadingMore={replacementLoadingMore}
             replacementApplying={replacementApplying}
             replacementMessage={replacementMessage}
           />

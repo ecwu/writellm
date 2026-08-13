@@ -10,6 +10,16 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 
 ## Current checkpoint
 
+The authorized Renderer-only Find / Replace maintenance is complete. The existing ADR 021/022
+authority now presents a compact VS Code-inspired two-row toolbar, stable section-grouped search
+results, and section-grouped safe replacement review with bulk selection, exact apply counts,
+sticky actions, focus announcements, and two-stage Escape. Query or replacement-option changes
+invalidate both displayed and in-flight replacement reviews; IPC, shared contracts, persistence,
+and Main mutation authority are unchanged. Verification passed focused Renderer tests,
+`check:fast`, 178 Electron-hosted files / 904 tests plus production build, both focused fresh-build
+Real-Electron scenarios, responsive screenshot review, a clean Impeccable detector, finish review,
+and `git diff --check`.
+
 Final Phase 11 verification and packaging is complete. Checkpoint 44 is complete under accepted
 [`ADR 035`](adrs/035-project-local-manuscript-annotations.md): a small project-local annotation
 authority keeps notes and TODOs outside manuscript bodies, preserves stable section/block anchors,

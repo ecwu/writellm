@@ -295,6 +295,30 @@ recovery fixtures; it verified arm64 native resources and a no-Team-ID ad-hoc/li
 then produced the App, DMG, and ZIP. Commit, tag, hosted CI, Apple signing/notarization, push,
 publication, and promotion remain outside scope.
 
+### Maintenance: Compact VS Code-Inspired Find / Replace Workspace
+
+- [x] Recompose the existing Find workspace as a compact two-row Search / Replace command surface,
+  group search and replacement results by section, preserve exact preview-before-apply authority,
+  and complete focused Renderer, Electron, E2E, accessibility, responsive, Impeccable, and diff
+  verification.
+
+Authorization: on 2026-08-13 the user supplied and explicitly requested implementation of the
+decision-complete redesign plan. This maintenance is Renderer-only and preserves accepted ADR 021
+and ADR 022 search/replacement semantics, IPC, persistence, Main authority, and Agent boundaries.
+It adds no dependency, migration, regex, whole-word matching, fuzzy/semantic search, release,
+hosted CI, commit, tag, push, or publication work.
+
+Local evidence: five focused Renderer component tests cover the compact toolbar, grouping,
+pagination summary, replacement hierarchy, skipped candidates, and exact apply label;
+`check:fast` passed; `check:electron` passed 178 Electron-hosted test files / 904 tests with three
+opt-in benchmark files / tests skipped and a successful production build; both focused fresh-build
+Real-Electron Find-navigation and safe-replacement scenarios passed, including focus, two-stage
+Escape, exact navigation, bulk selection, apply, and completion messaging. Desktop 360px sidebar,
+18rem narrow-window Sheet, and replacement-review screenshots were inspected without clipping,
+overlap, or nested scrolling. The scoped Impeccable detector returned no findings, finish review
+found no blocking issue after remediation, and `git diff --check` passed. Package/release, hosted
+CI, commit, tag, push, and publication were not run.
+
 ### Maintenance: Compact citation layout and icon visibility
 
 - [x] Collapse hidden canonical citation source text without increasing line height in numbered or

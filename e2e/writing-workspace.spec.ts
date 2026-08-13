@@ -147,6 +147,12 @@ test(
 
       await launched.page.keyboard.press('ControlOrMeta+f')
       await expect(input).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Replace', exact: true }).click()
+      const replacementInput = launched.page.getByLabel('Replace with')
+      await expect(replacementInput).toBeFocused()
+      await launched.page.keyboard.press('Escape')
+      await expect(replacementInput).not.toBeVisible()
+      await expect(input).toBeVisible()
       await launched.page.keyboard.press('Escape')
       await expect(input).not.toBeVisible()
 
@@ -175,13 +181,19 @@ test(
       await launched.page.getByTestId('manuscript-find-input').fill('Alpha')
       await expect(launched.page.getByText('2 results', { exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Replace', exact: true }).click()
-      await launched.page.getByLabel('Replace with').fill('Beta')
+      const replacementInput = launched.page.getByLabel('Replace with')
+      await expect(replacementInput).toBeFocused()
+      await replacementInput.fill('Beta')
       await launched.page.getByRole('button', { name: 'Review replacements' }).click()
       await expect(launched.page.getByText('2 eligible · 0 skipped · 1 sections')).toBeVisible()
+      await expect(
+        launched.page.locator('[role="status"]').filter({ hasText: '2 eligible · 0 skipped' })
+      ).toBeFocused()
       const candidates = launched.page.getByRole('checkbox', { name: /Select replacement in/u })
       await expect(candidates).toHaveCount(2)
-      await candidates.nth(0).click()
-      await candidates.nth(1).click()
+      await launched.page.getByRole('checkbox', { name: /Select loaded replacements in/u }).click()
+      await expect(candidates.nth(0)).toBeChecked()
+      await expect(candidates.nth(1)).toBeChecked()
 
       const screenshotDirectory = process.env.WRITELLM_CP30_SCREENSHOT_DIR
       if (screenshotDirectory !== undefined) {
@@ -192,8 +204,9 @@ test(
         })
       }
 
-      await launched.page.getByRole('button', { name: 'Apply 2 replacements' }).click()
+      await launched.page.getByRole('button', { name: 'Apply 2 replacements in 1 section' }).click()
       await expect(launched.page.getByText('Applied 2 replacements in 1 sections.')).toBeVisible()
+      await expect(launched.page.getByRole('alert')).toBeFocused()
       await launched.page.getByRole('button', { name: 'Close Find' }).click()
       await expect(launched.page.locator('.bn-editor')).toContainText(
         'Beta evidence and Beta conclusion.'
