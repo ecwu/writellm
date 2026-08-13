@@ -482,6 +482,11 @@ test(
       await createSection.getByLabel('Section title').fill('Agent revision target')
       await createSection.getByRole('button', { name: 'Create', exact: true }).click()
       await expect(createSection).not.toBeVisible()
+      const createdSection = outline
+        .getByTestId(/^outline-editor-section-/)
+        .filter({ hasText: 'Agent revision target' })
+      await createdSection.locator('button[id^="outline-tree-item-"]').click()
+      await expect(createdSection).toHaveAttribute('aria-selected', 'true')
       await outline.getByRole('button', { name: 'Open in editor', exact: true }).click()
       await expect(outline).not.toBeVisible()
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
@@ -605,6 +610,9 @@ test(
       await expect(conversationSwitcher).toBeFocused()
       const manuscriptScroller = launched.page.locator('[data-slot="sidebar-inset"]')
       await manuscriptScroller.evaluate((element) => {
+        const manuscript = element.querySelector(':scope > main')
+        if (!(manuscript instanceof HTMLElement)) throw new Error('Manuscript content missing')
+        manuscript.style.minHeight = `${element.clientHeight + 1_000}px`
         element.scrollTop = element.scrollHeight
       })
       await expect
@@ -619,6 +627,11 @@ test(
       await expect.poll(() => manuscriptScroller.evaluate((element) => element.scrollTop)).toBe(0)
       await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
+      await manuscriptScroller.evaluate((element) => {
+        const manuscript = element.querySelector(':scope > main')
+        if (manuscript instanceof HTMLElement) manuscript.style.removeProperty('min-height')
+        element.scrollTop = 0
+      })
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       const sourceTruth = await launched.page.evaluate(async (expectedSourceSectionId) => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject

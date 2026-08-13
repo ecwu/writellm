@@ -745,6 +745,9 @@ if (!hasSingleInstanceLock) {
 
       const shutdownCoordinator = createShutdownCoordinator({
         projectManager,
+        closeWindows: () => {
+          for (const window of BrowserWindow.getAllWindows()) window.destroy()
+        },
         unregisterProjectIpc: () => {
           unregisterSkillIpc()
           unregisterProviderIpc()

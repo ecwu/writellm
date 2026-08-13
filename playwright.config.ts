@@ -1,7 +1,9 @@
 import { defineConfig } from '@playwright/test'
 
 const usesPackagedSuite = process.env['WRITELLM_E2E_SUITE'] === 'packaged'
-const usesWindowsPackagedRunner = process.platform === 'win32' && usesPackagedSuite
+const usesPackagedExecutable = Boolean(process.env['WRITELLM_E2E_EXECUTABLE_PATH'])
+const usesPackagedValidation = usesPackagedSuite || usesPackagedExecutable
+const usesWindowsPackagedRunner = process.platform === 'win32' && usesPackagedValidation
 const requiresSerialWorkers =
   process.env['WRITELLM_E2E_WINDOW_MODE'] === 'interactive' ||
   usesWindowsPackagedRunner ||
@@ -12,7 +14,7 @@ const usesLinuxHeadlessRunner =
   process.platform === 'linux' &&
   (Boolean(process.env['CI']) || process.env['WRITELLM_E2E_WINDOW_MODE'] === 'silent')
 const testTimeout =
-  process.platform === 'win32' && (usesHostedRunner || usesPackagedSuite)
+  usesPackagedValidation || (process.platform === 'win32' && usesHostedRunner)
     ? 180_000
     : usesLinuxHeadlessRunner
       ? 90_000

@@ -28,6 +28,7 @@ function setup(options: { projectState?: 'closed' | 'open'; closeRejects?: boole
   }
   const coordinator = createShutdownCoordinator({
     projectManager,
+    closeWindows: () => calls.push('windows'),
     unregisterProjectIpc: () => calls.push('project.ipc'),
     unregisterAppIpc: () => calls.push('app.ipc'),
     unregisterDiagnostics: () => calls.push('diagnostics'),
@@ -56,6 +57,7 @@ describe('shutdown coordinator', () => {
     expect(firstEvent.preventDefault).toHaveBeenCalledOnce()
     expect(calls).toEqual([
       'project.close',
+      'windows',
       'project.ipc',
       'app.ipc',
       'diagnostics',
@@ -85,6 +87,7 @@ describe('shutdown coordinator', () => {
       'Application shutdown step failed'
     )
     expect(calls.slice(1)).toEqual([
+      'windows',
       'project.ipc',
       'app.ipc',
       'diagnostics',

@@ -358,7 +358,7 @@ test(
       await recovered.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(recovered.page, projectName)
       await expect
-        .poll(() => succeededBuildCount(recovered?.page), { timeout: 20_000 })
+        .poll(() => succeededBuildCount(recovered?.page), { timeout: 60_000 })
         .toBeGreaterThan(publishCountBeforeCorruption)
     } finally {
       if (!launchedClosed) await launched.app.close()

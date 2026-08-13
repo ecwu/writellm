@@ -34,6 +34,10 @@ Status markers:
   Windows `EBUSY` fixture cleanup after Electron closes.
 - [x] Normalize CRLF to LF before recovery-fixture source and manifest hashing so Windows checkouts
   retain the same integrity evidence as Linux and macOS.
+- [x] Remove the remaining Windows packaged-E2E races by selecting the newly created Agent section
+  explicitly, waiting for project close before deleting template files, and allowing the corrupt
+  index rebuild its bounded 60-second recovery window; make the responsive scroll fixture create
+  its own overflow, and close persisted windows before unregistering IPC during app shutdown.
 
 ## Current checkpoint
 

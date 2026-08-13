@@ -10,6 +10,7 @@ export interface ShutdownCoordinatorOptions {
     snapshot(): ProjectLifecycleSnapshot
     close(): Promise<ProjectLifecycleSnapshot>
   }
+  closeWindows(): void
   unregisterProjectIpc(): void
   unregisterAppIpc(): void
   unregisterDiagnostics(): void
@@ -44,6 +45,7 @@ export function createShutdownCoordinator(
         await options.projectManager.close()
       })
     }
+    await attempt('app.shutdown.windows_close_failed', options.closeWindows)
     await attempt('app.shutdown.project_ipc_unregister_failed', options.unregisterProjectIpc)
     await attempt('app.shutdown.app_ipc_unregister_failed', options.unregisterAppIpc)
     await attempt('app.shutdown.diagnostics_unregister_failed', options.unregisterDiagnostics)
