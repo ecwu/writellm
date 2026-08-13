@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { access, readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 const manifestPath = resolve('fixtures/recovery/manifest-v1.json')
 const manifestText = await readFile(manifestPath, 'utf8')
@@ -57,6 +57,7 @@ const requiredIds = [
 const seenIds = new Set()
 const seenCategories = new Set()
 const sourceDigests = new Map()
+const repositoryRoot = resolve('.')
 for (const fixture of manifest.cases) {
   if (
     fixture === null ||
@@ -77,7 +78,12 @@ for (const fixture of manifest.cases) {
   seenIds.add(fixture.id)
   seenCategories.add(fixture.category)
   const source = resolve(fixture.source)
-  if (!source.startsWith(`${resolve('.')}/`))
+  const relativeSource = relative(repositoryRoot, source)
+  if (
+    relativeSource === '..' ||
+    relativeSource.startsWith(`..${sep}`) ||
+    isAbsolute(relativeSource)
+  )
     throw new Error(`Fixture source escapes: ${fixture.id}`)
   await access(source)
   const sourceText = await readFile(source, 'utf8')

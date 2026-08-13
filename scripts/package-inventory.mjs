@@ -177,7 +177,8 @@ function verifyLocalImports(entry, source, paths) {
 }
 
 function extractUtf8(appAsar, path) {
-  return Buffer.from(extractFile(appAsar, path)).toString('utf8')
+  const platformPath = path.split('/').join(sep)
+  return Buffer.from(extractFile(appAsar, platformPath)).toString('utf8')
 }
 
 function normalizeAsarPath(path) {

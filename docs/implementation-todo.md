@@ -24,6 +24,14 @@ Status markers:
   AppImage/deb creation, and all three target plans passed. The packaged E2E suite passed 24/26
   scenarios with the two remaining failures limited to existing Agent section selection and slow
   workspace behavior; no installer or native-module failure was observed.
+- [x] Fix the recovery-fixture containment check for Windows path separators so the Windows package
+  gate can validate the same manifest as Linux.
+- [x] Fix Windows package-gate execution of `npm.cmd` by launching the command through the Windows
+  shell required for `.cmd` wrappers.
+- [x] Fix Windows ASAR inventory reads by converting normalized `/` archive paths to the platform
+  separator required by `@electron/asar`.
+- [x] Run Windows packaged E2E serially with a 180-second scenario budget and retry transient
+  Windows `EBUSY` fixture cleanup after Electron closes.
 
 ## Current checkpoint
 

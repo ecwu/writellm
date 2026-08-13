@@ -169,7 +169,12 @@ export const test = base.extend<Fixtures>({
     try {
       await use(root)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === 'win32' ? 20 : 0,
+        retryDelay: 100
+      })
     }
   }
 })

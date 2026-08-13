@@ -26,6 +26,7 @@ const targetArgument = rawArguments.find((argument) => argument.startsWith('--ta
 const target = resolvePackageTarget(
   targetArgument?.slice('--target='.length) ?? currentPackageTarget().id
 )
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const allowedArguments = new Set([
   '--plan',
   '--release',
@@ -89,7 +90,7 @@ const recoveryFixtures = JSON.parse(
   runWithOutput(process.execPath, [recoveryFixtureVerification]).trim()
 )
 run(process.execPath, [nativePreparation, '--install', `--target=${target.id}`])
-run('npm', ['run', 'build'])
+run(npmCommand, ['run', 'build'])
 
 const packageEnvironment = {
   ...process.env,
@@ -167,7 +168,11 @@ await writeFile(
 process.stdout.write(`${JSON.stringify(evidence)}\n`)
 
 function run(command, commandArgs, env = process.env) {
-  const result = spawnSync(command, commandArgs, { env, stdio: 'inherit' })
+  const result = spawnSync(command, commandArgs, {
+    env,
+    stdio: 'inherit',
+    ...(process.platform === 'win32' && command === 'npm.cmd' ? { shell: true } : {})
+  })
   if (result.error) throw result.error
   if (result.signal !== null) throw new Error(`${command} terminated by signal ${result.signal}`)
   if (result.status !== 0) {
