@@ -1,6 +1,6 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 48 is in progress
+Status: Checkpoint 49 is complete and verified
 Recorded: 2026-08-13
 
 ## Purpose
@@ -160,3 +160,66 @@ The authorized local Phase 12 commit was then created with the scoped Agent comp
 documentation, affected tests, and already recorded application-icon assets. The unrelated
 concurrent `.vscode/settings.json` and `section-editor.tsx` edits remain uncommitted. No push, tag,
 signing, notarization, hosted CI, release, or promotion was performed.
+
+## Checkpoint 49: Agent Pending Follow-up Queue
+
+Decision: accepted ADR 041; implementation authorized.
+
+### User outcome
+
+While an Agent run is active, ordinary Enter queues the draft into an addressable waiting list
+above the composer. Authors can inspect multiple pending messages, delete one without affecting the
+others, or promote any one to Steer. The footer uses one terminal position: Stop when the draft is
+empty and the circular ArrowUp queue action when it is not.
+
+### Scope
+
+- [x] Record ADR 041 and amend the architecture before changing the accepted running-composer and
+  queue boundary.
+- [x] Add a bounded Main-owned pending queue, a worker mirror with one Pi Follow-up head, correlated
+  delete/promote commands, and a persist-before-provider consumption barrier.
+- [x] Project pending items through the activity snapshot and add capability-bound Preload IPC for
+  per-item Steer and Delete.
+- [x] Replace the running Queue disclosure with the Stop-or-Send action and a three-row-height,
+  internally scrolling pending list above the composer.
+- [x] Add focused contract, service, worker, Renderer, and Real-Electron coverage; run the
+  applicable static, Electron, UI, and diff gates; record exact evidence.
+
+### Acceptance gate
+
+One active run accepts no more than 20 pending Follow-ups or 1 MiB of aggregate UTF-8 content.
+Multiple items retain FIFO order; deleting the head, middle, or tail affects only that item;
+Steering any item removes it from Follow-up order and injects it at the next available Steering
+position. The worker never starts the corresponding provider call before Main durably appends the
+consumed user message. Deleted and run-cancelled items never enter conversation history and their
+pre-authorized model requests become aborted.
+
+The running footer shows Stop for an empty draft and ArrowUp for a non-empty draft. Enter queues,
+Cmd/Ctrl+Enter steers directly, and Shift+Enter inserts a newline. Queue success clears the draft;
+failure preserves it. The pending list restores after panel or conversation switching, remains
+usable at the narrowest supported Agent width, and disappears without leaving space when empty.
+Stop, review pause, run failure, project close, worker termination, and relaunch clear the
+request-scoped queue. No migration, dependency, worker role, background job, package, release,
+hosted CI, push, or publication work is authorized.
+
+### Local evidence
+
+- `pnpm check:fast` passed the all-file Biome gate plus Node and Renderer typechecks.
+- Focused contract, Main, IPC, model-client, worker, and Renderer runs passed; the final focused
+  runtime rerun reported 3 files / 72 tests after model-request capability revocation was added.
+- `pnpm check:electron` passed 179 test files / 922 tests with 3 opt-in benchmarks skipped, then
+  completed the production Electron/Vite build. The expected non-fatal macOS
+  `task_name_for_pid` diagnostics did not interrupt Vitest.
+- The freshly built focused Real-Electron scenario passed 1/1. It queued two visible messages,
+  deleted one, promoted the other, verified the promoted content reached the next provider request,
+  and verified the deleted content did not. The same scenario passed in both preceding all-scenario
+  attempts.
+- Two full fresh E2E attempts reached 36/38 and 37/38. The only repeated failure, reproduced alone,
+  is the pre-existing Writing Skill picker popover remaining open and intercepting the Agent details
+  Close click; one independent mobile-sidebar fixture failed only on the first attempt and passed on
+  the second. Neither path exercises pending messages or the changed runtime protocol.
+- An original-resolution Agent-panel screenshot with two queued rows showed no overlap; the list,
+  Steer/Delete actions, composer controls, and circular Stop remained contained. The Impeccable
+  detector reported `[]`, and `git diff --check` passed.
+- No database migration, dependency, package/release gate, App artifact, commit, push, tag, signing,
+  notarization, hosted CI, publication, or promotion action ran.

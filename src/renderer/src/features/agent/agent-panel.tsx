@@ -2,6 +2,7 @@ import {
   MAX_CONCURRENT_AGENT_RUNS,
   type AgentEventRecord,
   type AgentLiveCompactionSnapshot,
+  type AgentLiveRunSnapshot,
   type AgentRendererEvent,
   type AgentRunRecord,
   type AgentSessionRecord,
@@ -36,6 +37,7 @@ import {
   ChevronRight,
   CircleStop,
   Clock3,
+  CornerDownRight,
   FileText,
   FilePenLine,
   FolderOpen,
@@ -47,8 +49,8 @@ import {
   Plus,
   RotateCcw,
   Settings2,
-  Send,
   TextCursorInput,
+  Trash2,
   TriangleAlert,
   Undo2,
   X
@@ -215,6 +217,7 @@ export function AgentPanel(props: {
   >({})
   const [activeRunLimit, setActiveRunLimit] = useState(MAX_CONCURRENT_AGENT_RUNS)
   const [, setActiveRunIds] = useState<Set<string>>(() => new Set())
+  const [liveRuns, setLiveRuns] = useState<AgentLiveRunSnapshot[]>([])
   const [activeCompactions, setActiveCompactions] = useState<AgentLiveCompactionSnapshot[]>([])
   const [activeWorkCount, setActiveWorkCount] = useState(0)
   const [compactionConfirmOpen, setCompactionConfirmOpen] = useState(false)
@@ -236,6 +239,7 @@ export function AgentPanel(props: {
   const [titleGeneratingIds, setTitleGeneratingIds] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState<string | null>(null)
   const processedQuickActionIdsRef = useRef(new Set<string>())
   const [providerCatalog, setProviderCatalog] = useState<AgentProviderCatalog>({
@@ -276,6 +280,8 @@ export function AgentPanel(props: {
     setContinuationFailure(null)
     setStreamingBySession({})
     setActiveRunIds(new Set())
+    setLiveRuns([])
+    setPendingActionIds(new Set())
     setActiveCompactions([])
     setActiveWorkCount(0)
     setActiveRunLimit(MAX_CONCURRENT_AGENT_RUNS)
@@ -428,6 +434,7 @@ export function AgentPanel(props: {
       if (rendererEvent.kind === 'activity') {
         setActiveRunLimit(rendererEvent.snapshot.limit)
         setActiveRunIds(new Set(rendererEvent.snapshot.runs.map((run) => run.agentRunId)))
+        setLiveRuns(rendererEvent.snapshot.runs)
         setActiveCompactions(rendererEvent.snapshot.compactions)
         setActiveWorkCount(rendererEvent.snapshot.activeCount)
         return
@@ -505,6 +512,7 @@ export function AgentPanel(props: {
         unsubscribe = subscription.unsubscribe
         setActiveRunLimit(subscription.snapshot.limit)
         setActiveRunIds(new Set(subscription.snapshot.runs.map((run) => run.agentRunId)))
+        setLiveRuns(subscription.snapshot.runs)
         setActiveCompactions(subscription.snapshot.compactions)
         setActiveWorkCount(subscription.snapshot.activeCount)
         setStreamingBySession(
@@ -652,6 +660,8 @@ export function AgentPanel(props: {
   const activeSessionArchived = activeSession?.status === 'archived'
   const skillSelection: SkillSelection = activeSession?.skillSelection ?? { mode: 'auto' }
   const activeRun = runs.find((run) => run.status === 'running') ?? null
+  const pendingMessages =
+    liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId)?.pendingMessages ?? []
   const activeCompaction =
     activeCompactions.find((item) => item.agentSessionId === activeSessionId) ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
@@ -1243,6 +1253,32 @@ export function AgentPanel(props: {
     }
   }
 
+  const actOnPendingMessage = async (
+    pendingMessageId: string,
+    action: 'steer' | 'delete'
+  ): Promise<void> => {
+    if (activeRun === null || pendingActionIds.has(pendingMessageId)) return
+    setPendingActionIds((current) => new Set(current).add(pendingMessageId))
+    setError(null)
+    try {
+      const input = {
+        projectSessionId: props.projectSessionId,
+        agentRunId: activeRun.agentRunId,
+        pendingMessageId
+      }
+      if (action === 'steer') await window.desktop.agent.steerPendingFollowUp(input)
+      else await window.desktop.agent.deletePendingFollowUp(input)
+    } catch (cause) {
+      if (!(await reconcileInactiveRun(activeRun.agentRunId))) setError(errorMessage(cause))
+    } finally {
+      setPendingActionIds((current) => {
+        const next = new Set(current)
+        next.delete(pendingMessageId)
+        return next
+      })
+    }
+  }
+
   const updateProposals = (...updated: MutationProposalRecord[]): void => {
     const updatedIds = new Set(updated.map((proposal) => proposal.proposalId))
     setProposals((current) => [
@@ -1822,6 +1858,51 @@ export function AgentPanel(props: {
                   </Button>
                 </div>
               ) : null}
+              {activeRun !== null && pendingMessages.length > 0 ? (
+                <ul
+                  aria-label='Waiting messages'
+                  className='m-0 max-h-32 list-none overflow-y-auto rounded-lg border bg-muted/30 p-1'
+                  data-testid='agent-pending-messages'
+                >
+                  {pendingMessages.map((message) => {
+                    const actionPending = pendingActionIds.has(message.pendingMessageId)
+                    return (
+                      <li
+                        key={message.pendingMessageId}
+                        className='flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-sm hover:bg-muted/60'
+                      >
+                        <CornerDownRight className='size-4 shrink-0 text-muted-foreground' />
+                        <span className='min-w-0 flex-1 truncate'>{message.content}</span>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='ghost'
+                          className='h-7 shrink-0 px-2 text-muted-foreground'
+                          disabled={actionPending}
+                          onClick={() =>
+                            void actOnPendingMessage(message.pendingMessageId, 'steer')
+                          }
+                        >
+                          <CornerDownRight data-icon='inline-start' /> Steer
+                        </Button>
+                        <Button
+                          type='button'
+                          size='icon-xs'
+                          variant='ghost'
+                          className='shrink-0 text-muted-foreground hover:text-destructive'
+                          aria-label='Delete waiting message'
+                          disabled={actionPending}
+                          onClick={() =>
+                            void actOnPendingMessage(message.pendingMessageId, 'delete')
+                          }
+                        >
+                          <Trash2 />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
               <Popover
                 open={slashCommandOpen}
                 onOpenChange={(open) => {
@@ -1933,46 +2014,30 @@ export function AgentPanel(props: {
                           onEffortSelect={setThinkingLevel}
                         />
                         {activeRun !== null ? (
-                          <>
-                            <div className='flex items-center'>
-                              <InputGroupButton
-                                size='sm'
-                                aria-label='Queue follow-up'
-                                disabled={busy || prompt.trim().length === 0}
-                                onClick={() => void queueMessage('follow_up')}
-                              >
-                                <Send data-icon='inline-start' /> Queue
-                              </InputGroupButton>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <InputGroupButton
-                                    size='icon-sm'
-                                    aria-label='Choose send behavior'
-                                    disabled={busy}
-                                  >
-                                    <ChevronDown />
-                                  </InputGroupButton>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align='end'>
-                                  <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
-                                    <Send /> Queue follow-up
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
-                                    <ChevronRight /> Steer now
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
+                          agentComposerRunningAction(prompt) === 'follow_up' ? (
+                            <InputGroupButton
+                              variant='default'
+                              size='icon-sm'
+                              className='shrink-0 rounded-full'
+                              aria-label='Queue follow-up'
+                              title='Queue follow-up'
+                              disabled={busy}
+                              onClick={() => void queueMessage('follow_up')}
+                            >
+                              <ArrowUp />
+                            </InputGroupButton>
+                          ) : (
                             <ComposerAction
                               size='icon-sm'
                               variant='destructive'
+                              className='shrink-0 rounded-full'
                               label='Stop'
                               disabled={busy}
                               onClick={() => void stopRun()}
                             >
                               <CircleStop />
                             </ComposerAction>
-                          </>
+                          )
                         ) : (
                           <>
                             {retryableRun && latestPrompt ? (
@@ -4220,6 +4285,10 @@ export function agentComposerKeyAction(input: {
   if (input.shiftKey) return 'newline'
   if (!input.running) return 'send'
   return input.metaKey || input.ctrlKey ? 'steer' : 'follow_up'
+}
+
+export function agentComposerRunningAction(prompt: string): 'stop' | 'follow_up' {
+  return prompt.trim().length === 0 ? 'stop' : 'follow_up'
 }
 
 function sessionStatusLabel(session: AgentSessionRecord): string {

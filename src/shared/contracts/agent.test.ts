@@ -53,6 +53,7 @@ describe('Agent contracts', () => {
       agentQueueCommandSchema.parse({
         operation: 'follow_up',
         ...ids,
+        pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc419',
         content: 'continue',
         timestamp: 1,
         systemPrompt: 'refreshed system'

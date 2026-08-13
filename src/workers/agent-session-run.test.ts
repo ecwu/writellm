@@ -122,7 +122,21 @@ describe('runAgentSession', () => {
     let control: AgentSessionRunControl | undefined
     const running = runAgentSession(
       reasoningRequest,
-      (event) => events.push(event),
+      (event) => {
+        events.push(event)
+        if (event.type === 'follow_up_consumption_requested') {
+          control?.authorizeFollowUpConsumption({
+            operation: 'authorize_follow_up_consumption',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            consumptionId: event.consumptionId,
+            pendingMessageId: event.pendingMessageId,
+            modelRequestId: event.modelRequestId
+          })
+        }
+      },
       (value) => {
         control = value
       },
@@ -147,6 +161,7 @@ describe('runAgentSession', () => {
       projectSessionId: request.projectSessionId,
       agentSessionId: request.agentSessionId,
       agentRunId: request.agentRunId,
+      pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc417',
       content: 'Now summarize.',
       timestamp: 4,
@@ -191,6 +206,133 @@ describe('runAgentSession', () => {
         .map((event) => (event.type === 'assistant_message' ? event.message.content : ''))
     ).toEqual(['answer-1', 'answer-2', 'answer-3'])
     expect(JSON.stringify(events)).not.toContain('agent-secret')
+  })
+
+  it('deletes and promotes individual Follow-ups and waits for consumption authorization', async () => {
+    let resolveFirst: ((response: Response) => void) | undefined
+    let fetchCount = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchCount += 1
+        if (fetchCount === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveFirst = resolve
+          })
+        }
+        return completionResponse(`answer-${fetchCount}`, `response-${fetchCount}`)
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+    const running = runAgentSession(
+      request,
+      (event) => events.push(event),
+      (value) => {
+        control = value
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
+    const followUps = [
+      [
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+        'First pending.',
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc416'
+      ],
+      [
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+        'Delete pending.',
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc417'
+      ],
+      [
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
+        'Promote pending.',
+        '019c6a5c-8d34-7a8e-a602-3d37a52dc418'
+      ]
+    ] as const
+    for (const [pendingMessageId, content, modelRequestId] of followUps) {
+      control?.enqueue({
+        operation: 'follow_up',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId,
+        agentSessionId: request.agentSessionId,
+        agentRunId: request.agentRunId,
+        pendingMessageId,
+        modelRequestId,
+        content,
+        timestamp: 5,
+        systemPrompt: request.systemPrompt
+      })
+    }
+    control?.queueAction({
+      operation: 'delete_follow_up',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      actionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc424',
+      pendingMessageId: followUps[1][0]
+    })
+    const reservationId = '019c6a5c-8d34-7a8e-a602-3d37a52dc425'
+    control?.queueAction({
+      operation: 'reserve_follow_up',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      actionId: reservationId,
+      pendingMessageId: followUps[2][0]
+    })
+    control?.queueAction({
+      operation: 'commit_follow_up_steer',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      actionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc426',
+      reservationId,
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc419',
+      systemPrompt: request.systemPrompt
+    })
+
+    resolveFirst?.(completionResponse('answer-1', 'response-1'))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'follow_up_consumption_requested')).toBe(true)
+    )
+    expect(fetchCount).toBe(2)
+    const consumption = events.find((event) => event.type === 'follow_up_consumption_requested')
+    if (consumption?.type !== 'follow_up_consumption_requested') {
+      throw new Error('Expected Follow-up consumption request')
+    }
+    control?.authorizeFollowUpConsumption({
+      operation: 'authorize_follow_up_consumption',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      consumptionId: consumption.consumptionId,
+      pendingMessageId: consumption.pendingMessageId,
+      modelRequestId: consumption.modelRequestId
+    })
+    await running
+
+    expect(fetchCount).toBe(3)
+    expect(
+      events
+        .filter((event) => event.type === 'model_call_finished')
+        .map((event) => (event.type === 'model_call_finished' ? event.modelRequestId : ''))
+    ).toEqual([
+      request.modelRequestId,
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc419',
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc416'
+    ])
+    expect(
+      events
+        .filter((event) => event.type === 'queue_action_completed')
+        .map((event) => (event.type === 'queue_action_completed' ? event.outcome : ''))
+    ).toEqual(['completed', 'completed', 'completed'])
   })
 
   it('passes the snapshotted Thinking level through Pi without exposing thinking content', async () => {

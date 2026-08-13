@@ -4,6 +4,8 @@ import {
   type AgentUtilityMessage
 } from '../shared/contracts/model-runtime'
 import {
+  agentFollowUpConsumptionAuthorizationSchema,
+  agentQueueActionCommandSchema,
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
@@ -78,6 +80,46 @@ parentPort.on('message', (event) => {
       return
     }
     active.control?.enqueue(queueCommand.data)
+    return
+  }
+  const queueAction = agentQueueActionCommandSchema.safeParse(event.data)
+  if (queueAction.success) {
+    const active = activeSessionRuns.get(queueAction.data.requestId)
+    if (
+      active === undefined ||
+      active.projectSessionId !== queueAction.data.projectSessionId ||
+      active.agentSessionId !== queueAction.data.agentSessionId ||
+      active.agentRunId !== queueAction.data.agentRunId
+    ) {
+      workerLog?.(
+        'warn',
+        'agent.worker.queue_action_rejected',
+        'Rejected an Agent queue action for an inactive run',
+        { requestId: queueAction.data.requestId }
+      )
+      return
+    }
+    active.control?.queueAction(queueAction.data)
+    return
+  }
+  const followUpAuthorization = agentFollowUpConsumptionAuthorizationSchema.safeParse(event.data)
+  if (followUpAuthorization.success) {
+    const active = activeSessionRuns.get(followUpAuthorization.data.requestId)
+    if (
+      active === undefined ||
+      active.projectSessionId !== followUpAuthorization.data.projectSessionId ||
+      active.agentSessionId !== followUpAuthorization.data.agentSessionId ||
+      active.agentRunId !== followUpAuthorization.data.agentRunId
+    ) {
+      workerLog?.(
+        'warn',
+        'agent.worker.follow_up_authorization_rejected',
+        'Rejected an Agent Follow-up authorization for an inactive run',
+        { requestId: followUpAuthorization.data.requestId }
+      )
+      return
+    }
+    active.control?.authorizeFollowUpConsumption(followUpAuthorization.data)
     return
   }
   const modelCallAuthorization = agentModelCallAuthorizationSchema.safeParse(event.data)

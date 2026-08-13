@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AGENT_PENDING_MESSAGE_LIMIT, AGENT_PENDING_MESSAGE_MAX_BYTES } from './agent'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   agentEventPageInputSchema,
@@ -168,6 +169,69 @@ describe('Agent IPC contracts', () => {
         runs: [run, run, run, run]
       })
     ).toThrow()
+  })
+
+  it('bounds and uniquely identifies pending Follow-ups in live activity', () => {
+    const pendingMessage = {
+      pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc430',
+      content: 'Wait for the current turn.',
+      queuedAt: '2026-08-13T20:00:00.000Z'
+    }
+    const run = {
+      agentSessionId,
+      agentRunId,
+      phase: 'running' as const,
+      partialText: '',
+      startedAt: '2026-08-13T19:00:00.000Z'
+    }
+    expect(
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [{ ...run, pendingMessages: [pendingMessage] }]
+      }).runs[0]?.pendingMessages
+    ).toEqual([pendingMessage])
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [
+          {
+            ...run,
+            pendingMessages: Array.from(
+              { length: AGENT_PENDING_MESSAGE_LIMIT + 1 },
+              () => pendingMessage
+            )
+          }
+        ]
+      })
+    ).toThrow()
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [{ ...run, pendingMessages: [pendingMessage, pendingMessage] }]
+      })
+    ).toThrow('Pending Agent message IDs must be unique')
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [
+          {
+            ...run,
+            pendingMessages: [
+              pendingMessage,
+              {
+                ...pendingMessage,
+                pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc431',
+                content: '界'.repeat(Math.floor(AGENT_PENDING_MESSAGE_MAX_BYTES / 3) + 1)
+              }
+            ]
+          }
+        ]
+      })
+    ).toThrow('Pending Agent messages exceed 1 MiB')
   })
 
   it('accepts only the bounded conversation Thinking levels', () => {

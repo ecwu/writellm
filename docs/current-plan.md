@@ -1,8 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Use And Fix has started with Checkpoint 48, the Agent composer progressive-
-disclosure refinement. Phase 11 remains complete and verified. Checkpoint 26.9 remains paused and
-all GitHub Actions workflows are disabled.
+Status: Phase 12 Checkpoint 49 is implemented and verified. Phase 11 remains complete and
+verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-13
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -99,6 +98,20 @@ The 2026-08-13 local build-environment and packaging task is complete: the Linux
 documented, the Windows NSIS/AppX and Linux x64 targets run headlessly, and local builds are
 verified on Windows, macOS (arm64 and x64), and Linux. No further product checkpoint, hosted CI,
 or release action is currently authorized; the next step requires new explicit user approval.
+
+Checkpoint 49 is complete under accepted ADR 041. The permanent running Queue/Steer footer has
+become a bounded Main-authoritative multi-message waiting list with per-item Steer/Delete and one
+Stop-or-Send terminal action. The worker mirrors the queue while placing only its head in Pi, and
+an awaited consumption barrier persists the exact user message before the provider call. Pending
+content remains request-scoped and clears with the run. `check:fast`, 179 Electron-hosted test
+files / 922 tests plus the production build, the focused Real-Electron queue/provider-order
+scenario, screenshot inspection, Impeccable, and diff checks passed. Two full fresh E2E attempts
+reached 36/38 and 37/38; the only repeatable remaining failure is the pre-existing out-of-scope
+Writing Skill picker popover intercepting its parent dialog Close action, while the Checkpoint 49
+scenario passed on every run and again alone against the final build. No migration, dependency,
+worker role, durable job, package/release, hosted CI, commit, push, or publication work ran.
+Detailed scope and evidence live in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-49-agent-pending-follow-up-queue).
 
 ## Completed baseline
 

@@ -1316,6 +1316,14 @@ Tool errors are thrown and preserved as structured errors. They are not returned
 
 The tool bridge carries tool requests and results only. Provider-call authorization remains on the capability-bound Agent run protocol: initial, steering, and follow-up calls use pre-authorized `model_requests` IDs, while a post-tool continuation must request a new ID from Main and wait until Main has durably created the linked row. The worker never invents a model-request ID and never starts an unrecorded provider call.
 
+Accepted ADR 041 keeps pending Follow-up content request-scoped and Main-authoritative. Main creates
+its model-request record before queue delivery, while the worker mirrors the ordered queue and
+places only its head in Pi. An awaited consumption barrier appends the durable `user_message`
+before the corresponding provider call may start. Per-item delete and Steer promotion are
+correlated to the exact active run and pending-message ID; unconsumed items are aborted rather than
+projected into Agent history. The queue is cleared with its run and adds no durable queue table or
+job.
+
 ## Durable Job Model
 
 Jobs are project-local. `app.sqlite` does not schedule project work.

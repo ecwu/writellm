@@ -445,6 +445,38 @@ describe('Agent session IPC', () => {
     ).resolves.toEqual({})
     expect(value.sessions.stopCompaction).toHaveBeenCalledWith(agentSessionId, compactionId)
   })
+
+  it('routes pending Follow-up Steer and delete through the active project capability', async () => {
+    const value = harness()
+    const pendingMessageId = '019c6a5c-8d34-7a8e-a602-3d37a52dc912'
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSteerPendingFollowUp, {
+        projectSessionId,
+        agentRunId,
+        pendingMessageId
+      })
+    ).resolves.toBeUndefined()
+    expect(value.sessions.steerPendingFollowUp).toHaveBeenCalledWith(agentRunId, pendingMessageId)
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentDeletePendingFollowUp, {
+        projectSessionId,
+        agentRunId,
+        pendingMessageId
+      })
+    ).resolves.toBeUndefined()
+    expect(value.sessions.deletePendingFollowUp).toHaveBeenCalledWith(agentRunId, pendingMessageId)
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentDeletePendingFollowUp, {
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc999',
+        agentRunId,
+        pendingMessageId
+      })
+    ).rejects.toThrow('stale')
+    expect(value.sessions.deletePendingFollowUp).toHaveBeenCalledOnce()
+  })
 })
 
 function harness() {
@@ -511,6 +543,8 @@ function harness() {
     requireRun: vi.fn(() => run),
     steer: vi.fn(),
     followUp: vi.fn(),
+    steerPendingFollowUp: vi.fn(),
+    deletePendingFollowUp: vi.fn(),
     abort: vi.fn(),
     compactSession: vi.fn(),
     stopCompaction: vi.fn(),

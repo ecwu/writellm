@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 48 is in progress. Phase 11 remains complete and verified. Checkpoint
-26.9 remains paused and all GitHub Actions workflows are disabled.
+Status: Phase 12 Checkpoint 49 is complete and verified. Phase 11 remains complete and verified.
+Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-13
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -66,6 +66,9 @@ Status markers:
   while preserving accessibility and the distinct running-state controls.
 - [x] Rebuild one no-identity macOS arm64 unpacked App with the final CP48 refinements and create
   the explicitly authorized local Phase 12 commit without pushing or releasing it.
+- [x] Checkpoint 49: replace the permanent running Queue/Steer controls with a bounded,
+  Main-authoritative multi-message waiting list above the composer, per-item Steer/Delete, and one
+  Stop-or-Send terminal action while preserving provider and persistence ordering.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

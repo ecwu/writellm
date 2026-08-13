@@ -10,10 +10,12 @@ import type {
   RerankResult
 } from '../../shared/contracts/model-runtime'
 import type {
+  AgentFollowUpConsumptionAuthorization,
   AgentHistoryMessage,
   AgentRuntimeModel,
   AgentModelLimits,
   AgentModelCallAuthorization,
+  AgentQueueActionCommand,
   AgentQueueCommand,
   AgentRuntimeEvent,
   AgentSessionRunResult
@@ -21,6 +23,8 @@ import type {
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { AgentThinkingLevel } from '../../shared/contracts/providers'
+
+type WithoutRequestId<T> = T extends unknown ? Omit<T, 'requestId'> : never
 
 export interface AgentModelRuntime {
   run(
@@ -52,8 +56,16 @@ export interface AgentSessionRunInput {
 export interface AgentSessionRunHandle {
   readonly requestId: string
   readonly completion: Promise<AgentSessionRunResult>
-  steer(command: Omit<AgentQueueCommand, 'operation' | 'requestId'>): void
-  followUp(command: Omit<AgentQueueCommand, 'operation' | 'requestId'>): void
+  steer(
+    command: Omit<Extract<AgentQueueCommand, { operation: 'steer' }>, 'operation' | 'requestId'>
+  ): void
+  followUp(
+    command: Omit<Extract<AgentQueueCommand, { operation: 'follow_up' }>, 'operation' | 'requestId'>
+  ): void
+  queueAction(command: WithoutRequestId<AgentQueueActionCommand>): Promise<'completed' | 'stale'>
+  authorizeFollowUpConsumption(
+    command: Omit<AgentFollowUpConsumptionAuthorization, 'operation' | 'requestId'>
+  ): void
   authorizeModelCall(command: Omit<AgentModelCallAuthorization, 'operation' | 'requestId'>): void
 }
 

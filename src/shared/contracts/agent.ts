@@ -19,6 +19,11 @@ export const agentSessionIdSchema = z.uuid()
 export const agentRunIdSchema = z.uuid()
 export const agentEventIdSchema = z.uuid()
 export const agentModelRequestIdSchema = z.uuid()
+export const agentPendingMessageIdSchema = z.uuid()
+export const agentQueueActionIdSchema = z.uuid()
+
+export const AGENT_PENDING_MESSAGE_LIMIT = 20
+export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
 
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
 export { agentModelLimitsSchema, type AgentModelLimits } from './agent-model-limits'
@@ -160,17 +165,64 @@ export const agentRunStartSchema = z
   })
   .strict()
 
-export const agentQueueCommandSchema = z
+const agentQueueCommandBaseSchema = z.object({
+  requestId: z.uuid(),
+  projectSessionId: projectSessionIdSchema,
+  agentSessionId: agentSessionIdSchema,
+  agentRunId: agentRunIdSchema,
+  modelRequestId: agentModelRequestIdSchema,
+  content: z.string().min(1).max(262_144),
+  timestamp: z.number().int().nonnegative(),
+  systemPrompt: z.string().min(1).max(65_536)
+})
+
+export const agentQueueCommandSchema = z.discriminatedUnion('operation', [
+  agentQueueCommandBaseSchema.extend({ operation: z.literal('steer') }).strict(),
+  agentQueueCommandBaseSchema
+    .extend({
+      operation: z.literal('follow_up'),
+      pendingMessageId: agentPendingMessageIdSchema
+    })
+    .strict()
+])
+
+export const agentQueueActionCommandSchema = z.discriminatedUnion('operation', [
+  z
+    .object({
+      operation: z.enum(['delete_follow_up', 'reserve_follow_up']),
+      requestId: z.uuid(),
+      projectSessionId: projectSessionIdSchema,
+      agentSessionId: agentSessionIdSchema,
+      agentRunId: agentRunIdSchema,
+      actionId: agentQueueActionIdSchema,
+      pendingMessageId: agentPendingMessageIdSchema
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('commit_follow_up_steer'),
+      requestId: z.uuid(),
+      projectSessionId: projectSessionIdSchema,
+      agentSessionId: agentSessionIdSchema,
+      agentRunId: agentRunIdSchema,
+      actionId: agentQueueActionIdSchema,
+      reservationId: agentQueueActionIdSchema,
+      modelRequestId: agentModelRequestIdSchema,
+      systemPrompt: z.string().min(1).max(65_536)
+    })
+    .strict()
+])
+
+export const agentFollowUpConsumptionAuthorizationSchema = z
   .object({
-    operation: z.enum(['steer', 'follow_up']),
+    operation: z.literal('authorize_follow_up_consumption'),
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema,
     agentSessionId: agentSessionIdSchema,
     agentRunId: agentRunIdSchema,
-    modelRequestId: agentModelRequestIdSchema,
-    content: z.string().min(1).max(262_144),
-    timestamp: z.number().int().nonnegative(),
-    systemPrompt: z.string().min(1).max(65_536)
+    consumptionId: z.uuid(),
+    pendingMessageId: agentPendingMessageIdSchema,
+    modelRequestId: agentModelRequestIdSchema
   })
   .strict()
 
@@ -231,6 +283,22 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('queue_updated'),
       delivery: z.enum(['steer', 'follow_up']),
+      modelRequestId: agentModelRequestIdSchema
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('queue_action_completed'),
+      actionId: agentQueueActionIdSchema,
+      operation: z.enum(['delete_follow_up', 'reserve_follow_up', 'commit_follow_up_steer']),
+      outcome: z.enum(['completed', 'stale'])
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('follow_up_consumption_requested'),
+      consumptionId: z.uuid(),
+      pendingMessageId: agentPendingMessageIdSchema,
       modelRequestId: agentModelRequestIdSchema
     })
     .strict(),
@@ -407,6 +475,10 @@ export type AgentHistoryMessage = z.infer<typeof agentHistoryMessageSchema>
 export type AgentRuntimeModel = z.infer<typeof agentRuntimeModelSchema>
 export type AgentRunStart = z.infer<typeof agentRunStartSchema>
 export type AgentQueueCommand = z.infer<typeof agentQueueCommandSchema>
+export type AgentQueueActionCommand = z.infer<typeof agentQueueActionCommandSchema>
+export type AgentFollowUpConsumptionAuthorization = z.infer<
+  typeof agentFollowUpConsumptionAuthorizationSchema
+>
 export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>
 export type AgentModelCallAuthorization = z.infer<typeof agentModelCallAuthorizationSchema>
 export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>

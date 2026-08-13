@@ -7,12 +7,13 @@ import {
   type AgentUtilityRequest
 } from '../../shared/contracts/model-runtime'
 import {
+  agentFollowUpConsumptionAuthorizationSchema,
+  agentQueueActionCommandSchema,
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
   agentRuntimeMessageSchema,
   agentSessionRunResultSchema,
-  type AgentQueueCommand,
   type AgentRuntimeEvent,
   type AgentSessionRunResult
 } from '../../shared/contracts/agent'
@@ -128,6 +129,23 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     })
     const { port1, port2 } = this.createMessageChannel()
     const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
+    const pendingQueueActions = new Map<
+      string,
+      {
+        resolve: (outcome: 'completed' | 'stale') => void
+        reject: (error: Error) => void
+      }
+    >()
+    const deliverSessionEvent = async (event: AgentRuntimeEvent): Promise<void> => {
+      if (event.type !== 'queue_action_completed') {
+        await onEvent(event)
+        return
+      }
+      const pending = pendingQueueActions.get(event.actionId)
+      if (pending === undefined) throw new Error('Agent queue action acknowledgement is stale')
+      pendingQueueActions.delete(event.actionId)
+      pending.resolve(event.outcome)
+    }
     const workerCompletion = this.#worker.request<AgentSessionRunResult>({
       requestId,
       payload: request,
@@ -141,17 +159,17 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         agentRunId: request.agentRunId
       },
       transfer: [port2],
-      onMessage: (raw) => this.#handleSessionMessage(raw, request, onEvent)
+      onMessage: (raw) => this.#handleSessionMessage(raw, request, deliverSessionEvent)
     })
     const completion = workerCompletion.finally(async () => {
+      const error = new Error('Agent run ended before a queue action completed')
+      for (const pending of pendingQueueActions.values()) pending.reject(error)
+      pendingQueueActions.clear()
       toolBridge.close()
       await toolBridge.drain()
     })
-    const queue = (
-      operation: AgentQueueCommand['operation'],
-      command: Omit<AgentQueueCommand, 'operation' | 'requestId'>
-    ): void => {
-      const parsed = agentQueueCommandSchema.parse({ operation, requestId, ...command })
+    const queue = (raw: unknown): void => {
+      const parsed = agentQueueCommandSchema.parse(raw)
       if (
         parsed.projectSessionId !== request.projectSessionId ||
         parsed.agentSessionId !== request.agentSessionId ||
@@ -164,8 +182,44 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     return {
       requestId,
       completion,
-      steer: (command) => queue('steer', command),
-      followUp: (command) => queue('follow_up', command),
+      steer: (command) => queue({ operation: 'steer', requestId, ...command }),
+      followUp: (command) => queue({ operation: 'follow_up', requestId, ...command }),
+      queueAction: (command) => {
+        const parsed = agentQueueActionCommandSchema.parse({ requestId, ...command })
+        if (
+          parsed.projectSessionId !== request.projectSessionId ||
+          parsed.agentSessionId !== request.agentSessionId ||
+          parsed.agentRunId !== request.agentRunId
+        ) {
+          return Promise.reject(new Error('Agent queue action does not belong to the active run'))
+        }
+        return new Promise<'completed' | 'stale'>((resolve, reject) => {
+          pendingQueueActions.set(parsed.actionId, { resolve, reject })
+          try {
+            this.#worker.send(parsed)
+          } catch (err) {
+            pendingQueueActions.delete(parsed.actionId)
+            reject(
+              err instanceof Error ? err : new Error('Agent queue action failed', { cause: err })
+            )
+          }
+        })
+      },
+      authorizeFollowUpConsumption: (command) => {
+        const parsed = agentFollowUpConsumptionAuthorizationSchema.parse({
+          operation: 'authorize_follow_up_consumption',
+          requestId,
+          ...command
+        })
+        if (
+          parsed.projectSessionId !== request.projectSessionId ||
+          parsed.agentSessionId !== request.agentSessionId ||
+          parsed.agentRunId !== request.agentRunId
+        ) {
+          throw new Error('Agent Follow-up authorization does not belong to the active run')
+        }
+        this.#worker.send(parsed)
+      },
       authorizeModelCall: (command) => {
         const parsed = agentModelCallAuthorizationSchema.parse({
           operation: 'authorize_model_call',
@@ -510,6 +564,10 @@ function rejectedSessionHandle(error: Error): AgentSessionRunHandle {
       throw error
     },
     followUp: () => {
+      throw error
+    },
+    queueAction: () => Promise.reject(error),
+    authorizeFollowUpConsumption: () => {
       throw error
     },
     authorizeModelCall: () => {

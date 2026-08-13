@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentRuntimeEvent } from '../../shared/contracts/agent'
+import {
+  AGENT_PENDING_MESSAGE_LIMIT,
+  AGENT_PENDING_MESSAGE_MAX_BYTES,
+  type AgentRuntimeEvent
+} from '../../shared/contracts/agent'
 import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
@@ -847,6 +851,14 @@ describe('AgentSessionService', () => {
     await service.followUp(started.agentRunId, 'Then summarize it.')
 
     const active = runtime.active()
+    const followUp = active.commands.find((command) => command.operation === 'follow_up')
+    if (followUp?.pendingMessageId === undefined) throw new Error('Expected a pending Follow-up')
+    await active.emit({
+      type: 'follow_up_consumption_requested',
+      consumptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
+      pendingMessageId: followUp.pendingMessageId,
+      modelRequestId: followUp.modelRequestId
+    })
     const modelRequestIds = [
       active.input.modelRequestId,
       ...active.commands.map((command) => command.modelRequestId)
@@ -915,6 +927,122 @@ describe('AgentSessionService', () => {
         .executeTakeFirstOrThrow()
     ).toEqual({ status: 'interrupted' })
     database.close()
+  })
+
+  it('projects multiple pending Follow-ups and persists only consumed or steered messages', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Pending queue')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    await service.followUp(started.agentRunId, 'First waiting message.')
+    await service.followUp(started.agentRunId, 'Delete this message.')
+    await service.followUp(started.agentRunId, 'Steer this message.')
+    const commands = runtime
+      .active()
+      .commands.filter((command) => command.operation === 'follow_up')
+    const [, deleted, steered] = commands
+    if (deleted?.pendingMessageId === undefined || steered?.pendingMessageId === undefined) {
+      throw new Error('Expected three pending Follow-ups')
+    }
+    expect(
+      service.projectActivitySnapshot().runs[0]?.pendingMessages.map((message) => message.content)
+    ).toEqual(['First waiting message.', 'Delete this message.', 'Steer this message.'])
+    expect(
+      service.listEvents(session.agentSessionId).filter((event) => event.type === 'user_message')
+    ).toHaveLength(1)
+
+    await service.deletePendingFollowUp(started.agentRunId, deleted.pendingMessageId)
+    await service.steerPendingFollowUp(started.agentRunId, steered.pendingMessageId)
+
+    await expect(
+      runtime.active().emit({
+        type: 'assistant_message',
+        modelRequestId: deleted.modelRequestId,
+        message: assistant('Stale deleted response.', 'stale-deleted-response')
+      })
+    ).rejects.toThrow('unauthorized model request')
+
+    expect(
+      service.projectActivitySnapshot().runs[0]?.pendingMessages.map((message) => message.content)
+    ).toEqual(['First waiting message.'])
+    expect(
+      service
+        .listEvents(session.agentSessionId)
+        .filter((event) => event.type === 'user_message')
+        .map((event) => event.payload)
+    ).toEqual([
+      expect.objectContaining({ content: 'Keep working.', delivery: 'prompt' }),
+      expect.objectContaining({ content: 'Steer this message.', delivery: 'steer' })
+    ])
+    expect(
+      await database.kysely
+        .selectFrom('model_requests')
+        .select('status')
+        .execute()
+        .then((rows) => {
+          const counts: Record<string, number> = {}
+          for (const row of rows) counts[row.status] = (counts[row.status] ?? 0) + 1
+          return counts
+        })
+    ).toEqual({ running: 3, aborted: 2 })
+
+    await service.abort(started.agentRunId)
+    await started.completion
+    expect(await database.kysely.selectFrom('model_requests').select('status').execute()).toEqual(
+      Array.from({ length: 5 }, () => ({ status: 'aborted' }))
+    )
+    database.close()
+  })
+
+  it('enforces pending Follow-up count and aggregate byte limits without consuming the draft', async () => {
+    const countDatabase = await createDatabase()
+    const countRuntime = new FakeAgentRuntime()
+    const countService = createService(countDatabase, countRuntime)
+    const countSession = countService.createSession('Pending count limit')
+    const countRun = await countService.startRun({
+      agentSessionId: countSession.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    for (let index = 0; index < AGENT_PENDING_MESSAGE_LIMIT; index += 1) {
+      await countService.followUp(countRun.agentRunId, `Message ${index + 1}`)
+    }
+    await expect(countService.followUp(countRun.agentRunId, 'One too many')).rejects.toThrow(
+      `Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages`
+    )
+    expect(countService.projectActivitySnapshot().runs[0]?.pendingMessages).toHaveLength(
+      AGENT_PENDING_MESSAGE_LIMIT
+    )
+    await countService.abort(countRun.agentRunId)
+    await countRun.completion
+    countDatabase.close()
+
+    const byteDatabase = await createDatabase()
+    const byteRuntime = new FakeAgentRuntime()
+    const byteService = createService(byteDatabase, byteRuntime)
+    const byteSession = byteService.createSession('Pending byte limit')
+    const byteRun = await byteService.startRun({
+      agentSessionId: byteSession.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const quarterLimit = 'a'.repeat(AGENT_PENDING_MESSAGE_MAX_BYTES / 4)
+    for (let index = 0; index < 4; index += 1) {
+      await byteService.followUp(byteRun.agentRunId, quarterLimit)
+    }
+    await expect(byteService.followUp(byteRun.agentRunId, 'x')).rejects.toThrow(
+      'Waiting messages cannot exceed 1 MiB'
+    )
+    expect(byteService.projectActivitySnapshot().runs[0]?.pendingMessages).toHaveLength(4)
+    await byteService.abort(byteRun.agentRunId)
+    await byteRun.completion
+    byteDatabase.close()
   })
 
   it('persists partial output as interrupted and aborts the model request on project close', async () => {
@@ -2540,7 +2668,11 @@ interface FakeActiveRun {
   config: ProviderConfig
   credential: string
   input: AgentSessionRunInput
-  commands: Array<{ operation: 'steer' | 'follow_up'; modelRequestId: string }>
+  commands: Array<{
+    operation: 'steer' | 'follow_up'
+    modelRequestId: string
+    pendingMessageId?: string
+  }>
   authorizations: Array<{ continuationId: string; modelRequestId: string }>
   requestTool: (request: AgentToolRequest) => Promise<AgentToolResponse>
   emit: (event: AgentRuntimeEvent) => Promise<void>
@@ -2580,7 +2712,7 @@ class FakeAgentRuntime implements AgentSessionRuntime {
       },
       { once: true }
     )
-    const commands: Array<{ operation: 'steer' | 'follow_up'; modelRequestId: string }> = []
+    const commands: FakeActiveRun['commands'] = []
     const authorizations: Array<{ continuationId: string; modelRequestId: string }> = []
     const active = {
       config: _config,
@@ -2604,7 +2736,13 @@ class FakeAgentRuntime implements AgentSessionRuntime {
       steer: (command) =>
         commands.push({ operation: 'steer', modelRequestId: command.modelRequestId }),
       followUp: (command) =>
-        commands.push({ operation: 'follow_up', modelRequestId: command.modelRequestId }),
+        commands.push({
+          operation: 'follow_up',
+          modelRequestId: command.modelRequestId,
+          pendingMessageId: command.pendingMessageId
+        }),
+      queueAction: () => Promise.resolve('completed'),
+      authorizeFollowUpConsumption: () => undefined,
       authorizeModelCall: (command) =>
         authorizations.push({
           continuationId: command.continuationId,

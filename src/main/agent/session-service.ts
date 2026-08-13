@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import {
+  AGENT_PENDING_MESSAGE_LIMIT,
+  AGENT_PENDING_MESSAGE_MAX_BYTES,
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
   agentAssistantMessagePayloadSchema,
@@ -145,6 +147,7 @@ interface ActiveRun {
   readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
+  readonly pendingMessages: PendingFollowUpMessage[]
   readonly snapshots: Map<string, WritingSnapshot>
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
@@ -154,6 +157,16 @@ interface ActiveRun {
   reviewPause: { proposalId: string; kind: string } | null
   overflowRetryAttempted: boolean
   completion: Promise<void>
+}
+
+interface PendingFollowUpMessage {
+  readonly pendingMessageId: string
+  readonly modelRequestId: string
+  readonly content: string
+  readonly timestamp: number
+  readonly queuedAt: string
+  readonly systemPrompt: string
+  readonly snapshot?: WritingSnapshot
 }
 
 interface ActiveCompaction {
@@ -964,6 +977,7 @@ export class AgentSessionService {
             ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             authorizedModelRequestIds: new Set(),
             pendingModelRequestIds: new Set(),
+            pendingMessages: [],
             snapshots: new Map(),
             skillSnapshot: pendingSkillSnapshot(skillSelection),
             skillState: null,
@@ -1252,11 +1266,227 @@ export class AgentSessionService {
   }
 
   async steer(agentRunId: string, content: string): Promise<void> {
-    return this.#queue(agentRunId, 'steer', content)
+    return this.#queueSteer(agentRunId, content)
   }
 
   async followUp(agentRunId: string, content: string): Promise<void> {
-    return this.#queue(agentRunId, 'follow_up', content)
+    const active = this.#requireQueueableRun(agentRunId)
+    const parsedContent = agentUserMessagePayloadSchema.shape.content.parse(content)
+    if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
+      throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
+    }
+    const queuedBytes = active.pendingMessages.reduce(
+      (total, message) => total + new TextEncoder().encode(message.content).byteLength,
+      0
+    )
+    if (
+      queuedBytes + new TextEncoder().encode(parsedContent).byteLength >
+      AGENT_PENDING_MESSAGE_MAX_BYTES
+    ) {
+      throw new Error('Waiting messages cannot exceed 1 MiB in this run')
+    }
+    const timestamp = this.#now().getTime()
+    const queuedAt = this.#now().toISOString()
+    const pendingMessageId = this.#createId()
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    const modelRequestId = (
+      await repository.start({
+        operation: 'agent',
+        provider: active.config,
+        request: { content: parsedContent, delivery: 'follow_up' },
+        thinkingLevel: active.thinkingLevel,
+        inputItems: 1,
+        operationId: active.operationId,
+        agentRunId: active.agentRunId,
+        projectSessionId: this.options.projectSessionId
+      })
+    ).modelRequestId
+    const refreshedContext = this.options.contextBuilder?.build({
+      prompt: parsedContent,
+      editorContext: active.editorContext,
+      snapshotId: modelRequestId,
+      skillPrompt: active.skillPrompt
+    })
+    const pending: PendingFollowUpMessage = {
+      pendingMessageId,
+      modelRequestId,
+      content: parsedContent,
+      timestamp,
+      queuedAt,
+      systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt,
+      ...(refreshedContext === undefined ? {} : { snapshot: refreshedContext.snapshot })
+    }
+    active.pendingMessages.push(pending)
+    active.pendingModelRequestIds.add(modelRequestId)
+    active.authorizedModelRequestIds.add(modelRequestId)
+    if (pending.snapshot !== undefined) active.snapshots.set(modelRequestId, pending.snapshot)
+    try {
+      active.handle.followUp({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        pendingMessageId,
+        modelRequestId,
+        content: parsedContent,
+        timestamp,
+        systemPrompt: pending.systemPrompt
+      })
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.run.follow_up_queue_failed', err, agentRunId, modelRequestId },
+        'Failed to queue an Agent Follow-up'
+      )
+      active.pendingMessages.splice(active.pendingMessages.indexOf(pending), 1)
+      active.pendingModelRequestIds.delete(modelRequestId)
+      active.authorizedModelRequestIds.delete(modelRequestId)
+      active.snapshots.delete(modelRequestId)
+      await repository.abort(modelRequestId, 'queue_delivery_failed')
+      active.controller.abort(err)
+      throw err
+    }
+    await this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.run.follow_up_queued',
+        agentRunId,
+        pendingMessageId,
+        modelRequestId,
+        pendingCount: active.pendingMessages.length,
+        pendingBytes: queuedBytes + new TextEncoder().encode(parsedContent).byteLength
+      },
+      'Queued an Agent Follow-up'
+    )
+  }
+
+  async deletePendingFollowUp(agentRunId: string, pendingMessageId: string): Promise<void> {
+    const active = this.#requireQueueableRun(agentRunId)
+    const pending = this.#requirePendingMessage(active, pendingMessageId)
+    const actionId = this.#createId()
+    const outcome = await active.handle.queueAction({
+      operation: 'delete_follow_up',
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      actionId,
+      pendingMessageId
+    })
+    if (outcome !== 'completed') throw new Error('The waiting message is already being processed')
+    this.#removePendingMessage(active, pendingMessageId)
+    await new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    ).abort(pending.modelRequestId, 'queue_deleted')
+    active.pendingModelRequestIds.delete(pending.modelRequestId)
+    active.authorizedModelRequestIds.delete(pending.modelRequestId)
+    active.snapshots.delete(pending.modelRequestId)
+    await this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.run.follow_up_deleted',
+        agentRunId,
+        pendingMessageId,
+        modelRequestId: pending.modelRequestId,
+        pendingCount: active.pendingMessages.length
+      },
+      'Deleted a pending Agent Follow-up'
+    )
+  }
+
+  async steerPendingFollowUp(agentRunId: string, pendingMessageId: string): Promise<void> {
+    const active = this.#requireQueueableRun(agentRunId)
+    const pending = this.#requirePendingMessage(active, pendingMessageId)
+    const reservationId = this.#createId()
+    const reserved = await active.handle.queueAction({
+      operation: 'reserve_follow_up',
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      actionId: reservationId,
+      pendingMessageId
+    })
+    if (reserved !== 'completed') throw new Error('The waiting message is already being processed')
+    this.#removePendingMessage(active, pendingMessageId)
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    await repository.abort(pending.modelRequestId, 'queue_promoted_to_steer')
+    active.pendingModelRequestIds.delete(pending.modelRequestId)
+    active.authorizedModelRequestIds.delete(pending.modelRequestId)
+    active.snapshots.delete(pending.modelRequestId)
+    let modelRequestId: string | undefined
+    try {
+      modelRequestId = (
+        await repository.start({
+          operation: 'agent',
+          provider: active.config,
+          request: { content: pending.content, delivery: 'steer' },
+          thinkingLevel: active.thinkingLevel,
+          inputItems: 1,
+          operationId: active.operationId,
+          agentRunId: active.agentRunId,
+          projectSessionId: this.options.projectSessionId
+        })
+      ).modelRequestId
+      active.pendingModelRequestIds.add(modelRequestId)
+      active.authorizedModelRequestIds.add(modelRequestId)
+      if (pending.snapshot !== undefined) active.snapshots.set(modelRequestId, pending.snapshot)
+      await this.#appendAndPublishEvent({
+        sessionId: active.agentSessionId,
+        runId: active.agentRunId,
+        type: 'user_message',
+        payload: agentUserMessagePayloadSchema.parse({
+          content: pending.content,
+          delivery: 'steer',
+          timestamp: pending.timestamp
+        }),
+        modelRequestId
+      })
+      const outcome = await active.handle.queueAction({
+        operation: 'commit_follow_up_steer',
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        actionId: this.#createId(),
+        reservationId,
+        modelRequestId,
+        systemPrompt: pending.systemPrompt
+      })
+      if (outcome !== 'completed') throw new Error('The waiting message could not be steered')
+      await this.#publishActivitySnapshot()
+      this.options.log.info(
+        {
+          event: 'agent.run.follow_up_promoted',
+          agentRunId,
+          pendingMessageId,
+          modelRequestId,
+          pendingCount: active.pendingMessages.length
+        },
+        'Promoted a pending Agent Follow-up to Steer'
+      )
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.run.follow_up_steer_failed', err, agentRunId, pendingMessageId },
+        'Failed to promote an Agent Follow-up to Steer'
+      )
+      if (modelRequestId !== undefined) {
+        await repository.abort(modelRequestId, 'queue_promotion_failed')
+        active.pendingModelRequestIds.delete(modelRequestId)
+        active.authorizedModelRequestIds.delete(modelRequestId)
+        active.snapshots.delete(modelRequestId)
+      }
+      active.controller.abort(err)
+      throw err
+    }
   }
 
   async abort(agentRunId: string): Promise<void> {
@@ -1419,6 +1649,11 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         phase: active.phase,
         partialText: truncateUtf8(active.partialText, AGENT_LIVE_PARTIAL_MAX_BYTES),
+        pendingMessages: active.pendingMessages.map((message) => ({
+          pendingMessageId: message.pendingMessageId,
+          content: message.content,
+          queuedAt: message.queuedAt
+        })),
         startedAt: persisted.startedAt
       }
     })
@@ -1429,6 +1664,7 @@ export class AgentSessionService {
         agentRunId: starting.agentRunId,
         phase: 'routing' as const,
         partialText: '',
+        pendingMessages: [],
         startedAt: starting.startedAt
       }))
     const compactions = [...this.#activeCompactions.values()].map((compaction) => ({
@@ -1571,11 +1807,7 @@ export class AgentSessionService {
     })
   }
 
-  async #queue(
-    agentRunId: string,
-    delivery: 'steer' | 'follow_up',
-    rawContent: string
-  ): Promise<void> {
+  #requireQueueableRun(agentRunId: string): ActiveRun & { handle: AgentSessionRunHandle } {
     const active = this.#requireActive(agentRunId)
     if (active.phase !== 'running' || active.handle === null) {
       throw new Error(
@@ -1584,7 +1816,6 @@ export class AgentSessionService {
           : 'Writing skill selection is still in progress'
       )
     }
-    const handle = active.handle
     if (active.reviewPause !== null) {
       throw new Error('Agent conversation is waiting for review')
     }
@@ -1593,6 +1824,27 @@ export class AgentSessionService {
         ? active.controller.signal.reason
         : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
     }
+    return active as ActiveRun & { handle: AgentSessionRunHandle }
+  }
+
+  #requirePendingMessage(active: ActiveRun, pendingMessageId: string): PendingFollowUpMessage {
+    const pending = active.pendingMessages.find(
+      (message) => message.pendingMessageId === pendingMessageId
+    )
+    if (pending === undefined) throw new Error('The waiting message is no longer pending')
+    return pending
+  }
+
+  #removePendingMessage(active: ActiveRun, pendingMessageId: string): void {
+    const index = active.pendingMessages.findIndex(
+      (message) => message.pendingMessageId === pendingMessageId
+    )
+    if (index >= 0) active.pendingMessages.splice(index, 1)
+  }
+
+  async #queueSteer(agentRunId: string, rawContent: string): Promise<void> {
+    const active = this.#requireQueueableRun(agentRunId)
+    const handle = active.handle
     const content = agentUserMessagePayloadSchema.shape.content.parse(rawContent)
     const timestamp = this.#now().getTime()
     const modelRequests = new ModelRequestRepository(
@@ -1605,7 +1857,7 @@ export class AgentSessionService {
       await modelRequests.start({
         operation: 'agent',
         provider: active.config,
-        request: { content, delivery },
+        request: { content, delivery: 'steer' },
         thinkingLevel: active.thinkingLevel,
         inputItems: 1,
         operationId: active.operationId,
@@ -1617,7 +1869,7 @@ export class AgentSessionService {
       sessionId: active.agentSessionId,
       runId: active.agentRunId,
       type: 'user_message',
-      payload: agentUserMessagePayloadSchema.parse({ content, delivery, timestamp }),
+      payload: agentUserMessagePayloadSchema.parse({ content, delivery: 'steer', timestamp }),
       modelRequestId
     })
     active.pendingModelRequestIds.add(modelRequestId)
@@ -1642,12 +1894,11 @@ export class AgentSessionService {
         timestamp,
         systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
       }
-      if (delivery === 'steer') handle.steer(command)
-      else handle.followUp(command)
+      handle.steer(command)
     } catch (err) {
       this.options.log.error(
-        { event: 'agent.run.queue_failed', err, agentRunId, modelRequestId, delivery },
-        'Failed to queue an Agent message'
+        { event: 'agent.run.steer_failed', err, agentRunId, modelRequestId },
+        'Failed to steer an Agent message'
       )
       await modelRequests.abort(modelRequestId, 'queue_delivery_failed')
       active.pendingModelRequestIds.delete(modelRequestId)
@@ -1667,6 +1918,11 @@ export class AgentSessionService {
       return
     }
     if (event.type === 'queue_updated') return
+    if (event.type === 'queue_action_completed') return
+    if (event.type === 'follow_up_consumption_requested') {
+      await this.#authorizeFollowUpConsumption(active, event)
+      return
+    }
     if (event.type === 'model_call_requested') {
       await this.#authorizeToolContinuation(active, event.continuationId)
       return
@@ -1739,6 +1995,47 @@ export class AgentSessionService {
       modelRequestId: event.modelRequestId
     })
     active.partialText = ''
+  }
+
+  async #authorizeFollowUpConsumption(
+    active: ActiveRun,
+    event: Extract<AgentRuntimeEvent, { type: 'follow_up_consumption_requested' }>
+  ): Promise<void> {
+    if (active.handle === null) throw new Error('Agent runtime is unavailable')
+    const pending = this.#requirePendingMessage(active, event.pendingMessageId)
+    if (pending.modelRequestId !== event.modelRequestId) {
+      throw new Error('Agent Follow-up consumption capability mismatch')
+    }
+    await this.#appendAndPublishEvent({
+      sessionId: active.agentSessionId,
+      runId: active.agentRunId,
+      type: 'user_message',
+      payload: agentUserMessagePayloadSchema.parse({
+        content: pending.content,
+        delivery: 'follow_up',
+        timestamp: pending.timestamp
+      }),
+      modelRequestId: pending.modelRequestId
+    })
+    this.#removePendingMessage(active, pending.pendingMessageId)
+    active.handle.authorizeFollowUpConsumption({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      consumptionId: event.consumptionId,
+      pendingMessageId: pending.pendingMessageId,
+      modelRequestId: pending.modelRequestId
+    })
+    await this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.run.follow_up_consumed',
+        agentRunId: active.agentRunId,
+        pendingMessageId: pending.pendingMessageId,
+        modelRequestId: pending.modelRequestId
+      },
+      'Authorized a consumed Agent Follow-up'
+    )
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
@@ -2325,6 +2622,10 @@ export class AgentSessionService {
         )
       }
       active.pendingModelRequestIds.delete(modelRequestId)
+    }
+    if (active.pendingMessages.length > 0) {
+      active.pendingMessages.length = 0
+      void this.#publishActivitySnapshot()
     }
   }
 

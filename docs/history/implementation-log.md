@@ -331,3 +331,16 @@ maintenance without turning the active tracker back into a historical log.
   ADR/Phase documentation, affected tests, and the already recorded application-icon assets. The
   unrelated concurrent `.vscode/settings.json` and `section-editor.tsx` edits were left
   uncommitted. No push, tag, hosted CI, signing, notarization, release, or promotion was performed.
+- Accepted ADR 041 and started Checkpoint 49. The authorized change makes pending Follow-ups a
+  bounded, Main-authoritative active-run queue with per-item Steer/Delete, one Pi queue head, and a
+  persist-before-provider consumption barrier; the running composer becomes a Stop-or-Send action
+  plus a contextual waiting list. No migration, dependency, worker role, durable job, package,
+  release, hosted CI, commit, push, or publication action was authorized.
+- Completed Checkpoint 49 under ADR 041. Main now owns a bounded addressable pending Follow-up
+  queue, the agent worker loads only its head into Pi and waits for durable consumption approval,
+  and the live Composer exposes an internally scrolling Steer/Delete list with one circular
+  Stop-or-Queue action. Static checks, 179 Electron test files / 922 tests, production build, the
+  focused provider-order Real-Electron scenario, screenshot inspection, Impeccable, and diff checks
+  passed. The full E2E suite retained one separately reproduced pre-existing Writing Skill popover
+  failure; the Checkpoint 49 scenario passed on every run. No package, commit, push, release, or
+  hosted action ran.

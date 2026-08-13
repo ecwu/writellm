@@ -4,11 +4,15 @@ import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import {
   agentAssistantMessagePayloadSchema,
+  agentFollowUpConsumptionAuthorizationSchema,
   agentModelCallAuthorizationSchema,
+  agentQueueActionCommandSchema,
   agentQueueCommandSchema,
   type AgentAssistantMessagePayload,
+  type AgentFollowUpConsumptionAuthorization,
   type AgentHistoryMessage,
   type AgentModelCallAuthorization,
+  type AgentQueueActionCommand,
   type AgentQueueCommand,
   type AgentRunStart,
   type AgentRuntimeEvent,
@@ -34,6 +38,8 @@ import {
 
 export interface AgentSessionRunControl {
   enqueue(command: AgentQueueCommand): void
+  queueAction(command: AgentQueueActionCommand): void
+  authorizeFollowUpConsumption(command: AgentFollowUpConsumptionAuthorization): void
   authorizeModelCall(command: AgentModelCallAuthorization): void
   abort(): void
 }
@@ -69,10 +75,30 @@ export async function runAgentSession(
   })
   const modelRequestIds = [request.modelRequestId]
   const systemPromptByModelRequestId = new Map<string, string>()
+  interface QueueEntry {
+    pendingMessageId: string | null
+    modelRequestId: string
+    message: UserMessage
+    systemPrompt: string
+  }
+  const steeringEntries: QueueEntry[] = []
+  const followUpEntries: QueueEntry[] = []
+  const reservedFollowUps = new Map<string, QueueEntry>()
+  let loadedFollowUpId: string | null = null
+  let initialPromptPending = true
   const pendingModelCallAuthorizations = new Map<
     string,
     {
       resolve: (authorization: AgentModelCallAuthorization) => void
+      reject: (error: Error) => void
+    }
+  >()
+  const pendingFollowUpConsumptions = new Map<
+    string,
+    {
+      pendingMessageId: string
+      modelRequestId: string
+      resolve: (authorization: AgentFollowUpConsumptionAuthorization) => void
       reject: (error: Error) => void
     }
   >()
@@ -125,7 +151,12 @@ export async function runAgentSession(
           return { context: { ...context, systemPrompt } }
         }
       }
-      if (toolResults.length === 0) return undefined
+      if (toolResults.length === 0) {
+        const followUp = followUpEntries[0]
+        return followUp === undefined
+          ? undefined
+          : { context: { ...context, systemPrompt: followUp.systemPrompt } }
+      }
       const authorization = await requestModelCallAuthorization(
         onEvent,
         pendingModelCallAuthorizations
@@ -171,6 +202,10 @@ export async function runAgentSession(
       if (pausesForReview(details)) {
         awaitingReview = true
         agent.clearAllQueues()
+        steeringEntries.length = 0
+        followUpEntries.length = 0
+        reservedFollowUps.clear()
+        loadedFollowUpId = null
         return { terminate: true }
       }
       return undefined
@@ -262,7 +297,44 @@ export async function runAgentSession(
     toolExecution: 'parallel'
   })
 
-  agent.subscribe((event) => {
+  const loadFollowUpHead = (): void => {
+    if (loadedFollowUpId !== null) return
+    const head = followUpEntries[0]
+    if (head === undefined || head.pendingMessageId === null) return
+    loadedFollowUpId = head.pendingMessageId
+    agent.followUp(head.message)
+  }
+
+  agent.subscribe(async (event) => {
+    if (event.type === 'message_start' && event.message.role === 'user') {
+      if (initialPromptPending) {
+        initialPromptPending = false
+        return
+      }
+      if (steeringEntries.length > 0) {
+        steeringEntries.shift()
+        return
+      }
+      const followUp = followUpEntries[0]
+      if (
+        followUp === undefined ||
+        followUp.pendingMessageId === null ||
+        loadedFollowUpId !== followUp.pendingMessageId
+      ) {
+        throw new Error('Agent consumed an untracked Follow-up message')
+      }
+      followUpEntries.shift()
+      loadedFollowUpId = null
+      const authorization = await requestFollowUpConsumption(
+        onEvent,
+        pendingFollowUpConsumptions,
+        followUp.pendingMessageId,
+        followUp.modelRequestId
+      )
+      modelRequestIds.push(authorization.modelRequestId)
+      loadFollowUpHead()
+      return
+    }
     if (event.type === 'tool_execution_start') {
       const modelRequestId = modelRequestByToolCallId.get(event.toolCallId)
       if (modelRequestId === undefined) {
@@ -311,20 +383,110 @@ export async function runAgentSession(
       if (awaitingReview) {
         throw new Error('Agent conversation is waiting for review')
       }
-      modelRequestIds.push(parsed.modelRequestId)
-      systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
       const message: UserMessage = {
         role: 'user',
         content: parsed.content,
         timestamp: parsed.timestamp
       }
-      if (parsed.operation === 'steer') agent.steer(message)
-      else agent.followUp(message)
+      if (parsed.operation === 'steer') {
+        const entry: QueueEntry = {
+          pendingMessageId: null,
+          modelRequestId: parsed.modelRequestId,
+          message,
+          systemPrompt: parsed.systemPrompt
+        }
+        steeringEntries.push(entry)
+        modelRequestIds.push(parsed.modelRequestId)
+        systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
+        agent.steer(message)
+      } else {
+        followUpEntries.push({
+          pendingMessageId: parsed.pendingMessageId,
+          modelRequestId: parsed.modelRequestId,
+          message,
+          systemPrompt: parsed.systemPrompt
+        })
+        loadFollowUpHead()
+      }
       onEvent({
         type: 'queue_updated',
         delivery: parsed.operation,
         modelRequestId: parsed.modelRequestId
       })
+    },
+    queueAction(command) {
+      const parsed = agentQueueActionCommandSchema.parse(command)
+      if (awaitingReview) throw new Error('Agent conversation is waiting for review')
+      if (parsed.operation === 'commit_follow_up_steer') {
+        const reserved = reservedFollowUps.get(parsed.reservationId)
+        if (reserved === undefined) {
+          onEvent({
+            type: 'queue_action_completed',
+            actionId: parsed.actionId,
+            operation: parsed.operation,
+            outcome: 'stale'
+          })
+          return
+        }
+        reservedFollowUps.delete(parsed.reservationId)
+        const entry: QueueEntry = {
+          ...reserved,
+          modelRequestId: parsed.modelRequestId,
+          systemPrompt: parsed.systemPrompt
+        }
+        steeringEntries.push(entry)
+        modelRequestIds.push(parsed.modelRequestId)
+        systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
+        agent.steer(entry.message)
+        onEvent({
+          type: 'queue_action_completed',
+          actionId: parsed.actionId,
+          operation: parsed.operation,
+          outcome: 'completed'
+        })
+        return
+      }
+      const index = followUpEntries.findIndex(
+        (entry) => entry.pendingMessageId === parsed.pendingMessageId
+      )
+      if (index < 0) {
+        onEvent({
+          type: 'queue_action_completed',
+          actionId: parsed.actionId,
+          operation: parsed.operation,
+          outcome: 'stale'
+        })
+        return
+      }
+      const [entry] = followUpEntries.splice(index, 1)
+      if (entry === undefined) throw new Error('Agent Follow-up queue removal failed')
+      if (index === 0 && loadedFollowUpId === parsed.pendingMessageId) {
+        agent.clearFollowUpQueue()
+        loadedFollowUpId = null
+        loadFollowUpHead()
+      }
+      if (parsed.operation === 'reserve_follow_up') {
+        reservedFollowUps.set(parsed.actionId, entry)
+      }
+      onEvent({
+        type: 'queue_action_completed',
+        actionId: parsed.actionId,
+        operation: parsed.operation,
+        outcome: 'completed'
+      })
+    },
+    authorizeFollowUpConsumption(command) {
+      const parsed = agentFollowUpConsumptionAuthorizationSchema.parse(command)
+      const pending = pendingFollowUpConsumptions.get(parsed.consumptionId)
+      if (
+        pending === undefined ||
+        pending.pendingMessageId !== parsed.pendingMessageId ||
+        pending.modelRequestId !== parsed.modelRequestId
+      ) {
+        throw new Error('Agent Follow-up consumption authorization is stale')
+      }
+      pendingFollowUpConsumptions.delete(parsed.consumptionId)
+      pending.resolve(parsed)
     },
     authorizeModelCall(command) {
       const parsed = agentModelCallAuthorizationSchema.parse(command)
@@ -351,6 +513,10 @@ export async function runAgentSession(
       pending.reject(abortError('Agent run ended before model-call authorization'))
     }
     pendingModelCallAuthorizations.clear()
+    for (const pending of pendingFollowUpConsumptions.values()) {
+      pending.reject(abortError('Agent run ended before Follow-up consumption authorization'))
+    }
+    pendingFollowUpConsumptions.clear()
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
@@ -527,6 +693,37 @@ function requestModelCallAuthorization(
     } catch (err) {
       pending.delete(continuationId)
       reject(new Error('Agent model-call authorization request failed', { cause: err }))
+    }
+  })
+}
+
+function requestFollowUpConsumption(
+  onEvent: (event: AgentRuntimeEvent) => void,
+  pending: Map<
+    string,
+    {
+      pendingMessageId: string
+      modelRequestId: string
+      resolve: (authorization: AgentFollowUpConsumptionAuthorization) => void
+      reject: (error: Error) => void
+    }
+  >,
+  pendingMessageId: string,
+  modelRequestId: string
+): Promise<AgentFollowUpConsumptionAuthorization> {
+  const consumptionId = randomUUID()
+  return new Promise((resolve, reject) => {
+    pending.set(consumptionId, { pendingMessageId, modelRequestId, resolve, reject })
+    try {
+      onEvent({
+        type: 'follow_up_consumption_requested',
+        consumptionId,
+        pendingMessageId,
+        modelRequestId
+      })
+    } catch (err) {
+      pending.delete(consumptionId)
+      reject(new Error('Agent Follow-up consumption request failed', { cause: err }))
     }
   })
 }

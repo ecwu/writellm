@@ -213,6 +213,47 @@ describe('AgentModelClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
+  it('settles a capability-bound queue action only after the worker acknowledgement', async () => {
+    const child = new ControlledSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const input = sessionInput()
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      input,
+      new AbortController().signal,
+      () => undefined
+    )
+    const actionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc461'
+    const outcome = handle.queueAction({
+      operation: 'delete_follow_up',
+      actionId,
+      projectSessionId: input.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc462'
+    })
+
+    await vi.waitFor(() => expect(child.queueActions).toHaveLength(1))
+    let settled = false
+    void outcome.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    child.acknowledgeQueueAction(actionId, 'completed')
+    await expect(outcome).resolves.toBe('completed')
+    child.complete(input.agentRunId)
+    await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
+  })
+
   it('rejects every active session run when the shared worker exits', async () => {
     const child = new ControlledSessionUtilityProcess()
     const client = new AgentModelClient(
@@ -458,9 +499,17 @@ class OverflowSessionUtilityProcess extends EventEmitter {
 class ControlledSessionUtilityProcess extends EventEmitter {
   readonly kill = vi.fn(() => true)
   readonly runs: Array<Record<string, unknown>> = []
+  readonly queueActions: Array<Record<string, unknown>> = []
   readonly cancelledRunIds: string[] = []
   readonly postMessage = vi.fn((request: Record<string, unknown>) => {
     if (request.operation === 'run_start') this.runs.push(request)
+    if (
+      request.operation === 'delete_follow_up' ||
+      request.operation === 'reserve_follow_up' ||
+      request.operation === 'commit_follow_up_steer'
+    ) {
+      this.queueActions.push(request)
+    }
     if (request.operation === 'cancel' && typeof request.agentRunId === 'string') {
       this.cancelledRunIds.push(request.agentRunId)
     }
@@ -477,6 +526,19 @@ class ControlledSessionUtilityProcess extends EventEmitter {
       agentRunId: request.agentRunId,
       status: 'completed',
       outcome: 'finished'
+    })
+  }
+
+  acknowledgeQueueAction(actionId: string, outcome: 'completed' | 'stale'): void {
+    const action = this.queueActions.find((candidate) => candidate.actionId === actionId)
+    if (action === undefined) throw new Error('Unknown controlled queue action')
+    this.emit('message', {
+      type: 'event',
+      requestId: action.requestId,
+      projectSessionId: action.projectSessionId,
+      agentSessionId: action.agentSessionId,
+      agentRunId: action.agentRunId,
+      event: { type: 'queue_action_completed', actionId, operation: action.operation, outcome }
     })
   }
 }

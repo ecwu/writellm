@@ -19,6 +19,7 @@ import {
   agentProjectActivitySubscriptionInputSchema,
   agentGenerateSessionTitleInputSchema,
   agentGenerateSessionTitleResultSchema,
+  agentPendingMessageActionInputSchema,
   agentQueueInputSchema,
   agentRestoreSessionInputSchema,
   agentRestoreSessionResultSchema,
@@ -462,6 +463,26 @@ export function registerAgentIpc(options: {
       )
     )
   })
+  ipc.handle(IPC_CHANNELS.agentSteerPendingFollowUp, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentPendingMessageActionInputSchema.parse(raw)
+    return lifecycle('agent.run.pending_follow_up_steer', () =>
+      mutationContext(input.projectSessionId).agentSessions?.steerPendingFollowUp(
+        input.agentRunId,
+        input.pendingMessageId
+      )
+    )
+  })
+  ipc.handle(IPC_CHANNELS.agentDeletePendingFollowUp, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentPendingMessageActionInputSchema.parse(raw)
+    return lifecycle('agent.run.pending_follow_up_delete', () =>
+      mutationContext(input.projectSessionId).agentSessions?.deletePendingFollowUp(
+        input.agentRunId,
+        input.pendingMessageId
+      )
+    )
+  })
   ipc.handle(IPC_CHANNELS.agentAbortRun, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentRunInputSchema.parse(raw)
@@ -565,6 +586,8 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentStartRun,
     IPC_CHANNELS.agentSteerRun,
     IPC_CHANNELS.agentFollowUpRun,
+    IPC_CHANNELS.agentSteerPendingFollowUp,
+    IPC_CHANNELS.agentDeletePendingFollowUp,
     IPC_CHANNELS.agentAbortRun,
     IPC_CHANNELS.agentCompactSession,
     IPC_CHANNELS.agentStopCompaction,

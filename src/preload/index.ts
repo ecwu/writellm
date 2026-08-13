@@ -68,6 +68,7 @@ import {
   agentProjectActivitySubscriptionInputSchema,
   agentGenerateSessionTitleInputSchema,
   agentGenerateSessionTitleResultSchema,
+  agentPendingMessageActionInputSchema,
   agentQueueInputSchema,
   agentRendererEventSchema,
   agentRestoreSessionInputSchema,
@@ -668,6 +669,16 @@ export interface DesktopApi {
       projectSessionId: string
       agentRunId: string
       content: string
+    }): Promise<void>
+    steerPendingFollowUp(input: {
+      projectSessionId: string
+      agentRunId: string
+      pendingMessageId: string
+    }): Promise<void>
+    deletePendingFollowUp(input: {
+      projectSessionId: string
+      agentRunId: string
+      pendingMessageId: string
     }): Promise<void>
     abortRun(input: { projectSessionId: string; agentRunId: string }): Promise<void>
     compactSession(input: {
@@ -1719,6 +1730,18 @@ const desktopApi: DesktopApi = {
     },
     async followUpRun(input) {
       await ipcRenderer.invoke(IPC_CHANNELS.agentFollowUpRun, agentQueueInputSchema.parse(input))
+    },
+    async steerPendingFollowUp(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentSteerPendingFollowUp,
+        agentPendingMessageActionInputSchema.parse(input)
+      )
+    },
+    async deletePendingFollowUp(input) {
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentDeletePendingFollowUp,
+        agentPendingMessageActionInputSchema.parse(input)
+      )
     },
     async abortRun(input) {
       await ipcRenderer.invoke(IPC_CHANNELS.agentAbortRun, agentRunInputSchema.parse(input))

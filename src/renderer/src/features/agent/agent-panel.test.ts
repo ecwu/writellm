@@ -6,6 +6,7 @@ import type {
 } from '../../../../shared/contracts/agent-ipc'
 import {
   agentComposerKeyAction,
+  agentComposerRunningAction,
   buildComposerCommands,
   effectiveScope,
   filterComposerCommands,
@@ -95,6 +96,12 @@ describe('Agent panel flow selection', () => {
     expect(agentComposerKeyAction({ ...key, running: true, metaKey: true })).toBe('steer')
     expect(agentComposerKeyAction({ ...key, running: true, ctrlKey: true })).toBe('steer')
     expect(agentComposerKeyAction({ ...key, isComposing: true })).toBe('none')
+  })
+
+  it('uses one running action position for Stop or queued Follow-up', () => {
+    expect(agentComposerRunningAction('')).toBe('stop')
+    expect(agentComposerRunningAction('   ')).toBe('stop')
+    expect(agentComposerRunningAction('Queue this next.')).toBe('follow_up')
   })
 
   it('builds one shared context and Writing Skill catalog for Add and slash filtering', () => {

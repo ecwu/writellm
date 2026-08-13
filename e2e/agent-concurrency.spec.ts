@@ -111,6 +111,7 @@ test(
   scenario('agent.multi-conversation-concurrency', ['@critical', '@packaged']),
   async ({ testRoot }) => {
     const pendingAgentResponses: ServerResponse[] = []
+    const pendingAgentRequestBodies: string[] = []
     let titleCount = 0
     let targetSectionId = ''
     const server = createServer((request, response) => {
@@ -129,6 +130,7 @@ test(
             sendCompletion(response, `Parallel conversation ${titleCount}`, `title-${titleCount}`)
             return
           }
+          pendingAgentRequestBodies.push(body)
           pendingAgentResponses.push(response)
         })
         return
@@ -229,7 +231,35 @@ test(
         .toBe(true)
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Current section')
 
-      await panel.getByRole('button', { name: 'Stop', exact: true }).click()
+      await panel.getByLabel('Agent message').fill('Keep this queued.')
+      await expect(panel.getByRole('button', { name: 'Stop', exact: true })).not.toBeVisible()
+      await panel.getByRole('button', { name: 'Queue follow-up', exact: true }).click()
+      await expect(panel.getByTestId('agent-pending-messages')).toContainText('Keep this queued.')
+      await expect(panel.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+
+      await panel.getByLabel('Agent message').fill('Delete this queued message.')
+      await panel.getByRole('button', { name: 'Queue follow-up', exact: true }).click()
+      const deletedWaitingMessage = panel
+        .getByRole('listitem')
+        .filter({ hasText: 'Delete this queued message.' })
+      await deletedWaitingMessage.getByRole('button', { name: 'Delete waiting message' }).click()
+      await expect(deletedWaitingMessage).not.toBeVisible()
+
+      const steeredWaitingMessage = panel
+        .getByRole('listitem')
+        .filter({ hasText: 'Keep this queued.' })
+      await steeredWaitingMessage.getByRole('button', { name: 'Steer', exact: true }).click()
+      await expect(steeredWaitingMessage).not.toBeVisible()
+
+      const firstResponse = pendingAgentResponses[0]
+      if (firstResponse === undefined) throw new Error('First Agent response was not pending')
+      sendCompletion(firstResponse, 'Initial work completed.', 'parallel-first-response')
+      await expect.poll(() => pendingAgentResponses.length).toBe(3)
+      expect(pendingAgentRequestBodies[2]).toContain('Keep this queued.')
+      expect(pendingAgentRequestBodies[2]).not.toContain('Delete this queued message.')
+      const steeredResponse = pendingAgentResponses[2]
+      if (steeredResponse === undefined) throw new Error('Steered Agent response was not pending')
+      sendCompletion(steeredResponse, 'Steered work completed.', 'parallel-steered-response')
       await expect(panel.getByTestId('agent-status')).toContainText('Ready')
 
       await panel.getByTestId('agent-conversation-switcher').click()

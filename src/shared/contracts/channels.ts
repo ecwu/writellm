@@ -133,6 +133,8 @@ export const IPC_CHANNELS = {
   agentStartRun: 'agent:start-run',
   agentSteerRun: 'agent:steer-run',
   agentFollowUpRun: 'agent:follow-up-run',
+  agentSteerPendingFollowUp: 'agent:steer-pending-follow-up',
+  agentDeletePendingFollowUp: 'agent:delete-pending-follow-up',
   agentAbortRun: 'agent:abort-run',
   agentCompactSession: 'agent:compact-session',
   agentStopCompaction: 'agent:stop-compaction',

@@ -1,11 +1,14 @@
 import { z } from 'zod'
 import {
+  AGENT_PENDING_MESSAGE_LIMIT,
+  AGENT_PENDING_MESSAGE_MAX_BYTES,
   agentApprovalModeSchema,
   agentEditorContextSchema,
   agentEventIdSchema,
   agentEventTypeSchema,
   agentRunIdSchema,
   agentRunStatusSchema,
+  agentPendingMessageIdSchema,
   agentSessionIdSchema,
   agentSessionStatusSchema
 } from './agent'
@@ -316,6 +319,9 @@ export const agentRunInputSchema = strictObject({
 export const agentQueueInputSchema = agentRunInputSchema.extend({
   content: z.string().trim().min(1).max(262_144)
 })
+export const agentPendingMessageActionInputSchema = agentRunInputSchema.extend({
+  pendingMessageId: agentPendingMessageIdSchema
+})
 
 export const agentCompactSessionInputSchema = agentSessionInputSchema
 export const agentCompactSessionResultSchema = strictObject({ compactionId: z.uuid() })
@@ -336,11 +342,34 @@ export const agentProjectActivitySubscriptionInputSchema = strictObject({
   subscriptionId: z.uuid()
 })
 
+export const agentPendingMessageSchema = strictObject({
+  pendingMessageId: agentPendingMessageIdSchema,
+  content: z.string().min(1).max(262_144),
+  queuedAt: z.iso.datetime()
+})
+
+export const agentPendingMessagesSchema = z
+  .array(agentPendingMessageSchema)
+  .max(AGENT_PENDING_MESSAGE_LIMIT)
+  .superRefine((messages, context) => {
+    if (new Set(messages.map((message) => message.pendingMessageId)).size !== messages.length) {
+      context.addIssue({ code: 'custom', message: 'Pending Agent message IDs must be unique' })
+    }
+    const bytes = messages.reduce(
+      (total, message) => total + new TextEncoder().encode(message.content).byteLength,
+      0
+    )
+    if (bytes > AGENT_PENDING_MESSAGE_MAX_BYTES) {
+      context.addIssue({ code: 'custom', message: 'Pending Agent messages exceed 1 MiB' })
+    }
+  })
+
 export const agentLiveRunSnapshotSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   agentRunId: agentRunIdSchema,
   phase: z.enum(['routing', 'compacting', 'running']),
   partialText: z.string(),
+  pendingMessages: agentPendingMessagesSchema.default([]),
   startedAt: z.iso.datetime()
 }).superRefine((snapshot, context) => {
   if (new TextEncoder().encode(snapshot.partialText).byteLength > AGENT_LIVE_PARTIAL_MAX_BYTES) {
@@ -438,5 +467,6 @@ export type AgentEventPage = z.infer<typeof agentEventPageSchema>
 export type AgentStartScope = z.infer<typeof agentStartScopeSchema>
 export type AgentRendererEvent = z.infer<typeof agentRendererEventSchema>
 export type AgentLiveRunSnapshot = z.infer<typeof agentLiveRunSnapshotSchema>
+export type AgentPendingMessage = z.infer<typeof agentPendingMessageSchema>
 export type AgentLiveCompactionSnapshot = z.infer<typeof agentLiveCompactionSnapshotSchema>
 export type AgentProjectActivitySnapshot = z.infer<typeof agentProjectActivitySnapshotSchema>
