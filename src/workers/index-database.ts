@@ -36,49 +36,62 @@ export class IndexDatabase {
 
   constructor(path: string, extensionPath?: string) {
     this.#database = new Database(path)
-    this.#database.pragma('journal_mode = WAL')
-    this.#database.pragma('synchronous = NORMAL')
-    this.#database.pragma('foreign_keys = ON')
-    this.#database.pragma('busy_timeout = 5000')
-    if (extensionPath !== undefined) this.#database.loadExtension(extensionPath)
-    const applicationId = this.#database.pragma('application_id', { simple: true }) as number
-    if (applicationId !== 0 && applicationId !== INDEX_DATABASE_APPLICATION_ID) {
-      throw new Error('Index database application ID is incompatible')
-    }
-    const userVersion = this.#database.pragma('user_version', { simple: true }) as number
-    const cleanShutdown =
-      userVersion >= 5
-        ? (this.#database
-            .prepare('SELECT clean_shutdown FROM index_runtime_state WHERE singleton = 1')
-            .pluck()
-            .get() as number | undefined)
-        : undefined
-    const integrityMode =
-      applicationId === 0 && userVersion === 0
-        ? 'new'
-        : cleanShutdown === 1
-          ? 'clean-shutdown-fast-path'
-          : 'full'
-    const integrityStartedAt = Date.now()
-    if (integrityMode === 'full') {
-      const quickCheck = this.#database.pragma('quick_check', { simple: true }) as string
-      if (quickCheck !== 'ok') throw new Error('Index database integrity check failed')
-    }
-    this.#database.pragma(`application_id = ${INDEX_DATABASE_APPLICATION_ID}`)
-    this.#migrate()
-    this.#fts = new FtsIndex(this.#database)
-    this.#vectors = new SqliteVecVectorIndex(this.#database)
-    this.#verifyLogicalIntegrity()
-    const cleanup = this.#cleanupDerivedStorage()
-    this.#database
-      .prepare(
-        'UPDATE index_runtime_state SET clean_shutdown = 0, updated_at = ? WHERE singleton = 1'
-      )
-      .run(new Date().toISOString())
-    this.startupReport = {
-      integrityMode,
-      integrityDurationMs: Date.now() - integrityStartedAt,
-      cleanup
+    try {
+      this.#database.pragma('journal_mode = WAL')
+      this.#database.pragma('synchronous = NORMAL')
+      this.#database.pragma('foreign_keys = ON')
+      this.#database.pragma('busy_timeout = 5000')
+      if (extensionPath !== undefined) this.#database.loadExtension(extensionPath)
+      const applicationId = this.#database.pragma('application_id', { simple: true }) as number
+      if (applicationId !== 0 && applicationId !== INDEX_DATABASE_APPLICATION_ID) {
+        throw new Error('Index database application ID is incompatible')
+      }
+      const userVersion = this.#database.pragma('user_version', { simple: true }) as number
+      const cleanShutdown =
+        userVersion >= 5
+          ? (this.#database
+              .prepare('SELECT clean_shutdown FROM index_runtime_state WHERE singleton = 1')
+              .pluck()
+              .get() as number | undefined)
+          : undefined
+      const integrityMode =
+        applicationId === 0 && userVersion === 0
+          ? 'new'
+          : cleanShutdown === 1
+            ? 'clean-shutdown-fast-path'
+            : 'full'
+      const integrityStartedAt = Date.now()
+      if (integrityMode === 'full') {
+        const quickCheck = this.#database.pragma('quick_check', { simple: true }) as string
+        if (quickCheck !== 'ok') throw new Error('Index database integrity check failed')
+      }
+      this.#database.pragma(`application_id = ${INDEX_DATABASE_APPLICATION_ID}`)
+      this.#migrate()
+      this.#fts = new FtsIndex(this.#database)
+      this.#vectors = new SqliteVecVectorIndex(this.#database)
+      this.#verifyLogicalIntegrity()
+      const cleanup = this.#cleanupDerivedStorage()
+      this.#database
+        .prepare(
+          'UPDATE index_runtime_state SET clean_shutdown = 0, updated_at = ? WHERE singleton = 1'
+        )
+        .run(new Date().toISOString())
+      this.startupReport = {
+        integrityMode,
+        integrityDurationMs: Date.now() - integrityStartedAt,
+        cleanup
+      }
+    } catch (err) {
+      try {
+        this.#database.close()
+      } catch (closeError) {
+        throw new AggregateError(
+          [err, closeError],
+          'Index database initialization failed and its handle could not be closed',
+          { cause: err }
+        )
+      }
+      throw err
     }
   }
 
