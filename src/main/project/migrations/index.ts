@@ -26,6 +26,14 @@ import { migration0025 } from './0025-agent-thinking-level'
 import { migration0026 } from './0026-agent-session-skill-selection'
 import { migration0027 } from './0027-agent-event-schema-v3'
 import { migration0028 } from './0028-citation-counts-v2'
+import { migration0029 } from './0029-review-issues'
+import { migration0030 } from './0030-agent-writing-tasks'
+import { migration0031 } from './0031-agent-writing-task-runs'
+import { migration0032 } from './0032-agent-change-set-commands'
+import { migration0033 } from './0033-figure-metadata'
+import { migration0034 } from './0034-manuscript-asset-metadata'
+import { migration0035 } from './0035-manuscript-asset-variants'
+import { migration0036 } from './0036-manuscript-annotations'
 
 export const projectMigrations = [
   migration0001,
@@ -55,5 +63,13 @@ export const projectMigrations = [
   migration0025,
   migration0026,
   migration0027,
-  migration0028
+  migration0028,
+  migration0029,
+  migration0030,
+  migration0031,
+  migration0032,
+  migration0033,
+  migration0034,
+  migration0035,
+  migration0036
 ] as const

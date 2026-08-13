@@ -31,7 +31,8 @@ export const projectNameSchema = z
 
 export const projectCreateInputSchema = z
   .object({
-    name: projectNameSchema
+    name: projectNameSchema,
+    templateId: z.uuid().optional()
   })
   .strict()
 
@@ -119,6 +120,8 @@ export const projectLifecycleSnapshotSchema = z
 export const projectRecoveryActionInputSchema = z.object({}).strict()
 export const projectSnapshotSessionInputSchema = projectSessionInputSchema
 export const projectSnapshotResultSchema = z.object({ created: z.boolean() }).strict()
+export const projectCloneInputSchema = projectSessionInputSchema
+export const projectCloneCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
 
 export const versionHistoryStateSchema = z.enum(['uninitialized', 'ready', 'damaged'])
 export const checkpointOidSchema = z.string().regex(/^[a-f0-9]{40}$/)

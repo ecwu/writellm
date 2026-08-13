@@ -20,6 +20,15 @@ import {
 import { agentApprovalModeSchema, type AgentApprovalMode } from '../shared/contracts/agent'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
+  createPublicationPresetInputSchema,
+  publicationPresetIdInputSchema,
+  publicationPresetSnapshotSchema,
+  updatePublicationPresetInputSchema,
+  type CreatePublicationPresetInput,
+  type PublicationPresetSnapshot,
+  type UpdatePublicationPresetInput
+} from '../shared/contracts/publication-presets'
+import {
   cancelSkillOperationInputSchema,
   inspectGithubSkillInputSchema,
   inspectGithubSkillResultSchema,
@@ -84,6 +93,17 @@ import {
   type AgentSessionRecord
 } from '../shared/contracts/agent-ipc'
 import {
+  userUpdateWritingTaskInputSchema,
+  userUpdateWritingTaskResultSchema,
+  type WritingTaskView
+} from '../shared/contracts/writing-task'
+import {
+  changeSetBatchInputSchema,
+  changeSetBatchResultSchema,
+  type ChangeSetBatchInput,
+  type ChangeSetBatchResult
+} from '../shared/contracts/agent-change-set'
+import {
   approveMutationProposalInputSchema,
   approveMutationProposalResultSchema,
   cancelImageGenerationInputSchema,
@@ -119,6 +139,8 @@ import {
   listCheckpointsInputSchema,
   listCheckpointsResultSchema,
   projectCreateInputSchema,
+  projectCloneCancelResultSchema,
+  projectCloneInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
   projectRecoveryActionInputSchema,
@@ -145,11 +167,20 @@ import {
   type VersionHistoryStatus
 } from '../shared/contracts/projects'
 import {
+  manuscriptExportCancelResultSchema,
   manuscriptExportInputSchema,
   manuscriptExportResultSchema,
   type ManuscriptExportKind,
   type ManuscriptExportResult
 } from '../shared/contracts/manuscript-export'
+import {
+  deleteUserProjectTemplateInputSchema,
+  projectTemplateCatalogSchema,
+  projectTemplateExtractionPreviewSchema,
+  saveUserProjectTemplateInputSchema,
+  type ProjectTemplateExtractionPreview,
+  type ProjectTemplateSummary
+} from '../shared/contracts/project-templates'
 import { diagnosticLogSchema, type DiagnosticLog } from '../shared/observability/log-schema'
 import {
   jobStatusEventSchema,
@@ -204,13 +235,10 @@ import {
   exportNativeJsonInputSchema,
   exportResultSchema,
   finalFlushSaveInputSchema,
-  importMarkdownInputSchema,
   loadSectionInputSchema,
   manuscriptAssemblySchema,
   manuscriptAssetPreviewInputSchema,
   manuscriptAssetPreviewResultSchema,
-  manuscriptAssetImportReferenceInputSchema,
-  manuscriptAssetImportReferenceResultSchema,
   manuscriptAssetResultSchema,
   manuscriptReferenceIndexInputSchema,
   manuscriptReferenceIndexSchema,
@@ -236,6 +264,33 @@ import {
   type UpdateManuscriptBriefRequest,
   type UpdateSectionRequest
 } from '../shared/contracts/manuscript'
+import {
+  manuscriptImportApplyInputSchema,
+  manuscriptImportApplyResultSchema,
+  manuscriptImportCancelInputSchema,
+  manuscriptImportCancelResultSchema,
+  manuscriptImportPlanRequestSchema,
+  manuscriptImportPlanResultSchema,
+  type ManuscriptImportApplyInput,
+  type ManuscriptImportApplyResult,
+  type ManuscriptImportCancelResult,
+  type ManuscriptImportPlanResult
+} from '../shared/contracts/manuscript-import'
+import {
+  publicationPreviewInputSchema,
+  publicationPreviewSchema,
+  type PublicationOptions,
+  type PublicationPreview
+} from '../shared/contracts/publication'
+import {
+  deleteManuscriptAssetInputSchema,
+  deleteManuscriptAssetResultSchema,
+  manuscriptAssetWorkspaceInputSchema,
+  manuscriptAssetWorkspacePageSchema,
+  type DeleteManuscriptAssetResult,
+  type ManuscriptAssetWorkspaceInput,
+  type ManuscriptAssetWorkspacePage
+} from '../shared/contracts/manuscript-assets'
 import {
   manuscriptSearchInputSchema,
   manuscriptSearchNavigationInputSchema,
@@ -267,6 +322,36 @@ import {
   type ManuscriptReplacementPlanResult,
   type ManuscriptReplacementUndoResult
 } from '../shared/contracts/manuscript-replacement'
+import {
+  listReviewIssuesIpcInputSchema,
+  reviewIssueEventsInputSchema,
+  reviewIssueEventsResultSchema,
+  updateReviewIssueIpcInputSchema,
+  updateReviewIssueIpcResultSchema,
+  updateWritingRulesIpcInputSchema,
+  type ListReviewIssuesIpcInput,
+  type ReviewIssueEventsInput,
+  type UpdateReviewIssueIpcInput,
+  type UpdateWritingRulesIpcInput
+} from '../shared/contracts/review-ipc'
+import {
+  listReviewIssuesResultSchema,
+  type ListReviewIssuesResult,
+  type ReviewIssueEvent,
+  type ReviewIssueRecord
+} from '../shared/contracts/review'
+import {
+  annotationRecordSchema,
+  createAnnotationInputSchema,
+  listAnnotationsInputSchema,
+  listAnnotationsResultSchema,
+  updateAnnotationInputSchema,
+  type AnnotationRecord,
+  type CreateAnnotationInput,
+  type ListAnnotationsInput,
+  type ListAnnotationsResult,
+  type UpdateAnnotationInput
+} from '../shared/contracts/annotations'
 import {
   agentCustomPresetInputSchema,
   agentAuthFlowInputSchema,
@@ -327,6 +412,11 @@ export interface DesktopApi {
     setCitationDisplayMode(input: SetCitationDisplayModeInput): Promise<CitationDisplayMode>
     getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
     setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
+    publicationPresets(): Promise<PublicationPresetSnapshot>
+    createPublicationPreset(input: CreatePublicationPresetInput): Promise<PublicationPresetSnapshot>
+    updatePublicationPreset(input: UpdatePublicationPresetInput): Promise<PublicationPresetSnapshot>
+    deletePublicationPreset(input: { presetId: string }): Promise<PublicationPresetSnapshot>
+    setDefaultPublicationPreset(input: { presetId: string }): Promise<PublicationPresetSnapshot>
   }
   skills: {
     snapshot(): Promise<SkillsSnapshot>
@@ -347,6 +437,17 @@ export interface DesktopApi {
     openRecent(input: RecentProjectOpenInput): Promise<ProjectSelectionResult>
     close(input: ProjectSessionInput): Promise<ProjectLifecycleSnapshot>
     switch(input: ProjectSessionInput): Promise<ProjectSelectionResult>
+    clone(input: ProjectSessionInput): Promise<ProjectSelectionResult>
+    cancelClone(input: ProjectSessionInput): Promise<{ cancelled: boolean }>
+    templates(): Promise<ProjectTemplateSummary[]>
+    previewTemplate(input: ProjectSessionInput): Promise<ProjectTemplateExtractionPreview>
+    saveTemplate(input: {
+      projectSessionId: string
+      name: string
+      description: string
+      includePublicationPreset: boolean
+    }): Promise<ProjectTemplateSummary[]>
+    deleteTemplate(input: { templateId: string }): Promise<ProjectTemplateSummary[]>
     retryOpen(): Promise<ProjectLifecycleSnapshot>
     recoverStaleLock(): Promise<ProjectLifecycleSnapshot>
     retryClose(): Promise<ProjectLifecycleSnapshot>
@@ -359,7 +460,9 @@ export interface DesktopApi {
     exportManuscript(input: {
       projectSessionId: string
       kind: ManuscriptExportKind
+      presetId?: string
     }): Promise<ManuscriptExportResult>
+    cancelManuscriptExport(input: ProjectSessionInput): Promise<{ cancelled: boolean }>
     versionHistoryStatus(input: ProjectSessionInput): Promise<VersionHistoryStatus>
     enableVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
     reinitializeVersionHistory(input: ProjectSessionInput): Promise<CheckpointEntry>
@@ -402,9 +505,16 @@ export interface DesktopApi {
     saveSectionDocument(
       input: SaveSectionDocumentInput & { projectSessionId: string }
     ): Promise<SaveSectionDocumentResponse>
-    importMarkdown(
-      input: SaveSectionDocumentInput & { projectSessionId: string }
-    ): Promise<SaveSectionDocumentResponse>
+    createImportPlan(input: {
+      projectSessionId: string
+      activeSectionId: string
+      selection?: 'file' | 'directory'
+    }): Promise<ManuscriptImportPlanResult>
+    applyImportPlan(input: ManuscriptImportApplyInput): Promise<ManuscriptImportApplyResult>
+    cancelImportPlan(input: {
+      projectSessionId: string
+      planId: string
+    }): Promise<ManuscriptImportCancelResult>
     exportNativeJson(input: {
       projectSessionId: string
       sectionId: string
@@ -425,10 +535,11 @@ export interface DesktopApi {
       projectSessionId: string
       assetId: string
     }): Promise<ReturnType<typeof manuscriptAssetPreviewResultSchema.parse>>
-    resolveImportAsset(input: {
+    listAssets(input: ManuscriptAssetWorkspaceInput): Promise<ManuscriptAssetWorkspacePage>
+    deleteAsset(input: {
       projectSessionId: string
-      reference: string
-    }): Promise<{ logicalUrl: string }>
+      assetId: string
+    }): Promise<DeleteManuscriptAssetResult>
     finalFlushSave(
       input: SaveSectionDocumentInput & {
         projectSessionId: string
@@ -448,6 +559,10 @@ export interface DesktopApi {
     workspace(input: ManuscriptWorkspaceInput): Promise<ManuscriptWorkspace>
     references(input: ManuscriptWorkspaceInput): Promise<ManuscriptReferenceIndex>
     preview(input: ManuscriptWorkspaceInput): Promise<ManuscriptAssembly>
+    publicationPreview(input: {
+      projectSessionId: string
+      options?: Partial<PublicationOptions>
+    }): Promise<PublicationPreview>
     updateBrief(input: UpdateManuscriptBriefRequest): Promise<ManuscriptWorkspace>
     createSection(input: CreateSectionRequest): Promise<ManuscriptWorkspace>
     updateSection(input: UpdateSectionRequest): Promise<ManuscriptWorkspace>
@@ -473,6 +588,17 @@ export interface DesktopApi {
       input: { projectSessionId: string },
       listener: (event: ManuscriptReplacementChangedEvent) => void
     ): Promise<() => void>
+  }
+  review: {
+    listIssues(input: ListReviewIssuesIpcInput): Promise<ListReviewIssuesResult>
+    issueEvents(input: ReviewIssueEventsInput): Promise<ReviewIssueEvent[]>
+    updateIssue(input: UpdateReviewIssueIpcInput): Promise<ReviewIssueRecord>
+    updateWritingRules(input: UpdateWritingRulesIpcInput): Promise<ManuscriptWorkspace>
+  }
+  annotations: {
+    list(input: ListAnnotationsInput): Promise<ListAnnotationsResult>
+    create(input: CreateAnnotationInput): Promise<AnnotationRecord>
+    update(input: UpdateAnnotationInput): Promise<AnnotationRecord>
   }
   agent: {
     listSessions(input: {
@@ -514,6 +640,9 @@ export interface DesktopApi {
     setSkillSelection(
       input: ReturnType<typeof agentSetSkillSelectionInputSchema.parse>
     ): Promise<AgentSessionRecord>
+    updateWritingTask(
+      input: ReturnType<typeof userUpdateWritingTaskInputSchema.parse>
+    ): Promise<WritingTaskView>
     listEvents(input: {
       projectSessionId: string
       agentSessionId: string
@@ -575,6 +704,7 @@ export interface DesktopApi {
       agentSessionId: string
       proposalId: string
     }): Promise<MutationProposalActionResult>
+    decideChangeSet(input: ChangeSetBatchInput): Promise<ChangeSetBatchResult>
     cancelImageGeneration(input: {
       projectSessionId: string
       agentSessionId: string
@@ -744,6 +874,43 @@ const desktopApi: DesktopApi = {
           setDefaultAgentApprovalModeInputSchema.parse(input)
         )
       )
+    },
+    async publicationPresets() {
+      return publicationPresetSnapshotSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.publicationPresetsSnapshot)
+      )
+    },
+    async createPublicationPreset(input) {
+      return publicationPresetSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.publicationPresetsCreate,
+          createPublicationPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async updatePublicationPreset(input) {
+      return publicationPresetSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.publicationPresetsUpdate,
+          updatePublicationPresetInputSchema.parse(input)
+        )
+      )
+    },
+    async deletePublicationPreset(input) {
+      return publicationPresetSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.publicationPresetsDelete,
+          publicationPresetIdInputSchema.parse(input)
+        )
+      )
+    },
+    async setDefaultPublicationPreset(input) {
+      return publicationPresetSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.publicationPresetsSetDefault,
+          publicationPresetIdInputSchema.parse(input)
+        )
+      )
     }
   },
   skills: {
@@ -844,6 +1011,48 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(IPC_CHANNELS.projectSwitch, projectSessionInputSchema.parse(input))
       )
     },
+    async clone(input) {
+      return projectSelectionResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.projectClone, projectCloneInputSchema.parse(input))
+      )
+    },
+    async cancelClone(input) {
+      return projectCloneCancelResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectCloneCancel,
+          projectCloneInputSchema.parse(input)
+        )
+      )
+    },
+    async templates() {
+      return projectTemplateCatalogSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.projectTemplatesList)
+      )
+    },
+    async previewTemplate(input) {
+      return projectTemplateExtractionPreviewSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectTemplatePreview,
+          projectSessionInputSchema.parse(input)
+        )
+      )
+    },
+    async saveTemplate(input) {
+      return projectTemplateCatalogSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectTemplateSave,
+          saveUserProjectTemplateInputSchema.parse(input)
+        )
+      )
+    },
+    async deleteTemplate(input) {
+      return projectTemplateCatalogSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectTemplateDelete,
+          deleteUserProjectTemplateInputSchema.parse(input)
+        )
+      )
+    },
     async retryOpen() {
       return projectLifecycleSnapshotSchema.parse(
         await ipcRenderer.invoke(
@@ -921,6 +1130,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.projectManuscriptExport,
           manuscriptExportInputSchema.parse(input)
+        )
+      )
+    },
+    async cancelManuscriptExport(input) {
+      return manuscriptExportCancelResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.projectManuscriptExportCancel,
+          projectSessionInputSchema.parse(input)
         )
       )
     },
@@ -1075,11 +1292,27 @@ const desktopApi: DesktopApi = {
         )
       )
     },
-    async importMarkdown(input) {
-      return saveSectionDocumentResponseSchema.parse(
+    async createImportPlan(input) {
+      return manuscriptImportPlanResultSchema.parse(
         await ipcRenderer.invoke(
-          IPC_CHANNELS.editorImportMarkdown,
-          importMarkdownInputSchema.parse(input)
+          IPC_CHANNELS.editorCreateImportPlan,
+          manuscriptImportPlanRequestSchema.parse(input)
+        )
+      )
+    },
+    async applyImportPlan(input) {
+      return manuscriptImportApplyResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorApplyImportPlan,
+          manuscriptImportApplyInputSchema.parse(input)
+        )
+      )
+    },
+    async cancelImportPlan(input) {
+      return manuscriptImportCancelResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorCancelImportPlan,
+          manuscriptImportCancelInputSchema.parse(input)
         )
       )
     },
@@ -1115,11 +1348,19 @@ const desktopApi: DesktopApi = {
         )
       )
     },
-    async resolveImportAsset(input) {
-      return manuscriptAssetImportReferenceResultSchema.parse(
+    async listAssets(input) {
+      return manuscriptAssetWorkspacePageSchema.parse(
         await ipcRenderer.invoke(
-          IPC_CHANNELS.editorResolveImportAsset,
-          manuscriptAssetImportReferenceInputSchema.parse(input)
+          IPC_CHANNELS.editorListAssets,
+          manuscriptAssetWorkspaceInputSchema.parse(input)
+        )
+      )
+    },
+    async deleteAsset(input) {
+      return deleteManuscriptAssetResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.editorDeleteAsset,
+          deleteManuscriptAssetInputSchema.parse(input)
         )
       )
     },
@@ -1179,6 +1420,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.manuscriptGetPreview,
           manuscriptWorkspaceInputSchema.parse(input)
+        )
+      )
+    },
+    async publicationPreview(input) {
+      return publicationPreviewSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.manuscriptGetPublicationPreview,
+          publicationPreviewInputSchema.parse(input)
         )
       )
     },
@@ -1298,6 +1547,66 @@ const desktopApi: DesktopApi = {
       }
     }
   },
+  review: {
+    async listIssues(input) {
+      return listReviewIssuesResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.reviewListIssues,
+          listReviewIssuesIpcInputSchema.parse(input)
+        )
+      )
+    },
+    async issueEvents(input) {
+      return reviewIssueEventsResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.reviewIssueEvents,
+          reviewIssueEventsInputSchema.parse(input)
+        )
+      )
+    },
+    async updateIssue(input) {
+      return updateReviewIssueIpcResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.reviewUpdateIssue,
+          updateReviewIssueIpcInputSchema.parse(input)
+        )
+      )
+    },
+    async updateWritingRules(input) {
+      return manuscriptWorkspaceSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.reviewUpdateWritingRules,
+          updateWritingRulesIpcInputSchema.parse(input)
+        )
+      )
+    }
+  },
+  annotations: {
+    async list(input) {
+      return listAnnotationsResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.annotationsList,
+          listAnnotationsInputSchema.parse(input)
+        )
+      )
+    },
+    async create(input) {
+      return annotationRecordSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.annotationsCreate,
+          createAnnotationInputSchema.parse(input)
+        )
+      )
+    },
+    async update(input) {
+      return annotationRecordSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.annotationsUpdate,
+          updateAnnotationInputSchema.parse(input)
+        )
+      )
+    }
+  },
   agent: {
     async listSessions(input) {
       return agentListSessionsResultSchema.parse(
@@ -1368,6 +1677,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentSetSkillSelection,
           agentSetSkillSelectionInputSchema.parse(input)
+        )
+      )
+    },
+    async updateWritingTask(input) {
+      return userUpdateWritingTaskResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentUpdateWritingTask,
+          userUpdateWritingTaskInputSchema.parse(input)
         )
       )
     },
@@ -1549,6 +1866,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentProposalUndo,
           undoMutationProposalInputSchema.parse(input)
+        )
+      )
+    },
+    async decideChangeSet(input) {
+      return changeSetBatchResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentChangeSetBatch,
+          changeSetBatchInputSchema.parse(input)
         )
       )
     },

@@ -179,8 +179,13 @@ function blockToMarkdown(
       )
       break
     case 'image': {
-      const props = block.props as { name: string; caption: string; url: string }
-      const alt = escapeInline(props.name || props.caption || 'Image')
+      const props = block.props as {
+        name: string
+        caption: string
+        altText?: string
+        url: string
+      }
+      const alt = escapeInline(props.altText || props.name || props.caption || 'Image')
       body = `![${alt}](${assetPath(props.url)})`
       if (props.caption !== '') {
         body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`

@@ -7,11 +7,14 @@ import type {
 import {
   BookOpen,
   BookOpenText,
+  BookMarked,
   CheckCircle2,
   Circle,
   CircleDot,
   FileText,
   LibraryBig,
+  Images,
+  ClipboardList,
   ListTree,
   Pencil,
   Search,
@@ -36,25 +39,40 @@ import {
   useSidebar
 } from '@/components/ui/sidebar'
 
+export type WorkspaceKind =
+  | 'manuscript'
+  | 'knowledge'
+  | 'assets'
+  | 'references'
+  | 'find'
+  | 'issues'
+  | 'writing_rules'
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   projectName: string
   workspace: ManuscriptWorkspace | undefined
   references: ManuscriptReferenceIndex
   referencesLoading: boolean
   referencesError: boolean
-  activeWorkspace: 'manuscript' | 'knowledge' | 'references' | 'find'
+  activeWorkspace: WorkspaceKind
   activeSectionId: string | null
+  reviewCount?: number
   onSelectSection(sectionId: string): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
+  onOpenAssets(): void
   onOpenReferences(): void
+  onOpenIssues(): void
+  onOpenWritingRules(): void
   onOpenFind(): void
   onCloseFind(): void
   onOpenReference(entry: ManuscriptReferenceEntry): void
   onOpenManuscript(): void
   onOpenSettings(): void
   findPanel: React.ReactNode
+  issuesPanel: React.ReactNode
+  writingRulesPanel: React.ReactNode
 }
 
 export function AppSidebar({
@@ -65,24 +83,30 @@ export function AppSidebar({
   referencesError,
   activeWorkspace,
   activeSectionId,
+  reviewCount,
   onSelectSection,
   onOpenBrief,
   onOpenOutlineEditor,
   onOpenKnowledge,
+  onOpenAssets,
   onOpenReferences,
+  onOpenIssues,
+  onOpenWritingRules,
   onOpenFind,
   onCloseFind,
   onOpenReference,
   onOpenManuscript,
   onOpenSettings,
   findPanel,
+  issuesPanel,
+  writingRulesPanel,
   ...props
 }: AppSidebarProps): React.JSX.Element {
   const { isMobile, openMobile, setOpen, setOpenMobile } = useSidebar()
   const findWasOpenOnMobileRef = useRef(false)
 
   useEffect(() => {
-    if (activeWorkspace !== 'find') return
+    if (!['find', 'issues', 'writing_rules', 'references'].includes(activeWorkspace)) return
     if (isMobile) setOpenMobile(true)
     else setOpen(true)
   }, [activeWorkspace, isMobile, setOpen, setOpenMobile])
@@ -106,9 +130,19 @@ export function AppSidebar({
         <WorkspaceRail
           activeWorkspace={activeWorkspace}
           onOpenKnowledge={onOpenKnowledge}
+          onOpenAssets={onOpenAssets}
           onOpenReferences={() => {
             setOpen(true)
             onOpenReferences()
+          }}
+          onOpenIssues={() => {
+            setOpen(true)
+            onOpenIssues()
+          }}
+          reviewCount={reviewCount}
+          onOpenWritingRules={() => {
+            setOpen(true)
+            onOpenWritingRules()
           }}
           onOpenFind={() => {
             setOpen(true)
@@ -145,7 +179,7 @@ export function AppSidebar({
                 </Button>
               ) : null}
             </div>
-            {activeWorkspace !== 'find' ? (
+            {activeWorkspace === 'manuscript' || activeWorkspace === 'references' ? (
               <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
                 <Button
                   className='w-full min-w-0 overflow-hidden px-2'
@@ -169,6 +203,10 @@ export function AppSidebar({
           <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
             {activeWorkspace === 'find' ? (
               findPanel
+            ) : activeWorkspace === 'issues' ? (
+              issuesPanel
+            ) : activeWorkspace === 'writing_rules' ? (
+              writingRulesPanel
             ) : (
               <SidebarGroup>
                 <SidebarGroupLabel>
@@ -323,15 +361,22 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 }
 
 export function WorkspaceRail(props: {
-  activeWorkspace: 'manuscript' | 'knowledge' | 'references' | 'find'
+  activeWorkspace: WorkspaceKind
   onOpenKnowledge(): void
+  onOpenAssets(): void
   onOpenManuscript(): void
   onOpenReferences(): void
+  onOpenIssues(): void
+  onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
+  reviewCount?: number
 }): React.JSX.Element {
   return (
-    <Sidebar collapsible='none' className='w-[calc(var(--sidebar-width-icon)+1px)]! border-r'>
+    <Sidebar
+      collapsible='none'
+      className='w-[calc(var(--sidebar-width-icon)+1px)]! min-w-[calc(var(--sidebar-width-icon)+1px)]! max-w-[calc(var(--sidebar-width-icon)+1px)]! overflow-hidden border-r [&_[data-slot=sidebar-menu-button]>span]:hidden'
+    >
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -350,6 +395,7 @@ export function WorkspaceRail(props: {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label='Find'
                   tooltip={{ children: 'Find', hidden: false }}
                   isActive={props.activeWorkspace === 'find'}
                   className='px-2.5 md:px-2'
@@ -361,6 +407,36 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label={`Review Center, ${props.reviewCount ?? 0} open annotations`}
+                  tooltip={{ children: 'Review Center', hidden: false }}
+                  isActive={props.activeWorkspace === 'issues'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenIssues}
+                >
+                  <ClipboardList />
+                  {(props.reviewCount ?? 0) > 0 ? (
+                    <sup className='absolute top-0.5 right-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] leading-4 text-primary-foreground'>
+                      {(props.reviewCount ?? 0) > 99 ? '99+' : props.reviewCount}
+                    </sup>
+                  ) : null}
+                  <span>Review Center</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Writing rules'
+                  tooltip={{ children: 'Writing rules', hidden: false }}
+                  isActive={props.activeWorkspace === 'writing_rules'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenWritingRules}
+                >
+                  <BookMarked />
+                  <span>Writing rules</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Manuscript'
                   tooltip={{ children: 'Manuscript', hidden: false }}
                   isActive={props.activeWorkspace === 'manuscript'}
                   className='px-2.5 md:px-2'
@@ -372,6 +448,7 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label='References'
                   tooltip={{ children: 'References', hidden: false }}
                   isActive={props.activeWorkspace === 'references'}
                   className='px-2.5 md:px-2'
@@ -383,6 +460,19 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label='Images'
+                  tooltip={{ children: 'Images', hidden: false }}
+                  isActive={props.activeWorkspace === 'assets'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenAssets}
+                >
+                  <Images />
+                  <span>Images</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Knowledge'
                   tooltip={{ children: 'Knowledge', hidden: false }}
                   isActive={props.activeWorkspace === 'knowledge'}
                   className='px-2.5 md:px-2'
@@ -394,6 +484,7 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label='Settings'
                   tooltip={{ children: 'Settings', hidden: false }}
                   onClick={props.onOpenSettings}
                 >

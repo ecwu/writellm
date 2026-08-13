@@ -5,11 +5,36 @@ export interface AppSettingTable {
   updated_at: string
 }
 
+export interface PublicationPresetTable {
+  preset_id: string
+  name: string
+  origin: 'application' | 'user'
+  schema_version: number
+  options_json: string
+  is_default: number
+  created_at: string
+  updated_at: string
+}
+
 export interface RecentProjectTable {
   project_id: string
   project_path: string
   display_name: string
   last_opened_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectTemplateTable {
+  template_id: string
+  name: string
+  description: string
+  schema_version: number
+  relative_path: string
+  sha256: string
+  section_count: number
+  writing_rule_count: number
+  has_publication_preset: number
   created_at: string
   updated_at: string
 }
@@ -94,7 +119,9 @@ export interface AgentSkillTable {
 
 export interface AppDatabaseSchema {
   app_settings: AppSettingTable
+  publication_presets: PublicationPresetTable
   recent_projects: RecentProjectTable
+  project_templates: ProjectTemplateTable
   provider_configs: ProviderConfigTable
   encrypted_credentials: EncryptedCredentialTable
   agent_model_catalogs: AgentModelCatalogTable

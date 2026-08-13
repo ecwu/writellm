@@ -1,0 +1,142 @@
+[
+  {
+    "format": "writellm-project-template",
+    "formatVersion": 1,
+    "templateId": "019d0000-0000-7000-8000-000000000471",
+    "name": "Academic article",
+    "description": "A conventional evidence-led article structure with reusable academic writing decisions.",
+    "brief": {
+      "description": "A focused academic article that develops and supports one central contribution.",
+      "topic": "",
+      "targetAudience": "Scholarly readers in the relevant field",
+      "language": "English",
+      "styleTone": "Precise, evidence-led, and concise",
+      "scopeExclusions": "",
+      "targetLength": "",
+      "citationRequirements": "Support substantive claims with traceable sources.",
+      "additionalInstructions": "State the contribution clearly and distinguish evidence from interpretation."
+    },
+    "outline": [
+      {
+        "templateKey": "introduction",
+        "parentTemplateKey": null,
+        "title": "Introduction",
+        "objective": "Frame the problem, gap, contribution, and roadmap.",
+        "status": "planned"
+      },
+      {
+        "templateKey": "background",
+        "parentTemplateKey": null,
+        "title": "Background",
+        "objective": "Establish the relevant literature and conceptual context.",
+        "status": "planned"
+      },
+      {
+        "templateKey": "methods",
+        "parentTemplateKey": null,
+        "title": "Methods",
+        "objective": "Explain the evidence and analytical method reproducibly.",
+        "status": "planned"
+      },
+      {
+        "templateKey": "results",
+        "parentTemplateKey": null,
+        "title": "Results",
+        "objective": "Present findings without overstating them.",
+        "status": "planned"
+      },
+      {
+        "templateKey": "discussion",
+        "parentTemplateKey": null,
+        "title": "Discussion",
+        "objective": "Interpret results, limitations, and implications.",
+        "status": "planned"
+      },
+      {
+        "templateKey": "conclusion",
+        "parentTemplateKey": null,
+        "title": "Conclusion",
+        "objective": "Synthesize the contribution and next steps.",
+        "status": "planned"
+      }
+    ],
+    "writingRules": [
+      {
+        "category": "evidence",
+        "instruction": "Do not present an unsupported inference as an established fact.",
+        "preferredForm": null,
+        "discouragedForms": [],
+        "rationale": "Keep claims calibrated to the available evidence.",
+        "active": true
+      },
+      {
+        "category": "academic",
+        "instruction": "State limitations explicitly where they affect interpretation.",
+        "preferredForm": null,
+        "discouragedForms": [],
+        "rationale": null,
+        "active": true
+      }
+    ],
+    "publicationPresetId": "builtin:academic-a4"
+  },
+  {
+    "format": "writellm-project-template",
+    "formatVersion": 1,
+    "templateId": "019d0000-0000-7000-8000-000000000472",
+    "name": "中文研究报告",
+    "description": "适用于中文研究与分析报告的简洁结构。",
+    "brief": {
+      "description": "围绕明确问题形成可核验、可执行的研究报告。",
+      "topic": "",
+      "targetAudience": "需要基于证据做出决策的读者",
+      "language": "简体中文",
+      "styleTone": "准确、克制、结构清晰",
+      "scopeExclusions": "",
+      "targetLength": "",
+      "citationRequirements": "关键事实和判断应标明可追溯来源。",
+      "additionalInstructions": "先给结论，再说明证据、限制和建议。"
+    },
+    "outline": [
+      {
+        "templateKey": "summary",
+        "parentTemplateKey": null,
+        "title": "执行摘要",
+        "objective": "概括结论、证据和建议。",
+        "status": "planned"
+      },
+      {
+        "templateKey": "problem",
+        "parentTemplateKey": null,
+        "title": "问题与范围",
+        "objective": "界定研究问题、范围和限制。",
+        "status": "planned"
+      },
+      {
+        "templateKey": "evidence",
+        "parentTemplateKey": null,
+        "title": "证据与分析",
+        "objective": "呈现可核验的证据与分析。",
+        "status": "planned"
+      },
+      {
+        "templateKey": "recommendations",
+        "parentTemplateKey": null,
+        "title": "建议",
+        "objective": "给出有优先级和边界条件的建议。",
+        "status": "planned"
+      }
+    ],
+    "writingRules": [
+      {
+        "category": "style",
+        "instruction": "避免空泛的程度副词，优先使用可核验的具体表述。",
+        "preferredForm": null,
+        "discouragedForms": [],
+        "rationale": null,
+        "active": true
+      }
+    ],
+    "publicationPresetId": "builtin:academic-a4"
+  }
+]

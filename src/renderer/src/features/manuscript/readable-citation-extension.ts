@@ -180,6 +180,8 @@ function citationAttributes(
 function createReferenceIcon(): SVGSVGElement {
   const namespace = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(namespace, 'svg')
+  svg.setAttribute('width', '16')
+  svg.setAttribute('height', '16')
   svg.setAttribute('viewBox', '0 0 24 24')
   svg.setAttribute('fill', 'none')
   svg.setAttribute('stroke', 'currentColor')
@@ -187,6 +189,7 @@ function createReferenceIcon(): SVGSVGElement {
   svg.setAttribute('stroke-linecap', 'round')
   svg.setAttribute('stroke-linejoin', 'round')
   svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('focusable', 'false')
   svg.classList.add('lucide', 'lucide-book-open-text')
   for (const d of [
     'M12 7v14',

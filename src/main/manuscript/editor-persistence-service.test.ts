@@ -84,7 +84,7 @@ describe('EditorPersistenceService', () => {
     expect(JSON.parse(bytes)).toEqual({
       format: 'writellm-blocknote-section',
       formatVersion: 1,
-      contentSchemaVersion: 2,
+      contentSchemaVersion: 3,
       sectionId: opened.section.sectionId,
       sectionRevisionId: first.revision.sectionRevisionId,
       contentHash: first.revision.contentHash,

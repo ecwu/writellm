@@ -88,6 +88,36 @@ describe('Agent IPC contracts', () => {
     ).toThrow('mutually exclusive')
   })
 
+  it('requires an exact selection and no Renderer prompt for quick actions', () => {
+    const input = {
+      projectSessionId,
+      agentSessionId,
+      quickAction: { action: 'rewrite' as const },
+      scope: 'selection' as const,
+      editorContext: {
+        activeSectionId: sectionId,
+        activeBlockId: 'block-1',
+        selectedBlockIds: ['block-1'],
+        selectedText: 'Exact selected text.',
+        capturedAt: 1,
+        capturedRevisionId: agentRunId
+      }
+    }
+    expect(agentStartRunInputSchema.parse(input).quickAction).toEqual({ action: 'rewrite' })
+    expect(() =>
+      agentStartRunInputSchema.parse({ ...input, prompt: 'Renderer-authored rewrite prompt' })
+    ).toThrow('Exactly one')
+    expect(() =>
+      agentStartRunInputSchema.parse({
+        ...input,
+        editorContext: { ...input.editorContext, selectedText: null }
+      })
+    ).toThrow('exact selected text')
+    expect(() => agentStartRunInputSchema.parse({ ...input, scope: 'section' })).toThrow(
+      'selection scope'
+    )
+  })
+
   it('bounds replay pages and renderer deltas', () => {
     expect(() =>
       agentEventPageInputSchema.parse({

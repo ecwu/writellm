@@ -540,8 +540,11 @@ function abortError(message: string): Error {
 function isMutationTool(toolName: string): boolean {
   return (
     toolName === 'submit_brief_change' ||
+    toolName === 'submit_writing_rules_change' ||
     toolName === 'submit_outline_change' ||
     toolName === 'submit_section_change' ||
+    toolName === 'record_review_issues' ||
+    toolName === 'update_review_issues' ||
     toolName === 'generate_image'
   )
 }

@@ -19,6 +19,7 @@ import {
 } from '../../../../shared/contracts/agent'
 import { agentToolCallPayloadSchema } from '../../../../shared/contracts/agent-tools'
 import type { SkillSelection, SkillsSnapshot } from '../../../../shared/contracts/skills'
+import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
 import type {
   AgentModelSelection,
   AgentProviderCatalog,
@@ -40,6 +41,9 @@ import {
   ListCollapse,
   MessageSquarePlus,
   MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
   RotateCcw,
   Settings2,
   ShieldCheck,
@@ -72,6 +76,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Command,
@@ -85,6 +90,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
@@ -97,7 +103,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
@@ -116,6 +123,13 @@ import {
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
@@ -130,6 +144,7 @@ import {
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
+  buildWritingTaskChangeSet,
   citationDisplaysForToolResult,
   currentAgentActivitySummary,
   formatAgentDuration,
@@ -146,11 +161,28 @@ import {
   toolWasStopped
 } from './agent-view-model'
 import { ProposalDiff } from './proposal-diff'
+import {
+  MAX_WRITING_TASK_STEPS,
+  type WritingTaskProgressState,
+  type WritingTaskStepStatus,
+  type WritingTaskView
+} from '../../../../shared/contracts/writing-task'
+import type { ChangeSetBatchResult } from '../../../../shared/contracts/agent-change-set'
+import type { AnnotationRecord } from '../../../../shared/contracts/annotations'
 
 export interface AgentPanelSelection {
   sectionId: string
   activeBlockId: string | null
   selectedBlockIds: string[]
+  selectedText?: string | null
+  capturedAt?: number
+  capturedRevisionId?: string
+}
+
+export interface AgentPanelQuickActionRequest {
+  requestId: string
+  quickAction: AgentQuickActionRequest
+  selection: AgentPanelSelection
 }
 
 export function AgentPanel(props: {
@@ -163,6 +195,10 @@ export function AgentPanel(props: {
   sectionTitles: Readonly<Record<string, string>>
   currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
+  quickActionRequest?: AgentPanelQuickActionRequest | null
+  includedAnnotations: AnnotationRecord[]
+  onClearIncludedAnnotations(): void
+  onQuickActionHandled?(requestId: string, started: boolean): void
   onFollowSection(sectionId: string): Promise<boolean>
   flushCurrent(): Promise<boolean>
   refreshManuscript(): Promise<void>
@@ -189,14 +225,16 @@ export function AgentPanel(props: {
   const [detailsSkillPickerOpen, setDetailsSkillPickerOpen] = useState(false)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [taskEditorOpen, setTaskEditorOpen] = useState(false)
   const [continuationFailure, setContinuationFailure] = useState<{
     kind: 'approval' | 'revision'
     proposalId: string
   } | null>(null)
   const [titleGeneratingIds, setTitleGeneratingIds] = useState<Set<string>>(() => new Set())
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const processedQuickActionIdsRef = useRef(new Set<string>())
   const [providerCatalog, setProviderCatalog] = useState<AgentProviderCatalog>({
     presets: [],
     defaultSelection: null
@@ -660,6 +698,13 @@ export function AgentPanel(props: {
     workflowState === 'compacting'
   const scope = effectiveScope(scopePreference, selectionIsAvailable, props.activeSectionId)
   const agentCapacityReached = activeRun === null && activeWorkCount >= activeRunLimit
+  const canControlTask =
+    activeSession?.writingTask !== null &&
+    activeSession?.writingTask !== undefined &&
+    !activeSessionArchived &&
+    workflowState === 'idle' &&
+    !busy &&
+    !agentCapacityReached
   const workingSession =
     sessions.find(
       (session) =>
@@ -952,11 +997,29 @@ export function AgentPanel(props: {
     skipEditorFlush = false,
     _selectionOverride?: SkillSelection,
     reuseSkillFromRunId?: string,
-    rejectedProposalId?: string
+    rejectedProposalId?: string,
+    quickAction?: AgentQuickActionRequest,
+    quickActionSelection?: AgentPanelSelection
   ): Promise<boolean> => {
     const trimmed = content.trim()
+    const quickActionBlocked =
+      quickAction === undefined
+        ? null
+        : activeSessionArchived
+          ? 'Restore this conversation before using a quick action.'
+          : busy || activeRun !== null || conversationLocked
+            ? 'Finish the current Agent work or review before using a quick action.'
+            : !modelReady
+              ? 'Choose an Agent model before using a quick action.'
+              : agentCapacityReached
+                ? `All ${activeRunLimit} Agent work slots are in use. Try again when one finishes.`
+                : null
+    if (quickActionBlocked !== null) {
+      setError(quickActionBlocked)
+      return false
+    }
     if (
-      trimmed.length === 0 ||
+      (trimmed.length === 0 && quickAction === undefined) ||
       activeSessionArchived ||
       (!allowWhileBusy && busy) ||
       ((activeRun !== null || conversationLocked) &&
@@ -974,18 +1037,25 @@ export function AgentPanel(props: {
         return false
       }
       const session = activeSession ?? (await createSession())
+      const includedAnnotationIds =
+        quickAction === undefined &&
+        approvedProposalId === undefined &&
+        rejectedProposalId === undefined
+          ? props.includedAnnotations.map((annotation) => annotation.annotationId)
+          : []
       const run = await window.desktop.agent.startRun({
         projectSessionId: props.projectSessionId,
         agentSessionId: session.agentSessionId,
-        prompt: trimmed,
+        ...(quickAction === undefined ? { prompt: trimmed } : { quickAction }),
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         ...(rejectedProposalId === undefined ? {} : { rejectedProposalId }),
-        scope,
+        includedAnnotationIds,
+        scope: quickAction === undefined ? scope : 'selection',
         ...(reuseSkillFromRunId === undefined ? {} : { reuseSkillFromRunId }),
         editorContext: editorContextForScope(
-          scope,
+          quickAction === undefined ? scope : 'selection',
           props.activeSectionId,
-          props.selection,
+          quickActionSelection ?? props.selection,
           props.currentRevisionIds
         )
       })
@@ -998,6 +1068,7 @@ export function AgentPanel(props: {
       )
       setActiveRunIds((current) => new Set(current).add(run.agentRunId))
       setPrompt('')
+      if (includedAnnotationIds.length > 0) props.onClearIncludedAnnotations()
       return true
     } catch (cause) {
       const message = errorMessage(cause)
@@ -1007,6 +1078,33 @@ export function AgentPanel(props: {
       setBusy(false)
     }
   }
+  const startRunRef = useRef(startRun)
+  startRunRef.current = startRun
+
+  useEffect(() => {
+    const request = props.quickActionRequest
+    if (
+      loading ||
+      request === undefined ||
+      request === null ||
+      processedQuickActionIdsRef.current.has(request.requestId)
+    )
+      return
+    processedQuickActionIdsRef.current.add(request.requestId)
+    void startRunRef
+      .current(
+        '',
+        undefined,
+        false,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        request.quickAction,
+        request.selection
+      )
+      .then((started) => props.onQuickActionHandled?.(request.requestId, started))
+  }, [loading, props.quickActionRequest, props.onQuickActionHandled])
 
   const reconcileInactiveRun = async (agentRunId: string): Promise<boolean> => {
     if (activeSessionId === null) return false
@@ -1038,6 +1136,83 @@ export function AgentPanel(props: {
         const message = errorMessage(cause)
         setError(message)
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resumeWritingTask = async (): Promise<void> => {
+    if (!canControlTask || activeSession === null || activeSession.writingTask === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (!(await props.flushCurrent())) {
+        setError('Save the active section before resuming the writing task.')
+        return
+      }
+      const run = await window.desktop.agent.startRun({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        resumeWritingTask: true,
+        includedAnnotationIds: [],
+        scope,
+        editorContext: editorContextForScope(
+          scope,
+          props.activeSectionId,
+          props.selection,
+          props.currentRevisionIds
+        )
+      })
+      setRuns((current) => [run, ...current.filter((item) => item.agentRunId !== run.agentRunId)])
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reviseWritingTask = async (input: {
+    taskId: string
+    expectedPlanVersion: number
+    objective: string
+    steps: Array<{
+      stepId?: string
+      title: string
+      status: WritingTaskStepStatus
+      statusReason: string | null
+    }>
+  }): Promise<void> => {
+    if (!canControlTask || activeSession === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      const task = await window.desktop.agent.updateWritingTask({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        taskId: input.taskId,
+        expectedPlanVersion: input.expectedPlanVersion,
+        objective: input.objective,
+        steps: input.steps.map((step) =>
+          step.stepId === undefined
+            ? { title: step.title, status: step.status === 'active' ? 'active' : 'pending' }
+            : {
+                stepId: step.stepId,
+                title: step.title,
+                status: step.status,
+                statusReason: step.statusReason
+              }
+        )
+      })
+      setSessions((current) =>
+        current.map((session) =>
+          session.agentSessionId === activeSession.agentSessionId
+            ? { ...session, writingTask: task }
+            : session
+        )
+      )
+      setTaskEditorOpen(false)
+    } catch (cause) {
+      setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -1093,6 +1268,9 @@ export function AgentPanel(props: {
             })
         })
         if (result === null) throw new Error('The active editor could not be saved before approval')
+        if (result.warnings.length > 0) {
+          setError(`Review tracking warning: ${result.warnings.join(' ')}`)
+        }
         if (result.outcome === 'refresh_required') {
           updateProposals(result.previousProposal, result.proposal)
         } else {
@@ -1179,6 +1357,9 @@ export function AgentPanel(props: {
           agentSessionId: proposal.agentSessionId,
           proposalId: proposal.proposalId
         })
+        if (result.warnings.length > 0) {
+          setError(`Review tracking warning: ${result.warnings.join(' ')}`)
+        }
         updateProposals(result.proposal)
         if (result.sectionChanged !== null) {
           const changed = result.sectionChanged
@@ -1195,6 +1376,38 @@ export function AgentPanel(props: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const decideChangeSet = async (input: {
+    taskId: string
+    proposalIds: string[]
+    action: 'apply' | 'reject'
+    rejectReason: string | null
+    createCheckpoint: boolean
+  }): Promise<ChangeSetBatchResult> => {
+    if (activeSession === null) throw new Error('Agent conversation is not open')
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.desktop.agent.decideChangeSet({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSession.agentSessionId,
+        taskId: input.taskId,
+        commandId: crypto.randomUUID(),
+        action: input.action,
+        proposalIds: input.proposalIds,
+        rejectReason: input.rejectReason,
+        createCheckpoint: input.createCheckpoint
+      })
+      await refreshSessionTruth(activeSession.agentSessionId)
+      if (result.review.appliedCount > 0) await props.refreshManuscript()
+      return result
+    } catch (cause) {
+      setError(errorMessage(cause))
+      throw cause
     } finally {
       setBusy(false)
     }
@@ -1307,6 +1520,98 @@ export function AgentPanel(props: {
                       : 'Ready'}
           </span>
         </div>
+
+        {activeSession?.writingTask ? (
+          <section
+            className='flex max-h-48 flex-col gap-2 overflow-y-auto border-b px-4 py-3'
+            aria-label='Writing task'
+            data-testid='agent-writing-task'
+          >
+            <div className='flex items-start justify-between gap-2'>
+              <h3 className='min-w-0 text-sm font-medium leading-snug'>
+                {activeSession.writingTask.objective}
+              </h3>
+              <div className='flex shrink-0 items-center gap-1'>
+                <Badge variant='outline'>Plan v{activeSession.writingTask.planVersion}</Badge>
+                <Badge variant='outline'>
+                  {activeSession.writingTask.progress.completedCount}/
+                  {activeSession.writingTask.plan.steps.length}
+                </Badge>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label='Revise writing task plan'
+                  disabled={!canControlTask}
+                  onClick={() => setTaskEditorOpen(true)}
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label='Resume writing task'
+                  disabled={
+                    !canControlTask || activeSession.writingTask.progress.currentStepId === null
+                  }
+                  onClick={() => void resumeWritingTask()}
+                >
+                  <Play />
+                </Button>
+              </div>
+            </div>
+            <ol className='flex flex-col gap-1'>
+              {activeSession.writingTask.plan.steps.map((step, index) => {
+                const progress = activeSession.writingTask?.progress.steps.find(
+                  (candidate) => candidate.stepId === step.stepId
+                )
+                return (
+                  <li key={step.stepId} className='flex min-w-0 items-start gap-2 text-xs'>
+                    <Badge
+                      variant={
+                        progress?.state === 'disagreement'
+                          ? 'destructive'
+                          : step.status === 'active'
+                            ? 'secondary'
+                            : 'outline'
+                      }
+                      className='mt-0.5 shrink-0'
+                    >
+                      {writingTaskProgressLabel(progress?.state ?? step.status)}
+                    </Badge>
+                    <span className='min-w-0'>
+                      <span className='line-clamp-2'>
+                        {index + 1}. {step.title}
+                      </span>
+                      {step.statusReason !== null ? (
+                        <span className='line-clamp-2 text-muted-foreground'>
+                          {step.statusReason}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+            {activeSession.writingTask.progress.hasDisagreement ? (
+              <p className='flex items-start gap-1.5 text-xs text-destructive'>
+                <TriangleAlert className='mt-0.5 size-3.5 shrink-0' />
+                Plan status disagrees with a run or manuscript outcome. Revise or resume to
+                reconcile it.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeSession?.writingTask ? (
+          <WritingTaskChangeSetPanel
+            task={activeSession.writingTask}
+            proposals={proposals}
+            currentRevisionIds={effectiveRevisionIds}
+            sectionTitles={props.sectionTitles}
+            busy={busy || activeSessionArchived}
+            onBatch={decideChangeSet}
+          />
+        ) : null}
 
         <div className='min-h-0 flex-1'>
           {loading ? (
@@ -1468,6 +1773,23 @@ export function AgentPanel(props: {
               <FieldLabel htmlFor='agent-message' className='sr-only'>
                 Agent message
               </FieldLabel>
+              {props.includedAnnotations.length > 0 ? (
+                <div className='flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-xs'>
+                  <Badge variant='secondary'>
+                    {props.includedAnnotations.length} selected annotations
+                  </Badge>
+                  <span className='min-w-0 flex-1 truncate'>Included in this prompt only</span>
+                  <Button
+                    type='button'
+                    size='icon-xs'
+                    variant='ghost'
+                    aria-label='Remove selected annotations'
+                    onClick={props.onClearIncludedAnnotations}
+                  >
+                    <X />
+                  </Button>
+                </div>
+              ) : null}
               <InputGroup
                 data-disabled={busy || choosingSkill || activeSession?.compatible === false}
               >
@@ -1670,6 +1992,13 @@ export function AgentPanel(props: {
         onSkillSelect={setSkillSelection}
         onApprovalModeSelect={setApprovalMode}
         onOpenSettings={props.onOpenSkillSettings}
+      />
+      <WritingTaskDialog
+        open={taskEditorOpen}
+        onOpenChange={setTaskEditorOpen}
+        task={activeSession?.writingTask ?? null}
+        busy={busy}
+        onSave={reviseWritingTask}
       />
       <AlertDialog open={compactionConfirmOpen} onOpenChange={setCompactionConfirmOpen}>
         <AlertDialogContent>
@@ -2025,6 +2354,264 @@ function ReviewBar(props: {
   )
 }
 
+interface WritingTaskDraftStep {
+  key: string
+  stepId?: string
+  title: string
+  status: WritingTaskStepStatus
+  statusReason: string | null
+}
+
+function WritingTaskDialog(props: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  task: WritingTaskView | null
+  busy: boolean
+  onSave(input: {
+    taskId: string
+    expectedPlanVersion: number
+    objective: string
+    steps: WritingTaskDraftStep[]
+  }): Promise<void>
+}): React.JSX.Element {
+  const [objective, setObjective] = useState('')
+  const [steps, setSteps] = useState<WritingTaskDraftStep[]>([])
+
+  useEffect(() => {
+    if (!props.open || props.task === null) return
+    setObjective(props.task.objective)
+    setSteps(
+      props.task.plan.steps.map((step) => ({
+        key: step.stepId,
+        stepId: step.stepId,
+        title: step.title,
+        status: step.status,
+        statusReason: step.statusReason
+      }))
+    )
+  }, [props.open, props.task])
+
+  const validation = writingTaskDraftValidation(objective, steps)
+  const updateStep = (key: string, update: Partial<WritingTaskDraftStep>): void => {
+    setSteps((current) =>
+      current.map((step) => {
+        if (step.key !== key) return step
+        const next = { ...step, ...update }
+        if (next.status !== 'blocked' && next.status !== 'skipped') next.statusReason = null
+        return next
+      })
+    )
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[min(85vh,48rem)] sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Revise writing task</DialogTitle>
+          <DialogDescription>
+            Update collaboration steps while the conversation is idle. Manuscript and proposal
+            outcomes remain authoritative.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='flex min-h-0 flex-col gap-5 overflow-y-auto px-1 py-1'>
+          <Field>
+            <FieldLabel htmlFor='writing-task-objective'>Objective</FieldLabel>
+            <Textarea
+              id='writing-task-objective'
+              value={objective}
+              maxLength={4_096}
+              rows={3}
+              disabled={props.busy}
+              onChange={(event) => setObjective(event.target.value)}
+            />
+            <FieldDescription>
+              Describe the single outcome this conversation is pursuing.
+            </FieldDescription>
+          </Field>
+          <div className='flex flex-col gap-3'>
+            <div className='flex items-center justify-between gap-3'>
+              <h3 className='text-sm font-medium'>Plan steps</h3>
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                disabled={props.busy || steps.length >= MAX_WRITING_TASK_STEPS}
+                onClick={() =>
+                  setSteps((current) => [
+                    ...current,
+                    {
+                      key: `new-${current.filter((step) => step.stepId === undefined).length + 1}`,
+                      title: '',
+                      status: current.some((step) => step.status === 'active')
+                        ? 'pending'
+                        : 'active',
+                      statusReason: null
+                    }
+                  ])
+                }
+              >
+                <Plus data-icon='inline-start' /> Add step
+              </Button>
+            </div>
+            <ol className='flex flex-col gap-4'>
+              {steps.map((step, index) => {
+                const immutable =
+                  step.stepId !== undefined &&
+                  (props.task?.plan.steps.find((candidate) => candidate.stepId === step.stepId)
+                    ?.status === 'completed' ||
+                    props.task?.plan.steps.find((candidate) => candidate.stepId === step.stepId)
+                      ?.status === 'skipped')
+                const statuses = allowedUserStepStatuses(step, props.task)
+                return (
+                  <li key={step.key} className='grid min-w-0 gap-3 sm:grid-cols-[1fr_10rem]'>
+                    <Field>
+                      <FieldLabel htmlFor={`writing-task-step-${step.key}`}>
+                        Step {index + 1}
+                      </FieldLabel>
+                      <Input
+                        id={`writing-task-step-${step.key}`}
+                        value={step.title}
+                        maxLength={500}
+                        disabled={props.busy || immutable}
+                        onChange={(event) => updateStep(step.key, { title: event.target.value })}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Status</FieldLabel>
+                      <Select
+                        value={step.status}
+                        disabled={props.busy || statuses.length === 1}
+                        onValueChange={(value) =>
+                          updateStep(step.key, { status: value as WritingTaskStepStatus })
+                        }
+                      >
+                        <SelectTrigger aria-label={`Status for step ${index + 1}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {statuses.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {writingTaskProgressLabel(status)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {step.status === 'blocked' || step.status === 'skipped' ? (
+                      <Field className='sm:col-span-2'>
+                        <FieldLabel htmlFor={`writing-task-reason-${step.key}`}>
+                          {step.status === 'blocked' ? 'Blocker' : 'Reason for skipping'}
+                        </FieldLabel>
+                        <Textarea
+                          id={`writing-task-reason-${step.key}`}
+                          value={step.statusReason ?? ''}
+                          maxLength={2_000}
+                          rows={2}
+                          disabled={props.busy}
+                          onChange={(event) =>
+                            updateStep(step.key, { statusReason: event.target.value })
+                          }
+                        />
+                      </Field>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
+          {validation !== null ? (
+            <Alert variant='destructive'>
+              <TriangleAlert />
+              <AlertTitle>Plan needs attention</AlertTitle>
+              <AlertDescription>{validation}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+        <DialogFooter showCloseButton>
+          <Button
+            disabled={props.busy || props.task === null || validation !== null}
+            onClick={() => {
+              if (props.task === null || validation !== null) return
+              void props.onSave({
+                taskId: props.task.taskId,
+                expectedPlanVersion: props.task.planVersion,
+                objective: objective.trim(),
+                steps: steps.map((step) => ({
+                  ...step,
+                  title: step.title.trim(),
+                  statusReason: step.statusReason?.trim() || null
+                }))
+              })
+            }}
+          >
+            {props.busy ? <Spinner data-icon='inline-start' /> : <Check data-icon='inline-start' />}
+            Save plan
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function writingTaskDraftValidation(
+  objective: string,
+  steps: WritingTaskDraftStep[]
+): string | null {
+  if (objective.trim().length === 0) return 'Add a task objective.'
+  if (steps.length === 0) return 'Add at least one plan step.'
+  if (steps.some((step) => step.title.trim().length === 0)) return 'Every step needs a title.'
+  if (
+    steps.some(
+      (step) =>
+        (step.status === 'blocked' || step.status === 'skipped') &&
+        (step.statusReason === null || step.statusReason.trim().length === 0)
+    )
+  ) {
+    return 'Blocked and skipped steps need a reason.'
+  }
+  const activeCount = steps.filter((step) => step.status === 'active').length
+  if (activeCount > 1) return 'Only one step can be active.'
+  if (steps.some((step) => step.status === 'pending') && activeCount !== 1) {
+    return 'Choose one active step while pending work remains.'
+  }
+  return null
+}
+
+function allowedUserStepStatuses(
+  step: WritingTaskDraftStep,
+  task: WritingTaskView | null
+): WritingTaskStepStatus[] {
+  if (step.stepId === undefined) return ['pending', 'active']
+  const original = task?.plan.steps.find((candidate) => candidate.stepId === step.stepId)?.status
+  const allowed: Record<WritingTaskStepStatus, WritingTaskStepStatus[]> = {
+    pending: ['pending', 'active', 'skipped', 'blocked'],
+    active: ['active', 'completed', 'skipped', 'blocked'],
+    completed: ['completed'],
+    skipped: ['skipped'],
+    blocked: ['blocked', 'active', 'skipped']
+  }
+  return allowed[original ?? step.status]
+}
+
+function writingTaskProgressLabel(state: WritingTaskProgressState | WritingTaskStepStatus): string {
+  const labels: Record<WritingTaskProgressState | WritingTaskStepStatus, string> = {
+    pending: 'Pending',
+    active: 'Active',
+    completed: 'Completed',
+    skipped: 'Skipped',
+    blocked: 'Blocked',
+    ready: 'Ready',
+    in_progress: 'In progress',
+    awaiting_review: 'Review',
+    verified_complete: 'Verified',
+    reported_complete: 'Reported',
+    stopped: 'Stopped',
+    failed: 'Failed',
+    disagreement: 'Needs reconciliation'
+  }
+  return labels[state]
+}
+
 function AgentDetailsDialog(props: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -2189,6 +2776,274 @@ function AgentDetailsDialog(props: {
   )
 }
 
+const CHANGE_SET_STATUSES: MutationProposalRecord['status'][] = [
+  'pending',
+  'generating',
+  'approved',
+  'applied',
+  'satisfied',
+  'superseded',
+  'conflicted',
+  'rejected',
+  'failed',
+  'undone'
+]
+
+function WritingTaskChangeSetPanel(props: {
+  task: WritingTaskView
+  proposals: MutationProposalRecord[]
+  currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
+  busy: boolean
+  onBatch(input: {
+    taskId: string
+    proposalIds: string[]
+    action: 'apply' | 'reject'
+    rejectReason: string | null
+    createCheckpoint: boolean
+  }): Promise<ChangeSetBatchResult>
+}): React.JSX.Element | null {
+  const { resolvedTheme } = useTheme()
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [createCheckpoint, setCreateCheckpoint] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [result, setResult] = useState<ChangeSetBatchResult | null>(null)
+  const stepTitles = useMemo(
+    () => Object.fromEntries(props.task.plan.steps.map((step) => [step.stepId, step.title])),
+    [props.task.plan.steps]
+  )
+  const changeSet = useMemo(
+    () =>
+      buildWritingTaskChangeSet({
+        taskId: props.task.taskId,
+        proposals: props.proposals,
+        currentRevisionIds: props.currentRevisionIds,
+        sectionTitles: props.sectionTitles,
+        stepTitles
+      }),
+    [props.currentRevisionIds, props.proposals, props.sectionTitles, props.task.taskId, stepTitles]
+  )
+  if (changeSet.proposalCount === 0) return null
+  const selectableIds = changeSet.groups.flatMap((group) =>
+    group.entries.flatMap((entry) =>
+      entry.proposal.status === 'pending' ? [entry.proposal.proposalId] : []
+    )
+  )
+  const selectedIds = selectableIds.filter((proposalId) => selected.has(proposalId))
+
+  const runBatch = async (action: 'apply' | 'reject'): Promise<void> => {
+    if (selectedIds.length === 0) return
+    const next = await props.onBatch({
+      taskId: props.task.taskId,
+      proposalIds: selectedIds,
+      action,
+      rejectReason: action === 'reject' ? rejectReason.trim() : null,
+      createCheckpoint: action === 'apply' && createCheckpoint
+    })
+    setResult(next)
+    setSelected(new Set())
+    if (action === 'reject') {
+      setRejectOpen(false)
+      setRejectReason('')
+    }
+  }
+
+  const navigateToProposal = (proposalId: string): void => {
+    const target = document.querySelector<HTMLElement>(
+      `[data-testid="agent-proposal-${proposalId}"]`
+    )
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target?.focus({ preventScroll: true })
+  }
+
+  return (
+    <Collapsible className='group/change-set border-b' data-testid='agent-writing-change-set'>
+      <div className='flex min-h-11 items-center gap-2 px-4 py-2'>
+        <CollapsibleTrigger className='flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+          <ChevronRight className='size-4 shrink-0 transition-transform group-data-[state=open]/change-set:rotate-90' />
+          <span className='min-w-0 flex-1 truncate text-sm font-medium'>Task change set</span>
+          <Badge variant='outline'>{changeSet.proposalCount}</Badge>
+        </CollapsibleTrigger>
+        {changeSet.staleCount > 0 ? (
+          <Badge variant='warning'>{changeSet.staleCount} need refresh</Badge>
+        ) : null}
+      </div>
+      <CollapsibleContent>
+        <div className='flex max-h-80 flex-col gap-3 overflow-y-auto px-4 pb-4'>
+          {selectableIds.length > 0 ? (
+            <div className='flex flex-wrap items-center gap-2 border-b pb-3'>
+              <Button
+                size='sm'
+                disabled={props.busy || selectedIds.length === 0}
+                onClick={() => void runBatch('apply')}
+              >
+                <Check data-icon='inline-start' /> Apply selected
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={props.busy || selectedIds.length === 0}
+                onClick={() => setRejectOpen(true)}
+              >
+                <X data-icon='inline-start' /> Reject selected
+              </Button>
+              <span className='flex items-center gap-2 text-xs text-muted-foreground'>
+                <Checkbox
+                  aria-label='Create history checkpoint if available'
+                  checked={createCheckpoint}
+                  onCheckedChange={(checked) => setCreateCheckpoint(checked === true)}
+                />
+                Create history checkpoint if available
+              </span>
+              <span className='ml-auto text-xs text-muted-foreground'>
+                {selectedIds.length} selected
+              </span>
+            </div>
+          ) : null}
+          {result === null ? null : (
+            <Alert variant={result.status === 'completed' ? 'default' : 'destructive'}>
+              {result.status === 'completed' ? <Check /> : <TriangleAlert />}
+              <AlertTitle>
+                {result.status === 'completed' ? 'Batch complete' : 'Batch partially complete'}
+              </AlertTitle>
+              <AlertDescription>
+                {result.completedCount} processed · {result.remainingCount} not attempted ·{' '}
+                {result.review.appliedCount} applied · {result.review.satisfiedCount} already
+                satisfied · {result.review.rejectedCount} rejected
+                {result.checkpointStatus === 'created' ? ' · checkpoint created' : ''}
+                {result.checkpointStatus === 'unavailable'
+                  ? ' · version history was unavailable'
+                  : ''}
+                {result.checkpointStatus === 'failed'
+                  ? ' · checkpoint failed, so no proposal was attempted'
+                  : ''}
+              </AlertDescription>
+            </Alert>
+          )}
+          <fieldset className='flex flex-wrap gap-1' aria-label='Proposal outcome summary'>
+            {CHANGE_SET_STATUSES.flatMap((status) => {
+              const count = changeSet.statusCounts[status] ?? 0
+              return count === 0
+                ? []
+                : [
+                    <Badge
+                      key={status}
+                      variant={status === 'conflicted' ? 'destructive' : 'outline'}
+                    >
+                      {status.replace('_', ' ')} {count}
+                    </Badge>
+                  ]
+            })}
+          </fieldset>
+          {changeSet.groups.map((group) => (
+            <section
+              key={group.key}
+              className='flex min-w-0 flex-col gap-2'
+              aria-label={group.label}
+            >
+              <h4 className='text-xs font-medium text-muted-foreground'>{group.label}</h4>
+              {group.entries.map((entry) => {
+                const preview = entry.proposal.payload.preview
+                return (
+                  <Collapsible
+                    key={entry.proposal.proposalId}
+                    className='group/change rounded-md border px-3 py-2'
+                    data-testid={`agent-change-set-proposal-${entry.proposal.proposalId}`}
+                  >
+                    <div className='flex min-w-0 items-start gap-2'>
+                      {entry.proposal.status === 'pending' ? (
+                        <Checkbox
+                          className='mt-0.5'
+                          aria-label={`Select ${preview.summary}`}
+                          checked={selected.has(entry.proposal.proposalId)}
+                          disabled={props.busy}
+                          onCheckedChange={(checked) => {
+                            setSelected((current) => {
+                              const next = new Set(current)
+                              if (checked === true) next.add(entry.proposal.proposalId)
+                              else next.delete(entry.proposal.proposalId)
+                              return next
+                            })
+                          }}
+                        />
+                      ) : null}
+                      <CollapsibleTrigger className='flex min-w-0 flex-1 items-start gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+                        <ChevronRight className='mt-0.5 size-3.5 shrink-0 transition-transform group-data-[state=open]/change:rotate-90' />
+                        <span className='min-w-0 flex-1'>
+                          <span className='line-clamp-2 text-xs font-medium'>
+                            {preview.summary}
+                          </span>
+                          {entry.stepTitle === null ? null : (
+                            <span className='line-clamp-1 text-xs text-muted-foreground'>
+                              {entry.stepTitle}
+                            </span>
+                          )}
+                        </span>
+                      </CollapsibleTrigger>
+                      <Badge variant={entry.stale ? 'warning' : 'outline'}>
+                        {entry.stale ? 'refresh required' : entry.proposal.status.replace('_', ' ')}
+                      </Badge>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => navigateToProposal(entry.reviewProposalId)}
+                      >
+                        Review
+                      </Button>
+                    </div>
+                    <CollapsibleContent className='pt-3'>
+                      <ProposalDiff
+                        beforeText={preview.beforeText}
+                        afterText={preview.afterText}
+                        beforeTextTruncated={preview.beforeTextTruncated}
+                        afterTextTruncated={preview.afterTextTruncated}
+                        dark={resolvedTheme === 'dark'}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
+                )
+              })}
+            </section>
+          ))}
+        </div>
+      </CollapsibleContent>
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject selected proposals</DialogTitle>
+            <DialogDescription>
+              The same bounded reason is recorded on each selected proposal. Completed decisions are
+              not rolled back if a later item fails.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor='change-set-reject-reason'>Reason</FieldLabel>
+            <Textarea
+              id='change-set-reject-reason'
+              value={rejectReason}
+              maxLength={4_096}
+              onChange={(event) => setRejectReason(event.target.value)}
+            />
+          </Field>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setRejectOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              disabled={props.busy || rejectReason.trim().length === 0}
+              onClick={() => void runBatch('reject')}
+            >
+              Reject {selectedIds.length}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Collapsible>
+  )
+}
+
 function EventTimeline(props: {
   timeline: AgentTimelineItem[]
   proposals: MutationProposalRecord[]
@@ -2290,10 +3145,30 @@ function TimelineItem(props: {
           <MessageHeader>
             {item.payload.presentation?.kind === 'review_feedback'
               ? 'Requested changes'
-              : deliveryLabel(item.payload.delivery)}
+              : item.payload.presentation?.kind === 'annotation_context'
+                ? `Prompt · ${item.payload.presentation.annotationCount} selected annotations`
+                : item.payload.presentation?.kind === 'quick_action'
+                  ? `Quick action · ${item.payload.presentation.label}`
+                  : deliveryLabel(item.payload.delivery)}
           </MessageHeader>
           <Bubble variant='muted' align='end'>
-            <BubbleContent className='whitespace-pre-wrap'>{item.payload.content}</BubbleContent>
+            <BubbleContent className='whitespace-pre-wrap'>
+              {item.payload.presentation?.kind === 'quick_action' ? (
+                <div className='flex min-w-0 flex-col gap-2'>
+                  {item.payload.presentation.displayInstruction === null ? null : (
+                    <p>{item.payload.presentation.displayInstruction}</p>
+                  )}
+                  <Alert>
+                    <AlertTitle>Captured selection</AlertTitle>
+                    <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
+                      {item.payload.presentation.selectedText}
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              ) : (
+                item.payload.content
+              )}
+            </BubbleContent>
           </Bubble>
         </MessageContent>
       </Message>
@@ -2658,7 +3533,7 @@ function ProposalMessage(props: {
     </div>
   )
   return (
-    <Message data-testid={`agent-proposal-${proposal.proposalId}`}>
+    <Message data-testid={`agent-proposal-${proposal.proposalId}`} tabIndex={-1}>
       <MessageContent>
         <MessageHeader className='gap-2'>
           <FilePenLine className='size-4' />
@@ -2943,6 +3818,7 @@ function editorContextForScope(
       activeSectionId: null,
       activeBlockId: null,
       selectedBlockIds: [],
+      selectedText: null,
       capturedAt: Date.now(),
       capturedRevisionId: null
     }
@@ -2954,6 +3830,7 @@ function editorContextForScope(
       activeSectionId,
       activeBlockId: null,
       selectedBlockIds: [],
+      selectedText: null,
       capturedAt: Date.now(),
       capturedRevisionId
     }
@@ -2965,8 +3842,9 @@ function editorContextForScope(
     activeSectionId,
     activeBlockId: selection.activeBlockId,
     selectedBlockIds: selection.selectedBlockIds,
-    capturedAt: Date.now(),
-    capturedRevisionId
+    selectedText: selection.selectedText ?? null,
+    capturedAt: selection.capturedAt ?? Date.now(),
+    capturedRevisionId: selection.capturedRevisionId ?? capturedRevisionId
   }
 }
 
@@ -2980,9 +3858,15 @@ function blockOperationDisplays(
   proposal: MutationProposalRecord
 ): Array<{ label: string; raw: string }> {
   if (proposal.payload.kind === 'generated_image_insert') {
+    const iteration = proposal.payload.mutation.iteration
     return [
       {
-        label: `Generate ${proposal.payload.mutation.imageSize} image`,
+        label:
+          iteration === null
+            ? `Generate ${proposal.payload.mutation.imageSize} image`
+            : iteration.disposition === 'replace'
+              ? `Generate ${proposal.payload.mutation.imageSize} replacement candidate`
+              : `Generate ${proposal.payload.mutation.imageSize} candidate to insert`,
         raw: JSON.stringify(proposal.payload.mutation)
       }
     ]

@@ -94,13 +94,20 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'read_writing_skill',
       'inspect_change',
       'check_draft',
+      'list_review_issues',
+      'get_writing_task',
+      'record_review_issues',
+      'update_review_issues',
+      'create_writing_task',
+      'update_writing_task',
       'submit_brief_change',
+      'submit_writing_rules_change',
       'submit_outline_change',
       'submit_section_change',
       'generate_image'
     ])
-    expect(tools.slice(0, 9).every((tool) => tool.executionMode === 'parallel')).toBe(true)
-    expect(tools.slice(9).every((tool) => tool.executionMode === 'sequential')).toBe(true)
+    expect(tools.slice(0, 11).every((tool) => tool.executionMode === 'parallel')).toBe(true)
+    expect(tools.slice(11).every((tool) => tool.executionMode === 'sequential')).toBe(true)
     expect(tools).toHaveLength(AGENT_MODEL_VISIBLE_TOOL_SPECS.length)
     tools.forEach((tool, index) => {
       const shared = AGENT_MODEL_VISIBLE_TOOL_SPECS[index]

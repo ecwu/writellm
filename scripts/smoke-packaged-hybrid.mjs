@@ -308,6 +308,20 @@ async function runPackagedAppScenarios(resources) {
     })
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
+    try {
+      await page.waitForFunction(() => window.desktop?.providers !== undefined, undefined, {
+        timeout: 15_000
+      })
+    } catch (error) {
+      const diagnostics = await page.evaluate(() => ({
+        url: window.location.href,
+        title: document.title,
+        body: document.body?.innerText.slice(0, 500) ?? '',
+        desktopType: typeof window.desktop
+      }))
+      process.stderr.write(`${JSON.stringify({ packagedStartupDiagnostics: diagnostics })}\n`)
+      throw error
+    }
     await pollUntil(async () => {
       try {
         await access(expiredLog)
@@ -620,7 +634,7 @@ async function runPackagedAppScenarios(resources) {
       `${JSON.stringify({
         packaged: true,
         scenario: 'runtime-inventory',
-        schemaVersion: 2,
+        schemaVersion: 3,
         assetProtocol: 'writellm',
         agentRequests: agentState.requests,
         processRoles
@@ -835,10 +849,10 @@ async function runPackagedAppScenarios(resources) {
           sectionId
         })
         if (
-          loaded.revision.contentSchemaVersion !== 2 ||
+          loaded.revision.contentSchemaVersion !== 3 ||
           !JSON.stringify(loaded.revision.content).includes('Packaged schema-v2 persisted body.')
         ) {
-          throw new Error('Schema-v2 content did not survive packaged reopen')
+          throw new Error('Schema-v3 content did not survive packaged reopen')
         }
         const resolved = await window.desktop.editor.resolveAsset({
           projectSessionId: active.projectSessionId,

@@ -34,11 +34,13 @@ import {
 import { agentToolResultPayloadSchema } from '../../shared/contracts/agent-tools'
 import {
   blockNoteDocumentSchema,
+  figureIdForBlock,
   manuscriptBriefFieldsSchema,
   MAX_MANUSCRIPT_OUTLINE_DEPTH,
   MAX_MANUSCRIPT_SECTIONS,
   type BlockNoteDocument
 } from '../../shared/contracts/manuscript'
+import { readWritingRules, type WritingRulesState } from '../../shared/contracts/writing-rules'
 import type {
   ManuscriptBriefTable,
   ManuscriptTable,
@@ -47,8 +49,9 @@ import type {
   SectionTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { prepareSectionContent } from '../manuscript/content'
+import { extractSectionAgentText, prepareSectionContent } from '../manuscript/content'
 import {
+  assetIdFromUrl,
   assetUrl,
   recordRevisionAssetReferences,
   type ManuscriptAssetService
@@ -63,6 +66,8 @@ import {
   analyzeSectionProposalRefresh,
   type SectionProposalRefreshConflictCode
 } from './section-proposal-refresh'
+import type { ReviewIssueService } from './review-issue-service'
+import type { WritingTaskService } from './writing-task-service'
 
 const MAX_PROPOSAL_PAYLOAD_BYTES = 1_048_576
 
@@ -74,6 +79,11 @@ export interface ProposalToolExecutionContext {
   modelRequestId: string
   createdSectionRefs?: Record<string, string>
   createdBlockRefs?: Record<string, string>
+  resolvesReviewIssues?: Array<{
+    issueId: string
+    expectedVersion: number
+    resolutionSummary: string
+  }>
   signal: AbortSignal
 }
 
@@ -87,6 +97,7 @@ function outcomeFromApproval(
       : result.outcome === 'refresh_required'
         ? 'The section changed again and the replacement proposal requires review.'
         : null
+  const messages = [message, ...result.warnings].filter((value): value is string => value !== null)
   return mutationProposalOutcomeSchema.parse({
     outcome:
       result.outcome === 'applied'
@@ -97,7 +108,7 @@ function outcomeFromApproval(
     proposalId: originalProposalId,
     effectiveProposalId: result.proposal.proposalId,
     kind: result.proposal.kind,
-    message
+    message: messages.length === 0 ? null : messages.join(' ')
   })
 }
 
@@ -176,6 +187,8 @@ export class MutationProposalService {
       editorPersistence: EditorPersistenceService
       manuscriptAssets?: ManuscriptAssetService
       modelExecution?: ModelExecutionService
+      reviewIssues?: ReviewIssueService
+      writingTasks?: WritingTaskService
       log: Pick<Logger, 'info' | 'warn' | 'error'>
       publishChanged?: (event: MutationProposalChanged) => void
       flushForMutation?: (affectedSectionIds: readonly string[]) => Promise<void>
@@ -291,6 +304,7 @@ export class MutationProposalService {
           call.sequence
         )
         const prepared = this.#prepareProposal(database, toolName, rawArgs, citedSources)
+        validateMutationAssetReferences(database, prepared.mutation)
         const payload = persistedMutationProposalPayloadSchema.parse({
           schemaVersion: 1,
           kind: prepared.kind,
@@ -299,6 +313,7 @@ export class MutationProposalService {
           provenance: {
             modelRequestId: context.modelRequestId,
             citedSources,
+            resolvesReviewIssues: context.resolvesReviewIssues ?? [],
             ...(context.createdSectionRefs === undefined
               ? {}
               : { createdSectionRefs: context.createdSectionRefs }),
@@ -311,6 +326,8 @@ export class MutationProposalService {
         if (Buffer.byteLength(payloadJson) > MAX_PROPOSAL_PAYLOAD_BYTES) {
           throw new AgentToolDomainError('result_too_large', 'Mutation proposal is too large')
         }
+        const writingTask =
+          this.options.writingTasks?.activeCorrelation(context.agentSessionId, database) ?? null
         const now = this.#now().toISOString()
         database
           .prepare(
@@ -319,9 +336,10 @@ export class MutationProposalService {
                agent_tool_call_id, kind, payload_json, base_revision_id,
                base_brief_version, base_outline_version, status, decision_at,
                applied_revision_id, applied_brief_version, applied_outline_version,
-               undo_revision_id, rejected_reason, created_at, updated_at
+               undo_revision_id, rejected_reason, writing_task_id, writing_task_step_id,
+               created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL,
-                       NULL, NULL, NULL, NULL, NULL, ?, ?)`
+                       NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`
           )
           .run(
             proposalId,
@@ -334,6 +352,8 @@ export class MutationProposalService {
             prepared.kind === 'section_patch' ? prepared.mutation.baseRevisionId : null,
             prepared.kind === 'brief_update' ? prepared.mutation.baseBriefVersion : null,
             prepared.kind === 'outline_patch' ? prepared.mutation.baseOutlineVersion : null,
+            writingTask?.taskId ?? null,
+            writingTask?.stepId ?? null,
             now,
             now
           )
@@ -423,16 +443,35 @@ export class MutationProposalService {
     if (document === undefined) {
       throw new AgentToolDomainError('conflict', 'Mutation source snapshot expired')
     }
-    if (args.anchor !== null) verifyBlockPrecondition(document, args.anchor)
+    if (args.iteration === undefined && args.anchor !== null) {
+      verifyBlockPrecondition(document, args.anchor)
+    }
     const proposalId = this.#createId()
     const result = this.options.database.immediate((database) => {
       requireToolCall(database, context)
       const section = requireSection(database, args.sectionId)
       if (section.current_revision_id !== baseRevisionId) throw staleBase('section')
+      const iteration =
+        args.iteration === undefined
+          ? null
+          : resolveImageIteration(database, document, args.iteration, args.prompt)
+      const effectivePrompt =
+        iteration === null
+          ? args.prompt
+          : composeImageIterationPrompt(
+              iteration.parentPrompt,
+              args.prompt,
+              extractSectionAgentText(document)
+            )
       const preview = createPreview({
-        summary: 'Generate and insert one image',
+        summary:
+          iteration === null
+            ? 'Generate and insert one image'
+            : iteration.disposition === 'replace'
+              ? 'Generate a candidate to replace one figure'
+              : 'Generate a candidate to insert after one figure',
         affectedSectionIds: [args.sectionId],
-        beforeText: '',
+        beforeText: iteration === null ? '' : `Current generated image: ${iteration.parentAssetId}`,
         afterText: `Image: ${args.altText}\nCaption: ${args.caption}\nPrompt: ${args.prompt}`,
         citedSources: []
       })
@@ -445,18 +484,32 @@ export class MutationProposalService {
           baseRevisionId,
           anchor: args.anchor,
           placement: args.placement,
-          prompt: args.prompt,
+          prompt: effectivePrompt,
           altText: args.altText,
           caption: args.caption,
           aspectRatio: args.aspectRatio,
           imageSize: args.imageSize,
+          iteration:
+            iteration === null
+              ? null
+              : {
+                  sourceBlock: iteration.sourceBlock,
+                  disposition: iteration.disposition,
+                  parentAssetId: iteration.parentAssetId
+                },
           assetId: null,
           imageModelRequestId: null
         },
         preview,
-        provenance: { modelRequestId: context.modelRequestId, citedSources: [] }
+        provenance: {
+          modelRequestId: context.modelRequestId,
+          citedSources: [],
+          resolvesReviewIssues: context.resolvesReviewIssues ?? []
+        }
       })
       const now = this.#now().toISOString()
+      const writingTask =
+        this.options.writingTasks?.activeCorrelation(context.agentSessionId, database) ?? null
       database
         .prepare(
           `INSERT INTO mutation_proposals (
@@ -464,9 +517,10 @@ export class MutationProposalService {
              agent_tool_call_id, kind, payload_json, base_revision_id,
              base_brief_version, base_outline_version, status, decision_at,
              applied_revision_id, applied_brief_version, applied_outline_version,
-             undo_revision_id, rejected_reason, created_at, updated_at
+             undo_revision_id, rejected_reason, writing_task_id, writing_task_step_id,
+             created_at, updated_at
            ) VALUES (?, ?, ?, ?, ?, 'generated_image_insert', ?, ?, NULL, NULL, 'pending', NULL,
-                     NULL, NULL, NULL, NULL, NULL, ?, ?)`
+                     NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`
         )
         .run(
           proposalId,
@@ -476,6 +530,8 @@ export class MutationProposalService {
           context.toolCallId,
           JSON.stringify(payload),
           baseRevisionId,
+          writingTask?.taskId ?? null,
+          writingTask?.stepId ?? null,
           now,
           now
         )
@@ -661,7 +717,8 @@ export class MutationProposalService {
     | { kind: 'outline_patch'; mutation: OutlinePatch; preview: MutationPreview }
     | { kind: 'section_patch'; mutation: SectionPatch; preview: MutationPreview } {
     switch (toolName) {
-      case 'submit_brief_change': {
+      case 'submit_brief_change':
+      case 'submit_writing_rules_change': {
         const mutation = briefUpdateSchema.parse(rawArgs)
         const current = requirePrimaryBrief(database, mutation.manuscriptId)
         if (current.version !== mutation.baseBriefVersion) throw staleBase('brief')
@@ -670,14 +727,21 @@ export class MutationProposalService {
         if (JSON.stringify(after) === JSON.stringify(before)) {
           throw new MutationSimulationError('no_change', 'Brief update does not change the brief')
         }
+        const writingRulesChange = toolName === 'submit_writing_rules_change'
         return {
           kind: 'brief_update',
           mutation,
           preview: createPreview({
-            summary: 'Update the manuscript brief',
+            summary: writingRulesChange
+              ? 'Update project Writing Rules'
+              : 'Update the manuscript brief',
             affectedSectionIds: [],
-            beforeText: JSON.stringify(before, null, 2),
-            afterText: JSON.stringify(after, null, 2),
+            beforeText: writingRulesChange
+              ? formatWritingRulesPreview(readWritingRules(before.extensible))
+              : JSON.stringify(before, null, 2),
+            afterText: writingRulesChange
+              ? formatWritingRulesPreview(readWritingRules(after.extensible))
+              : JSON.stringify(after, null, 2),
             citedSources
           })
         }
@@ -931,6 +995,10 @@ export class MutationProposalService {
       }
     }
 
+    if (payload.mutation.iteration !== null) {
+      return this.#publishImageIterationCandidate(agentSessionId, proposalId, payload)
+    }
+
     try {
       await this.options.flushForMutation?.([payload.mutation.sectionId])
     } catch (err) {
@@ -976,6 +1044,257 @@ export class MutationProposalService {
       ...transactionResult,
       sectionChanged: null
     })
+  }
+
+  async #publishImageIterationCandidate(
+    agentSessionId: string,
+    proposalId: string,
+    payload: Extract<
+      ReturnType<typeof persistedMutationProposalPayloadSchema.parse>,
+      { kind: 'generated_image_insert' }
+    >
+  ) {
+    if (
+      payload.mutation.iteration === null ||
+      payload.mutation.assetId === null ||
+      payload.mutation.imageModelRequestId === null
+    ) {
+      throw new MutationProposalError('invalid_proposal', 'Image iteration candidate is incomplete')
+    }
+    try {
+      await this.options.flushForMutation?.([payload.mutation.sectionId])
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.image_iteration.mutation_barrier_failed', err, proposalId },
+        'Image iteration editor barrier failed'
+      )
+      throw new MutationProposalError(
+        'stale_base',
+        'The active editor could not be safely flushed before preparing the candidate proposal',
+        { cause: err }
+      )
+    }
+    const result = this.options.database.immediate((database) => {
+      const row = requireProposal(database, agentSessionId, proposalId)
+      if (row.status !== 'generating') {
+        throw new MutationProposalError(
+          'proposal_not_pending',
+          'Image generation request is no longer active'
+        )
+      }
+      const currentPayload = persistedMutationProposalPayloadSchema.parse(
+        JSON.parse(row.payload_json)
+      )
+      if (
+        currentPayload.kind !== 'generated_image_insert' ||
+        currentPayload.mutation.iteration === null ||
+        currentPayload.mutation.assetId === null ||
+        currentPayload.mutation.imageModelRequestId === null
+      ) {
+        throw new MutationProposalError('invalid_proposal', 'Image iteration payload is incomplete')
+      }
+      const iteration = currentPayload.mutation.iteration
+      const section = requireSection(database, currentPayload.mutation.sectionId)
+      const revision = requireRevision(database, section.current_revision_id)
+      const document = blockNoteDocumentSchema.parse(JSON.parse(revision.content_json))
+      const lineageId = this.#createId()
+      const now = this.#now().toISOString()
+      const insertLineage = (sectionProposalId: string | null): void => {
+        database
+          .prepare(
+            `INSERT INTO manuscript_asset_variants (
+               manuscript_asset_variant_id, parent_asset_id, candidate_asset_id,
+               generation_proposal_id, candidate_model_request_id, section_proposal_id,
+               disposition, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            lineageId,
+            iteration.parentAssetId,
+            currentPayload.mutation.assetId,
+            proposalId,
+            currentPayload.mutation.imageModelRequestId,
+            sectionProposalId,
+            iteration.disposition,
+            now
+          )
+      }
+      try {
+        verifyBlockPrecondition(document, iteration.sourceBlock)
+      } catch (err) {
+        this.options.log.warn(
+          { event: 'agent.image_iteration.target_changed', err, proposalId },
+          'Image iteration target changed before candidate review'
+        )
+        insertLineage(null)
+        const proposal = updateTerminalProposal(
+          database,
+          proposalId,
+          'conflicted',
+          'The candidate was generated, but the target figure changed',
+          now
+        )
+        return {
+          outcome: 'conflict' as const,
+          proposal,
+          conflict: {
+            code: 'target_changed' as const,
+            message: 'The target figure changed while the candidate was generated'
+          }
+        }
+      }
+      const target = findDocumentBlock(document, iteration.sourceBlock.blockId)
+      if (target === null || target.type !== 'image') {
+        insertLineage(null)
+        const proposal = updateTerminalProposal(
+          database,
+          proposalId,
+          'conflicted',
+          'The candidate was generated, but the target figure is unavailable',
+          now
+        )
+        return {
+          outcome: 'conflict' as const,
+          proposal,
+          conflict: {
+            code: 'target_missing' as const,
+            message: 'The target figure is unavailable'
+          }
+        }
+      }
+      const sectionProposalId = this.#createId()
+      const operations =
+        iteration.disposition === 'replace'
+          ? [
+              {
+                type: 'updateBlock' as const,
+                blockId: target.id,
+                update: { props: { url: assetUrl(currentPayload.mutation.assetId) } }
+              }
+            ]
+          : [
+              {
+                type: 'insertBlocks' as const,
+                anchorBlockId: target.id,
+                placement: 'after' as const,
+                blocks: [
+                  {
+                    id: this.#createId(),
+                    type: 'image' as const,
+                    props: {
+                      backgroundColor: 'default',
+                      textAlignment: 'center',
+                      name: currentPayload.mutation.altText,
+                      url: assetUrl(currentPayload.mutation.assetId),
+                      caption: currentPayload.mutation.caption,
+                      figureId: '',
+                      altText: currentPayload.mutation.altText,
+                      showPreview: true,
+                      previewWidth: 720
+                    },
+                    children: []
+                  }
+                ]
+              }
+            ]
+      if (iteration.disposition === 'insert_after') {
+        const inserted = operations[0]
+        if (inserted?.type === 'insertBlocks') {
+          const block = inserted.blocks[0]
+          if (block !== undefined) {
+            block.props.figureId = figureIdForBlock(currentPayload.mutation.sectionId, block.id)
+          }
+        }
+      }
+      const mutation = sectionPatchSchema.parse({
+        schemaVersion: 1,
+        sectionId: currentPayload.mutation.sectionId,
+        baseRevisionId: revision.section_revision_id,
+        operations,
+        citationIds: []
+      })
+      validateMutationAssetReferences(database, mutation)
+      const simulation = simulateSectionPatch(document, mutation)
+      const sectionPayload = persistedMutationProposalPayloadSchema.parse({
+        schemaVersion: 1,
+        kind: 'section_patch',
+        mutation,
+        preview: createPreview({
+          summary:
+            iteration.disposition === 'replace'
+              ? 'Replace one figure with the generated candidate'
+              : 'Insert the generated candidate as another figure',
+          affectedSectionIds: [currentPayload.mutation.sectionId],
+          beforeText: simulation.beforeText,
+          afterText: simulation.afterText,
+          citedSources: []
+        }),
+        provenance: currentPayload.provenance
+      })
+      const payloadJson = JSON.stringify(sectionPayload)
+      if (Buffer.byteLength(payloadJson) > MAX_PROPOSAL_PAYLOAD_BYTES) {
+        throw new MutationProposalError('invalid_proposal', 'Image candidate proposal is too large')
+      }
+      database
+        .prepare(
+          `INSERT INTO mutation_proposals (
+             mutation_proposal_id, agent_session_id, agent_run_id, tool_call_event_id,
+             agent_tool_call_id, kind, payload_json, base_revision_id,
+             base_brief_version, base_outline_version, status, decision_at,
+             applied_revision_id, applied_brief_version, applied_outline_version,
+             undo_revision_id, replaces_proposal_id, rejected_reason, writing_task_id,
+             writing_task_step_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'section_patch', ?, ?, NULL, NULL, 'pending', NULL,
+                     NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?)`
+        )
+        .run(
+          sectionProposalId,
+          row.agent_session_id,
+          row.agent_run_id,
+          row.tool_call_event_id,
+          row.agent_tool_call_id,
+          payloadJson,
+          revision.section_revision_id,
+          proposalId,
+          row.writing_task_id,
+          row.writing_task_step_id,
+          now,
+          now
+        )
+      database
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'superseded', decision_at = COALESCE(decision_at, ?),
+                  rejected_reason = ?, updated_at = ?
+            WHERE mutation_proposal_id = ? AND status = 'generating'`
+        )
+        .run(now, 'The generated candidate awaits manuscript review', now, proposalId)
+      insertLineage(sectionProposalId)
+      const previousProposal = proposalFromRow(
+        database
+          .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+          .get(proposalId) as MutationProposalTable
+      )
+      const proposal = proposalFromRow(
+        database
+          .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
+          .get(sectionProposalId) as MutationProposalTable
+      )
+      this.options.log.info(
+        {
+          event: 'agent.image_iteration.candidate_ready',
+          proposalId,
+          sectionProposalId,
+          parentAssetId: iteration.parentAssetId,
+          candidateAssetId: currentPayload.mutation.assetId,
+          modelRequestId: currentPayload.mutation.imageModelRequestId,
+          disposition: iteration.disposition
+        },
+        'Image iteration candidate is ready for manuscript review'
+      )
+      return { outcome: 'refresh_required' as const, previousProposal, proposal }
+    })
+    return approveMutationProposalResultSchema.parse({ ...result, sectionChanged: null })
   }
 
   #refreshGeneratedImageProposal(
@@ -1038,9 +1357,10 @@ export class MutationProposalService {
            agent_tool_call_id, kind, payload_json, base_revision_id,
            base_brief_version, base_outline_version, status, decision_at,
            applied_revision_id, applied_brief_version, applied_outline_version,
-           undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+           undo_revision_id, replaces_proposal_id, rejected_reason, writing_task_id,
+           writing_task_step_id, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, 'generated_image_insert', ?, ?, NULL, NULL, 'pending', NULL,
-                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?)`
+                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?)`
       )
       .run(
         replacementId,
@@ -1051,6 +1371,8 @@ export class MutationProposalService {
         JSON.stringify(replacementPayload),
         current.section_revision_id,
         row.mutation_proposal_id,
+        row.writing_task_id,
+        row.writing_task_step_id,
         now,
         now
       )
@@ -1138,9 +1460,14 @@ export class MutationProposalService {
             proposalId,
             ...transactionResult.sectionChanged
           }
+    const reviewWarnings =
+      decision === 'apply'
+        ? this.#resolveReviewIssues(transactionResult.proposal)
+        : (this.options.reviewIssues?.reopenForUndo(transactionResult.proposal.proposalId) ?? [])
     const result = mutationProposalActionResultSchema.parse({
       proposal: transactionResult.proposal,
-      sectionChanged
+      sectionChanged,
+      warnings: reviewWarnings
     })
     this.options.log.info(
       {
@@ -1229,9 +1556,20 @@ export class MutationProposalService {
       },
       'Stale Agent section proposal was already satisfied'
     )
+    const warnings = this.#resolveReviewIssues(transactionResult.proposal)
     return approveMutationProposalResultSchema.parse({
       ...transactionResult,
-      sectionChanged: null
+      sectionChanged: null,
+      warnings
+    })
+  }
+
+  #resolveReviewIssues(proposal: MutationProposalRecord): string[] {
+    const targets = proposal.payload.provenance.resolvesReviewIssues ?? []
+    if (targets.length === 0 || this.options.reviewIssues === undefined) return []
+    return this.options.reviewIssues.resolveForProposal(proposal.proposalId, targets, {
+      agentSessionId: proposal.agentSessionId,
+      agentRunId: proposal.agentRunId
     })
   }
 
@@ -1369,6 +1707,7 @@ export class MutationProposalService {
         'The refreshed proposal is too large to review safely'
       )
     }
+    validateMutationAssetReferences(database, replacementPayload.mutation)
     database
       .prepare(
         `INSERT INTO mutation_proposals (
@@ -1376,9 +1715,10 @@ export class MutationProposalService {
            agent_tool_call_id, kind, payload_json, base_revision_id,
            base_brief_version, base_outline_version, status, decision_at,
            applied_revision_id, applied_brief_version, applied_outline_version,
-           undo_revision_id, replaces_proposal_id, rejected_reason, created_at, updated_at
+           undo_revision_id, replaces_proposal_id, rejected_reason, writing_task_id,
+           writing_task_step_id, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, 'section_patch', ?, ?, NULL, NULL, 'pending', NULL,
-                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?)`
+                   NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?)`
       )
       .run(
         replacementId,
@@ -1389,6 +1729,8 @@ export class MutationProposalService {
         payloadJson,
         current.section_revision_id,
         row.mutation_proposal_id,
+        row.writing_task_id,
+        row.writing_task_step_id,
         now,
         now
       )
@@ -1644,6 +1986,7 @@ export class MutationProposalService {
         if (base.section_id !== mutation.sectionId || Number(base.content_body_retained) !== 1) {
           throw new MutationProposalError('stale_base', 'Section base revision is unavailable')
         }
+        const imageBlockId = this.#createId()
         const patch = sectionPatchSchema.parse({
           schemaVersion: 1,
           sectionId: mutation.sectionId,
@@ -1655,7 +1998,7 @@ export class MutationProposalService {
               placement: mutation.placement,
               blocks: [
                 {
-                  id: this.#createId(),
+                  id: imageBlockId,
                   type: 'image',
                   props: {
                     backgroundColor: 'default',
@@ -1663,6 +2006,8 @@ export class MutationProposalService {
                     name: mutation.altText,
                     url: assetUrl(mutation.assetId),
                     caption: mutation.caption,
+                    figureId: figureIdForBlock(mutation.sectionId, imageBlockId),
+                    altText: mutation.altText,
                     showPreview: true,
                     previewWidth: 720
                   },
@@ -1932,6 +2277,7 @@ function resolveCitedSources(
 function proposalCitationIds(toolName: AgentProposalToolName, rawArgs: unknown): string[] {
   switch (toolName) {
     case 'submit_brief_change':
+    case 'submit_writing_rules_change':
       return briefUpdateSchema.parse(rawArgs).citationIds
     case 'submit_outline_change':
       return outlinePatchSchema.parse(rawArgs).citationIds
@@ -1960,6 +2306,119 @@ function verifyBlockPrecondition(
     pending.push(...block.children)
   }
   throw new AgentToolDomainError('conflict', 'Image anchor no longer exists')
+}
+
+function findDocumentBlock(
+  document: BlockNoteDocument,
+  blockId: string
+): BlockNoteDocument[number] | null {
+  const pending = [...document]
+  while (pending.length > 0) {
+    const block = pending.shift()
+    if (block === undefined) break
+    if (block.id === blockId) return block
+    pending.push(...block.children)
+  }
+  return null
+}
+
+function resolveImageIteration(
+  database: Database.Database,
+  document: BlockNoteDocument,
+  input: NonNullable<GenerateImageArgs['iteration']>,
+  instruction: string
+): {
+  sourceBlock: NonNullable<GenerateImageArgs['iteration']>['sourceBlock']
+  disposition: 'replace' | 'insert_after'
+  parentAssetId: string
+  parentPrompt: string
+} {
+  verifyBlockPrecondition(document, input.sourceBlock)
+  const block = findDocumentBlock(document, input.sourceBlock.blockId)
+  if (block === null || block.type !== 'image' || typeof block.props.url !== 'string') {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      'Image iteration requires a current manuscript image block'
+    )
+  }
+  let parentAssetId: string
+  try {
+    parentAssetId = assetIdFromUrl(block.props.url)
+  } catch (err) {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      'Image iteration requires a project-managed generated image',
+      false,
+      { cause: err }
+    )
+  }
+  const parent = database
+    .prepare(
+      `SELECT generation_request_json FROM manuscript_assets
+       WHERE asset_id = ? AND source_type = 'generated' AND deletion_state = 'active'`
+    )
+    .get(parentAssetId) as { generation_request_json: string | null } | undefined
+  if (parent?.generation_request_json === null || parent === undefined) {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      'Only generated images with a retained prompt can be iterated'
+    )
+  }
+  let parentPrompt: unknown
+  try {
+    parentPrompt = (JSON.parse(parent.generation_request_json) as Record<string, unknown>)['prompt']
+  } catch (err) {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      'The source image generation specification is unavailable',
+      false,
+      { cause: err }
+    )
+  }
+  if (typeof parentPrompt !== 'string' || parentPrompt.trim().length === 0) {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      'The source image generation specification is unavailable'
+    )
+  }
+  if (instruction.trim().length === 0) {
+    throw new AgentToolDomainError('invalid_arguments', 'Image iteration instruction is required')
+  }
+  return {
+    sourceBlock: input.sourceBlock,
+    disposition: input.disposition,
+    parentAssetId,
+    parentPrompt
+  }
+}
+
+function composeImageIterationPrompt(
+  parentPrompt: string,
+  instruction: string,
+  sectionContext: string
+): string {
+  return truncateImagePromptUtf8(
+    [
+      'Create a new independent candidate image. Do not describe or edit source pixels.',
+      `Original image specification:\n${parentPrompt}`,
+      `Requested iteration:\n${instruction}`,
+      `Current manuscript section context:\n${sectionContext}`
+    ].join('\n\n'),
+    16_384
+  )
+}
+
+function truncateImagePromptUtf8(value: string, maximumBytes: number): string {
+  if (Buffer.byteLength(value) <= maximumBytes) return value
+  let result = ''
+  let size = 0
+  for (const character of value) {
+    const nextSize = Buffer.byteLength(character)
+    if (size + nextSize > maximumBytes - 3) break
+    result += character
+    size += nextSize
+  }
+  return `${result}…`
 }
 
 function requirePrimaryManuscript(
@@ -2073,6 +2532,23 @@ function briefFieldsFromRow(row: ManuscriptBriefTable) {
     additionalInstructions: row.additional_instructions,
     extensible: JSON.parse(row.extensible_json)
   })
+}
+
+function formatWritingRulesPreview(state: WritingRulesState): string {
+  if (state.rules.length === 0) return 'No Writing Rules'
+  return state.rules
+    .map((rule) => {
+      const details = [
+        rule.preferredForm === null ? null : `prefer “${rule.preferredForm}”`,
+        rule.discouragedForms.length === 0
+          ? null
+          : `avoid ${rule.discouragedForms.map((value) => `“${value}”`).join(', ')}`
+      ].filter((value): value is string => value !== null)
+      return `${rule.active ? 'Active' : 'Inactive'} · ${rule.category}\n${rule.instruction}${
+        details.length === 0 ? '' : `\n${details.join(' · ')}`
+      }`
+    })
+    .join('\n\n')
 }
 
 function createPreview(input: {
@@ -2333,7 +2809,10 @@ function insertSectionRevision(
     createdAt: string
   }
 ): void {
-  const prepared = prepareSectionContent(blockNoteDocumentSchema.parse(input.content))
+  const prepared = prepareSectionContent(
+    blockNoteDocumentSchema.parse(input.content),
+    input.sectionId
+  )
   database
     .prepare(
       `INSERT INTO section_revisions (
@@ -2361,7 +2840,7 @@ function insertSectionRevision(
       input.agentProposalId,
       input.createdAt
     )
-  recordRevisionAssetReferences(database, input.revisionId, input.content, input.createdAt)
+  recordRevisionAssetReferences(database, input.revisionId, prepared.content, input.createdAt)
 }
 
 function updateAppliedProposal(
@@ -2436,6 +2915,8 @@ function proposalFromRow(row: MutationProposalTable): MutationProposalRecord {
     undoRevisionId: row.undo_revision_id,
     replacesProposalId: row.replaces_proposal_id,
     rejectedReason: row.rejected_reason,
+    writingTaskId: row.writing_task_id,
+    writingTaskStepId: row.writing_task_step_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   })
@@ -2466,4 +2947,35 @@ function safeFailureReason(err: unknown): string {
     return err.message.slice(0, 4_096)
   }
   return 'Mutation proposal could not be applied'
+}
+
+function validateMutationAssetReferences(database: Database.Database, mutation: unknown): void {
+  const assetIds = new Set<string>()
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      const match = /^writellm-asset:([0-9a-f-]+)$/iu.exec(value)
+      if (match?.[1] !== undefined) assetIds.add(match[1])
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (value !== null && typeof value === 'object') {
+      for (const item of Object.values(value as Record<string, unknown>)) visit(item)
+    }
+  }
+  visit(mutation)
+  for (const assetId of assetIds) {
+    const active = database
+      .prepare("SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'")
+      .pluck()
+      .get(assetId)
+    if (active !== 1) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Mutation references an unavailable manuscript asset'
+      )
+    }
+  }
 }

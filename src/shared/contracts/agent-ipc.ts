@@ -15,6 +15,9 @@ import { modelUsageSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
 import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from './providers'
 import { skillRunSnapshotSchema, skillSelectionSchema } from './skills'
+import { agentQuickActionRequestSchema } from './agent-quick-actions'
+import { writingTaskIdSchema, writingTaskStepIdSchema, writingTaskViewSchema } from './writing-task'
+import { annotationSelectionSchema } from './annotations'
 
 export const AGENT_EVENT_PAGE_LIMIT = 50
 export const AGENT_EVENT_PAGE_MAX_BYTES = 4 * 1024 * 1024
@@ -43,6 +46,7 @@ export const agentSessionRecordSchema = strictObject({
   modelSelection: agentModelSelectionSchema.nullable().default(null),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
   skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
+  writingTask: writingTaskViewSchema.nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable().default(null)
@@ -84,6 +88,8 @@ export const agentRunRecordSchema = strictObject({
     .nullable()
     .default(null),
   errorCode: z.string().min(1).max(200).nullable(),
+  writingTaskId: writingTaskIdSchema.nullable().default(null),
+  writingTaskStepId: writingTaskStepIdSchema.nullable().default(null),
   startedAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime()
@@ -167,13 +173,82 @@ export const agentStartScopeSchema = z.enum(['selection', 'section', 'project'])
 export const agentStartRunInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
-  prompt: z.string().trim().min(1).max(262_144),
+  prompt: z.string().trim().min(1).max(262_144).optional(),
+  quickAction: agentQuickActionRequestSchema.optional(),
+  resumeWritingTask: z.literal(true).optional(),
   approvedProposalId: z.uuid().optional(),
   rejectedProposalId: z.uuid().optional(),
+  includedAnnotationIds: annotationSelectionSchema,
   reuseSkillFromRunId: agentRunIdSchema.optional(),
   scope: agentStartScopeSchema,
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {
+  const requestKinds = [input.prompt, input.quickAction, input.resumeWritingTask].filter(
+    (value) => value !== undefined
+  ).length
+  if (requestKinds !== 1) {
+    context.addIssue({
+      code: 'custom',
+      path: ['prompt'],
+      message: 'Exactly one prompt, quick action, or writing-task resume is required'
+    })
+  }
+  if (input.quickAction !== undefined) {
+    if (input.scope !== 'selection') {
+      context.addIssue({
+        code: 'custom',
+        path: ['scope'],
+        message: 'Quick actions require selection scope'
+      })
+    }
+    if (
+      input.editorContext.selectedText === undefined ||
+      input.editorContext.selectedText === null
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['editorContext', 'selectedText'],
+        message: 'Quick actions require exact selected text'
+      })
+    }
+    if (
+      input.approvedProposalId !== undefined ||
+      input.rejectedProposalId !== undefined ||
+      input.reuseSkillFromRunId !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['quickAction'],
+        message: 'Quick actions cannot be proposal continuations'
+      })
+    }
+  }
+  if (
+    input.resumeWritingTask === true &&
+    (input.approvedProposalId !== undefined ||
+      input.rejectedProposalId !== undefined ||
+      input.reuseSkillFromRunId !== undefined)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['resumeWritingTask'],
+      message: 'Writing-task resume cannot be a proposal continuation'
+    })
+  }
+  if (
+    input.includedAnnotationIds.length > 0 &&
+    (input.prompt === undefined ||
+      input.quickAction !== undefined ||
+      input.resumeWritingTask === true ||
+      input.approvedProposalId !== undefined ||
+      input.rejectedProposalId !== undefined)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['includedAnnotationIds'],
+      message: 'Annotations can only accompany an ordinary Agent prompt'
+    })
+  }
   if (input.approvedProposalId !== undefined && input.rejectedProposalId !== undefined) {
     context.addIssue({
       code: 'custom',
@@ -185,7 +260,8 @@ export const agentStartRunInputSchema = strictObject({
     if (
       input.editorContext.activeSectionId !== null ||
       input.editorContext.activeBlockId !== null ||
-      input.editorContext.selectedBlockIds.length > 0
+      input.editorContext.selectedBlockIds.length > 0 ||
+      (input.editorContext.selectedText !== undefined && input.editorContext.selectedText !== null)
     ) {
       context.addIssue({
         code: 'custom',
@@ -217,6 +293,17 @@ export const agentStartRunInputSchema = strictObject({
       code: 'custom',
       path: ['editorContext', 'selectedBlockIds'],
       message: 'Selection scope requires selected blocks'
+    })
+  }
+  if (
+    input.scope !== 'selection' &&
+    input.editorContext.selectedText !== undefined &&
+    input.editorContext.selectedText !== null
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['editorContext', 'selectedText'],
+      message: 'Only selection scope may include selected text'
     })
   }
 })

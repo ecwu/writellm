@@ -80,6 +80,84 @@ describe('Agent session IPC', () => {
     ).rejects.toThrow('Project scope')
   })
 
+  it('revalidates and composes a quick action in Main before starting the normal run', async () => {
+    const value = harness()
+    const selectedSectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
+    const selectedRevisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc905'
+    value.manuscript.getSection.mockReturnValue({
+      sectionId: selectedSectionId,
+      currentRevisionId: selectedRevisionId
+    })
+    value.manuscript.getRevision.mockReturnValue({
+      sectionId: selectedSectionId,
+      content: [
+        {
+          id: 'block-1',
+          type: 'paragraph',
+          props: {},
+          content: [{ type: 'text', text: 'Exact selected sentence.', styles: {} }],
+          children: []
+        }
+      ]
+    })
+
+    await value.invoke(IPC_CHANNELS.agentStartRun, {
+      projectSessionId,
+      agentSessionId,
+      quickAction: { action: 'rewrite' },
+      scope: 'selection',
+      editorContext: {
+        activeSectionId: selectedSectionId,
+        activeBlockId: 'block-1',
+        selectedBlockIds: ['block-1'],
+        selectedText: 'selected sentence',
+        capturedAt: 1,
+        capturedRevisionId: selectedRevisionId
+      }
+    })
+
+    expect(value.sessions.startRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        editorContext: expect.objectContaining({ selectedText: 'selected sentence' }),
+        presentation: {
+          kind: 'quick_action',
+          action: 'rewrite',
+          label: 'Rewrite',
+          selectedText: 'selected sentence',
+          displayInstruction: null
+        }
+      })
+    )
+    const prompt = value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt
+    expect(prompt).toContain('<QUICK_ACTION_SELECTION instructionSemantics="false">')
+    expect(prompt).toContain('<QUICK_ACTION_REQUEST instructionSemantics="true">')
+  })
+
+  it('includes only explicitly selected annotations in one ordinary Agent prompt', async () => {
+    const value = harness()
+    const annotationId = '019c6a5c-8d34-7a8e-a602-3d37a52dc908'
+    await value.invoke(IPC_CHANNELS.agentStartRun, {
+      projectSessionId,
+      agentSessionId,
+      prompt: 'Help me address these notes.',
+      includedAnnotationIds: [annotationId],
+      scope: 'project',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(value.annotations.agentContext).toHaveBeenCalledWith([annotationId])
+    expect(value.sessions.startRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('<selected_annotations_json>'),
+        presentation: {
+          kind: 'annotation_context',
+          displayContent: 'Help me address these notes.',
+          annotationCount: 1
+        }
+      })
+    )
+    expect(value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt).toContain('Private author TODO')
+  })
+
   it('continues an approved proposal with human-facing authoritative copy', async () => {
     const value = harness()
     const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc905'
@@ -313,6 +391,41 @@ describe('Agent session IPC', () => {
     })
   })
 
+  it('resumes and revises a writing task through the existing idle conversation', async () => {
+    const value = harness()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentStartRun, {
+        projectSessionId,
+        agentSessionId,
+        resumeWritingTask: true,
+        scope: 'project',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).resolves.toMatchObject({ run: { agentRunId } })
+    expect(value.sessions.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentSessionId,
+        prompt: expect.stringContaining('First call get_writing_task')
+      })
+    )
+
+    const taskId = '019c6a5c-8d34-7a8e-a602-3d37a52dc910'
+    const stepId = '019c6a5c-8d34-7a8e-a602-3d37a52dc911'
+    await expect(
+      value.invoke(IPC_CHANNELS.agentUpdateWritingTask, {
+        projectSessionId,
+        agentSessionId,
+        taskId,
+        expectedPlanVersion: 1,
+        objective: 'Revise safely.',
+        steps: [{ stepId, title: 'Revise', status: 'active', statusReason: null }]
+      })
+    ).resolves.toMatchObject({ taskId, planVersion: 2 })
+    expect(value.writingTasks.updateByUser).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId, expectedPlanVersion: 1 })
+    )
+  })
+
   it('routes manual compact and stop through the active project capability', async () => {
     const value = harness()
     const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc908'
@@ -407,14 +520,71 @@ function harness() {
     })
   }
   const mutations = { list: vi.fn((): ListedProposal[] => []) }
+  const taskId = '019c6a5c-8d34-7a8e-a602-3d37a52dc910'
+  const stepId = '019c6a5c-8d34-7a8e-a602-3d37a52dc911'
+  const task = {
+    taskId,
+    agentSessionId,
+    objective: 'Revise safely.',
+    planVersion: 2,
+    plan: {
+      schemaVersion: 1,
+      steps: [{ stepId, title: 'Revise', status: 'active', statusReason: null }]
+    },
+    progress: {
+      currentStepId: stepId,
+      completedCount: 0,
+      remainingCount: 1,
+      hasDisagreement: false,
+      steps: [
+        {
+          stepId,
+          state: 'ready',
+          runCount: 0,
+          proposalCount: 0,
+          successfulEffectCount: 0,
+          pendingEffectCount: 0,
+          adverseEffectCount: 0,
+          latestRunId: null,
+          note: 'Current step is ready to continue.'
+        }
+      ]
+    },
+    createdByAgentRunId: null,
+    createdAt: '2026-07-21T00:00:00.000Z',
+    updatedAt: '2026-07-21T00:00:01.000Z'
+  } as const
+  const writingTasks = {
+    activeCorrelation: vi.fn(() => ({ taskId, stepId })),
+    updateByUser: vi.fn(() => task)
+  }
+  const manuscript = { getSection: vi.fn(), getRevision: vi.fn() }
+  const annotations = {
+    agentContext: vi.fn((ids: string[]) => ({
+      ids,
+      content: '1. [TODO · open] Private author TODO'
+    }))
+  }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
-      return { agentSessions: sessions, agentMutations: mutations }
+      return {
+        agentSessions: sessions,
+        agentMutations: mutations,
+        writingTasks,
+        manuscript,
+        annotations
+      }
     }),
     assertMutationSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
-      return { agentSessions: sessions, agentMutations: mutations }
+      return {
+        agentSessions: sessions,
+        agentMutations: mutations,
+        writingTasks,
+        manuscript,
+        annotations
+      }
     })
   }
   const broker = {
@@ -470,5 +640,17 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
   const invoke = async (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { handlers, invoke, sender, sessions, mutations, broker, catalog, order }
+  return {
+    handlers,
+    invoke,
+    sender,
+    sessions,
+    mutations,
+    writingTasks,
+    manuscript,
+    annotations,
+    broker,
+    catalog,
+    order
+  }
 }

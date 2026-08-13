@@ -14,6 +14,10 @@ import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 import type { MutationEventBroker } from '../agent/mutation-event-broker'
+import {
+  changeSetBatchInputSchema,
+  changeSetBatchResultSchema
+} from '../../shared/contracts/agent-change-set'
 
 export interface AgentMutationIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -130,6 +134,26 @@ export function registerAgentMutationIpc(options: {
       return result
     })
   })
+  ipc.handle(IPC_CHANNELS.agentChangeSetBatch, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = changeSetBatchInputSchema.parse(rawInput)
+    return lifecycle('agent.change_set.batch', input.commandId, async () => {
+      assertWritableSession(input.projectSessionId, input.agentSessionId)
+      const context = options.manager.assertActiveSession(input.projectSessionId)
+      if (context.agentChangeSets === null) throw new Error('Agent change sets are unavailable')
+      return changeSetBatchResultSchema.parse(
+        await context.agentChangeSets.execute(input, async () => {
+          const state = await options.manager.versionHistoryState(input.projectSessionId)
+          if (state !== 'ready') return 'unavailable'
+          await options.manager.createCheckpoint(input.projectSessionId, {
+            name: `Before Agent change set ${new Date().toISOString()}`,
+            note: 'Automatic checkpoint before applying selected Agent proposals.'
+          })
+          return 'created'
+        })
+      )
+    })
+  })
   ipc.handle(IPC_CHANNELS.agentCancelImageGeneration, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = cancelImageGenerationInputSchema.parse(rawInput)
@@ -163,6 +187,7 @@ export function registerAgentMutationIpc(options: {
         IPC_CHANNELS.agentProposalApprove,
         IPC_CHANNELS.agentProposalReject,
         IPC_CHANNELS.agentProposalUndo,
+        IPC_CHANNELS.agentChangeSetBatch,
         IPC_CHANNELS.agentCancelImageGeneration,
         IPC_CHANNELS.agentSubscribeMutations,
         IPC_CHANNELS.agentUnsubscribeMutations

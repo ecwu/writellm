@@ -9,6 +9,7 @@ import {
 } from './providers'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 import { agentRuntimeAuthSchema } from './agent-auth'
+import { agentQuickActionIdSchema, agentQuickActionSelectedTextSchema } from './agent-quick-actions'
 export { agentRuntimeAuthSchema, type AgentRuntimeAuth } from './agent-auth'
 
 export const AGENT_EVENT_SCHEMA_VERSION = 3
@@ -27,6 +28,7 @@ export const agentEditorContextSchema = z
     activeSectionId: z.uuid().nullable(),
     activeBlockId: z.string().min(1).max(256).nullable(),
     selectedBlockIds: z.array(z.string().min(1).max(256)).max(256),
+    selectedText: agentQuickActionSelectedTextSchema.nullable().optional(),
     capturedAt: z.number().int().nonnegative().optional(),
     capturedRevisionId: z.uuid().nullable().optional()
   })
@@ -44,6 +46,22 @@ export const agentUserMessagePayloadSchema = z
           .object({
             kind: z.literal('review_feedback'),
             displayContent: z.string().trim().min(1).max(4_096)
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('quick_action'),
+            action: agentQuickActionIdSchema,
+            label: z.string().min(1).max(100),
+            selectedText: agentQuickActionSelectedTextSchema,
+            displayInstruction: z.string().trim().min(1).max(4_096).nullable()
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('annotation_context'),
+            displayContent: z.string().trim().min(1).max(262_144),
+            annotationCount: z.number().int().min(1).max(10)
           })
           .strict()
       ])

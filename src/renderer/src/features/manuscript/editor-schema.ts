@@ -5,6 +5,7 @@ import {
   defaultStyleSpecs
 } from '@blocknote/core'
 import { mathBlockSpec, mermaidBlockSpec } from './rich-media-blocks'
+import { figureImageBlockSpec } from './figure-image-block'
 
 export const approvedEditorSchema = BlockNoteSchema.create({
   blockSpecs: {
@@ -16,7 +17,7 @@ export const approvedEditorSchema = BlockNoteSchema.create({
     quote: defaultBlockSpecs.quote,
     codeBlock: defaultBlockSpecs.codeBlock,
     table: defaultBlockSpecs.table,
-    image: defaultBlockSpecs.image,
+    image: figureImageBlockSpec,
     mermaid: mermaidBlockSpec,
     math: mathBlockSpec
   },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Download,
@@ -23,6 +23,10 @@ import type {
   RecentProjects,
   VersionHistoryState
 } from '../../shared/contracts/projects'
+import type {
+  ProjectTemplateExtractionPreview,
+  ProjectTemplateSummary
+} from '../../shared/contracts/project-templates'
 import { projectNameSchema } from '../../shared/contracts/projects'
 import { AppMenubar } from '@/components/app-menubar'
 import { SettingsCommand } from '@/components/settings-command'
@@ -63,6 +67,15 @@ import {
   ItemTitle
 } from '@/components/ui/item'
 import { Spinner } from '@/components/ui/spinner'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
 import {
@@ -82,10 +95,12 @@ type ProjectAction =
   | 'openRecent'
   | 'close'
   | 'switch'
+  | 'clone'
   | 'recovery'
   | 'snapshot'
   | 'export'
   | 'history'
+  | 'template'
 
 const actionErrorMessages: Record<
   ProjectAction | 'load' | 'recent' | 'subscribe' | 'diagnostics',
@@ -99,11 +114,14 @@ const actionErrorMessages: Record<
   openRecent: 'WriteLLM could not open the recent project. Check that it is still available.',
   close: 'WriteLLM could not close the project. Please try again.',
   switch: 'WriteLLM could not switch projects. Check the project state and try again.',
+  clone:
+    'WriteLLM could not create an independent project copy. Choose another destination and try again.',
   diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
   recovery: 'WriteLLM could not complete that recovery action. Check diagnostics and try again.',
   snapshot: 'WriteLLM could not complete the snapshot action. Please try again.',
   export: 'WriteLLM could not export the manuscript. Choose another destination and try again.',
-  history: 'WriteLLM could not complete the version history action. Please try again.'
+  history: 'WriteLLM could not complete the version history action. Please try again.',
+  template: 'WriteLLM could not complete the project template action. Please try again.'
 }
 
 const stateLabels: Record<ProjectLifecycleState, string> = {
@@ -125,6 +143,15 @@ function App(): React.JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
+  const [projectTemplates, setProjectTemplates] = useState<ProjectTemplateSummary[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('blank')
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [templatePreview, setTemplatePreview] = useState<ProjectTemplateExtractionPreview | null>(
+    null
+  )
+  const [templateName, setTemplateName] = useState('')
+  const [templateDescription, setTemplateDescription] = useState('')
+  const [includeTemplatePreset, setIncludeTemplatePreset] = useState(true)
   const [agentPanelState, setAgentPanelState] = useState<{
     projectSessionId: string | null
     open: boolean
@@ -134,6 +161,8 @@ function App(): React.JSX.Element {
   const [exportResult, setExportResult] = useState<
     Extract<ManuscriptExportResult, { created: true }> | undefined
   >()
+  const exportCancellationRequested = useRef(false)
+  const [exportCancelling, setExportCancelling] = useState(false)
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -156,9 +185,10 @@ function App(): React.JSX.Element {
     let current = true
 
     void (async () => {
-      const [lifecycleResult, recentResult] = await Promise.allSettled([
+      const [lifecycleResult, recentResult, templateResult] = await Promise.allSettled([
         window.desktop.projects.lifecycle(),
-        window.desktop.projects.recent()
+        window.desktop.projects.recent(),
+        window.desktop.projects.templates()
       ])
       if (!current) return
 
@@ -171,6 +201,11 @@ function App(): React.JSX.Element {
         setRecentProjects(recentResult.value)
       } else {
         notifyActionError(actionErrorMessages.recent)
+      }
+      if (templateResult.status === 'fulfilled') {
+        setProjectTemplates(templateResult.value)
+      } else {
+        notifyActionError(actionErrorMessages.template)
       }
       setInitialLoading(false)
     })()
@@ -271,7 +306,10 @@ function App(): React.JSX.Element {
     setCreateDialogOpen(false)
     setActiveAction('create')
     try {
-      const result = await window.desktop.projects.create({ name: parsedName.data })
+      const result = await window.desktop.projects.create({
+        name: parsedName.data,
+        ...(selectedTemplateId === 'blank' ? {} : { templateId: selectedTemplateId })
+      })
       if (result.project) {
         setSnapshot({ state: 'open', activeProject: result.project })
         setProjectName('')
@@ -284,7 +322,7 @@ function App(): React.JSX.Element {
     } finally {
       setActiveAction(null)
     }
-  }, [projectName, refreshLifecycle])
+  }, [projectName, refreshLifecycle, selectedTemplateId])
 
   const closeProject = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
@@ -328,9 +366,80 @@ function App(): React.JSX.Element {
     }
   }, [projectSessionId])
 
+  const cloneProject = useCallback(async (): Promise<void> => {
+    if (!projectSessionId) return
+    setActiveAction('clone')
+    try {
+      const result = await window.desktop.projects.clone({ projectSessionId })
+      if (result.project) {
+        setSnapshot({ state: 'open', activeProject: result.project })
+        await refreshRecentProjects()
+      } else {
+        await refreshLifecycle()
+      }
+    } catch {
+      notifyActionError(actionErrorMessages.clone)
+      await refreshLifecycle()
+    } finally {
+      setActiveAction(null)
+    }
+  }, [projectSessionId, refreshLifecycle, refreshRecentProjects])
+
+  const openTemplateDialog = useCallback(async (): Promise<void> => {
+    if (!projectSessionId) return
+    setActiveAction('template')
+    try {
+      setTemplatePreview(await window.desktop.projects.previewTemplate({ projectSessionId }))
+      setTemplateName('')
+      setTemplateDescription('')
+      setIncludeTemplatePreset(true)
+      setTemplateDialogOpen(true)
+    } catch {
+      notifyActionError(actionErrorMessages.template)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [projectSessionId])
+
+  const saveTemplate = useCallback(async (): Promise<void> => {
+    if (!projectSessionId || templateName.trim().length === 0) return
+    setActiveAction('template')
+    try {
+      setProjectTemplates(
+        await window.desktop.projects.saveTemplate({
+          projectSessionId,
+          name: templateName,
+          description: templateDescription,
+          includePublicationPreset: includeTemplatePreset
+        })
+      )
+      setTemplateDialogOpen(false)
+    } catch {
+      notifyActionError(actionErrorMessages.template)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [includeTemplatePreset, projectSessionId, templateDescription, templateName])
+
+  const deleteSelectedTemplate = useCallback(async (): Promise<void> => {
+    if (selectedTemplateId === 'blank') return
+    const selected = projectTemplates.find((template) => template.templateId === selectedTemplateId)
+    if (selected?.origin !== 'user') return
+    try {
+      setProjectTemplates(
+        await window.desktop.projects.deleteTemplate({ templateId: selectedTemplateId })
+      )
+      setSelectedTemplateId('blank')
+    } catch {
+      notifyActionError(actionErrorMessages.template)
+    }
+  }, [projectTemplates, selectedTemplateId])
+
   const exportManuscript = useCallback(
     async (kind: ManuscriptExportKind): Promise<void> => {
       if (projectSessionId === undefined) return
+      exportCancellationRequested.current = false
+      setExportCancelling(false)
       setActiveAction('export')
       try {
         const result = await window.desktop.projects.exportManuscript({
@@ -339,13 +448,31 @@ function App(): React.JSX.Element {
         })
         if (result.created) setExportResult(result)
       } catch {
-        notifyActionError(actionErrorMessages.export)
+        if (!exportCancellationRequested.current) notifyActionError(actionErrorMessages.export)
       } finally {
         setActiveAction(null)
+        setExportCancelling(false)
       }
     },
     [projectSessionId]
   )
+
+  const cancelManuscriptExport = useCallback(async (): Promise<void> => {
+    if (projectSessionId === undefined || exportCancelling) return
+    exportCancellationRequested.current = true
+    setExportCancelling(true)
+    try {
+      const result = await window.desktop.projects.cancelManuscriptExport({ projectSessionId })
+      if (!result.cancelled) {
+        exportCancellationRequested.current = false
+        setExportCancelling(false)
+      }
+    } catch {
+      exportCancellationRequested.current = false
+      setExportCancelling(false)
+      notifyActionError(actionErrorMessages.export)
+    }
+  }, [exportCancelling, projectSessionId])
 
   const restoreSnapshot = useCallback(async (): Promise<void> => {
     setActiveAction('snapshot')
@@ -464,8 +591,13 @@ function App(): React.JSX.Element {
         onOpen={() => void openProject()}
         onSwitch={() => void switchProject()}
         onSave={() => window.dispatchEvent(new Event('writellm:save'))}
+        onClone={() => void cloneProject()}
+        onSaveTemplate={() => void openTemplateDialog()}
         onExportNative={() => void exportManuscript('native')}
         onExportMarkdown={() => void exportManuscript('markdown')}
+        onExportDocx={() => void exportManuscript('docx')}
+        onExportLatex={() => void exportManuscript('latex')}
+        onExportPdf={() => void exportManuscript('pdf')}
         onCreateSnapshot={() => void createSnapshot()}
         onRestoreSnapshot={() => void restoreSnapshot()}
         versionHistoryState={versionHistoryState}
@@ -772,6 +904,45 @@ function App(): React.JSX.Element {
                 {projectNameError ?? 'WriteLLM creates a new folder with this name.'}
               </FieldDescription>
             </Field>
+            <Field>
+              <FieldLabel htmlFor='project-template'>Starting template</FieldLabel>
+              <div className='flex gap-2'>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger id='project-template' className='min-w-0 flex-1'>
+                    <SelectValue placeholder='Blank project' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='blank'>Blank project</SelectItem>
+                    {projectTemplates.map((template) => (
+                      <SelectItem
+                        key={template.templateId}
+                        value={template.templateId}
+                        disabled={template.integrity !== 'ready'}
+                      >
+                        {template.name}
+                        {template.origin === 'user' ? ' · Mine' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {projectTemplates.find((template) => template.templateId === selectedTemplateId)
+                  ?.origin === 'user' ? (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    onClick={() => void deleteSelectedTemplate()}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
+              </div>
+              <FieldDescription>
+                {selectedTemplateId === 'blank'
+                  ? 'Start with an empty Brief and one section.'
+                  : (projectTemplates.find((template) => template.templateId === selectedTemplateId)
+                      ?.description ?? 'This template is unavailable.')}
+              </FieldDescription>
+            </Field>
             <DialogFooter>
               <DialogClose asChild>
                 <Button type='button' variant='outline'>
@@ -781,6 +952,102 @@ function App(): React.JSX.Element {
               <Button type='submit'>Choose location</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save reusable project template</DialogTitle>
+            <DialogDescription>
+              Review exactly what will be reusable. Project content and identity stay excluded.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-4'>
+            <Field>
+              <FieldLabel htmlFor='template-name'>Template name</FieldLabel>
+              <InputGroup>
+                <InputGroupInput
+                  id='template-name'
+                  value={templateName}
+                  onChange={(event) => setTemplateName(event.target.value)}
+                />
+              </InputGroup>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor='template-description'>Description</FieldLabel>
+              <Textarea
+                id='template-description'
+                value={templateDescription}
+                maxLength={1_000}
+                onChange={(event) => setTemplateDescription(event.target.value)}
+              />
+            </Field>
+            {templatePreview ? (
+              <div className='grid gap-3 rounded-md border p-3 text-sm'>
+                <div>
+                  <p className='font-medium'>Included</p>
+                  <p className='text-muted-foreground'>
+                    {templatePreview.outlineTitles.length} outline sections,{' '}
+                    {templatePreview.briefFields.length} populated Brief fields, and{' '}
+                    {templatePreview.writingRuleCount} writing rules.
+                  </p>
+                </div>
+                <div>
+                  <p className='font-medium'>Excluded</p>
+                  <ul className='list-disc pl-5 text-muted-foreground'>
+                    {templatePreview.excluded.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <label htmlFor='template-publication-preset' className='flex items-center gap-2'>
+                  <Checkbox
+                    id='template-publication-preset'
+                    checked={includeTemplatePreset}
+                    onCheckedChange={(checked) => setIncludeTemplatePreset(checked === true)}
+                  />
+                  Include the current default publication preset reference
+                </label>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type='button' variant='outline' onClick={() => setTemplateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type='button'
+              disabled={templateName.trim().length === 0 || activeAction === 'template'}
+              onClick={() => void saveTemplate()}
+            >
+              Save template
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={activeAction === 'export'} onOpenChange={() => undefined}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Publishing manuscript</DialogTitle>
+            <DialogDescription>
+              WriteLLM is capturing the current manuscript, verifying assets, and building the
+              selected format.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='flex items-center gap-3 text-sm text-muted-foreground' role='status'>
+            <Spinner />
+            {exportCancelling ? 'Cancelling…' : 'Publication is in progress…'}
+          </div>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={exportCancelling}
+              onClick={() => void cancelManuscriptExport()}
+            >
+              {exportCancelling ? 'Cancelling…' : 'Cancel export'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -801,7 +1068,7 @@ function App(): React.JSX.Element {
           {exportResult?.lossReport && exportResult.lossReport.losses.length > 0 ? (
             <Alert>
               <TriangleAlert />
-              <AlertTitle>Markdown limitations</AlertTitle>
+              <AlertTitle>Publication limitations</AlertTitle>
               <AlertDescription>
                 <p>
                   {exportResult.lossReport.losses.length} formatting detail

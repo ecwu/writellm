@@ -7,6 +7,7 @@ import type {
   SectionStatus,
   UpdateManuscriptBriefInput
 } from '../../../../shared/contracts/manuscript'
+import type { ManuscriptImportPlan } from '../../../../shared/contracts/manuscript-import'
 import type {
   ExpandedCitation,
   ReadableCitationResolutionResult
@@ -20,13 +21,28 @@ import type {
   ManuscriptReplacementCandidate,
   ManuscriptReplacementPlanResult
 } from '../../../../shared/contracts/manuscript-replacement'
+import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
+import type { ReviewIssueRecord } from '../../../../shared/contracts/review'
+import type { PublicationPreview } from '../../../../shared/contracts/publication'
+import type { AnnotationRecord } from '../../../../shared/contracts/annotations'
 import {
   buildReferenceIndexFromOccurrences,
   findDocumentCitationOccurrences,
   referenceNumberMap
 } from '../../../../shared/readable-citation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Download, FileSearch, FileText, MoreHorizontal, Upload } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Download,
+  FileCheck2,
+  FileSearch,
+  FileText,
+  FolderOpen,
+  MoreHorizontal,
+  MessageSquarePlus,
+  Upload
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGroupRef } from 'react-resizable-panels'
 import { AppSidebar } from '@/components/app-sidebar'
@@ -52,18 +68,32 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { AgentPanel, type AgentPanelSelection } from '@/features/agent/agent-panel'
+import {
+  AgentPanel,
+  type AgentPanelQuickActionRequest,
+  type AgentPanelSelection
+} from '@/features/agent/agent-panel'
 import {
   CitationCandidatePicker,
   ExpandedCitationPreview
 } from '@/features/knowledge/citation-preview'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
+import { ReviewCenterPanel } from '@/features/review/review-center-panel'
+import { WritingRulesPanel } from '@/features/review/writing-rules-panel'
+import { AnnotationCreateDialog } from '@/features/review/annotation-create-dialog'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
+import { AssetWorkspace } from './asset-workspace'
 import { adjacentSectionAfterDelete } from './outline-tree'
 import { ManuscriptPreview } from './manuscript-preview'
+import { ManuscriptImportDialog } from './manuscript-import-dialog'
 import { ManuscriptFindPanel, type ManuscriptFindScope } from './manuscript-find-panel'
-import { SectionEditor, type SectionEditorHandle, type SaveState } from './section-editor'
+import {
+  SectionEditor,
+  type EditorExactSelectionSnapshot,
+  type SectionEditorHandle,
+  type SaveState
+} from './section-editor'
 
 const editorSaveStateLabels: Record<SaveState, string> = {
   clean: 'Unsaved body',
@@ -125,11 +155,23 @@ export function WritingWorkspace(props: {
   const [briefOpen, setBriefOpen] = useState(false)
   const [briefError, setBriefError] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [publicationOpen, setPublicationOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importPlan, setImportPlan] = useState<ManuscriptImportPlan | null>(null)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importApplying, setImportApplying] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const publicationQuery = useQuery({
+    queryKey: ['publication-preview', props.projectSessionId],
+    queryFn: () =>
+      window.desktop.manuscript.publicationPreview({ projectSessionId: props.projectSessionId }),
+    enabled: publicationOpen
+  })
   const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<
-    'manuscript' | 'knowledge' | 'references' | 'find'
+    'manuscript' | 'knowledge' | 'assets' | 'references' | 'find' | 'issues' | 'writing_rules'
   >('manuscript')
   const [citationDraft, setCitationDraft] = useState<{
     sectionId: string
@@ -161,6 +203,21 @@ export function WritingWorkspace(props: {
   const outlineMutationLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
+  const [annotationCreateOpen, setAnnotationCreateOpen] = useState(false)
+  const [includedAnnotations, setIncludedAnnotations] = useState<AnnotationRecord[]>([])
+  const openAnnotationsQuery = useQuery({
+    queryKey: ['annotations', props.projectSessionId, 'open-count'],
+    queryFn: () =>
+      window.desktop.annotations.list({
+        projectSessionId: props.projectSessionId,
+        statuses: ['open'],
+        kinds: [],
+        limit: 1
+      })
+  })
+  const [quickActionRequest, setQuickActionRequest] = useState<AgentPanelQuickActionRequest | null>(
+    null
+  )
   const [findQuery, setFindQuery] = useState('')
   const [findCaseSensitive, setFindCaseSensitive] = useState(false)
   const [findScope, setFindScope] = useState<ManuscriptFindScope>('manuscript')
@@ -449,6 +506,31 @@ export function WritingWorkspace(props: {
       return false
     }
   }, [props, saveMetadata])
+
+  const startQuickAction = useCallback(
+    async (
+      quickAction: AgentQuickActionRequest,
+      before: EditorExactSelectionSnapshot
+    ): Promise<void> => {
+      const sectionId = activeSectionIdRef.current
+      const editor = editorRef.current
+      if (sectionId === null || editor === null) {
+        props.onError('Select text in an active manuscript section first.')
+        return
+      }
+      if (!(await flushCurrent())) return
+      const after = editor.captureSelection()
+      if (after === null || !sameExactSelection(before, after)) {
+        props.onError('The selected text changed while saving. Select it again and retry.')
+        return
+      }
+      const selection: AgentPanelSelection = { sectionId, ...after }
+      setSelectionContext(selection)
+      setQuickActionRequest({ requestId: crypto.randomUUID(), quickAction, selection })
+      props.onAgentOpenChange(true)
+    },
+    [flushCurrent, props]
+  )
 
   const switchSection = useCallback(
     async (sectionId: string, source: 'user' | 'agent' | 'find'): Promise<boolean> => {
@@ -850,6 +932,9 @@ export function WritingWorkspace(props: {
             projectSessionId: props.projectSessionId
           })
           queryClient.setQueryData(workspaceKey, nextWorkspace)
+          void queryClient.invalidateQueries({
+            queryKey: ['manuscript-references', props.projectSessionId]
+          })
           let activeSectionId = activeSectionIdRef.current
           if (
             activeSectionId === null ||
@@ -1181,10 +1266,77 @@ export function WritingWorkspace(props: {
     }
   }
 
-  const importMarkdownForActiveSection = (): Promise<void> =>
-    runActiveEditorAction(async () => {
-      await editorRef.current?.importMarkdown()
-    }, 'Markdown could not be imported into the current section.')
+  const openManuscriptImport = async (selection: 'file' | 'directory' = 'file'): Promise<void> => {
+    if (!(await flushCurrent())) return
+    const sectionId = activeSectionIdRef.current
+    if (sectionId === null) return
+    setImportOpen(true)
+    setImportPlan(null)
+    setImportError(null)
+    setImportLoading(true)
+    try {
+      const result = await window.desktop.editor.createImportPlan({
+        projectSessionId: props.projectSessionId,
+        activeSectionId: sectionId,
+        selection
+      })
+      if (result.status === 'cancelled') {
+        setImportOpen(false)
+        return
+      }
+      setImportPlan(result.plan)
+    } catch {
+      setImportError('The selected manuscript could not be captured and mapped safely.')
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  const cancelManuscriptImport = async (): Promise<void> => {
+    const plan = importPlan
+    setImportOpen(false)
+    setImportPlan(null)
+    setImportError(null)
+    if (plan === null) return
+    try {
+      await window.desktop.editor.cancelImportPlan({
+        projectSessionId: props.projectSessionId,
+        planId: plan.planId
+      })
+    } catch {
+      props.onError('Import staging cleanup will be retried when the project is reopened.')
+    }
+  }
+
+  const applyManuscriptImport = async (
+    mode: 'create_sections' | 'replace_active_section'
+  ): Promise<void> => {
+    if (importPlan === null) return
+    setImportApplying(true)
+    setImportError(null)
+    try {
+      await window.desktop.editor.applyImportPlan({
+        projectSessionId: props.projectSessionId,
+        planId: importPlan.planId,
+        mode
+      })
+      setImportOpen(false)
+      setImportPlan(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKey }),
+        queryClient.invalidateQueries({
+          queryKey: ['manuscript-section', props.projectSessionId, activeSectionIdRef.current]
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['manuscript-references', props.projectSessionId]
+        })
+      ])
+    } catch {
+      setImportError('The manuscript changed or the reviewed import could not be applied.')
+    } finally {
+      setImportApplying(false)
+    }
+  }
 
   const exportNativeJsonForActiveSection = (): Promise<void> =>
     runActiveEditorAction(async () => {
@@ -1195,6 +1347,12 @@ export function WritingWorkspace(props: {
     runActiveEditorAction(async () => {
       await editorRef.current?.exportMarkdown()
     }, 'The Markdown section export could not be created.')
+
+  const openPublicationPreflight = async (): Promise<void> => {
+    if (!(await flushCurrent())) return
+    setPublicationOpen(true)
+    await publicationQuery.refetch()
+  }
 
   const previewFromPanel = async (): Promise<void> => {
     try {
@@ -1218,10 +1376,38 @@ export function WritingWorkspace(props: {
           setSelectedFindMatchId(null)
           setActiveWorkspace('manuscript')
         }}
+        onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
+        onOpenIssues={() => setActiveWorkspace('issues')}
+        onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
         onError={props.onError}
+      />
+    )
+  }
+
+  if (activeWorkspace === 'assets') {
+    return (
+      <AssetWorkspace
+        projectSessionId={props.projectSessionId}
+        projectName={props.projectName}
+        workspace={workspace}
+        onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenManuscript={() => setActiveWorkspace('manuscript')}
+        onOpenReferences={() => setActiveWorkspace('references')}
+        onOpenIssues={() => setActiveWorkspace('issues')}
+        onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
+        onOpenFind={openFind}
+        onOpenSettings={props.onOpenSettings}
+        onError={props.onError}
+        onNavigate={(sectionId, blockId) => {
+          setActiveWorkspace('manuscript')
+          void selectSection(sectionId).then((selected) => {
+            if (!selected) return
+            requestAnimationFrame(() => editorRef.current?.revealBlock(blockId))
+          })
+        }}
       />
     )
   }
@@ -1239,6 +1425,7 @@ export function WritingWorkspace(props: {
         referencesError={referencesQuery.isError}
         activeWorkspace={activeWorkspace}
         activeSectionId={activeSectionId}
+        reviewCount={openAnnotationsQuery.data?.total ?? 0}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
         onOpenBrief={() => setBriefOpen(true)}
         onOpenOutlineEditor={() => void openOutlineEditor()}
@@ -1246,9 +1433,21 @@ export function WritingWorkspace(props: {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
         }}
+        onOpenAssets={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('assets')
+        }}
         onOpenReferences={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('references')
+        }}
+        onOpenIssues={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('issues')
+        }}
+        onOpenWritingRules={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('writing_rules')
         }}
         onOpenFind={openFind}
         onCloseFind={closeFind}
@@ -1304,6 +1503,43 @@ export function WritingWorkspace(props: {
             replacementLoading={replacementLoading}
             replacementApplying={replacementApplying}
             replacementMessage={replacementMessage}
+          />
+        }
+        issuesPanel={
+          <ReviewCenterPanel
+            projectSessionId={props.projectSessionId}
+            workspace={workspace}
+            onError={props.onError}
+            onNavigateIssue={(issue: ReviewIssueRecord) => {
+              if (issue.anchor === null || issue.anchorStatus !== 'current') return
+              setActiveWorkspace('manuscript')
+              void selectSection(issue.anchor.sectionId).then((selected) => {
+                if (!selected || issue.anchor?.blockId === null) return
+                requestAnimationFrame(() =>
+                  editorRef.current?.revealBlock(issue.anchor?.blockId ?? '')
+                )
+              })
+            }}
+            onNavigateAnnotation={(annotation) => {
+              if (annotation.anchorStatus !== 'current') return
+              setActiveWorkspace('manuscript')
+              void selectSection(annotation.sectionId).then((selected) => {
+                if (!selected) return
+                requestAnimationFrame(() => editorRef.current?.revealBlock(annotation.blockId))
+              })
+            }}
+            onIncludeAnnotations={(annotations) => {
+              setIncludedAnnotations(annotations.slice(0, 10))
+              props.onAgentOpenChange(true)
+            }}
+          />
+        }
+        writingRulesPanel={
+          <WritingRulesPanel
+            projectSessionId={props.projectSessionId}
+            workspace={workspace}
+            onWorkspace={(next) => queryClient.setQueryData(workspaceKey, next)}
+            onError={props.onError}
           />
         }
       />
@@ -1381,10 +1617,26 @@ export function WritingWorkspace(props: {
                         <DropdownMenuContent align='end'>
                           <DropdownMenuLabel>Section actions</DropdownMenuLabel>
                           <DropdownMenuGroup>
+                            <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
+                              <FileCheck2 /> Publication preflight
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void openManuscriptImport()}>
+                              <Upload /> Import manuscript
+                            </DropdownMenuItem>
                             <DropdownMenuItem
-                              onSelect={() => void importMarkdownForActiveSection()}
+                              onSelect={() => void openManuscriptImport('directory')}
                             >
-                              <Upload /> Import Markdown
+                              <FolderOpen /> Import LaTeX project folder
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={selectionContext?.activeBlockId == null}
+                              onSelect={() =>
+                                void flushCurrent().then(
+                                  (saved) => saved && setAnnotationCreateOpen(true)
+                                )
+                              }
+                            >
+                              <MessageSquarePlus /> Add note or TODO
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onSelect={() => void exportNativeJsonForActiveSection()}
@@ -1428,6 +1680,10 @@ export function WritingWorkspace(props: {
                         ...context
                       })
                     }}
+                    onQuickActionRequest={(request, selection) => {
+                      void startQuickAction(request, selection)
+                    }}
+                    onQuickActionError={props.onError}
                     onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
                   />
                 </section>
@@ -1441,7 +1697,7 @@ export function WritingWorkspace(props: {
                 </div>
               )}
               <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                <span>⌘/Ctrl+S save · ⌘/Ctrl+Alt+↑/↓ navigate</span>
+                <span>⌘/Ctrl+S save · ⇧⌘/Ctrl+K quick actions · ⌘/Ctrl+Alt+↑/↓ navigate</span>
                 <span>⌘/Ctrl+J toggles the agent panel</span>
               </div>
             </main>
@@ -1473,6 +1729,14 @@ export function WritingWorkspace(props: {
                 sectionTitles={sectionTitles}
                 currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
+                quickActionRequest={quickActionRequest}
+                includedAnnotations={includedAnnotations}
+                onClearIncludedAnnotations={() => setIncludedAnnotations([])}
+                onQuickActionHandled={(requestId) => {
+                  setQuickActionRequest((current) =>
+                    current?.requestId === requestId ? null : current
+                  )
+                }}
                 onFollowSection={followAgentSection}
                 flushCurrent={flushCurrent}
                 refreshManuscript={refreshAfterAgentMutation}
@@ -1529,6 +1793,51 @@ export function WritingWorkspace(props: {
         />
       ) : null}
 
+      <PublicationPreflightDialog
+        open={publicationOpen}
+        preview={publicationQuery.data}
+        pending={publicationQuery.isPending || publicationQuery.isFetching}
+        error={publicationQuery.isError}
+        onOpenChange={setPublicationOpen}
+        onRetry={() => void publicationQuery.refetch()}
+        onNavigate={(target) => {
+          setPublicationOpen(false)
+          void selectSection(target.sectionId).then((selected) => {
+            if (!selected || target.blockId === null) return
+            requestAnimationFrame(() => editorRef.current?.revealBlock(target.blockId ?? ''))
+          })
+        }}
+      />
+
+      <ManuscriptImportDialog
+        key={importPlan?.planId ?? 'empty-import-plan'}
+        open={importOpen}
+        plan={importPlan}
+        loading={importLoading}
+        applying={importApplying}
+        error={importError}
+        onOpenChange={(open) => {
+          if (open) setImportOpen(true)
+          else void cancelManuscriptImport()
+        }}
+        onApply={applyManuscriptImport}
+        onCancel={cancelManuscriptImport}
+      />
+
+      <AnnotationCreateDialog
+        open={annotationCreateOpen}
+        projectSessionId={props.projectSessionId}
+        sectionId={activeSectionId}
+        blockId={selectionContext?.activeBlockId ?? null}
+        textAnchor={selectionContext?.selectedText ?? null}
+        onOpenChange={setAnnotationCreateOpen}
+        onCreated={() => {
+          void queryClient.invalidateQueries({ queryKey: ['annotations', props.projectSessionId] })
+          setActiveWorkspace('issues')
+        }}
+        onError={props.onError}
+      />
+
       <ManuscriptPreview
         projectSessionId={props.projectSessionId}
         open={previewOpen}
@@ -1551,6 +1860,136 @@ export function WritingWorkspace(props: {
         }}
       />
     </SidebarProvider>
+  )
+}
+
+function PublicationPreflightDialog(props: {
+  open: boolean
+  preview: PublicationPreview | undefined
+  pending: boolean
+  error: boolean
+  onOpenChange(open: boolean): void
+  onRetry(): void
+  onNavigate(target: NonNullable<PublicationPreview['findings'][number]['target']>): void
+}): React.JSX.Element {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-3xl'>
+        <DialogHeader>
+          <DialogTitle>Publication preflight</DialogTitle>
+          <DialogDescription>
+            One captured publication model drives DOCX, LaTeX, and PDF output.
+          </DialogDescription>
+        </DialogHeader>
+        {props.pending ? (
+          <div className='flex min-h-40 items-center justify-center gap-2 text-muted-foreground'>
+            <Spinner /> Verifying manuscript and assets…
+          </div>
+        ) : props.error || props.preview === undefined ? (
+          <Alert variant='destructive'>
+            <AlertCircle />
+            <AlertTitle>Preflight unavailable</AlertTitle>
+            <AlertDescription className='flex items-center justify-between gap-3'>
+              The current publication state could not be captured.
+              <Button size='sm' variant='outline' onClick={props.onRetry}>
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className='grid gap-4'>
+            <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              <PreflightMetric label='Nodes' value={props.preview.nodeCount} />
+              <PreflightMetric label='Figures' value={props.preview.figureCount} />
+              <PreflightMetric label='References' value={props.preview.referenceCount} />
+              <PreflightMetric
+                label='Findings'
+                value={props.preview.errorCount + props.preview.warningCount}
+              />
+            </div>
+            <Alert variant={props.preview.ready ? 'default' : 'destructive'}>
+              {props.preview.ready ? <CheckCircle2 /> : <AlertCircle />}
+              <AlertTitle>
+                {props.preview.ready ? 'Ready to publish' : 'Resolve publication errors'}
+              </AlertTitle>
+              <AlertDescription>
+                {props.preview.errorCount} errors · {props.preview.warningCount} warnings · source{' '}
+                {props.preview.sourceHash.slice(0, 12)}
+              </AlertDescription>
+            </Alert>
+            <div className='grid gap-4 rounded-md border p-4 sm:grid-cols-[minmax(0,1fr)_12rem]'>
+              <div className='grid content-start gap-2 text-sm'>
+                <p className='font-medium'>Print layout</p>
+                <p className='text-muted-foreground'>
+                  {props.preview.options.pageSize === 'A4'
+                    ? 'A4 · 210 × 297 mm'
+                    : 'Letter · 8.5 × 11 in'}
+                </p>
+                <p className='text-muted-foreground'>
+                  Margins {props.preview.options.marginsMm.top} /{' '}
+                  {props.preview.options.marginsMm.right} / {props.preview.options.marginsMm.bottom}{' '}
+                  / {props.preview.options.marginsMm.left} mm
+                </p>
+                <div className='flex flex-wrap gap-2 pt-1'>
+                  <Badge variant='outline'>{props.preview.options.template}</Badge>
+                  <Badge variant='outline'>Page numbers</Badge>
+                  {props.preview.options.includeTableOfContents ? (
+                    <Badge variant='outline'>Table of contents</Badge>
+                  ) : null}
+                  {props.preview.options.includeReferences ? (
+                    <Badge variant='outline'>References</Badge>
+                  ) : null}
+                </div>
+              </div>
+              <div
+                className={`mx-auto flex w-32 flex-col border bg-background p-3 shadow-sm ${
+                  props.preview.options.pageSize === 'A4' ? 'aspect-[210/297]' : 'aspect-[8.5/11]'
+                }`}
+                role='img'
+                aria-label={`${props.preview.options.pageSize} print page preview`}
+              >
+                <div className='mt-3 h-2 w-3/4 rounded-sm bg-foreground/70' />
+                <div className='mt-4 h-1 w-full rounded-sm bg-muted-foreground/30' />
+                <div className='mt-1 h-1 w-11/12 rounded-sm bg-muted-foreground/30' />
+                <div className='mt-1 h-1 w-4/5 rounded-sm bg-muted-foreground/30' />
+                <div className='mt-auto text-center text-[8px] text-muted-foreground'>1</div>
+              </div>
+            </div>
+            {props.preview.findings.length === 0 ? (
+              <p className='rounded-md border p-4 text-sm text-muted-foreground'>
+                No publication losses or blocking issues were found.
+              </p>
+            ) : (
+              <div className='grid gap-2'>
+                {props.preview.findings.map((finding) => (
+                  <button
+                    key={finding.findingId}
+                    type='button'
+                    className='flex w-full items-start gap-3 rounded-md border p-3 text-left hover:bg-muted/50 disabled:cursor-default'
+                    disabled={finding.target === null}
+                    onClick={() => finding.target && props.onNavigate(finding.target)}
+                  >
+                    <Badge variant={finding.severity === 'error' ? 'destructive' : 'secondary'}>
+                      {finding.severity}
+                    </Badge>
+                    <span className='min-w-0 flex-1 text-sm'>{finding.message}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PreflightMetric(props: { label: string; value: number }): React.JSX.Element {
+  return (
+    <div className='rounded-md border p-3'>
+      <p className='text-xs text-muted-foreground'>{props.label}</p>
+      <p className='mt-1 text-lg font-semibold tabular-nums'>{props.value}</p>
+    </div>
   )
 }
 
@@ -1654,6 +2093,18 @@ function referenceUnavailableMessage(
 
 function normalizeSectionTitleDraft(value: string): string {
   return value.replace(/[\r\n]+/g, ' ')
+}
+
+function sameExactSelection(
+  before: EditorExactSelectionSnapshot,
+  after: EditorExactSelectionSnapshot
+): boolean {
+  return (
+    before.activeBlockId === after.activeBlockId &&
+    before.selectedText === after.selectedText &&
+    before.selectedBlockIds.length === after.selectedBlockIds.length &&
+    before.selectedBlockIds.every((blockId, index) => blockId === after.selectedBlockIds[index])
+  )
 }
 
 function useMediaQuery(query: string): boolean {

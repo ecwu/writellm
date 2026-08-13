@@ -13,6 +13,8 @@ const agentSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc901'
 const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc902'
 const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc903'
 const revisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
+const taskId = '019c6a5c-8d34-7a8e-a602-3d37a52dc911'
+const commandId = '019c6a5c-8d34-7a8e-a602-3d37a52dc912'
 
 describe('Agent mutation IPC', () => {
   it('authorizes the active project capability without publishing the removed legacy channel', async () => {
@@ -65,6 +67,24 @@ describe('Agent mutation IPC', () => {
       decision: 'rejected',
       continueRequested: true
     })
+  })
+
+  it('authorizes a durable batch and creates an optional checkpoint only through Main', async () => {
+    const value = harness()
+    const result = await value.invoke(IPC_CHANNELS.agentChangeSetBatch, {
+      projectSessionId,
+      agentSessionId,
+      taskId,
+      commandId,
+      action: 'reject',
+      proposalIds: [proposalId],
+      rejectReason: 'Do not use this change.',
+      createCheckpoint: true
+    })
+
+    expect(result).toEqual(batchResult)
+    expect(value.manager.createCheckpoint).toHaveBeenCalledOnce()
+    expect(value.agentChangeSets.execute).toHaveBeenCalledOnce()
   })
 
   it('rejects stale project sessions and unauthorized renderer origins before mutation', async () => {
@@ -120,6 +140,12 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult, 
     ),
     recordApprovalDecision: vi.fn()
   }
+  const agentChangeSets = {
+    execute: vi.fn(async (_input, checkpoint: () => Promise<string>) => {
+      expect(await checkpoint()).toBe('created')
+      return batchResult
+    })
+  }
   const manager = {
     assertMutationSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')
@@ -127,8 +153,10 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult, 
     }),
     assertActiveSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')
-      return { agentMutations: service, agentSessions }
-    })
+      return { agentMutations: service, agentSessions, agentChangeSets }
+    }),
+    versionHistoryState: vi.fn(async () => 'ready'),
+    createCheckpoint: vi.fn(async () => ({ oid: 'checkpoint' }))
   }
   registerAgentMutationIpc({
     manager: manager as never,
@@ -147,7 +175,34 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult, 
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input: unknown) =>
     Promise.resolve(handlers.get(channel)?.(event as never, input as never))
-  return { handlers, invoke, sender, service, agentSessions }
+  return { handlers, invoke, sender, service, agentSessions, agentChangeSets, manager }
+}
+
+const batchResult = {
+  commandId,
+  taskId,
+  action: 'reject' as const,
+  status: 'completed' as const,
+  checkpointStatus: 'created' as const,
+  items: [
+    {
+      proposalId,
+      effectiveProposalId: proposalId,
+      kind: 'section_patch' as const,
+      status: 'rejected' as const,
+      authoritativeStatus: 'rejected' as const,
+      message: null
+    }
+  ],
+  completedCount: 1,
+  remainingCount: 0,
+  review: {
+    reconciled: true,
+    appliedCount: 0,
+    satisfiedCount: 0,
+    rejectedCount: 1,
+    adverseCount: 0
+  }
 }
 
 const now = '2026-07-21T00:00:00.000Z'
@@ -209,6 +264,8 @@ const actionResult: MutationProposalActionResult = {
     undoRevisionId: null,
     replacesProposalId: null,
     rejectedReason: null,
+    writingTaskId: null,
+    writingTaskStepId: null,
     createdAt: now,
     updatedAt: now
   },
@@ -218,7 +275,8 @@ const actionResult: MutationProposalActionResult = {
     sectionId,
     sectionRevisionId: revisionId,
     reason: 'applied'
-  }
+  },
+  warnings: []
 }
 
 const approvalResult: ApproveMutationProposalResult = {
@@ -246,5 +304,6 @@ const refreshResult: ApproveMutationProposalResult = {
     replacesProposalId: proposalId,
     rejectedReason: null
   },
-  sectionChanged: null
+  sectionChanged: null,
+  warnings: []
 }

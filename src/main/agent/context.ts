@@ -9,6 +9,7 @@ import {
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { buildAgentPolicy } from './prompts/agent-policy'
 import { formatAgentSystemPrompt } from './prompts/system-prompt'
+import { readWritingRules } from '../../shared/contracts/writing-rules'
 
 const MAX_CONTEXT_OUTLINE_SECTIONS = 200
 const MAX_SYSTEM_OUTLINE_SECTIONS = 80
@@ -35,10 +36,25 @@ export interface WritingSnapshot {
   workspace: ReturnType<ManuscriptService['getWorkspace']>
   sectionContents: ReadonlyMap<string, ReturnType<ManuscriptService['getRevision']>['content']>
   editorContext: AgentEditorContext
+  reviewResources: ReviewResourceSnapshot | null
+}
+
+export interface ReviewResourceSnapshot {
+  knowledgeItems: readonly {
+    knowledgeItemId: string
+    displayName: string
+    state: 'importing' | 'stored' | 'failed' | 'cancelled'
+  }[]
+  manuscriptAssets: readonly { assetId: string; referencedByCurrentRevision: boolean }[]
 }
 
 export class AgentContextBuilder {
-  constructor(private readonly manuscript: ManuscriptService) {}
+  constructor(
+    private readonly manuscript: ManuscriptService,
+    private readonly captureReviewResources?: (
+      currentRevisionIds: readonly string[]
+    ) => ReviewResourceSnapshot
+  ) {}
 
   capture(snapshotId: string, editorContext: AgentEditorContext): WritingSnapshot {
     const assembly = this.manuscript.assemble()
@@ -56,7 +72,11 @@ export class AgentContextBuilder {
       sectionContents: new Map(
         assembly.sections.map((entry) => [entry.revision.sectionRevisionId, entry.revision.content])
       ),
-      editorContext
+      editorContext,
+      reviewResources:
+        this.captureReviewResources?.(
+          assembly.sections.map((entry) => entry.revision.sectionRevisionId)
+        ) ?? null
     }
   }
 
@@ -103,7 +123,8 @@ export class AgentContextBuilder {
         currentRevisionId,
         stale: selectionStale,
         selectedBlockIds: selectionStale ? [] : editorContext.selectedBlockIds,
-        activeBlockId: selectionStale ? null : editorContext.activeBlockId
+        activeBlockId: selectionStale ? null : editorContext.activeBlockId,
+        selectedText: selectionStale ? null : (editorContext.selectedText ?? null)
       },
       warnings,
       totalWordCount: workspace.wordCount,
@@ -144,11 +165,15 @@ export class AgentContextBuilder {
         writingContext.outline.length > MAX_SYSTEM_OUTLINE_SECTIONS
     }
     const policy = buildAgentPolicy()
+    const writingRules = readWritingRules(snapshot.workspace.brief.extensible).rules.filter(
+      (rule) => rule.active
+    )
     const selectedReferences = [...(input.skillPrompt?.references ?? [])]
     let mandatorySkill = input.skillPrompt?.mandatory ?? ''
     let systemPrompt = formatAgentSystemPrompt({
       policy,
       context: systemContext,
+      writingRules,
       mandatorySkill,
       references: selectedReferences
     })
@@ -157,6 +182,7 @@ export class AgentContextBuilder {
       systemPrompt = formatAgentSystemPrompt({
         policy,
         context: systemContext,
+        writingRules,
         mandatorySkill,
         references: selectedReferences
       })
@@ -167,6 +193,7 @@ export class AgentContextBuilder {
       systemPrompt = formatAgentSystemPrompt({
         policy,
         context: systemContext,
+        writingRules,
         mandatorySkill,
         references: selectedReferences
       })
@@ -183,6 +210,7 @@ export class AgentContextBuilder {
       systemPrompt = formatAgentSystemPrompt({
         policy,
         context: systemContext,
+        writingRules,
         mandatorySkill,
         references: selectedReferences
       })

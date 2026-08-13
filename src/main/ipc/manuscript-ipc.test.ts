@@ -48,7 +48,7 @@ const workspace: ManuscriptWorkspace = {
         sectionId: 'section-1',
         revisionNumber: 1,
         source: 'bootstrap',
-        contentSchemaVersion: 1,
+        contentSchemaVersion: 3,
         contentHash: 'a'.repeat(64),
         priorRevisionId: null,
         wordCount: 0,

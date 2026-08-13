@@ -704,7 +704,9 @@ Continue the requested writing task. Verify the updated manuscript and run check
 </CURRENT_USER_REQUEST>`
       await expect(panel.getByText(approvalContinuation, { exact: true })).toHaveCount(0)
       await expect(
-        panel.getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
+        panel
+          .getByText('I found evidence and prepared a reviewable proposal.', { exact: true })
+          .first()
       ).toBeVisible()
       await expect(
         panel.locator('strong').getByText('evidence', { exact: true }).first()

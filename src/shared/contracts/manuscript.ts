@@ -1,7 +1,8 @@
 import { z } from 'zod'
+import { WRITING_RULES_NAMESPACE, writingRulesStateSchema } from './writing-rules'
 
 export const MANUSCRIPT_BRIEF_SCHEMA_VERSION = 1
-export const SECTION_CONTENT_SCHEMA_VERSION = 2
+export const SECTION_CONTENT_SCHEMA_VERSION = 3
 export const SECTION_COUNT_ALGORITHM_VERSION = 2
 export const sectionCountAlgorithmVersionSchema = z.union([z.literal(1), z.literal(2)])
 export const SECTION_MATERIALIZATION_FORMAT_VERSION = 1
@@ -48,6 +49,7 @@ export const manuscriptAssetUrlSchema = z
     /^writellm-asset:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
   )
 export const manuscriptAssetMimeTypeSchema = z.enum(['image/png', 'image/jpeg', 'image/webp'])
+export const figureIdSchema = z.string().min(1).max(600)
 const blockColorSchema = z.string().min(1).max(100)
 const textAlignmentSchema = z.enum(['left', 'center', 'right', 'justify'])
 const mermaidSourceSchema = z
@@ -266,6 +268,8 @@ export const blockNoteBlockSchema: z.ZodType<BlockNoteBlockValue> = z.lazy(() =>
             name: z.string().max(500),
             url: manuscriptAssetUrlSchema,
             caption: z.string().max(2_000),
+            figureId: figureIdSchema.optional(),
+            altText: z.string().max(2_000).optional(),
             showPreview: z.boolean(),
             previewWidth: z.number().int().min(64).max(8_192).optional()
           })
@@ -341,6 +345,67 @@ export const blockNoteDocumentSchema = z
     }
   })
 
+export const currentBlockNoteDocumentSchema = blockNoteDocumentSchema.superRefine(
+  (document, context) => {
+    const visit = (blocks: BlockNoteBlockValue[]): void => {
+      for (const block of blocks) {
+        if (block.type === 'image') {
+          if (typeof block.props.figureId !== 'string' || block.props.figureId.length === 0) {
+            context.addIssue({
+              code: 'custom',
+              path: [block.id, 'props', 'figureId'],
+              message: 'Image figure ID is missing'
+            })
+          }
+          if (typeof block.props.altText !== 'string') {
+            context.addIssue({
+              code: 'custom',
+              path: [block.id, 'props', 'altText'],
+              message: 'Image alt text metadata is missing'
+            })
+          }
+        }
+        visit(block.children)
+      }
+    }
+    visit(document)
+  }
+)
+
+export function figureIdForBlock(sectionId: string, blockId: string): string {
+  return figureIdSchema.parse(`figure:${sectionId}:${blockId}`)
+}
+
+export function normalizeFigureMetadata(
+  document: BlockNoteDocument,
+  sectionId: string
+): BlockNoteDocument {
+  const visit = (blocks: BlockNoteDocument): BlockNoteDocument =>
+    blocks.map((block) => {
+      const children = visit(block.children)
+      if (block.type !== 'image') return { ...block, children }
+      const props = block.props as Record<string, unknown>
+      return {
+        ...block,
+        props: {
+          ...props,
+          figureId:
+            typeof props.figureId === 'string' && props.figureId.length > 0
+              ? props.figureId
+              : figureIdForBlock(sectionId, block.id),
+          altText:
+            typeof props.altText === 'string'
+              ? props.altText
+              : typeof props.name === 'string'
+                ? props.name
+                : ''
+        },
+        children
+      }
+    })
+  return currentBlockNoteDocumentSchema.parse(visit(document))
+}
+
 export type BlockNoteDocument = z.infer<typeof blockNoteDocumentSchema>
 
 export const manuscriptBriefFieldsSchema = z
@@ -356,6 +421,16 @@ export const manuscriptBriefFieldsSchema = z
     citationRequirements: boundedText,
     additionalInstructions: boundedText,
     extensible: z.record(z.string().min(1).max(256), z.unknown()).superRefine((value, context) => {
+      if (value[WRITING_RULES_NAMESPACE] !== undefined) {
+        const parsed = writingRulesStateSchema.safeParse(value[WRITING_RULES_NAMESPACE])
+        if (!parsed.success) {
+          context.addIssue({
+            code: 'custom',
+            path: [WRITING_RULES_NAMESPACE],
+            message: 'Brief writingRulesV1 data is invalid'
+          })
+        }
+      }
       const seen = new WeakSet<object>()
       let keys = 0
       const visit = (candidate: unknown, depth: number): void => {
@@ -483,7 +558,11 @@ export const sectionRevisionSchema = z
     source: sectionRevisionSourceSchema,
     sourceClass: sectionRevisionClassSchema.optional(),
     content: blockNoteDocumentSchema,
-    contentSchemaVersion: z.union([z.literal(1), z.literal(SECTION_CONTENT_SCHEMA_VERSION)]),
+    contentSchemaVersion: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(SECTION_CONTENT_SCHEMA_VERSION)
+    ]),
     contentHash: contentHashSchema,
     priorRevisionId: sectionRevisionIdSchema.nullable(),
     wordCount: z.number().int().nonnegative(),
@@ -498,12 +577,16 @@ export const sectionRevisionSchema = z
 
 export const sectionRevisionSummarySchema = sectionRevisionSchema.omit({ content: true }).strict()
 export const currentSectionRevisionSchema = sectionRevisionSchema.refine(
-  (revision) => revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION,
-  'Current section revision must use the active count algorithm'
+  (revision) =>
+    revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION &&
+    revision.contentSchemaVersion === SECTION_CONTENT_SCHEMA_VERSION,
+  'Current section revision must use the active content and count schemas'
 )
 export const currentSectionRevisionSummarySchema = sectionRevisionSummarySchema.refine(
-  (revision) => revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION,
-  'Current section revision must use the active count algorithm'
+  (revision) =>
+    revision.countAlgorithmVersion === SECTION_COUNT_ALGORITHM_VERSION &&
+    revision.contentSchemaVersion === SECTION_CONTENT_SCHEMA_VERSION,
+  'Current section revision must use the active content and count schemas'
 )
 
 export const appendSectionRevisionInputSchema = z
@@ -695,7 +778,6 @@ export const editorFlushRequestSchema = z
 export const editorFlushAckInputSchema = editorFlushRequestSchema
   .extend({ sectionId: sectionIdSchema, sectionRevisionId: sectionRevisionIdSchema })
   .strict()
-export const importMarkdownInputSchema = saveSectionDocumentInputSchema
 export const exportNativeJsonInputSchema = loadSectionInputSchema
 export const exportMarkdownInputSchema = loadSectionInputSchema
   .extend({
@@ -731,12 +813,6 @@ export const manuscriptAssetPreviewResultSchema = z.discriminatedUnion('status',
   z.object({ status: z.literal('resolved'), url: z.string().url().max(2_048) }).strict(),
   z.object({ status: z.literal('session-revoked') }).strict()
 ])
-export const manuscriptAssetImportReferenceInputSchema = editorSessionInputSchema
-  .extend({ reference: z.string().min(1).max(1_024) })
-  .strict()
-export const manuscriptAssetImportReferenceResultSchema = z
-  .object({ logicalUrl: manuscriptAssetUrlSchema })
-  .strict()
 
 export const manuscriptWorkspaceInputSchema = editorSessionInputSchema
 export const manuscriptReferenceIndexInputSchema = editorSessionInputSchema

@@ -19,6 +19,11 @@ import {
 import { runModelsDevRequest } from './models-dev-request'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
+import {
+  latexImportWorkerErrorSchema,
+  latexImportWorkerRequestSchema
+} from '../shared/contracts/latex-import'
+import { parseLatexImport } from './latex-import-parser'
 
 const parentPort = process.parentPort
 if (parentPort === undefined) throw new Error('Background worker requires an Electron parent port')
@@ -62,6 +67,32 @@ parentPort.on('message', (event) => {
 })
 
 async function dispatch(value: unknown): Promise<void> {
+  const latexImport = latexImportWorkerRequestSchema.safeParse(value)
+  if (latexImport.success) {
+    try {
+      post(parseLatexImport(latexImport.data))
+    } catch (err) {
+      workerLog?.(
+        'error',
+        'worker.background.latex_import_failed',
+        'LaTeX import parsing failed',
+        { sourceHash: latexImport.data.sourceHash },
+        err
+      )
+      post(
+        latexImportWorkerErrorSchema.parse({
+          type: 'latex-import-error',
+          requestId: latexImport.data.requestId,
+          error: {
+            name: err instanceof Error ? err.name.slice(0, 100) : 'Error',
+            message: err instanceof Error ? err.message.slice(0, 1_000) : 'LaTeX parsing failed'
+          }
+        })
+      )
+    }
+    return
+  }
+
   const modelsDev = modelsDevResolveRequestSchema.safeParse(value)
   if (modelsDev.success) {
     const controller = new AbortController()

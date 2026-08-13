@@ -60,7 +60,7 @@ function assembly(title = 'Alpha Alpha Alpha'): ManuscriptAssembly {
               children: []
             }
           ],
-          contentSchemaVersion: 2,
+          contentSchemaVersion: 3,
           contentHash: 'a'.repeat(64),
           priorRevisionId: null,
           wordCount: 2,

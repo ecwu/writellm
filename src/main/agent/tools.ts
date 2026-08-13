@@ -6,6 +6,7 @@ import {
   modelSubmitBriefChangeArgsSchema,
   modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema,
+  modelSubmitWritingRulesChangeWithReviewArgsSchema,
   type MutationProposalToolResult,
   type MutationProposalOutcome,
   type MutationProposalRecord
@@ -26,12 +27,30 @@ import {
   type SearchKnowledgeResult,
   type WritingContextResult
 } from '../../shared/contracts/agent-tools'
+import type {
+  ListReviewIssuesResult,
+  RecordReviewIssuesResult,
+  UpdateReviewIssuesResult
+} from '../../shared/contracts/review'
+import type {
+  createWritingTaskResultSchema,
+  getWritingTaskResultSchema,
+  updateWritingTaskResultSchema
+} from '../../shared/contracts/writing-task'
+import {
+  applyWritingRuleOperations,
+  readWritingRules,
+  writeWritingRules,
+  type WritingRuleOperation
+} from '../../shared/contracts/writing-rules'
 import type { AgentContextBuilder, WritingSnapshot } from './context'
 import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
 import { AgentToolDomainError } from './read-tools'
 import { extractSectionAgentText } from '../manuscript/content'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
+import type { ReviewIssueService } from './review-issue-service'
+import type { WritingTaskService } from './writing-task-service'
 
 interface AgentToolResultMap {
   get_writing_context: WritingContextResult
@@ -43,7 +62,14 @@ interface AgentToolResultMap {
   read_writing_skill: ReadWritingSkillResult
   inspect_change: InspectChangeResult
   check_draft: CheckDraftResult
+  list_review_issues: ListReviewIssuesResult
+  record_review_issues: RecordReviewIssuesResult
+  update_review_issues: UpdateReviewIssuesResult
+  get_writing_task: ReturnType<typeof getWritingTaskResultSchema.parse>
+  create_writing_task: ReturnType<typeof createWritingTaskResultSchema.parse>
+  update_writing_task: ReturnType<typeof updateWritingTaskResultSchema.parse>
   submit_brief_change: MutationProposalToolResult
+  submit_writing_rules_change: MutationProposalToolResult
   submit_outline_change: MutationProposalToolResult
   submit_section_change: MutationProposalToolResult
   generate_image: MutationProposalToolResult
@@ -78,7 +104,9 @@ export interface AgentToolExecutor {
 export class MainAgentTools implements AgentToolExecutor {
   constructor(
     private readonly readTools: AgentReadToolExecutor & { contextBuilder(): AgentContextBuilder },
-    readonly mutations: MutationProposalService
+    readonly mutations: MutationProposalService,
+    private readonly reviewIssues?: ReviewIssueService,
+    private readonly writingTasks?: WritingTaskService
   ) {}
 
   contextBuilder(): AgentContextBuilder {
@@ -122,6 +150,40 @@ export class MainAgentTools implements AgentToolExecutor {
   async execute<TName extends AgentToolName>(
     input: AgentToolExecutionInput<TName>
   ): Promise<AgentToolResultMap[TName]> {
+    if (input.toolName === 'list_review_issues') {
+      return this.#requireReviewIssues().list(input.args) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'record_review_issues') {
+      if (input.snapshot === undefined) {
+        throw new AgentToolDomainError('conflict', 'Review issue source snapshot expired')
+      }
+      return this.#requireReviewIssues().record(
+        input.args,
+        { agentSessionId: input.agentSessionId, agentRunId: input.agentRunId },
+        input.snapshot
+      ) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'update_review_issues') {
+      return this.#requireReviewIssues().update(input.args, {
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId
+      }) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'get_writing_task') {
+      return this.#requireWritingTasks().get(input.agentSessionId) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'create_writing_task') {
+      return this.#requireWritingTasks().create(input.args, {
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId
+      }) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'update_writing_task') {
+      return this.#requireWritingTasks().update(input.args, {
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId
+      }) as AgentToolResultMap[TName]
+    }
     if (input.toolName === 'inspect_change') {
       const args = inspectChangeArgsSchema.parse(input.args)
       const proposal = this.mutations
@@ -198,14 +260,19 @@ export class MainAgentTools implements AgentToolExecutor {
     }
     if (proposalName === 'generate_image') {
       const args = generateImageArgsSchema.parse(input.args)
-      return this.mutations.proposeGeneratedImage(args, input.snapshot, {
+      const reviewResolutions = args.resolvesReviewIssues ?? []
+      this.#validateReviewResolutions(reviewResolutions, input.agentSessionId)
+      const result = this.mutations.proposeGeneratedImage(args, input.snapshot, {
         agentSessionId: input.agentSessionId,
         agentRunId: input.agentRunId,
         toolCallId: input.toolCallId,
         toolCallEventId: input.toolCallEventId,
         modelRequestId: input.modelRequestId,
+        resolvesReviewIssues: reviewResolutions,
         signal: input.signal
-      }) as AgentToolResultMap[TName]
+      })
+      this.#linkReviewIssues(result.proposalId, reviewResolutions, input)
+      return result as AgentToolResultMap[TName]
     }
     if (proposalName === 'submit_section_change') {
       const args = modelSubmitSectionChangeArgsSchema.parse(input.args)
@@ -221,22 +288,60 @@ export class MainAgentTools implements AgentToolExecutor {
       }
     }
     const normalized = normalizeProposalArguments(proposalName, input.args, input.snapshot)
-    return Promise.resolve(
-      this.mutations.propose(proposalName, normalized.args, {
-        agentSessionId: input.agentSessionId,
-        agentRunId: input.agentRunId,
-        toolCallId: input.toolCallId,
-        toolCallEventId: input.toolCallEventId,
-        modelRequestId: input.modelRequestId,
-        ...normalized.idMapping,
-        signal: input.signal
-      }) as AgentToolResultMap[TName]
-    )
+    this.#validateReviewResolutions(normalized.resolvesReviewIssues, input.agentSessionId)
+    const result = this.mutations.propose(proposalName, normalized.args, {
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      toolCallId: input.toolCallId,
+      toolCallEventId: input.toolCallEventId,
+      modelRequestId: input.modelRequestId,
+      resolvesReviewIssues: normalized.resolvesReviewIssues,
+      ...normalized.idMapping,
+      signal: input.signal
+    })
+    this.#linkReviewIssues(result.proposalId, normalized.resolvesReviewIssues, input)
+    return result as AgentToolResultMap[TName]
+  }
+
+  #requireReviewIssues(): ReviewIssueService {
+    if (this.reviewIssues === undefined) {
+      throw new AgentToolDomainError('unavailable', 'Review issues are unavailable')
+    }
+    return this.reviewIssues
+  }
+
+  #requireWritingTasks(): WritingTaskService {
+    if (this.writingTasks === undefined) {
+      throw new AgentToolDomainError('unavailable', 'Writing task service is unavailable')
+    }
+    return this.writingTasks
+  }
+
+  #validateReviewResolutions(
+    targets: readonly { issueId: string; expectedVersion: number; resolutionSummary: string }[],
+    agentSessionId: string
+  ): void {
+    if (targets.length === 0) return
+    this.#requireReviewIssues().validateResolutionTargets(targets, agentSessionId)
+  }
+
+  #linkReviewIssues(
+    proposalId: string,
+    targets: readonly { issueId: string; expectedVersion: number; resolutionSummary: string }[],
+    input: AgentToolExecutionInput
+  ): void {
+    if (targets.length === 0) return
+    this.#requireReviewIssues().linkProposal(proposalId, targets, {
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId
+    })
   }
 
   #withCitationProvenance(result: CheckDraftResult, agentSessionId: string): CheckDraftResult {
-    if (!result.summary.skippedChecks.includes('citation_provenance')) return result
+    if (!result.summary.unavailableChecks.includes('citation_provenance')) return result
     const findings = [...result.findings]
+    let citationFailed = false
+    let citationFindingTruncated = false
     for (const proposal of this.mutations.list(agentSessionId)) {
       const citationIds =
         proposal.payload.kind === 'generated_image_insert'
@@ -253,7 +358,12 @@ export class MainAgentTools implements AgentToolExecutor {
           source.excerpt.length > 0 &&
           typeof source.contentHash === 'string' &&
           typeof source.retrievedAt === 'string'
-        if (complete || findings.length >= 200) continue
+        if (complete) continue
+        citationFailed = true
+        if (findings.length >= 200) {
+          citationFindingTruncated = true
+          continue
+        }
         const evidence = `${proposal.proposalId}:${citationId}`
         findings.push({
           findingId: createHash('sha256')
@@ -261,33 +371,52 @@ export class MainAgentTools implements AgentToolExecutor {
               `${result.snapshotId}:citation_provenance:proposal:${proposal.proposalId}:${evidence}`
             )
             .digest('hex'),
-          severity: 'error',
+          priority: 'P1',
+          category: 'citation',
           check: 'citation_provenance',
-          message: 'Proposal citation is missing its bounded expanded-evidence snapshot',
+          title: 'Proposal citation provenance is incomplete',
+          description: 'A proposal citation is missing its bounded expanded-evidence snapshot.',
           evidence
         })
       }
     }
-    const citationFailed = findings.some((finding) => finding.check === 'citation_provenance')
+    const citationOutcome = {
+      check: 'citation_provenance' as const,
+      status: citationFailed ? ('failed' as const) : ('passed' as const),
+      reason: null
+    }
     return checkDraftResultSchema.parse({
       ...result,
       findings,
       summary: {
-        errors: findings.filter((finding) => finding.severity === 'error').length,
-        warnings: findings.filter((finding) => finding.severity === 'warning').length,
+        priorities: {
+          P0: findings.filter((finding) => finding.priority === 'P0').length,
+          P1: findings.filter((finding) => finding.priority === 'P1').length,
+          P2: findings.filter((finding) => finding.priority === 'P2').length,
+          P3: findings.filter((finding) => finding.priority === 'P3').length
+        },
         passedChecks: citationFailed
           ? result.summary.passedChecks
           : [...result.summary.passedChecks, 'citation_provenance'],
-        skippedChecks: result.summary.skippedChecks.filter(
+        skippedChecks: result.summary.skippedChecks,
+        unavailableChecks: result.summary.unavailableChecks.filter(
           (check) => check !== 'citation_provenance'
-        )
+        ),
+        checkOutcomes: result.summary.checkOutcomes.map((outcome) =>
+          outcome.check === 'citation_provenance' ? citationOutcome : outcome
+        ),
+        truncated: result.summary.truncated || citationFindingTruncated
       }
     })
   }
 }
 
 function normalizeProposalArguments(
-  toolName: 'submit_brief_change' | 'submit_outline_change' | 'submit_section_change',
+  toolName:
+    | 'submit_brief_change'
+    | 'submit_writing_rules_change'
+    | 'submit_outline_change'
+    | 'submit_section_change',
   rawArgs: unknown,
   snapshot: WritingSnapshot
 ): {
@@ -296,6 +425,11 @@ function normalizeProposalArguments(
     createdSectionRefs?: Record<string, string>
     createdBlockRefs?: Record<string, string>
   }
+  resolvesReviewIssues: Array<{
+    issueId: string
+    expectedVersion: number
+    resolutionSummary: string
+  }>
 } {
   if (toolName === 'submit_brief_change') {
     const args = modelSubmitBriefChangeArgsSchema.parse(rawArgs)
@@ -306,7 +440,31 @@ function normalizeProposalArguments(
         baseBriefVersion: snapshot.workspace.brief.version,
         ...args
       },
-      idMapping: {}
+      idMapping: {},
+      resolvesReviewIssues: args.resolvesReviewIssues ?? []
+    }
+  }
+  if (toolName === 'submit_writing_rules_change') {
+    const args = modelSubmitWritingRulesChangeWithReviewArgsSchema.parse(rawArgs)
+    const operations: WritingRuleOperation[] = args.operations.map((operation) =>
+      operation.type === 'add'
+        ? { type: 'add', rule: { ruleId: randomUUID(), ...operation.rule } }
+        : operation
+    )
+    const current = readWritingRules(snapshot.workspace.brief.extensible)
+    const next = applyWritingRuleOperations(current, operations)
+    return {
+      args: {
+        schemaVersion: 1,
+        manuscriptId: snapshot.workspace.manuscriptId,
+        baseBriefVersion: snapshot.workspace.brief.version,
+        changes: {
+          extensible: writeWritingRules(snapshot.workspace.brief.extensible, next)
+        },
+        citationIds: args.citationIds
+      },
+      idMapping: {},
+      resolvesReviewIssues: args.resolvesReviewIssues ?? []
     }
   }
   if (toolName === 'submit_outline_change') return normalizeOutlineArguments(rawArgs, snapshot)
@@ -415,7 +573,8 @@ function normalizeOutlineArguments(
       operations,
       citationIds: args.citationIds
     },
-    idMapping: { createdSectionRefs: Object.fromEntries(createdIds) }
+    idMapping: { createdSectionRefs: Object.fromEntries(createdIds) },
+    resolvesReviewIssues: args.resolvesReviewIssues ?? []
   }
 }
 
@@ -557,7 +716,8 @@ function normalizeSectionArguments(
       operations,
       citationIds: args.citationIds
     },
-    idMapping: { createdBlockRefs: Object.fromEntries(createdBlockRefs) }
+    idMapping: { createdBlockRefs: Object.fromEntries(createdBlockRefs) },
+    resolvesReviewIssues: args.resolvesReviewIssues ?? []
   }
 }
 

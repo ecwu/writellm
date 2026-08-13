@@ -13,6 +13,7 @@ describe('Agent writing policy', () => {
     expect(policy).toContain('COLLABORATION_POLICY')
     expect(policy).toContain('ACADEMIC_WRITING_POLICY')
     expect(policy).toContain('CITATION_POLICY')
+    expect(policy).toContain('WRITING_TASK_POLICY')
     expect(policy).toContain('Never invent evidence, references, novelty')
     expect(policy).toContain('Before the first substantial tool phase')
     expect(policy).toContain('Never expose hidden reasoning or chain-of-thought')
@@ -22,6 +23,7 @@ describe('Agent writing policy', () => {
     expect(policy).toContain('Never emit an opaque marker such as [xx]')
     expect(policy).toContain('[Source: exact source title, p. N]')
     expect(policy).toContain('【来源：准确来源标题，第 N 页】')
+    expect(policy).toContain('Task state is collaboration metadata')
     expect(new TextEncoder().encode(policy).byteLength).toBeLessThan(16_384)
   })
 

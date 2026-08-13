@@ -11,7 +11,14 @@ import {
 } from '../../shared/contracts/app'
 import { agentApprovalModeSchema } from '../../shared/contracts/agent'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import {
+  createPublicationPresetInputSchema,
+  publicationPresetIdInputSchema,
+  publicationPresetSnapshotSchema,
+  updatePublicationPresetInputSchema
+} from '../../shared/contracts/publication-presets'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
+import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { Logger } from 'pino'
 import { authorizeSender } from './authorize-sender'
 
@@ -25,6 +32,7 @@ export interface AppIpcMain {
 
 export interface RegisterIpcHandlersOptions {
   appSettings: AppSettingsRepository
+  publicationPresets: PublicationPresetRepository
   logger: Logger
   developmentUrl?: string
   ipc?: AppIpcMain
@@ -32,6 +40,7 @@ export interface RegisterIpcHandlersOptions {
 
 export function registerIpcHandlers({
   appSettings,
+  publicationPresets,
   logger,
   developmentUrl,
   ipc = ipcMain
@@ -109,6 +118,37 @@ export function registerIpcHandlers({
     return agentApprovalModeSchema.parse(persisted)
   })
 
+  ipc.handle(IPC_CHANNELS.publicationPresetsSnapshot, (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return publicationPresetSnapshotSchema.parse(publicationPresets.snapshot())
+  })
+
+  ipc.handle(IPC_CHANNELS.publicationPresetsCreate, (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return publicationPresetSnapshotSchema.parse(
+      publicationPresets.create(createPublicationPresetInputSchema.parse(rawInput))
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.publicationPresetsUpdate, (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return publicationPresetSnapshotSchema.parse(
+      publicationPresets.update(updatePublicationPresetInputSchema.parse(rawInput))
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.publicationPresetsDelete, (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId } = publicationPresetIdInputSchema.parse(rawInput)
+    return publicationPresetSnapshotSchema.parse(publicationPresets.delete(presetId))
+  })
+
+  ipc.handle(IPC_CHANNELS.publicationPresetsSetDefault, (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { presetId } = publicationPresetIdInputSchema.parse(rawInput)
+    return publicationPresetSnapshotSchema.parse(publicationPresets.setDefault(presetId))
+  })
+
   return () => {
     for (const channel of [
       IPC_CHANNELS.appGetInfo,
@@ -119,7 +159,12 @@ export function registerIpcHandlers({
       IPC_CHANNELS.appGetCitationDisplayMode,
       IPC_CHANNELS.appSetCitationDisplayMode,
       IPC_CHANNELS.appGetDefaultAgentApprovalMode,
-      IPC_CHANNELS.appSetDefaultAgentApprovalMode
+      IPC_CHANNELS.appSetDefaultAgentApprovalMode,
+      IPC_CHANNELS.publicationPresetsSnapshot,
+      IPC_CHANNELS.publicationPresetsCreate,
+      IPC_CHANNELS.publicationPresetsUpdate,
+      IPC_CHANNELS.publicationPresetsDelete,
+      IPC_CHANNELS.publicationPresetsSetDefault
     ]) {
       ipc.removeHandler(channel)
     }

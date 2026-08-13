@@ -1,4 +1,11 @@
-import { ipcMain, type IpcMain, type WebContents } from 'electron'
+import {
+  dialog,
+  ipcMain,
+  type BrowserWindow,
+  type IpcMain,
+  type OpenDialogOptions,
+  type WebContents
+} from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -12,12 +19,9 @@ import {
   exportNativeJsonInputSchema,
   exportResultSchema,
   finalFlushSaveInputSchema,
-  importMarkdownInputSchema,
   loadSectionInputSchema,
   manuscriptAssetPreviewInputSchema,
   manuscriptAssetPreviewResultSchema,
-  manuscriptAssetImportReferenceInputSchema,
-  manuscriptAssetImportReferenceResultSchema,
   manuscriptAssetResultSchema,
   ManuscriptDomainError,
   openEditorResultSchema,
@@ -26,6 +30,14 @@ import {
   uploadManuscriptAssetInputSchema,
   type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
+import {
+  manuscriptImportApplyInputSchema,
+  manuscriptImportApplyResultSchema,
+  manuscriptImportCancelInputSchema,
+  manuscriptImportCancelResultSchema,
+  manuscriptImportPlanRequestSchema,
+  manuscriptImportPlanResultSchema
+} from '../../shared/contracts/manuscript-import'
 import type { ProjectContext } from '../project/project-context'
 import {
   ProjectSessionError,
@@ -39,6 +51,14 @@ import { writeAtomicFile } from '../storage/atomic-file'
 import { authorizeSender } from './authorize-sender'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
 import { manuscriptSectionToMarkdown } from '../../shared/manuscript-markdown'
+import {
+  deleteManuscriptAssetInputSchema,
+  deleteManuscriptAssetResultSchema,
+  manuscriptAssetWorkspaceInputSchema,
+  manuscriptAssetWorkspacePageSchema
+} from '../../shared/contracts/manuscript-assets'
+import { ManuscriptImportService } from '../manuscript/manuscript-import-service'
+import type { LatexImportWorkerResult } from '../../shared/contracts/latex-import'
 
 export interface EditorIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -53,11 +73,23 @@ interface PendingFlush {
 
 export function registerEditorIpc(options: {
   manager: ProjectManager
-  logger: Pick<Logger, 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: EditorIpcMain
   snapshotFlushTimeoutMs?: number
   assetCapabilities?: ManuscriptAssetCapabilities
+  getWindow?: () => BrowserWindow | null
+  selectImportSourceForTest?: () => Promise<string | null>
+  parseLatex?: (input: {
+    source: string
+    sourceHash: string
+    project?: {
+      entryRelativePath: string
+      textFiles: Array<{ relativePath: string; kind: 'tex' | 'bib'; source: string }>
+      assetPaths: string[]
+    } | null
+    signal?: AbortSignal
+  }) => Promise<LatexImportWorkerResult>
 }): {
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
@@ -74,6 +106,10 @@ export function registerEditorIpc(options: {
   const subscribers = new Map<string, Map<string, WebContents>>()
   const activeSections = new Map<string, string>()
   const pending = new Map<string, PendingFlush>()
+  const importService = new ManuscriptImportService({
+    log: options.logger,
+    parseLatex: options.parseLatex
+  })
 
   ipc.handle(IPC_CHANNELS.editorOpen, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -111,15 +147,39 @@ export function registerEditorIpc(options: {
     options.manager.assertActiveSession(parsed.projectSessionId)
     return result
   })
-  ipc.handle(IPC_CHANNELS.editorImportMarkdown, async (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.editorCreateImportPlan, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = importMarkdownInputSchema.parse(input)
+    const parsed = manuscriptImportPlanRequestSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    const result = await saveWithConflictResult(() =>
-      context.editorPersistence.save(parsed, 'import')
-    )
+    const selectedPath =
+      options.selectImportSourceForTest === undefined
+        ? await selectImportSource(options.getWindow?.() ?? null, parsed.selection ?? 'file')
+        : await options.selectImportSourceForTest()
+    if (selectedPath === null)
+      return manuscriptImportPlanResultSchema.parse({ status: 'cancelled' })
+    const plan = await importService.createPlan({
+      context,
+      sourcePath: selectedPath,
+      activeSectionId: parsed.activeSectionId
+    })
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return result
+    return manuscriptImportPlanResultSchema.parse({ status: 'ready', plan })
+  })
+  ipc.handle(IPC_CHANNELS.editorApplyImportPlan, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptImportApplyInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const result = await importService.apply(context, parsed)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    return manuscriptImportApplyResultSchema.parse(result)
+  })
+  ipc.handle(IPC_CHANNELS.editorCancelImportPlan, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = manuscriptImportCancelInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    return manuscriptImportCancelResultSchema.parse(
+      await importService.cancel(context, parsed.planId)
+    )
   })
   ipc.handle(IPC_CHANNELS.editorExportNativeJson, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -225,13 +285,21 @@ export function registerEditorIpc(options: {
       return manuscriptAssetPreviewResultSchema.parse({ status: 'session-revoked' })
     }
   })
-  ipc.handle(IPC_CHANNELS.editorResolveImportAsset, (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.editorListAssets, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = manuscriptAssetImportReferenceInputSchema.parse(input)
+    const parsed = manuscriptAssetWorkspaceInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptAssetImportReferenceResultSchema.parse({
-      logicalUrl: context.manuscriptAssets.resolveImportReference(parsed.reference)
-    })
+    const page = await context.manuscriptAssets.listWorkspace(parsed)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    return manuscriptAssetWorkspacePageSchema.parse(page)
+  })
+  ipc.handle(IPC_CHANNELS.editorDeleteAsset, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = deleteManuscriptAssetInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const result = await context.manuscriptAssets.deleteUnprotected(parsed.assetId)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    return deleteManuscriptAssetResultSchema.parse(result)
   })
   ipc.handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -341,6 +409,7 @@ export function registerEditorIpc(options: {
     revokeSubscriptions: async (sessionId) => {
       subscribers.delete(sessionId)
       activeSections.delete(sessionId)
+      importService.revokeSession(sessionId)
     }
   }
 
@@ -495,6 +564,7 @@ export function registerEditorIpc(options: {
     flushForMutation,
     revokeSession(sessionId) {
       subscribers.delete(sessionId)
+      importService.revokeSession(sessionId)
       for (const [token, request] of pending) {
         if (request.authorization.projectSessionId === sessionId) {
           request.reject(new Error('Editor flush session was revoked'))
@@ -512,12 +582,15 @@ export function registerEditorIpc(options: {
         IPC_CHANNELS.editorLoadSection,
         IPC_CHANNELS.editorSetActiveSection,
         IPC_CHANNELS.editorSaveSectionDocument,
-        IPC_CHANNELS.editorImportMarkdown,
+        IPC_CHANNELS.editorCreateImportPlan,
+        IPC_CHANNELS.editorApplyImportPlan,
+        IPC_CHANNELS.editorCancelImportPlan,
         IPC_CHANNELS.editorExportNativeJson,
         IPC_CHANNELS.editorExportMarkdown,
         IPC_CHANNELS.editorUploadAsset,
         IPC_CHANNELS.editorResolveAsset,
-        IPC_CHANNELS.editorResolveImportAsset,
+        IPC_CHANNELS.editorListAssets,
+        IPC_CHANNELS.editorDeleteAsset,
         IPC_CHANNELS.editorSubscribeFlush,
         IPC_CHANNELS.editorUnsubscribeFlush,
         IPC_CHANNELS.editorFinalFlushSave,
@@ -537,6 +610,24 @@ function decodeBase64(value: string): Buffer {
     throw new Error('Image payload is not canonical base64')
   }
   return bytes
+}
+
+async function selectImportSource(
+  window: BrowserWindow | null,
+  selectionType: 'file' | 'directory'
+): Promise<string | null> {
+  const options: OpenDialogOptions = {
+    title: selectionType === 'directory' ? 'Import LaTeX project folder' : 'Import manuscript',
+    properties: [selectionType === 'directory' ? 'openDirectory' : 'openFile'],
+    ...(selectionType === 'file'
+      ? { filters: [{ name: 'Manuscript source', extensions: ['md', 'tex', 'zip'] }] }
+      : {})
+  }
+  const selection =
+    window === null
+      ? await dialog.showOpenDialog(options)
+      : await dialog.showOpenDialog(window, options)
+  return selection.canceled ? null : (selection.filePaths[0] ?? null)
 }
 
 async function saveWithConflictResult(

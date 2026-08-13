@@ -8,6 +8,9 @@ import {
   MANUSCRIPT_EXPORT_MANIFEST_FILE,
   MANUSCRIPT_LOSS_REPORT_FILE,
   MANUSCRIPT_MARKDOWN_CONTENT_FILE,
+  MANUSCRIPT_DOCX_CONTENT_FILE,
+  MANUSCRIPT_LATEX_CONTENT_FILE,
+  MANUSCRIPT_PDF_CONTENT_FILE,
   MANUSCRIPT_NATIVE_CONTENT_FILE,
   manuscriptExportManifestSchema,
   manuscriptMarkdownLossReportSchema,
@@ -18,6 +21,11 @@ import {
   type ManuscriptMarkdownLossReport
 } from '../../shared/contracts/manuscript-export'
 import type { ManuscriptAssembly } from '../../shared/contracts/manuscript'
+import {
+  buildPublicationAssembly,
+  type PublicationOptions
+} from '../../shared/contracts/publication'
+import { normalizeCitationTitle } from '../../shared/readable-citation'
 import { manuscriptToMarkdown } from '../../shared/manuscript-markdown'
 import type { ProjectDatabase } from '../project/project-database'
 import type { SnapshotBarrier } from '../project/project-snapshot'
@@ -29,6 +37,9 @@ import {
 import { writeAtomicFile } from '../storage/atomic-file'
 import type { ManuscriptAssetService } from './asset-service'
 import type { ManuscriptService } from './manuscript-service'
+import { renderDocxPublication } from './docx-publication'
+import { renderLatexPublication } from './latex-publication'
+import type { PdfPublicationRenderer } from './pdf-publication'
 
 const MAX_REFERENCED_ASSETS = 10_000
 
@@ -51,8 +62,12 @@ export async function createManuscriptExport(options: {
   log: Pick<Logger, 'info' | 'error'>
   now?: () => Date
   createId?: () => string
+  renderPdf?: PdfPublicationRenderer
+  publicationOptions?: PublicationOptions
+  signal?: AbortSignal
 }): Promise<PublishedManuscriptExport> {
   const startedAt = Date.now()
+  throwIfAborted(options.signal)
   if (!isAbsolute(options.destination)) {
     throw new Error('Manuscript export destination must be absolute')
   }
@@ -85,14 +100,17 @@ export async function createManuscriptExport(options: {
     await options.barrier.finalEditorFlush()
     await options.barrier.pauseFilePublishers()
     publishersPaused = true
+    throwIfAborted(options.signal)
 
     const assembly = options.manuscript.assemble()
     const exportedAssets = await captureAssets({
       assembly,
       projectRoot: options.projectRoot,
       database: options.database,
-      assets: options.assets
+      assets: options.assets,
+      signal: options.signal
     })
+    throwIfAborted(options.signal)
     await publishAssets(stage, exportedAssets)
 
     const assets = exportedAssets.map(({ exportRecord }) => exportRecord)
@@ -100,6 +118,7 @@ export async function createManuscriptExport(options: {
     let content: { relativePath: string; sha256: string; byteSize: number }
     let lossReport: ManuscriptMarkdownLossReport | undefined
     let lossReportRecord: ManuscriptExportManifest['lossReport']
+    let publicationSourceHash: string | undefined
 
     if (options.kind === 'native') {
       const native = manuscriptNativeExportSchema.parse({
@@ -110,7 +129,7 @@ export async function createManuscriptExport(options: {
       })
       const bytes = Buffer.from(`${canonicalJson(native)}\n`)
       content = await publishContent(stage, MANUSCRIPT_NATIVE_CONTENT_FILE, bytes)
-    } else {
+    } else if (options.kind === 'markdown') {
       const pathsByLogicalUrl = new Map(
         assets.map((asset) => [asset.logicalUrl, asset.relativePath] as const)
       )
@@ -128,6 +147,104 @@ export async function createManuscriptExport(options: {
       const lossBytes = Buffer.from(`${canonicalJson(lossReport)}\n`)
       const publishedLosses = await publishContent(stage, MANUSCRIPT_LOSS_REPORT_FILE, lossBytes)
       lossReportRecord = { ...publishedLosses, lossCount: lossReport.losses.length }
+    } else {
+      const references = options.manuscript.getReferenceIndex()
+      const availableReferenceTitles = options.database.immediate(
+        (database) =>
+          new Set(
+            (
+              database
+                .prepare("SELECT display_name FROM knowledge_items WHERE state = 'stored'")
+                .pluck()
+                .all() as string[]
+            ).map(normalizeCitationTitle)
+          )
+      )
+      const publication = buildPublicationAssembly({
+        manuscript: assembly,
+        references,
+        assets: exportedAssets.map((asset) => ({
+          assetId: asset.exportRecord.assetId,
+          logicalUrl: asset.exportRecord.logicalUrl,
+          mimeType: asset.exportRecord.mimeType,
+          byteSize: asset.exportRecord.byteSize,
+          width: asset.width,
+          height: asset.height,
+          availability: 'available'
+        })),
+        availableReferenceTitles,
+        options: options.publicationOptions,
+        hash: (value) => createHash('sha256').update(value).digest('hex')
+      })
+      if (!publication.ready) {
+        throw new Error('Publication preflight contains blocking errors')
+      }
+      publicationSourceHash = publication.sourceHash
+      const capturedAssetById = new Map(
+        exportedAssets.map((asset) => [asset.exportRecord.assetId, asset] as const)
+      )
+      let renderedLosses: ManuscriptMarkdownLossReport['losses']
+      if (options.kind === 'docx') {
+        const rendered = await renderDocxPublication({
+          assembly: publication,
+          readAsset: async (assetId) => {
+            const asset = capturedAssetById.get(assetId)
+            if (asset === undefined) throw new Error('DOCX asset is unavailable')
+            return asset.bytes
+          }
+        })
+        content = await publishContent(stage, MANUSCRIPT_DOCX_CONTENT_FILE, rendered.bytes)
+        renderedLosses = rendered.losses
+      } else if (options.kind === 'latex') {
+        const rendered = renderLatexPublication({
+          assembly: publication,
+          assetRelativePath: (assetId) => {
+            const asset = capturedAssetById.get(assetId)
+            if (asset === undefined) throw new Error('LaTeX asset is unavailable')
+            return asset.exportRecord.relativePath
+          }
+        })
+        content = await publishContent(
+          stage,
+          MANUSCRIPT_LATEX_CONTENT_FILE,
+          Buffer.from(rendered.tex)
+        )
+        renderedLosses = rendered.losses
+      } else {
+        if (options.renderPdf === undefined)
+          throw new Error('PDF publication renderer is unavailable')
+        const rendered = await options.renderPdf({
+          assembly: publication,
+          signal: options.signal,
+          readAsset: async (assetId) => {
+            const asset = capturedAssetById.get(assetId)
+            if (asset === undefined) throw new Error('PDF asset is unavailable')
+            return asset.bytes
+          }
+        })
+        content = await publishContent(stage, MANUSCRIPT_PDF_CONTENT_FILE, rendered.bytes)
+        renderedLosses = rendered.losses
+      }
+      lossReport = manuscriptMarkdownLossReportSchema.parse({
+        formatVersion: 1,
+        losses: [
+          ...publication.findings
+            .filter((finding) => finding.severity === 'warning' && finding.target !== null)
+            .map((finding) => ({
+              code: finding.code,
+              sectionId: finding.target?.sectionId ?? '',
+              blockId: finding.target?.blockId ?? 'section',
+              message: finding.message
+            })),
+          ...renderedLosses
+        ]
+      })
+      const publishedLosses = await publishContent(
+        stage,
+        MANUSCRIPT_LOSS_REPORT_FILE,
+        Buffer.from(`${canonicalJson(lossReport)}\n`)
+      )
+      lossReportRecord = { ...publishedLosses, lossCount: lossReport.losses.length }
     }
 
     const manifest = manuscriptExportManifestSchema.parse({
@@ -137,6 +254,7 @@ export async function createManuscriptExport(options: {
       manuscriptId: assembly.manuscriptId,
       createdAt: (options.now ?? (() => new Date()))().toISOString(),
       sourceAppVersion: options.sourceAppVersion,
+      ...(publicationSourceHash === undefined ? {} : { publicationSourceHash }),
       content,
       assetCount: assets.length,
       assetInventorySha256,
@@ -148,6 +266,7 @@ export async function createManuscriptExport(options: {
       `${JSON.stringify(manifest, null, 2)}\n`
     )
     await validateStagedExport(stage)
+    throwIfAborted(options.signal)
     await ensureAbsent(destination)
     await rename(stage, destination)
     options.log.info(
@@ -241,7 +360,7 @@ export async function validateStagedExport(root: string): Promise<ManuscriptExpo
     ) {
       throw new Error('Native manuscript export content does not match its manifest')
     }
-  } else {
+  } else if (manifest.kind === 'markdown') {
     if (
       manifest.content.relativePath !== MANUSCRIPT_MARKDOWN_CONTENT_FILE ||
       manifest.lossReport?.relativePath !== MANUSCRIPT_LOSS_REPORT_FILE
@@ -255,6 +374,66 @@ export async function validateStagedExport(root: string): Promise<ManuscriptExpo
     if (losses.losses.length !== manifest.lossReport.lossCount) {
       throw new Error('Markdown manuscript export loss count does not match')
     }
+  } else if (manifest.kind === 'docx') {
+    if (
+      manifest.content.relativePath !== MANUSCRIPT_DOCX_CONTENT_FILE ||
+      manifest.lossReport?.relativePath !== MANUSCRIPT_LOSS_REPORT_FILE
+    ) {
+      throw new Error('DOCX manuscript export layout is invalid')
+    }
+    await verifyPublishedFile(root, manifest.lossReport)
+    const header = await readFile(join(root, manifest.content.relativePath))
+    if (header.subarray(0, 2).toString('ascii') !== 'PK') {
+      throw new Error('DOCX manuscript export is not an OOXML package')
+    }
+    const losses = manuscriptMarkdownLossReportSchema.parse(
+      JSON.parse(await readFile(join(root, manifest.lossReport.relativePath), 'utf8')) as unknown
+    )
+    if (losses.losses.length !== manifest.lossReport.lossCount) {
+      throw new Error('DOCX manuscript export loss count does not match')
+    }
+  } else if (manifest.kind === 'latex') {
+    if (
+      manifest.content.relativePath !== MANUSCRIPT_LATEX_CONTENT_FILE ||
+      manifest.lossReport?.relativePath !== MANUSCRIPT_LOSS_REPORT_FILE ||
+      manifest.publicationSourceHash === undefined
+    ) {
+      throw new Error('LaTeX manuscript export layout is invalid')
+    }
+    await verifyPublishedFile(root, manifest.lossReport)
+    const source = await readFile(join(root, manifest.content.relativePath), 'utf8')
+    if (
+      !source.includes('\\documentclass') ||
+      !source.includes(`% Publication source hash: ${manifest.publicationSourceHash}`) ||
+      !source.endsWith('\\end{document}\n')
+    ) {
+      throw new Error('LaTeX manuscript export source is malformed')
+    }
+    const losses = manuscriptMarkdownLossReportSchema.parse(
+      JSON.parse(await readFile(join(root, manifest.lossReport.relativePath), 'utf8')) as unknown
+    )
+    if (losses.losses.length !== manifest.lossReport.lossCount) {
+      throw new Error('LaTeX manuscript export loss count does not match')
+    }
+  } else {
+    if (
+      manifest.content.relativePath !== MANUSCRIPT_PDF_CONTENT_FILE ||
+      manifest.lossReport?.relativePath !== MANUSCRIPT_LOSS_REPORT_FILE ||
+      manifest.publicationSourceHash === undefined
+    ) {
+      throw new Error('PDF manuscript export layout is invalid')
+    }
+    await verifyPublishedFile(root, manifest.lossReport)
+    const source = await readFile(join(root, manifest.content.relativePath))
+    if (source.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      throw new Error('PDF manuscript export content is malformed')
+    }
+    const losses = manuscriptMarkdownLossReportSchema.parse(
+      JSON.parse(await readFile(join(root, manifest.lossReport.relativePath), 'utf8')) as unknown
+    )
+    if (losses.losses.length !== manifest.lossReport.lossCount) {
+      throw new Error('PDF manuscript export loss count does not match')
+    }
   }
   return manifest
 }
@@ -262,6 +441,8 @@ export async function validateStagedExport(root: string): Promise<ManuscriptExpo
 interface CapturedAsset {
   exportRecord: ManuscriptExportAsset
   bytes: Buffer
+  width: number | null
+  height: number | null
 }
 
 async function captureAssets(options: {
@@ -269,6 +450,7 @@ async function captureAssets(options: {
   projectRoot: string
   database: ProjectDatabase
   assets: ManuscriptAssetService
+  signal?: AbortSignal
 }): Promise<CapturedAsset[]> {
   const references = new Map<string, Set<string>>()
   for (const item of options.assembly.sections) {
@@ -284,6 +466,7 @@ async function captureAssets(options: {
   }
   const captured: CapturedAsset[] = []
   for (const assetId of [...references.keys()].sort()) {
+    throwIfAborted(options.signal)
     const row = options.assets.get(assetId)
     const expectedSourcePath = `${MANUSCRIPT_ASSETS_DIRECTORY}/${row.sha256}${row.extension}`
     if (row.relative_path !== expectedSourcePath) {
@@ -320,7 +503,9 @@ async function captureAssets(options: {
         byteSize: verified.row.byte_size,
         mimeType: verified.row.mime_type
       },
-      bytes: verified.bytes
+      bytes: verified.bytes,
+      width: verified.row.width,
+      height: verified.row.height
     })
   }
   validateInventoryPaths(captured.map((item) => item.exportRecord))
@@ -454,4 +639,8 @@ async function ensureAbsent(path: string): Promise<void> {
 function safeStagePrefix(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80)
   return sanitized === '' ? 'manuscript' : sanitized
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error('Manuscript export was cancelled')
 }

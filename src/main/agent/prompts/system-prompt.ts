@@ -1,10 +1,12 @@
 import type { WritingContextResult } from '../../../shared/contracts/agent-tools'
 import { formatPromptBlock } from './prompt-block'
 import { SKILL_COMPANION_NOTE } from './skill-companion'
+import type { WritingRule } from '../../../shared/contracts/writing-rules'
 
 export function formatAgentSystemPrompt(input: {
   policy: string
   context: WritingContextResult
+  writingRules: readonly WritingRule[]
   mandatorySkill: string
   references: readonly { path: string; content: string }[]
 }): string {
@@ -38,12 +40,17 @@ export function formatAgentSystemPrompt(input: {
     content: JSON.stringify(requirements),
     instructionSemantics: 'true'
   })
+  const writingRules = formatPromptBlock({
+    tag: 'TRUSTED_WRITING_RULES',
+    content: JSON.stringify(input.writingRules),
+    instructionSemantics: 'true'
+  })
   const data = formatPromptBlock({
     tag: 'MANUSCRIPT_DATA',
     content: JSON.stringify(manuscript),
     instructionSemantics: 'false'
   })
-  return [input.policy, skillSection, trusted, data]
+  return [input.policy, skillSection, trusted, writingRules, data]
     .filter((value) => value.length > 0)
     .join('\n\n')
 }

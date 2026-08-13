@@ -8,6 +8,7 @@ import {
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
+  buildWritingTaskChangeSet,
   citationDisplaysForToolResult,
   currentAgentActivitySummary,
   formatAgentDuration,
@@ -125,6 +126,36 @@ describe('Agent renderer view model', () => {
       }
     ])
     expect(findLatestPrompt(events)).toBe('Use a quieter opening.')
+  })
+
+  it('keeps a quick action selection visible without exposing its Main-owned prompt', () => {
+    const event = record(1, 'user_message', {
+      content: '<QUICK_ACTION_SELECTION>internal composed prompt',
+      delivery: 'prompt',
+      timestamp: 1,
+      presentation: {
+        kind: 'quick_action',
+        action: 'rewrite',
+        label: 'Rewrite',
+        selectedText: 'The exact selected sentence.',
+        displayInstruction: null
+      }
+    })
+    const timeline = projectAgentTimeline([event])
+
+    expect(timeline).toMatchObject([
+      {
+        type: 'user',
+        payload: {
+          presentation: {
+            kind: 'quick_action',
+            label: 'Rewrite',
+            selectedText: 'The exact selected sentence.'
+          }
+        }
+      }
+    ])
+    expect(findLatestPrompt([event])).toBe('The exact selected sentence.')
   })
 
   it('aggregates bounded usage and retries without provider secrets', () => {
@@ -397,6 +428,62 @@ describe('Agent renderer view model', () => {
     ).toBe(false)
   })
 
+  it('derives an exact task change set across refreshes, plan steps, and concurrent tasks', () => {
+    const taskId = '019c6a5c-8d34-7a8e-a602-3d37a52dc440'
+    const stepId = '019c6a5c-8d34-7a8e-a602-3d37a52dc441'
+    const original = {
+      ...proposalRecord('019c6a5c-8d34-7a8e-a602-3d37a52dc442', null, 'superseded'),
+      writingTaskId: taskId,
+      writingTaskStepId: stepId
+    }
+    const refreshed = {
+      ...proposalRecord('019c6a5c-8d34-7a8e-a602-3d37a52dc443', original.proposalId, 'pending'),
+      writingTaskId: taskId,
+      writingTaskStepId: stepId,
+      createdAt: '2026-07-21T00:00:01.000Z'
+    }
+    const unrelated = {
+      ...proposalRecord('019c6a5c-8d34-7a8e-a602-3d37a52dc444', null, 'applied'),
+      writingTaskId: '019c6a5c-8d34-7a8e-a602-3d37a52dc445'
+    }
+    if (refreshed.payload.kind !== 'section_patch') throw new Error('Expected section proposal')
+    const sectionId = refreshed.payload.mutation.sectionId
+    const changeSet = buildWritingTaskChangeSet({
+      taskId,
+      proposals: [unrelated, refreshed, original],
+      currentRevisionIds: {
+        [sectionId]: '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+      },
+      sectionTitles: { [sectionId]: 'Introduction' },
+      stepTitles: { [stepId]: 'Revise the introduction' }
+    })
+
+    expect(changeSet).toMatchObject({
+      proposalCount: 2,
+      staleCount: 1,
+      statusCounts: { pending: 1, superseded: 1 },
+      groups: [
+        {
+          label: 'Introduction',
+          entries: [
+            {
+              proposal: { proposalId: original.proposalId },
+              stale: false,
+              reviewProposalId: refreshed.proposalId,
+              stepTitle: 'Revise the introduction'
+            },
+            {
+              proposal: { proposalId: refreshed.proposalId },
+              stale: true,
+              reviewProposalId: refreshed.proposalId,
+              stepTitle: 'Revise the introduction'
+            }
+          ]
+        }
+      ]
+    })
+  })
+
   it('reconstructs frozen run and tool durations and marks unresolved tools stopped', () => {
     const runId = base.agentRunId
     const startTimestamp = Date.parse('2026-07-21T00:00:00.000Z')
@@ -480,6 +567,8 @@ describe('Agent renderer view model', () => {
       skillSnapshot: legacySkillSnapshot(),
       skillRouteUsage: null,
       errorCode: 'user_stopped',
+      writingTaskId: null,
+      writingTaskStepId: null,
       startedAt: '2026-07-21T00:00:00.000Z',
       completedAt: '2026-07-21T00:00:05.000Z',
       updatedAt: '2026-07-21T00:00:05.000Z'
@@ -792,6 +881,8 @@ function proposalRecord(
     undoRevisionId: null,
     replacesProposalId,
     rejectedReason: terminal ? 'Replaced by refreshed proposal' : null,
+    writingTaskId: null,
+    writingTaskStepId: null,
     createdAt: base.createdAt,
     updatedAt: base.createdAt
   }
@@ -822,6 +913,8 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     skillSnapshot: legacySkillSnapshot(),
     skillRouteUsage: null,
     errorCode: null,
+    writingTaskId: null,
+    writingTaskStepId: null,
     startedAt: base.createdAt,
     completedAt: null,
     updatedAt: base.createdAt

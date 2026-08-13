@@ -11,6 +11,7 @@ import {
   History,
   Logs,
   Save,
+  CopyPlus,
   Search,
   Settings2,
   TriangleAlert
@@ -37,8 +38,13 @@ interface AppMenubarProps {
   onOpen: () => void
   onSwitch: () => void
   onSave: () => void
+  onClone: () => void
+  onSaveTemplate: () => void
   onExportNative: () => void
   onExportMarkdown: () => void
+  onExportDocx: () => void
+  onExportLatex: () => void
+  onExportPdf: () => void
   onCreateSnapshot: () => void
   onRestoreSnapshot: () => void
   versionHistoryState: 'uninitialized' | 'ready' | 'damaged' | null
@@ -62,8 +68,13 @@ export function AppMenubar({
   onOpen,
   onSwitch,
   onSave,
+  onClone,
+  onSaveTemplate,
   onExportNative,
   onExportMarkdown,
+  onExportDocx,
+  onExportLatex,
+  onExportPdf,
   onCreateSnapshot,
   onRestoreSnapshot,
   versionHistoryState,
@@ -103,11 +114,26 @@ export function AppMenubar({
                 <Save /> Save
                 <MenubarShortcut>⌘S</MenubarShortcut>
               </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onClone}>
+                <CopyPlus /> Save As independent copy…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onSaveTemplate}>
+                <FilePlus2 /> Save as reusable template…
+              </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onExportNative}>
                 <FileJson2 /> Export native manuscript…
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onExportMarkdown}>
                 <FileDown /> Export Markdown manuscript…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportDocx}>
+                <FileText /> Export Word manuscript…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportLatex}>
+                <FileText /> Export LaTeX manuscript…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportPdf}>
+                <FileDown /> Export PDF manuscript…
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onCreateSnapshot}>
                 <Save /> Create snapshot

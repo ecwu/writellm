@@ -48,11 +48,15 @@ function manifest(projectId: string): ProjectManifest {
 function restoreV5ManuscriptSchema(database: Database.Database): void {
   database.pragma('foreign_keys = OFF')
   database.exec(`
+    DROP TABLE manuscript_annotations;
+    DROP TABLE manuscript_asset_variants;
+    DROP TABLE agent_change_set_commands;
     DROP TABLE active_parse_revisions;
     DROP TABLE normalization_runs;
     DROP TABLE parse_task_events;
     DROP TABLE parse_revisions;
     DROP TABLE parse_tasks;
+    DROP TABLE agent_writing_tasks;
     DROP TABLE mutation_proposals;
     DROP TABLE agent_events;
     DROP TABLE agent_runs;
@@ -331,11 +335,17 @@ describe('project database', () => {
     )
     native.pragma('foreign_keys = OFF')
     native.exec(`
+      DROP TABLE manuscript_annotations;
+      DROP TABLE manuscript_asset_variants;
+      DROP TABLE agent_change_set_commands;
+      DROP TABLE review_issue_events;
+      DROP TABLE review_issues;
       DROP TABLE active_parse_revisions;
       DROP TABLE normalization_runs;
       DROP TABLE parse_task_events;
       DROP TABLE parse_revisions;
       DROP TABLE parse_tasks;
+      DROP TABLE agent_writing_tasks;
       DROP TABLE mutation_proposals;
       DROP TABLE agent_events;
       DROP TABLE agent_runs;
@@ -388,6 +398,7 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
+    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       DROP TABLE job_transitions;
@@ -528,6 +539,7 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
+    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
@@ -548,25 +560,37 @@ describe('project database', () => {
       .selectFrom('sections')
       .selectAll()
       .executeTakeFirstOrThrow()
-    const revision = await upgraded.kysely
+    const revisions = await upgraded.kysely
       .selectFrom('section_revisions')
       .selectAll()
-      .executeTakeFirstOrThrow()
+      .orderBy('revision_number', 'asc')
+      .execute()
+    const originalRevision = revisions[0]
+    const currentRevision = revisions.at(-1)
     expect(section).toMatchObject({
       section_id: originalSection.section_id,
       title: originalSection.title,
       position: originalSection.position,
       status: originalSection.status,
       created_at: originalSection.created_at,
-      updated_at: originalSection.updated_at,
-      current_revision_id: `${originalSection.section_id}:revision:1`
+      current_revision_id: currentRevision?.section_revision_id
     })
-    expect(revision).toMatchObject({
+    expect(originalRevision).toMatchObject({
       section_revision_id: `${originalSection.section_id}:revision:1`,
       section_id: originalSection.section_id,
       revision_number: 1,
       source: 'bootstrap',
       content_json: '[]',
+      word_count: 0,
+      character_count: 0
+    })
+    expect(currentRevision).toMatchObject({
+      section_id: originalSection.section_id,
+      revision_number: 2,
+      source: 'import',
+      content_json: '[]',
+      content_schema_version: 3,
+      prior_revision_id: `${originalSection.section_id}:revision:1`,
       word_count: 0,
       character_count: 0
     })
@@ -594,6 +618,7 @@ describe('project database', () => {
     database.close()
     const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
     const native = new (await import('better-sqlite3')).default(databasePath)
+    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       UPDATE sections SET current_revision_id = 'legacy-unknown';
@@ -643,6 +668,11 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(databasePath)
     native.pragma('foreign_keys = OFF')
     native.exec(`
+      DROP TABLE manuscript_annotations;
+      DROP TABLE manuscript_asset_variants;
+      DROP TABLE agent_change_set_commands;
+      DROP TABLE review_issue_events;
+      DROP TABLE review_issues;
       DROP TABLE section_revisions;
       DROP TABLE job_transitions;
       DROP TABLE jobs;

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
 import {
   blockNoteBlockSchema,
+  manuscriptAssetIdSchema,
   manuscriptBriefFieldsSchema,
   manuscriptIdSchema,
   sectionIdSchema,
@@ -9,9 +10,12 @@ import {
   sectionStatusSchema
 } from './manuscript'
 import { projectSessionIdSchema } from './projects'
+import { writingTaskIdSchema, writingTaskStepIdSchema } from './writing-task'
+import { resolvesReviewIssueSchema } from './review'
+import { modelSubmitWritingRulesChangeArgsSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 4
+export const AGENT_TOOL_CONTRACT_VERSION = 7
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -34,6 +38,14 @@ const briefChangesSchema = manuscriptBriefFieldsSchema
   .partial()
   .strict()
   .refine((changes) => Object.keys(changes).length > 0, 'At least one brief field must change')
+
+const modelBriefChangesSchema = manuscriptBriefFieldsSchema
+  .omit({ extensible: true })
+  .partial()
+  .strict()
+  .refine((changes) => Object.keys(changes).length > 0, 'At least one brief field must change')
+
+const resolvesReviewIssuesSchema = z.array(resolvesReviewIssueSchema).max(20).optional()
 
 export const briefUpdateSchema = strictObject({
   schemaVersion: z.literal(AGENT_MUTATION_SCHEMA_VERSION).default(AGENT_MUTATION_SCHEMA_VERSION),
@@ -172,6 +184,7 @@ export const mutationProposalKindSchema = z.enum([
 
 export const agentProposalToolNameSchema = z.enum([
   'submit_brief_change',
+  'submit_writing_rules_change',
   'submit_outline_change',
   'submit_section_change',
   'generate_image'
@@ -189,9 +202,16 @@ const outlinePlacementSchema = z.discriminatedUnion('kind', [
 ])
 
 export const modelSubmitBriefChangeArgsSchema = strictObject({
-  changes: briefChangesSchema,
-  citationIds: mutationCitationIdsSchema
+  changes: modelBriefChangesSchema,
+  citationIds: mutationCitationIdsSchema,
+  resolvesReviewIssues: resolvesReviewIssuesSchema
 })
+
+export const modelSubmitWritingRulesChangeWithReviewArgsSchema =
+  modelSubmitWritingRulesChangeArgsSchema.extend({
+    citationIds: mutationCitationIdsSchema,
+    resolvesReviewIssues: resolvesReviewIssuesSchema
+  })
 
 const modelOutlineOperationSchema = z.discriminatedUnion('type', [
   strictObject({
@@ -225,12 +245,17 @@ const modelOutlineOperationSchema = z.discriminatedUnion('type', [
 
 export const modelSubmitOutlineChangeArgsSchema = strictObject({
   operations: z.array(modelOutlineOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
-  citationIds: mutationCitationIdsSchema
+  citationIds: mutationCitationIdsSchema,
+  resolvesReviewIssues: resolvesReviewIssuesSchema
 })
 
 const blockPreconditionSchema = strictObject({
   blockId: z.string().min(1).max(256),
   expectedBlockHash: z.string().regex(/^[a-f0-9]{64}$/u)
+})
+const generateImageIterationSchema = strictObject({
+  sourceBlock: blockPreconditionSchema,
+  disposition: z.enum(['replace', 'insert_after'])
 })
 export const generateImageArgsSchema = strictObject({
   sectionId: sectionIdSchema,
@@ -248,7 +273,9 @@ export const generateImageArgsSchema = strictObject({
   altText: z.string().trim().min(1).max(2_000),
   caption: z.string().max(2_000),
   aspectRatio: z.enum(['auto', '1:1', '16:9']),
-  imageSize: z.enum(['1K', '2K'])
+  imageSize: z.enum(['1K', '2K']),
+  iteration: generateImageIterationSchema.optional(),
+  resolvesReviewIssues: resolvesReviewIssuesSchema
 }).refine(
   ({ anchor, placement }) =>
     anchor === null
@@ -319,7 +346,8 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
 export const modelSubmitSectionChangeArgsSchema = strictObject({
   sectionId: sectionIdSchema,
   operations: z.array(modelSectionOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
-  citationIds: mutationCitationIdsSchema
+  citationIds: mutationCitationIdsSchema,
+  resolvesReviewIssues: resolvesReviewIssuesSchema
 })
 
 export const mutationCitedSourceSchema = strictObject({
@@ -398,6 +426,7 @@ export const submitChangeResultSchema = strictObject({
 const proposalProvenanceSchema = strictObject({
   modelRequestId: agentModelRequestIdSchema,
   citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT),
+  resolvesReviewIssues: z.array(resolvesReviewIssueSchema).max(20).optional(),
   createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()).optional(),
   createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
 })
@@ -413,6 +442,13 @@ const generatedImageMutationSchema = strictObject({
   caption: z.string().max(2_000),
   aspectRatio: z.enum(['auto', '1:1', '16:9']),
   imageSize: z.enum(['1K', '2K']),
+  iteration: strictObject({
+    sourceBlock: blockPreconditionSchema,
+    disposition: z.enum(['replace', 'insert_after']),
+    parentAssetId: manuscriptAssetIdSchema
+  })
+    .nullable()
+    .default(null),
   assetId: z.uuid().nullable(),
   imageModelRequestId: z.uuid().nullable()
 })
@@ -476,6 +512,8 @@ export const mutationProposalRecordSchema = strictObject({
   undoRevisionId: sectionRevisionIdSchema.nullable(),
   replacesProposalId: z.uuid().nullable(),
   rejectedReason: z.string().max(4_096).nullable(),
+  writingTaskId: writingTaskIdSchema.nullable().default(null),
+  writingTaskStepId: writingTaskStepIdSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 })
@@ -515,7 +553,8 @@ export const mutationProposalChangedSchema = strictObject({
 
 export const mutationProposalActionResultSchema = strictObject({
   proposal: mutationProposalRecordSchema,
-  sectionChanged: mutationSectionChangedSchema.nullable()
+  sectionChanged: mutationSectionChangedSchema.nullable(),
+  warnings: z.array(z.string().min(1).max(1_000)).max(20).default([])
 })
 
 const mutationProposalConflictSchema = strictObject({
@@ -534,24 +573,28 @@ export const approveMutationProposalResultSchema = z.discriminatedUnion('outcome
   strictObject({
     outcome: z.literal('applied'),
     proposal: mutationProposalRecordSchema,
-    sectionChanged: mutationSectionChangedSchema.nullable()
+    sectionChanged: mutationSectionChangedSchema.nullable(),
+    warnings: z.array(z.string().min(1).max(1_000)).max(20).default([])
   }),
   strictObject({
     outcome: z.literal('refresh_required'),
     previousProposal: mutationProposalRecordSchema,
     proposal: mutationProposalRecordSchema,
-    sectionChanged: z.null()
+    sectionChanged: z.null(),
+    warnings: z.array(z.string().min(1).max(1_000)).max(20).default([])
   }),
   strictObject({
     outcome: z.literal('conflict'),
     proposal: mutationProposalRecordSchema,
     conflict: mutationProposalConflictSchema,
-    sectionChanged: z.null()
+    sectionChanged: z.null(),
+    warnings: z.array(z.string().min(1).max(1_000)).max(20).default([])
   }),
   strictObject({
     outcome: z.literal('already_satisfied'),
     proposal: mutationProposalRecordSchema,
-    sectionChanged: z.null()
+    sectionChanged: z.null(),
+    warnings: z.array(z.string().min(1).max(1_000)).max(20).default([])
   })
 ])
 

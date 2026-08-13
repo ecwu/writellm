@@ -46,7 +46,17 @@ describe('migration 0019 section proposal refresh', () => {
     legacy.pragma('foreign_keys = OFF')
     restoreV18MutationProposalTable(legacy)
     legacy.exec(`
-      UPDATE section_revisions SET count_algorithm_version = 1;
+      DROP TABLE manuscript_annotations;
+      DROP TABLE manuscript_asset_variants;
+      DROP TABLE agent_change_set_commands;
+      DROP INDEX agent_runs_writing_task_idx;
+      ALTER TABLE agent_runs DROP COLUMN writing_task_step_id;
+      ALTER TABLE agent_runs DROP COLUMN writing_task_id;
+      DROP TABLE agent_writing_tasks;
+      DROP TABLE review_issue_events;
+      DROP TABLE review_issues;
+      UPDATE section_revisions
+      SET content_schema_version = 2, count_algorithm_version = 1;
       DELETE FROM schema_migrations WHERE version >= 19;
       UPDATE schema_manifest SET schema_version = 18 WHERE id = 1;
       PRAGMA user_version = 18;

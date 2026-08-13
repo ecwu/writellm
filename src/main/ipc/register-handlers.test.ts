@@ -39,8 +39,40 @@ function harness() {
       return next
     })
   }
+  const presetSnapshot = {
+    schemaVersion: 1 as const,
+    defaultPresetId: 'builtin:academic-a4',
+    presets: [
+      {
+        schemaVersion: 1 as const,
+        presetId: 'builtin:academic-a4',
+        name: 'Academic A4',
+        origin: 'application' as const,
+        options: {
+          schemaVersion: 1 as const,
+          pageSize: 'A4' as const,
+          marginsMm: { top: 25, right: 25, bottom: 25, left: 25 },
+          template: 'academic' as const,
+          includeTableOfContents: true,
+          includeReferences: true,
+          mermaidFallback: 'rendered' as const
+        },
+        isDefault: true,
+        createdAt: '2026-08-13T00:00:00.000Z',
+        updatedAt: '2026-08-13T00:00:00.000Z'
+      }
+    ]
+  }
+  const publicationPresets = {
+    snapshot: vi.fn(() => presetSnapshot),
+    create: vi.fn(() => presetSnapshot),
+    update: vi.fn(() => presetSnapshot),
+    delete: vi.fn(() => presetSnapshot),
+    setDefault: vi.fn(() => presetSnapshot)
+  }
   const options: RegisterIpcHandlersOptions = {
     appSettings: appSettings as never,
+    publicationPresets: publicationPresets as never,
     logger: pino({ level: 'silent' }),
     developmentUrl: 'http://localhost:5173',
     ipc
@@ -52,6 +84,7 @@ function harness() {
 
   return {
     appSettings,
+    publicationPresets,
     event,
     handlers,
     invoke: (channel: string, input?: unknown) =>
@@ -111,5 +144,23 @@ describe('application IPC', () => {
     await expect(
       invoke(IPC_CHANNELS.appSetCitationDisplayMode, { mode: 'compact' })
     ).rejects.toThrow()
+  })
+
+  it('validates and routes bounded publication preset CRUD', async () => {
+    const { invoke, publicationPresets } = harness()
+    const options = publicationPresets.snapshot().presets[0]?.options
+    if (options === undefined) throw new Error('Preset fixture missing')
+
+    expect(invoke(IPC_CHANNELS.publicationPresetsSnapshot)).toMatchObject({
+      defaultPresetId: 'builtin:academic-a4'
+    })
+    expect(
+      invoke(IPC_CHANNELS.publicationPresetsCreate, { name: 'Custom', options })
+    ).toMatchObject({ schemaVersion: 1 })
+    expect(publicationPresets.create).toHaveBeenCalledWith({ name: 'Custom', options })
+    expect(() =>
+      invoke(IPC_CHANNELS.publicationPresetsSetDefault, { presetId: '../../../escape' })
+    ).toThrow()
+    expect(publicationPresets.setDefault).not.toHaveBeenCalled()
   })
 })

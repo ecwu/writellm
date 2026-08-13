@@ -248,6 +248,7 @@
     display: inline-block;
     width: 0;
     overflow: hidden;
+    white-space: nowrap;
     color: transparent;
     pointer-events: none;
   }
@@ -267,6 +268,8 @@
   }
 
   .writing-editor .writellm-readable-citation-icon > svg {
+    display: block;
+    flex: none;
     width: 1rem;
     height: 1rem;
   }

@@ -5,6 +5,7 @@ import {
   BookOpen,
   Braces,
   FileArchive,
+  FileOutput,
   FolderOpen,
   ImageIcon,
   KeyRound,
@@ -23,6 +24,7 @@ import type {
 } from '../../../shared/contracts/app'
 import type { AgentApprovalMode } from '../../../shared/contracts/agent'
 import type { SkillsSnapshot } from '../../../shared/contracts/skills'
+import type { PublicationPresetSnapshot } from '../../../shared/contracts/publication-presets'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,9 +42,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
 import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings'
+import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
 
-type SettingsSection = 'general' | 'skills' | ProviderRole
+type SettingsSection = 'general' | 'skills' | 'publication' | ProviderRole
 
 interface SettingsCommandProps {
   open: boolean
@@ -61,6 +64,7 @@ const sections: Array<{
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'agent', label: 'Agent API', icon: Bot },
   { id: 'skills', label: 'Writing Skills', icon: BookOpen },
+  { id: 'publication', label: 'Publication', icon: FileOutput },
   { id: 'embedding', label: 'Embedding API', icon: Braces },
   { id: 'rerank', label: 'Reranking API', icon: Braces },
   { id: 'mineru', label: 'MinerU API', icon: KeyRound },
@@ -79,6 +83,9 @@ export function SettingsCommand({
   const [section, setSection] = useState<SettingsSection>('general')
   const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('manual')
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
+  const [publicationPresets, setPublicationPresets] = useState<PublicationPresetSnapshot | null>(
+    null
+  )
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -102,13 +109,15 @@ export function SettingsCommand({
     void Promise.all([
       window.desktop.providers.snapshot(),
       window.desktop.app.getDefaultAgentApprovalMode(),
-      window.desktop.skills.snapshot()
+      window.desktop.skills.snapshot(),
+      window.desktop.app.publicationPresets()
     ])
-      .then(([nextSnapshot, nextApprovalMode, nextSkillSnapshot]) => {
+      .then(([nextSnapshot, nextApprovalMode, nextSkillSnapshot, nextPublicationPresets]) => {
         if (!current) return
         setSnapshot(nextSnapshot)
         setApprovalMode(nextApprovalMode)
         setSkillSnapshot(nextSkillSnapshot)
+        setPublicationPresets(nextPublicationPresets)
       })
       .catch(() => {
         if (current) setLoadError('Settings could not be loaded.')
@@ -199,7 +208,7 @@ export function SettingsCommand({
               {sections.map((item) => {
                 const Icon = item.icon
                 const provider =
-                  item.id === 'general' || item.id === 'skills'
+                  item.id === 'general' || item.id === 'skills' || item.id === 'publication'
                     ? null
                     : snapshot?.providers.find((candidate) => candidate.role === item.id)
                 return (
@@ -285,7 +294,14 @@ export function SettingsCommand({
                 onSnapshot={setSkillSnapshot}
                 onError={onError}
               />
-            ) : snapshot && section !== 'skills' ? (
+            ) : section === 'publication' && publicationPresets ? (
+              <PublicationPresetsSettings
+                snapshot={publicationPresets}
+                closeAction={<SettingsCloseButton />}
+                onSnapshot={setPublicationPresets}
+                onError={onError}
+              />
+            ) : snapshot && section !== 'skills' && section !== 'publication' ? (
               <ProviderSettingsWorkspace
                 role={section}
                 snapshot={snapshot}

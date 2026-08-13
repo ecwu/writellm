@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
+import { SECTION_CONTENT_SCHEMA_VERSION } from '../../shared/contracts/manuscript'
 import { createVerifiedDatabaseBackup, cleanupMigrationBackups } from '../db/backup'
 import type { OpenedDatabase } from '../db/open-database'
 import { openDatabase } from '../db/open-database'
@@ -136,7 +137,7 @@ export async function initializeProjectDatabase(options: {
           source: 'bootstrap',
           source_class: 'manual_checkpoint',
           content_json: '[]',
-          content_schema_version: 1,
+          content_schema_version: SECTION_CONTENT_SCHEMA_VERSION,
           content_hash: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
           prior_revision_id: null,
           word_count: 0,

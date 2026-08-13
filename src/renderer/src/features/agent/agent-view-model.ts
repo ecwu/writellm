@@ -42,6 +42,26 @@ export interface AgentToolActivity {
   stopped: boolean
 }
 
+export interface WritingTaskChangeSetEntry {
+  proposal: MutationProposalRecord
+  stale: boolean
+  reviewProposalId: string
+  stepTitle: string | null
+}
+
+export interface WritingTaskChangeSetGroup {
+  key: string
+  label: string
+  entries: WritingTaskChangeSetEntry[]
+}
+
+export interface WritingTaskChangeSet {
+  proposalCount: number
+  staleCount: number
+  statusCounts: Partial<Record<MutationProposalRecord['status'], number>>
+  groups: WritingTaskChangeSetGroup[]
+}
+
 export type AgentActivityStatus = 'running' | 'partial' | 'error' | 'complete' | 'stopped'
 
 export type AgentRunTerminal = {
@@ -274,7 +294,8 @@ export function projectAgentTimeline(
         type: 'user',
         id: event.agentEventId,
         payload:
-          parsed.data.presentation?.kind === 'review_feedback'
+          parsed.data.presentation?.kind === 'review_feedback' ||
+          parsed.data.presentation?.kind === 'annotation_context'
             ? { ...parsed.data, content: parsed.data.presentation.displayContent }
             : parsed.data
       })
@@ -442,6 +463,78 @@ export function isSectionProposalOutdated(
     return false
   const mutation = proposal.payload.mutation
   return currentRevisionIds[mutation.sectionId] !== mutation.baseRevisionId
+}
+
+export function buildWritingTaskChangeSet(input: {
+  taskId: string
+  proposals: MutationProposalRecord[]
+  currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
+  stepTitles?: Readonly<Record<string, string>>
+}): WritingTaskChangeSet {
+  const proposals = input.proposals
+    .filter((proposal) => proposal.writingTaskId === input.taskId)
+    .sort((left, right) =>
+      left.createdAt === right.createdAt
+        ? left.proposalId.localeCompare(right.proposalId)
+        : left.createdAt.localeCompare(right.createdAt)
+    )
+  const replacements = new Map<string, MutationProposalRecord>()
+  for (const proposal of proposals) {
+    if (proposal.replacesProposalId !== null)
+      replacements.set(proposal.replacesProposalId, proposal)
+  }
+  const reviewTarget = (proposal: MutationProposalRecord): string => {
+    const seen = new Set<string>()
+    let current = proposal
+    while (!seen.has(current.proposalId)) {
+      seen.add(current.proposalId)
+      const replacement = replacements.get(current.proposalId)
+      if (replacement === undefined) break
+      current = replacement
+    }
+    return current.proposalId
+  }
+  const statusCounts: WritingTaskChangeSet['statusCounts'] = {}
+  const groups = new Map<string, WritingTaskChangeSetGroup>()
+  let staleCount = 0
+  for (const proposal of proposals) {
+    statusCounts[proposal.status] = (statusCounts[proposal.status] ?? 0) + 1
+    const stale = isSectionProposalOutdated(proposal, input.currentRevisionIds)
+    if (stale) staleCount += 1
+    const group = changeSetGroup(proposal, input.sectionTitles)
+    const current = groups.get(group.key) ?? { ...group, entries: [] }
+    current.entries.push({
+      proposal,
+      stale,
+      reviewProposalId: reviewTarget(proposal),
+      stepTitle:
+        proposal.writingTaskStepId === null
+          ? null
+          : (input.stepTitles?.[proposal.writingTaskStepId] ?? null)
+    })
+    groups.set(group.key, current)
+  }
+  return {
+    proposalCount: proposals.length,
+    staleCount,
+    statusCounts,
+    groups: [...groups.values()].sort((left, right) => left.key.localeCompare(right.key))
+  }
+}
+
+function changeSetGroup(
+  proposal: MutationProposalRecord,
+  sectionTitles: Readonly<Record<string, string>>
+): Pick<WritingTaskChangeSetGroup, 'key' | 'label'> {
+  if (proposal.kind === 'brief_update') return { key: '0:brief', label: 'Project brief' }
+  if (proposal.kind === 'outline_patch') return { key: '1:outline', label: 'Outline' }
+  const sectionId = proposal.payload.preview.affectedSectionIds[0]
+  if (sectionId === undefined) return { key: '2:section:unknown', label: 'Manuscript section' }
+  return {
+    key: `2:section:${sectionId}`,
+    label: sectionTitles[sectionId] ?? `Section ${sectionId.slice(0, 8)}`
+  }
 }
 
 export function activityStatus(
@@ -629,8 +722,18 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
   if (inspectCount > 0) summaries.push('Reviewing the change')
   const checkCount = counts.get('check_draft') ?? 0
   if (checkCount > 0) summaries.push('Checking the draft')
+  const issueCount =
+    (counts.get('list_review_issues') ?? 0) +
+    (counts.get('record_review_issues') ?? 0) +
+    (counts.get('update_review_issues') ?? 0)
+  if (issueCount > 0) summaries.push('Updating review issues')
   const skillCount = counts.get('read_writing_skill') ?? 0
   if (skillCount > 0) summaries.push('Loading writing guidance')
+  const taskCount =
+    (counts.get('get_writing_task') ?? 0) +
+    (counts.get('create_writing_task') ?? 0) +
+    (counts.get('update_writing_task') ?? 0)
+  if (taskCount > 0) summaries.push('Updating the writing plan')
   const knownCount =
     contextCount +
     sectionCount +
@@ -639,7 +742,9 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
     citationCount +
     inspectCount +
     checkCount +
-    skillCount
+    issueCount +
+    skillCount +
+    taskCount
   if (tools.length > knownCount) {
     const otherCount = tools.length - knownCount
     summaries.push(`Ran ${otherCount} ${otherCount === 1 ? 'action' : 'actions'}`)
@@ -668,7 +773,20 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
       return running ? 'Reviewing the change' : 'Reviewed the change'
     case 'check_draft':
       return running ? 'Checking the draft' : 'Checked the draft'
+    case 'list_review_issues':
+      return running ? 'Reading review issues' : 'Read review issues'
+    case 'record_review_issues':
+      return running ? 'Recording review issues' : 'Recorded review issues'
+    case 'update_review_issues':
+      return running ? 'Updating review issues' : 'Updated review issues'
+    case 'get_writing_task':
+      return running ? 'Reading the writing plan' : 'Read the writing plan'
+    case 'create_writing_task':
+      return running ? 'Creating the writing plan' : 'Created the writing plan'
+    case 'update_writing_task':
+      return running ? 'Updating the writing plan' : 'Updated the writing plan'
     case 'submit_brief_change':
+    case 'submit_writing_rules_change':
     case 'submit_outline_change':
     case 'submit_section_change':
     case 'propose_brief_update':
@@ -722,6 +840,12 @@ export function findLatestPrompt(events: AgentEventRecord[]): string | null {
     if (parsed.data.presentation?.kind === 'approval_continuation') continue
     if (parsed.data.presentation?.kind === 'review_feedback') {
       return parsed.data.presentation.displayContent
+    }
+    if (parsed.data.presentation?.kind === 'annotation_context') {
+      return parsed.data.presentation.displayContent
+    }
+    if (parsed.data.presentation?.kind === 'quick_action') {
+      return parsed.data.presentation.displayInstruction ?? parsed.data.presentation.selectedText
     }
     return parsed.data.content
   }

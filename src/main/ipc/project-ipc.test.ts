@@ -17,6 +17,15 @@ const openSnapshot = {
   }
 }
 const closedSnapshot = { state: 'closed' as const, activeProject: null }
+const publicationOptions = {
+  schemaVersion: 1 as const,
+  pageSize: 'A4' as const,
+  marginsMm: { top: 25, right: 25, bottom: 25, left: 25 },
+  template: 'academic' as const,
+  includeTableOfContents: true,
+  includeReferences: true,
+  mermaidFallback: 'rendered' as const
+}
 
 function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof openSnapshot) {
   const handlers = new Map<string, (...args: never[]) => unknown>()
@@ -33,6 +42,17 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
     recoverStaleLockAndRetryOpen: vi.fn(async () => openSnapshot),
     close: vi.fn(async () => closedSnapshot),
     switch: vi.fn(async () => openSnapshot),
+    cloneProject: vi.fn(async () => openSnapshot),
+    cancelProjectClone: vi.fn(() => ({ cancelled: true })),
+    applyTemplate: vi.fn(async () => openSnapshot),
+    previewTemplateExtraction: vi.fn(async () => ({
+      briefFields: ['language'],
+      outlineTitles: ['Opening'],
+      writingRuleCount: 1,
+      publicationPresetId: 'builtin:academic-a4',
+      excluded: ['Manuscript bodies']
+    })),
+    extractTemplate: vi.fn(async () => ({ templateId: 'template' })),
     assertActiveSession: vi.fn((value: string) => {
       if (value !== sessionId || snapshot.state !== 'open') throw new Error('stale')
       return { manifest: { projectId }, displayName: 'Safe project' }
@@ -61,12 +81,20 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
         content: { sha256: 'c'.repeat(64) },
         assetCount: 0
       },
-      ...(kind === 'markdown' ? { lossReport: { formatVersion: 1, losses: [] } } : {})
-    }))
+      ...(kind === 'native' ? {} : { lossReport: { formatVersion: 1, losses: [] } })
+    })),
+    cancelManuscriptExport: vi.fn(() => ({ cancelled: true }))
   }
   const recentProjects = {
     list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
     find: vi.fn(async (): Promise<RecentProjectPointer | null> => null)
+  }
+  const projectTemplates = {
+    list: vi.fn(async () => []),
+    resolve: vi.fn(),
+    create: vi.fn(async () => []),
+    delete: vi.fn(async () => []),
+    mintId: vi.fn(() => '33333333-3333-4333-8333-333333333333')
   }
   const projectDialog = {
     showOpenDialog: vi.fn(
@@ -90,6 +118,11 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
   registerProjectIpc({
     manager: manager as never,
     recentProjects,
+    publicationPresets: {
+      resolve: vi.fn(() => publicationOptions),
+      snapshot: vi.fn(() => ({ defaultPresetId: 'builtin:academic-a4' }))
+    } as never,
+    projectTemplates,
     getWindow: () => window as never,
     logger: pino({ level: 'silent' }),
     developmentUrl: 'http://localhost:5173',
@@ -103,7 +136,7 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input?: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { invoke, manager, projectDialog, recentProjects, sender, window }
+  return { invoke, manager, projectDialog, projectTemplates, recentProjects, sender, window }
 }
 
 describe('project IPC', () => {
@@ -137,6 +170,17 @@ describe('project IPC', () => {
       recentProjects: {
         list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
         find: vi.fn(async (): Promise<RecentProjectPointer | null> => null)
+      },
+      publicationPresets: {
+        resolve: vi.fn(() => publicationOptions),
+        snapshot: vi.fn(() => ({ defaultPresetId: 'builtin:academic-a4' }))
+      } as never,
+      projectTemplates: {
+        list: vi.fn(async () => []),
+        resolve: vi.fn(),
+        create: vi.fn(async () => []),
+        delete: vi.fn(async () => []),
+        mintId: vi.fn()
       },
       getWindow: () => null,
       logger: pino({ level: 'silent' }),
@@ -217,7 +261,8 @@ describe('project IPC', () => {
     expect(manager.exportManuscript).toHaveBeenCalledWith(
       sessionId,
       '/private/renderer-must-not-receive/export',
-      'markdown'
+      'markdown',
+      undefined
     )
     expect(result).toEqual({
       created: true,
@@ -239,6 +284,134 @@ describe('project IPC', () => {
       })
     ).resolves.toEqual({ created: false, kind: 'native' })
     expect(manager.exportManuscript).not.toHaveBeenCalled()
+  })
+
+  it('routes Word exports through a Main-owned destination and returns only safe metadata', async () => {
+    const { invoke, manager, projectDialog } = harness(openSnapshot)
+    projectDialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/private/renderer-must-not-receive/word-export'
+    })
+
+    const result = await invoke(IPC_CHANNELS.projectManuscriptExport, {
+      projectSessionId: sessionId,
+      kind: 'docx'
+    })
+
+    expect(manager.exportManuscript).toHaveBeenCalledWith(
+      sessionId,
+      '/private/renderer-must-not-receive/word-export',
+      'docx',
+      publicationOptions
+    )
+    expect(result).toMatchObject({ created: true, kind: 'docx', assetCount: 0 })
+    expect(JSON.stringify(result)).not.toContain('/private/')
+  })
+
+  it('routes LaTeX exports without exposing the selected destination', async () => {
+    const { invoke, manager, projectDialog } = harness(openSnapshot)
+    projectDialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/private/renderer-must-not-receive/latex-export'
+    })
+
+    const result = await invoke(IPC_CHANNELS.projectManuscriptExport, {
+      projectSessionId: sessionId,
+      kind: 'latex'
+    })
+
+    expect(manager.exportManuscript).toHaveBeenCalledWith(
+      sessionId,
+      '/private/renderer-must-not-receive/latex-export',
+      'latex',
+      publicationOptions
+    )
+    expect(result).toMatchObject({ created: true, kind: 'latex', assetCount: 0 })
+    expect(JSON.stringify(result)).not.toContain('/private/')
+  })
+
+  it('routes PDF exports without exposing the selected destination', async () => {
+    const { invoke, manager, projectDialog } = harness(openSnapshot)
+    projectDialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/private/renderer-must-not-receive/pdf-export'
+    })
+
+    const result = await invoke(IPC_CHANNELS.projectManuscriptExport, {
+      projectSessionId: sessionId,
+      kind: 'pdf'
+    })
+
+    expect(manager.exportManuscript).toHaveBeenCalledWith(
+      sessionId,
+      '/private/renderer-must-not-receive/pdf-export',
+      'pdf',
+      publicationOptions
+    )
+    expect(result).toMatchObject({ created: true, kind: 'pdf', assetCount: 0 })
+    expect(JSON.stringify(result)).not.toContain('/private/')
+  })
+
+  it('authorizes and routes manuscript export cancellation to the active session', async () => {
+    const { invoke, manager } = harness(openSnapshot)
+
+    expect(
+      invoke(IPC_CHANNELS.projectManuscriptExportCancel, { projectSessionId: sessionId })
+    ).toEqual({ cancelled: true })
+    expect(manager.cancelManuscriptExport).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('selects clone destinations in Main, switches only after publication, and routes cancellation', async () => {
+    const { invoke, manager, projectDialog } = harness(openSnapshot)
+    projectDialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/private/Safe project copy'
+    })
+
+    await expect(
+      invoke(IPC_CHANNELS.projectClone, { projectSessionId: sessionId })
+    ).resolves.toEqual({ project: openSnapshot.activeProject })
+    expect(manager.cloneProject).toHaveBeenCalledWith(
+      sessionId,
+      '/private/Safe project copy.writellm'
+    )
+    expect(invoke(IPC_CHANNELS.projectCloneCancel, { projectSessionId: sessionId })).toEqual({
+      cancelled: true
+    })
+    expect(manager.cancelProjectClone).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('resolves built-ins before creation and keeps user-template extraction path-free', async () => {
+    const { invoke, manager, projectDialog, projectTemplates } = harness()
+    const templateId = '44444444-4444-4444-8444-444444444444'
+    const template = { templateId }
+    projectTemplates.resolve.mockResolvedValue(template as never)
+    projectDialog.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ['/private/template-projects']
+    })
+
+    await invoke(IPC_CHANNELS.projectCreate, { name: 'Templated', templateId })
+    expect(projectTemplates.resolve).toHaveBeenCalledWith(templateId)
+    expect(manager.applyTemplate).toHaveBeenCalledWith(sessionId, template)
+
+    const active = harness(openSnapshot)
+    await expect(
+      active.invoke(IPC_CHANNELS.projectTemplatePreview, { projectSessionId: sessionId })
+    ).resolves.toMatchObject({ outlineTitles: ['Opening'] })
+    await expect(
+      active.invoke(IPC_CHANNELS.projectTemplateSave, {
+        projectSessionId: sessionId,
+        name: 'Reusable',
+        description: '',
+        includePublicationPreset: false
+      })
+    ).resolves.toEqual([])
+    expect(active.manager.extractTemplate).toHaveBeenCalledWith(
+      sessionId,
+      expect.objectContaining({ publicationPresetId: null })
+    )
+    expect(JSON.stringify(active.manager.extractTemplate.mock.calls)).not.toContain('/private/')
   })
 
   it('does not override window state during project lifecycle transitions', async () => {

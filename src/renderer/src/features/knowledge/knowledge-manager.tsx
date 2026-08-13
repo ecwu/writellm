@@ -64,7 +64,10 @@ export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
   onOpenManuscript(): void
+  onOpenAssets(): void
   onOpenReferences(): void
+  onOpenIssues(): void
+  onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
   onError(message: string): void
@@ -250,8 +253,11 @@ export function KnowledgeManager(props: {
         <WorkspaceRail
           activeWorkspace='knowledge'
           onOpenKnowledge={() => undefined}
+          onOpenAssets={props.onOpenAssets}
           onOpenManuscript={props.onOpenManuscript}
           onOpenReferences={props.onOpenReferences}
+          onOpenIssues={props.onOpenIssues}
+          onOpenWritingRules={props.onOpenWritingRules}
           onOpenFind={props.onOpenFind}
           onOpenSettings={props.onOpenSettings}
         />

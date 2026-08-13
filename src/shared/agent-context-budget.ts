@@ -16,7 +16,8 @@ const PROJECTABLE_READ_TOOLS = new Set([
   'read_citations',
   'read_writing_skill',
   'inspect_change',
-  'check_draft'
+  'check_draft',
+  'list_review_issues'
 ])
 const SAFE_FACT_KEYS = new Set([
   'schemaVersion',

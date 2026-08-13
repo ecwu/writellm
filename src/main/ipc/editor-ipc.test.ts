@@ -49,7 +49,7 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
         revisionNumber: 1,
         source: 'manual',
         content: [],
-        contentSchemaVersion: 1,
+        contentSchemaVersion: 3,
         contentHash: 'a'.repeat(64),
         priorRevisionId: null,
         wordCount: 0,
@@ -71,7 +71,14 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
     assemble: vi.fn()
   }
   const manuscriptAssets = {
-    markdownReference: vi.fn((assetId: string) => `assets/${assetId}.png`)
+    markdownReference: vi.fn((assetId: string) => `assets/${assetId}.png`),
+    listWorkspace: vi.fn(async () => ({
+      items: [],
+      nextCursor: null,
+      filteredTotal: 0,
+      summary: { total: 0, used: 0, unused: 0, generated: 0, uploaded: 0 }
+    })),
+    deleteUnprotected: vi.fn(async (assetId: string) => ({ outcome: 'deleted', assetId }))
   }
   const context = {
     projectSessionId,
@@ -97,7 +104,7 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
     })),
     completeSnapshotFlush: vi.fn()
   }
-  const logger = { error: vi.fn() }
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const registration = registerEditorIpc({
     manager: manager as never,
     logger,
@@ -127,6 +134,34 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
 }
 
 describe('editor IPC active-section final flush', () => {
+  it('lists and deletes assets only through the active project capability', async () => {
+    const { invoke, manuscriptAssets } = harness()
+    await expect(
+      invoke(IPC_CHANNELS.editorListAssets, {
+        projectSessionId,
+        usage: 'unused',
+        source: 'uploaded',
+        limit: 20
+      })
+    ).resolves.toMatchObject({ items: [], filteredTotal: 0 })
+    expect(manuscriptAssets.listWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ projectSessionId, usage: 'unused', source: 'uploaded', limit: 20 })
+    )
+    const assetId = '019d0000-0000-4000-8000-000000000342'
+    await expect(
+      invoke(IPC_CHANNELS.editorDeleteAsset, { projectSessionId, assetId })
+    ).resolves.toEqual({ outcome: 'deleted', assetId })
+    expect(manuscriptAssets.deleteUnprotected).toHaveBeenCalledWith(assetId)
+    await expect(
+      invoke(IPC_CHANNELS.editorListAssets, {
+        projectSessionId,
+        usage: 'invented',
+        source: 'all',
+        limit: 20
+      })
+    ).rejects.toThrow()
+  })
+
   it('tracks and verifies the active non-first section revision', async () => {
     const { context, invoke, registration, sender } = harness()
     invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
@@ -418,7 +453,7 @@ function citationAssembly() {
           children: []
         }
       ],
-      contentSchemaVersion: 2,
+      contentSchemaVersion: 3,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 0,

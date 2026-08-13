@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Checkpoint 30 is locally complete; release metadata and the verified local macOS arm64 App are 0.2026.8.15; Checkpoint 31 has not started; Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-12
+Status: All authorized Phase 11 checkpoints through 47B and the final local macOS arm64 0.2026.8.16 App package are complete and verified. Checkpoint 26.9 is paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-13
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -9,6 +9,198 @@ Phase files under [`implementation-todo/`](implementation-todo/); completed chro
 [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current checkpoint
+
+Final Phase 11 verification and packaging is complete. Checkpoint 44 is complete under accepted
+[`ADR 035`](adrs/035-project-local-manuscript-annotations.md): a small project-local annotation
+authority keeps notes and TODOs outside manuscript bodies, preserves stable section/block anchors,
+marks exact orphaning without fuzzy relocation, rolls back with project history, and lets the user
+opt selected annotations into an ordinary Agent request. Checkpoint 46 is complete under accepted
+[`ADR 036`](adrs/036-independent-project-clone.md): Save As creates a staged, verified independent
+copy, rewrites every enumerated project identity, omits derived/private/transient state, and opens
+the result through the normal project lifecycle. Checkpoints 47A and 47B are complete under
+accepted [`ADR 037`](adrs/037-bounded-project-template-catalog.md): reviewed built-ins and a
+hash-verified bounded user catalog apply only Brief structure, outline, Writing Rules, and an
+optional publication-preset reference through normal project authorities. Templates never contain
+manuscript bodies, knowledge, citations, Agent history, credentials, assets, private paths, or old
+project identity.
+
+Cumulative final evidence passed `check:fast`, the complete Electron-hosted gate and production
+build, all 25 recovery fixtures from 23 sources, clean scoped Impeccable and diff checks, and all
+38/38 fresh Real-Electron scenarios with no failures, skips, or flaky scenarios. The no-identity
+macOS arm64 package gate verified Electron 43.1.0 / ABI 148, arm64 `better-sqlite3` and
+`sqlite-vec`, the ASAR/resource inventory, 12/12 packaged smoke scenarios, and 26/26 E2E scenarios
+against the unpacked App. It generated and structurally verified the 0.2026.8.16 App, DMG, and ZIP.
+
+Checkpoint 37B is complete under accepted [`ADR 034`](adrs/034-contained-latex-project-import.md).
+Main captures a bounded directory, archive, or direct-entry dependency closure; citation-js and
+unified-latex run inside the existing disposable no-network worker; and includes, bibliography,
+tables, figures, labels, and registered local images cross back only through the application-owned
+neutral projection. Verification passed focused hostile/project tests, `check:fast`, 172
+Electron-hosted files / 888 tests, the production build, 34/34 silent Real-Electron scenarios,
+all 25 recovery fixtures, clean scoped Impeccable and diff checks, and the package gate. The
+packaged App passed 12 smoke scenarios and 22/22 packaged E2E scenarios; the DMG and ZIP were
+generated and structurally verified.
+
+Checkpoint 37A is complete under accepted
+[`ADR 033`](adrs/033-isolated-inert-latex-import.md): exact-pinned unified-latex parses one bounded
+UTF-8 `.tex` source in a disposable utility process with hard timeout and cancellation. The
+application-owned projection maps metadata, outline hierarchy, prose, emphasis, lists, quotes,
+verbatim, and display math; inline math, footnotes, citations, comments, malformed syntax, custom
+macros, and unknown constructs remain visible and inert with exact findings. Imported sections
+remain ordinary editable `import` revisions. Verification passed 26 focused tests, `check:fast`,
+172 Electron-hosted files / 884 tests, the production build, all 33 silent Real-Electron
+scenarios, and all 25 recovery fixtures. Checkpoint 36 is complete under accepted
+[`ADR 032`](adrs/032-session-bound-manuscript-import-staging.md): Main owns bounded source capture,
+hashing, contained image resolution, exact-pinned remark mapping, a 30-minute session plan,
+side-by-side review, atomic section creation, and optimistic active-section replacement. The
+Renderer no longer reads or parses files. Verification passed 170 Electron-hosted files / 878
+tests, the production build, and all 32 silent Real-Electron scenarios. Checkpoints 38 through 41B are complete: one ephemeral,
+typed publication assembly now projects the exact captured manuscript, references, figures, and
+verified assets; fail-closed preflight provides exact issue navigation; and the Main-owned export
+boundary produces canonicalized editable DOCX packages with deterministic hashes and explicit
+loss reports. The user explicitly authorized
+the remaining Phase 11 sequence on 2026-08-13 and directed implementation to choose established
+best practices without waiting for questions, prefer mature libraries where they reduce format or
+runtime risk, and keep new capabilities as fixtures around the ordinary Agent loop. CP34A is now
+complete under accepted [`ADR 025`](adrs/025-agent-writing-task-identity-and-plan.md): one bounded
+conversation-scoped task, stable UUID task/step identities, optimistic monotonic plan versions,
+ordinary Agent task tools, proposal correlation, and a passive plan projection. It adds no
+scheduler, autonomous background loop, subagent, independent conversation type, or manuscript
+authority. CP34B is now complete: exact run/task/step snapshots, authoritative proposal-derived
+progress, explicit disagreement, optimistic idle plan revision, and same-conversation resume are
+implemented without a second model flow. CP35A now groups existing correlated proposals by the
+task boundary and adds read-only cross-section navigation over the current proposal review surface.
+CP35A is complete: all proposal outcomes and stale refresh state remain explicit and each grouped
+item returns to the ordinary exact proposal review. CP35B is complete under accepted
+[`ADR 026`](adrs/026-agent-change-set-batch-sequencing.md): a Main-owned, durable, idempotent
+sequence invokes only the existing per-proposal decisions, reports partial truth, stops on adverse
+outcomes, supports optional ready-only history checkpoints, and deterministically reconciles undo
+and restart without a second mutation engine. CP43A is complete under accepted
+[`ADR 027`](adrs/027-figure-semantics-and-schema-v3.md): section content schema v3 provides stable
+figure identity and explicit caption/alt metadata, old revision bodies remain unchanged and
+readable, numbering is derived, and deterministic review findings target the exact figure. CP42
+is complete under accepted [`ADR 028`](adrs/028-manuscript-asset-workspace-and-safe-deletion.md).
+The existing immutable manuscript-asset authority now has a bounded workspace with validated
+dimensions, session previews, current/history/proposal usage, filters, exact navigation, integrity
+status, and crash-recoverable protected deletion. CP43B now adds candidate lineage and iteration
+through the ordinary Agent image tool and proposal flow.
+
+Final CP38/39 evidence includes typed golden projection coverage; focused publication, DOCX,
+whole-export, IPC, and Renderer tests; independent OOXML parsing with JSZip/fast-xml-parser and
+semantic reopen with Mammoth; byte-identical repeated canonicalized DOCX generation; `check:fast`;
+and `check:electron` with 165 passing Electron-hosted files, 857 passing tests, three skipped
+opt-in tests, and a production build. `docx@9.7.1`, `jszip@3.10.1`, and
+`fast-xml-parser@5.10.1` are exact runtime pins; `mammoth@1.12.1` is an exact test-only pin.
+
+Final CP40 evidence includes accepted ADR 030; deterministic CJK/Latin, escaping, injection,
+formula, table, figure, citation, missing-bibliography, Mermaid, and listing-fallback fixtures;
+whole-export, IPC, and menu integration; exact-pinned
+`@unified-latex/unified-latex-util-parse@1.8.4` independent AST reopen; `check:fast`; and
+`check:electron` with 166 passing Electron-hosted files, 860 passing tests, three skipped opt-in
+tests, and a production build. No TeX compiler is installed or required by the product.
+
+Final CP41A evidence includes accepted ADR 031; a real Electron 43 target-runtime spike proving
+selectable CJK/Latin text, outline bookmarks, internal/external links, and two-pass TOC
+destinations; focused conversion, cancellation, large-manuscript, export, IPC, and Renderer
+coverage; `check:fast`; and `check:electron` with 167 passing Electron-hosted files, 868 passing
+tests, three skipped opt-in tests, and a production build. The no-identity macOS arm64 package
+gate passed all 12 packaged smoke scenarios and 19/19 packaged E2E scenarios, verified the ASAR
+and arm64 native inventory, and produced the App, DMG, and ZIP. The gate also added permanent
+regressions for sandbox-safe preload dependencies and schema-v3 packaged reopen.
+
+Final CP41B evidence includes app migration v7; three immutable application presets; bounded user
+preset CRUD and one default; strict versioned fail-closed options; settings in the global shadcn
+Command surface; one default-resolution path shared by publication preflight and export; identical
+source hashes across DOCX, LaTeX, and PDF for the same preset; focused repository/IPC/export tests;
+`check:fast`; and `check:electron` with 168 passing files, 871 passing tests, three skipped opt-in
+tests, and a production build. Preset changes touch only app.sqlite and never project revisions.
+
+Final CP42 evidence includes focused migration, service, mutation, IPC, and Renderer coverage;
+`check:electron` with 163 passing Electron-hosted test files, 851 passing tests, and three skipped
+opt-in files/tests; a production build; focused and fresh full Real-Electron E2E with 31/31
+scenarios; all 25 recovery fixtures from 23 sources; clean scoped Impeccable detection; and
+`git diff --check`. The rich-media scenario proves asset listing, protected/current usage,
+unprotected deletion, exact block navigation, and persistence through project reopen.
+
+Final CP43A evidence includes focused migration, history, export, review, schema, and Renderer
+tests; `check:electron` with 162 passing Electron-hosted test files, 848 passing tests, and three
+skipped opt-in files/tests; a production build; fresh full Real-Electron E2E with 31/31 scenarios;
+all 25 recovery fixtures from 23 sources; clean scoped Impeccable detection; and
+`git diff --check`. The rich-media scenario proves metadata editing, persistence through project
+reopen, native/Markdown export, stable identity, and safe preview rendering.
+
+Final CP35B evidence includes focused migration, sequencing, crash-window, replay, IPC, and
+Renderer tests; `check:fast`; `check:electron` with 160 passing Electron-hosted test files, 844
+passing tests, and three skipped opt-in files/tests; a production build; fresh full Real-Electron
+E2E with 31/31 scenarios; all 25 recovery fixtures from 23 sources; clean scoped Impeccable
+detection; and `git diff --check`. The Agent writing-task scenario applies the real batch decision
+surface and proves the durable result across archive/restore and application restart.
+
+Final CP34A evidence includes `check:fast`; `check:electron` with 157 passing Electron-hosted test
+files, 835 passing tests, and three skipped opt-in files/tests; a production build; focused and
+fresh full Real-Electron E2E with 31/31 scenarios; all 25 recovery fixtures from 23 sources; clean
+scoped Impeccable detection; and `git diff --check`. The new scenario proves stable task and step
+identity across archive/restore, project close, and application restart.
+
+Final CP34B evidence includes focused reconciliation, migration, IPC, and session tests;
+`check:fast`; `check:electron` with 158 passing Electron-hosted test files, 839 passing tests, and
+three skipped opt-in files/tests; a production build; focused and fresh full Real-Electron E2E with
+31/31 scenarios; all 25 recovery fixtures from 23 sources; clean scoped Impeccable detection; and
+`git diff --check`. The task scenario proves durable idle revision, plan-version advancement,
+same-conversation resume through `get_writing_task`, exact resumed-run correlation, and restart.
+
+Checkpoints 32, 45, and 33 are locally complete together under accepted
+[`ADR 024`](adrs/024-agent-native-review-fixtures.md). They add a pure snapshot-driven
+`check_draft` core, project-local Review Issues, versioned Brief-owned Writing Rules, bounded Agent
+fixture tools, proposal-linked issue resolution, a static review policy, and a passive Workbench.
+The Workbench uses standard shadcn loading, error, empty, form, pagination, and responsive
+compositions and never starts model work. The ordinary Agent conversation remains the only model
+execution surface; there is no special Agent session/run, hidden model call, durable review job,
+independent report table, direct manuscript write, task engine, new worker, or provider runtime.
+
+Final CP32/45/33 evidence includes `check:fast`; `check:electron` with 154 passing
+Electron-hosted test files, 829 passing tests, and three skipped opt-in files/tests; a production
+build; focused Agent-native and passive-Workbench scenarios; fresh full Real-Electron E2E with
+30/30 scenarios; all 25 recovery fixtures from 23 sources; clean scoped Impeccable detection; and
+`git diff --check`. The Real-Electron path proves the ordinary Agent
+`check_draft → list_review_issues → record_review_issues` flow, durable semantic source lineage,
+Workbench navigation and corrections, narrow responsive behavior, and Writing Rules persistence.
+
+Citation compact-presentation maintenance is locally complete above the completed Checkpoint 28.6
+baseline. Numbered/icon decorations no longer reserve excessive line height, and the Lucide icon
+widget now has intrinsic geometry. Canonical citation text, numbering, copy/edit semantics,
+settings, persistence, IPC, export, counts, and source resolution remain unchanged. Focused
+Renderer coverage, `check:fast`, a production build, the focused Real-Electron citation scenario,
+scoped Impeccable detection, and `git diff --check` passed.
+
+Checkpoint 31 selection-based quick AI actions are locally complete under
+[`ADR 023`](adrs/023-selection-based-quick-ai-actions.md) and the revised
+[`Phase 11 plan`](implementation-todo/phase-11.md#checkpoint-31-selection-based-quick-ai-actions).
+On 2026-08-12 the user explicitly authorized CP31 implementation. The checkpoint adds one
+keyboard-accessible selection toolbar entry for bounded Main-owned rewrite, shorten, expand, tone,
+evidence, manuscript-alignment, and custom-instruction templates. It reuses the currently visible
+ordinary Agent conversation and the existing start-run, snapshot, proposal, review, stop, steer,
+usage, model, Thinking, Writing Skill, context, and approval boundaries. A missing visible
+conversation is created through the existing first-send path; a busy, archived, review-blocked,
+unconfigured, or capacity-blocked conversation fails explicitly rather than routing elsewhere.
+
+Renderer captures exact selected text, ordered block IDs, section, revision, and capture time,
+checks that the selection remains identical across the editor flush, and displays the frozen
+snapshot in the resulting normal user-message timeline item. Main revalidates the active section,
+exact current revision, unique existing selected blocks, and selected text before constructing the
+task prompt. The toolbar performs no provider call and cannot construct or apply a mutation.
+Evidence review may finish successfully without a proposal. No dependency, migration, table,
+durable job, provider runtime, Agent tool/schema, direct write, reusable prompt registry, package,
+release, hosted CI, commit, tag, push, or publication was authorized or performed.
+
+Local evidence includes the focused 55-test contract, prompt, Main, IPC, and Renderer suite;
+`check:fast`; `check:electron` with 150 passing Electron-hosted test files, 816 passing tests, and
+three skipped opt-in files/tests; a successful production build; a focused Real-Electron scenario
+covering the keyboard command, exact-selection timeline snapshot, ordinary conversation reuse,
+Main-owned evidence prompt, review-only success, and absence of a proposal; fresh full
+Real-Electron E2E with 28/28 scenarios; all 25 recovery fixtures from 23 sources; clean scoped
+Impeccable detection; and `git diff --check`. Release metadata and packaged artifacts were not
+changed for CP31.
 
 Checkpoint 30 safe manuscript-wide replacement is locally complete under accepted
 [`ADR 022`](adrs/022-safe-manuscript-wide-replacement.md) and the revised
@@ -88,12 +280,14 @@ benchmarks skipped, and a production build; fresh focused and full Real-Electron
 detector run followed by a fresh finish review and remediation; and `git diff --check`.
 Package/release work is out of scope and was not run.
 
-The active release metadata is now `0.2026.8.15`. Under the accepted platform mapping, the valid
+The active release metadata is now `0.2026.8.16`. Under the accepted platform mapping, the valid
 package/application SemVer and macOS `CFBundleShortVersionString` remain `0.2026.8`, while the
-macOS `CFBundleVersion` is `2026.8.15`. The no-identity macOS arm64 package gate passed 12/12
-packaged runtime smoke scenarios and 17/17 packaged Real-Electron scenarios, verified a no-Team-
-ID ad-hoc/linker signature, and produced the local App, DMG, and ZIP. No commit, tag, hosted CI,
-Apple signing/notarization, push, publication, or promotion was performed.
+macOS `CFBundleVersion` is `2026.8.16`. The user explicitly requested a local App build for
+hands-on CP31 testing. The no-identity macOS arm64 package gate passed 12/12 packaged runtime smoke
+scenarios, 17/17 packaged Real-Electron scenarios, and all 25 recovery fixtures; it verified the
+arm64 native inventory and a no-Team-ID ad-hoc/linker signature, then produced the local App, DMG,
+and ZIP. No commit, tag, hosted CI, Apple signing/notarization, push, publication, or promotion was
+performed.
 
 The local `v0.2026.8.13` release-candidate maintenance is locally complete above the completed
 Checkpoint 28.x worktree. It authorizes one local release-candidate commit, one annotated tag, and
@@ -500,7 +694,7 @@ approval. Checkpoint 28.x, its local `v0.2026.8.13` tag/App build, CP29 implemen
 authorization. Do not start a later
 product checkpoint or any hosted/release action without new explicit user approval.
 
-The current release-candidate identifier is `0.2026.8.15`; no corresponding Git tag exists. Its
+The current release-candidate identifier is `0.2026.8.16`; no corresponding Git tag exists. Its
 package SemVer base is `0.2026.8`; the platform-native build-number mapping is defined in
 [`release-policy.md`](release-policy.md#release-version). The immutable `v0.2026.8.1` candidate
 failed its first hosted matrix on Windows file-URL path conversion and a non-deterministic macOS

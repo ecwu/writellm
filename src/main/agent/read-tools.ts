@@ -5,7 +5,6 @@ import {
   AGENT_TOOL_RESULT_BYTES,
   agentReadToolNameSchema,
   checkDraftArgsSchema,
-  checkDraftResultSchema,
   getWritingContextArgsSchema,
   readOutlineArgsSchema,
   readOutlineResultSchema,
@@ -30,8 +29,10 @@ import { extractSectionAgentText } from '../manuscript/content'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { findProjectionMatches } from '../../shared/manuscript-search'
 import type { RetrievalService } from '../search/retrieval-service'
+import type { ProjectDatabase } from '../project/project-database'
 import { AgentContextBuilder } from './context'
-import type { WritingSnapshot } from './context'
+import type { ReviewResourceSnapshot, WritingSnapshot } from './context'
+import { runDraftChecks } from './draft-checker'
 
 interface AgentReadToolResultMap {
   get_writing_context: WritingContextResult
@@ -82,12 +83,19 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     private readonly options: {
       projectSessionId: string
       manuscript: ManuscriptService
+      database?: ProjectDatabase
       retrieval: RetrievalService | null
       isRetrievalAvailable?: () => boolean
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }
   ) {
-    this.#context = new AgentContextBuilder(options.manuscript)
+    const database = options.database
+    this.#context = new AgentContextBuilder(
+      options.manuscript,
+      database === undefined
+        ? undefined
+        : (revisionIds) => captureReviewResources(database, revisionIds)
+    )
   }
 
   contextBuilder(): AgentContextBuilder {
@@ -237,7 +245,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
         })
       }
       case 'check_draft':
-        return this.#checkDraft(checkDraftArgsSchema.parse(rawArgs), snapshot)
+        return this.#checkDraft(checkDraftArgsSchema.parse(rawArgs), snapshot, signal)
     }
   }
 
@@ -400,230 +408,10 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
 
   #checkDraft(
     args: ReturnType<typeof checkDraftArgsSchema.parse>,
-    snapshot: WritingSnapshot
+    snapshot: WritingSnapshot,
+    signal: AbortSignal
   ): CheckDraftResult {
-    const requested =
-      args.checks.length === 0
-        ? ([
-            'document_structure',
-            'outline_integrity',
-            'revision_lineage',
-            'citation_provenance',
-            'safe_links',
-            'unresolved_placeholders',
-            'duplicate_headings',
-            'duplicate_paragraphs',
-            'length_constraints'
-          ] as const)
-        : args.checks
-    const entries = snapshot.workspace.sections.filter(
-      (entry) =>
-        args.scope.type === 'manuscript' || entry.section.sectionId === args.scope.sectionId
-    )
-    const findings: CheckDraftResult['findings'] = []
-    const addFinding = (
-      check: CheckDraftResult['findings'][number]['check'],
-      severity: CheckDraftResult['findings'][number]['severity'],
-      sectionId: string,
-      blockId: string,
-      message: string,
-      evidence: string
-    ): void => {
-      if (findings.length < 200) {
-        findings.push(
-          finding(check, severity, snapshot.snapshotId, sectionId, blockId, message, evidence)
-        )
-      }
-    }
-    if (requested.includes('outline_integrity')) {
-      const byId = new Map(
-        snapshot.workspace.sections.map((entry) => [entry.section.sectionId, entry.section])
-      )
-      const siblingPositions = new Map<string, Set<number>>()
-      for (const entry of snapshot.workspace.sections) {
-        const section = entry.section
-        const parent =
-          section.parentSectionId === null ? undefined : byId.get(section.parentSectionId)
-        if (section.parentSectionId !== null && parent === undefined) {
-          addFinding(
-            'outline_integrity',
-            'error',
-            section.sectionId,
-            `section:${section.sectionId}`,
-            'Outline parent is missing',
-            section.parentSectionId
-          )
-        } else if (section.level !== (parent?.level ?? 0) + 1) {
-          addFinding(
-            'outline_integrity',
-            'error',
-            section.sectionId,
-            `section:${section.sectionId}`,
-            'Outline level does not match its parent',
-            String(section.level)
-          )
-        }
-        const key = section.parentSectionId ?? 'root'
-        const positions = siblingPositions.get(key) ?? new Set<number>()
-        if (positions.has(section.position)) {
-          addFinding(
-            'outline_integrity',
-            'error',
-            section.sectionId,
-            `section:${section.sectionId}`,
-            'Sibling outline positions are duplicated',
-            String(section.position)
-          )
-        }
-        positions.add(section.position)
-        siblingPositions.set(key, positions)
-      }
-    }
-    const seenHeadings = new Map<string, { sectionId: string; blockId: string }>()
-    const seenParagraphs = new Map<string, { sectionId: string; blockId: string }>()
-    for (const entry of entries) {
-      const revision = this.options.manuscript.getRevision(entry.section.currentRevisionId)
-      const snapshotContent = snapshot.sectionContents.get(revision.sectionRevisionId)
-      if (snapshotContent === undefined) {
-        addFinding(
-          'document_structure',
-          'error',
-          entry.section.sectionId,
-          `section:${entry.section.sectionId}`,
-          'Current revision content is unavailable',
-          revision.sectionRevisionId
-        )
-        continue
-      }
-      if (
-        requested.includes('revision_lineage') &&
-        revision.sectionId !== entry.section.sectionId
-      ) {
-        addFinding(
-          'revision_lineage',
-          'error',
-          entry.section.sectionId,
-          `section:${entry.section.sectionId}`,
-          'Current revision belongs to another section',
-          revision.sectionRevisionId
-        )
-      }
-      const flattened = flattenBlocks(snapshotContent)
-      const blockIds = new Set<string>()
-      for (const block of flattened) {
-        if (requested.includes('document_structure') && blockIds.has(block.blockId)) {
-          addFinding(
-            'document_structure',
-            'error',
-            entry.section.sectionId,
-            block.blockId,
-            'Duplicate block ID found',
-            block.blockId
-          )
-        }
-        blockIds.add(block.blockId)
-        const normalized = block.text.trim().normalize('NFC').toLocaleLowerCase()
-        if (
-          requested.includes('unresolved_placeholders') &&
-          /\[(?:todo|tbd)\]|\bxxx\b/iu.test(block.text)
-        ) {
-          addFinding(
-            'unresolved_placeholders',
-            'warning',
-            entry.section.sectionId,
-            block.blockId,
-            'Unresolved placeholder found',
-            block.text.slice(0, 500)
-          )
-        }
-        if (
-          requested.includes('duplicate_headings') &&
-          block.blockType === 'heading' &&
-          normalized
-        ) {
-          const previous = seenHeadings.get(normalized)
-          if (previous !== undefined)
-            addFinding(
-              'duplicate_headings',
-              'warning',
-              entry.section.sectionId,
-              block.blockId,
-              'Duplicate heading found',
-              block.text.slice(0, 500)
-            )
-          else
-            seenHeadings.set(normalized, {
-              sectionId: entry.section.sectionId,
-              blockId: block.blockId
-            })
-        }
-        if (
-          requested.includes('duplicate_paragraphs') &&
-          block.blockType === 'paragraph' &&
-          normalized.length >= 80
-        ) {
-          const previous = seenParagraphs.get(normalized)
-          if (previous !== undefined)
-            addFinding(
-              'duplicate_paragraphs',
-              'warning',
-              entry.section.sectionId,
-              block.blockId,
-              'Exact duplicate paragraph found',
-              block.text.slice(0, 500)
-            )
-          else
-            seenParagraphs.set(normalized, {
-              sectionId: entry.section.sectionId,
-              blockId: block.blockId
-            })
-        }
-      }
-    }
-    if (requested.includes('length_constraints')) {
-      const range = parseLengthConstraint(snapshot.workspace.brief.targetLength)
-      if (
-        range !== null &&
-        (snapshot.workspace.wordCount < range.minimum ||
-          snapshot.workspace.wordCount > range.maximum)
-      ) {
-        const sectionId =
-          entries[0]?.section.sectionId ?? snapshot.workspace.sections[0]?.section.sectionId
-        if (sectionId !== undefined)
-          addFinding(
-            'length_constraints',
-            'warning',
-            sectionId,
-            `section:${sectionId}`,
-            'Manuscript length is outside the explicit target',
-            `${snapshot.workspace.wordCount} words; expected ${range.minimum}-${range.maximum}`
-          )
-      }
-    }
-    const supported = new Set([
-      'document_structure',
-      'outline_integrity',
-      'revision_lineage',
-      'safe_links',
-      'unresolved_placeholders',
-      'duplicate_headings',
-      'duplicate_paragraphs',
-      'length_constraints'
-    ])
-    const skippedChecks = requested.filter((check) => !supported.has(check))
-    const passedChecks = requested.filter(
-      (check) => supported.has(check) && !findings.some((entry) => entry.check === check)
-    )
-    return checkDraftResultSchema.parse({
-      snapshotId: snapshot.snapshotId,
-      findings,
-      summary: {
-        errors: findings.filter((entry) => entry.severity === 'error').length,
-        warnings: findings.filter((entry) => entry.severity === 'warning').length,
-        passedChecks,
-        skippedChecks
-      }
-    })
+    return runDraftChecks(args, snapshot, signal)
   }
 
   #requireRetrieval(): RetrievalService {
@@ -635,6 +423,38 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     }
     return this.options.retrieval
   }
+}
+
+function captureReviewResources(
+  projectDatabase: ProjectDatabase,
+  revisionIds: readonly string[]
+): ReviewResourceSnapshot {
+  return projectDatabase.immediate((database) => {
+    const knowledgeItems = database
+      .prepare(
+        `SELECT knowledge_item_id AS knowledgeItemId, display_name AS displayName, state
+           FROM knowledge_items ORDER BY knowledge_item_id`
+      )
+      .all() as ReviewResourceSnapshot['knowledgeItems']
+    const assetRows = database
+      .prepare(
+        `SELECT asset.asset_id AS assetId,
+                EXISTS (
+                  SELECT 1 FROM section_revision_assets reference
+                   WHERE reference.asset_id = asset.asset_id
+                     AND reference.section_revision_id IN (${revisionIds.map(() => '?').join(', ') || 'NULL'})
+                ) AS referencedByCurrentRevision
+           FROM manuscript_assets asset ORDER BY asset.asset_id`
+      )
+      .all(...revisionIds) as Array<{ assetId: string; referencedByCurrentRevision: number }>
+    return {
+      knowledgeItems,
+      manuscriptAssets: assetRows.map((row) => ({
+        assetId: row.assetId,
+        referencedByCurrentRevision: row.referencedByCurrentRevision === 1
+      }))
+    }
+  })
 }
 
 type FlattenedBlock = ReadSectionResult['blocks'][number] & { canonical: unknown }
@@ -757,40 +577,4 @@ function headingPath(snapshot: WritingSnapshot, sectionId: string): string[] {
           )
   }
   return path
-}
-
-function finding(
-  check: CheckDraftResult['findings'][number]['check'],
-  severity: CheckDraftResult['findings'][number]['severity'],
-  snapshotId: string,
-  sectionId: string,
-  blockId: string,
-  message: string,
-  evidence: string
-): CheckDraftResult['findings'][number] {
-  return {
-    findingId: createHash('sha256')
-      .update(JSON.stringify({ snapshotId, check, sectionId, blockId, evidence }))
-      .digest('hex'),
-    severity,
-    check,
-    sectionId,
-    blockIds: [blockId],
-    message,
-    evidence
-  }
-}
-
-function parseLengthConstraint(value: string): { minimum: number; maximum: number } | null {
-  const normalized = value.replaceAll(',', '')
-  const range = normalized.match(/(\d+)\s*(?:-|–|—|to|至)\s*(\d+)/iu)
-  if (range !== null) {
-    const first = Number(range[1])
-    const second = Number(range[2])
-    return { minimum: Math.min(first, second), maximum: Math.max(first, second) }
-  }
-  const exact = normalized.match(/(?:exactly|约|大约)?\s*(\d+)\s*(?:words?|字)/iu)
-  if (exact === null) return null
-  const target = Number(exact[1])
-  return { minimum: target, maximum: target }
 }

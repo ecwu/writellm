@@ -325,7 +325,7 @@ function section(
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       content,
-      contentSchemaVersion: 2,
+      contentSchemaVersion: 3,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 1,

@@ -166,7 +166,7 @@ function nextRevision(): SectionRevision {
         children: []
       }
     ],
-    contentSchemaVersion: 2,
+    contentSchemaVersion: 3,
     contentHash: 'a'.repeat(64),
     priorRevisionId: 'revision',
     wordCount: 5,

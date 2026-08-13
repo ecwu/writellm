@@ -1,6 +1,6 @@
 # Phase 11: Post-Checkpoint-28 Writing Experience Roadmap
 
-Status: Checkpoint 30 is locally complete; Checkpoint 31 and later remain planning-only
+Status: Checkpoint 31 is locally complete; later checkpoints remain planning-only
 
 Recorded: 2026-08-12
 Revised: 2026-08-12 — second planning pass. This revision merges two independent reviews of the
@@ -36,6 +36,12 @@ replacement now uses an exhaustive ephemeral review plan, exact structural reval
 canonical transaction, bounded per-section Undo, optional ready-only project checkpoints, and
 mounted-editor reconciliation. The `0.2026.8.15` unsigned macOS arm64 package passed its runtime
 and packaged E2E gates. CP31 has not started.
+
+Revised: 2026-08-12 — Checkpoint 31 implementation and local acceptance are complete under
+accepted ADR 023. Exact text selection now enters the existing Agent conversation through bounded
+Main-owned task templates, with current-revision/block/text revalidation, frozen timeline
+presentation, normal proposal/review controls, and explicit review-only success. No release or
+package metadata changed.
 
 ## Purpose And Authority
 
@@ -648,6 +654,9 @@ replacement history remain deferred.
 
 ## Checkpoint 31: Selection-Based Quick AI Actions
 
+Implementation completed on 2026-08-12 after explicit user authorization. ADR 023 fixes the
+conversation, selection-validation, prompt-ownership, review-only, and UI boundaries.
+
 ### User outcome
 
 Common rewrite operations become available directly from a text selection while preserving the
@@ -681,116 +690,97 @@ action must produce the same proposal lineage, citation provenance, stop/steer b
 accounting, and review continuation as a manually entered Agent request, including the
 review-only outcome.
 
-## Checkpoint 32: Deterministic Manuscript Review Center
+### Implementation checklist
 
-### User outcome
+- [x] Add bounded quick-action and exact-selection contracts without a migration or new Agent tool.
+- [x] Add Main-owned task templates and current-revision/block/text revalidation.
+- [x] Reuse the visible normal Agent conversation and preserve all session/run settings.
+- [x] Add the compact selection toolbar, `Cmd/Ctrl+Shift+K`, custom instruction, and narrow/a11y states.
+- [x] Display the frozen selection snapshot in the ordinary Agent timeline.
+- [x] Cover stale selection, prompt escaping, review-only success, lineage, controls, and E2E flows.
+- [x] Pass focused suites, `check:fast`, `check:electron`, fresh E2E, recovery fixtures,
+  scoped Impeccable detection, and `git diff --check`.
 
-The author receives a whole-manuscript health view that is instant, reproducible, explainable,
-and useful without a model provider.
+### Completion evidence
 
-### Scope
+The focused contract, prompt, Main, IPC, and Renderer suite passed 55 tests. `check:fast` passed.
+`check:electron` passed 150 Electron-hosted test files and 816 tests with three opt-in files/tests
+skipped, followed by a successful production build. The focused CP31 Real-Electron scenario proved
+the keyboard entry, exact frozen selection, ordinary conversation reuse, Main-owned evidence task,
+review-only completion, and no proposal; the fresh full suite passed all 28 scenarios. The 25-case
+recovery fixture verifier passed, scoped Impeccable detection returned no findings, and
+`git diff --check` passed. Package/release, hosted CI, commit, tag, push, and publication were not
+run for the CP31 implementation gate. On 2026-08-12 the user separately authorized release
+metadata `0.2026.8.16` and an unsigned local macOS arm64 App build for hands-on testing; its package
+gate passed 12 packaged runtime smoke scenarios, 17 packaged E2E scenarios, and all 25 recovery
+fixtures, verified arm64 native resources plus a no-Team-ID signature, and produced the App, DMG,
+and ZIP.
 
-- Extract a pure snapshot-driven `ManuscriptReview` domain from the current `check_draft`
-  implementation. The extraction first fixes the two recorded defects: checks must not read live
-  revision content outside the captured snapshot, and the declared-but-skipped `safe_links` and
-  `citation_provenance` checks must be implemented.
-- Surface document structure, outline integrity, revision lineage, safe-link, placeholder,
-  duplicate heading/paragraph, and length checks.
-- Add deterministic checks for empty or incomplete sections, section-objective/target metadata
-  presence, unresolved citations, unused assets, and References availability where the current
-  authoritative data supports them. Figure caption/alt-text checks are deferred to CP43A, which
-  defines that metadata.
-- Group findings by severity, category, and section; support filtering and direct navigation.
-- Derive a summary from exact findings. Avoid an opaque single health score in the first version.
-- Refresh on demand and after relevant saves with debounce. Results are not persisted.
+## Checkpoint 32: Deterministic Review And Problem Set
 
-### Integration And Complexity Control
+Implementation authorized together with CP45 and CP33 under accepted ADR 024. The existing
+ordinary Agent conversation remains the only model execution surface; the Workbench is a passive
+projection and never starts a review.
 
-Both `check_draft` and a new bounded Main/IPC projection consume the extracted core. The Renderer
-never calls an Agent tool and does not reimplement review rules. Checks use one captured
-manuscript snapshot so results cannot mix revisions.
+### Implementation checklist
 
-Do not build a generic configurable rule engine. Each check is an explicit typed function with a
-stable ID, bounded evidence, tests, and severity owned by the application. New checks added by
-later checkpoints (CP43A figure metadata, CP45 terminology) are additive typed entries in the
-same core.
+- [x] Extract a pure `check_draft` core that reads one immutable run snapshot and never rereads a
+  live revision.
+- [x] Return bounded P0-P3 findings with stable check IDs, evidence, exact anchors, and explicit
+  passed/failed/skipped/unavailable outcomes.
+- [x] Implement structure, outline, lineage, safe-link, placeholder, duplicate, length, empty
+  section, objective, unresolved citation, References availability, unused resource, and bounded
+  citation-provenance checks.
+- [x] Add project-local `review_issues` and append-only `review_issue_events` with exact
+  fingerprint deduplication, optimistic versions, assignment transfer, orphaned anchors, and
+  proposal linkage.
+- [x] Add bounded `list_review_issues`, `record_review_issues`, and `update_review_issues`
+  Agent fixture tools without manuscript/task authority.
+- [x] Add a passive responsive Issues Workbench with priority/status/category/section filters,
+  navigation, evidence, lineage, proposal, history, and user correction controls.
 
-### Acceptance gate
+## Checkpoint 45: Agent-Native Writing Rules
 
-The Agent and Review Center must report equivalent results for shared checks on the same
-snapshot, and a finding set computed mid-edit must provably derive from one snapshot. Every
-finding must identify a current section/block or a manuscript-level target and navigate safely.
-Provider absence, unavailable knowledge index, or an unresolvable citation must be shown as an
-explicit skipped/unavailable state rather than a false pass.
+### Implementation checklist
 
-## Checkpoint 45: Writing Decisions And Terminology Rules
+- [x] Store strict `writingRulesV1` inside versioned Brief `extensible` state: 100 total, 50
+  active, and a fail-closed 32 KiB active context budget.
+- [x] Add typed add/update/activate/deactivate/remove operations and block generic
+  `submit_brief_change` from writing the reserved namespace.
+- [x] Add `submit_writing_rules_change` as an ordinary Brief-version-bound proposal with a
+  concise rules diff and no hidden extraction/model request.
+- [x] Inject every active rule in full as `TRUSTED_WRITING_RULES` below application policy;
+  inactive rules are excluded and conflicts fail closed.
+- [x] Add deterministic NFC-aware Latin whole-word and CJK exact-substring terminology checks.
+- [x] Add a passive Writing Rules Workbench with instruction-first add, collapsed advanced fields,
+  direct edit/toggle/remove, and versioned Brief updates.
 
-### User outcome
+## Checkpoint 33: Agent-Native Semantic Review And Repair
 
-The author can record durable manuscript-level choices such as preferred terminology, audience,
-voice, and prohibited forms, and use them consistently in review and Agent work.
+### Implementation checklist
 
-### Scope
+- [x] Add an application-owned `REVIEW_POLICY` to the ordinary Agent prompt; add no review
+  session/run type, provider/runtime, job, report table, nested model call, or conversation flow.
+- [x] Direct the Agent to read Writing Rules and active issues, call `check_draft`, inspect the
+  requested manuscript scope and evidence, distinguish observation/retrieval/inference, record
+  actionable issues, and summarize durable issue IDs by P0-P3.
+- [x] Define “check and fix” as record, prioritize, claim, inspect, propose, approve/continue, and
+  repeat through the existing Agent loop.
+- [x] Add optional `resolvesReviewIssues` provenance to existing proposal/effect tools and
+  validate current assignment plus optimistic issue version.
+- [x] Resolve linked issues only after authoritative applied/satisfied outcomes; surface version
+  races without rolling back manuscript edits; reopen unchanged resolver-owned issues on undo.
+- [x] Preserve truthful issue state for rejection, refresh, conflict, cancellation, provider
+  failure, and project switch.
 
-- Add bounded writing decisions with category, preferred form, discouraged alternatives,
-  rationale, and active/inactive status.
-- Surface decisions in Brief editing and the Review Center.
-- Include active decisions as trusted writing requirements in bounded Agent context.
-- Add deterministic exact-term checks to the Review Center core where possible; semantic
-  interpretation remains advisory and belongs to CP33.
-- Keep changes versioned and reviewable, with explicit conflict handling during Agent brief
-  proposals.
+### Acceptance evidence
 
-### Integration And Complexity Control
-
-Prefer a versioned extension of the existing manuscript brief over a new memory or rules
-subsystem. Only introduce a separate table if independent item identity, lifecycle, and query
-requirements cannot be satisfied within the bounded brief contract. Do not call this long-term
-memory: current project state is authoritative, user-editable, and scoped to one manuscript.
-
-This checkpoint is ordered after CP32 so its exact-term checks land in an existing Review Center
-core, and before CP33 so grounded semantic review can consume active decisions.
-
-### Acceptance gate
-
-Cover Unicode normalization, conflicting preferred forms, term boundaries, language-specific
-false positives, brief version conflicts, Agent snapshots, Review Center equivalence, export
-behavior, and project portability.
-
-## Checkpoint 33: Grounded Semantic Review And Repair
-
-### User outcome
-
-The author can ask for higher-level review — consistency, contradictions, repetition, audience
-fit, and objective coverage — and turn selected findings into normal revision-safe proposals.
-
-### Scope
-
-- Add application-owned review templates for terminology consistency, claim/evidence coverage,
-  cross-section contradictions, repetition, audience/tone fit, and section-objective coverage,
-  consuming active CP45 decisions as trusted requirements.
-- Run review as a normal Agent request using existing `read_outline`, `read_section`,
-  `search_manuscript`, `search_knowledge`, `read_citations`, and `check_draft` tools.
-- Require location-bound findings returned through a bounded typed review-result payload on Agent
-  events (Cross-Cutting Decisions, item 9). Distinguish observed text, retrieved evidence, and
-  model inference in the presentation.
-- Keep findings inside the normal conversation/event history. A selected repair starts or
-  continues a normal proposal-producing run.
-- Permit a review-only outcome with no proposal.
-
-### Integration And Complexity Control
-
-This checkpoint adds prompt/task-template behavior, one typed result payload, and Renderer
-presentation — not a semantic-rule database, review provider role, new model, or new Agent tool.
-The deterministic Review Center stays authoritative for mechanical checks. Semantic results are
-advisory and must never be merged into a deterministic pass/fail score.
-
-### Acceptance gate
-
-Review must remain bounded by the selected scope and model context; citations must pass the
-current provenance rules; findings without adequate evidence must say so; findings rendered in
-the UI must come from the typed payload; repairs must use existing typed submit tools and
-proposal review. Provider failure must leave the deterministic Review Center usable.
+Focused contract, deterministic-check, context, Agent-tool, Review Issue, mutation-reconciliation,
+IPC, migration, and Workbench tests are implemented. Final evidence passed `check:fast`;
+`check:electron` with 154 passing Electron-hosted test files, 829 passing tests, and three skipped
+opt-in files/tests; a production build; focused Agent-native and passive-Workbench scenarios;
+fresh full Real-Electron E2E with 30/30 scenarios; all 25 recovery fixtures from 23 sources; clean
+scoped Impeccable detection; and `git diff --check`.
 
 ## Checkpoint 34A: Writing-Task Identity And Plan Model
 
@@ -824,6 +814,17 @@ concurrent conversations, and is rejected.
 Task and step identities survive restart, archive/restore, and project close/reopen; plan
 versions are monotonic; every progress event carries an exact task/step correlation.
 
+### Acceptance evidence
+
+Accepted ADR 025 defines UUID task/step identity, the bounded plan state machine, monotonic
+optimistic versions, and one narrow project-local table. The implementation adds ordinary Agent
+task tools, exact proposal correlation, and a passive conversation projection without adding a
+scheduler, worker, subagent, or manuscript authority. Focused tests, `check:fast`, `check:electron`
+with 157 passing files and 835 passing tests, the production build, focused and full Real-Electron
+E2E with 31/31 scenarios, all 25 recovery fixtures, scoped Impeccable detection, and
+`git diff --check` passed. The task scenario proves identity across archive/restore, project close,
+and application restart.
+
 ## Checkpoint 34B: Writing-Task Progress, Reconciliation, And Recovery
 
 ### User outcome
@@ -851,6 +852,17 @@ plan edits are durable.
 Restart, archive/restore, stop, retry, request-changes continuation, provider failure, and
 project close must preserve a truthful plan. Reconciliation disagreement states are explicit and
 recoverable.
+
+### Acceptance evidence
+
+Migration 0031 adds exact nullable task/step snapshots to ordinary Agent runs. Main derives bounded
+per-step progress from correlated run status and authoritative proposal outcomes, including
+pending review, verified effects, stopped/failed work, report-only completion, and explicit
+disagreement. Idle user revisions reuse the optimistic CP34A service; Resume sends a Main-authored
+request to the same conversation and first calls `get_writing_task`. Focused reconciliation,
+migration, IPC, and session tests, `check:fast`, `check:electron` with 158 passing files and 839
+passing tests, the production build, focused and fresh full Real-Electron E2E with 31/31 scenarios,
+all 25 recovery fixtures, scoped Impeccable detection, and `git diff --check` passed.
 
 ## Checkpoint 35A: Read-Only Cross-Section Change-Set Review
 
@@ -880,7 +892,20 @@ Grouping must be exact under retries, plan revisions, and concurrent conversatio
 proposals surface their ADR 003 refresh state; a project switch or restart reproduces the same
 grouping.
 
+### Acceptance evidence
+
+The Renderer derives one bounded task change set from exact proposal task/step correlation,
+preserves every refresh-chain outcome, groups brief/outline/body/image authorities, shows persisted
+per-item exact diffs and stale refresh-required state, and navigates to the ordinary proposal
+surface. It adds no persistence, IPC, provider work, or mutation authority. Focused projection
+tests, `check:fast`, `check:electron` with 158 passing files and 840 passing tests, a production
+build, and the focused Real-Electron task scenario passed; the scenario covers Agent-created task
+and proposal, rejection, archive/restore, and app restart reconstruction.
+
 ## Checkpoint 35B: Change-Set Batch Decisions And Apply
+
+Decision record: accepted
+[`ADR 026`](../adrs/026-agent-change-set-batch-sequencing.md)
 
 ### User outcome
 
@@ -911,7 +936,22 @@ stale refresh, rejected repairs, image-generation failure, crash between applica
 repeated identical batch commands, and version-history unavailable/damaged states. No group
 action may bypass each proposal's current authorization and validation.
 
+### Acceptance evidence
+
+Accepted ADR 026 fixes deterministic Brief/Outline/body/image ordering, stop-on-adverse partial
+results, durable per-command idempotence, crash-window reconciliation, and ready-only optional
+history checkpoints. Main invokes the existing proposal approval/rejection services item by item;
+it records no duplicate proposal authority and performs no model work. Focused tests cover
+dependency ordering, conflicts, partial results, replay, the crash-after-effect window, approval
+audit repair, undo drift, migration, IPC authorization, and the Renderer batch surface. Final gates
+passed `check:fast`; `check:electron` with 160 files and 844 tests; the production build; 31/31
+fresh full Real-Electron scenarios including durable batch rejection through restart; all 25
+recovery fixtures from 23 sources; scoped Impeccable detection; and `git diff --check`.
+
 ## Checkpoint 43A: Figure Identity, Caption, And Alt Text
+
+Decision record: accepted
+[`ADR 027`](../adrs/027-figure-semantics-and-schema-v3.md)
 
 ### User outcome
 
@@ -941,7 +981,22 @@ blocker.
 Old revisions remain readable; migrated and new figures keep stable IDs across edits, undo, Agent
 proposals, export, and version-history restore; Review Center reports exact figure targets.
 
+### Acceptance evidence
+
+Accepted ADR 027 fixes stable application-owned figure IDs, explicit caption/alt metadata,
+derived-only numbering, a typed publication figure node, and additive deterministic review checks.
+Migration 0033 widens the revision constraint, preserves every historical revision body, appends a
+new normalized current revision using the next free history number, copies asset references, and
+passes foreign-key validation. Focused migration, history, export, review, schema, and Renderer
+tests passed. Final gates passed `check:electron` with 162 files and 848 tests; the production
+build; 31/31 fresh full Real-Electron scenarios including metadata edit, export, project reopen,
+and stable identity; all 25 recovery fixtures from 23 sources; scoped Impeccable detection; and
+`git diff --check`.
+
 ## Checkpoint 42: Manuscript Asset Workspace
+
+Decision record: accepted
+[`ADR 028`](../adrs/028-manuscript-asset-workspace-and-safe-deletion.md)
 
 ### User outcome
 
@@ -974,7 +1029,29 @@ Cover shared assets, historical-only references, pending image proposals, missin
 asset files, cleanup races, project switch, large libraries, and keyboard navigation. The
 workspace must never expose absolute paths or raw asset bytes outside existing capabilities.
 
+### Acceptance evidence
+
+Accepted ADR 028 keeps `manuscript_assets` as the only catalog, adds validated dimensions and a
+two-phase deletion state, and fixes current/history/proposal protection plus cursor pagination.
+Focused migration, asset-service, mutation, IPC, and Renderer coverage passed. Final gates passed
+`check:electron` with 163 files and 851 tests; the production build; focused and fresh full
+Real-Electron E2E with 31/31 scenarios including listing, protected usage, unprotected deletion,
+exact navigation, and reopen; all 25 recovery fixtures from 23 sources; scoped Impeccable
+detection; and `git diff --check`.
+
 ## Checkpoint 43B: Image Iteration And Candidate Lineage
+
+Status: Completed locally on 2026-08-13 under accepted ADR 029. The ordinary `generate_image`
+tool accepts an exact block-hash iteration target, Main reuses retained prompt/specification plus
+bounded current section context, and the existing image gateway publishes an immutable candidate.
+The generation request is then superseded by a normal section proposal: rejection keeps current,
+replacement updates only the asset URL, insert-another creates a new figure, and the Images
+workspace compares retained lineage with session-bound previews. Forward migration v35 records
+parent/candidate, generation proposal, section proposal, model request, Agent run, and tool call.
+Focused tests prove exact provenance, candidate deduplication compatibility, stale target safety,
+figure metadata preservation, undo, workspace lineage, and cleanup protection. `check:fast` and
+`check:electron` passed with 164 files / 853 tests, three skipped opt-in tests, and a production
+build; final Phase 11 verification owns the cumulative E2E, recovery, UI, diff, and package gates.
 
 ### User outcome
 
@@ -1040,6 +1117,14 @@ The same captured manuscript state must drive preview, preflight, reference numb
 inventory, and the eventual format converter. An export must not silently proceed past errors;
 any allowed loss must appear in a machine-readable and human-readable report.
 
+### Completion evidence (2026-08-13)
+
+Complete. One non-persisted typed assembly projects current revision identities, references,
+verified assets, figure metadata, reusable options, deterministic findings, and a source hash.
+The passive preflight dialog exposes exact issue navigation and readiness; converter entry is
+fail-closed. Focused tests, `check:fast`, and the shared CP38/39 `check:electron` gate passed 165
+files / 857 tests with three opt-in skips plus the production build.
+
 ## Checkpoint 39: DOCX Publication
 
 ### User outcome
@@ -1075,6 +1160,17 @@ Golden fixtures must cover Chinese/English text, Unicode filenames, nested headi
 figures, citations, links, math and its fallback, Mermaid fallback, large images, deterministic
 content-level output, and deterministic loss reporting. Byte-level reproducibility is required
 only after canonicalization.
+
+### Completion evidence (2026-08-13)
+
+Complete with `docx@9.7.1`, `jszip@3.10.1`, and `fast-xml-parser@5.10.1` exact runtime pins and
+`mammoth@1.12.1` as an exact dev pin. The isolated converter preserves headings, text styles,
+lists, tables, figures/captions/alt text, links, citations, References, TOC, bookmarks, page
+numbers, and CJK fonts. KaTeX MathML maps common fractions/scripts/radicals to OMML; unsupported
+math, Mermaid, and WebP produce explicit losses. OOXML relationship/drawing IDs, metadata dates,
+ZIP timestamps, entry order, and compression are canonicalized, with byte-identical repeated
+fixtures. Independent structural and semantic reopen tests, whole-export/IPC/menu integration,
+`check:fast`, and the shared 165-file / 857-test Electron plus production-build gate passed.
 
 ## Checkpoint 40: LaTeX Publication
 
@@ -1120,6 +1216,18 @@ unified-latex parser (independent-parse rule). A manual compile with an explicit
 test environment may be acceptance evidence, but the product must never invoke or require that
 compiler.
 
+### Completion evidence (2026-08-13)
+
+Complete under accepted ADR 030. One deterministic XeLaTeX/ctexart emitter covers CJK/Latin text,
+reserved characters, headings/labels, links, common formulas, lists, quotes, tables, figures,
+captions, numeric citations, References, and contained hashed assets. KaTeX validation plus a
+dangerous-command denylist prevents formula injection; context-specific escaping and listing
+terminator neutralization preserve the template boundary. Missing structured bibliography data,
+Mermaid source, unsupported math, and span/listing changes are explicit losses. Repeated whole
+exports are byte-identical, the full source reopens through exact-pinned unified-latex, and
+`check:electron` passed 166 files / 860 tests plus the production build. No local XeLaTeX is
+installed, so optional manual compilation is not claimed.
+
 ## Checkpoint 41A: PDF Publication
 
 ### User outcome
@@ -1151,6 +1259,18 @@ Verify page breaks, table of contents (entries, page numbers, bookmarks), header
 CJK/Latin text, links, selectable text, images, Mermaid, formulas, references, large manuscripts,
 cancellation, and packaged execution.
 
+### Completion evidence (2026-08-13)
+
+Complete under accepted ADR 031. Main renders the immutable CP38 assembly in one hidden,
+sandboxed BrowserWindow with an ephemeral asset-only protocol and a fixed print profile. A bounded
+two-pass, conditionally three-pass pipeline resolves TOC pages through `pdfjs-dist`; cancellation
+destroys the browser and cleans staging. The target-runtime spike independently proved selectable
+mixed CJK/Latin text, heading bookmarks, internal and external links, images, headers/footers, and
+page destinations. Focused and large-manuscript tests, `check:fast`, and `check:electron` passed
+with 167 files / 868 tests plus the production build. The required package gate passed 12 packaged
+smoke scenarios and 19/19 packaged E2E scenarios, verified sandbox-safe preload, schema-v3 reopen,
+ASAR and arm64 native inventory, and produced verified no-Team-ID App, DMG, and ZIP artifacts.
+
 ## Checkpoint 41B: Reusable Publication Presets
 
 ### User outcome
@@ -1174,6 +1294,17 @@ import/export of presets in the first version.
 
 Presets apply identically across DOCX, LaTeX, and PDF where meaningful; malformed or
 version-unknown preset data fails closed; preset CRUD is covered by app-database tests.
+
+### Completion evidence (2026-08-13)
+
+Complete. Forward app migration v7 seeds Academic A4, Report Letter, and Minimal A4 as immutable
+application presets. One bounded app-global repository supports at most 20 user presets, strict
+versioned options, unique case-insensitive names, one default, protected built-ins/defaults, and
+fail-closed malformed rows. The global shadcn Settings Command exposes the catalog and editing
+controls. Preflight and all three publication exports resolve the same default; focused tests prove
+the same preset produces one publication source hash across DOCX, LaTeX, and PDF. Repository,
+migration, IPC, export, fast, and Electron gates passed with 168 files / 871 tests plus the
+production build. No project table or manuscript revision changes when presets change.
 
 ## Checkpoint 36: Safe Manuscript Import Staging And Preview
 
@@ -1226,6 +1357,16 @@ crash cleanup, no-op plans, imported IDs, and project switch. Previewed content 
 content must come from the same hashed staged source and mapping plan. The Markdown adapter must
 pass parity fixtures against the legacy path before it is retired.
 
+Complete. ADR 032 fixes the 30-minute session capability and staging lifetime, restart/switch
+cleanup, contained resource root, atomic manuscript/repairable materialization outcome, and
+Main-owned IDs. Exact-pinned unified/remark libraries map the captured SHA-256 source into bounded
+BlockNote plans; local images are captured, validated, registered, and deduplicated without
+exposing paths. The Renderer importer and legacy IPC were removed after semantic parity fixtures.
+Focused coverage exercises cancellation/no-op, invalid UTF-8, byte/depth limits, Unicode names,
+links, traversal, duplicate assets, stale revisions, partial asset publication, crash cleanup,
+atomic IDs, and session revocation. `check:fast`, `check:electron` (170 files / 878 tests plus
+build), and all 32 silent Electron E2E scenarios passed.
+
 ## Checkpoint 37A: LaTeX Import Core (Single File)
 
 ### User outcome
@@ -1269,7 +1410,22 @@ macros, unknown packages, malformed syntax, oversized inputs, parser timeout beh
 deterministic repeated imports. Applying an import must create ordinary `import` revisions and
 remain fully editable after reopen, export, Agent review, and version-history restore.
 
+Complete under accepted ADR 033. Exact-pinned unified-latex and `printRaw` run only in a
+disposable one-request utility process with a Main-owned five-second timeout, cancellation, and
+bounded application projection. One staged UTF-8 `.tex` source maps metadata, normalized outline
+hierarchy, prose, emphasis, lists, quotes, verbatim, and display math. Inline math, footnotes,
+unresolved citations, comments, malformed syntax, custom macros, and unknown constructs remain
+visible and inert with exact findings; no compiler, macro expansion, include resolver, package
+hook, model, or network path exists. Applying the reviewed plan creates ordinary hierarchical
+`import` revisions and survives reopen. Verification passed 26 focused tests, `check:fast`, 172
+Electron-hosted files / 884 tests, the production build, all 33 silent Real-Electron scenarios,
+and all 25 recovery fixtures.
+
 ## Checkpoint 37B: LaTeX Import Full Profile
+
+Decision record: accepted [`ADR 034`](../adrs/034-contained-latex-project-import.md)
+
+Planning status: implementation locally complete
 
 ### User outcome
 
@@ -1305,7 +1461,15 @@ data, unresolved citations, tables, figures, multilingual bibliographies, hostil
 (including bombs), and deterministic repeated imports. Imported assets must satisfy the normal
 asset validation and proposal rules.
 
+Local evidence: focused hostile archive, parser, staging, mapping, and asset tests; `check:fast`;
+172 passing Electron-hosted files / 888 tests; production build; 34/34 silent Real-Electron
+scenarios; all 25 recovery fixtures; clean scoped Impeccable and diff checks; and a passing macOS
+arm64 package gate with all 12 packaged smoke scenarios, 22/22 packaged E2E scenarios, and
+structurally verified App, DMG, and ZIP artifacts.
+
 ## Checkpoint 44: Annotations And Actionable TODOs
+
+Planning status: implementation locally complete
 
 ### User outcome
 
@@ -1339,7 +1503,13 @@ Cover revision changes that preserve block IDs, block replacement/deletion, sect
 restore (including version-history rollback), import, export exclusion, Agent opt-in, large
 annotation counts, and stale project sessions.
 
+Local evidence: accepted ADR 035; forward-only project migration v36; focused migration, service,
+history, export, IPC, Agent-context, and Renderer tests; a passing production build and full
+Electron-hosted gate; and a passing focused Real-Electron annotation/TODO scenario.
+
 ## Checkpoint 46: Clone / Save As
+
+Planning status: implementation locally complete
 
 ### User outcome
 
@@ -1373,7 +1543,13 @@ Cover open projects with WAL data, Unicode and long paths, symlinks/junctions, c
 `ENOSPC`, identity rewrite failure, version history absent in the clone, credential absence, and
 opening source and clone sequentially without shared authority.
 
+Local evidence: accepted ADR 036; 53 focused clone, project-manager, IPC, and recovery tests;
+verified online backup of open WAL state; exact identity-column enumeration; source/clone
+sequential-open coverage; and a passing focused Real-Electron independent-clone scenario.
+
 ## Checkpoint 47A: Built-In Project Templates
+
+Planning status: implementation locally complete
 
 ### User outcome
 
@@ -1400,7 +1576,13 @@ Cover template schema evolution, unknown fields, malformed or tampered built-in 
 content, and deterministic new-project identity. A built-in template must never carry manuscript
 bodies, knowledge files, citations, credentials, project IDs, or private paths.
 
+Local evidence: accepted ADR 037; strict versioned shared contracts; two reviewed built-ins;
+focused schema, integrity, application, identity, and CJK coverage; and a passing focused
+Real-Electron built-in-template scenario.
+
 ## Checkpoint 47B: User-Defined Project Templates
+
+Planning status: implementation locally complete
 
 ### User outcome
 
@@ -1431,6 +1613,10 @@ Cover duplicate names, missing optional presets, source-project deletion, malfor
 user-template files, and deterministic new-project identity. A template must never carry project
 content not shown in its inclusion preview.
 
+Local evidence: accepted ADR 037; forward-only application migration v8; bounded canonical files
+with SHA-256 verification; complete inclusion/exclusion preview; 61 focused template/clone tests;
+and a passing focused Real-Electron extraction, source-deletion, and reuse scenario.
+
 ## Cross-Checkpoint Verification Strategy
 
 Each checkpoint receives the smallest applicable gate plus focused tests for its authority:
@@ -1454,6 +1640,13 @@ Each checkpoint receives the smallest applicable gate plus focused tests for its
 Every implemented checkpoint must emit structured lifecycle logs at material boundaries, log the
 original top-level `err` before sanitization, and avoid logging manuscript content, annotations,
 prompts, generated image bytes, credentials, or private paths.
+
+Final Phase 11 evidence: `check:fast`, the complete Electron-hosted gate and production build, all
+25 recovery fixtures from 23 sources, clean scoped Impeccable and diff checks, and 38/38 fresh
+Real-Electron scenarios passed without failures, skips, or flaky scenarios. The no-identity macOS
+arm64 package gate verified Electron 43.1.0 / ABI 148, arm64 `better-sqlite3` and `sqlite-vec`, the
+ASAR/resource inventory, all 12 packaged smoke scenarios, and 26/26 packaged E2E scenarios against
+the unpacked App. The gate generated and structurally verified the 0.2026.8.16 App, DMG, and ZIP.
 
 ## Explicitly Deferred Beyond This Roadmap
 

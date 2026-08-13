@@ -7,10 +7,13 @@ import {
   deleteSectionInputSchema,
   MANUSCRIPT_BRIEF_SCHEMA_VERSION,
   MAX_MANUSCRIPT_OUTLINE_DEPTH,
+  MAX_MANUSCRIPT_SECTIONS,
+  SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_COUNT_ALGORITHM_VERSION,
   ManuscriptDomainError,
   moveSectionInputSchema,
   type AppendSectionRevisionInput,
+  type BlockNoteDocument,
   type CreateSectionInput,
   type DeleteSectionInput,
   type ManuscriptAssembly,
@@ -25,7 +28,8 @@ import {
   type UpdateSectionInput,
   updateManuscriptBriefInputSchema,
   updateSectionInputSchema,
-  blockNoteDocumentSchema
+  blockNoteDocumentSchema,
+  normalizeFigureMetadata
 } from '../../shared/contracts/manuscript'
 import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
 import {
@@ -72,6 +76,17 @@ export interface ReplacementBatchSection {
 export interface ReplacementBatchResult {
   revisions: SectionRevision[]
   transactionDurationMs: number
+}
+
+export interface ImportSectionsAtomicInput {
+  baseBriefVersion: number
+  baseOutlineVersion: number
+  sections: Array<{ title: string; outlineLevel: number; document: BlockNoteDocument }>
+}
+
+export interface ImportSectionsAtomicResult {
+  sections: Section[]
+  revisions: SectionRevision[]
 }
 
 export class ManuscriptService {
@@ -179,8 +194,8 @@ export class ManuscriptService {
 
   createSection(input: CreateSectionInput): Section {
     const parsed = createSectionInputSchema.parse(input)
-    const prepared = prepareSectionContent([])
     const sectionId = this.#createId()
+    const prepared = prepareSectionContent([], sectionId)
     const revisionId = this.#createId()
     const now = this.#now().toISOString()
     const startedAt = Date.now()
@@ -275,6 +290,128 @@ export class ManuscriptService {
       return sectionFromRow(row)
     } catch (err) {
       this.#logFailure('manuscript.section.create_failed', err, startedAt, { sectionId })
+      throw err
+    }
+  }
+
+  importSectionsAtomic(input: ImportSectionsAtomicInput): ImportSectionsAtomicResult {
+    const startedAt = Date.now()
+    if (input.sections.length === 0 || input.sections.length > MAX_MANUSCRIPT_SECTIONS) {
+      throw new TypeError('Import must contain between 1 and the maximum manuscript sections')
+    }
+    const drafts = input.sections.map((section) => ({
+      title: section.title.trim(),
+      outlineLevel: section.outlineLevel,
+      document: blockNoteDocumentSchema.parse(section.document),
+      sectionId: this.#createId(),
+      revisionId: this.#createId()
+    }))
+    if (drafts.some((section) => section.title.length === 0 || section.title.length > 500)) {
+      throw new TypeError('Imported section title is invalid')
+    }
+    const now = this.#now().toISOString()
+    try {
+      const rows = this.#database.immediate((database) => {
+        const manuscript = this.#primary(database)
+        assertOutlineVersion(manuscript, input.baseOutlineVersion)
+        const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
+        if (brief === undefined || brief.version !== input.baseBriefVersion) {
+          throw new ManuscriptDomainError(
+            'brief_version_conflict',
+            'The manuscript brief has changed'
+          )
+        }
+        const existing = this.#repository.sections(manuscript.manuscript_id, database)
+        if (existing.length + drafts.length > MAX_MANUSCRIPT_SECTIONS) {
+          throw new TypeError('Import would exceed the manuscript section limit')
+        }
+        const parentAtLevel = new Map<number, string>()
+        const nextPosition = new Map<string, number>()
+        nextPosition.set('root', siblingRows(existing, null).length)
+        const created: Array<{ section: SectionTable; revision: SectionRevisionTable }> = []
+        for (const draft of drafts) {
+          const parentSectionId =
+            draft.outlineLevel === 1 ? null : parentAtLevel.get(draft.outlineLevel - 1)
+          if (draft.outlineLevel > 1 && parentSectionId === undefined) {
+            throw new ManuscriptDomainError(
+              'section_parent_invalid',
+              'Imported outline level has no preceding parent'
+            )
+          }
+          if (draft.outlineLevel > MAX_MANUSCRIPT_OUTLINE_DEPTH) {
+            throw new ManuscriptDomainError(
+              'outline_depth_exceeded',
+              `Outline depth cannot exceed ${MAX_MANUSCRIPT_OUTLINE_DEPTH}`
+            )
+          }
+          const parentKey = parentSectionId ?? 'root'
+          const position =
+            nextPosition.get(parentKey) ?? siblingRows(existing, parentSectionId ?? null).length
+          nextPosition.set(parentKey, position + 1)
+          const prepared = prepareSectionContent(draft.document, draft.sectionId)
+          database
+            .prepare(
+              `INSERT INTO sections (
+                section_id, manuscript_id, parent_section_id, position, level, title, objective,
+                status, current_revision_id, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'drafting', ?, ?, ?)`
+            )
+            .run(
+              draft.sectionId,
+              manuscript.manuscript_id,
+              parentSectionId ?? null,
+              position,
+              draft.outlineLevel,
+              draft.title,
+              draft.revisionId,
+              now,
+              now
+            )
+          insertRevision(database, {
+            revisionId: draft.revisionId,
+            sectionId: draft.sectionId,
+            revisionNumber: 1,
+            source: 'import',
+            sourceClass: 'import',
+            prepared,
+            priorRevisionId: null,
+            agentRunId: null,
+            agentToolCallId: null,
+            agentProposalId: null,
+            createdAt: now
+          })
+          recordRevisionAssetReferences(database, draft.revisionId, prepared.content, now)
+          created.push({
+            section: this.#repository.section(draft.sectionId, database) as SectionTable,
+            revision: this.#repository.revision(draft.revisionId, database) as SectionRevisionTable
+          })
+          parentAtLevel.set(draft.outlineLevel, draft.sectionId)
+          for (const level of [...parentAtLevel.keys()]) {
+            if (level > draft.outlineLevel) parentAtLevel.delete(level)
+          }
+        }
+        incrementOutline(database, manuscript.manuscript_id, now)
+        return created
+      })
+      const result = {
+        sections: rows.map((row) => sectionFromRow(row.section)),
+        revisions: rows.map((row) => revisionFromRow(row.revision))
+      }
+      this.#log.info(
+        {
+          event: 'manuscript.sections.imported',
+          projectId: this.#projectId,
+          sectionCount: result.sections.length,
+          sectionIds: result.sections.map((section) => section.sectionId),
+          durationMs: Date.now() - startedAt
+        },
+        'Imported manuscript sections committed atomically'
+      )
+      return result
+    } catch (err) {
+      this.#logFailure('manuscript.sections.import_failed', err, startedAt, {
+        sectionCount: input.sections.length
+      })
       throw err
     }
   }
@@ -517,7 +654,7 @@ export class ManuscriptService {
         parsed.agentToolCallId !== null ||
         parsed.agentProposalId !== null
       if (hasAnyLineage) throw new TypeError('Editor revisions cannot include agent lineage')
-      const prepared = prepareSectionContent(parsed.content)
+      const prepared = prepareSectionContent(parsed.content, parsed.sectionId)
       const row = this.#database.immediate((database) => {
         const manuscript = this.#primary(database)
         const section = this.#repository.section(parsed.sectionId, database)
@@ -551,7 +688,7 @@ export class ManuscriptService {
           agentProposalId: parsed.agentProposalId,
           createdAt: now
         })
-        recordRevisionAssetReferences(database, revisionId, parsed.content, now)
+        recordRevisionAssetReferences(database, revisionId, prepared.content, now)
         const updated = database
           .prepare(
             `UPDATE sections SET current_revision_id = ?, updated_at = ?
@@ -629,7 +766,7 @@ export class ManuscriptService {
           planned.operations,
           input.replacement
         )
-        const prepared = prepareSectionContent(document)
+        const prepared = prepareSectionContent(document, section.section_id)
         if (prepared.contentHash === current.content_hash) {
           throw new ManuscriptDomainError(
             'section_revision_conflict',
@@ -650,7 +787,7 @@ export class ManuscriptService {
           agentProposalId: null,
           createdAt: now
         })
-        recordRevisionAssetReferences(database, revisionId, document, now)
+        recordRevisionAssetReferences(database, revisionId, prepared.content, now)
         const updated = database
           .prepare(
             `UPDATE sections SET current_revision_id = ?, updated_at = ?
@@ -719,7 +856,7 @@ export class ManuscriptService {
         )
       }
       const document = blockNoteDocumentSchema.parse(JSON.parse(parent.content_json))
-      const prepared = prepareSectionContent(document)
+      const prepared = prepareSectionContent(document, section.section_id)
       const revisionId = this.#createId()
       const now = this.#now().toISOString()
       insertRevision(database, {
@@ -735,7 +872,7 @@ export class ManuscriptService {
         agentProposalId: null,
         createdAt: now
       })
-      recordRevisionAssetReferences(database, revisionId, document, now)
+      recordRevisionAssetReferences(database, revisionId, prepared.content, now)
       const updated = database
         .prepare(
           `UPDATE sections SET current_revision_id = ?, updated_at = ?
@@ -893,13 +1030,17 @@ function sectionFromRow(row: SectionTable): Section {
 }
 
 function revisionFromRow(row: SectionRevisionTable): SectionRevision {
+  const content = normalizeFigureMetadata(
+    blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
+    row.section_id
+  )
   return {
     sectionRevisionId: row.section_revision_id,
     sectionId: row.section_id,
     revisionNumber: row.revision_number,
     source: row.source,
     sourceClass: row.source_class,
-    content: blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
+    content,
     contentSchemaVersion: contentSchemaVersionFromRow(row),
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,
@@ -933,8 +1074,12 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
   }
 }
 
-function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 {
-  if (row.content_schema_version !== 1 && row.content_schema_version !== 2) {
+function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 {
+  if (
+    row.content_schema_version !== 1 &&
+    row.content_schema_version !== 2 &&
+    row.content_schema_version !== 3
+  ) {
     throw new Error('Section revision content schema version is unsupported')
   }
   return row.content_schema_version
@@ -948,8 +1093,11 @@ function countAlgorithmVersionFromRow(row: SectionRevisionTable): 1 | 2 {
 }
 
 function assertCurrentCountAlgorithm(row: SectionRevisionTable): void {
-  if (row.count_algorithm_version !== SECTION_COUNT_ALGORITHM_VERSION) {
-    throw new Error('Current section revision count algorithm version is stale')
+  if (
+    row.count_algorithm_version !== SECTION_COUNT_ALGORITHM_VERSION ||
+    row.content_schema_version !== SECTION_CONTENT_SCHEMA_VERSION
+  ) {
+    throw new Error('Current section revision schema version is stale')
   }
 }
 

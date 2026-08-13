@@ -23,6 +23,8 @@ import { registerAgentIpc } from './ipc/agent-ipc'
 import { registerKnowledgeIpc } from './ipc/knowledge-ipc'
 import { registerProviderIpc } from './ipc/provider-ipc'
 import { registerSearchIpc } from './ipc/search-ipc'
+import { registerReviewIpc } from './ipc/review-ipc'
+import { registerAnnotationIpc } from './ipc/annotation-ipc'
 import { registerSkillIpc } from './ipc/skill-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
@@ -35,8 +37,12 @@ import { attachUtilityLogPort, captureUtilityStderr } from './observability/util
 import { openAppDatabase } from './app-db/connection'
 import { quarantineLegacyCoreDatabase } from './app-db/legacy-core'
 import { AppSettingsRepository } from './app-db/repositories/app-settings'
+import { PublicationPresetRepository } from './app-db/repositories/publication-presets'
+import { ProjectTemplateRepository } from './app-db/repositories/project-templates'
 import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
 import { ProjectManager } from './project/project-manager'
+import { createPdfPublicationRenderer } from './manuscript/pdf-publication'
+import { LatexImportClient } from './manuscript/latex-import-client'
 import { CredentialService } from './providers/credential-service'
 import { ProviderService } from './providers/provider-service'
 import { AgentProviderCatalogService } from './providers/agent-provider-catalog'
@@ -55,6 +61,9 @@ import { installSkillE2eFixture } from './skills/skill-test-seam'
 import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
 import { MainAgentTools } from './agent/tools'
+import { ReviewIssueService } from './agent/review-issue-service'
+import { WritingTaskService } from './agent/writing-task-service'
+import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
 import { MutationEventBroker } from './agent/mutation-event-broker'
 import { ModelMetadataClient } from './providers/model-metadata-client'
@@ -172,6 +181,15 @@ if (!hasSingleInstanceLock) {
         appDatabase,
         loggerSystem.createModuleLogger('app', 'settings')
       )
+      const publicationPresets = new PublicationPresetRepository(
+        appDatabase,
+        loggerSystem.createModuleLogger('app', 'publication-presets')
+      )
+      const projectTemplates = new ProjectTemplateRepository(
+        appDatabase,
+        join(app.getPath('userData'), 'project-templates'),
+        loggerSystem.createModuleLogger('app', 'project-templates')
+      )
       await appSettings.getDefaultAgentApprovalMode()
       const recentProjects = new RecentProjectsRepository(appDatabase)
       const skills = new SkillService(
@@ -198,6 +216,11 @@ if (!hasSingleInstanceLock) {
         processRole: 'background-worker',
         subsystem: 'worker',
         component: 'background'
+      })
+      const latexImport = new LatexImportClient({
+        modulePath: join(__dirname, 'background-worker.js'),
+        log: loggerSystem.createModuleLogger('worker', 'latex-import'),
+        factory: utilityProcess
       })
       const providerProbe = new ProviderProbeClient(
         join(__dirname, 'background-worker.js'),
@@ -274,6 +297,9 @@ if (!hasSingleInstanceLock) {
         applicationVersion: app.getVersion(),
         logger: loggerSystem.createModuleLogger('project', 'manager'),
         recentProjects,
+        renderPdfPublication: createPdfPublicationRenderer({
+          createWindow: (options) => new BrowserWindow(options)
+        }),
         exportDiagnostics: () =>
           exportDiagnosticsBundle(
             loggerSystem,
@@ -385,9 +411,18 @@ if (!hasSingleInstanceLock) {
           const agentReadTools = new MainAgentReadTools({
             projectSessionId,
             manuscript,
+            database,
             retrieval,
             isRetrievalAvailable: () => projectIndex.isRetrievalAvailable(),
             log: loggerSystem.createModuleLogger('agent', 'read-tools')
+          })
+          const reviewIssues = new ReviewIssueService({
+            database,
+            log: loggerSystem.createModuleLogger('agent', 'review-issues')
+          })
+          const writingTasks = new WritingTaskService({
+            database,
+            log: loggerSystem.createModuleLogger('agent', 'writing-tasks')
           })
           const agentMutations = new MutationProposalService({
             projectId,
@@ -397,12 +432,19 @@ if (!hasSingleInstanceLock) {
             editorPersistence,
             manuscriptAssets,
             modelExecution,
+            reviewIssues,
+            writingTasks,
             log: loggerSystem.createModuleLogger('agent', 'mutations'),
             publishChanged: (event) => mutationEvents.publish(event),
             flushForMutation: (affectedSectionIds) =>
               flushForAgentMutation(projectSessionId, affectedSectionIds)
           })
-          const agentTools = new MainAgentTools(agentReadTools, agentMutations)
+          const agentTools = new MainAgentTools(
+            agentReadTools,
+            agentMutations,
+            reviewIssues,
+            writingTasks
+          )
           const agentSessions = new AgentSessionService({
             projectId,
             projectSessionId,
@@ -413,6 +455,7 @@ if (!hasSingleInstanceLock) {
             contextBuilder: agentTools.contextBuilder(),
             skillRouter: writingSkillRuntime,
             tools: agentTools,
+            writingTasks,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
@@ -462,6 +505,14 @@ if (!hasSingleInstanceLock) {
             log: loggerSystem.createModuleLogger('agent', 'session')
           })
           agentSessions.recoverInterruptedRuns()
+          const agentChangeSets = new ChangeSetBatchService({
+            projectSessionId,
+            database,
+            mutations: agentMutations,
+            recordDecision: (input) =>
+              agentSessions.recordApprovalDecision({ ...input, continueRequested: false }),
+            log: loggerSystem.createModuleLogger('agent', 'change-set')
+          })
           const knowledgeNormalization = new KnowledgeNormalizationService({
             projectRoot,
             filesystem,
@@ -489,6 +540,9 @@ if (!hasSingleInstanceLock) {
             retrieval,
             agentSessions,
             agentMutations,
+            agentChangeSets,
+            reviewIssues,
+            writingTasks,
             registry,
             terminateWorkers: async () => {
               await agentMutations.cancelAllImageGenerations()
@@ -529,6 +583,7 @@ if (!hasSingleInstanceLock) {
       const ipc = withIpcLogging(ipcMain)
       const unregisterAppIpc = registerIpcHandlers({
         appSettings,
+        publicationPresets,
         logger: loggerSystem.createModuleLogger('ipc', 'app'),
         developmentUrl,
         ipc
@@ -546,6 +601,8 @@ if (!hasSingleInstanceLock) {
         manager: projectManager,
         recentProjects,
         appSettings,
+        publicationPresets,
+        projectTemplates,
         getWindow: () => mainWindow,
         logger: projectIpcLog,
         developmentUrl,
@@ -554,7 +611,8 @@ if (!hasSingleInstanceLock) {
         selectSnapshotDestinationForTest: projectDialogSelection,
         selectManuscriptExportDestinationForTest: projectDialogSelection,
         selectRestoreSourceForTest: projectDialogSelection,
-        selectRestoreDestinationParentForTest: projectDialogSelection
+        selectRestoreDestinationParentForTest: projectDialogSelection,
+        selectCloneDestinationForTest: projectDialogSelection
       })
       const jobIpc = registerJobIpc({
         manager: projectManager,
@@ -567,11 +625,15 @@ if (!hasSingleInstanceLock) {
         logger: loggerSystem.createModuleLogger('ipc', 'editor'),
         developmentUrl,
         ipc,
-        assetCapabilities: assetPreview
+        assetCapabilities: assetPreview,
+        getWindow: () => mainWindow,
+        selectImportSourceForTest: projectDialogSelection,
+        parseLatex: (input) => latexImport.parse(input)
       })
       flushForAgentMutation = editorIpc.flushForMutation
       const unregisterManuscriptIpc = registerManuscriptIpc({
         manager: projectManager,
+        publicationPresets,
         logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
         developmentUrl,
         ipc,
@@ -589,6 +651,18 @@ if (!hasSingleInstanceLock) {
         broker: agentEvents,
         logger: loggerSystem.createModuleLogger('ipc', 'agent'),
         catalog: agentProviderCatalog,
+        developmentUrl,
+        ipc
+      })
+      const reviewIpc = registerReviewIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'review'),
+        developmentUrl,
+        ipc
+      })
+      const annotationIpc = registerAnnotationIpc({
+        manager: projectManager,
+        logger: loggerSystem.createModuleLogger('ipc', 'annotations'),
         developmentUrl,
         ipc
       })
@@ -679,6 +753,8 @@ if (!hasSingleInstanceLock) {
           unregisterManuscriptIpc.unregister()
           agentMutationIpc.unregister()
           agentIpc.unregister()
+          reviewIpc.unregister()
+          annotationIpc.unregister()
           editorIpc.unregister()
           jobIpc.unregister()
           unregisterProjectIpc()
@@ -689,6 +765,7 @@ if (!hasSingleInstanceLock) {
         terminateUtilityWorkers: () => {
           agentModel.terminate()
           backgroundWorker.terminate()
+          latexImport.terminateAll()
         },
         flushLogs: () => loggerSystem.flush(),
         quit: () => app.quit(),

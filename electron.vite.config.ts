@@ -5,9 +5,20 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        'node-fetch': resolve('src/workers/network-denied.ts'),
+        'sync-fetch': resolve('src/workers/network-denied.ts')
+      }
+    },
     build: {
       externalizeDeps: {
-        exclude: ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai']
+        exclude: [
+          '@citation-js/core',
+          '@citation-js/plugin-bibtex',
+          '@earendil-works/pi-agent-core',
+          '@earendil-works/pi-ai'
+        ]
       },
       rollupOptions: {
         input: {

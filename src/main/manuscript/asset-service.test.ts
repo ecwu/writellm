@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
 import { initializeProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
+import { ManuscriptService } from './manuscript-service'
 import {
   ManuscriptAssetService,
   recordRevisionAssetReferences,
@@ -183,6 +184,123 @@ describe('ManuscriptAssetService', () => {
     await expect(readFile(destination)).resolves.toEqual(Buffer.alloc(bytes.byteLength, 1))
     database.close()
   })
+
+  it('projects current and historical usage, verifies metadata, paginates, and deletes only unprotected assets', async () => {
+    const { database, projectRoot, service, manuscript } = await fixture()
+    const current = manuscript.assemble().sections[0]
+    if (current === undefined) throw new Error('Initial section missing')
+    const used = await service.store({
+      bytes: png(64, 48),
+      mimeType: 'image/png',
+      sourceType: 'upload',
+      originalName: 'shared.png'
+    })
+    const unused = await service.store({
+      bytes: png(32, 32),
+      mimeType: 'image/png',
+      sourceType: 'upload',
+      originalName: 'unused.png'
+    })
+    const missing = await service.store({
+      bytes: png(16, 12),
+      mimeType: 'image/png',
+      sourceType: 'generated',
+      generationRequest: {
+        prompt: 'fixture',
+        aspectRatio: '16:9',
+        requestedImageSize: '2K',
+        effectiveImageSize: '1K'
+      }
+    })
+    const image = (id: string): BlockNoteDocument[number] => ({
+      id,
+      type: 'image',
+      props: {
+        backgroundColor: 'default',
+        url: used.logicalUrl,
+        name: 'Shared figure',
+        caption: 'Shared caption',
+        altText: 'Shared figure',
+        textAlignment: 'center',
+        showPreview: true,
+        previewWidth: 720
+      },
+      children: []
+    })
+    const saved = manuscript.appendRevision({
+      sectionId: current.section.sectionId,
+      baseRevisionId: current.revision.sectionRevisionId,
+      baseContentHash: current.revision.contentHash,
+      content: [image('figure-a'), image('figure-b')],
+      source: 'manual',
+      sourceClass: 'manual_checkpoint'
+    })
+
+    const first = await service.listWorkspace({
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      usage: 'all',
+      source: 'all',
+      limit: 2
+    })
+    expect(first.items).toHaveLength(2)
+    expect(first.nextCursor).not.toBeNull()
+    expect(first.summary).toEqual({ total: 3, used: 1, unused: 2, generated: 1, uploaded: 2 })
+    const usedPage = await service.listWorkspace({
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      usage: 'used',
+      source: 'all',
+      sectionId: current.section.sectionId,
+      limit: 40
+    })
+    expect(usedPage.items).toEqual([
+      expect.objectContaining({
+        assetId: used.assetId,
+        width: 64,
+        height: 48,
+        currentReferenceCount: 2,
+        protectionReasons: expect.arrayContaining(['current_revision']),
+        canDelete: false
+      })
+    ])
+    await rm(service.absolutePath(service.get(missing.assetId)))
+    const generatedPage = await service.listWorkspace({
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      usage: 'all',
+      source: 'generated',
+      limit: 40
+    })
+    expect(generatedPage.items[0]).toMatchObject({
+      assetId: missing.assetId,
+      availability: 'missing',
+      generation: { aspectRatio: '16:9', requestedImageSize: '2K', effectiveImageSize: '1K' }
+    })
+
+    const latest = manuscript.appendRevision({
+      sectionId: current.section.sectionId,
+      baseRevisionId: saved.sectionRevisionId,
+      baseContentHash: saved.contentHash,
+      content: [],
+      source: 'manual',
+      sourceClass: 'manual_checkpoint'
+    })
+    expect(latest.revisionNumber).toBe(saved.revisionNumber + 1)
+    await expect(service.deleteUnprotected(used.assetId)).resolves.toEqual({
+      outcome: 'protected',
+      assetId: used.assetId,
+      reasons: ['retained_history']
+    })
+    await expect(service.deleteUnprotected(unused.assetId)).resolves.toEqual({
+      outcome: 'deleted',
+      assetId: unused.assetId
+    })
+    await expect(service.deleteUnprotected(missing.assetId)).resolves.toEqual({
+      outcome: 'deleted',
+      assetId: missing.assetId
+    })
+    expect(() => service.get(unused.assetId)).toThrow('Manuscript asset does not exist')
+    await expect(access(projectRoot)).resolves.toBeUndefined()
+    database.close()
+  })
 })
 
 async function fixture() {
@@ -205,6 +323,7 @@ async function fixture() {
   return {
     database,
     projectRoot,
+    manuscript: new ManuscriptService({ database, projectId: manifest.projectId, log }),
     service: new ManuscriptAssetService({
       projectRoot,
       projectId: manifest.projectId,

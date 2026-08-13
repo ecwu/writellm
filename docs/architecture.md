@@ -19,8 +19,8 @@ The following rules are now the current target. Any older section in this docume
 - Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
 - Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- Agent Harness Protocol v4 uses nine bounded read/inspection tools (`get_writing_context`, `read_outline`, `read_section`, `search_manuscript`, `search_knowledge`, `read_citations`, `inspect_change`, `check_draft`, `read_writing_skill`), three typed manuscript submit tools (`submit_brief_change`, `submit_outline_change`, `submit_section_change`), and one bounded `generate_image` effect/proposal tool. `read_writing_skill` accepts only run-authorized virtual Skill URIs; it adds no generic network, file, or direct-write authority.
-- The initial Agent persistence surface is `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`.
+- Agent Harness Protocol v6 uses bounded snapshot read/inspection tools, Review Issue and Writing Task fixture tools, typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one bounded `generate_image` effect/proposal tool. ADRs 024 and 025 add no special Agent session/run, hidden model request, generic network/file/SQL authority, scheduler, or direct manuscript write.
+- Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
@@ -73,7 +73,7 @@ The initial product has these fixed invariants:
 - A project must not be writable from two WriteLLM instances at the same time.
 - The renderer never receives raw database, filesystem, credential, or generic IPC access.
 - Markdown is an interchange and export format, not the lossless manuscript source of truth.
-- Agent writes are typed, revision-checked mutation proposals. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools. Accepted ADR 013 adds application-global, Main-installed, read-only writing guidance beneath the global policy without adding an Agent tool or exposing installed files to the model.
+- Manuscript, outline, Brief, and trusted Writing Rule writes remain typed, revision-checked mutation proposals. Bounded Review Issue status updates are collaboration metadata and cannot mutate manuscript authority. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools. Accepted ADR 013 adds application-global, Main-installed, read-only writing guidance beneath the global policy without exposing installed files to the model.
 
 The architecture continues to favor embedded components and explicit boundaries over local services:
 
@@ -157,7 +157,10 @@ The exact names may be adjusted before implementation, but the ownership rules a
   repository.
 - BlockNote JSON files under `manuscript/sections/` are deterministic materializations of the current manuscript revisions.
 - Content-addressed PNG/JPEG/WebP manuscript assets live under `manuscript/assets/`; SQLite owns
-  their IDs, hashes, metadata, revision references, and generation lineage.
+  their IDs, hashes, validated dimensions, deletion state, revision references, and generation
+  lineage. The bounded asset workspace projects this authority with session-bound previews; it
+  never scans the directory from Renderer or exposes project paths/raw bytes. Current revisions,
+  retained historical revisions, and retained proposals protect deletion. See ADR 028.
 - Original knowledge files and parsed MinerU artifacts remain in the project folder.
 - Embeddings live in the project-local `index.sqlite`.
 - Temporary files never become visible as complete artifacts before atomic publication.
@@ -522,6 +525,9 @@ app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
                              agent_runs
                              agent_events
                              mutation_proposals
+                             review_issues
+                             review_issue_events
+                             agent_writing_tasks
                              schema_manifest
 
 <ProjectRoot>/.writellm/index.sqlite
@@ -625,11 +631,14 @@ The section title and status live outside BlockNote content. A section's BlockNo
 
 BlockNote's native block JSON is the lossless manuscript representation. Each block retains its stable BlockNote block ID.
 
-Section content schema v2 admits native `image` blocks only with
-`writellm-asset:<assetId>` references, plus source-backed `mermaid` and display-only `math`
-blocks. The reader remains compatible with schema v1 revisions. Mermaid renders lazily with strict
-security and sanitized SVG-as-image output; KaTeX uses display mode with trust disabled and bounded
-expansion/size. Syntax errors stay local to the block and never prevent persistence.
+Section content schema v3 admits native `image` blocks only with
+`writellm-asset:<assetId>` references and adds application-owned `figureId` plus independent
+`altText`, alongside source-backed `mermaid` and display-only `math` blocks. Readers remain
+compatible with schema v1/v2 revisions and deterministically supply legacy figure metadata in
+memory. Migration appends a v3 current revision rather than rewriting immutable historical JSON or
+hashes. Mermaid renders lazily with strict security and sanitized SVG-as-image output; KaTeX uses
+display mode with trust disabled and bounded expansion/size. Syntax errors stay local to the block
+and never prevent persistence. See ADR 027.
 
 The canonical current and historical section JSON lives in `section_revisions.content_json` in `project.sqlite` so revision changes, accepted agent lineage, and optimistic concurrency are transactional. After a revision commits, a durable materialization step atomically writes:
 
@@ -652,6 +661,63 @@ reference index. Canonical citations are emitted only as manuscript-wide `[n]` m
 References appendix or reversible mapping; single-section exports retain global numbers and may
 therefore contain gaps. Importing those markers does not recover citation identity.
 
+Interactive manuscript import is Main-owned under ADR 032. Main captures one bounded selected
+source into project-temporary storage, records its SHA-256, resolves only contained regular local
+resources, and returns a typed project-session plan rather than paths or bytes. The 30-minute plan
+is the preview/apply capability; restart, switch, cancellation, and completion revoke it and remove
+staging. Immutable assets may be registered before approval, but no manuscript revision changes
+until apply and multi-section creation is one short atomic transaction. Format adapters receive
+bytes plus a constrained resolver and have no filesystem, network, process, model, or mutation
+authority.
+
+Single-file LaTeX import follows ADR 033. Main sends bounded UTF-8 source text and its hash to a
+disposable utility process with a fixed timeout; that child receives no paths, project state,
+credentials, network authority, or mutation authority. Exact-pinned unified-latex performs syntax
+parsing without macro expansion, and only an application-owned bounded projection crosses back.
+Unsupported constructs are serialized as visible inert source with exact findings. No TeX
+compiler, bibliography executable, package hook, include resolver, shell escape, external
+converter, or model runs during this core profile.
+
+Full-profile LaTeX import follows ADR 034. Main captures only a bounded selected directory,
+archive, or dependency closure rooted at a selected `.tex` entry, revalidates a deterministic
+manifest at apply, and registers images through the ordinary immutable asset authority.
+Normalized includes cannot escape staging and are depth/file/byte bounded. Exact-pinned
+citation-js is bundled into the same disposable worker with structural no-network aliases; only
+canonical readable bibliography fields and the application-owned neutral projection return.
+There is no TeX execution, package loading, shell escape, path authority, or network bibliography
+lookup.
+
+Publication formats derive from one ephemeral, typed assembly over the exact captured manuscript,
+reference index, stable figure metadata, and verified asset inventory. It is a format-neutral
+projection, never a second manuscript authority. Preflight errors fail closed and all permitted
+losses are recorded. DOCX conversion is isolated behind that contract and reuses the existing
+Main-owned snapshot barrier, asset capture, create-only staging, hash inventory, validation, and
+atomic publication. Binary variance from library-generated relationship/drawing identifiers,
+metadata dates, and ZIP metadata is removed by a deterministic canonicalization post-pass before
+the content hash is recorded.
+
+LaTeX publication uses the same assembly and export boundary with the single XeLaTeX/ctexart
+profile fixed by ADR 030. The application owns the complete preamble and context-specific escaping;
+manuscript content cannot supply templates, commands, file paths, or compiler options. Formula
+source is emitted only after bounded validation. The product never discovers, invokes, downloads,
+or bundles a TeX compiler, and it never fabricates bibliography fields that are absent from the
+authoritative reference data.
+
+PDF publication uses the same assembly through the Main-owned hidden Chromium boundary fixed by
+ADR 031. Each export creates one sandboxed, context-isolated, JavaScript-disabled BrowserWindow
+with a unique in-memory session; captured verified images are available only through an ephemeral
+asset protocol, never paths or a local server. Tagged PDF, document outlines, CSS page geometry,
+and footer page numbers come from `printToPDF`. TOC page numbers use at most three captures with
+`pdfjs-dist` destination inspection. Cancellation destroys the browser and the existing export
+barrier removes partial staging. Publication hashing remains Main-injected so shared IPC schemas
+cannot pull Node authority into the sandboxed preload.
+
+Reusable publication presets are non-sensitive application-global state in one bounded
+`app.sqlite` catalog. Application-owned rows are immutable; user rows are capped; exactly one
+default resolves before the shared CP38 assembly is built. Stored options are strictly versioned
+and fail closed. Preset mutation never opens or changes a project database and therefore cannot
+create manuscript revisions.
+
 ### Manual editing
 
 Renderer editing uses:
@@ -668,6 +734,27 @@ Renderer editing uses:
 An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, and `import`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, the latest 5 `import`-class revision bodies per section (including the current revision), all `agent_accepted` revisions, and each Agent edit's direct parent. Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
+
+Project-local annotations follow ADR 035. They live in one bounded `manuscript_annotations` table
+outside BlockNote content, anchor only to exact stable section/block IDs, and derive explicit
+current/orphaned state without fuzzy relocation. They are excluded from counts, search, citations,
+exports, and default model context. A user may attach at most ten selected annotations to one
+ordinary Agent prompt; this adds no separate conversation or model route.
+
+Figure identity is stable metadata; figure numbering is not. Publishing derives manuscript-order
+`Figure N` labels from current revisions and emits a shared figure node with exact
+section/revision/block target, asset ID, caption, and alt text. Reordering changes only the derived
+number. Missing caption or alt text is an additive deterministic `check_draft` finding and never a
+persistence blocker or a reason to start a separate model flow.
+
+Image iteration remains an ordinary `generate_image` Agent tool effect. Main resolves an exact
+block-hash-guarded generated-image target, combines its retained prompt/specification with a
+bounded Agent instruction and current section context, and uses the existing image model gateway.
+The immutable parent/candidate relation is project-local and keeps exact generation proposal,
+model request, Agent run, and tool-call provenance. Candidate generation and manuscript mutation
+are separate approvals: generation produces a normal `section_patch`; rejecting it keeps the
+current image, while replacement changes only the logical asset URL and therefore preserves figure
+identity, caption, alt text, and undo history. See ADR 029.
 
 Canonical readable citation labels (`[Source: exact title, p. N]` and
 `【来源：准确标题，第 N 页】`, with the page omitted when unavailable) remain ordinary editable
@@ -922,7 +1009,28 @@ Persist normalized project-local records for:
 
 Pi runtime events stream to the renderer for responsive UI, but durable records are created before the corresponding external operation or mutation can become authoritative.
 
-The persistence schema is limited to `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. `mutation_proposals` owns decision status, decision time, rejection reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or `applied_outline_version`), and the optional section `undo_revision_id`. Do not add separate `mutation_applications`, `accepted_source_links`, a compaction table, or a long-term-memory table before real usage proves they are necessary. Compaction lifecycle records and rolling checkpoints are ordinary `agent_events` rows; raw events and current project business rows remain authoritative.
+Core execution persistence is limited to `agent_sessions`, `agent_runs`, `agent_events`,
+`mutation_proposals`, and `model_requests`. Bounded collaboration fixtures separately use
+`review_issues`, `review_issue_events`, and the one-current-row-per-conversation
+`agent_writing_tasks` table. `mutation_proposals` owns decision status, decision time, rejection
+reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or
+`applied_outline_version`), the optional section `undo_revision_id`, and immutable optional writing
+task/step correlation. `agent_runs` snapshots the current task/step at run creation; presentation
+derives ready, in-progress, review, stopped, failed, verified, report-only, and disagreement states
+from run plus proposal truth rather than assistant narration. Do not add separate `mutation_applications`, `accepted_source_links`, a
+compaction table, task event table, scheduler, or long-term-memory table before real usage proves
+they are necessary. A task-wide change set is a derived read model over immutable task/step
+proposal correlation. It may group persisted exact previews, current outcomes, and ADR 003
+refresh chains, but it cannot own decision status or apply work; project reopen reconstructs it
+from project SQLite without a change-set cache, proposal copy, report row, or model analysis.
+Accepted ADR 026 permits only `agent_change_set_commands`: a bounded durable command receipt and
+recovery cursor that sequences existing individual proposal decisions. Brief, outline, body, then
+image order is deterministic; refresh, conflict, or failure stops with explicit partial results;
+and authoritative proposal state reconciles the crash window without replaying committed effects.
+It is not manuscript or proposal authority and cannot become a generic transaction coordinator.
+Compaction
+lifecycle records and rolling checkpoints are ordinary
+`agent_events` rows; raw events and current project business rows remain authoritative.
 
 ### Context construction
 
@@ -963,8 +1071,9 @@ and dynamic-block encoding. Business services select a template and supply typed
 own inline prompt prose.
 
 Prompt precedence is fixed: application safety and tool authority; application collaboration,
-academic-writing, and citation policy; the application Writing Skill companion; installed Skill
-entrypoints and selected references; trusted writing requirements; untrusted manuscript data;
+academic-writing, review, and citation policy; the application Writing Skill companion; installed
+Skill entrypoints and selected references; trusted writing requirements; trusted active project
+Writing Rules; untrusted manuscript data;
 durable conversation history; and the current user request. Later content cannot redefine an
 earlier authority layer. Prompt text remains provider-neutral; a provider- or model-specific fork
 requires a separate decision with behavioral evidence, fallback behavior, and parity tests.
@@ -976,9 +1085,10 @@ Main-authored review continuations. Full prompts, Skill bodies, manuscript conte
 conversation content are never logged. Tests freeze layer order, escape behavior, task-template
 invariants, and the 65,536-byte system-prompt budget. See ADR 017.
 
-### Agent Harness Protocol v4 tools
+### Agent Harness Protocol v6 tools
 
 ```text
+# Snapshot read and inspection
 get_writing_context
 read_outline
 read_section
@@ -987,15 +1097,31 @@ search_knowledge
 read_citations
 inspect_change
 check_draft
-generate_image
 read_writing_skill
+
+# Bounded project fixture mutation
+list_review_issues
+record_review_issues
+update_review_issues
+get_writing_task
+create_writing_task
+update_writing_task
+
+# Typed proposal and effect
+submit_brief_change
+submit_writing_rules_change
+submit_outline_change
+submit_section_change
+generate_image
 ```
 
 `get_writing_context` is a lightweight snapshot manifest and never returns active section text.
 `read_outline`, `read_section`, and `search_manuscript` are bound to the source
 `modelRequestId` snapshot. `read_section` supports paginated block summaries with canonical hashes,
 a complete canonical block view, and bounded canonical JSON fragments. `inspect_change` reads only
-proposals from the current Agent session. `check_draft` performs bounded deterministic checks.
+proposals from the current Agent session. `check_draft` performs bounded deterministic checks from
+one immutable run snapshot and reports P0-P3 findings plus explicit passed, failed, skipped, and
+unavailable outcomes; it never persists issues or modifies the draft.
 The UI injects selection capture time and revision; stale block selections are not combined with a
 newer body.
 
@@ -1014,10 +1140,24 @@ generation, checking, or submission tools in a later assistant response.
 
 Read-only tools may execute in parallel when their results are independent.
 
+`list_review_issues`, `record_review_issues`, and `update_review_issues` can read or mutate only
+bounded project-local Review Issue metadata. They receive no manuscript, filesystem, SQL, network,
+credential, or generic task authority. Exact optimistic versions guard refresh, assignment, and
+status transitions. They are sequential fixture operations, not proposal/effect tools.
+
+`get_writing_task`, `create_writing_task`, and `update_writing_task` read or mutate only the current
+conversation's bounded durable plan. Main allocates task and step UUIDs, requires an exact monotonic
+plan version, enforces the step state machine and one-active-step invariant, and snapshots the
+current task/step correlation when a run or proposal is created. Idle user revisions use the same
+optimistic service, while Resume sends one Main-authored prompt through the same ordinary Agent
+conversation and first rereads the current task. The tools do not schedule work, start a
+model request, apply manuscript changes, or infer success from assistant prose. See ADR 025.
+
 ### Submit tools
 
 ```text
 submit_brief_change
+submit_writing_rules_change
 submit_outline_change
 submit_section_change
 ```
@@ -1026,7 +1166,10 @@ Model arguments do not contain schema, manuscript, version, revision, or generat
 Main binds those values from the source snapshot. Outline operations use `SectionRef`, `clientRef`,
 and first/last/before/after placement. Section operations use the block-hash DSL; plain text
 replacement cannot erase links, marks, tables, or child structures, and canonical replacement
-requires a matching canonical read in the current run.
+requires a matching canonical read in the current run. `submit_brief_change` cannot change the
+reserved `writingRulesV1` namespace. `submit_writing_rules_change` supports only bounded add,
+update, activate/deactivate, and remove operations, binds the source Brief version in Main, and
+uses the ordinary proposal timeline and approval continuation.
 
 Outline deletion tombstones a leaf section rather than physically deleting its revision graph.
 The tombstone is absent from active writing context, assembly, editor, and Agent tools, but its
@@ -1049,6 +1192,14 @@ Renderer settings expose only the encrypted key input and a Main-validated catal
 The worker accepts bounded PNG/JPEG output and reports its actual MIME; only Main validates image
 magic and atomically publishes the project asset before a `writellm-asset:<assetId>` block
 reference can be committed.
+
+Asset deletion is a Main-owned two-phase operation. Protection is rechecked in the same immediate
+transaction that changes an unprotected row from `active` to `deleting`; new revision/proposal
+references accept only active rows. File and row cleanup follows outside the transaction, and a
+failed deletion is retried through the existing artifact-cleanup lifecycle and project-open
+reconciliation. Missing or changed bytes remain visible as integrity failures and are never
+silently replaced. Legacy nullable dimensions are backfilled only after the immutable bytes pass
+size, hash, MIME, and dimension validation. See ADR 028.
 
 The Agent surface does not include generic file/SQL/JSON Patch/shell/process/network tools, custom
 tool creation, executable plugins, multiple agents, long-term memory, provider configuration
@@ -1256,7 +1407,24 @@ semantics are fixed by ADR 007.
 Verified external Snapshot v2 may include a separately inventoried and validated
 `.writellm/history.git` tree. Snapshot v1 remains readable and restores as history-uninitialized.
 
-Restore preserves the existing `projectId` and is intended to replace or relocate the same project. Clone/Save As is a separate future operation that creates a new `projectId`; two independently located folders with the same ID must not be silently treated as separate projects. Restore stages and fully validates the candidate, creates a pre-restore backup, quarantines the current database, atomically renames the candidate into place, removes old `-wal`/`-shm` sidecars, and only then reopens. CP6 does not hot-replace `app.sqlite`; any future app-database restore must record intent and apply it during early startup after the app database is closed.
+Restore preserves the existing `projectId` and is intended to replace or relocate the same project. Clone/Save As is a separate operation that creates a new `projectId`; two independently located folders with the same ID must not be silently treated as separate projects. Restore stages and fully validates the candidate, creates a pre-restore backup, quarantines the current database, atomically renames the candidate into place, removes old `-wal`/`-shm` sidecars, and only then reopens. CP6 does not hot-replace `app.sqlite`; any future app-database restore must record intent and apply it during early startup after the app database is closed.
+
+Clone/Save As is implemented under ADR 036 as a separate identity boundary. It captures a verified
+opened-database backup and authoritative file inventory through the snapshot barrier, excludes the
+derived index, history repository, backups, recovery/temp state, exports, snapshots, and
+application-global credentials, then rewrites exactly `project_meta.project_id` and
+`manuscripts.project_id` in a deferred-foreign-key transaction. A schema assertion fails closed if
+a future migration adds another `project_id` column. The new manifest is written last in staging;
+the validated directory is published create-only before normal lifecycle open and recent-project
+registration.
+
+Project templates follow ADR 037. Built-ins are strict immutable application resources. User
+templates are strict canonical JSON files in application user data with a bounded app.sqlite
+metadata/hash catalog. The allowed projection is only Brief skeleton, outline metadata, Writing
+Rules without source IDs, and an optional publication-preset reference. Application creates a
+normal new project first and applies this data through existing authorities with freshly minted
+identities; bodies, knowledge, citations, assets, annotations, Agent/review/history state,
+credentials, project IDs, paths, executable content, and unknown fields are structurally absent.
 
 A moved or restored project must open without absolute-path repair.
 

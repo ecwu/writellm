@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
@@ -198,6 +198,326 @@ test(
       await expect(launched.page.locator('.bn-editor')).toContainText(
         'Beta evidence and Beta conclusion.'
       )
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'reviews and applies a Main-owned hashed Markdown import plan',
+  scenario('manuscript.staged-markdown-import', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const markdownPath = join(testRoot, '导入 manuscript.md')
+    await writeFile(
+      markdownPath,
+      '# Imported opening\n\nHello **reviewed** import.\n\n# Imported ending\n\nFinal mapped paragraph.'
+    )
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, markdownPath]
+    })
+    try {
+      await createProject(launched.page, 'Staged import')
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Import manuscript' }).click()
+
+      const dialog = launched.page.getByRole('dialog', { name: 'Review manuscript import' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByText('Imported opening', { exact: true }).first()).toBeVisible()
+      await expect(dialog.getByText('Imported ending', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(/Hello reviewed import/u)).toBeVisible()
+      await expect(dialog.getByText(/Nothing in the manuscript changes/u)).toBeVisible()
+
+      const screenshotDirectory = process.env.WRITELLM_CP36_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp36-import-plan.png'),
+          animations: 'disabled'
+        })
+      }
+
+      await dialog.getByRole('button', { name: 'Apply reviewed import' }).click()
+      await expect(dialog).not.toBeVisible()
+      const imported = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported ending'
+      })
+      await expect(imported).toBeVisible()
+      await imported.click()
+      await expect(sectionEditor(launched.page)).toContainText('Final mapped paragraph.')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'isolates, reviews, applies, and reopens a single-file LaTeX import',
+  scenario('manuscript.staged-latex-import', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const projectName = 'LaTeX import'
+    const projectRoot = join(testRoot, `${projectName}.writellm`)
+    const latexPath = join(testRoot, '多语言 manuscript.tex')
+    await writeFile(
+      latexPath,
+      String.raw`\documentclass{article}
+\usepackage{unknown-package}
+\title{可编辑研究}
+\begin{document}
+% retained comment
+\chapter{Imported opening}
+Hello \textbf{reviewed} import with $x^2$.
+\section{Imported evidence}
+\begin{equation}E = mc^2\end{equation}
+\cite{missing-key}
+\end{document}`
+    )
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, latexPath, projectRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Import manuscript' }).click()
+
+      const dialog = launched.page.getByRole('dialog', { name: 'Review manuscript import' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByText('LATEX', { exact: true })).toBeVisible()
+      await expect(dialog.getByText('Imported opening', { exact: true }).first()).toBeVisible()
+      await expect(dialog.getByText('Imported evidence', { exact: true })).toBeVisible()
+      await expect(
+        dialog.getByText(/Inline math remains editable literal LaTeX text/u)
+      ).toBeVisible()
+      await expect(dialog.getByText(/missing-key/u)).toBeVisible()
+
+      await dialog.getByRole('button', { name: 'Apply reviewed import' }).click()
+      await expect(dialog).not.toBeVisible()
+      const evidence = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported evidence'
+      })
+      await expect(evidence).toBeVisible()
+      await evidence.click()
+      await expect(launched.page.locator('.bn-editor')).toContainText('\\cite{missing-key}')
+
+      await closeProject(launched.page)
+      await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
+      await expectActiveProject(launched.page, projectName)
+      const reopenedEvidence = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported evidence'
+      })
+      await reopenedEvidence.click()
+      await expect(launched.page.locator('.bn-editor')).toContainText('\\cite{missing-key}')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'reviews a contained LaTeX project with includes, bibliography, table, and figure',
+  scenario('manuscript.staged-latex-project-import', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const projectName = 'LaTeX project import'
+    const sourceRoot = join(testRoot, 'paper-source')
+    await mkdir(join(sourceRoot, 'chapters'), { recursive: true })
+    await mkdir(join(sourceRoot, 'images'))
+    await writeFile(
+      join(sourceRoot, 'main.tex'),
+      String.raw`\title{完整项目}\begin{document}\input{chapters/results}\end{document}`
+    )
+    await writeFile(
+      join(sourceRoot, 'chapters/results.tex'),
+      String.raw`\section{Imported project results}
+Evidence from \cite{garcia2025}.
+\begin{table}\caption{Measurements}\begin{tabular}{lc}Name & Value \\ Alpha & 2\end{tabular}\end{table}
+\begin{figure}\includegraphics{../images/plot.png}\caption{Observed result}\label{fig:plot}\end{figure}`
+    )
+    await writeFile(
+      join(sourceRoot, 'references.bib'),
+      '@article{garcia2025,title={Result},author={García, Ana},year={2025}}'
+    )
+    await writeFile(
+      join(sourceRoot, 'images/plot.png'),
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64'
+      )
+    )
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, sourceRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Import LaTeX project folder' }).click()
+
+      const dialog = launched.page.getByRole('dialog', { name: 'Review manuscript import' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByText('LATEX-PROJECT', { exact: true })).toBeVisible()
+      await expect(
+        dialog.getByText('Imported project results', { exact: true }).first()
+      ).toBeVisible()
+      await expect(dialog.getByText(/García, 2025/u)).toBeVisible()
+      await expect(dialog.getByText('1 registered images', { exact: true })).toBeVisible()
+
+      await dialog.getByRole('button', { name: 'Apply reviewed import' }).click()
+      const imported = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported project results'
+      })
+      await imported.click()
+      await expect(launched.page.locator('.bn-editor')).toContainText('García, 2025')
+      await expect(launched.page.locator('.bn-editor img')).toHaveCount(1)
+      await expect(launched.page.locator('.bn-editor')).toContainText('Alpha')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'keeps review fixtures passive, versioned, and usable at narrow widths',
+  scenario('review.passive-fixtures-workbench'),
+  async ({ testRoot }) => {
+    const projectName = 'Review fixtures'
+    const projectRoot = join(testRoot, `${projectName}.writellm`)
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, projectRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: /Review Center/u }).click()
+      await launched.page.getByRole('tab', { name: 'Agent issues' }).click()
+      const issues = launched.page.getByTestId('review-issues-panel')
+      await expect(issues).toBeVisible()
+      await expect(issues.getByText('No matching issues', { exact: true })).toBeVisible()
+      await expect(issues.getByRole('button', { name: /AI Review|Analyze/u })).toHaveCount(0)
+
+      await launched.page.getByRole('button', { name: 'Writing rules', exact: true }).click()
+      const rules = launched.page.getByTestId('writing-rules-panel')
+      await expect(rules).toBeVisible()
+      await rules.getByLabel('New rule').fill('Translate LLM consistently.')
+      await rules.getByRole('button', { name: 'Advanced terminology fields' }).click()
+      await rules.getByLabel('Category').first().click()
+      await launched.page.getByRole('option', { name: 'translation', exact: true }).click()
+      await rules.getByLabel('Preferred form').first().fill('大型语言模型')
+      await rules.getByLabel('Discouraged forms').first().fill('大语言模型')
+      await rules.getByRole('button', { name: 'Add rule', exact: true }).click()
+      await expect(rules.getByText('Translate LLM consistently.', { exact: true })).toBeVisible()
+      await expect(rules.getByRole('switch', { name: 'Deactivate rule' })).toBeChecked()
+
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+      await expect(rules).toBeVisible()
+      await expect
+        .poll(() => rules.evaluate((element) => element.scrollWidth <= element.clientWidth))
+        .toBe(true)
+
+      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+
+      await closeProject(launched.page)
+      await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
+      await expectActiveProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: 'Writing rules', exact: true }).click()
+      await expect(
+        launched.page
+          .getByTestId('writing-rules-panel')
+          .getByText('Translate LLM consistently.', { exact: true })
+      ).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'attaches private TODOs, resolves them, and rolls them back with project history',
+  scenario('annotations.durable-todos', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const projectName = 'Durable annotations'
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await saveEditorText(launched.page, 'Claim requiring a private follow-up.')
+      await sectionEditor(launched.page).click()
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Add note or TODO' }).click()
+      const create = launched.page.getByRole('dialog', { name: 'Add annotation' })
+      await create.getByLabel('Annotation text').fill('Verify the source before publication.')
+      await create.getByRole('button', { name: 'Add annotation' }).click()
+
+      const annotations = launched.page.getByTestId('annotations-panel')
+      await expect(annotations).toBeVisible()
+      await expect(
+        annotations.getByText('Verify the source before publication.', { exact: true })
+      ).toBeVisible()
+      await annotations.getByText('Verify the source before publication.', { exact: true }).click()
+      await annotations.getByRole('button', { name: 'Go to block' }).click()
+      await expect(sectionEditor(launched.page)).toBeVisible()
+      await expect(sectionEditor(launched.page)).toContainText(
+        'Claim requiring a private follow-up.'
+      )
+
+      await launched.page.getByRole('button', { name: /Review Center/u }).click()
+      await annotations.getByText('Verify the source before publication.', { exact: true }).click()
+      await annotations.getByRole('button', { name: 'Resolve', exact: true }).click()
+      await expect(
+        annotations.getByRole('button', { name: /Verify the source before publication/u })
+      ).toHaveCount(0)
+
+      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Create checkpoint…' }).click()
+      const checkpoint = launched.page.getByRole('dialog', { name: 'Create checkpoint' })
+      await checkpoint.getByLabel('Name').fill('Resolved annotation')
+      await checkpoint.getByRole('button', { name: 'Create checkpoint', exact: true }).click()
+      await expect(checkpoint).not.toBeVisible()
+
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await sectionEditor(launched.page).click()
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await launched.page.getByRole('menuitem', { name: 'Add note or TODO' }).click()
+      const later = launched.page.getByRole('dialog', { name: 'Add annotation' })
+      await later.getByLabel('Annotation text').fill('Temporary note after checkpoint.')
+      await later.getByRole('button', { name: 'Add annotation' }).click()
+      await expect(
+        annotations.getByText('Temporary note after checkpoint.', { exact: true })
+      ).toBeVisible()
+
+      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
+      const history = launched.page.getByRole('dialog', { name: 'Version history' })
+      await history
+        .locator('[data-slot=item]')
+        .filter({ hasText: 'Resolved annotation' })
+        .getByRole('button', { name: 'Restore', exact: true })
+        .click()
+      const confirmation = launched.page.getByRole('alertdialog', {
+        name: 'Restore this checkpoint?'
+      })
+      await confirmation.getByRole('button', { name: 'Restore checkpoint', exact: true }).click()
+      await expect(confirmation).not.toBeVisible({ timeout: 15_000 })
+
+      await launched.page.getByRole('button', { name: /Review Center/u }).click()
+      await annotations.getByLabel('Status').click()
+      await launched.page.getByRole('option', { name: 'All status' }).click()
+      await expect(
+        annotations.getByText('Verify the source before publication.', { exact: true })
+      ).toBeVisible()
+      await expect(
+        annotations.getByText('Temporary note after checkpoint.', { exact: true })
+      ).toHaveCount(0)
+
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await launched.page.getByTestId('manuscript-find-input').fill('Verify the source')
+      await expect(launched.page.getByText('0 results', { exact: true })).toBeVisible()
     } finally {
       await launched.app.close()
     }
@@ -666,6 +986,132 @@ test(
 )
 
 test(
+  'saves an independent project copy and opens source and clone sequentially',
+  scenario('project.clone-independent', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const projectName = 'Clone source'
+    const sourceRoot = join(testRoot, `${projectName}.writellm`)
+    const cloneRoot = join(testRoot, '克隆副本.writellm')
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, cloneRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await saveEditorText(launched.page, 'Independent clone content')
+      const sourceManifest = JSON.parse(
+        await readFile(join(sourceRoot, 'writellm.project.json'), 'utf8')
+      ) as { projectId: string }
+
+      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await launched.page
+        .getByRole('menuitem', { name: 'Save As independent copy…', exact: true })
+        .click()
+      await expectActiveProject(launched.page, '克隆副本')
+      await expect(sectionEditor(launched.page)).toContainText('Independent clone content')
+      const cloneManifest = JSON.parse(
+        await readFile(join(cloneRoot, 'writellm.project.json'), 'utf8')
+      ) as { projectId: string }
+      expect(cloneManifest.projectId).not.toBe(sourceManifest.projectId)
+      await expect(
+        readFile(join(cloneRoot, '.writellm', 'history.git', 'HEAD'), 'utf8')
+      ).rejects.toMatchObject({ code: 'ENOENT' })
+      const historyPrompt = launched.page.getByRole('alertdialog', {
+        name: 'Enable version history?'
+      })
+      await historyPrompt.getByRole('button', { name: 'Not now', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await expect(
+        launched.page.getByRole('menuitem', { name: 'Enable version history…', exact: true })
+      ).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+
+      await closeProject(launched.page)
+      await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+      await expectActiveProject(launched.page, projectName)
+      await expect(sectionEditor(launched.page)).toContainText('Independent clone content')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'creates a CJK-ready project from a reviewed built-in template',
+  scenario('project.template-built-in', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await launched.page.getByRole('button', { name: 'Create project', exact: true }).click()
+      const dialog = launched.page.getByRole('dialog', { name: 'Create project' })
+      await dialog.getByLabel('Project name').fill('模板项目')
+      await dialog.getByLabel('Starting template').click()
+      await launched.page.getByRole('option', { name: '中文研究报告' }).click()
+      await dialog.getByRole('button', { name: 'Choose location' }).click()
+      await expectActiveProject(launched.page, '模板项目')
+      await expect(
+        launched.page.getByTestId(/^outline-section-/).filter({ hasText: '执行摘要' })
+      ).toBeVisible()
+      await expectBriefTitle(launched.page, '模板项目')
+      await expect(sectionEditor(launched.page)).not.toContainText('PRIVATE')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'extracts a reusable user template without manuscript content or source identity',
+  scenario('project.template-user-extraction', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const sourceRoot = join(testRoot, 'Template source.writellm')
+    const targetRoot = join(testRoot, 'Template target.writellm')
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Template source')
+      await saveEditorText(launched.page, 'PRIVATE SOURCE MANUSCRIPT BODY')
+      const sourceManifest = JSON.parse(
+        await readFile(join(sourceRoot, 'writellm.project.json'), 'utf8')
+      ) as { projectId: string }
+
+      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await launched.page
+        .getByRole('menuitem', { name: 'Save as reusable template…', exact: true })
+        .click()
+      const save = launched.page.getByRole('dialog', { name: 'Save reusable project template' })
+      await expect(save.getByText('Manuscript bodies and citations', { exact: true })).toBeVisible()
+      await save.getByLabel('Template name').fill('My reusable template')
+      await save.getByLabel('Description').fill('Reusable structure only')
+      await save.getByRole('button', { name: 'Save template', exact: true }).click()
+      await expect(save).not.toBeVisible()
+
+      await closeProject(launched.page)
+      await rm(sourceRoot, { recursive: true, force: true })
+      await launched.page.getByRole('button', { name: 'Create project', exact: true }).click()
+      const create = launched.page.getByRole('dialog', { name: 'Create project' })
+      await create.getByLabel('Project name').fill('Template target')
+      await create.getByLabel('Starting template').click()
+      await launched.page.getByRole('option', { name: /My reusable template/u }).click()
+      await create.getByRole('button', { name: 'Choose location' }).click()
+      await expectActiveProject(launched.page, 'Template target')
+      await expect(sectionEditor(launched.page)).not.toContainText('PRIVATE SOURCE MANUSCRIPT BODY')
+      const targetManifest = JSON.parse(
+        await readFile(join(targetRoot, 'writellm.project.json'), 'utf8')
+      ) as { projectId: string }
+      expect(targetManifest.projectId).not.toBe(sourceManifest.projectId)
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
   'creates and restores named project checkpoints without losing later history',
   scenario('manuscript.checkpoint-restore-preserves-history', ['@packaged']),
   async ({ testRoot }) => {
@@ -787,72 +1233,108 @@ test(
     })
     try {
       await createProject(launched.page, projectName)
-      await launched.page.evaluate(async (pngBase64) => {
-        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
-          ?.projectSessionId
-        if (projectSessionId === undefined) throw new Error('Project session missing')
-        const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
-        const sectionId = workspace.sections[0]?.section.sectionId
-        if (sectionId === undefined) throw new Error('Section missing')
-        const current = await window.desktop.editor.loadSection({ projectSessionId, sectionId })
-        const asset = await window.desktop.editor.uploadAsset({
-          projectSessionId,
-          originalName: 'pixel.png',
-          mimeType: 'image/png',
-          dataBase64: pngBase64
-        })
-        const saved = await window.desktop.editor.saveSectionDocument({
-          projectSessionId,
-          sectionId,
-          baseRevisionId: current.revision.sectionRevisionId,
-          baseContentHash: current.revision.contentHash,
-          document: [
-            {
-              id: 'uploaded-image',
-              type: 'image',
-              props: {
-                backgroundColor: 'default',
-                textAlignment: 'center',
-                name: 'Uploaded pixel',
-                url: asset.logicalUrl,
-                caption: 'Project asset',
-                showPreview: true,
-                previewWidth: 320
+      await launched.page.evaluate(
+        async ({ pngBase64, unusedPngBase64 }) => {
+          const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+            ?.projectSessionId
+          if (projectSessionId === undefined) throw new Error('Project session missing')
+          const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+          const sectionId = workspace.sections[0]?.section.sectionId
+          if (sectionId === undefined) throw new Error('Section missing')
+          const current = await window.desktop.editor.loadSection({ projectSessionId, sectionId })
+          const asset = await window.desktop.editor.uploadAsset({
+            projectSessionId,
+            originalName: 'pixel.png',
+            mimeType: 'image/png',
+            dataBase64: pngBase64
+          })
+          await window.desktop.editor.uploadAsset({
+            projectSessionId,
+            originalName: 'unused.png',
+            mimeType: 'image/png',
+            dataBase64: unusedPngBase64
+          })
+          const saved = await window.desktop.editor.saveSectionDocument({
+            projectSessionId,
+            sectionId,
+            baseRevisionId: current.revision.sectionRevisionId,
+            baseContentHash: current.revision.contentHash,
+            document: [
+              {
+                id: 'uploaded-image',
+                type: 'image',
+                props: {
+                  backgroundColor: 'default',
+                  textAlignment: 'center',
+                  name: 'Uploaded pixel',
+                  url: asset.logicalUrl,
+                  caption: 'Project asset',
+                  altText: 'Uploaded pixel',
+                  showPreview: true,
+                  previewWidth: 320
+                },
+                children: []
               },
-              children: []
-            },
-            {
-              id: 'mermaid-diagram',
-              type: 'mermaid',
-              props: {
-                textAlignment: 'center',
-                source: 'flowchart LR\nA["<img src=x onerror=alert(1)>"] --> B[Finish]',
-                caption: 'Flow',
-                previewWidth: 720
+              {
+                id: 'mermaid-diagram',
+                type: 'mermaid',
+                props: {
+                  textAlignment: 'center',
+                  source: 'flowchart LR\nA["<img src=x onerror=alert(1)>"] --> B[Finish]',
+                  caption: 'Flow',
+                  previewWidth: 720
+                },
+                children: []
               },
-              children: []
-            },
-            {
-              id: 'display-formula',
-              type: 'math',
-              props: {
-                textAlignment: 'center',
-                source: 'E = mc^2',
-                caption: 'Energy',
-                previewWidth: 720
-              },
-              children: []
-            }
-          ]
-        })
-        if (!saved.ok) throw new Error(saved.error.message)
-      }, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+              {
+                id: 'display-formula',
+                type: 'math',
+                props: {
+                  textAlignment: 'center',
+                  source: 'E = mc^2',
+                  caption: 'Energy',
+                  previewWidth: 720
+                },
+                children: []
+              }
+            ]
+          })
+          if (!saved.ok) throw new Error(saved.error.message)
+        },
+        {
+          pngBase64:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          unusedPngBase64:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlKAAAAAASUVORK5CYII='
+        }
+      )
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(launched.page.getByText('Mermaid diagram', { exact: true })).toBeVisible()
       await expect(launched.page.getByText('Display formula', { exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Images', exact: true }).click()
+      const assetWorkspace = launched.page.getByTestId('asset-workspace')
+      await expect(assetWorkspace.getByText('pixel.png', { exact: true })).toBeVisible()
+      await expect(assetWorkspace.getByText('unused.png', { exact: true })).toBeVisible()
+      await expect(assetWorkspace.getByText('1 current reference', { exact: true })).toBeVisible()
+      await assetWorkspace.getByRole('button', { name: 'Delete unused.png', exact: true }).click()
+      const deleteDialog = launched.page.getByRole('alertdialog', { name: 'Delete unused image?' })
+      await deleteDialog.getByRole('button', { name: 'Delete image', exact: true }).click()
+      await expect(assetWorkspace.getByText('unused.png', { exact: true })).not.toBeVisible()
+      await assetWorkspace
+        .getByRole('button', { name: 'Open Untitled Section', exact: true })
+        .first()
+        .click()
       const renderedEditor = launched.page.getByTestId('section-editor')
       await expect(renderedEditor.getByRole('img')).toHaveCount(2)
+      await renderedEditor.getByRole('button', { name: 'Edit figure metadata' }).click()
+      await launched.page.getByLabel('Caption', { exact: true }).fill('Edited project asset')
+      await launched.page.getByLabel('Alt text', { exact: true }).fill('Edited uploaded pixel')
+      await launched.page.getByRole('button', { name: 'Save metadata', exact: true }).click()
+      await expect(renderedEditor.getByRole('img', { name: 'Edited uploaded pixel' })).toBeVisible()
+      await expect(launched.page.getByText('Saved', { exact: true }).first()).toBeVisible({
+        timeout: 10_000
+      })
       const mermaidPreview = await renderedEditor
         .getByRole('img', { name: 'Flow' })
         .getAttribute('src')
@@ -875,7 +1357,7 @@ test(
       const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
       await outline.getByRole('button', { name: 'Preview all', exact: true }).click()
       const manuscriptPreview = launched.page.getByTestId('whole-manuscript-preview')
-      const manuscriptImage = manuscriptPreview.getByRole('img', { name: 'Uploaded pixel' })
+      const manuscriptImage = manuscriptPreview.getByRole('img', { name: 'Edited uploaded pixel' })
       await expect(manuscriptPreview).toBeVisible()
       await expect(manuscriptPreview.getByRole('img', { name: 'Flow' })).toBeVisible()
       await expect(manuscriptPreview.getByRole('math')).toBeVisible()
@@ -908,12 +1390,40 @@ test(
       const markdown = await readFile(join(exportsDirectory, exportName), 'utf8')
       expect(markdown).toContain('```mermaid')
       expect(markdown).toContain('$$\nE = mc^2\n$$')
+      expect(markdown).toContain('![Edited uploaded pixel]')
       expect(markdown).toMatch(/\.\.\/assets\/[0-9a-f]{64}\.png/)
 
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(launched.page.getByTestId('section-editor').getByRole('img')).toHaveCount(2)
+      await expect(
+        launched.page
+          .getByTestId('section-editor')
+          .getByRole('img', { name: 'Edited uploaded pixel' })
+      ).toBeVisible()
+      expect(
+        await launched.page.evaluate(async () => {
+          const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+            ?.projectSessionId
+          if (projectSessionId === undefined) throw new Error('Project session missing')
+          const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+          const sectionId = workspace.sections[0]?.section.sectionId
+          if (sectionId === undefined) throw new Error('Section missing')
+          const loaded = await window.desktop.editor.loadSection({ projectSessionId, sectionId })
+          const image = loaded.revision.content.find((block) => block.type === 'image')
+          if (image?.type !== 'image') throw new Error('Image block missing')
+          return {
+            altText: image.props.altText,
+            caption: image.props.caption,
+            figureId: image.props.figureId
+          }
+        })
+      ).toEqual({
+        altText: 'Edited uploaded pixel',
+        caption: 'Edited project asset',
+        figureId: expect.stringMatching(/^figure:/)
+      })
       await expect(launched.page.getByText('Display formula', { exact: true })).toBeVisible()
     } finally {
       await launched.app.close()
@@ -1038,6 +1548,29 @@ test(
       await expect(
         sectionEditor(launched.page).locator('.writellm-readable-citation-numbered')
       ).toHaveText('[1]')
+      const numberedLayout = await sectionEditor(launched.page)
+        .locator('.bn-inline-content', { hasText: 'Alpha' })
+        .evaluate((paragraph) => {
+          const hiddenSource = paragraph.querySelector<HTMLElement>(
+            '.writellm-readable-citation-source-hidden'
+          )
+          const marker = paragraph.querySelector<HTMLElement>(
+            '.writellm-readable-citation-numbered'
+          )
+          if (hiddenSource === null || marker === null) {
+            throw new Error('Compact citation geometry missing')
+          }
+          return {
+            paragraphHeight: paragraph.getBoundingClientRect().height,
+            hiddenHeight: hiddenSource.getBoundingClientRect().height,
+            markerHeight: marker.getBoundingClientRect().height,
+            hiddenWhiteSpace: getComputedStyle(hiddenSource).whiteSpace
+          }
+        })
+      expect(numberedLayout.hiddenWhiteSpace).toBe('nowrap')
+      expect(numberedLayout.hiddenHeight).toBeLessThanOrEqual(numberedLayout.paragraphHeight)
+      expect(numberedLayout.markerHeight).toBeLessThanOrEqual(numberedLayout.paragraphHeight)
+      expect(numberedLayout.paragraphHeight).toBeLessThan(64)
 
       await launched.page.getByRole('button', { name: 'References', exact: true }).click()
       const references = launched.page.locator('[aria-label="Manuscript references"]')
@@ -1052,8 +1585,10 @@ test(
       await expect
         .poll(() => launched.page.evaluate(() => window.matchMedia('(max-width: 767px)').matches))
         .toBe(true)
-      await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
       const mobileSidebar = launched.page.locator('[data-mobile="true"]')
+      if (!(await mobileSidebar.isVisible())) {
+        await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
+      }
       await expect(
         mobileSidebar
           .locator('[aria-label="Manuscript references"]')
@@ -1078,16 +1613,27 @@ test(
       const citationIcon = sectionEditor(launched.page).locator('.writellm-readable-citation-icon')
       const iconGeometry = await citationIcon.evaluate((element) => {
         const bounds = element.getBoundingClientRect()
+        const svg = element.querySelector('svg')
+        if (svg === null) throw new Error('Citation icon SVG missing')
+        const svgBounds = svg.getBoundingClientRect()
+        const svgStyle = getComputedStyle(svg)
         return {
           width: bounds.width,
           height: bounds.height,
           display: getComputedStyle(element).display,
+          svgWidth: svgBounds.width,
+          svgHeight: svgBounds.height,
+          svgStroke: svgStyle.stroke,
           parent: element.parentElement?.className ?? null,
           parentWidth: element.parentElement?.getBoundingClientRect().width ?? null
         }
       })
       expect(iconGeometry.width).toBeGreaterThan(0)
       expect(iconGeometry.height).toBeGreaterThan(0)
+      expect(iconGeometry.svgWidth).toBe(16)
+      expect(iconGeometry.svgHeight).toBe(16)
+      expect(iconGeometry.svgStroke).not.toBe('none')
+      expect(iconGeometry.svgStroke).not.toBe('rgba(0, 0, 0, 0)')
       await expect(citationIcon.locator('svg')).toHaveCount(1)
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       await settings.getByRole('radio', { name: 'Full', exact: true }).click()

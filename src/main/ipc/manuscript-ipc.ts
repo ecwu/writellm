@@ -36,7 +36,13 @@ import {
   type ManuscriptReplacementChangedEvent
 } from '../../shared/contracts/manuscript-replacement'
 import { ManuscriptReplacementService } from '../manuscript/manuscript-replacement-service'
+import {
+  publicationPreviewInputSchema,
+  publicationPreviewSchema
+} from '../../shared/contracts/publication'
+import { PublicationService } from '../manuscript/publication-service'
 import { authorizeSender } from './authorize-sender'
+import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 
 export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -45,6 +51,7 @@ export function registerManuscriptIpc(options: {
   logger: Pick<Logger, 'info' | 'error'>
   developmentUrl?: string
   ipc?: ManuscriptIpcMain
+  publicationPresets?: Pick<PublicationPresetRepository, 'resolve'>
   flushForMutation?(
     projectSessionId: string,
     affectedSectionIds: readonly string[],
@@ -53,6 +60,7 @@ export function registerManuscriptIpc(options: {
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
   const replacementServices = new Map<string, ManuscriptReplacementService>()
+  const publicationService = new PublicationService(options.logger)
   const replacementSubscribers = new Map<string, Map<string, WebContents>>()
   const replacementService = (projectSessionId: string): ManuscriptReplacementService => {
     const context = options.manager.assertMutationSession(projectSessionId)
@@ -194,6 +202,17 @@ export function registerManuscriptIpc(options: {
     return runLifecycle('manuscript.preview.load', parsed.projectSessionId, () =>
       manuscriptAssemblySchema.parse(
         options.manager.assertActiveSession(parsed.projectSessionId).manuscript.assemble()
+      )
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.manuscriptGetPublicationPreview, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = publicationPreviewInputSchema.parse(input)
+    return publicationPreviewSchema.parse(
+      await publicationService.preview(
+        options.manager.assertActiveSession(parsed.projectSessionId),
+        parsed.options ?? options.publicationPresets?.resolve()
       )
     )
   })
@@ -467,6 +486,7 @@ export function registerManuscriptIpc(options: {
     IPC_CHANNELS.manuscriptGetWorkspace,
     IPC_CHANNELS.manuscriptGetReferences,
     IPC_CHANNELS.manuscriptGetPreview,
+    IPC_CHANNELS.manuscriptGetPublicationPreview,
     IPC_CHANNELS.manuscriptUpdateBrief,
     IPC_CHANNELS.manuscriptCreateSection,
     IPC_CHANNELS.manuscriptUpdateSection,

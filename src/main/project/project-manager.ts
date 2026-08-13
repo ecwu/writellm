@@ -65,15 +65,31 @@ import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
 import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
+import type { ReviewIssueService } from '../agent/review-issue-service'
+import type { WritingTaskService } from '../agent/writing-task-service'
+import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
 import {
   createManuscriptExport,
   type PublishedManuscriptExport
 } from '../manuscript/manuscript-export'
 import type { ManuscriptExportKind } from '../../shared/contracts/manuscript-export'
+import type { PublicationOptions } from '../../shared/contracts/publication'
 import { IsomorphicGitProjectVersionStore, type ProjectVersionStore } from './project-version-store'
 import { writeAtomicFile } from '../storage/atomic-file'
 import { ProjectFilesystem } from './project-filesystem'
+import type { PdfPublicationRenderer } from '../manuscript/pdf-publication'
+import { AnnotationService } from '../manuscript/annotation-service'
+import { createProjectClone } from './project-clone'
+import type {
+  ProjectTemplate,
+  ProjectTemplateExtractionPreview
+} from '../../shared/contracts/project-templates'
+import {
+  applyProjectTemplate,
+  extractProjectTemplate,
+  previewProjectTemplateExtraction
+} from './project-template-service'
 
 const historyRestoreJournalSchema = z
   .object({
@@ -278,6 +294,7 @@ export interface ProjectManagerOptions {
   closeParticipants?: Partial<ProjectCloseParticipants>
   snapshotParticipants?: Partial<ProjectSnapshotParticipants>
   exportDiagnostics?: () => Promise<{ exported: boolean }>
+  renderPdfPublication?: PdfPublicationRenderer
   finalFlushTimeoutMs?: number
   staleLockTimeoutMs?: number
   lockOptions?: Omit<ProjectLockOptions, 'logger'>
@@ -305,6 +322,9 @@ export interface ProjectManagerOptions {
     retrieval?: RetrievalService
     agentSessions?: AgentSessionService
     agentMutations?: MutationProposalService
+    agentChangeSets?: ChangeSetBatchService
+    reviewIssues?: ReviewIssueService
+    writingTasks?: WritingTaskService
     registry: ReturnType<typeof createProjectHandlerRegistry>
     terminateWorkers?: () => void | Promise<void>
   }
@@ -330,6 +350,7 @@ export class ProjectManager {
   readonly #closeParticipants: ProjectCloseParticipants
   readonly #snapshotParticipants: ProjectSnapshotParticipants
   readonly #exportDiagnostics?: () => Promise<{ exported: boolean }>
+  readonly #renderPdfPublication?: PdfPublicationRenderer
   readonly #lockOptions: Omit<ProjectLockOptions, 'logger'>
   readonly #dependencies: ProjectManagerDependencies
   readonly #finalFlushTimeoutMs: number
@@ -347,6 +368,8 @@ export class ProjectManager {
   #snapshotFlushAuthorization: ProjectFinalFlushAuthorization | null = null
   #snapshotFlushConsumed = false
   #historyRestoreRecoverySuppressed = false
+  #activeManuscriptExport: { projectSessionId: string; controller: AbortController } | null = null
+  #activeClone: { projectSessionId: string; controller: AbortController } | null = null
   #recovery:
     | {
         kind: 'open'
@@ -369,6 +392,7 @@ export class ProjectManager {
     this.#closeParticipants = { ...noOpCloseParticipants, ...options.closeParticipants }
     this.#snapshotParticipants = { ...noOpSnapshotParticipants, ...options.snapshotParticipants }
     this.#exportDiagnostics = options.exportDiagnostics
+    this.#renderPdfPublication = options.renderPdfPublication
     this.#finalFlushTimeoutMs = options.finalFlushTimeoutMs ?? 10_000
     this.#staleLockTimeoutMs = options.staleLockTimeoutMs ?? PROJECT_LOCK_STALE_AFTER_MS
     this.#lockOptions = options.lockOptions ?? {}
@@ -1103,11 +1127,14 @@ export class ProjectManager {
   exportManuscript(
     projectSessionId: string,
     destination: string,
-    kind: ManuscriptExportKind
+    kind: ManuscriptExportKind,
+    publicationOptions?: PublicationOptions
   ): Promise<PublishedManuscriptExport> {
     return this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
       const operations = context.operations
+      const controller = new AbortController()
+      this.#activeManuscriptExport = { projectSessionId, controller }
       try {
         return await createManuscriptExport({
           projectRoot: context.projectRoot,
@@ -1125,7 +1152,10 @@ export class ProjectManager {
             resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
             resumeMutations: async () => operations?.resumeMutations()
           },
-          log: this.#logger
+          log: this.#logger,
+          renderPdf: this.#renderPdfPublication,
+          publicationOptions,
+          signal: controller.signal
         })
       } catch (err) {
         this.#logger.error(
@@ -1138,6 +1168,135 @@ export class ProjectManager {
           'Project manuscript export failed'
         )
         throw new Error('Failed to export the project manuscript', { cause: err })
+      } finally {
+        if (this.#activeManuscriptExport?.controller === controller) {
+          this.#activeManuscriptExport = null
+        }
+      }
+    })
+  }
+
+  cancelManuscriptExport(projectSessionId: string): { cancelled: boolean } {
+    this.assertActiveSession(projectSessionId)
+    const active = this.#activeManuscriptExport
+    if (active === null || active.projectSessionId !== projectSessionId) return { cancelled: false }
+    active.controller.abort()
+    return { cancelled: true }
+  }
+
+  async cloneProject(
+    projectSessionId: string,
+    destination: string
+  ): Promise<ProjectLifecycleSnapshot> {
+    const cloned = await this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      const operations = context.operations
+      const controller = new AbortController()
+      this.#activeClone = { projectSessionId, controller }
+      try {
+        return await createProjectClone({
+          sourceRoot: context.projectRoot,
+          sourceManifest: context.manifest,
+          sourceDatabase: context.database,
+          destination,
+          sourceAppVersion: this.#applicationVersion,
+          barrier: {
+            pauseMutations: async () => operations?.pauseMutations(),
+            finalEditorFlush: () =>
+              this.#snapshotParticipants.finalEditorFlush(context, 'snapshot'),
+            pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
+            resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
+            resumeMutations: async () => operations?.resumeMutations()
+          },
+          signal: controller.signal,
+          createId: this.#dependencies.randomUUID,
+          now: this.#dependencies.now,
+          log: this.#logger
+        })
+      } finally {
+        if (this.#activeClone?.controller === controller) this.#activeClone = null
+      }
+    })
+    return this.switch(cloned.projectRoot)
+  }
+
+  cancelProjectClone(projectSessionId: string): { cancelled: boolean } {
+    this.assertActiveSession(projectSessionId)
+    const active = this.#activeClone
+    if (active === null || active.projectSessionId !== projectSessionId) {
+      return { cancelled: false }
+    }
+    active.controller.abort(new Error('Project clone was cancelled'))
+    return { cancelled: true }
+  }
+
+  applyTemplate(
+    projectSessionId: string,
+    template: ProjectTemplate
+  ): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      applyProjectTemplate({
+        manuscript: context.manuscript,
+        template,
+        createId: this.#dependencies.randomUUID
+      })
+      await context.editorPersistence.repairAll()
+      if (context.versionHistory !== undefined) {
+        await this.#withVersionSnapshot(
+          context,
+          (snapshotRoot, history) => history.reinitialize(snapshotRoot),
+          { skipEditorFlush: true }
+        )
+      }
+      this.#logger.info(
+        {
+          event: 'project_manager.template_applied',
+          projectId: context.manifest.projectId,
+          templateId: template.templateId
+        },
+        'Project template applied through normal project authority'
+      )
+      return this.snapshot()
+    })
+  }
+
+  previewTemplateExtraction(
+    projectSessionId: string,
+    publicationPresetId: string | null
+  ): Promise<ProjectTemplateExtractionPreview> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      context.operations?.pauseMutations()
+      try {
+        await this.#snapshotParticipants.finalEditorFlush(context, 'snapshot')
+        return previewProjectTemplateExtraction({
+          manuscript: context.manuscript,
+          publicationPresetId
+        })
+      } finally {
+        context.operations?.resumeMutations()
+      }
+    })
+  }
+
+  extractTemplate(
+    projectSessionId: string,
+    input: {
+      templateId: string
+      name: string
+      description: string
+      publicationPresetId: string | null
+    }
+  ): Promise<ProjectTemplate> {
+    return this.#serialize(async () => {
+      const context = this.assertActiveSession(projectSessionId)
+      context.operations?.pauseMutations()
+      try {
+        await this.#snapshotParticipants.finalEditorFlush(context, 'snapshot')
+        return extractProjectTemplate({ manuscript: context.manuscript, ...input })
+      } finally {
+        context.operations?.resumeMutations()
       }
     })
   }
@@ -1408,6 +1567,14 @@ export class ProjectManager {
       // creates anything below `.writellm`.
       await filesystem.assertExistingDirectory(WRITELLM_INTERNAL_DIRECTORY)
       await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH)
+      await filesystem.removeTree(`${PROJECT_TEMP_DIRECTORY}/manuscript-import`)
+      this.#logger.info(
+        {
+          event: 'manuscript.import.crash_staging_cleaned',
+          projectId: manifest.projectId
+        },
+        'Stale manuscript import staging removed during project open'
+      )
       writeLock ??= await this.#dependencies.acquireLock(canonicalRoot, {
         ...this.#lockOptions,
         logger: this.#logger
@@ -1432,6 +1599,10 @@ export class ProjectManager {
         projectId: manifest.projectId,
         log: this.#logger
       })
+      const annotations = new AnnotationService({
+        database,
+        log: this.#logger
+      })
       const manuscriptAssets = new ManuscriptAssetService({
         projectRoot: canonicalRoot,
         projectId: manifest.projectId,
@@ -1439,6 +1610,7 @@ export class ProjectManager {
         jobs,
         log: this.#logger
       })
+      await manuscriptAssets.repairPendingDeletions()
       const editorPersistence = new EditorPersistenceService({
         projectRoot: canonicalRoot,
         projectId: manifest.projectId,
@@ -1518,6 +1690,10 @@ export class ProjectManager {
         retrieval: knowledgeRuntime?.retrieval ?? null,
         agentSessions: knowledgeRuntime?.agentSessions ?? null,
         agentMutations: knowledgeRuntime?.agentMutations ?? null,
+        agentChangeSets: knowledgeRuntime?.agentChangeSets ?? null,
+        reviewIssues: knowledgeRuntime?.reviewIssues ?? null,
+        annotations,
+        writingTasks: knowledgeRuntime?.writingTasks ?? null,
         runtime,
         writeLock,
         versionHistory: new IsomorphicGitProjectVersionStore({

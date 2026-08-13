@@ -107,7 +107,7 @@ export class EditorPersistenceService {
       )
     }
     const document = blockNoteDocumentSchema.parse(input.document)
-    const documentHash = prepareSectionContent(document).contentHash
+    const documentHash = prepareSectionContent(document, input.sectionId).contentHash
     const wasAlreadyCurrent =
       this.loadSection(input.sectionId).revision.contentHash === documentHash
     let revision: SectionRevision
@@ -319,8 +319,8 @@ export class EditorPersistenceService {
         envelope.sectionId === revision.sectionId &&
         envelope.sectionRevisionId === revision.sectionRevisionId &&
         envelope.contentHash === revision.contentHash &&
-        prepareSectionContent(blockNoteDocumentSchema.parse(envelope.document)).contentHash ===
-          revision.contentHash
+        prepareSectionContent(blockNoteDocumentSchema.parse(envelope.document), revision.sectionId)
+          .contentHash === revision.contentHash
       )
     } catch {
       return false

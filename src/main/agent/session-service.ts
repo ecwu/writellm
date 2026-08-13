@@ -93,6 +93,7 @@ import {
   type WritingSkillRuntime
 } from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
+import type { WritingTaskService } from './writing-task-service'
 import type { AgentToolExecutor } from './tools'
 import {
   buildSessionTitleContext,
@@ -184,6 +185,7 @@ export interface AgentSessionServiceOptions {
   skillRouter?: Pick<WritingSkillRuntime, 'route'> &
     Partial<Pick<WritingSkillRuntime, 'read' | 'validateSelection'>>
   tools?: AgentToolExecutor
+  writingTasks?: Pick<WritingTaskService, 'activeCorrelation' | 'getView'>
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publishEvent?: (event: AgentEventRecord) => void | Promise<void>
   publishDelta?: (event: {
@@ -386,6 +388,7 @@ export class AgentSessionService {
             row.skill_mode === 'explicit' && row.skill_id !== null
               ? { mode: 'explicit', skillId: row.skill_id }
               : { mode: row.skill_mode },
+          writingTask: this.options.writingTasks?.getView(row.agent_session_id, database) ?? null,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           archivedAt: row.archived_at
@@ -719,6 +722,7 @@ export class AgentSessionService {
                     run.provider_preset_id, run.provider_label, run.model_label, run.api_id,
                     run.approval_mode, run.thinking_level, run.model_limits_json,
                     run.editor_context_json, run.error_json, run.skill_snapshot_json,
+                    run.writing_task_id, run.writing_task_step_id,
                     skill_route.model_request_id AS skill_route_model_request_id,
                     skill_route.input_tokens AS skill_route_input_tokens,
                     skill_route.output_tokens AS skill_route_output_tokens,
@@ -751,6 +755,8 @@ export class AgentSessionService {
           editor_context_json: string
           error_json: string | null
           skill_snapshot_json: string
+          writing_task_id: string | null
+          writing_task_step_id: string | null
           skill_route_model_request_id: string | null
           skill_route_input_tokens: number | null
           skill_route_output_tokens: number | null
@@ -790,6 +796,8 @@ export class AgentSessionService {
                   retryCount: row.skill_route_retry_count ?? 0
                 },
           errorCode: safeErrorCode(row.error_json),
+          writingTaskId: row.writing_task_id,
+          writingTaskStepId: row.writing_task_step_id,
           startedAt: row.started_at,
           completedAt: row.completed_at,
           updatedAt: row.updated_at
@@ -2352,15 +2360,19 @@ export class AgentSessionService {
         session.is_first_prompt === 1 && isGenericSessionTitle(session.title)
           ? fallbackSessionTitle(input.prompt)
           : null
+      const taskCorrelation = this.options.writingTasks?.activeCorrelation(
+        input.agentSessionId,
+        database
+      )
       database
         .prepare(
           `INSERT INTO agent_runs (
              agent_run_id, agent_session_id, status, provider_id, model_id,
              provider_preset_id, provider_label, model_label, api_id,
              provider_fingerprint, model_fingerprint, approval_mode, thinking_level, model_limits_json,
-             editor_context_json, skill_snapshot_json,
+             editor_context_json, skill_snapshot_json, writing_task_id, writing_task_step_id,
              error_json, started_at, completed_at, created_at, updated_at
-           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
+           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
         )
         .run(
           input.agentRunId,
@@ -2388,6 +2400,8 @@ export class AgentSessionService {
           JSON.stringify(input.modelLimits),
           JSON.stringify(input.editorContext),
           JSON.stringify(pendingSkillSnapshot(input.skillSelection)),
+          taskCorrelation?.taskId ?? null,
+          taskCorrelation?.stepId ?? null,
           now,
           now,
           now

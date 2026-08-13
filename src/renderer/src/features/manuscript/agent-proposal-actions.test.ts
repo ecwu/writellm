@@ -125,6 +125,8 @@ function proposal(): MutationProposalRecord {
     undoRevisionId: null,
     replacesProposalId: null,
     rejectedReason: null,
+    writingTaskId: null,
+    writingTaskStepId: null,
     createdAt: now,
     updatedAt: now
   }
@@ -164,5 +166,6 @@ function outlineDeleteProposal(targetSectionId: string): MutationProposalRecord 
 const actionResult = {
   outcome: 'applied',
   proposal: proposal(),
-  sectionChanged: null
+  sectionChanged: null,
+  warnings: []
 } satisfies ApproveMutationProposalResult

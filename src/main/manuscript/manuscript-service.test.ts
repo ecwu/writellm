@@ -58,6 +58,87 @@ afterEach(async () => {
 })
 
 describe('ManuscriptService', () => {
+  it('keeps figure identity through metadata edits and replacement undo', async () => {
+    const { database, service } = await fixture()
+    const root = service.assemble().sections[0]
+    if (root === undefined) throw new Error('Missing root fixture')
+    const assetId = '019d0000-0000-4000-8000-000000000501'
+    const now = '2026-07-15T01:00:00.000Z'
+    database.immediate((native) => {
+      native
+        .prepare(
+          `INSERT INTO manuscript_assets (
+             asset_id, sha256, byte_size, mime_type, extension, relative_path, source_type,
+             original_name, generation_request_json, model_request_id, agent_run_id,
+             agent_tool_call_id, created_at, last_referenced_at
+           ) VALUES (?, ?, 1, 'image/png', '.png', ?, 'upload', 'figure.png', NULL, NULL, NULL,
+                     NULL, ?, ?)`
+        )
+        .run(assetId, 'b'.repeat(64), `manuscript/assets/${'b'.repeat(64)}.png`, now, now)
+    })
+    const seeded = service.appendRevision({
+      sectionId: root.section.sectionId,
+      baseRevisionId: root.revision.sectionRevisionId,
+      baseContentHash: root.revision.contentHash,
+      content: [
+        {
+          id: 'figure-block',
+          type: 'image',
+          props: {
+            backgroundColor: 'default',
+            textAlignment: 'center',
+            name: 'Legacy description',
+            url: `writellm-asset:${assetId}`,
+            caption: 'Alpha caption',
+            showPreview: true,
+            previewWidth: 720
+          },
+          children: []
+        }
+      ]
+    })
+    const figureId = seeded.content[0]?.props.figureId
+    expect(seeded).toMatchObject({ contentSchemaVersion: 3 })
+    expect(figureId).toBe(`figure:${root.section.sectionId}:figure-block`)
+    expect(seeded.content[0]?.props.altText).toBe('Legacy description')
+
+    const applied = service.applyReplacementBatch({
+      outlineVersion: service.assemble().outlineVersion,
+      replacement: 'Beta',
+      sections: [
+        {
+          sectionId: root.section.sectionId,
+          baseRevisionId: seeded.sectionRevisionId,
+          baseContentHash: seeded.contentHash,
+          operations: [
+            {
+              target: {
+                kind: 'block_caption',
+                sectionId: root.section.sectionId,
+                revisionId: seeded.sectionRevisionId,
+                blockId: 'figure-block',
+                property: 'caption',
+                range: { from: 0, to: 5 }
+              },
+              sourceSliceHash: createHash('sha256').update('Alpha').digest('hex')
+            }
+          ]
+        }
+      ]
+    })
+    expect(applied.revisions[0]?.content[0]?.props.figureId).toBe(figureId)
+    const undone = service.undoReplacementRevision({
+      sectionId: root.section.sectionId,
+      appliedRevisionId: applied.revisions[0]?.sectionRevisionId ?? ''
+    })
+    expect(undone.content[0]?.props).toMatchObject({
+      figureId,
+      altText: 'Legacy description',
+      caption: 'Alpha caption'
+    })
+    database.close()
+  })
+
   it('applies an atomic replacement batch and appends a guarded undo revision', async () => {
     const { database, service } = await fixture()
     const root = service.assemble().sections[0]

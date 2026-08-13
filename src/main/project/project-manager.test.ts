@@ -21,6 +21,7 @@ import { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
+import type { PdfPublicationRenderer } from '../manuscript/pdf-publication'
 import {
   ProjectManager,
   ProjectSessionError,
@@ -35,7 +36,7 @@ import {
 const temporaryDirectories: string[] = []
 const silentLog = pino({ level: 'silent' })
 
-async function testEnvironment() {
+async function testEnvironment(options?: { renderPdfPublication?: PdfPublicationRenderer }) {
   const parent = await mkdtemp(join(tmpdir(), 'writellm-project-manager-'))
   temporaryDirectories.push(parent)
   const appDatabase = await openAppDatabase({
@@ -48,6 +49,7 @@ async function testEnvironment() {
     applicationVersion: '1.0.0-test',
     logger: silentLog,
     recentProjects,
+    renderPdfPublication: options?.renderPdfPublication,
     lockOptions: { heartbeatIntervalMs: 0 }
   })
   return { parent, appDatabase, recentProjects, manager }
@@ -101,6 +103,43 @@ describe('ProjectManager', () => {
       nextCursor: null
     })
 
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('saves an independent clone, opens it without history, and can reopen the source', async () => {
+    const { parent, appDatabase, recentProjects, manager } = await testEnvironment()
+    const sourceRoot = join(parent, 'Clone source.writellm')
+    const created = await manager.create({ parentDirectory: parent, name: 'Clone source' })
+    const source = created.activeProject
+    if (source === null) throw new Error('Missing source project')
+    await manager
+      .assertActiveSession(source.projectSessionId)
+      .database.kysely.updateTable('manuscript_briefs')
+      .set({ title: 'Copied manuscript title' })
+      .execute()
+
+    const cloneRoot = join(parent, '克隆副本.writellm')
+    const cloned = await manager.cloneProject(source.projectSessionId, cloneRoot)
+    const clone = cloned.activeProject
+    if (clone === null) throw new Error('Missing cloned project')
+    expect(clone.projectId).not.toBe(source.projectId)
+    expect(clone.projectSessionId).not.toBe(source.projectSessionId)
+    await expect(manager.versionHistoryState(clone.projectSessionId)).resolves.toBe('uninitialized')
+    await expect(
+      manager
+        .assertActiveSession(clone.projectSessionId)
+        .database.kysely.selectFrom('manuscript_briefs')
+        .select('title')
+        .executeTakeFirstOrThrow()
+    ).resolves.toEqual({ title: 'Copied manuscript title' })
+    expect((await recentProjects.list()).map((project) => project.projectId)).toEqual(
+      expect.arrayContaining([source.projectId, clone.projectId])
+    )
+
+    await manager.close()
+    const reopened = await manager.open(sourceRoot)
+    expect(reopened.activeProject?.projectId).toBe(source.projectId)
     await manager.close()
     appDatabase.close()
   })
@@ -543,6 +582,38 @@ describe('ProjectManager', () => {
     await expect(readFile(join(destination, 'manuscript.json'), 'utf8')).resolves.toContain(
       'Untitled Section'
     )
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('cancels an active PDF export without serializing the cancellation behind it', async () => {
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const renderPdfPublication: PdfPublicationRenderer = ({ signal }) =>
+      new Promise((_resolve, reject) => {
+        markStarted?.()
+        signal?.addEventListener(
+          'abort',
+          () => reject(new Error('PDF publication was cancelled')),
+          { once: true }
+        )
+      })
+    const { parent, appDatabase, manager } = await testEnvironment({ renderPdfPublication })
+    const created = await existingProject(parent, 'cancel-export-source')
+    const opened = await manager.open(created.projectRoot)
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const destination = join(parent, 'cancelled PDF')
+
+    const exporting = manager.exportManuscript(sessionId, destination, 'pdf')
+    await started
+    expect(manager.cancelManuscriptExport(sessionId)).toEqual({ cancelled: true })
+    await expect(exporting).rejects.toThrow('Failed to export the project manuscript')
+    expect(manager.cancelManuscriptExport(sessionId)).toEqual({ cancelled: false })
+    await expect(access(destination)).rejects.toMatchObject({ code: 'ENOENT' })
+
     await manager.close()
     appDatabase.close()
   })

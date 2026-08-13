@@ -35,6 +35,16 @@ describe('BlockNote 0.47.2 native JSON characterization', () => {
           id: 'table-id',
           type: 'table',
           content: { type: 'tableContent', rows: [{ cells: [['A'], ['B']] }] }
+        },
+        {
+          id: 'figure-id',
+          type: 'image',
+          props: {
+            url: 'writellm-asset:019d0000-0000-4000-8000-000000000451',
+            caption: 'A caption',
+            figureId: 'figure:stable',
+            altText: 'An alternative'
+          }
         }
       ]
     })
@@ -45,6 +55,11 @@ describe('BlockNote 0.47.2 native JSON characterization', () => {
     expect(saved[6].content.rows[0].cells[0]).toMatchObject({
       type: 'tableCell',
       props: { colspan: 1, rowspan: 1, textAlignment: 'left' }
+    })
+    expect(saved[7].props).toMatchObject({
+      figureId: 'figure:stable',
+      altText: 'An alternative',
+      caption: 'A caption'
     })
   })
 })

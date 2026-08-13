@@ -11,12 +11,20 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import JSZip from 'jszip'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MANUSCRIPT_LOSS_REPORT_FILE } from '../../shared/contracts/manuscript-export'
+import {
+  MANUSCRIPT_DOCX_CONTENT_FILE,
+  MANUSCRIPT_LATEX_CONTENT_FILE,
+  MANUSCRIPT_PDF_CONTENT_FILE,
+  MANUSCRIPT_LOSS_REPORT_FILE,
+  manuscriptNativeExportSchema
+} from '../../shared/contracts/manuscript-export'
 import type { SnapshotBarrier } from '../project/project-snapshot'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
+import { AnnotationService } from './annotation-service'
 import { ManuscriptAssetService } from './asset-service'
 import { createManuscriptExport, validateStagedExport } from './manuscript-export'
 import { ManuscriptService } from './manuscript-service'
@@ -32,10 +40,28 @@ afterEach(async () => {
 describe('whole-manuscript export', () => {
   it('publishes deterministic native and Markdown packages with verified referenced assets', async () => {
     const fixture = await exportFixture()
+    const annotationMarker = 'PRIVATE ANNOTATION MUST NOT BE EXPORTED'
+    const currentSection = fixture.options.manuscript.assemble().sections[0]
+    if (currentSection === undefined) throw new Error('Missing export section')
+    new AnnotationService({ database: fixture.database, log }).create({
+      sectionId: currentSection.section.sectionId,
+      blockId: 'paragraph',
+      kind: 'todo',
+      body: annotationMarker
+    })
     const barrierEvents: string[] = []
     const barrier = recordingBarrier(barrierEvents)
     const firstDestination = join(fixture.parent, 'Native export α')
     const secondDestination = join(fixture.parent, 'Native export β')
+    const publicationOptions = {
+      schemaVersion: 1 as const,
+      pageSize: 'letter' as const,
+      marginsMm: { top: 18, right: 19, bottom: 20, left: 21 },
+      template: 'report' as const,
+      includeTableOfContents: true,
+      includeReferences: true,
+      mermaidFallback: 'source' as const
+    }
 
     const first = await createManuscriptExport({
       ...fixture.options,
@@ -63,6 +89,17 @@ describe('whole-manuscript export', () => {
     const native = await readFile(join(firstDestination, 'manuscript.json'), 'utf8')
     expect(native).toContain(fixture.asset.logicalUrl)
     expect(native).not.toContain(fixture.projectRoot)
+    const parsedNative = manuscriptNativeExportSchema.parse(JSON.parse(native) as unknown)
+    expect(native).not.toContain(annotationMarker)
+    const exportedImage = parsedNative.manuscript.sections[0]?.revision.content.find(
+      (block) => block.type === 'image'
+    )
+    expect(exportedImage?.props).toEqual(
+      expect.objectContaining({
+        altText: 'Fixture image',
+        figureId: expect.stringMatching(/^figure:/)
+      })
+    )
     await expect(
       readFile(join(firstDestination, first.manifest.assets[0]?.relativePath ?? 'missing'))
     ).resolves.toEqual(fixture.imageBytes)
@@ -76,6 +113,7 @@ describe('whole-manuscript export', () => {
       barrier: recordingBarrier([])
     })
     const markdownText = await readFile(join(markdownDestination, 'manuscript.md'), 'utf8')
+    expect(markdownText).not.toContain(annotationMarker)
     expect(markdownText).toContain('# Untitled Section')
     expect(markdownText).toContain('Current body [1]')
     expect(markdownText).toContain(
@@ -97,6 +135,102 @@ describe('whole-manuscript export', () => {
       ])
     )
     await expect(validateStagedExport(markdownDestination)).resolves.toEqual(markdown.manifest)
+
+    const firstDocxDestination = join(fixture.parent, 'Word export α')
+    const secondDocxDestination = join(fixture.parent, 'Word export β')
+    const firstDocx = await createManuscriptExport({
+      ...fixture.options,
+      destination: firstDocxDestination,
+      kind: 'docx',
+      publicationOptions,
+      barrier: recordingBarrier([])
+    })
+    const secondDocx = await createManuscriptExport({
+      ...fixture.options,
+      destination: secondDocxDestination,
+      kind: 'docx',
+      publicationOptions,
+      barrier: recordingBarrier([])
+    })
+    expect(firstDocx.manifest.content.relativePath).toBe(MANUSCRIPT_DOCX_CONTENT_FILE)
+    expect(secondDocx.manifest.content.sha256).toBe(firstDocx.manifest.content.sha256)
+    expect(
+      (await readFile(join(firstDocxDestination, MANUSCRIPT_DOCX_CONTENT_FILE))).subarray(0, 2)
+    ).toEqual(Buffer.from('PK'))
+    const docx = await JSZip.loadAsync(
+      await readFile(join(firstDocxDestination, MANUSCRIPT_DOCX_CONTENT_FILE))
+    )
+    expect(await docx.file('word/document.xml')?.async('string')).not.toContain(annotationMarker)
+    expect(firstDocx.lossReport?.losses).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'mermaid_source_fallback' })])
+    )
+    await expect(validateStagedExport(firstDocxDestination)).resolves.toEqual(firstDocx.manifest)
+
+    const firstLatexDestination = join(fixture.parent, 'LaTeX export α')
+    const secondLatexDestination = join(fixture.parent, 'LaTeX export β')
+    const firstLatex = await createManuscriptExport({
+      ...fixture.options,
+      destination: firstLatexDestination,
+      kind: 'latex',
+      publicationOptions,
+      barrier: recordingBarrier([])
+    })
+    const secondLatex = await createManuscriptExport({
+      ...fixture.options,
+      destination: secondLatexDestination,
+      kind: 'latex',
+      publicationOptions,
+      barrier: recordingBarrier([])
+    })
+    expect(firstLatex.manifest.content.relativePath).toBe(MANUSCRIPT_LATEX_CONTENT_FILE)
+    expect(secondLatex.manifest.content.sha256).toBe(firstLatex.manifest.content.sha256)
+    expect(firstLatex.manifest.publicationSourceHash).toMatch(/^[a-f0-9]{64}$/u)
+    const latex = await readFile(join(firstLatexDestination, MANUSCRIPT_LATEX_CONTENT_FILE), 'utf8')
+    expect(latex).not.toContain(annotationMarker)
+    expect(latex).toContain('\\documentclass[UTF8,letterpaper]{ctexart}')
+    expect(latex).toContain(firstLatex.manifest.assets[0]?.relativePath)
+    expect(firstLatex.lossReport?.losses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'bibliography_metadata_unavailable' }),
+        expect.objectContaining({ code: 'mermaid_source_fallback' })
+      ])
+    )
+    await expect(validateStagedExport(firstLatexDestination)).resolves.toEqual(firstLatex.manifest)
+
+    const pdfDestination = join(fixture.parent, 'PDF export')
+    const renderPdf = vi.fn(async () => ({
+      bytes: Buffer.from('%PDF-1.7\nfixture'),
+      losses: [
+        {
+          code: 'mermaid_source_fallback' as const,
+          sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc001',
+          blockId: 'diagram',
+          message: 'Mermaid source fallback'
+        }
+      ]
+    }))
+    const pdf = await createManuscriptExport({
+      ...fixture.options,
+      destination: pdfDestination,
+      kind: 'pdf',
+      publicationOptions,
+      barrier: recordingBarrier([]),
+      renderPdf
+    })
+    expect(pdf.manifest.content.relativePath).toBe(MANUSCRIPT_PDF_CONTENT_FILE)
+    expect(pdf.manifest.publicationSourceHash).toMatch(/^[a-f0-9]{64}$/u)
+    expect(renderPdf).toHaveBeenCalledOnce()
+    expect(renderPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assembly: expect.objectContaining({ options: publicationOptions })
+      })
+    )
+    expect(firstDocx.manifest.publicationSourceHash).toBe(firstLatex.manifest.publicationSourceHash)
+    expect(firstLatex.manifest.publicationSourceHash).toBe(pdf.manifest.publicationSourceHash)
+    expect(
+      (await readFile(join(pdfDestination, MANUSCRIPT_PDF_CONTENT_FILE))).subarray(0, 5)
+    ).toEqual(Buffer.from('%PDF-'))
+    await expect(validateStagedExport(pdfDestination)).resolves.toEqual(pdf.manifest)
 
     fixture.database.close()
   })
@@ -131,6 +265,41 @@ describe('whole-manuscript export', () => {
       })
     ).rejects.toThrow('Whole-manuscript export failed')
     await expect(access(interrupted)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(
+      (await readdir(fixture.parent)).filter((name) => name.endsWith('.export.partial'))
+    ).toEqual([])
+    fixture.database.close()
+  })
+
+  it('cancels PDF rendering, resumes the barrier, and never publishes partial output', async () => {
+    const fixture = await exportFixture()
+    const destination = join(fixture.parent, 'cancelled-pdf')
+    const controller = new AbortController()
+    const events: string[] = []
+
+    await expect(
+      createManuscriptExport({
+        ...fixture.options,
+        destination,
+        kind: 'pdf',
+        barrier: recordingBarrier(events),
+        signal: controller.signal,
+        renderPdf: async ({ signal }) => {
+          controller.abort()
+          if (signal?.aborted) throw new Error('PDF publication was cancelled')
+          return { bytes: Buffer.from('%PDF-'), losses: [] }
+        }
+      })
+    ).rejects.toThrow('Whole-manuscript export failed')
+
+    expect(events).toEqual([
+      'pause-mutations',
+      'flush',
+      'pause-publishers',
+      'resume-publishers',
+      'resume-mutations'
+    ])
+    await expect(access(destination)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(
       (await readdir(fixture.parent)).filter((name) => name.endsWith('.export.partial'))
     ).toEqual([])
@@ -274,6 +443,22 @@ async function exportFixture(): Promise<{
     log,
     now: () => now
   })
+  database.immediate((database) =>
+    database
+      .prepare(
+        `INSERT INTO knowledge_items (
+          knowledge_item_id, file_record_id, original_name, display_name,
+          state, error_code, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 'stored', NULL, ?, ?)`
+      )
+      .run(
+        '019c6a5c-8d34-4a8e-a602-3d37a52dc902',
+        'Export Source.pdf',
+        'Export Source',
+        now.toISOString(),
+        now.toISOString()
+      )
+  )
   const assetService = new ManuscriptAssetService({
     projectRoot,
     projectId: manifest.projectId,

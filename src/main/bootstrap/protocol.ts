@@ -4,6 +4,7 @@ import { APP_SCHEME } from '../../shared/security/urls'
 import { resolveRendererAsset } from './protocol-path'
 
 export { APP_SCHEME } from '../../shared/security/urls'
+export const PDF_ASSET_SCHEME = 'writellm-pdf-asset'
 
 export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([
@@ -14,6 +15,15 @@ export function registerAppScheme(): void {
         secure: true,
         supportFetchAPI: true,
         corsEnabled: true
+      }
+    },
+    {
+      scheme: PDF_ASSET_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: false
       }
     }
   ])

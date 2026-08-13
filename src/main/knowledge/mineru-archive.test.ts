@@ -100,6 +100,16 @@ describe('extractMineruArchive', () => {
         maxExpandedBytes: 100
       })
     ).rejects.toThrow('expanded-size')
+
+    const compressionBomb = join(root, 'compression-bomb.zip')
+    await createZip(compressionBomb, [['large.md', 'x'.repeat(100_000)]])
+    await expect(
+      extractMineruArchive({
+        archivePath: compressionBomb,
+        destinationRoot: join(root, 'compression-bomb-out'),
+        maxExpandedBytes: 200_000
+      })
+    ).rejects.toThrow('compression ratio')
   })
 })
 

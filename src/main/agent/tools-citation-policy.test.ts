@@ -57,6 +57,73 @@ describe('Main Agent citation policy', () => {
       expect.objectContaining({ agentSessionId, agentRunId, modelRequestId })
     )
   })
+
+  it('blocks the generic Brief tool from bypassing the Writing Rules contract', async () => {
+    const { tools, propose } = createTools()
+
+    await expect(
+      tools.execute({
+        ...baseExecution('submit_brief_change'),
+        args: { changes: { extensible: { writingRulesV1: { schemaVersion: 1, rules: [] } } } }
+      })
+    ).rejects.toThrow()
+    expect(propose).not.toHaveBeenCalled()
+  })
+
+  it('normalizes a batch Writing Rules proposal without a separate Agent flow', async () => {
+    const { tools, propose } = createTools()
+
+    await tools.execute({
+      ...baseExecution('submit_writing_rules_change'),
+      args: {
+        operations: [
+          {
+            type: 'add',
+            clientRef: 'llm-term',
+            rule: {
+              category: 'translation',
+              instruction: 'Translate LLM consistently.',
+              preferredForm: '大型语言模型',
+              discouragedForms: ['大语言模型'],
+              rationale: null,
+              active: true
+            }
+          },
+          {
+            type: 'add',
+            clientRef: 'academic-tone',
+            rule: {
+              category: 'academic',
+              instruction: 'Qualify causal claims.',
+              preferredForm: null,
+              discouragedForms: [],
+              rationale: null,
+              active: true
+            }
+          }
+        ]
+      }
+    })
+
+    expect(propose).toHaveBeenCalledWith(
+      'submit_writing_rules_change',
+      expect.objectContaining({
+        baseBriefVersion: 1,
+        changes: {
+          extensible: {
+            writingRulesV1: {
+              schemaVersion: 1,
+              rules: [
+                expect.objectContaining({ instruction: 'Translate LLM consistently.' }),
+                expect.objectContaining({ instruction: 'Qualify causal claims.' })
+              ]
+            }
+          }
+        }
+      }),
+      expect.objectContaining({ agentSessionId, agentRunId, modelRequestId })
+    )
+  })
 })
 
 function createTools() {
@@ -112,4 +179,30 @@ function submitText(tools: MainAgentTools, text: string, citationIds: string[]) 
     } as never,
     signal: new AbortController().signal
   })
+}
+
+function baseExecution(toolName: 'submit_brief_change' | 'submit_writing_rules_change') {
+  return {
+    toolName,
+    editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+    agentSessionId,
+    agentRunId,
+    toolCallId: 'tool-call',
+    toolCallEventId: 'tool-call-event',
+    modelRequestId,
+    snapshot: {
+      snapshotId: revisionId,
+      observedAt: '2026-08-10T00:00:00.000Z',
+      workspace: {
+        manuscriptId: 'manuscript',
+        outlineVersion: 1,
+        brief: { version: 1, extensible: {} },
+        sections: []
+      },
+      sectionContents: new Map(),
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
+      reviewResources: null
+    } as never,
+    signal: new AbortController().signal
+  }
 }

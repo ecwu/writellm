@@ -8,20 +8,25 @@ import {
   manuscriptIdSchema
 } from './manuscript'
 import { projectSessionIdSchema } from './projects'
+import { publicationPresetIdSchema } from './publication-presets'
 
 export const MANUSCRIPT_EXPORT_FORMAT = 'writellm-manuscript-export'
 export const MANUSCRIPT_EXPORT_FORMAT_VERSION = 1
 export const MANUSCRIPT_EXPORT_MANIFEST_FILE = 'writellm.manuscript-export.json'
 export const MANUSCRIPT_NATIVE_CONTENT_FILE = 'manuscript.json'
 export const MANUSCRIPT_MARKDOWN_CONTENT_FILE = 'manuscript.md'
+export const MANUSCRIPT_DOCX_CONTENT_FILE = 'manuscript.docx'
+export const MANUSCRIPT_LATEX_CONTENT_FILE = 'manuscript.tex'
+export const MANUSCRIPT_PDF_CONTENT_FILE = 'manuscript.pdf'
 export const MANUSCRIPT_LOSS_REPORT_FILE = 'writellm.loss-report.json'
 
-export const manuscriptExportKindSchema = z.enum(['native', 'markdown'])
+export const manuscriptExportKindSchema = z.enum(['native', 'markdown', 'docx', 'latex', 'pdf'])
 
 export const manuscriptExportInputSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,
-    kind: manuscriptExportKindSchema
+    kind: manuscriptExportKindSchema,
+    presetId: publicationPresetIdSchema.optional()
   })
   .strict()
 
@@ -54,7 +59,18 @@ export const manuscriptMarkdownLossSchema = z
       'table_multiple_header_rows',
       'nested_block_structure',
       'preview_width',
-      'citation_numbering'
+      'citation_numbering',
+      'missing_figure_caption',
+      'missing_figure_alt_text',
+      'empty_section',
+      'mermaid_requires_rendering',
+      'mermaid_source_fallback',
+      'math_text_fallback',
+      'webp_unsupported',
+      'bibliography_metadata_unavailable',
+      'latex_table_span_fallback',
+      'latex_verbatim_sanitized',
+      'pdf_toc_page_unavailable'
     ]),
     sectionId: z.string().min(1).max(256),
     blockId: z.string().min(1).max(256),
@@ -94,6 +110,7 @@ export const manuscriptExportManifestSchema = z
     manuscriptId: manuscriptIdSchema,
     createdAt: z.iso.datetime(),
     sourceAppVersion: z.string().min(1).max(100),
+    publicationSourceHash: contentHashSchema.optional(),
     content: exportedFileSchema,
     assetCount: z.number().int().nonnegative().max(10_000),
     assetInventorySha256: contentHashSchema,
@@ -123,6 +140,8 @@ export const manuscriptExportResultSchema = z.discriminatedUnion('created', [
     })
     .strict()
 ])
+
+export const manuscriptExportCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
 
 export type ManuscriptExportKind = z.infer<typeof manuscriptExportKindSchema>
 export type ManuscriptExportAsset = z.infer<typeof manuscriptExportAssetSchema>

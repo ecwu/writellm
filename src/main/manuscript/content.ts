@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto'
 import {
+  blockNoteDocumentSchema,
+  type BlockNoteDocument,
+  normalizeFigureMetadata,
   SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_COUNT_ALGORITHM_VERSION
 } from '../../shared/contracts/manuscript'
@@ -10,7 +13,7 @@ const cjkCharacter = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Sc
 const whitespace = /\s/u
 
 export interface PreparedSectionContent {
-  content: unknown[]
+  content: BlockNoteDocument
   contentJson: string
   contentHash: string
   contentSchemaVersion: typeof SECTION_CONTENT_SCHEMA_VERSION
@@ -107,7 +110,7 @@ export function extractSectionAgentText(content: readonly unknown[]): string {
         : undefined
     let body: string
     if (block.type === 'image') {
-      body = [props?.name, props?.caption]
+      body = [props?.altText ?? props?.name, props?.caption]
         .filter((item): item is string => typeof item === 'string' && item.length > 0)
         .join('\n')
     } else if (block.type === 'mermaid' || block.type === 'math') {
@@ -144,13 +147,20 @@ export function countSectionText(text: string): { wordCount: number; characterCo
   return { wordCount, characterCount }
 }
 
-export function prepareSectionContent(content: unknown[]): PreparedSectionContent {
-  const canonical = canonicalize(content, new Set()) as unknown[]
+export function prepareSectionContent(
+  content: unknown[],
+  sectionId?: string
+): PreparedSectionContent {
+  const preparedContent =
+    sectionId === undefined
+      ? (content as BlockNoteDocument)
+      : normalizeFigureMetadata(blockNoteDocumentSchema.parse(content), sectionId)
+  const canonical = canonicalize(preparedContent, new Set()) as BlockNoteDocument
   const contentJson = JSON.stringify(canonical)
   const contentHash = createHash('sha256').update(contentJson).digest('hex')
-  const counts = countSectionText(stripReadableCitations(extractSectionText(content)))
+  const counts = countSectionText(stripReadableCitations(extractSectionText(preparedContent)))
   return {
-    content,
+    content: preparedContent,
     contentJson,
     contentHash,
     contentSchemaVersion: SECTION_CONTENT_SCHEMA_VERSION,

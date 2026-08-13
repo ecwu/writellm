@@ -1,4 +1,10 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
+import {
+  AGENT_QUICK_ACTIONS,
+  agentQuickActionSelectedTextSchema,
+  type AgentQuickActionId,
+  type AgentQuickActionRequest
+} from '../../../../shared/contracts/agent-quick-actions'
 import type { ManuscriptSearchTargetContract } from '../../../../shared/contracts/manuscript-search'
 import type {
   ExpandedCitation,
@@ -6,27 +12,56 @@ import type {
 } from '../../../../shared/contracts/search'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
 import {
+  FormattingToolbar,
+  FormattingToolbarController,
+  getFormattingToolbarItems,
   getDefaultReactSlashMenuItems,
   SuggestionMenuController,
   useCreateBlockNote
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
-import { AlertCircle, Check, FileSearch, Sigma, Workflow } from 'lucide-react'
+import {
+  AlignLeft,
+  AlertCircle,
+  Check,
+  FileSearch,
+  ListMinus,
+  ListPlus,
+  MessageSquareText,
+  ScanSearch,
+  Sigma,
+  Sparkles,
+  WandSparkles,
+  Workflow
+} from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { useTheme } from '@/theme-provider'
 import { CitationCandidatePicker, ExpandedCitationPreview } from '../knowledge/citation-preview'
 import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
-import { logicalAssetId, resolveProjectAssetUrl } from './project-asset-url'
+import { resolveProjectAssetUrl } from './project-asset-url'
 import {
   readableCitationExtension,
   refreshReadableCitationDecorations,
@@ -42,6 +77,13 @@ export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'confl
 export interface EditorSelectionContext {
   activeBlockId: string
   selectedBlockIds: string[]
+  selectedText: string | null
+}
+
+export interface EditorExactSelectionSnapshot extends EditorSelectionContext {
+  selectedText: string
+  capturedAt: number
+  capturedRevisionId: string
 }
 
 export interface SectionEditorHandle {
@@ -54,11 +96,12 @@ export interface SectionEditorHandle {
     bodyRequired: boolean
   }): Promise<void>
   releaseMutationBarrier(): void
-  importMarkdown(): Promise<void>
   exportNativeJson(): Promise<void>
   exportMarkdown(): Promise<void>
   revealSearchTarget(target: ManuscriptSearchTargetContract): boolean
+  revealBlock(blockId: string): boolean
   clearSearchTarget(): void
+  captureSelection(): EditorExactSelectionSnapshot | null
 }
 
 type CitationDialogState =
@@ -87,6 +130,11 @@ export const SectionEditor = forwardRef<
     onCitationDocumentChange?(document: BlockNoteDocument): void
     onSaveStateChange?(state: SaveState): void
     onSelectionContextChange?(context: EditorSelectionContext): void
+    onQuickActionRequest?(
+      request: AgentQuickActionRequest,
+      selection: EditorExactSelectionSnapshot
+    ): void
+    onQuickActionError?(message: string): void
     onSearchTargetInvalidated?(): void
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
@@ -173,6 +221,10 @@ export const SectionEditor = forwardRef<
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
   const [citationDialog, setCitationDialog] = useState<CitationDialogState | null>(null)
+  const [quickActionMenuOpen, setQuickActionMenuOpen] = useState(false)
+  const [customQuickActionOpen, setCustomQuickActionOpen] = useState(false)
+  const [customInstruction, setCustomInstruction] = useState('')
+  const [customSelection, setCustomSelection] = useState<EditorExactSelectionSnapshot | null>(null)
   const citationRequestSequenceRef = useRef(0)
   const citationTriggerRef = useRef<HTMLElement | null>(null)
   const dirtyRef = useRef(false)
@@ -180,6 +232,64 @@ export const SectionEditor = forwardRef<
   const runningRef = useRef<Promise<void> | null>(null)
   const replacingImportedDocumentRef = useRef(false)
   const saveBlockedRef = useRef(false)
+  const lastExactSelectionRef = useRef<EditorExactSelectionSnapshot | null>(null)
+
+  const captureSelection = useCallback((): EditorExactSelectionSnapshot | null => {
+    const selection = editor.getSelection()
+    const parsedText = agentQuickActionSelectedTextSchema.safeParse(editor.getSelectedText())
+    if (selection !== undefined && parsedText.success && selection.blocks.length > 0) {
+      const selectedBlockIds = selection.blocks.map((block) => block.id)
+      const cursorBlockId = editor.getTextCursorPosition().block.id
+      const snapshot = {
+        activeBlockId: selectedBlockIds.includes(cursorBlockId)
+          ? cursorBlockId
+          : (selectedBlockIds[0] ?? cursorBlockId),
+        selectedBlockIds,
+        selectedText: parsedText.data,
+        capturedAt: Date.now(),
+        capturedRevisionId: baseRef.current.sectionRevisionId
+      }
+      lastExactSelectionRef.current = snapshot
+      return snapshot
+    }
+    lastExactSelectionRef.current = null
+    return null
+  }, [editor])
+
+  const requestQuickAction = useCallback(
+    (action: AgentQuickActionId): void => {
+      const selection = captureSelection()
+      if (selection === null) {
+        props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
+        return
+      }
+      if (action === 'custom') {
+        setCustomSelection(selection)
+        setCustomInstruction('')
+        setCustomQuickActionOpen(true)
+        return
+      }
+      props.onQuickActionRequest?.({ action }, selection)
+    },
+    [captureSelection, props.onQuickActionError, props.onQuickActionRequest]
+  )
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== 'k')
+        return
+      if (!editor.prosemirrorView.hasFocus()) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (captureSelection() === null) {
+        props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
+        return
+      }
+      setQuickActionMenuOpen(true)
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [captureSelection, editor, props.onQuickActionError])
 
   const resolveCitation = useCallback(
     (request: ReadableCitationActivation): void => {
@@ -293,56 +403,6 @@ export const SectionEditor = forwardRef<
     }
   }
 
-  const importMarkdown = async (): Promise<void> => {
-    if (readOnly || saveState === 'conflict') return
-    const file = await new Promise<File | null>((resolve) => {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = '.md,text/markdown,text/plain'
-      input.onchange = () => resolve(input.files?.[0] ?? null)
-      input.oncancel = () => resolve(null)
-      input.click()
-    })
-    if (file === null) return
-
-    try {
-      if (runningRef.current !== null) await runningRef.current
-      const base = baseRef.current
-      const parsedBlocks = await file
-        .text()
-        .then(preprocessRichMarkdown)
-        .then((markdown) => editor.tryParseMarkdownToBlocks(markdown))
-        .then(convertImportedRichBlocks)
-      const blocks = await resolveImportedImages(parsedBlocks, props.projectSessionId)
-      assertSafeImportedImages(blocks)
-      replacingImportedDocumentRef.current = true
-      editor.replaceBlocks(editor.document, blocks)
-      setSaveState('saving')
-      const document = JSON.parse(JSON.stringify(blocks)) as BlockNoteDocument
-      const response = await window.desktop.editor.importMarkdown({
-        projectSessionId: props.projectSessionId,
-        sectionId: base.sectionId,
-        baseRevisionId: base.sectionRevisionId,
-        baseContentHash: base.contentHash,
-        document
-      })
-      if (!response.ok) throw new Error(response.error.message)
-      const result = response.result
-      baseRef.current = result.revision
-      dirtyRef.current = false
-      saveBlockedRef.current = false
-      props.onRevision(result.revision)
-      setSaveState(
-        result.disposition === 'saved_materialization_pending' ? 'mirror-pending' : 'saved'
-      )
-    } catch (error) {
-      dirtyRef.current = true
-      saveBlockedRef.current = true
-      setSaveState('failed')
-      throw error
-    }
-  }
-
   const exportNativeJson = async (): Promise<void> => {
     try {
       await window.desktop.editor.exportNativeJson({
@@ -419,7 +479,6 @@ export const SectionEditor = forwardRef<
     releaseMutationBarrier() {
       setReadOnly(false)
     },
-    importMarkdown,
     exportNativeJson,
     exportMarkdown,
     revealSearchTarget(target) {
@@ -435,10 +494,22 @@ export const SectionEditor = forwardRef<
       })
       return match !== null
     },
+    revealBlock(blockId) {
+      const block = editor.prosemirrorView.dom.querySelector<HTMLElement>(
+        `[data-id="${CSS.escape(blockId)}"]`
+      )
+      block?.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      })
+      block?.focus({ preventScroll: true })
+      return block !== null
+    },
     clearSearchTarget() {
       searchTargetRef.current = null
       refreshSearchHighlight(editor.prosemirrorView)
-    }
+    },
+    captureSelection
   }))
 
   return (
@@ -448,8 +519,10 @@ export const SectionEditor = forwardRef<
         editor={editor}
         theme={resolvedTheme}
         slashMenu={false}
+        formattingToolbar={false}
         editable={!readOnly && saveState !== 'conflict'}
         onChange={() => {
+          lastExactSelectionRef.current = null
           props.onCitationDocumentChange?.(
             JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument
           )
@@ -466,9 +539,14 @@ export const SectionEditor = forwardRef<
         onSelectionChange={() => {
           const cursor = editor.getTextCursorPosition()
           const selection = editor.getSelection()
+          if (selection === undefined || editor.getSelectedText().trim().length === 0) {
+            lastExactSelectionRef.current = null
+          }
           props.onSelectionContextChange?.({
             activeBlockId: cursor.block.id,
-            selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id]
+            selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id],
+            selectedText:
+              selection === undefined ? null : (captureSelection()?.selectedText ?? null)
           })
         }}
         className='writing-editor min-h-[32rem] py-6'
@@ -507,6 +585,15 @@ export const SectionEditor = forwardRef<
               query
             )
           }
+        />
+        <FormattingToolbarController
+          formattingToolbar={() => (
+            <QuickActionFormattingToolbar
+              open={quickActionMenuOpen}
+              onOpenChange={setQuickActionMenuOpen}
+              onAction={requestQuickAction}
+            />
+          )}
         />
       </BlockNoteView>
       <div className='flex justify-end px-1 py-2'>
@@ -602,9 +689,115 @@ export const SectionEditor = forwardRef<
           trigger.focus()
         }}
       />
+      <Dialog open={customQuickActionOpen} onOpenChange={setCustomQuickActionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Custom quick action</DialogTitle>
+            <DialogDescription>
+              Give the Agent one instruction for this exact selection. The result will use the
+              normal proposal and review flow.
+            </DialogDescription>
+          </DialogHeader>
+          {customSelection === null ? null : (
+            <Alert>
+              <AlertTitle>Selected text</AlertTitle>
+              <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
+                {customSelection.selectedText}
+              </AlertDescription>
+            </Alert>
+          )}
+          <Textarea
+            autoFocus
+            aria-label='Custom Agent instruction'
+            value={customInstruction}
+            maxLength={4_096}
+            placeholder='For example: Make this more direct while preserving the citations.'
+            onChange={(event) => setCustomInstruction(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setCustomQuickActionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={customInstruction.trim().length === 0 || customSelection === null}
+              onClick={() => {
+                if (customSelection === null || customInstruction.trim().length === 0) return
+                props.onQuickActionRequest?.(
+                  { action: 'custom', customInstruction: customInstruction.trim() },
+                  customSelection
+                )
+                setCustomQuickActionOpen(false)
+              }}
+            >
+              <WandSparkles data-icon='inline-start' /> Ask Agent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })
+
+const quickActionIcons = {
+  rewrite: WandSparkles,
+  shorten: ListMinus,
+  expand: ListPlus,
+  adjust_tone: MessageSquareText,
+  check_evidence: ScanSearch,
+  align_manuscript: AlignLeft,
+  custom: Sparkles
+} as const
+
+function QuickActionFormattingToolbar(props: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  onAction(action: AgentQuickActionId): void
+}): React.JSX.Element {
+  return (
+    <FormattingToolbar>
+      {getFormattingToolbarItems()}
+      <DropdownMenu open={props.open} onOpenChange={props.onOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <Button variant='ghost' size='sm' aria-label='Open Agent quick actions'>
+            <WandSparkles data-icon='inline-start' /> AI
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align='start'
+          aria-label='Quick AI actions'
+          className='w-64 max-w-[calc(100vw-2rem)]'
+        >
+          <DropdownMenuLabel>Quick AI actions</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            {AGENT_QUICK_ACTIONS.slice(0, 6).map((action) => {
+              const Icon = quickActionIcons[action.id]
+              return (
+                <DropdownMenuItem key={action.id} onSelect={() => props.onAction(action.id)}>
+                  <Icon />
+                  <span className='flex min-w-0 flex-col'>
+                    <span>{action.label}</span>
+                    <span className='text-xs text-muted-foreground'>{action.description}</span>
+                  </span>
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem onSelect={() => props.onAction('custom')}>
+              <Sparkles />
+              <span className='flex min-w-0 flex-col'>
+                <span>Custom instruction</span>
+                <span className='text-xs text-muted-foreground'>Tell the Agent what to do</span>
+              </span>
+              <DropdownMenuShortcut>⇧⌘K</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </FormattingToolbar>
+  )
+}
 
 function CitationSourceDialog(props: {
   projectSessionId: string
@@ -726,73 +919,6 @@ function fileToBase64(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
-}
-
-function preprocessRichMarkdown(markdown: string): string {
-  return markdown.replace(
-    /(^|\n)\$\$[ \t]*\n?([\s\S]*?)\n?[ \t]*\$\$(?=\n|$)/g,
-    (_match, prefix: string, source: string) => `${prefix}\`\`\`writellm-math\n${source}\n\`\`\``
-  )
-}
-
-function convertImportedRichBlocks(blocks: ApprovedEditorBlock[]): ApprovedEditorBlock[] {
-  return blocks.map((block) => {
-    const children = convertImportedRichBlocks(block.children)
-    if (block.type !== 'codeBlock') return { ...block, children }
-    const language = block.props.language.toLowerCase()
-    const source = inlineText(block.content)
-    if (language === 'mermaid' || language === 'writellm-math') {
-      return {
-        id: block.id,
-        type: language === 'mermaid' ? 'mermaid' : 'math',
-        props: {
-          source,
-          caption: '',
-          textAlignment: 'center',
-          previewWidth: 720
-        },
-        children
-      } as ApprovedEditorBlock
-    }
-    return { ...block, children }
-  })
-}
-
-function assertSafeImportedImages(blocks: ApprovedEditorBlock[]): void {
-  for (const block of blocks) {
-    if (block.type === 'image' && block.props.url !== '') logicalAssetId(block.props.url)
-    assertSafeImportedImages(block.children)
-  }
-}
-
-async function resolveImportedImages(
-  blocks: ApprovedEditorBlock[],
-  projectSessionId: string
-): Promise<ApprovedEditorBlock[]> {
-  return Promise.all(
-    blocks.map(async (block) => {
-      const children = await resolveImportedImages(block.children, projectSessionId)
-      if (block.type !== 'image' || block.props.url.startsWith('writellm-asset:')) {
-        return { ...block, children }
-      }
-      const result = await window.desktop.editor.resolveImportAsset({
-        projectSessionId,
-        reference: block.props.url
-      })
-      return { ...block, props: { ...block.props, url: result.logicalUrl }, children }
-    })
-  )
-}
-
-function inlineText(content: unknown): string {
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((value) => {
-      if (value === null || typeof value !== 'object') return ''
-      const record = value as Record<string, unknown>
-      return typeof record.text === 'string' ? record.text : ''
-    })
-    .join('')
 }
 
 function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {

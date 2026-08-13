@@ -6,6 +6,7 @@ import {
   modelSubmitBriefChangeArgsSchema,
   modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema,
+  modelSubmitWritingRulesChangeWithReviewArgsSchema,
   mutationProposalRecordSchema,
   submitChangeResultSchema
 } from './agent-mutations'
@@ -13,6 +14,24 @@ import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import { projectSessionIdSchema } from './projects'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
 import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
+import {
+  listReviewIssuesArgsSchema,
+  listReviewIssuesResultSchema,
+  recordReviewIssuesArgsSchema,
+  recordReviewIssuesResultSchema,
+  reviewIssueCategorySchema,
+  reviewPrioritySchema,
+  updateReviewIssuesArgsSchema,
+  updateReviewIssuesResultSchema
+} from './review'
+import {
+  createWritingTaskArgsSchema,
+  createWritingTaskResultSchema,
+  getWritingTaskArgsSchema,
+  getWritingTaskResultSchema,
+  updateWritingTaskArgsSchema,
+  updateWritingTaskResultSchema
+} from './writing-task'
 
 export const AGENT_TOOL_ARGUMENT_BYTES = 65_536
 export const AGENT_TOOL_RESULT_BYTES = 262_144
@@ -23,7 +42,14 @@ export const AGENT_TOOL_RESULT_SCHEMA_VERSION = 2
 
 export const toolResultMetaSchema = z
   .object({
-    contractVersion: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+    contractVersion: z.union([
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+      z.literal(7)
+    ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
     modelRequestId: agentModelRequestIdSchema
@@ -50,7 +76,14 @@ export const agentToolNameSchema = z.enum([
   'read_writing_skill',
   'inspect_change',
   'check_draft',
+  'list_review_issues',
+  'record_review_issues',
+  'update_review_issues',
+  'get_writing_task',
+  'create_writing_task',
+  'update_writing_task',
   'submit_brief_change',
+  'submit_writing_rules_change',
   'submit_outline_change',
   'submit_section_change',
   'generate_image'
@@ -77,11 +110,18 @@ export const AGENT_TOOL_DESCRIPTORS = {
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   inspect_change: descriptor('parallel', 'proposal', 5_000, false),
   check_draft: descriptor('parallel', 'manuscript', 30_000, true),
+  list_review_issues: descriptor('parallel', 'review', 5_000, false),
+  record_review_issues: fixtureMutationDescriptor(10_000),
+  update_review_issues: fixtureMutationDescriptor(10_000),
+  get_writing_task: descriptor('parallel', 'task', 5_000, false),
+  create_writing_task: fixtureMutationDescriptor(10_000, 'task'),
+  update_writing_task: fixtureMutationDescriptor(10_000, 'task'),
   submit_brief_change: descriptor('sequential', 'brief', 10_000, true),
+  submit_writing_rules_change: descriptor('sequential', 'brief', 10_000, true),
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 4,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -93,11 +133,20 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
-    lockScope: 'manuscript' | 'brief' | 'outline' | 'section' | 'knowledge' | 'proposal' | 'skill'
+    lockScope:
+      | 'manuscript'
+      | 'brief'
+      | 'outline'
+      | 'section'
+      | 'knowledge'
+      | 'proposal'
+      | 'skill'
+      | 'review'
+      | 'task'
     deadlineMs: number
     supportsProgress: boolean
     maxOutputBytes: number
@@ -106,12 +155,21 @@ export const AGENT_TOOL_DESCRIPTORS = {
 
 function descriptor(
   executionMode: 'parallel' | 'sequential',
-  lockScope: 'manuscript' | 'brief' | 'outline' | 'section' | 'knowledge' | 'proposal' | 'skill',
+  lockScope:
+    | 'manuscript'
+    | 'brief'
+    | 'outline'
+    | 'section'
+    | 'knowledge'
+    | 'proposal'
+    | 'skill'
+    | 'review'
+    | 'task',
   deadlineMs: number,
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 4,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -119,6 +177,19 @@ function descriptor(
     lockScope,
     deadlineMs,
     supportsProgress,
+    maxOutputBytes: AGENT_TOOL_RESULT_BYTES
+  }
+}
+
+function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
+  return {
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
+    effects: ['mutation'] as const,
+    executionMode: 'sequential' as const,
+    consistency: 'snapshot' as const,
+    lockScope,
+    deadlineMs,
+    supportsProgress: false,
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   }
 }
@@ -249,7 +320,14 @@ export const draftCheckNameSchema = z.enum([
   'unresolved_placeholders',
   'duplicate_headings',
   'duplicate_paragraphs',
-  'length_constraints'
+  'length_constraints',
+  'empty_sections',
+  'section_objectives',
+  'unresolved_citations',
+  'references_availability',
+  'unused_resources',
+  'writing_rules',
+  'figure_metadata'
 ])
 
 export const checkDraftArgsSchema = strictObject({
@@ -257,7 +335,7 @@ export const checkDraftArgsSchema = strictObject({
     strictObject({ type: z.literal('manuscript') }),
     strictObject({ type: z.literal('section'), sectionId: z.uuid() })
   ]),
-  checks: z.array(draftCheckNameSchema).max(9).default([])
+  checks: z.array(draftCheckNameSchema).max(16).default([])
 })
 
 const sectionSummarySchema = strictObject({
@@ -310,7 +388,8 @@ export const writingContextResultSchema = strictObject({
     currentRevisionId: z.uuid().nullable(),
     stale: z.boolean(),
     selectedBlockIds: z.array(z.string().min(1).max(256)).max(256),
-    activeBlockId: z.string().min(1).max(256).nullable()
+    activeBlockId: z.string().min(1).max(256).nullable(),
+    selectedText: z.string().max(16_384).nullable()
   }),
   warnings: z
     .array(strictObject({ code: z.string().min(1).max(100), message: z.string().max(1_000) }))
@@ -397,20 +476,38 @@ export const checkDraftResultSchema = strictObject({
     .array(
       strictObject({
         findingId: z.string().regex(/^[a-f0-9]{64}$/),
-        severity: z.enum(['error', 'warning', 'info']),
+        priority: reviewPrioritySchema,
+        category: reviewIssueCategorySchema,
         check: draftCheckNameSchema,
         sectionId: z.uuid().optional(),
+        revisionId: z.uuid().optional(),
         blockIds: z.array(z.string().min(1).max(256)).max(100).optional(),
-        message: z.string().min(1).max(2_000),
+        title: z.string().min(1).max(500),
+        description: z.string().min(1).max(8_192),
         evidence: z.string().max(2_000)
       })
     )
     .max(200),
   summary: strictObject({
-    errors: z.number().int().nonnegative(),
-    warnings: z.number().int().nonnegative(),
-    passedChecks: z.array(draftCheckNameSchema).max(9),
-    skippedChecks: z.array(draftCheckNameSchema).max(9)
+    priorities: strictObject({
+      P0: z.number().int().nonnegative(),
+      P1: z.number().int().nonnegative(),
+      P2: z.number().int().nonnegative(),
+      P3: z.number().int().nonnegative()
+    }),
+    passedChecks: z.array(draftCheckNameSchema).max(16),
+    skippedChecks: z.array(draftCheckNameSchema).max(16),
+    unavailableChecks: z.array(draftCheckNameSchema).max(16),
+    checkOutcomes: z
+      .array(
+        strictObject({
+          check: draftCheckNameSchema,
+          status: z.enum(['passed', 'failed', 'skipped', 'unavailable']),
+          reason: z.string().max(1_000).nullable()
+        })
+      )
+      .max(16),
+    truncated: z.boolean()
   })
 })
 
@@ -527,8 +624,43 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
+      toolName: z.literal('list_review_issues'),
+      args: listReviewIssuesArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('record_review_issues'),
+      args: recordReviewIssuesArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('update_review_issues'),
+      args: updateReviewIssuesArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('get_writing_task'),
+      args: getWritingTaskArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('create_writing_task'),
+      args: createWritingTaskArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('update_writing_task'),
+      args: updateWritingTaskArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
       toolName: z.literal('submit_brief_change'),
       args: modelSubmitBriefChangeArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('submit_writing_rules_change'),
+      args: modelSubmitWritingRulesChangeWithReviewArgsSchema
     }),
     strictObject({
       ...toolRequestBase,
@@ -617,7 +749,49 @@ const successResponses = z.discriminatedUnion('toolName', [
   strictObject({
     ...toolResponseBase,
     ok: z.literal(true),
+    toolName: z.literal('list_review_issues'),
+    data: listReviewIssuesResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('record_review_issues'),
+    data: recordReviewIssuesResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('update_review_issues'),
+    data: updateReviewIssuesResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('get_writing_task'),
+    data: getWritingTaskResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('create_writing_task'),
+    data: createWritingTaskResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('update_writing_task'),
+    data: updateWritingTaskResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
     toolName: z.literal('submit_brief_change'),
+    data: submitChangeResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('submit_writing_rules_change'),
     data: submitChangeResultSchema
   }),
   strictObject({

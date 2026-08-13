@@ -12,6 +12,8 @@ import {
   listCheckpointsInputSchema,
   listCheckpointsResultSchema,
   projectCreateInputSchema,
+  projectCloneCancelResultSchema,
+  projectCloneInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
   projectRecoveryActionInputSchema,
@@ -27,14 +29,23 @@ import {
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
+import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
+import type { ProjectTemplateRepository } from '../app-db/repositories/project-templates'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 import { withIpcLogContext } from '../observability/ipc-context'
 import {
   manuscriptExportInputSchema,
+  manuscriptExportCancelResultSchema,
   manuscriptExportResultSchema,
   type ManuscriptExportKind
 } from '../../shared/contracts/manuscript-export'
+import {
+  deleteUserProjectTemplateInputSchema,
+  projectTemplateCatalogSchema,
+  projectTemplateExtractionPreviewSchema,
+  saveUserProjectTemplateInputSchema
+} from '../../shared/contracts/project-templates'
 
 export interface ProjectIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -58,6 +69,11 @@ export interface RegisterProjectIpcOptions {
     AppSettingsRepository,
     'getVersionHistoryPromptDismissed' | 'setVersionHistoryPromptDismissed'
   >
+  publicationPresets: Pick<PublicationPresetRepository, 'resolve' | 'snapshot'>
+  projectTemplates: Pick<
+    ProjectTemplateRepository,
+    'list' | 'resolve' | 'create' | 'delete' | 'mintId'
+  >
   getWindow: () => BrowserWindow | null
   logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
@@ -68,6 +84,7 @@ export interface RegisterProjectIpcOptions {
   selectManuscriptExportDestinationForTest?: () => Promise<string | null>
   selectRestoreSourceForTest?: () => Promise<string | null>
   selectRestoreDestinationParentForTest?: () => Promise<string | null>
+  selectCloneDestinationForTest?: () => Promise<string | null>
 }
 
 const operationError = (message: string): Error => new Error(message)
@@ -156,7 +173,16 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const dialogOptions: Electron.SaveDialogOptions = {
         defaultPath: defaultName,
         properties: ['createDirectory'],
-        title: kind === 'native' ? 'Export native manuscript package' : 'Export Markdown package'
+        title:
+          kind === 'native'
+            ? 'Export native manuscript package'
+            : kind === 'markdown'
+              ? 'Export Markdown package'
+              : kind === 'docx'
+                ? 'Export Word manuscript package'
+                : kind === 'latex'
+                  ? 'Export LaTeX manuscript package'
+                  : 'Export PDF manuscript package'
       }
       const result =
         owner === null
@@ -173,6 +199,30 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       return options.selectRestoreDestinationParentForTest()
     }
     return selectFolder('open')
+  }
+
+  const selectCloneDestination = async (projectSessionId: string): Promise<string | null> => {
+    if (options.selectCloneDestinationForTest) return options.selectCloneDestinationForTest()
+    const context = options.manager.assertActiveSession(projectSessionId)
+    if (projectDialog.showSaveDialog === undefined) return selectFolder('create')
+    if (projectDialogOpen) throw new Error('A project folder dialog is already open')
+    projectDialogOpen = true
+    try {
+      const owner = options.getWindow()
+      const dialogOptions: Electron.SaveDialogOptions = {
+        defaultPath: `${context.displayName} copy.writellm`,
+        properties: ['createDirectory'],
+        title: 'Save an independent project copy'
+      }
+      const result =
+        owner === null
+          ? await projectDialog.showSaveDialog(dialogOptions)
+          : await projectDialog.showSaveDialog(owner, dialogOptions)
+      if (result.canceled || result.filePath === undefined) return null
+      return result.filePath.endsWith('.writellm') ? result.filePath : `${result.filePath}.writellm`
+    } finally {
+      projectDialogOpen = false
+    }
   }
 
   const assertClosedBeforeSelection = (): void => {
@@ -218,21 +268,110 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
 
   handle(IPC_CHANNELS.projectCreate, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const { name } = projectCreateInputSchema.parse(input)
+    const { name, templateId } = projectCreateInputSchema.parse(input)
     assertClosedBeforeSelection()
+    let template: Awaited<ReturnType<ProjectTemplateRepository['resolve']>> | undefined
+    try {
+      template =
+        templateId === undefined ? undefined : await options.projectTemplates.resolve(templateId)
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_templates.resolve_failed', err, templateId },
+        'Selected project template resolution failed'
+      )
+      throw operationError('Unable to use the selected project template')
+    }
     const parentDirectory = await selectFolder('create')
     if (parentDirectory === null) return projectSelectionResultSchema.parse({ project: null })
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.create({ parentDirectory, name })
       )
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      const active = snapshot.activeProject
+      const finalSnapshot =
+        template === undefined || active === null
+          ? snapshot
+          : projectLifecycleSnapshotSchema.parse(
+              await options.manager.applyTemplate(active.projectSessionId, template)
+            )
+      return projectSelectionResultSchema.parse({ project: finalSnapshot.activeProject })
     } catch (err) {
       options.logger.error(
         { event: 'ipc.project_create.failed', err },
         'Project create request failed'
       )
       throw operationError('Unable to create the project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectTemplatesList, async (event) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    try {
+      return projectTemplateCatalogSchema.parse(await options.projectTemplates.list())
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_templates.list_failed', err },
+        'Template list failed'
+      )
+      throw operationError('Unable to load project templates')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectTemplatePreview, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = projectSessionInputSchema.parse(input)
+    try {
+      const defaultPresetId = options.publicationPresets.snapshot().defaultPresetId
+      return projectTemplateExtractionPreviewSchema.parse(
+        await options.manager.previewTemplateExtraction(projectSessionId, defaultPresetId)
+      )
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_templates.preview_failed', err, projectSessionId },
+        'Template extraction preview failed'
+      )
+      throw operationError('Unable to preview the project template')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectTemplateSave, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = saveUserProjectTemplateInputSchema.parse(input)
+    try {
+      const defaultPresetId = parsed.includePublicationPreset
+        ? options.publicationPresets.snapshot().defaultPresetId
+        : null
+      const template = await options.manager.extractTemplate(parsed.projectSessionId, {
+        templateId: options.projectTemplates.mintId(),
+        name: parsed.name,
+        description: parsed.description,
+        publicationPresetId: defaultPresetId
+      })
+      return projectTemplateCatalogSchema.parse(await options.projectTemplates.create(template))
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'ipc.project_templates.save_failed',
+          err,
+          projectSessionId: parsed.projectSessionId
+        },
+        'User template save failed'
+      )
+      throw operationError('Unable to save the project template')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectTemplateDelete, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { templateId } = deleteUserProjectTemplateInputSchema.parse(input)
+    try {
+      return projectTemplateCatalogSchema.parse(await options.projectTemplates.delete(templateId))
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_templates.delete_failed', err, templateId },
+        'User template deletion failed'
+      )
+      throw operationError('Unable to delete the project template')
     }
   })
 
@@ -452,6 +591,36 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
+  handle(IPC_CHANNELS.projectClone, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = projectCloneInputSchema.parse(input)
+    options.manager.assertActiveSession(projectSessionId)
+    const destination = await selectCloneDestination(projectSessionId)
+    options.manager.assertActiveSession(projectSessionId)
+    if (destination === null) return projectSelectionResultSchema.parse({ project: null })
+    try {
+      const snapshot = projectLifecycleSnapshotSchema.parse(
+        await options.manager.cloneProject(projectSessionId, destination)
+      )
+      revokeSession(projectSessionId)
+      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_clone.failed', err, projectSessionId },
+        'Project clone request failed'
+      )
+      throw operationError('Unable to clone the project')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectCloneCancel, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectSessionId } = projectCloneInputSchema.parse(input)
+    return projectCloneCancelResultSchema.parse(
+      options.manager.cancelProjectClone(projectSessionId)
+    )
+  })
+
   handle(IPC_CHANNELS.projectManuscriptExport, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = manuscriptExportInputSchema.parse(input)
@@ -465,10 +634,15 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       return manuscriptExportResultSchema.parse({ created: false, kind: parsed.kind })
     }
     try {
+      const publicationOptions =
+        parsed.kind === 'docx' || parsed.kind === 'latex' || parsed.kind === 'pdf'
+          ? options.publicationPresets.resolve(parsed.presetId)
+          : undefined
       const published = await options.manager.exportManuscript(
         parsed.projectSessionId,
         destination,
-        parsed.kind
+        parsed.kind,
+        publicationOptions
       )
       return manuscriptExportResultSchema.parse({
         created: true,
@@ -490,6 +664,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       )
       throw operationError('Unable to export the manuscript')
     }
+  })
+
+  handle(IPC_CHANNELS.projectManuscriptExportCancel, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = projectSessionInputSchema.parse(input)
+    return manuscriptExportCancelResultSchema.parse(
+      options.manager.cancelManuscriptExport(parsed.projectSessionId)
+    )
   })
 
   handle(IPC_CHANNELS.projectHistoryStatus, async (event, input: unknown) => {
@@ -681,6 +863,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectSnapshotCreate,
       IPC_CHANNELS.projectSnapshotRestore,
       IPC_CHANNELS.projectManuscriptExport,
+      IPC_CHANNELS.projectManuscriptExportCancel,
       IPC_CHANNELS.projectHistoryStatus,
       IPC_CHANNELS.projectHistoryEnable,
       IPC_CHANNELS.projectHistoryDismissPrompt,
