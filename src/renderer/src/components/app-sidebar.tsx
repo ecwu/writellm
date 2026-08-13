@@ -395,6 +395,18 @@ export function WorkspaceRail(props: {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  aria-label='Manuscript'
+                  tooltip={{ children: 'Manuscript', hidden: false }}
+                  isActive={props.activeWorkspace === 'manuscript'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenManuscript}
+                >
+                  <ListTree />
+                  <span>Manuscript</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
                   aria-label='Find'
                   tooltip={{ children: 'Find', hidden: false }}
                   isActive={props.activeWorkspace === 'find'}
@@ -403,6 +415,42 @@ export function WorkspaceRail(props: {
                 >
                   <Search />
                   <span>Find</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='References'
+                  tooltip={{ children: 'References', hidden: false }}
+                  isActive={props.activeWorkspace === 'references'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenReferences}
+                >
+                  <BookOpenText />
+                  <span>References</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Knowledge'
+                  tooltip={{ children: 'Knowledge', hidden: false }}
+                  isActive={props.activeWorkspace === 'knowledge'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenKnowledge}
+                >
+                  <LibraryBig />
+                  <span>Knowledge</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Writing rules'
+                  tooltip={{ children: 'Writing rules', hidden: false }}
+                  isActive={props.activeWorkspace === 'writing_rules'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenWritingRules}
+                >
+                  <BookMarked />
+                  <span>Writing rules</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -424,42 +472,6 @@ export function WorkspaceRail(props: {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  aria-label='Writing rules'
-                  tooltip={{ children: 'Writing rules', hidden: false }}
-                  isActive={props.activeWorkspace === 'writing_rules'}
-                  className='px-2.5 md:px-2'
-                  onClick={props.onOpenWritingRules}
-                >
-                  <BookMarked />
-                  <span>Writing rules</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label='Manuscript'
-                  tooltip={{ children: 'Manuscript', hidden: false }}
-                  isActive={props.activeWorkspace === 'manuscript'}
-                  className='px-2.5 md:px-2'
-                  onClick={props.onOpenManuscript}
-                >
-                  <ListTree />
-                  <span>Manuscript</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label='References'
-                  tooltip={{ children: 'References', hidden: false }}
-                  isActive={props.activeWorkspace === 'references'}
-                  className='px-2.5 md:px-2'
-                  onClick={props.onOpenReferences}
-                >
-                  <BookOpenText />
-                  <span>References</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
                   aria-label='Images'
                   tooltip={{ children: 'Images', hidden: false }}
                   isActive={props.activeWorkspace === 'assets'}
@@ -468,18 +480,6 @@ export function WorkspaceRail(props: {
                 >
                   <Images />
                   <span>Images</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label='Knowledge'
-                  tooltip={{ children: 'Knowledge', hidden: false }}
-                  isActive={props.activeWorkspace === 'knowledge'}
-                  className='px-2.5 md:px-2'
-                  onClick={props.onOpenKnowledge}
-                >
-                  <LibraryBig />
-                  <span>Knowledge</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
