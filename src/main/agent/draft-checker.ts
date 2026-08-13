@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { Logger } from 'pino'
 import type { CheckDraftArgs, CheckDraftResult } from '../../shared/contracts/agent-tools'
 import { checkDraftResultSchema } from '../../shared/contracts/agent-tools'
 import { readWritingRules } from '../../shared/contracts/writing-rules'
@@ -33,7 +34,47 @@ type CheckName = Finding['check']
 export function runDraftChecks(
   args: CheckDraftArgs,
   snapshot: WritingSnapshot,
-  signal: AbortSignal
+  signal: AbortSignal,
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
+): CheckDraftResult {
+  const startedAt = Date.now()
+  try {
+    const result = executeDraftChecks(args, snapshot, signal, log)
+    log?.info(
+      {
+        event: 'agent.draft_check.completed',
+        snapshotId: snapshot.snapshotId,
+        scopeType: args.scope.type,
+        requestedCheckCount: args.checks.length === 0 ? ALL_CHECKS.length : args.checks.length,
+        findingCount: result.findings.length,
+        skippedCheckCount: result.summary.skippedChecks.length,
+        unavailableCheckCount: result.summary.unavailableChecks.length,
+        truncated: result.summary.truncated,
+        durationMs: Date.now() - startedAt
+      },
+      'Agent draft checks completed'
+    )
+    return result
+  } catch (err) {
+    log?.error(
+      {
+        event: 'agent.draft_check.failed',
+        err,
+        snapshotId: snapshot.snapshotId,
+        scopeType: args.scope.type,
+        durationMs: Date.now() - startedAt
+      },
+      'Agent draft checks failed'
+    )
+    throw err
+  }
+}
+
+function executeDraftChecks(
+  args: CheckDraftArgs,
+  snapshot: WritingSnapshot,
+  signal: AbortSignal,
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 ): CheckDraftResult {
   const requested = args.checks.length === 0 ? ALL_CHECKS : args.checks
   const entries = snapshot.workspace.sections.filter(
@@ -48,6 +89,17 @@ export function runDraftChecks(
   let truncated = false
   const add = (input: Omit<Finding, 'findingId'>): void => {
     if (findings.length >= 200) {
+      if (!truncated) {
+        log?.warn(
+          {
+            event: 'agent.draft_check.truncated',
+            snapshotId: snapshot.snapshotId,
+            scopeType: args.scope.type,
+            findingCount: findings.length
+          },
+          'Agent draft check findings reached the safety cap'
+        )
+      }
       truncated = true
       return
     }

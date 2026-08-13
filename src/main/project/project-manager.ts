@@ -1217,7 +1217,19 @@ export class ProjectManager {
         if (this.#activeClone?.controller === controller) this.#activeClone = null
       }
     })
-    return this.switch(cloned.projectRoot)
+    try {
+      return await this.switch(cloned.projectRoot)
+    } catch (err) {
+      this.#logger.error(
+        {
+          event: 'project_manager.clone_switch_failed',
+          err,
+          projectId: cloned.projectId
+        },
+        'Project clone succeeded but switching to the clone failed'
+      )
+      throw err
+    }
   }
 
   cancelProjectClone(projectSessionId: string): { cancelled: boolean } {
@@ -1239,7 +1251,8 @@ export class ProjectManager {
       applyProjectTemplate({
         manuscript: context.manuscript,
         template,
-        createId: this.#dependencies.randomUUID
+        createId: this.#dependencies.randomUUID,
+        log: this.#logger
       })
       await context.editorPersistence.repairAll()
       if (context.versionHistory !== undefined) {
@@ -1294,7 +1307,11 @@ export class ProjectManager {
       context.operations?.pauseMutations()
       try {
         await this.#snapshotParticipants.finalEditorFlush(context, 'snapshot')
-        return extractProjectTemplate({ manuscript: context.manuscript, ...input })
+        return extractProjectTemplate({
+          manuscript: context.manuscript,
+          ...input,
+          log: this.#logger
+        })
       } finally {
         context.operations?.resumeMutations()
       }

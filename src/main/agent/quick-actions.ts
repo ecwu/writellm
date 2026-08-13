@@ -1,3 +1,4 @@
+import type { Logger } from 'pino'
 import type { AgentEditorContext } from '../../shared/contracts/agent'
 import { agentQuickActionSelectedTextSchema } from '../../shared/contracts/agent-quick-actions'
 import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
@@ -14,6 +15,36 @@ export class AgentQuickActionSelectionError extends Error {
 }
 
 export function validateQuickActionSelection(
+  manuscript: ManuscriptService,
+  editorContext: AgentEditorContext,
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
+): { selectedText: string; revisionId: string } {
+  try {
+    return validateSelection(manuscript, editorContext)
+  } catch (err) {
+    const context = {
+      sectionId: editorContext.activeSectionId,
+      capturedRevisionId: editorContext.capturedRevisionId ?? null,
+      selectedBlockCount: editorContext.selectedBlockIds.length,
+      selectedTextLength:
+        typeof editorContext.selectedText === 'string' ? editorContext.selectedText.length : 0
+    }
+    if (err instanceof AgentQuickActionSelectionError) {
+      log?.warn(
+        { event: 'agent.quick_action.selection_rejected', err, ...context },
+        'Agent quick action selection is stale'
+      )
+    } else {
+      log?.error(
+        { event: 'agent.quick_action.validation_failed', err, ...context },
+        'Agent quick action selection validation failed'
+      )
+    }
+    throw err
+  }
+}
+
+function validateSelection(
   manuscript: ManuscriptService,
   editorContext: AgentEditorContext
 ): { selectedText: string; revisionId: string } {

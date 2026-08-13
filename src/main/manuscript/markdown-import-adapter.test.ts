@@ -78,6 +78,45 @@ Final paragraph.
     expect(empty.sections).toEqual([])
   })
 
+  it('logs parse lifecycle and omitted-image failures through the injected logger', async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const failure = new Error('capture failed')
+    const result = await parseMarkdownImport({
+      bytes: Buffer.from('# Title\n\n![broken](missing.png)'),
+      displayName: 'logged.md',
+      createId: sequentialIds(),
+      resolveImage: vi.fn(async () => {
+        throw failure
+      }),
+      log
+    })
+    expect(result.losses.map((finding) => finding.code)).toContain('image_not_imported')
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.markdown.parse_started',
+        displayName: 'logged.md'
+      }),
+      expect.any(String)
+    )
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.markdown.parse_completed',
+        sectionCount: 1,
+        lossCount: 1
+      }),
+      expect.any(String)
+    )
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.markdown.image_omitted',
+        err: failure,
+        reference: 'missing.png'
+      }),
+      expect.any(String)
+    )
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
   it('fails closed on invalid UTF-8 and bounded syntax depth', async () => {
     await expect(
       parseMarkdownImport({

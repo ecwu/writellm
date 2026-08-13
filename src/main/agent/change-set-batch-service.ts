@@ -52,7 +52,7 @@ export class ChangeSetBatchService {
         proposalId: string
         decision: 'approved' | 'rejected'
       }): Promise<void>
-      log: Pick<Logger, 'info' | 'error'>
+      log: Pick<Logger, 'info' | 'warn' | 'error'>
       now?: () => Date
     }
   ) {}
@@ -98,6 +98,17 @@ export class ChangeSetBatchService {
           row = this.#stop(row.command_id)
           return this.#project(row)
         }
+        if (checkpointStatus === 'unavailable') {
+          this.options.log.warn(
+            {
+              event: 'agent.change_set.checkpoint_unavailable',
+              commandId: input.commandId,
+              taskId: input.taskId,
+              action: input.action
+            },
+            'Change-set checkpoint is unavailable; continuing without a checkpoint'
+          )
+        }
       }
 
       const orderedIds = parseIds(row.ordered_proposal_ids_json)
@@ -108,6 +119,19 @@ export class ChangeSetBatchService {
         const item = await this.#decide(row, proposal)
         row = this.#appendResult(row.command_id, row.next_index, item)
         if (isStop(item.status)) {
+          this.options.log.warn(
+            {
+              event: 'agent.change_set.batch_stopped',
+              commandId: row.command_id,
+              taskId: row.writing_task_id,
+              action: row.action,
+              proposalId: item.proposalId,
+              stopStatus: item.status,
+              completedCount: row.next_index,
+              remainingCount: orderedIds.length - row.next_index
+            },
+            'Agent change-set batch stopped sequencing'
+          )
           row = this.#stop(row.command_id)
           break
         }

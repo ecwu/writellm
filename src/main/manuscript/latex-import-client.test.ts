@@ -23,9 +23,10 @@ describe('LatexImportClient', () => {
         })
       )
     })
+    const info = vi.fn()
     const client = new LatexImportClient({
       modulePath: '/fixture/background-worker.js',
-      log,
+      log: { info, error: vi.fn() },
       factory: { fork: vi.fn(() => child as never) }
     })
     await expect(
@@ -35,6 +36,19 @@ describe('LatexImportClient', () => {
       sourceHash: hash('hello')
     })
     expect(child.kill).toHaveBeenCalledOnce()
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.latex.parsed',
+        sourceHash: hash('hello'),
+        sectionCount: 0,
+        blockCount: 0,
+        warningCount: 0,
+        unsupportedCount: 0,
+        lossCount: 0,
+        durationMs: expect.any(Number)
+      }),
+      expect.any(String)
+    )
   })
 
   it('kills a parser that exceeds the hard timeout or is cancelled', async () => {

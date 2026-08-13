@@ -59,7 +59,7 @@ export async function createManuscriptExport(options: {
   assets: ManuscriptAssetService
   database: ProjectDatabase
   barrier: SnapshotBarrier
-  log: Pick<Logger, 'info' | 'error'>
+  log: Pick<Logger, 'info' | 'warn' | 'error'>
   now?: () => Date
   createId?: () => string
   renderPdf?: PdfPublicationRenderer
@@ -177,8 +177,37 @@ export async function createManuscriptExport(options: {
         hash: (value) => createHash('sha256').update(value).digest('hex')
       })
       if (!publication.ready) {
-        throw new Error('Publication preflight contains blocking errors')
+        const err = new Error('Publication preflight contains blocking errors')
+        options.log.error(
+          {
+            event: 'manuscript.publication_assembly.failed',
+            err,
+            projectId: options.projectId,
+            exportKind: options.kind,
+            sourceHash: publication.sourceHash,
+            findingCount: publication.findings.length,
+            blockingFindingCount: publication.findings.filter(
+              (finding) => finding.severity === 'error'
+            ).length
+          },
+          'Publication preflight contains blocking errors'
+        )
+        throw err
       }
+      options.log.info(
+        {
+          event: 'manuscript.publication_assembly.completed',
+          projectId: options.projectId,
+          exportKind: options.kind,
+          manuscriptId: assembly.manuscriptId,
+          sourceHash: publication.sourceHash,
+          nodeCount: publication.nodes.length,
+          assetCount: publication.assets.length,
+          findingCount: publication.findings.length,
+          ready: publication.ready
+        },
+        'Publication assembly completed'
+      )
       publicationSourceHash = publication.sourceHash
       const capturedAssetById = new Map(
         exportedAssets.map((asset) => [asset.exportRecord.assetId, asset] as const)
@@ -187,6 +216,7 @@ export async function createManuscriptExport(options: {
       if (options.kind === 'docx') {
         const rendered = await renderDocxPublication({
           assembly: publication,
+          log: options.log,
           readAsset: async (assetId) => {
             const asset = capturedAssetById.get(assetId)
             if (asset === undefined) throw new Error('DOCX asset is unavailable')
@@ -198,6 +228,7 @@ export async function createManuscriptExport(options: {
       } else if (options.kind === 'latex') {
         const rendered = renderLatexPublication({
           assembly: publication,
+          log: options.log,
           assetRelativePath: (assetId) => {
             const asset = capturedAssetById.get(assetId)
             if (asset === undefined) throw new Error('LaTeX asset is unavailable')
@@ -216,6 +247,7 @@ export async function createManuscriptExport(options: {
         const rendered = await options.renderPdf({
           assembly: publication,
           signal: options.signal,
+          log: options.log,
           readAsset: async (assetId) => {
             const asset = capturedAssetById.get(assetId)
             if (asset === undefined) throw new Error('PDF asset is unavailable')

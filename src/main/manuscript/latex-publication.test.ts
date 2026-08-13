@@ -1,5 +1,5 @@
 import { parse } from '@unified-latex/unified-latex-util-parse'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PublicationAssembly } from '../../shared/contracts/publication'
 import { escapeLatex, renderLatexPublication } from './latex-publication'
 
@@ -11,9 +11,11 @@ const target = { sectionId, revisionId, blockId: 'block' }
 describe('LaTeX publication renderer', () => {
   it('emits deterministic, independently parseable XeLaTeX with bounded fallbacks', () => {
     const assembly = fixtureAssembly()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const first = renderLatexPublication({
       assembly,
-      assetRelativePath: () => 'assets/abc.png'
+      assetRelativePath: () => 'assets/abc.png',
+      log
     })
     const second = renderLatexPublication({
       assembly,
@@ -46,6 +48,26 @@ describe('LaTeX publication renderer', () => {
     expect(parsed).toContain('longtable')
     expect(parsed).toContain('figure')
     expect(parsed).toContain('References')
+
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'manuscript.publication.latex_render.started' }),
+      expect.any(String)
+    )
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.latex_render.completed',
+        lossCount: first.losses.length,
+        lossesByCode: {
+          bibliography_metadata_unavailable: 1,
+          latex_table_span_fallback: 1,
+          latex_verbatim_sanitized: 1,
+          math_text_fallback: 1,
+          mermaid_source_fallback: 1
+        }
+      }),
+      expect.any(String)
+    )
+    expect(log.error).not.toHaveBeenCalled()
   })
 
   it('escapes every TeX text metacharacter without making manuscript text executable', () => {

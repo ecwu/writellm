@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZipFile } from 'yazl'
 import { extractMineruArchive } from './mineru-archive'
 
@@ -110,6 +110,48 @@ describe('extractMineruArchive', () => {
         maxExpandedBytes: 200_000
       })
     ).rejects.toThrow('compression ratio')
+  })
+
+  it('logs bounded rejections and extraction completion through the injected logger', async () => {
+    const root = await fixtureRoot()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const archive = join(root, 'ok.zip')
+    await createZip(archive, [['full.md', '# Parsed']])
+    const result = await extractMineruArchive({
+      archivePath: archive,
+      destinationRoot: join(root, 'ok-out'),
+      log
+    })
+    expect(result.files).toHaveLength(1)
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'storage.bounded_zip.extracted',
+        label: 'MinerU archive',
+        fileCount: 1,
+        expandedByteSize: 8
+      }),
+      expect.any(String)
+    )
+
+    const symlink = join(root, 'symlink.zip')
+    await createZip(symlink, [['link.md', 'target', 0o120777]])
+    await expect(
+      extractMineruArchive({
+        archivePath: symlink,
+        destinationRoot: join(root, 'symlink-out'),
+        log
+      })
+    ).rejects.toThrow('symbolic link')
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'storage.bounded_zip.rejected',
+        label: 'MinerU archive',
+        reason: 'symbolic_link',
+        entryName: 'link.md'
+      }),
+      expect.any(String)
+    )
+    expect(log.error).not.toHaveBeenCalled()
   })
 })
 

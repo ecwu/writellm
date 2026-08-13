@@ -138,7 +138,7 @@
       "id": "asset-backed-manuscript-export",
       "category": "export",
       "source": "src/main/manuscript/manuscript-export.test.ts",
-      "sourceSha256": "51c644d1d77e5e239f01e4cfb26ed716eff2c6970df64a3962b370ebcb417ea8",
+      "sourceSha256": "37c110ffb3028ebe20995718efbb8e04501d1bc484da600150945ac95f2c9245",
       "tests": [
         "publishes deterministic native and Markdown packages with verified referenced assets",
         "never overwrites an existing destination and cleans interrupted staging",

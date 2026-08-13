@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { Logger } from 'pino'
 import {
   PROJECT_TEMPLATE_FORMAT,
   PROJECT_TEMPLATE_FORMAT_VERSION,
@@ -28,32 +29,54 @@ export function extractProjectTemplate(options: {
   name: string
   description: string
   publicationPresetId: string | null
+  log?: Pick<Logger, 'info' | 'error'>
 }): ProjectTemplate {
-  const brief = options.manuscript.getBrief()
-  const sections = options.manuscript.listSections()
-  const keyBySection = new Map(
-    sections.map((section, index) => [section.sectionId, `section-${index + 1}`])
-  )
-  return projectTemplateSchema.parse({
-    format: PROJECT_TEMPLATE_FORMAT,
-    formatVersion: PROJECT_TEMPLATE_FORMAT_VERSION,
-    templateId: options.templateId,
-    name: options.name,
-    description: options.description,
-    brief: Object.fromEntries(BRIEF_FIELD_NAMES.map((field) => [field, brief[field]])),
-    outline: sections.map((section) => ({
-      templateKey: keyBySection.get(section.sectionId),
-      parentTemplateKey:
-        section.parentSectionId === null
-          ? null
-          : (keyBySection.get(section.parentSectionId) ?? null),
-      title: section.title,
-      objective: section.objective,
-      status: section.status
-    })),
-    writingRules: readWritingRules(brief.extensible).rules.map(({ ruleId: _, ...rule }) => rule),
-    publicationPresetId: options.publicationPresetId
-  })
+  const startedAt = Date.now()
+  try {
+    const brief = options.manuscript.getBrief()
+    const sections = options.manuscript.listSections()
+    const keyBySection = new Map(
+      sections.map((section, index) => [section.sectionId, `section-${index + 1}`])
+    )
+    const template = projectTemplateSchema.parse({
+      format: PROJECT_TEMPLATE_FORMAT,
+      formatVersion: PROJECT_TEMPLATE_FORMAT_VERSION,
+      templateId: options.templateId,
+      name: options.name,
+      description: options.description,
+      brief: Object.fromEntries(BRIEF_FIELD_NAMES.map((field) => [field, brief[field]])),
+      outline: sections.map((section) => ({
+        templateKey: keyBySection.get(section.sectionId),
+        parentTemplateKey:
+          section.parentSectionId === null
+            ? null
+            : (keyBySection.get(section.parentSectionId) ?? null),
+        title: section.title,
+        objective: section.objective,
+        status: section.status
+      })),
+      writingRules: readWritingRules(brief.extensible).rules.map(({ ruleId: _, ...rule }) => rule),
+      publicationPresetId: options.publicationPresetId
+    })
+    options.log?.info(
+      {
+        event: 'project_template.extracted',
+        templateId: template.templateId,
+        name: template.name,
+        sectionCount: template.outline.length,
+        writingRuleCount: template.writingRules.length,
+        durationMs: Date.now() - startedAt
+      },
+      'Project template extracted from manuscript skeleton'
+    )
+    return template
+  } catch (err) {
+    options.log?.error(
+      { event: 'project_template.extraction_failed', err, templateId: options.templateId },
+      'Project template extraction failed'
+    )
+    throw err
+  }
 }
 
 export function previewProjectTemplateExtraction(options: {
@@ -80,55 +103,68 @@ export function applyProjectTemplate(options: {
   manuscript: ManuscriptService
   template: ProjectTemplate
   createId?: () => string
+  log?: Pick<Logger, 'info' | 'error'>
 }): void {
-  const template = projectTemplateSchema.parse(options.template)
-  const createId = options.createId ?? randomUUID
-  const currentBrief = options.manuscript.getBrief()
-  const writingRules = {
-    schemaVersion: 1 as const,
-    rules: template.writingRules.map((rule) => ({ ...rule, ruleId: createId() }))
-  }
-  options.manuscript.updateBrief({
-    baseVersion: currentBrief.version,
-    title: currentBrief.title,
-    ...template.brief,
-    extensible: writeWritingRules({}, writingRules)
-  })
-
-  const existing = options.manuscript.listSections()
-  const first = existing[0]
-  const firstTemplate = template.outline[0]
-  if (first === undefined || firstTemplate === undefined) {
-    throw new Error('Project template requires an initial section')
-  }
-  let outlineVersion = options.manuscript.getWorkspace().outlineVersion
-  options.manuscript.updateSection({
-    baseOutlineVersion: outlineVersion,
-    sectionId: first.sectionId,
-    title: firstTemplate.title,
-    objective: firstTemplate.objective,
-    status: firstTemplate.status
-  })
-  outlineVersion += 1
-  const sectionByKey = new Map([[firstTemplate.templateKey, first.sectionId]])
-  for (const item of template.outline.slice(1)) {
-    const parentSectionId =
-      item.parentTemplateKey === null
-        ? null
-        : (sectionByKey.get(item.parentTemplateKey) ?? missingParent())
-    const siblings = options.manuscript
-      .listSections()
-      .filter((section) => section.parentSectionId === parentSectionId)
-    const created = options.manuscript.createSection({
-      baseOutlineVersion: outlineVersion,
-      parentSectionId,
-      position: siblings.length,
-      title: item.title,
-      objective: item.objective,
-      status: item.status
+  try {
+    const template = projectTemplateSchema.parse(options.template)
+    const createId = options.createId ?? randomUUID
+    const currentBrief = options.manuscript.getBrief()
+    const writingRules = {
+      schemaVersion: 1 as const,
+      rules: template.writingRules.map((rule) => ({ ...rule, ruleId: createId() }))
+    }
+    options.manuscript.updateBrief({
+      baseVersion: currentBrief.version,
+      title: currentBrief.title,
+      ...template.brief,
+      extensible: writeWritingRules({}, writingRules)
     })
-    sectionByKey.set(item.templateKey, created.sectionId)
+
+    const existing = options.manuscript.listSections()
+    const first = existing[0]
+    const firstTemplate = template.outline[0]
+    if (first === undefined || firstTemplate === undefined) {
+      throw new Error('Project template requires an initial section')
+    }
+    let outlineVersion = options.manuscript.getWorkspace().outlineVersion
+    options.manuscript.updateSection({
+      baseOutlineVersion: outlineVersion,
+      sectionId: first.sectionId,
+      title: firstTemplate.title,
+      objective: firstTemplate.objective,
+      status: firstTemplate.status
+    })
     outlineVersion += 1
+    const sectionByKey = new Map([[firstTemplate.templateKey, first.sectionId]])
+    for (const item of template.outline.slice(1)) {
+      const parentSectionId =
+        item.parentTemplateKey === null
+          ? null
+          : (sectionByKey.get(item.parentTemplateKey) ?? missingParent())
+      const siblings = options.manuscript
+        .listSections()
+        .filter((section) => section.parentSectionId === parentSectionId)
+      const created = options.manuscript.createSection({
+        baseOutlineVersion: outlineVersion,
+        parentSectionId,
+        position: siblings.length,
+        title: item.title,
+        objective: item.objective,
+        status: item.status
+      })
+      sectionByKey.set(item.templateKey, created.sectionId)
+      outlineVersion += 1
+    }
+  } catch (err) {
+    options.log?.error(
+      {
+        event: 'project_template.apply_failed',
+        err,
+        templateId: options.template?.templateId
+      },
+      'Project template application failed'
+    )
+    throw err
   }
 }
 

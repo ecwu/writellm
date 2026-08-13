@@ -15,7 +15,7 @@ const PAGE_SIZE = 100
 const MAX_ASSETS = 10_000
 
 export class PublicationService {
-  constructor(private readonly log: Pick<Logger, 'info' | 'error'>) {}
+  constructor(private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>) {}
 
   async assemble(
     context: ProjectContext,
@@ -82,6 +82,21 @@ export class PublicationService {
         },
         'Publication assembly completed'
       )
+      if (!assembly.ready) {
+        this.log.warn(
+          {
+            event: 'manuscript.publication_assembly.blocked',
+            projectId: context.manifest.projectId,
+            manuscriptId: assembly.manuscriptId,
+            sourceHash: assembly.sourceHash,
+            findingCount: assembly.findings.length,
+            blockingFindingCount: assembly.findings.filter(
+              (finding) => finding.severity === 'error'
+            ).length
+          },
+          'Publication assembly has blocking preflight findings'
+        )
+      }
       return assembly
     } catch (err) {
       this.log.error(

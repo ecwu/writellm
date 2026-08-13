@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindowConstructorOptions, PrintToPDFOptions } from 'electron'
 import katex from 'katex'
+import type { Logger } from 'pino'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type {
   PublicationAssembly,
@@ -20,6 +21,7 @@ export interface PdfPublicationRenderInput {
   assembly: PublicationAssembly
   readAsset(assetId: string): Promise<Buffer>
   signal?: AbortSignal
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 }
 
 export type PdfPublicationRenderer = (
@@ -55,8 +57,31 @@ export function createPdfPublicationRenderer(options: {
   extractOutlinePages?: typeof extractPdfOutlinePages
 }): PdfPublicationRenderer {
   return async (input) => {
-    if (!input.assembly.ready) throw new Error('Publication preflight contains blocking errors')
+    if (!input.assembly.ready) {
+      const err = new Error('Publication preflight contains blocking errors')
+      input.log?.error(
+        {
+          event: 'manuscript.publication.pdf_render.failed',
+          err,
+          findingCount: input.assembly.findings.length
+        },
+        'PDF publication preflight contains blocking errors'
+      )
+      throw err
+    }
     throwIfAborted(input.signal)
+    const startedAt = Date.now()
+    let printPasses = 0
+    input.log?.info(
+      {
+        event: 'manuscript.publication.pdf_render.started',
+        nodeCount: input.assembly.nodes.length,
+        assetCount: input.assembly.assets.length,
+        pageSize: input.assembly.options.pageSize,
+        includeTableOfContents: input.assembly.options.includeTableOfContents
+      },
+      'PDF publication render started'
+    )
     const partition = `writellm-pdf-${(options.createId ?? randomUUID)()}`
     const window = options.createWindow({
       width: 900,
@@ -72,13 +97,36 @@ export function createPdfPublicationRenderer(options: {
         webSecurity: true
       }
     })
+    input.log?.info(
+      { event: 'manuscript.publication.pdf_window.created' },
+      'PDF render window created'
+    )
     const abort = (): void => {
       if (!window.isDestroyed()) {
+        input.log?.warn(
+          { event: 'manuscript.publication.pdf_render.aborted', printPasses },
+          'PDF publication render aborted; destroying render window'
+        )
         window.webContents.stop()
         window.destroy()
       }
     }
     input.signal?.addEventListener('abort', abort, { once: true })
+    const print = async (): Promise<Buffer> => {
+      const passStartedAt = Date.now()
+      const bytes = await window.webContents.printToPDF(printOptions(input.assembly))
+      printPasses += 1
+      input.log?.info(
+        {
+          event: 'manuscript.publication.pdf_print.completed',
+          pass: printPasses,
+          byteSize: bytes.byteLength,
+          durationMs: Date.now() - passStartedAt
+        },
+        'PDF print pass completed'
+      )
+      return bytes
+    }
     try {
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
@@ -109,7 +157,7 @@ export function createPdfPublicationRenderer(options: {
       })
       await loadHtml(window, first.html)
       throwIfAborted(input.signal)
-      const firstPdf = await window.webContents.printToPDF(printOptions(input.assembly))
+      const firstPdf = await print()
       throwIfAborted(input.signal)
       const tocPages = input.assembly.options.includeTableOfContents
         ? await (options.extractOutlinePages ?? extractPdfOutlinePages)(firstPdf)
@@ -122,12 +170,21 @@ export function createPdfPublicationRenderer(options: {
       })
       await loadHtml(window, second.html)
       throwIfAborted(input.signal)
-      let bytes = await window.webContents.printToPDF(printOptions(input.assembly))
+      let bytes = await print()
       throwIfAborted(input.signal)
       let losses = second.losses
+      let tocRestabilized = false
       if (input.assembly.options.includeTableOfContents) {
         const correctedPages = await (options.extractOutlinePages ?? extractPdfOutlinePages)(bytes)
         if (!samePages(tocPages, correctedPages)) {
+          tocRestabilized = true
+          input.log?.warn(
+            {
+              event: 'manuscript.publication.pdf_toc.restabilized',
+              headingCount: correctedPages.length
+            },
+            'Table-of-contents page numbers shifted; re-rendering with corrected pages'
+          )
           const stabilized = renderPublicationHtml({
             assembly: input.assembly,
             resolveAssetUrl,
@@ -136,7 +193,7 @@ export function createPdfPublicationRenderer(options: {
           })
           await loadHtml(window, stabilized.html)
           throwIfAborted(input.signal)
-          bytes = await window.webContents.printToPDF(printOptions(input.assembly))
+          bytes = await print()
           throwIfAborted(input.signal)
           losses = stabilized.losses
         }
@@ -144,7 +201,30 @@ export function createPdfPublicationRenderer(options: {
       if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
         throw new Error('Chromium returned an invalid PDF package')
       }
+      input.log?.info(
+        {
+          event: 'manuscript.publication.pdf_render.completed',
+          byteSize: bytes.byteLength,
+          lossCount: losses.length,
+          printPasses,
+          tocRestabilized,
+          durationMs: Date.now() - startedAt
+        },
+        'PDF publication render completed'
+      )
       return { bytes, losses }
+    } catch (err) {
+      input.log?.error(
+        {
+          event: 'manuscript.publication.pdf_render.failed',
+          err,
+          printPasses,
+          windowDestroyed: window.isDestroyed(),
+          durationMs: Date.now() - startedAt
+        },
+        'PDF publication render failed'
+      )
+      throw err
     } finally {
       input.signal?.removeEventListener('abort', abort)
       if (!window.isDestroyed()) window.destroy()

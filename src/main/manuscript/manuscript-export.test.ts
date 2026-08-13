@@ -222,7 +222,8 @@ describe('whole-manuscript export', () => {
     expect(renderPdf).toHaveBeenCalledOnce()
     expect(renderPdf).toHaveBeenCalledWith(
       expect.objectContaining({
-        assembly: expect.objectContaining({ options: publicationOptions })
+        assembly: expect.objectContaining({ options: publicationOptions }),
+        log
       })
     )
     expect(firstDocx.manifest.publicationSourceHash).toBe(firstLatex.manifest.publicationSourceHash)

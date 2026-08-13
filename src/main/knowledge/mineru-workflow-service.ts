@@ -852,7 +852,8 @@ export class MineruWorkflowService {
       const extracted = await extractMineruArchive({
         archivePath,
         destinationRoot: extractionPath,
-        manifestPrefix: 'raw/extracted'
+        manifestPrefix: 'raw/extracted',
+        log: this.#log
       })
       const manifest: MineruRawManifest = {
         schemaVersion: 1,

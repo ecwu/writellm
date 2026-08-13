@@ -50,7 +50,8 @@ describe('runDraftChecks', () => {
     const result = runDraftChecks(
       { scope: { type: 'manuscript' }, checks: ['figure_metadata'] },
       { ...snapshot, sectionContents },
-      new AbortController().signal
+      new AbortController().signal,
+      log
     )
     expect(result.findings).toHaveLength(2)
     expect(result.findings.map((finding) => finding.title)).toEqual([
@@ -130,7 +131,8 @@ describe('runDraftChecks', () => {
         checks: ['writing_rules', 'safe_links', 'references_availability']
       },
       snapshot,
-      new AbortController().signal
+      new AbortController().signal,
+      log
     )
     expect(result.findings).toHaveLength(2)
     expect(result.findings.every((finding) => finding.revisionId === capturedRevision)).toBe(true)
@@ -162,7 +164,8 @@ describe('runDraftChecks', () => {
     const result = runDraftChecks(
       { scope: { type: 'manuscript' }, checks: ['unresolved_placeholders'] },
       snapshot,
-      new AbortController().signal
+      new AbortController().signal,
+      log
     )
     expect(result.findings).toHaveLength(200)
     expect(result.summary.truncated).toBe(true)
@@ -172,7 +175,8 @@ describe('runDraftChecks', () => {
       runDraftChecks(
         { scope: { type: 'manuscript' }, checks: ['unresolved_placeholders'] },
         snapshot,
-        controller.signal
+        controller.signal,
+        log
       )
     ).toThrow('aborted')
     database.close()
@@ -215,7 +219,8 @@ describe('runDraftChecks', () => {
         checks: ['references_availability', 'unused_resources']
       },
       snapshot,
-      new AbortController().signal
+      new AbortController().signal,
+      log
     )
     expect(result.findings).toEqual(
       expect.arrayContaining([

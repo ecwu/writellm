@@ -177,49 +177,64 @@ export class WritingTaskService {
 
   updateByUser(rawInput: unknown) {
     const input = userUpdateWritingTaskInputSchema.parse(rawInput)
-    const result = this.options.database.immediate((database) => {
-      const session = database
-        .prepare('SELECT status FROM agent_sessions WHERE agent_session_id = ?')
-        .get(input.agentSessionId) as { status: 'active' | 'archived' } | undefined
-      if (session?.status !== 'active') {
-        throw new AgentToolDomainError('unauthorized', 'Writing task conversation is not active')
-      }
-      if (
-        database
-          .prepare(
-            `SELECT 1 FROM agent_runs
-              WHERE agent_session_id = ? AND status = 'running'`
+    const startedAt = Date.now()
+    try {
+      const result = this.options.database.immediate((database) => {
+        const session = database
+          .prepare('SELECT status FROM agent_sessions WHERE agent_session_id = ?')
+          .get(input.agentSessionId) as { status: 'active' | 'archived' } | undefined
+        if (session?.status !== 'active') {
+          throw new AgentToolDomainError('unauthorized', 'Writing task conversation is not active')
+        }
+        if (
+          database
+            .prepare(
+              `SELECT 1 FROM agent_runs
+                WHERE agent_session_id = ? AND status = 'running'`
+            )
+            .get(input.agentSessionId) !== undefined
+        ) {
+          throw new AgentToolDomainError(
+            'conflict',
+            'Stop the active Agent run before revising its plan'
           )
-          .get(input.agentSessionId) !== undefined
-      ) {
-        throw new AgentToolDomainError(
-          'conflict',
-          'Stop the active Agent run before revising its plan'
-        )
-      }
-      const args = updateWritingTaskArgsSchema.parse({
-        taskId: input.taskId,
-        expectedPlanVersion: input.expectedPlanVersion,
-        objective: input.objective,
-        steps: input.steps.map((step) => {
-          if ('stepId' in step) return step
-          const clientRef = this.#createId()
-          return { ...step, clientRef }
+        }
+        const args = updateWritingTaskArgsSchema.parse({
+          taskId: input.taskId,
+          expectedPlanVersion: input.expectedPlanVersion,
+          objective: input.objective,
+          steps: input.steps.map((step) => {
+            if ('stepId' in step) return step
+            const clientRef = this.#createId()
+            return { ...step, clientRef }
+          })
         })
+        return this.#applyUpdate(database, args, input.agentSessionId)
       })
-      return this.#applyUpdate(database, args, input.agentSessionId)
-    })
-    this.options.log.info(
-      {
-        event: 'agent.writing_task.user_updated',
-        agentSessionId: input.agentSessionId,
-        writingTaskId: result.task.taskId,
-        planVersion: result.task.planVersion,
-        stepCount: result.task.plan.steps.length
-      },
-      'User revised Agent writing task'
-    )
-    return this.getView(input.agentSessionId)
+      this.options.log.info(
+        {
+          event: 'agent.writing_task.user_updated',
+          agentSessionId: input.agentSessionId,
+          writingTaskId: result.task.taskId,
+          planVersion: result.task.planVersion,
+          stepCount: result.task.plan.steps.length
+        },
+        'User revised Agent writing task'
+      )
+      return this.getView(input.agentSessionId)
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.writing_task.user_update_failed',
+          err,
+          agentSessionId: input.agentSessionId,
+          writingTaskId: input.taskId,
+          durationMs: Date.now() - startedAt
+        },
+        'User writing task revision failed'
+      )
+      throw err
+    }
   }
 
   getView(agentSessionId: string, database?: Database.Database) {

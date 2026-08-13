@@ -625,7 +625,7 @@ function harness() {
     manager: manager as never,
     broker: broker as never,
     catalog: catalog as never,
-    logger: { info: vi.fn(), error: vi.fn() },
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     developmentUrl: 'http://localhost:5173',
     ipc
   })

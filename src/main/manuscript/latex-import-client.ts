@@ -97,6 +97,13 @@ export class LatexImportClient {
                 requestId: request.requestId,
                 sourceHash: request.sourceHash,
                 sectionCount: result.data.sections.length,
+                blockCount: result.data.sections.reduce(
+                  (total, section) => total + section.nodes.length,
+                  0
+                ),
+                warningCount: result.data.warnings.length,
+                unsupportedCount: result.data.unsupported.length,
+                lossCount: result.data.losses.length,
                 durationMs: Date.now() - startedAt
               },
               'LaTeX import parsed in isolated utility process'

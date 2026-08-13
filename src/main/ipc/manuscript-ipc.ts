@@ -48,7 +48,7 @@ export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandl
 
 export function registerManuscriptIpc(options: {
   manager: ProjectManager
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: ManuscriptIpcMain
   publicationPresets?: Pick<PublicationPresetRepository, 'resolve'>

@@ -63,7 +63,7 @@ export interface AgentIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> 
 export function registerAgentIpc(options: {
   manager: ProjectManager
   broker: AgentEventBroker
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   catalog?: Pick<
     AgentProviderCatalogService,
     'snapshot' | 'resolve' | 'setDefaultSelection' | 'getLastThinkingLevel' | 'setLastThinkingLevel'
@@ -284,7 +284,11 @@ export function registerAgentIpc(options: {
       let reuseSkillFromRunId = input.reuseSkillFromRunId
       let presentation: AgentUserMessagePayload['presentation']
       if (input.quickAction !== undefined) {
-        const selection = validateQuickActionSelection(context.manuscript, input.editorContext)
+        const selection = validateQuickActionSelection(
+          context.manuscript,
+          input.editorContext,
+          options.logger
+        )
         const definition = quickActionDefinition(input.quickAction.action)
         prompt = buildQuickActionPrompt({
           quickAction: input.quickAction,

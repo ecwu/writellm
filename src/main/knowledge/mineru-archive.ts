@@ -1,3 +1,4 @@
+import type { Logger } from 'pino'
 import { extractBoundedZip, type ExtractedBoundedZipFile } from '../storage/bounded-zip-extractor'
 
 const allowedExtensions = new Set([
@@ -30,6 +31,7 @@ export interface ExtractMineruArchiveOptions {
   maxFiles?: number
   maxExpandedBytes?: number
   maxFileBytes?: number
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 }
 
 export interface ExtractMineruArchiveResult {

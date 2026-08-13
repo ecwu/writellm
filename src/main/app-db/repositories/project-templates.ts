@@ -33,7 +33,7 @@ export class ProjectTemplateRepository {
   constructor(
     private readonly database: AppDatabase,
     private readonly root: string,
-    private readonly log: Pick<Logger, 'info' | 'error'>,
+    private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>,
     options: { builtIns?: unknown; now?: () => Date; createId?: () => string } = {}
   ) {
     this.#builtIns = projectTemplateSchema
@@ -50,14 +50,21 @@ export class ProjectTemplateRepository {
   async list(): Promise<ProjectTemplateSummary[]> {
     const summaries = this.#builtIns.map((template) => summary(template, 'application', 'ready'))
     const rows = this.rows()
+    let integrityFailedCount = 0
     for (const row of rows) {
       try {
         const template = await this.#readUser(row)
         summaries.push(summary(template, 'user', 'ready'))
       } catch (err) {
-        this.log.error(
-          { event: 'app.project_templates.integrity_failed', err, templateId: row.template_id },
-          'User project template integrity validation failed'
+        integrityFailedCount += 1
+        this.log.warn(
+          {
+            event: 'app.project_templates.integrity_failed',
+            err,
+            templateId: row.template_id,
+            recovery: 'marked_integrity_failed'
+          },
+          'User project template integrity validation failed; catalog entry marked as failed'
         )
         summaries.push({
           templateId: row.template_id,
@@ -71,6 +78,15 @@ export class ProjectTemplateRepository {
         })
       }
     }
+    this.log.info(
+      {
+        event: 'app.project_templates.catalog_loaded',
+        builtInCount: this.#builtIns.length,
+        userCount: rows.length,
+        integrityFailedCount
+      },
+      'Project template catalog loaded'
+    )
     return projectTemplateCatalogSchema.parse(summaries)
   }
 
@@ -139,9 +155,14 @@ export class ProjectTemplateRepository {
       database.prepare('DELETE FROM project_templates WHERE template_id = ?').run(templateId)
     )
     await rm(join(this.root, safeRelativePath(row.relative_path)), { force: true }).catch((err) => {
-      this.log.error(
-        { event: 'app.project_templates.file_cleanup_failed', err, templateId },
-        'Deleted template file cleanup failed'
+      this.log.warn(
+        {
+          event: 'app.project_templates.file_cleanup_failed',
+          err,
+          templateId,
+          recovery: 'catalog_entry_deleted'
+        },
+        'Deleted template file cleanup failed; catalog entry remains deleted'
       )
     })
     this.log.info({ event: 'app.project_templates.deleted', templateId }, 'User template deleted')

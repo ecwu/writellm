@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename, extname } from 'node:path'
+import type { Logger } from 'pino'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
@@ -69,7 +70,9 @@ export async function parseMarkdownImport(input: {
   createId?: () => string
   resolveImage(reference: string): Promise<MarkdownImportResource>
   signal?: AbortSignal
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 }): Promise<MarkdownImportAdapterResult> {
+  const startedAt = Date.now()
   input.signal?.throwIfAborted()
   const source = input.bytes.toString('utf8')
   if (Buffer.byteLength(source) !== input.bytes.byteLength || source.includes('\uFFFD')) {
@@ -83,6 +86,14 @@ export async function parseMarkdownImport(input: {
     .use(unwrapDefault(remarkMath))
     .parse(source) as MdNode
   assertBoundedTree(root)
+  input.log?.info(
+    {
+      event: 'manuscript.import.markdown.parse_started',
+      displayName: input.displayName,
+      byteSize: input.bytes.byteLength
+    },
+    'Markdown import parsing started'
+  )
   const createId = input.createId ?? randomUUID
   const findings = {
     warnings: [] as MarkdownImportFinding[],
@@ -124,6 +135,7 @@ export async function parseMarkdownImport(input: {
         ...(await mapNode(node, {
           createId,
           resourceFor,
+          log: input.log,
           ...findings
         }))
       )
@@ -138,6 +150,20 @@ export async function parseMarkdownImport(input: {
   const firstHeading = rootChildren.find(
     (node) => node.type === 'heading' && (node.depth === 1 || node.depth === 2)
   )
+  input.log?.info(
+    {
+      event: 'manuscript.import.markdown.parse_completed',
+      displayName: input.displayName,
+      sectionCount: sections.length,
+      blockCount: sections.reduce((total, section) => total + section.document.length, 0),
+      assetCount: assetsById.size,
+      warningCount: findings.warnings.length,
+      unsupportedCount: findings.unsupported.length,
+      lossCount: findings.losses.length,
+      durationMs: Date.now() - startedAt
+    },
+    'Markdown import parsing completed'
+  )
   return {
     proposedTitle: firstHeading === undefined ? null : plainText(firstHeading).trim().slice(0, 500),
     sections,
@@ -149,6 +175,7 @@ export async function parseMarkdownImport(input: {
 interface MappingContext {
   createId(): string
   resourceFor(reference: string): Promise<MarkdownImportResource>
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
   warnings: MarkdownImportFinding[]
   unsupported: MarkdownImportFinding[]
   losses: MarkdownImportFinding[]
@@ -267,6 +294,14 @@ async function mapParagraph(node: MdNode, context: MappingContext): Promise<Bloc
         children: []
       })
     } catch (err) {
+      context.log?.warn(
+        {
+          event: 'manuscript.import.markdown.image_omitted',
+          err,
+          reference: reference.slice(0, 500)
+        },
+        'Markdown import image could not be captured and was omitted'
+      )
       context.losses.push(
         finding(
           'image_not_imported',

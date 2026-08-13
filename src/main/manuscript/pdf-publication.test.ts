@@ -38,6 +38,7 @@ describe('PDF publication', () => {
     let destroyed = false
     const handle = vi.fn()
     const permission = vi.fn()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const createWindow = vi.fn((_options) => ({
       loadURL: async (url: string) => {
         loaded.push(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64').toString('utf8'))
@@ -69,7 +70,8 @@ describe('PDF publication', () => {
 
     const result = await renderer({
       assembly: fixtureAssembly(),
-      readAsset: async () => Buffer.from('image')
+      readAsset: async () => Buffer.from('image'),
+      log
     })
 
     expect(result.bytes.subarray(0, 5).toString('ascii')).toBe('%PDF-')
@@ -101,6 +103,100 @@ describe('PDF publication', () => {
     expect(loaded[2]).toContain('<span>3</span>')
     expect(destroy).toHaveBeenCalledOnce()
     expect(stop).not.toHaveBeenCalled()
+
+    const events = log.info.mock.calls.map((call) => (call[0] as { event: string }).event)
+    expect(events).toEqual([
+      'manuscript.publication.pdf_render.started',
+      'manuscript.publication.pdf_window.created',
+      'manuscript.publication.pdf_print.completed',
+      'manuscript.publication.pdf_print.completed',
+      'manuscript.publication.pdf_print.completed',
+      'manuscript.publication.pdf_render.completed'
+    ])
+    expect(log.info).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.pdf_render.completed',
+        byteSize: result.bytes.byteLength,
+        printPasses: 3,
+        tocRestabilized: true
+      }),
+      expect.any(String)
+    )
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'manuscript.publication.pdf_toc.restabilized' }),
+      expect.any(String)
+    )
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it('logs the original error and window state when a print pass fails', async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const failure = new Error('simulated printToPDF failure')
+    let destroyed = false
+    const createWindow = vi.fn((_options) => ({
+      loadURL: async () => undefined,
+      isDestroyed: () => destroyed,
+      destroy: () => {
+        destroyed = true
+      },
+      webContents: {
+        printToPDF: async () => {
+          throw failure
+        },
+        stop: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        session: {
+          setPermissionRequestHandler: vi.fn(),
+          protocol: { handle: vi.fn() }
+        }
+      }
+    }))
+    const renderer = createPdfPublicationRenderer({
+      createWindow: createWindow as never,
+      createId: () => 'failing'
+    })
+
+    await expect(
+      renderer({
+        assembly: fixtureAssembly(),
+        readAsset: async () => Buffer.from('image'),
+        log
+      })
+    ).rejects.toThrow('simulated printToPDF failure')
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.pdf_render.failed',
+        err: failure,
+        printPasses: 0,
+        windowDestroyed: false
+      }),
+      expect.any(String)
+    )
+    expect(destroyed).toBe(true)
+  })
+
+  it('logs blocking preflight findings before rejecting', async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const createWindow = vi.fn()
+    const renderer = createPdfPublicationRenderer({ createWindow, createId: () => 'blocked' })
+
+    await expect(
+      renderer({
+        assembly: { ...fixtureAssembly(), ready: false },
+        readAsset: async () => Buffer.from('image'),
+        log
+      })
+    ).rejects.toThrow('Publication preflight contains blocking errors')
+    expect(createWindow).not.toHaveBeenCalled()
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.pdf_render.failed',
+        err: expect.any(Error),
+        findingCount: 0
+      }),
+      expect.any(String)
+    )
+    expect(log.info).not.toHaveBeenCalled()
   })
 
   it('fails before allocating a window when already cancelled', async () => {

@@ -213,6 +213,10 @@ export class MutationProposalService {
     )
     if (row?.status !== 'generating') return false
     this.#imageControllers.get(proposalId)?.abort()
+    this.options.log.info(
+      { event: 'agent.image_generation.cancel_requested', proposalId, agentSessionId },
+      'Agent image generation cancellation requested'
+    )
     return true
   }
 
@@ -1040,6 +1044,17 @@ export class MutationProposalService {
       )
       return approveMutationProposalResultSchema.parse({ outcome: 'applied', ...applied })
     }
+    if (transactionResult.outcome === 'refresh_required') {
+      this.options.log.info(
+        {
+          event: 'agent.image_refresh.refresh_required',
+          proposalId,
+          replacementProposalId: transactionResult.proposal.proposalId,
+          agentSessionId
+        },
+        'Stale generated image proposal refreshed for review'
+      )
+    }
     return approveMutationProposalResultSchema.parse({
       ...transactionResult,
       sectionChanged: null
@@ -1145,6 +1160,10 @@ export class MutationProposalService {
       }
       const target = findDocumentBlock(document, iteration.sourceBlock.blockId)
       if (target === null || target.type !== 'image') {
+        this.options.log.warn(
+          { event: 'agent.image_iteration.target_missing', proposalId },
+          'Image iteration target is unavailable before candidate review'
+        )
         insertLineage(null)
         const proposal = updateTerminalProposal(
           database,

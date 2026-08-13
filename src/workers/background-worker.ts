@@ -69,14 +69,30 @@ parentPort.on('message', (event) => {
 async function dispatch(value: unknown): Promise<void> {
   const latexImport = latexImportWorkerRequestSchema.safeParse(value)
   if (latexImport.success) {
+    const startedAt = Date.now()
     try {
-      post(parseLatexImport(latexImport.data))
+      const result = parseLatexImport(latexImport.data)
+      workerLog?.(
+        'info',
+        'worker.background.latex_import_parsed',
+        'LaTeX import parsing completed',
+        {
+          sourceHash: result.sourceHash,
+          sectionCount: result.sections.length,
+          blockCount: result.sections.reduce((total, section) => total + section.nodes.length, 0),
+          warningCount: result.warnings.length,
+          unsupportedCount: result.unsupported.length,
+          lossCount: result.losses.length,
+          durationMs: Date.now() - startedAt
+        }
+      )
+      post(result)
     } catch (err) {
       workerLog?.(
         'error',
         'worker.background.latex_import_failed',
         'LaTeX import parsing failed',
-        { sourceHash: latexImport.data.sourceHash },
+        { sourceHash: latexImport.data.sourceHash, durationMs: Date.now() - startedAt },
         err
       )
       post(

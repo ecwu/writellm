@@ -29,6 +29,7 @@ import {
 import { XMLParser } from 'fast-xml-parser'
 import JSZip from 'jszip'
 import katex from 'katex'
+import type { Logger } from 'pino'
 import type {
   PublicationAssembly,
   PublicationInlineNode,
@@ -45,80 +46,127 @@ export interface DocxPublicationLoss {
 export async function renderDocxPublication(input: {
   assembly: PublicationAssembly
   readAsset(assetId: string): Promise<Buffer>
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 }): Promise<{ bytes: Buffer; losses: DocxPublicationLoss[] }> {
-  if (!input.assembly.ready) throw new Error('Publication preflight contains blocking errors')
-  const losses: DocxPublicationLoss[] = []
-  const children: FileChild[] = []
-  children.push(
-    new Paragraph({
-      text: input.assembly.title,
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER
-    })
+  if (!input.assembly.ready) {
+    const err = new Error('Publication preflight contains blocking errors')
+    input.log?.error(
+      {
+        event: 'manuscript.publication.docx_render.failed',
+        err,
+        findingCount: input.assembly.findings.length
+      },
+      'DOCX publication preflight contains blocking errors'
+    )
+    throw err
+  }
+  const startedAt = Date.now()
+  input.log?.info(
+    {
+      event: 'manuscript.publication.docx_render.started',
+      nodeCount: input.assembly.nodes.length,
+      assetCount: input.assembly.assets.length,
+      pageSize: input.assembly.options.pageSize,
+      template: input.assembly.options.template,
+      includeTableOfContents: input.assembly.options.includeTableOfContents
+    },
+    'DOCX publication render started'
   )
-  if (input.assembly.options.includeTableOfContents) {
+  try {
+    const losses: DocxPublicationLoss[] = []
+    const children: FileChild[] = []
     children.push(
-      new Paragraph({ text: 'Table of Contents', heading: HeadingLevel.HEADING_1 }),
-      new TableOfContents('Table of Contents', {
-        hyperlink: true,
-        headingStyleRange: '1-6'
+      new Paragraph({
+        text: input.assembly.title,
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER
       })
     )
-  }
-  for (const node of input.assembly.nodes) {
-    children.push(...(await convertNode(node, input, losses)))
-  }
-  const margin = input.assembly.options.marginsMm
-  const pageSize =
-    input.assembly.options.pageSize === 'A4'
-      ? { width: 11_906, height: 16_838 }
-      : { width: 12_240, height: 15_840 }
-  const document = new Document({
-    title: input.assembly.title,
-    creator: 'WriteLLM',
-    lastModifiedBy: 'WriteLLM',
-    description: `WriteLLM publication ${input.assembly.sourceHash}`,
-    styles: {
-      default: {
-        document: {
-          run: { font: { ascii: 'Aptos', eastAsia: 'PingFang SC', hAnsi: 'Aptos' }, size: 22 },
-          paragraph: { spacing: { after: 120, line: 276 } }
-        }
-      }
-    },
-    sections: [
-      {
-        properties: {
-          page: {
-            size: pageSize,
-            margin: {
-              top: convertMillimetersToTwip(margin.top),
-              right: convertMillimetersToTwip(margin.right),
-              bottom: convertMillimetersToTwip(margin.bottom),
-              left: convertMillimetersToTwip(margin.left)
-            }
+    if (input.assembly.options.includeTableOfContents) {
+      children.push(
+        new Paragraph({ text: 'Table of Contents', heading: HeadingLevel.HEADING_1 }),
+        new TableOfContents('Table of Contents', {
+          hyperlink: true,
+          headingStyleRange: '1-6'
+        })
+      )
+    }
+    for (const node of input.assembly.nodes) {
+      children.push(...(await convertNode(node, input, losses)))
+    }
+    const margin = input.assembly.options.marginsMm
+    const pageSize =
+      input.assembly.options.pageSize === 'A4'
+        ? { width: 11_906, height: 16_838 }
+        : { width: 12_240, height: 15_840 }
+    const document = new Document({
+      title: input.assembly.title,
+      creator: 'WriteLLM',
+      lastModifiedBy: 'WriteLLM',
+      description: `WriteLLM publication ${input.assembly.sourceHash}`,
+      styles: {
+        default: {
+          document: {
+            run: { font: { ascii: 'Aptos', eastAsia: 'PingFang SC', hAnsi: 'Aptos' }, size: 22 },
+            paragraph: { spacing: { after: 120, line: 276 } }
           }
-        },
-        footers: {
-          default: new Footer({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [
-                  new TextRun('Page '),
-                  new TextRun({ children: [PageNumber.CURRENT] }),
-                  new TextRun(' of '),
-                  new TextRun({ children: [PageNumber.TOTAL_PAGES] })
-                ]
-              })
-            ]
-          })
-        },
-        children
-      }
-    ]
-  })
-  return { bytes: await canonicalizeDocx(await Packer.toBuffer(document)), losses }
+        }
+      },
+      sections: [
+        {
+          properties: {
+            page: {
+              size: pageSize,
+              margin: {
+                top: convertMillimetersToTwip(margin.top),
+                right: convertMillimetersToTwip(margin.right),
+                bottom: convertMillimetersToTwip(margin.bottom),
+                left: convertMillimetersToTwip(margin.left)
+              }
+            }
+          },
+          footers: {
+            default: new Footer({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun('Page '),
+                    new TextRun({ children: [PageNumber.CURRENT] }),
+                    new TextRun(' of '),
+                    new TextRun({ children: [PageNumber.TOTAL_PAGES] })
+                  ]
+                })
+              ]
+            })
+          },
+          children
+        }
+      ]
+    })
+    const bytes = await canonicalizeDocx(await Packer.toBuffer(document))
+    input.log?.info(
+      {
+        event: 'manuscript.publication.docx_render.completed',
+        byteSize: bytes.byteLength,
+        lossCount: losses.length,
+        lossesByCode: countLossesByCode(losses),
+        durationMs: Date.now() - startedAt
+      },
+      'DOCX publication render completed'
+    )
+    return { bytes, losses }
+  } catch (err) {
+    input.log?.error(
+      {
+        event: 'manuscript.publication.docx_render.failed',
+        err,
+        durationMs: Date.now() - startedAt
+      },
+      'DOCX publication render failed'
+    )
+    throw err
+  }
 }
 
 async function convertNode(
@@ -416,6 +464,12 @@ function fitImage(width: number, height: number): { width: number; height: numbe
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale))
   }
+}
+
+function countLossesByCode(losses: readonly DocxPublicationLoss[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const loss of losses) counts[loss.code] = (counts[loss.code] ?? 0) + 1
+  return counts
 }
 
 async function canonicalizeDocx(bytes: Buffer): Promise<Buffer> {

@@ -411,7 +411,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     snapshot: WritingSnapshot,
     signal: AbortSignal
   ): CheckDraftResult {
-    return runDraftChecks(args, snapshot, signal)
+    return runDraftChecks(args, snapshot, signal, this.options.log)
   }
 
   #requireRetrieval(): RetrievalService {

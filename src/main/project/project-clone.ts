@@ -62,6 +62,14 @@ export async function createProjectClone(options: {
     projectId: (options.createId ?? randomUUID)(),
     createdAt: (options.now ?? (() => new Date()))().toISOString()
   })
+  options.log.info(
+    {
+      event: 'project.clone.started',
+      sourceProjectId: options.sourceManifest.projectId,
+      projectId: cloneManifest.projectId
+    },
+    'Independent project clone started'
+  )
   try {
     throwIfAborted(options.signal)
     await ensureAbsent(options.destination)
@@ -114,6 +122,7 @@ export async function createProjectClone(options: {
         event: 'project.clone.failed',
         err,
         sourceProjectId: options.sourceManifest.projectId,
+        projectId: cloneManifest.projectId,
         durationMs: Date.now() - startedAt
       },
       'Independent project clone failed'

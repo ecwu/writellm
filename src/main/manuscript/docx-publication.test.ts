@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser'
 import JSZip from 'jszip'
 import mammoth from 'mammoth'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PublicationAssembly } from '../../shared/contracts/publication'
 import { renderDocxPublication } from './docx-publication'
 
@@ -17,9 +17,11 @@ const imageBytes = Buffer.from(
 describe('DOCX publication renderer', () => {
   it('produces deterministic, structurally valid OOXML with semantic Word content', async () => {
     const assembly = fixtureAssembly()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const first = await renderDocxPublication({
       assembly,
-      readAsset: async () => imageBytes
+      readAsset: async () => imageBytes,
+      log
     })
     const second = await renderDocxPublication({
       assembly,
@@ -33,6 +35,20 @@ describe('DOCX publication renderer', () => {
         expect.objectContaining({ code: 'mermaid_source_fallback' })
       ])
     )
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'manuscript.publication.docx_render.started' }),
+      expect.any(String)
+    )
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.docx_render.completed',
+        byteSize: first.bytes.byteLength,
+        lossCount: first.losses.length,
+        lossesByCode: { math_text_fallback: 1, mermaid_source_fallback: 1 }
+      }),
+      expect.any(String)
+    )
+    expect(log.error).not.toHaveBeenCalled()
 
     const zip = await JSZip.loadAsync(first.bytes)
     const names = Object.keys(zip.files)

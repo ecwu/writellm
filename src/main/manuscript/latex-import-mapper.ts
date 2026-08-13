@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { Logger } from 'pino'
 import type { LatexImportNode, LatexImportWorkerResult } from '../../shared/contracts/latex-import'
 import {
   blockNoteDocumentSchema,
@@ -10,21 +11,47 @@ import {
 export function mapLatexImportResult(
   parsed: LatexImportWorkerResult,
   createId: () => string = randomUUID,
-  resources: ReadonlyMap<string, { logicalUrl: string; displayName: string }> = new Map()
+  resources: ReadonlyMap<string, { logicalUrl: string; displayName: string }> = new Map(),
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 ): Array<{
   proposedSectionId: string
   title: string
   outlineLevel: number
   document: BlockNoteDocument
 }> {
-  return parsed.sections.map((section) => ({
-    proposedSectionId: createId(),
-    title: section.title,
-    outlineLevel: section.outlineLevel,
-    document: blockNoteDocumentSchema.parse(
-      section.nodes.flatMap((node) => mapNode(node, createId, resources))
+  const startedAt = Date.now()
+  try {
+    const sections = parsed.sections.map((section) => ({
+      proposedSectionId: createId(),
+      title: section.title,
+      outlineLevel: section.outlineLevel,
+      document: blockNoteDocumentSchema.parse(
+        section.nodes.flatMap((node) => mapNode(node, createId, resources))
+      )
+    }))
+    log?.info(
+      {
+        event: 'manuscript.import.latex.mapped',
+        sourceHash: parsed.sourceHash,
+        sectionCount: sections.length,
+        blockCount: sections.reduce((total, section) => total + section.document.length, 0),
+        durationMs: Date.now() - startedAt
+      },
+      'LaTeX import result mapped to manuscript blocks'
     )
-  }))
+    return sections
+  } catch (err) {
+    log?.error(
+      {
+        event: 'manuscript.import.latex.map_failed',
+        err,
+        sourceHash: parsed.sourceHash,
+        durationMs: Date.now() - startedAt
+      },
+      'LaTeX import result mapping failed'
+    )
+    throw err
+  }
 }
 
 function mapNode(

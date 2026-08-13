@@ -34,7 +34,7 @@ export class ReviewIssueService {
   constructor(
     private readonly options: {
       database: ProjectDatabase
-      log: Pick<Logger, 'info' | 'error'>
+      log: Pick<Logger, 'info' | 'warn' | 'error'>
       now?: () => Date
       createId?: () => string
     }
@@ -189,6 +189,18 @@ export class ReviewIssueService {
           truncated
         })
       })
+      if (result.truncated) {
+        this.options.log.warn(
+          {
+            event: 'agent.review_issues.record_truncated',
+            agentRunId: actor.agentRunId,
+            created: result.created,
+            refreshed: result.refreshed,
+            deduplicated: result.deduplicated
+          },
+          'Review issue recording reached the per-run creation cap'
+        )
+      }
       this.options.log.info(
         {
           event: 'review.issues.recorded',
@@ -213,108 +225,148 @@ export class ReviewIssueService {
 
   update(rawArgs: unknown, actor: AgentActor) {
     const args = updateReviewIssuesArgsSchema.parse(rawArgs)
-    return this.options.database.immediate((database) => {
-      const issues = args.operations.map((operation) => {
-        const existing = requireIssue(database, operation.issueId)
-        assertExpectedVersion(existing, operation.expectedVersion)
-        const now = this.#now()
-        const next = agentTransition(existing, operation, actor.agentSessionId)
-        database
-          .prepare(
-            `UPDATE review_issues SET status = ?, assigned_agent_session_id = ?, version = version + 1,
-               resolution_summary = ?, resolved_by_proposal_id = NULL, resolved_at = ?,
-               dismissed_at = NULL, updated_at = ? WHERE review_issue_id = ? AND version = ?`
-          )
-          .run(
-            next.status,
-            next.assigned,
-            next.summary,
-            next.status === 'resolved' ? now : null,
-            now,
+    try {
+      return this.options.database.immediate((database) => {
+        const issues = args.operations.map((operation) => {
+          const existing = requireIssue(database, operation.issueId)
+          assertExpectedVersion(existing, operation.expectedVersion)
+          const now = this.#now()
+          const next = agentTransition(existing, operation, actor.agentSessionId)
+          database
+            .prepare(
+              `UPDATE review_issues SET status = ?, assigned_agent_session_id = ?, version = version + 1,
+                 resolution_summary = ?, resolved_by_proposal_id = NULL, resolved_at = ?,
+                 dismissed_at = NULL, updated_at = ? WHERE review_issue_id = ? AND version = ?`
+            )
+            .run(
+              next.status,
+              next.assigned,
+              next.summary,
+              next.status === 'resolved' ? now : null,
+              now,
+              existing.review_issue_id,
+              existing.version
+            )
+          insertEvent(
+            database,
+            this.#createId(),
             existing.review_issue_id,
-            existing.version
+            next.event,
+            existing.status,
+            next.status,
+            'agent',
+            actor,
+            null,
+            next.summary,
+            now
           )
-        insertEvent(
-          database,
-          this.#createId(),
-          existing.review_issue_id,
-          next.event,
-          existing.status,
-          next.status,
-          'agent',
-          actor,
-          null,
-          next.summary,
-          now
+          return mapIssue(database, requireIssue(database, existing.review_issue_id))
+        })
+        this.options.log.info(
+          { event: 'review.issues.updated', agentRunId: actor.agentRunId, count: issues.length },
+          'Review issues updated'
         )
-        return mapIssue(database, requireIssue(database, existing.review_issue_id))
+        return updateReviewIssuesResultSchema.parse({ issues })
       })
-      this.options.log.info(
-        { event: 'review.issues.updated', agentRunId: actor.agentRunId, count: issues.length },
-        'Review issues updated'
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.review_issues.update_failed',
+          err,
+          agentRunId: actor.agentRunId,
+          operationCount: args.operations.length
+        },
+        'Review issue update failed'
       )
-      return updateReviewIssuesResultSchema.parse({ issues })
-    })
+      throw err
+    }
   }
 
   updateByUser(rawOperation: unknown): ReviewIssueRecord {
     const operation = reviewIssueUserOperationSchema.parse(rawOperation)
-    return this.options.database.immediate((database) => {
-      const existing = requireIssue(database, operation.issueId)
-      assertExpectedVersion(existing, operation.expectedVersion)
-      const now = this.#now()
-      if (operation.action === 'setPriority') {
-        database
-          .prepare(
-            'UPDATE review_issues SET priority = ?, version = version + 1, updated_at = ? WHERE review_issue_id = ? AND version = ?'
-          )
-          .run(operation.priority, now, existing.review_issue_id, existing.version)
-        insertEvent(
-          database,
-          this.#createId(),
-          existing.review_issue_id,
-          'priority_changed',
-          existing.status,
-          existing.status,
-          'user',
-          null,
-          null,
-          null,
-          now
-        )
-      } else {
-        const next = userTransition(existing, operation)
-        database
-          .prepare(
-            `UPDATE review_issues SET status = ?, assigned_agent_session_id = NULL,
-               version = version + 1, resolution_summary = ?, resolved_by_proposal_id = NULL,
-               resolved_at = NULL, dismissed_at = ?, updated_at = ?
-             WHERE review_issue_id = ? AND version = ?`
-          )
-          .run(
-            next.status,
-            next.summary,
-            next.status === 'dismissed' ? now : null,
-            now,
+    const startedAt = Date.now()
+    try {
+      const issue = this.options.database.immediate((database) => {
+        const existing = requireIssue(database, operation.issueId)
+        assertExpectedVersion(existing, operation.expectedVersion)
+        const now = this.#now()
+        if (operation.action === 'setPriority') {
+          database
+            .prepare(
+              'UPDATE review_issues SET priority = ?, version = version + 1, updated_at = ? WHERE review_issue_id = ? AND version = ?'
+            )
+            .run(operation.priority, now, existing.review_issue_id, existing.version)
+          insertEvent(
+            database,
+            this.#createId(),
             existing.review_issue_id,
-            existing.version
+            'priority_changed',
+            existing.status,
+            existing.status,
+            'user',
+            null,
+            null,
+            null,
+            now
           )
-        insertEvent(
-          database,
-          this.#createId(),
-          existing.review_issue_id,
-          next.event,
-          existing.status,
-          next.status,
-          'user',
-          null,
-          null,
-          next.summary,
-          now
-        )
-      }
-      return mapIssue(database, requireIssue(database, existing.review_issue_id))
-    })
+        } else {
+          const next = userTransition(existing, operation)
+          database
+            .prepare(
+              `UPDATE review_issues SET status = ?, assigned_agent_session_id = NULL,
+                 version = version + 1, resolution_summary = ?, resolved_by_proposal_id = NULL,
+                 resolved_at = NULL, dismissed_at = ?, updated_at = ?
+               WHERE review_issue_id = ? AND version = ?`
+            )
+            .run(
+              next.status,
+              next.summary,
+              next.status === 'dismissed' ? now : null,
+              now,
+              existing.review_issue_id,
+              existing.version
+            )
+          insertEvent(
+            database,
+            this.#createId(),
+            existing.review_issue_id,
+            next.event,
+            existing.status,
+            next.status,
+            'user',
+            null,
+            null,
+            next.summary,
+            now
+          )
+        }
+        return mapIssue(database, requireIssue(database, existing.review_issue_id))
+      })
+      this.options.log.info(
+        {
+          event: 'agent.review_issues.user_updated',
+          issueId: operation.issueId,
+          action: operation.action,
+          status: issue.status,
+          version: issue.version,
+          durationMs: Date.now() - startedAt
+        },
+        'User updated review issue'
+      )
+      return issue
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.review_issues.user_update_failed',
+          err,
+          issueId: operation.issueId,
+          action: operation.action,
+          durationMs: Date.now() - startedAt
+        },
+        'User review issue update failed'
+      )
+      throw err
+    }
   }
 
   validateResolutionTargets(
@@ -368,6 +420,17 @@ export class ReviewIssueService {
         )
       }
     })
+    if (warnings.length > 0) {
+      this.options.log.warn(
+        {
+          event: 'agent.review_issues.proposal_link_skipped',
+          proposalId,
+          skippedCount: warnings.length,
+          targetCount: targets.length
+        },
+        'Some review issues changed before proposal linkage'
+      )
+    }
     return warnings
   }
 
@@ -436,6 +499,7 @@ export class ReviewIssueService {
 
   reopenForUndo(proposalId: string): string[] {
     const warnings: string[] = []
+    let reopenedCount = 0
     try {
       this.options.database.immediate((database) => {
         const issues = database
@@ -472,7 +536,12 @@ export class ReviewIssueService {
             now
           )
         }
+        reopenedCount = issues.length
       })
+      this.options.log.info(
+        { event: 'agent.review_issues.undo_reopened', proposalId, reopenedCount },
+        'Review issues reopened after proposal undo'
+      )
     } catch (err) {
       this.options.log.error(
         { event: 'review.proposal.undo_reconcile_failed', err, proposalId },

@@ -94,6 +94,16 @@ export class ManuscriptAssetService {
           .run(now.toISOString(), existing.asset_id)
       })
       this.#enqueueCleanup(existing.asset_id, now)
+      this.options.log.info(
+        {
+          event: 'manuscript.asset.reused',
+          projectId: this.options.projectId,
+          assetId: existing.asset_id,
+          byteSize: input.bytes.byteLength,
+          durationMs: Date.now() - startedAt
+        },
+        'Identical manuscript asset already stored; reused it'
+      )
       return resultFromRow(existing)
     }
 
@@ -148,6 +158,15 @@ export class ManuscriptAssetService {
       if (concurrentlyPublished !== undefined) {
         await this.#verifyStored(concurrentlyPublished)
         this.#enqueueCleanup(concurrentlyPublished.asset_id, new Date(now))
+        this.options.log.warn(
+          {
+            event: 'manuscript.asset.store_race_recovered',
+            err,
+            projectId: this.options.projectId,
+            assetId: concurrentlyPublished.asset_id
+          },
+          'Manuscript asset publication raced with a concurrent publish; reused the winning asset'
+        )
         return resultFromRow(concurrentlyPublished)
       }
       const deletionInProgress = this.options.database.immediate((database) =>
@@ -412,6 +431,15 @@ export class ManuscriptAssetService {
       return { row: { ...row, deletion_state: 'deleting' as const }, reasons }
     })
     if (prepared.reasons.length > 0) {
+      this.options.log.warn(
+        {
+          event: 'manuscript.asset.delete_protected',
+          projectId: this.options.projectId,
+          assetId: parsed,
+          reasons: prepared.reasons
+        },
+        'Manuscript asset deletion rejected by the safe-deletion guard'
+      )
       return deleteManuscriptAssetResultSchema.parse({
         outcome: 'protected',
         assetId: parsed,
@@ -430,11 +458,22 @@ export class ManuscriptAssetService {
     for (const row of rows) {
       if ((await this.#finishDeletion(row)).outcome === 'deleted') completed += 1
     }
+    if (rows.length > 0) {
+      this.options.log.info(
+        {
+          event: 'manuscript.asset.pending_deletions_repaired',
+          projectId: this.options.projectId,
+          attempted: rows.length,
+          completed
+        },
+        'Pending manuscript asset deletions repaired'
+      )
+    }
     return completed
   }
 
   async cleanupOrphans(): Promise<number> {
-    await this.repairPendingDeletions()
+    const repaired = await this.repairPendingDeletions()
     const cutoff = new Date(
       (this.options.now ?? (() => new Date()))().getTime() - ORPHAN_GRACE_MS
     ).toISOString()
@@ -467,6 +506,16 @@ export class ManuscriptAssetService {
       const result = await this.deleteUnprotected(row.asset_id)
       if (result.outcome === 'deleted') removed += 1
     }
+    this.options.log.info(
+      {
+        event: 'manuscript.asset.orphan_cleanup_completed',
+        projectId: this.options.projectId,
+        repaired,
+        candidates: rows.length,
+        removed
+      },
+      'Manuscript asset orphan cleanup completed'
+    )
     return removed
   }
 

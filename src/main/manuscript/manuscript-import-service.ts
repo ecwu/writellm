@@ -119,8 +119,23 @@ export class ManuscriptImportService {
       const selected = await stageImportSource({
         sourcePath: input.sourcePath,
         stageRoot: resolve(input.context.projectRoot, stageRelativePath),
-        signal: input.signal
+        signal: input.signal,
+        log: this.options.log
       })
+      this.options.log.info(
+        {
+          event: 'manuscript.import.staged',
+          projectId: input.context.manifest.projectId,
+          projectSessionId: input.context.projectSessionId,
+          planId,
+          format: selected.format,
+          sourceHash: selected.sourceHash,
+          sourceByteSize: selected.byteSize,
+          fileCount: selected.manifest.length,
+          durationMs: Date.now() - startedAt
+        },
+        'Manuscript import source staged'
+      )
       const sourceHash = selected.sourceHash
       const workspace = input.context.manuscript.getWorkspace()
       const active = input.context.editorPersistence.loadSection(input.activeSectionId)
@@ -166,7 +181,8 @@ export class ManuscriptImportService {
               displayName,
               createId,
               signal: input.signal,
-              resolveImage
+              resolveImage,
+              log: this.options.log
             })
           : await this.#parseLatex({
               bytes: selected.primaryBytes,
@@ -261,6 +277,30 @@ export class ManuscriptImportService {
   }
 
   async apply(
+    context: ProjectContext,
+    input: ManuscriptImportApplyInput
+  ): Promise<ManuscriptImportApplyResult> {
+    const startedAt = Date.now()
+    try {
+      return await this.#apply(context, input)
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'manuscript.import.apply_failed',
+          err,
+          projectId: context.manifest.projectId,
+          projectSessionId: context.projectSessionId,
+          planId: input.planId,
+          mode: input.mode,
+          durationMs: Date.now() - startedAt
+        },
+        'Manuscript import apply failed'
+      )
+      throw err
+    }
+  }
+
+  async #apply(
     context: ProjectContext,
     input: ManuscriptImportApplyInput
   ): Promise<ManuscriptImportApplyResult> {
@@ -503,13 +543,15 @@ export class ManuscriptImportService {
       assets.push({ result, displayName: captured.displayName, sha256: captured.sha256 })
       resources.set(reference, { logicalUrl: result.logicalUrl, displayName: captured.displayName })
     }
-    const mapped = mapLatexImportResult(parsed, input.createId, resources).map((section) => ({
-      ...section,
-      title:
-        section.title === 'Imported LaTeX manuscript'
-          ? importSourceTitle(input.displayName)
-          : section.title
-    }))
+    const mapped = mapLatexImportResult(parsed, input.createId, resources, this.options.log).map(
+      (section) => ({
+        ...section,
+        title:
+          section.title === 'Imported LaTeX manuscript'
+            ? importSourceTitle(input.displayName)
+            : section.title
+      })
+    )
     return {
       proposedTitle: parsed.proposedTitle,
       sections: mapped,
@@ -541,6 +583,7 @@ async function stageImportSource(input: {
   sourcePath: string
   stageRoot: string
   signal?: AbortSignal
+  log?: Pick<Logger, 'info' | 'warn' | 'error'>
 }): Promise<StagedImportSource> {
   const metadata = await lstat(input.sourcePath)
   if (metadata.isSymbolicLink()) throw new Error('Import source cannot be a symbolic link')
@@ -601,7 +644,8 @@ async function stageImportSource(input: {
     maxFiles: MAX_LATEX_PROJECT_FILES,
     maxExpandedBytes: MAX_MANUSCRIPT_IMPORT_CAPTURE_BYTES,
     maxFileBytes: MAX_IMPORT_RESOURCE_BYTES,
-    maxCompressionRatio: 100
+    maxCompressionRatio: 100,
+    log: input.log
   })
   await rm(stagedArchive, { force: true })
   return buildStagedLatexProject({

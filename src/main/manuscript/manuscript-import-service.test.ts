@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { Logger } from 'pino'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZipFile } from 'yazl'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { ProjectFilesystem } from '../project/project-filesystem'
@@ -314,9 +315,51 @@ Evidence from \cite{garcia2025}.
       })
     ).rejects.toThrow('does not exist')
   })
+
+  it('logs staging and apply-failure lifecycle events with safe fields', async () => {
+    const importLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const fixture = await createFixture(importLog)
+    const source = join(fixture.root, 'logged.md')
+    await writeFile(source, '# Logged\n\nbody')
+    const plan = await fixture.imports.createPlan({
+      context: fixture.context,
+      sourcePath: source,
+      activeSectionId: fixture.active.section.sectionId
+    })
+    expect(importLog.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.staged',
+        planId: plan.planId,
+        format: 'markdown',
+        fileCount: 1
+      }),
+      expect.any(String)
+    )
+    expect(importLog.info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'manuscript.import.plan_created', planId: plan.planId }),
+      expect.any(String)
+    )
+
+    await expect(
+      fixture.imports.apply(fixture.context, {
+        projectSessionId: fixture.context.projectSessionId,
+        planId: crypto.randomUUID(),
+        mode: 'create_sections'
+      })
+    ).rejects.toThrow('does not exist')
+    expect(importLog.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.import.apply_failed',
+        err: expect.any(Error),
+        mode: 'create_sections'
+      }),
+      expect.any(String)
+    )
+    expect(JSON.stringify(importLog.info.mock.calls)).not.toContain(fixture.projectRoot)
+  })
 })
 
-async function createFixture() {
+async function createFixture(importLog: Pick<Logger, 'info' | 'warn' | 'error'> = log) {
   const root = await mkdtemp(join(tmpdir(), 'writellm-import-'))
   roots.push(root)
   const projectRoot = join(root, 'project')
@@ -372,7 +415,7 @@ async function createFixture() {
     active,
     context,
     imports: new ManuscriptImportService({
-      log,
+      log: importLog,
       parseLatex: async ({ source, sourceHash, project }) =>
         parseLatexImport({
           type: 'latex-import-parse',

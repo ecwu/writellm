@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readWritingRules, writeWritingRules } from '../../shared/contracts/writing-rules'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { initializeProjectDatabase, type ProjectDatabase } from './project-database'
@@ -98,6 +98,47 @@ describe('project template projection', () => {
     expect(targetRule?.instruction).toBe('Use precise language.')
     expect(targetRule?.ruleId).not.toBe('019d0000-0000-7000-8000-000000000490')
     expect(target.manuscript.assemble().sections[0]?.revision.content).toEqual([])
+    source.database.close()
+    target.database.close()
+  })
+
+  it('logs extraction success and apply failures with the original error', async () => {
+    const source = await fixture('Source')
+    const stubLog = { info: vi.fn(), error: vi.fn() }
+    const template = extractProjectTemplate({
+      manuscript: source.manuscript,
+      templateId: '019d0000-0000-7000-8000-000000000492',
+      name: 'Logged template',
+      description: '',
+      publicationPresetId: null,
+      log: stubLog
+    })
+    expect(stubLog.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'project_template.extracted',
+        templateId: template.templateId,
+        sectionCount: template.outline.length,
+        writingRuleCount: template.writingRules.length
+      }),
+      'Project template extracted from manuscript skeleton'
+    )
+
+    const target = await fixture('Target')
+    expect(() =>
+      applyProjectTemplate({
+        manuscript: target.manuscript,
+        template: { ...template, outline: [] },
+        log: stubLog
+      })
+    ).toThrow()
+    expect(stubLog.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'project_template.apply_failed',
+        err: expect.any(Error),
+        templateId: template.templateId
+      }),
+      'Project template application failed'
+    )
     source.database.close()
     target.database.close()
   })
