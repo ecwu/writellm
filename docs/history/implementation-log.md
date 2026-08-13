@@ -271,3 +271,63 @@ maintenance without turning the active tracker back into a historical log.
   passed. The macOS arm64 package gate passed 12 smoke and 26/26 packaged E2E scenarios, verified
   the ASAR/native inventory, and produced structurally verified 0.2026.8.16 App, DMG, and ZIP
   artifacts.
+- Replaced the dark textured application icon with a light mist-blue tile, warm-white folded-paper
+  `W`, and cobalt pen-nib accent. Regenerated the 1024px packaging PNG, 512px Linux runtime PNG,
+  seven-frame Windows ICO, and multi-size macOS ICNS from the same master. `pnpm check` passed;
+  the macOS arm64 `check:package` gate passed all 12 packaged smoke scenarios and 26/26 packaged
+  E2E scenarios, and the packaged `icon.icns` SHA-256 exactly matched `build/icon.icns`
+  (`7e605de1942ef9f3e7a4cc39a48d1ead2448c215948ccc6377775fa3d0f954b2`). The no-identity gate
+  produced `WriteLLM-0.2026.8.16-arm64.dmg` (258,126,721 bytes; SHA-256
+  `d08d75cf1e3914b56f34ae3f585bf8bc7862bf1d653e0e56f80af6232e4c192b`) and the companion ZIP
+  (256,044,716 bytes; SHA-256
+  `ebcda1b9986b2562e65cac8f1442038c4fc4370c597e065545ff07acf8c15fbd`). Signing, notarization,
+  hosted CI, push, release, and promotion were not performed.
+- Refined the generated icon after Dock-size inspection showed insufficient separation between the
+  pale tile and warm-white W. Kept the folded-paper and cobalt pen-nib geometry while deepening the
+  tile to a calm medium slate/cornflower blue, then regenerated the packaging PNG, Linux runtime
+  PNG, Windows ICO, and macOS ICNS from the revised master. The macOS arm64 unpacked package gate
+  passed all 12 packaged smoke scenarios and 26/26 packaged E2E scenarios; the App's packaged ICNS
+  exactly matched `build/icon.icns` at SHA-256
+  `b026eb458df23f7f6bb2cf5333583e5f387cca2c50523deeb806d339c86d0012`. The App remains ad-hoc,
+  no-Team-ID, and unnotarized; no DMG or ZIP was produced in this refinement.
+- Started Phase 12 as an evidence-driven Use And Fix phase and accepted ADR 038 for Checkpoint 48.
+  The decision replaces ADR 016's five separately visible composer controls with Add, truthful
+  approval policy, combined model plus effort, and Send; context and Writing Skill remain available
+  through one shared Add/leading-slash catalog. No Agent authority, persistence, provider, prompt,
+  worker, migration, package/release, hosted CI, commit, push, or publication boundary changed.
+- Implemented the Checkpoint 48 Agent composer refinement. Add and a leading slash now share one
+  context/Writing Skill catalog; approval choices explain the bounded proposal policy; and one
+  progressive model/effort popover displays concise labels such as `GPT 5.6 Sol xhigh` without
+  redundant provider branding. Focused Renderer tests, 179 Electron files / 915 tests plus the
+  production build, three focused Real-Electron scenarios, bounded screenshot review, scoped and
+  full-code Biome checks, Impeccable, and diff checks passed. Formal closure remains pending only
+  because the ordinary all-file formatter reports the preserved user-owned concurrent
+  `.vscode/settings.json` edit; no unrelated file was rewritten to manufacture a green gate.
+- Built the explicitly authorized Phase 12 hands-on macOS arm64 App with the no-identity unpacked
+  package gate. Electron 43.1.0 / ABI 148, the arm64 native inventory, 45,783 ASAR entries, all 12
+  packaged smoke scenarios, and all 26 packaged E2E scenarios passed with no flaky, skipped, or
+  failed result. The gate produced only `dist/macos-arm64/mac-arm64/WriteLLM.app` at version
+  `0.2026.8` / build `2026.8.16` and verified that it has no Apple Team ID. No DMG, ZIP, signing
+  identity discovery, notarization, hosted CI, commit, push, release, or promotion was performed.
+- Accepted ADR 039 after hands-on use exposed a composer collision, then restored the icon-free
+  `Manual`, `Section`, and `YOLO` approval shorthand and made the model trigger yield width before
+  Send. Scoped static checks, 11 focused Renderer tests, the 179-file / 915-test Electron gate and
+  production build, one focused Real-Electron workflow with explicit control-bound assertions,
+  screenshot review, Impeccable, and diff checks passed. No second App package or release action
+  was performed.
+- Accepted ADR 040 and replaced the idle paper-plane-plus-text Send control with an accessible
+  primary circular Lucide upward-arrow button while preserving Queue, Steer, retry, and Stop.
+  Scoped checks, 11 focused Renderer tests, the final clean 179-file / 915-test Electron gate and
+  production build, two focused Real-Electron passes, enabled/disabled screenshot review,
+  Impeccable, and diff checks passed. One unrelated export-test timeout passed alone in 428 ms
+  before the clean full rerun. No second App package or release action was performed.
+- Rebuilt the final Checkpoint 48 macOS arm64 App after the ADR 039/040 hands-on refinements. The
+  no-identity unpacked package gate verified Electron 43.1.0 / ABI 148, the arm64 native and
+  45,783-entry ASAR inventory, all 12 packaged smoke scenarios, and all 26 packaged E2E scenarios
+  with no flaky, skipped, or failed result. It produced only the no-Team-ID
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing, notarization, hosted CI, push,
+  release, or promotion was performed.
+- Created the explicitly authorized local Phase 12 commit containing the Agent composer,
+  ADR/Phase documentation, affected tests, and the already recorded application-icon assets. The
+  unrelated concurrent `.vscode/settings.json` and `section-editor.tsx` edits were left
+  uncommitted. No push, tag, hosted CI, signing, notarization, release, or promotion was performed.

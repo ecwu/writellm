@@ -1,8 +1,8 @@
 # WriteLLM Current Plan
 
-Status: All Phase 11 checkpoints (29 through 47B) are complete and verified. Local packaging is
-verified on Windows, macOS (arm64 and x64), and Linux. Checkpoint 26.9 remains paused and all
-GitHub Actions workflows are disabled.
+Status: Phase 12 Use And Fix has started with Checkpoint 48, the Agent composer progressive-
+disclosure refinement. Phase 11 remains complete and verified. Checkpoint 26.9 remains paused and
+all GitHub Actions workflows are disabled.
 Recorded: 2026-08-13
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -41,6 +41,60 @@ No hosted CI, signing, notarization, tag, or release promotion has run.
 
 ## Current authorized work
 
+Phase 12 is authorized as a use-and-fix phase with one explicitly agreed checkpoint at a time.
+Checkpoint 48 is implemented under accepted ADR 038: the Agent composer now centers Add, truthful
+approval policy, combined model plus effort, and Send; the same existing context and Writing Skill
+actions are available through Add and a leading slash; and every existing Agent, proposal,
+provider, persistence, and Renderer authority boundary remains unchanged. Electron tests/build,
+three focused Real-Electron flows, visual inspection, scoped/full-code static checks, Impeccable,
+and diff checks passed. Formal checkpoint closure remains pending only because the ordinary static
+gate reports formatting in the user-owned concurrent `.vscode/settings.json` edit, which this work
+did not rewrite. Detailed evidence lives in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md). No later Phase 12 checkpoint,
+migration, new Agent capability, hosted CI, commit, push, or publication is authorized. On
+2026-08-13 the user additionally authorized one local no-identity macOS arm64 unpacked App build
+from the current Checkpoint 48 worktree for hands-on use. That authorization does not include a
+DMG, ZIP, signing, notarization, hosted CI, release, or promotion. The authorized build is complete:
+the repository gate verified Electron 43.1.0 / ABI 148, arm64 `better-sqlite3` and `sqlite-vec`,
+the ASAR/resource inventory, all 12 packaged smoke scenarios, and all 26 packaged E2E scenarios
+with no flaky, skipped, or failed result. It produced only the no-Team-ID unpacked
+`dist/macos-arm64/mac-arm64/WriteLLM.app` bundle.
+
+Hands-on use of that App exposed a narrow-panel collision between the long approval trigger and
+the model trigger. The user accepted ADR 039 and authorized a Checkpoint 48 refinement: use the
+short `Manual`, `Section`, and `YOLO` approval labels without a shield icon, and make the model
+trigger yield width without overlapping Send. The Renderer/documentation fix is complete: scoped
+Biome, 11 focused Renderer tests, the 179-file / 915-test Electron gate and production build, one
+fresh focused Real-Electron scenario with explicit non-overlap bounds, screenshot inspection, the
+Impeccable detector, and `git diff --check` passed. It did not authorize or run another package or
+release action.
+
+The user then accepted ADR 040 and authorized one further Checkpoint 48 refinement: replace the
+idle paper-plane-plus-text Send control with a primary circular upward-arrow button while keeping
+its accessible `Send` name and leaving Queue/Steer/Stop unchanged. The Renderer/documentation fix
+is complete: scoped Biome, 11 focused Renderer tests, the final clean 179-file / 915-test Electron
+gate and production build, focused Real-Electron verification of shape/icon/accessibility plus
+enabled and disabled screenshots, Impeccable, and diff checks passed. It did not authorize or run
+another package or release action.
+
+On 2026-08-13 the user explicitly authorized a fresh local no-identity macOS arm64 unpacked App
+build containing the completed ADR 039/040 refinements, followed by one local commit of the Phase
+12 Agent composer work and the already recorded application-icon assets. Push, tag, signing,
+notarization, hosted CI, release, and promotion remain unauthorized. The rebuild completed with
+Electron 43.1.0 / ABI 148, verified the arm64 native and ASAR/resource inventory, passed all 12
+packaged smoke and 26 packaged E2E scenarios with no flaky, skipped, or failed result, and produced
+the no-Team-ID `dist/macos-arm64/mac-arm64/WriteLLM.app`. The authorized local Phase 12 commit is
+complete. It excludes the unrelated concurrent `.vscode/settings.json` and `section-editor.tsx`
+edits; no push, tag, signing, notarization, hosted CI, release, or promotion was performed.
+
+The 2026-08-13 application-icon redesign and Dock-contrast refinement are complete. The dark
+textured artwork was replaced with a medium slate/cornflower-blue, warm-white, and cobalt
+folded-paper mark; the macOS ICNS, Windows ICO, packaging PNG, and Linux runtime PNG were
+regenerated from the same master. The routine macOS arm64 package gate verified the exact packaged
+ICNS bytes, all 12 packaged smoke scenarios, and all 26 packaged E2E scenarios. The latest contrast
+refinement produced an unpacked App only; no DMG, ZIP, signing, notarization, hosted CI, push,
+release, or promotion was performed for it.
+
 The 2026-08-13 local build-environment and packaging task is complete: the Linux/WSL toolchain is
 documented, the Windows NSIS/AppX and Linux x64 targets run headlessly, and local builds are
 verified on Windows, macOS (arm64 and x64), and Linux. No further product checkpoint, hosted CI,
@@ -66,6 +120,8 @@ or release action is currently authorized; the next step requires new explicit u
   [`implementation-todo.md`](implementation-todo.md#completed-agent-writing-experience-cp27-28).
 - Phase 11 (Checkpoints 29–47B): the post-Checkpoint-28 writing-experience roadmap under ADRs
   021–037. See [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md).
+- Phase 12 Checkpoint 48 decision: ADR 038 fixes the quieter Agent composer hierarchy without
+  changing Agent authority, persistence, provider behavior, or run snapshots.
 
 ## Deferred
 

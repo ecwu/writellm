@@ -6,10 +6,13 @@ import type {
 } from '../../../../shared/contracts/agent-ipc'
 import {
   agentComposerKeyAction,
+  buildComposerCommands,
   effectiveScope,
+  filterComposerCommands,
   hasManualCompactionHead,
   sectionFollowTargetForAgentEvent,
-  selectAttentionSession
+  selectAttentionSession,
+  slashCommandQuery
 } from './agent-panel'
 
 const activeSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc521'
@@ -92,6 +95,33 @@ describe('Agent panel flow selection', () => {
     expect(agentComposerKeyAction({ ...key, running: true, metaKey: true })).toBe('steer')
     expect(agentComposerKeyAction({ ...key, running: true, ctrlKey: true })).toBe('steer')
     expect(agentComposerKeyAction({ ...key, isComposing: true })).toBe('none')
+  })
+
+  it('builds one shared context and Writing Skill catalog for Add and slash filtering', () => {
+    const commands = buildComposerCommands({
+      selectionAvailable: false,
+      sectionAvailable: true,
+      scopePreference: 'auto',
+      skillSnapshot: null,
+      skillSelection: { mode: 'auto' }
+    })
+
+    expect(commands.find((command) => command.id === 'scope-selection')?.disabled).toBe(true)
+    expect(commands.find((command) => command.id === 'scope-section')?.disabled).toBe(false)
+    expect(commands.find((command) => command.id === 'scope-auto')?.selected).toBe(true)
+    expect(commands.find((command) => command.id === 'skill-auto')?.selected).toBe(true)
+    expect(commands.some((command) => command.id === 'skill-settings')).toBe(true)
+    expect(filterComposerCommands(commands, 'section').map((command) => command.id)).toEqual([
+      'scope-section',
+      'scope-auto'
+    ])
+  })
+
+  it('opens slash actions only for a leading command token', () => {
+    expect(slashCommandQuery('/')).toBe('')
+    expect(slashCommandQuery('/section')).toBe('section')
+    expect(slashCommandQuery('Use /section here')).toBeNull()
+    expect(slashCommandQuery('/section please')).toBeNull()
   })
 
   it('follows valid live section-editing tools from the visible conversation', () => {

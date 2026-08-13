@@ -92,6 +92,7 @@ test(
       }, alphaProjectSessionId)
 
       await launched.page.keyboard.press('Escape')
+      await expect(panel.getByTestId('agent-model-selector')).toContainText(/high/)
       await panel.getByTestId('agent-conversation-switcher').click()
       await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
       await panel.getByTestId('agent-conversation-menu').click()

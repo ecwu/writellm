@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate and the 2026-08 Phase 11 ADRs (021-037)
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), and ADR 038
 Recorded: 2026-07-31; amended through 2026-08-13
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -1070,6 +1070,25 @@ only before assistant, tool, proposal, or other external activity; overflow afte
 replayed. See ADR 019.
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
+
+### Agent composer interaction
+
+The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
+Thinking effort, and Send are its four top-level action groups. Context scope and Writing Skill are
+available through one shared Add/leading-slash command catalog and remain in Agent Details; they do
+not become hidden prompt text. The collapsed model trigger uses the recognizable model display name
+plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
+Provider identity remains visible inside model browsing and diagnostics where duplicate names need
+disambiguation.
+
+Approval uses the compact `Manual`, `Section`, and `YOLO` labels without a status icon; its menu
+describes the existing WriteLLM proposal policy and must never imply generic computer, shell,
+filesystem, or unrestricted network access. Add and approval stay compact, Send stays visible,
+and the elastic model/effort trigger truncates before controls can overlap. Idle Send is the
+icon-only circular primary action with an upward arrow and an explicit accessible name; Queue,
+Steer, retry, and Stop retain their distinct running-state forms. The interaction layer cannot
+broaden Main-owned automatic-application eligibility, mandatory-review rules, model capability
+clamping, immutable run snapshots, or the registered Agent tool set. See ADRs 038–040.
 
 ### Agent prompt architecture
 

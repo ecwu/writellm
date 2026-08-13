@@ -1,8 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: All Phase 11 checkpoints (29 through 47B) are complete and verified. Local packaging is
-verified on Windows, macOS (arm64 and x64), and Linux. Checkpoint 26.9 remains paused and all
-GitHub Actions workflows are disabled.
+Status: Phase 12 Checkpoint 48 is in progress. Phase 11 remains complete and verified. Checkpoint
+26.9 remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-13
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -15,6 +14,14 @@ Status markers:
 - `[~]` in progress
 - `[x]` completed and verified
 - `[!]` blocked
+
+## Application icon redesign and Dock contrast (2026-08-13)
+
+- [x] Replace the dark textured application icon with a bright folded-paper WriteLLM mark, derive
+  the macOS, Windows, packaging, and Linux runtime assets from one master, and verify the packaged
+  macOS icon plus the routine package gate without performing release work.
+- [x] Preserve the folded-paper geometry while deepening the blue background so the warm-white W
+  remains legible at macOS Dock sizes; regenerate the platform assets and rebuild the macOS App.
 
 ## Local build environment and Windows/Linux packaging (2026-08-13)
 
@@ -45,6 +52,22 @@ Status markers:
   Windows can delete and rebuild a corrupt derived index without an `EBUSY` retry loop.
 
 ## Current checkpoint
+
+### Phase 12: Use And Fix
+
+- [~] Checkpoint 48: simplify the Agent composer with truthful approval policy, a combined concise
+  model/effort selector, and one shared Add/leading-slash catalog for existing context and Writing
+  Skill actions while preserving the accepted Agent authority boundary.
+- [x] Build and verify one local no-identity macOS arm64 unpacked App from the current Checkpoint
+  48 worktree for hands-on use; do not create DMG/ZIP artifacts or perform release work.
+- [x] Apply the ADR 039 hands-on fix: use icon-free `Manual`, `Section`, and `YOLO` approval
+  shorthand and prevent the approval/model/Send controls from overlapping in narrow panels.
+- [x] Apply the ADR 040 hands-on refinement: make idle Send a primary circular upward-arrow button
+  while preserving accessibility and the distinct running-state controls.
+- [x] Rebuild one no-identity macOS arm64 unpacked App with the final CP48 refinements and create
+  the explicitly authorized local Phase 12 commit without pushing or releasing it.
+
+Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 
 ### Checkpoint 26.9: macOS release-candidate gate (paused)
 

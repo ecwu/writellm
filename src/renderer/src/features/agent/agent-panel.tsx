@@ -29,6 +29,7 @@ import {
   AlertCircle,
   Archive,
   ArchiveRestore,
+  ArrowUp,
   Bot,
   Check,
   ChevronDown,
@@ -46,7 +47,6 @@ import {
   Plus,
   RotateCcw,
   Settings2,
-  ShieldCheck,
   Send,
   TextCursorInput,
   TriangleAlert,
@@ -122,7 +122,7 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -136,6 +136,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
+import { AgentModelEffortPicker } from './agent-model-effort-picker'
 import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
@@ -221,7 +222,9 @@ export function AgentPanel(props: {
   const [scopePreference, setScopePreference] = useState<'auto' | AgentStartScope>('auto')
   const [reviewFeedback, setReviewFeedback] = useState('')
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
-  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  const [composerAddOpen, setComposerAddOpen] = useState(false)
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false)
+  const [slashSelectionIndex, setSlashSelectionIndex] = useState(0)
   const [detailsSkillPickerOpen, setDetailsSkillPickerOpen] = useState(false)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -861,7 +864,7 @@ export function AgentPanel(props: {
           session.agentSessionId === updated.agentSessionId ? updated : session
         )
       )
-      setSkillPickerOpen(false)
+      setComposerAddOpen(false)
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -1419,6 +1422,35 @@ export function AgentPanel(props: {
       ? null
       : (proposals.find((proposal) => proposal.proposalId === continuationFailure.proposalId) ??
         null)
+  const composerSettingsDisabled = busy || activeRun !== null || conversationLocked
+  const composerCommands = buildComposerCommands({
+    selectionAvailable: selectionIsAvailable,
+    sectionAvailable: props.activeSectionId !== null,
+    scopePreference,
+    skillSnapshot,
+    skillSelection
+  })
+  const slashQuery = slashCommandQuery(prompt)
+  const slashCommands = filterComposerCommands(composerCommands, slashQuery ?? '')
+  const slashSelectableCommands = slashCommands.filter((command) => !command.disabled)
+  const slashCommandOpen = slashQuery !== null && !slashMenuDismissed
+  const selectedSlashCommand =
+    slashSelectableCommands[slashSelectionIndex % Math.max(1, slashSelectableCommands.length)] ??
+    null
+
+  const runComposerCommand = (command: ComposerCommand, clearSlash: boolean): void => {
+    if (command.disabled) return
+    setComposerAddOpen(false)
+    setSlashMenuDismissed(true)
+    if (clearSlash) setPrompt('')
+    if (command.action.kind === 'scope') {
+      setScopePreference(command.action.value)
+    } else if (command.action.kind === 'skill') {
+      void setSkillSelection(command.action.value)
+    } else {
+      props.onOpenSkillSettings()
+    }
+  }
 
   return (
     <>
@@ -1790,174 +1822,222 @@ export function AgentPanel(props: {
                   </Button>
                 </div>
               ) : null}
-              <InputGroup
-                data-disabled={busy || choosingSkill || activeSession?.compatible === false}
+              <Popover
+                open={slashCommandOpen}
+                onOpenChange={(open) => {
+                  if (!open) setSlashMenuDismissed(true)
+                }}
               >
-                <InputGroupTextarea
-                  id='agent-message'
-                  value={prompt}
-                  placeholder={
-                    activeRun
-                      ? choosingSkill
-                        ? 'Loading writing guidance…'
-                        : 'Queue a follow-up…'
-                      : 'Ask the writing agent…'
-                  }
-                  rows={3}
-                  disabled={busy || choosingSkill || activeSession?.compatible === false}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    const action = agentComposerKeyAction({
-                      key: event.key,
-                      shiftKey: event.shiftKey,
-                      metaKey: event.metaKey,
-                      ctrlKey: event.ctrlKey,
-                      isComposing: event.nativeEvent.isComposing,
-                      running: activeRun !== null
-                    })
-                    if (action === 'none' || action === 'newline') return
-                    event.preventDefault()
-                    if (action === 'steer') void queueMessage('steer')
-                    else if (action === 'follow_up') void queueMessage('follow_up')
-                    else void startRun(prompt)
-                  }}
-                />
-                <InputGroupAddon align='block-start' className='flex-wrap justify-between gap-1'>
-                  <ContextScopeChip
-                    preference={scopePreference}
-                    effectiveScope={scope}
-                    selectionAvailable={selectionIsAvailable}
-                    activeSectionId={props.activeSectionId}
-                    sectionTitle={
-                      props.activeSectionId === null
-                        ? undefined
-                        : props.sectionTitles[props.activeSectionId]
-                    }
-                    disabled={busy || activeRun !== null || conversationLocked}
-                    onChange={setScopePreference}
-                  />
-                  <ApprovalModePicker
-                    value={activeSession?.approvalMode ?? 'manual'}
-                    disabled={busy || activeRun !== null || conversationLocked}
-                    onSelect={setApprovalMode}
-                  />
-                </InputGroupAddon>
-                <InputGroupAddon
-                  align='block-end'
-                  className='flex-wrap justify-between gap-x-2 gap-y-1'
-                >
-                  <div className='flex min-w-0 flex-1 flex-wrap items-center gap-1'>
-                    <AgentModelPicker
-                      compact
-                      presets={availableModelPresets}
-                      selection={activeSession?.modelSelection ?? providerCatalog.defaultSelection}
-                      disabled={busy || activeRun !== null || conversationLocked}
-                      onSelect={setModelSelection}
-                    />
-                    <AgentThinkingPicker
-                      compact
-                      levels={supportedThinkingLevels}
-                      value={
-                        activeSession?.thinkingLevel ??
-                        providerCatalog.defaultThinkingLevel ??
-                        'medium'
+                <PopoverAnchor asChild>
+                  <InputGroup
+                    data-disabled={busy || choosingSkill || activeSession?.compatible === false}
+                  >
+                    <InputGroupTextarea
+                      id='agent-message'
+                      value={prompt}
+                      placeholder={
+                        activeRun
+                          ? choosingSkill
+                            ? 'Loading writing guidance…'
+                            : 'Queue a follow-up…'
+                          : 'Ask the writing agent…'
                       }
-                      disabled={busy || activeRun !== null || conversationLocked}
-                      onSelect={setThinkingLevel}
-                    />
-                    <SkillPicker
-                      compact
-                      open={skillPickerOpen}
-                      onOpenChange={setSkillPickerOpen}
-                      snapshot={skillSnapshot}
-                      selection={skillSelection}
-                      disabled={busy || activeRun !== null || conversationLocked}
-                      onSelect={(selection) => void setSkillSelection(selection)}
-                      onOpenSettings={props.onOpenSkillSettings}
-                    />
-                  </div>
-                  <div className='ml-auto flex items-center gap-1'>
-                    {activeRun !== null ? (
-                      <>
-                        <div className='flex items-center'>
-                          <InputGroupButton
-                            size='sm'
-                            aria-label='Queue follow-up'
-                            disabled={busy || prompt.trim().length === 0}
-                            onClick={() => void queueMessage('follow_up')}
-                          >
-                            <Send data-icon='inline-start' /> Queue
-                          </InputGroupButton>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <InputGroupButton
-                                size='icon-sm'
-                                aria-label='Choose send behavior'
-                                disabled={busy}
-                              >
-                                <ChevronDown />
-                              </InputGroupButton>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align='end'>
-                              <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
-                                <Send /> Queue follow-up
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
-                                <ChevronRight /> Steer now
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        <ComposerAction
-                          size='icon-sm'
-                          variant='destructive'
-                          label='Stop'
-                          disabled={busy}
-                          onClick={() => void stopRun()}
-                        >
-                          <CircleStop />
-                        </ComposerAction>
-                      </>
-                    ) : (
-                      <>
-                        {retryableRun && latestPrompt ? (
-                          <ComposerAction
-                            size='icon-sm'
-                            variant='outline'
-                            label='Try again'
-                            disabled={busy}
-                            onClick={() =>
-                              void startRun(
-                                latestPrompt,
-                                undefined,
-                                false,
-                                false,
-                                retrySkillSelection(latestRun),
-                                latestRun?.agentRunId
-                              )
-                            }
-                          >
-                            <RotateCcw />
-                          </ComposerAction>
-                        ) : null}
-                        <InputGroupButton
-                          size='sm'
-                          aria-label='Send'
-                          disabled={
-                            busy ||
-                            prompt.trim().length === 0 ||
-                            activeSession?.compatible === false ||
-                            agentCapacityReached
+                      rows={3}
+                      disabled={busy || choosingSkill || activeSession?.compatible === false}
+                      onChange={(event) => {
+                        setPrompt(event.target.value)
+                        setSlashMenuDismissed(false)
+                        setSlashSelectionIndex(0)
+                      }}
+                      onKeyDown={(event) => {
+                        if (slashCommandOpen && !event.nativeEvent.isComposing) {
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setSlashMenuDismissed(true)
+                            return
                           }
-                          onClick={() => void startRun(prompt)}
-                        >
-                          <Send data-icon='inline-start' /> Send
-                        </InputGroupButton>
-                      </>
-                    )}
-                  </div>
-                </InputGroupAddon>
-              </InputGroup>
+                          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                            event.preventDefault()
+                            if (slashSelectableCommands.length === 0) return
+                            setSlashSelectionIndex((current) =>
+                              event.key === 'ArrowDown'
+                                ? (current + 1) % slashSelectableCommands.length
+                                : (current - 1 + slashSelectableCommands.length) %
+                                  slashSelectableCommands.length
+                            )
+                            return
+                          }
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault()
+                            if (selectedSlashCommand !== null) {
+                              runComposerCommand(selectedSlashCommand, true)
+                            }
+                            return
+                          }
+                        }
+                        const action = agentComposerKeyAction({
+                          key: event.key,
+                          shiftKey: event.shiftKey,
+                          metaKey: event.metaKey,
+                          ctrlKey: event.ctrlKey,
+                          isComposing: event.nativeEvent.isComposing,
+                          running: activeRun !== null
+                        })
+                        if (action === 'none' || action === 'newline') return
+                        event.preventDefault()
+                        if (action === 'steer') void queueMessage('steer')
+                        else if (action === 'follow_up') void queueMessage('follow_up')
+                        else void startRun(prompt)
+                      }}
+                    />
+                    <InputGroupAddon align='block-end' className='justify-between gap-2'>
+                      <div className='flex shrink-0 items-center gap-1'>
+                        <Popover open={composerAddOpen} onOpenChange={setComposerAddOpen}>
+                          <PopoverTrigger asChild>
+                            <InputGroupButton
+                              size='icon-sm'
+                              aria-label='Add context or Writing Skill'
+                              disabled={composerSettingsDisabled}
+                              data-testid='agent-add-menu-trigger'
+                            >
+                              <Plus />
+                            </InputGroupButton>
+                          </PopoverTrigger>
+                          <PopoverContent align='start' side='top' className='w-80 p-0'>
+                            <ComposerCommandMenu
+                              commands={composerCommands}
+                              onSelect={(command) => runComposerCommand(command, false)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <ApprovalModePicker
+                          value={activeSession?.approvalMode ?? 'manual'}
+                          disabled={composerSettingsDisabled}
+                          onSelect={setApprovalMode}
+                        />
+                      </div>
+                      <div className='ml-auto flex min-w-0 flex-1 items-center justify-end gap-1'>
+                        <AgentModelEffortPicker
+                          presets={availableModelPresets}
+                          selection={
+                            activeSession?.modelSelection ?? providerCatalog.defaultSelection
+                          }
+                          levels={supportedThinkingLevels}
+                          effort={
+                            activeSession?.thinkingLevel ??
+                            providerCatalog.defaultThinkingLevel ??
+                            'medium'
+                          }
+                          disabled={composerSettingsDisabled}
+                          onModelSelect={setModelSelection}
+                          onEffortSelect={setThinkingLevel}
+                        />
+                        {activeRun !== null ? (
+                          <>
+                            <div className='flex items-center'>
+                              <InputGroupButton
+                                size='sm'
+                                aria-label='Queue follow-up'
+                                disabled={busy || prompt.trim().length === 0}
+                                onClick={() => void queueMessage('follow_up')}
+                              >
+                                <Send data-icon='inline-start' /> Queue
+                              </InputGroupButton>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <InputGroupButton
+                                    size='icon-sm'
+                                    aria-label='Choose send behavior'
+                                    disabled={busy}
+                                  >
+                                    <ChevronDown />
+                                  </InputGroupButton>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align='end'>
+                                  <DropdownMenuItem onSelect={() => void queueMessage('follow_up')}>
+                                    <Send /> Queue follow-up
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => void queueMessage('steer')}>
+                                    <ChevronRight /> Steer now
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                            <ComposerAction
+                              size='icon-sm'
+                              variant='destructive'
+                              label='Stop'
+                              disabled={busy}
+                              onClick={() => void stopRun()}
+                            >
+                              <CircleStop />
+                            </ComposerAction>
+                          </>
+                        ) : (
+                          <>
+                            {retryableRun && latestPrompt ? (
+                              <ComposerAction
+                                size='icon-sm'
+                                variant='outline'
+                                label='Try again'
+                                disabled={busy}
+                                onClick={() =>
+                                  void startRun(
+                                    latestPrompt,
+                                    undefined,
+                                    false,
+                                    false,
+                                    retrySkillSelection(latestRun),
+                                    latestRun?.agentRunId
+                                  )
+                                }
+                              >
+                                <RotateCcw />
+                              </ComposerAction>
+                            ) : null}
+                            <InputGroupButton
+                              variant='default'
+                              size='icon-sm'
+                              className='shrink-0 rounded-full'
+                              aria-label='Send'
+                              title='Send'
+                              disabled={
+                                busy ||
+                                prompt.trim().length === 0 ||
+                                activeSession?.compatible === false ||
+                                agentCapacityReached
+                              }
+                              onClick={() => void startRun(prompt)}
+                            >
+                              <ArrowUp />
+                            </InputGroupButton>
+                          </>
+                        )}
+                      </div>
+                    </InputGroupAddon>
+                  </InputGroup>
+                </PopoverAnchor>
+                <PopoverContent
+                  align='start'
+                  side='top'
+                  className='w-[var(--radix-popover-trigger-width)] p-0'
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  onCloseAutoFocus={(event) => event.preventDefault()}
+                  data-testid='agent-slash-menu'
+                >
+                  <ComposerCommandMenu
+                    commands={slashCommands}
+                    selectedId={selectedSlashCommand?.id}
+                    onSelectedIdChange={(id) => {
+                      const index = slashSelectableCommands.findIndex(
+                        (command) => command.id === id
+                      )
+                      if (index >= 0) setSlashSelectionIndex(index)
+                    }}
+                    onSelect={(command) => runComposerCommand(command, true)}
+                  />
+                </PopoverContent>
+              </Popover>
             </Field>
           )}
         </div>
@@ -2177,71 +2257,199 @@ function ConversationCommandGroup(props: {
   )
 }
 
-function ContextScopeChip(props: {
-  preference: 'auto' | AgentStartScope
-  effectiveScope: AgentStartScope
-  selectionAvailable: boolean
-  activeSectionId: string | null
-  sectionTitle?: string
+type ComposerCommand = {
+  id: string
+  group: 'Context' | 'Writing skill'
+  label: string
+  description: string
   disabled: boolean
-  onChange(value: 'auto' | AgentStartScope): void
+  selected: boolean
+  action:
+    | { kind: 'scope'; value: 'auto' | AgentStartScope }
+    | { kind: 'skill'; value: SkillSelection }
+    | { kind: 'skill_settings' }
+}
+
+export function buildComposerCommands(input: {
+  selectionAvailable: boolean
+  sectionAvailable: boolean
+  scopePreference: 'auto' | AgentStartScope
+  skillSnapshot: SkillsSnapshot | null
+  skillSelection: SkillSelection
+}): ComposerCommand[] {
+  const availableSkills =
+    input.skillSnapshot?.installed.filter(
+      (skill) => skill.enabled && skill.integrityStatus === 'ready'
+    ) ?? []
+  return [
+    {
+      id: 'scope-auto',
+      group: 'Context',
+      label: 'Auto context',
+      description: 'Use selected text, this section, or the manuscript as available',
+      disabled: false,
+      selected: input.scopePreference === 'auto',
+      action: { kind: 'scope', value: 'auto' }
+    },
+    {
+      id: 'scope-selection',
+      group: 'Context',
+      label: 'Selected text',
+      description: 'Use the current editor selection',
+      disabled: !input.selectionAvailable,
+      selected: input.scopePreference === 'selection',
+      action: { kind: 'scope', value: 'selection' }
+    },
+    {
+      id: 'scope-section',
+      group: 'Context',
+      label: 'This section',
+      description: 'Use the active manuscript section',
+      disabled: !input.sectionAvailable,
+      selected: input.scopePreference === 'section',
+      action: { kind: 'scope', value: 'section' }
+    },
+    {
+      id: 'scope-project',
+      group: 'Context',
+      label: 'Whole manuscript',
+      description: 'Let the Agent inspect the full manuscript through bounded tools',
+      disabled: false,
+      selected: input.scopePreference === 'project',
+      action: { kind: 'scope', value: 'project' }
+    },
+    {
+      id: 'skill-auto',
+      group: 'Writing skill',
+      label: 'Choose automatically',
+      description: 'Route suitable installed writing guidance for this request',
+      disabled: false,
+      selected: input.skillSelection.mode === 'auto',
+      action: { kind: 'skill', value: { mode: 'auto' } }
+    },
+    {
+      id: 'skill-none',
+      group: 'Writing skill',
+      label: 'No Writing Skill',
+      description: 'Use only the application writing policy',
+      disabled: false,
+      selected: input.skillSelection.mode === 'none',
+      action: { kind: 'skill', value: { mode: 'none' } }
+    },
+    ...availableSkills.map(
+      (skill): ComposerCommand => ({
+        id: `skill-${skill.skillId}`,
+        group: 'Writing skill',
+        label: skill.displayName,
+        description: skill.description,
+        disabled: false,
+        selected:
+          input.skillSelection.mode === 'explicit' &&
+          input.skillSelection.skillId === skill.skillId,
+        action: { kind: 'skill', value: { mode: 'explicit', skillId: skill.skillId } }
+      })
+    ),
+    ...(availableSkills.length === 0
+      ? [
+          {
+            id: 'skill-settings',
+            group: 'Writing skill' as const,
+            label: 'Writing Skills settings',
+            description: 'Install or enable reusable writing guidance',
+            disabled: false,
+            selected: false,
+            action: { kind: 'skill_settings' as const }
+          }
+        ]
+      : [])
+  ]
+}
+
+export function slashCommandQuery(prompt: string): string | null {
+  if (!prompt.startsWith('/') || /\s/u.test(prompt)) return null
+  return prompt.slice(1)
+}
+
+export function filterComposerCommands(
+  commands: readonly ComposerCommand[],
+  query: string
+): ComposerCommand[] {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (normalized.length === 0) return [...commands]
+  return commands
+    .map((command, index) => ({
+      command,
+      index,
+      score: composerCommandMatchScore(command, normalized)
+    }))
+    .filter((match) => match.score !== null)
+    .sort((left, right) => (left.score ?? 0) - (right.score ?? 0) || left.index - right.index)
+    .map((match) => match.command)
+}
+
+function composerCommandMatchScore(command: ComposerCommand, query: string): number | null {
+  const label = command.label.toLocaleLowerCase()
+  const description = command.description.toLocaleLowerCase()
+  if (label === query) return 0
+  if (label.startsWith(query)) return 1
+  if (label.split(/\s+/u).some((word) => word.startsWith(query))) return 2
+  if (label.includes(query)) return 3
+  if (description.includes(query)) return 4
+  return null
+}
+
+function ComposerCommandMenu(props: {
+  commands: ComposerCommand[]
+  selectedId?: string
+  onSelectedIdChange?(id: string): void
+  onSelect(command: ComposerCommand): void
 }): React.JSX.Element {
-  const effectiveLabel =
-    props.effectiveScope === 'selection'
-      ? 'Selected text'
-      : props.effectiveScope === 'section'
-        ? `This section${props.sectionTitle ? ` · ${props.sectionTitle}` : ''}`
-        : 'Whole manuscript'
-  const label = props.preference === 'auto' ? effectiveLabel : effectiveLabel
+  const groups = ['Context', 'Writing skill'] as const
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <InputGroupButton
-          variant='ghost'
-          size='xs'
-          className='w-fit max-w-full font-normal'
-          disabled={props.disabled}
-          aria-label={`Context: ${label}`}
-        >
-          {props.effectiveScope === 'selection' ? (
-            <TextCursorInput />
-          ) : props.effectiveScope === 'section' ? (
-            <FilePenLine />
-          ) : (
-            <FolderOpen />
-          )}
-          <span className='truncate'>{label}</span>
-          <ChevronDown />
-        </InputGroupButton>
-      </PopoverTrigger>
-      <PopoverContent align='start' side='top' className='w-72 p-0'>
-        <Command>
-          <CommandList>
-            <CommandGroup heading='Context'>
-              <CommandItem onSelect={() => props.onChange('auto')}>
-                {props.preference === 'auto' ? <Check /> : <Bot />} Auto
-              </CommandItem>
-              <CommandItem
-                disabled={!props.selectionAvailable}
-                onSelect={() => props.onChange('selection')}
-              >
-                {props.preference === 'selection' ? <Check /> : <TextCursorInput />} Selected text
-              </CommandItem>
-              <CommandItem
-                disabled={props.activeSectionId === null}
-                onSelect={() => props.onChange('section')}
-              >
-                {props.preference === 'section' ? <Check /> : <FilePenLine />} This section
-              </CommandItem>
-              <CommandItem onSelect={() => props.onChange('project')}>
-                {props.preference === 'project' ? <Check /> : <FolderOpen />} Whole manuscript
-              </CommandItem>
+    <Command value={props.selectedId} onValueChange={props.onSelectedIdChange}>
+      <CommandList>
+        <CommandEmpty>No matching action.</CommandEmpty>
+        {groups.map((group) => {
+          const commands = props.commands.filter((command) => command.group === group)
+          if (commands.length === 0) return null
+          return (
+            <CommandGroup key={group} heading={group}>
+              {commands.map((command) => (
+                <CommandItem
+                  key={command.id}
+                  value={command.id}
+                  disabled={command.disabled}
+                  onSelect={() => props.onSelect(command)}
+                >
+                  <ComposerCommandIcon command={command} />
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate'>{command.label}</span>
+                    <span className='block truncate text-xs text-muted-foreground'>
+                      {command.description}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
             </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+          )
+        })}
+      </CommandList>
+    </Command>
   )
+}
+
+function ComposerCommandIcon(props: { command: ComposerCommand }): React.JSX.Element {
+  if (props.command.selected) return <Check />
+  const action = props.command.action
+  if (action.kind === 'skill_settings') return <Settings2 />
+  if (action.kind === 'skill') {
+    if (action.value.mode === 'none') return <X />
+    return action.value.mode === 'auto' ? <Bot /> : <FileText />
+  }
+  if (action.value === 'selection') return <TextCursorInput />
+  if (action.value === 'section') return <FilePenLine />
+  if (action.value === 'project') return <FolderOpen />
+  return <Bot />
 }
 
 function ApprovalModePicker(props: {
@@ -2255,12 +2463,12 @@ function ApprovalModePicker(props: {
         <InputGroupButton
           variant='ghost'
           size='xs'
+          className='shrink-0'
           disabled={props.disabled}
           aria-label={`Approval policy: ${approvalModeLabel(props.value)}`}
           data-testid='agent-approval-selector'
         >
-          <ShieldCheck />
-          <span className='max-w-40 truncate'>{approvalModeCompactLabel(props.value)}</span>
+          <span>{approvalModeLabel(props.value)}</span>
           <ChevronDown />
         </InputGroupButton>
       </DropdownMenuTrigger>
@@ -2270,8 +2478,13 @@ function ApprovalModePicker(props: {
           onValueChange={(value) => void props.onSelect(agentApprovalModeSchema.parse(value))}
         >
           {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
-            <DropdownMenuRadioItem key={mode} value={mode}>
-              {approvalModeLabel(mode)}
+            <DropdownMenuRadioItem key={mode} value={mode} className='items-start'>
+              <span className='min-w-0 pr-4'>
+                <span className='block'>{approvalModeLabel(mode)}</span>
+                <span className='block text-xs text-muted-foreground'>
+                  {approvalModeDescription(mode)}
+                </span>
+              </span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -3912,15 +4125,15 @@ function retrySkillSelection(run: AgentRunRecord | null): SkillSelection {
 }
 
 function approvalModeLabel(mode: AgentApprovalMode): string {
-  if (mode === 'manual') return 'Review every change'
-  if (mode === 'section_auto') return 'Apply section edits automatically'
-  return 'Apply all eligible edits automatically'
+  if (mode === 'manual') return 'Manual'
+  if (mode === 'section_auto') return 'Section'
+  return 'YOLO'
 }
 
-function approvalModeCompactLabel(mode: AgentApprovalMode): string {
-  if (mode === 'manual') return 'Review changes'
-  if (mode === 'section_auto') return 'Auto section edits'
-  return 'Auto eligible edits'
+function approvalModeDescription(mode: AgentApprovalMode): string {
+  if (mode === 'manual') return 'Review every proposed manuscript change'
+  if (mode === 'section_auto') return 'Apply section edits automatically; review other changes'
+  return 'Apply all changes permitted by the existing policy'
 }
 
 export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {

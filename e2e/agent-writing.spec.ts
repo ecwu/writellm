@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 import { ZipFile } from 'yazl'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
@@ -574,16 +574,99 @@ test(
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await launched.page.keyboard.press('Escape')
       await expect(panel.getByTestId('agent-model-selector')).toContainText('Writer model')
-      await expect(panel.getByTestId('agent-thinking-selector')).toBeVisible()
-      await expect(panel.getByTestId('agent-approval-selector')).toContainText('Review changes')
-      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toBeVisible()
+      const approvalSelector = panel.getByTestId('agent-approval-selector')
+      await expect(approvalSelector).toContainText('Manual')
+      await expect(approvalSelector.locator('svg')).toHaveCount(1)
+      await expect(panel.getByTestId('agent-add-menu-trigger')).toBeVisible()
+      const modelSelector = panel.getByTestId('agent-model-selector')
+      const sendButton = panel.getByRole('button', { name: 'Send', exact: true })
+      await expect(sendButton).toHaveAttribute('title', 'Send')
+      await expect(sendButton).toHaveClass(/rounded-full/)
+      await expect(sendButton.locator('svg')).toHaveClass(/lucide-arrow-up/)
+      await expect(sendButton).toHaveText('')
+      const [approvalBox, modelBox, sendBox] = await Promise.all([
+        approvalSelector.boundingBox(),
+        modelSelector.boundingBox(),
+        sendButton.boundingBox()
+      ])
+      if (approvalBox === null || modelBox === null || sendBox === null) {
+        throw new Error('Agent composer controls must have visible bounds')
+      }
+      expect(approvalBox.x + approvalBox.width).toBeLessThanOrEqual(modelBox.x)
+      expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(sendBox.x)
       await expect(panel.getByLabel('Agent message')).toBeVisible()
-      await panel.getByRole('button', { name: /Context:/ }).click()
-      await launched.page.getByRole('option', { name: 'Whole manuscript', exact: true }).click()
+      const screenshotDirectory = process.env.WRITELLM_CP48_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp48-agent-composer.png'),
+          animations: 'disabled'
+        })
+      }
+      await panel.getByTestId('agent-model-selector').click()
+      const modelEffortPicker = launched.page.getByTestId('agent-model-effort-picker')
+      await expect(
+        modelEffortPicker.getByRole('option', { name: /Model Writer model/ })
+      ).toBeVisible()
+      await expect(
+        modelEffortPicker.getByRole('option', { name: /Effort Unavailable/ })
+      ).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp48-agent-model-effort.png'),
+          animations: 'disabled'
+        })
+      }
+      await launched.page.keyboard.press('Escape')
+      await panel.getByTestId('agent-approval-selector').click()
+      await expect(
+        launched.page.getByRole('menuitemradio', {
+          name: /Manual Review every proposed manuscript change/
+        })
+      ).toBeVisible()
+      await expect(
+        launched.page.getByRole('menuitemradio', {
+          name: /Section Apply section edits automatically; review other changes/
+        })
+      ).toBeVisible()
+      await expect(
+        launched.page.getByRole('menuitemradio', {
+          name: /YOLO Apply all changes permitted by the existing policy/
+        })
+      ).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp48-agent-approval.png'),
+          animations: 'disabled'
+        })
+      }
+      await launched.page.keyboard.press('Escape')
+      await panel.getByLabel('Agent message').fill('/section')
+      const slashMenu = launched.page.getByTestId('agent-slash-menu')
+      await expect(slashMenu).toBeVisible()
+      await expect(slashMenu.getByRole('option', { name: /This section/ })).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp48-agent-slash-menu.png'),
+          animations: 'disabled'
+        })
+      }
+      await panel.getByLabel('Agent message').press('Enter')
+      await expect(slashMenu).not.toBeVisible()
+      await expect(panel.getByLabel('Agent message')).toHaveValue('')
+      await panel.getByTestId('agent-add-menu-trigger').click()
+      await launched.page.getByRole('option', { name: /Whole manuscript/ }).click()
       await panel
         .getByLabel('Agent message')
         .fill('Ground the Agent revision target section in the imported evidence.')
-      await panel.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(sendButton).toBeEnabled()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp48-agent-composer-ready.png'),
+          animations: 'disabled'
+        })
+      }
+      await sendButton.click()
       await expect(panel.getByLabel('Generating conversation title')).toBeVisible()
       await expect(panel.getByTestId('agent-conversation-header')).toContainText(
         'Grounded evidence proposal'
