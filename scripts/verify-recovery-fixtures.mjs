@@ -3,7 +3,7 @@ import { access, readFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 const manifestPath = resolve('fixtures/recovery/manifest-v1.json')
-const manifestText = await readFile(manifestPath, 'utf8')
+const manifestText = normalizeLineEndings(await readFile(manifestPath, 'utf8'))
 const manifest = JSON.parse(manifestText)
 if (
   manifest.format !== 'writellm-recovery-fixtures' ||
@@ -86,7 +86,7 @@ for (const fixture of manifest.cases) {
   )
     throw new Error(`Fixture source escapes: ${fixture.id}`)
   await access(source)
-  const sourceText = await readFile(source, 'utf8')
+  const sourceText = normalizeLineEndings(await readFile(source, 'utf8'))
   const sourceSha256 = createHash('sha256').update(sourceText).digest('hex')
   if (sourceSha256 !== fixture.sourceSha256) {
     throw new Error(
@@ -131,3 +131,7 @@ process.stdout.write(
     sha256: createHash('sha256').update(manifestText).digest('hex')
   })}\n`
 )
+
+function normalizeLineEndings(text) {
+  return text.replaceAll('\r\n', '\n')
+}

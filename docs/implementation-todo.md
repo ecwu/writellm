@@ -32,6 +32,8 @@ Status markers:
   separator required by `@electron/asar`.
 - [x] Run Windows packaged E2E serially with a 180-second scenario budget and retry transient
   Windows `EBUSY` fixture cleanup after Electron closes.
+- [x] Normalize CRLF to LF before recovery-fixture source and manifest hashing so Windows checkouts
+  retain the same integrity evidence as Linux and macOS.
 
 ## Current checkpoint
 
