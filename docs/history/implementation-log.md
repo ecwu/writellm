@@ -6,6 +6,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-13
 
+- Completed the remaining Phase 11 sequence (CP41A PDF, CP41B presets, CP36 Markdown import,
+  CP37A/37B LaTeX import, CP44 annotations, CP46 clone, and CP47A/47B templates) and the cumulative
+  final gate: `check:fast`, 178 Electron-hosted files / 904 tests plus the production build, all 25
+  recovery fixtures from 23 sources, clean scoped Impeccable and diff checks, and 38/38 fresh
+  Real-Electron scenarios. The no-identity macOS arm64 package gate produced the 0.2026.8.16 App,
+  DMG, and ZIP. A structured-lifecycle-logging pass over every Phase 11 module was then committed,
+  and local packaging was verified on Windows, macOS x64, and Linux through the added per-target
+  package commands.
 - Completed Checkpoint 40 under ADR 030. The shared publication assembly now emits a deterministic,
   injection-bounded XeLaTeX/ctexart project with contained assets, readable non-fabricated
   references, source hash, and explicit losses. Independent unified-latex parsing, 166 files /
@@ -49,6 +57,11 @@ maintenance without turning the active tracker back into a historical log.
   and the three superseded one-shot worker entry files were removed. Neither
   checkpoint has started; both require the user's approval, and Checkpoint 20
   remains deferred behind them.
+- Completed the early "Stable Default Window State" maintenance: each new application window is
+  maximized once before first display while later project-lifecycle operations preserve
+  user-managed window state. Evidence passed Electron-hosted Vitest 28 files / 141 tests and the
+  4-scenario Playwright Electron E2E suite. Archived here from the removed standalone
+  `maintenance.md`.
 
 ## 2026-07-17
 
