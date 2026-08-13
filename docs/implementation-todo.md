@@ -37,7 +37,8 @@ Status markers:
 - [x] Remove the remaining Windows packaged-E2E races by selecting the newly created Agent section
   explicitly, waiting for project close before deleting template files, and allowing the corrupt
   index rebuild its bounded 60-second recovery window; make the responsive scroll fixture create
-  its own overflow, and close persisted windows before unregistering IPC during app shutdown.
+  its own overflow, close persisted windows before unregistering IPC during app shutdown, and
+  refresh the recovery manifest for the intentionally changed index-recovery fixture.
 
 ## Current checkpoint
 

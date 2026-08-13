@@ -127,7 +127,7 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "c1b0f863189f41bdf3a2a1b883bcec3e182fd51004032dc36c5a6056234d68f3",
+      "sourceSha256": "9390147182389e0105d9d1a1178069a282290c7ed12dd4d88b74688865ef7218",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",
@@ -240,7 +240,7 @@
       "id": "shutdown-log-flush",
       "category": "logging",
       "source": "src/main/bootstrap/shutdown-coordinator.test.ts",
-      "sourceSha256": "eeeb2d4a448627d1681bfe17329152931927bb7fb887e6bfa27a8e5e3f222d4d",
+      "sourceSha256": "17780c6f8a495051cc69c2774c15b87762c8593cf063f2eaa3e6fea823362377",
       "tests": [
         "prevents the first quit and closes resources in order before reissuing quit",
         "logs the original close error and continues shutdown"
