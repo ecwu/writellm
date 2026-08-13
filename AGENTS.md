@@ -18,6 +18,22 @@ when historical text conflicts with them.
 
 The Phase files under `docs/implementation-todo/` contain historical implementation evidence. Read only the Phase material related to the current checkpoint. If a Phase file conflicts with the architecture amendment or the CP19.5 audit, the newer amendment is authoritative and the older passage is historical.
 
+## Document Write Rules
+
+Keep the mutable/immutable split strict so documents never drift from the state they claim:
+
+- Progress and delivery state (current checkpoint, complete/in-progress/deferred, release status,
+  platform-matrix results) lives only in `docs/current-plan.md`. Never write a progress claim into
+  `docs/architecture.md`, an ADR, a Phase file, or an audit — those are frozen once completed.
+- Detailed checkpoint evidence (per-checkpoint checklists, `Local evidence`, authorization, and
+  decision prose) lives only in the matching Phase file under `docs/implementation-todo/`. The
+  tracker `docs/implementation-todo.md` keeps only a short `[x]`/`[~]`/`[!]` checklist plus routing
+  links; do not copy evidence back into it.
+- `docs/history/implementation-log.md` is the append-only cross-phase chronology. Maintenance that
+  has no numbered Phase home is appended there rather than kept in a standalone file.
+- When a checkpoint or maintenance completes, update `docs/current-plan.md`, the tracker, and the
+  history log together, and remove any now-stale deferred/progress text in the same change.
+
 ## Orchestration And Delegation
 
 The main Claude thread is the only orchestrator. It owns requirement interpretation, task decomposition, worker selection, result integration, final verification, and user communication. Do not create or delegate to a general-purpose worker.

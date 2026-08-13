@@ -1,6 +1,6 @@
 # ADR 024: Agent-Native Review Fixtures
 
-Status: accepted for Checkpoints 32, 45, and 33; implementation authorized
+Status: accepted for Checkpoints 32, 45, and 33; implementation authorized; protocol superseded to v6 by ADR 025
 Date: 2026-08-12
 
 ## Context

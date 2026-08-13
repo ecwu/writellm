@@ -1,6 +1,6 @@
 # ADR 013: Downloadable Agent Writing Skills
 
-Status: accepted; amended for Checkpoint 27.6
+Status: accepted; amended for Checkpoint 27.6 (defines Agent Harness Protocol v4)
 Date: 2026-08-10
 
 ## Context
@@ -145,8 +145,10 @@ discovery, no network authority for skills, and no direct mutation authority.
   filesystem paths.
 - Pi runs only over a manifest-backed, read-only virtual `ExecutionEnv`. It cannot write, shell,
   enumerate arbitrary directories, follow symbolic links, or resolve real paths. Pi diagnostics
-  and WriteLLM's stricter metadata/integrity rules are both fail-closed. The bounded
-  `read_writing_skill` tool accepts only virtual URIs pre-authorized for the run, so progressive
+  and WriteLLM's stricter metadata/integrity rules are both fail-closed. This amendment defines
+  Agent Harness Protocol v4: the thirteen-tool set, adding the bounded `read_writing_skill` tool.
+  The bounded `read_writing_skill` tool accepts only virtual URIs pre-authorized for the run, so
+  progressive
   disclosure adds no generic filesystem authority. `AgentHarness.skill()` remains unused because
   it delivers the skill as a user-turn message and requires the harness; WriteLLM keeps explicit
   invocation in the ordered system prompt. A later migration from the low-level
@@ -189,7 +191,8 @@ composition with the companion note, reusing Pi's `Skill` type and `formatSkillI
 format; per-run snapshot semantics; event/model-request observability;
 compatibility for existing sessions; focused Main/Worker/Renderer tests with mocked network; and a
 real-Electron grounded-writing scenario. It does not authorize a skill marketplace, executable
-plugins or skill-authored tools, new Agent tools, arbitrary URL fetching, automatic updates, hosted
+plugins or skill-authored tools, new Agent tools (superseded by the 27.6 amendment, which adds
+`read_writing_skill`), arbitrary URL fetching, automatic updates, hosted
 CI, packaging, release, push, or promotion.
 
 Checkpoint 27.3 is already locally complete with the global-policy-only scope this ADR permits; it

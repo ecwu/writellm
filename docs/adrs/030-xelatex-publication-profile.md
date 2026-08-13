@@ -7,7 +7,8 @@
 ## Context
 
 Checkpoint 40 needs one editable LaTeX project derived from the Checkpoint 38 publication
-assembly. The product must not require, invoke, or bundle a TeX compiler, accept arbitrary
+assembly (whose contract lives in `architecture.md`; it has no standalone ADR). The product must
+not require, invoke, or bundle a TeX compiler, accept arbitrary
 templates/preambles, fabricate bibliography metadata, or allow manuscript text to inject LaTeX
 commands. CJK/Latin text, figures, formulas, tables, links, citations, deterministic output, and
 explicit conversion loss all need one fixed profile.

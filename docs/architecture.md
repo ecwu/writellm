@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate
-Recorded: 2026-07-31
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate and the 2026-08 Phase 11 ADRs (021-037)
+Recorded: 2026-07-31; amended through 2026-08-13
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,8 +9,6 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
-Checkpoint 26.8S is complete; Checkpoint 26.9 is validating the two macOS release rows while
-Windows and Linux distribution are deferred.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -21,7 +19,7 @@ The following rules are now the current target. Any older section in this docume
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
 - Agent Harness Protocol v6 uses bounded snapshot read/inspection tools, Review Issue and Writing Task fixture tools, typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one bounded `generate_image` effect/proposal tool. ADRs 024 and 025 add no special Agent session/run, hidden model request, generic network/file/SQL authority, scheduler, or direct manuscript write.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
-- The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence.
+- The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
 - BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
@@ -409,7 +407,7 @@ Responsibilities are strict. The older names `Agent utility process`, `Import/AP
 - `index-worker` owns all writes to `index.sqlite` and exposes a narrow search/index protocol.
 - Only Main owns the file log sink.
 
-Use Electron `utilityProcess` rather than introducing a local HTTP backend. An open project has at most one worker for each of the three roles. Agent tools communicate with Main through a dedicated MessagePort protocol distinct from model streaming and logging traffic. A stale response is rejected and logged; a worker is terminated only for protocol or capability violations, not for one ordinary late response.
+Use Electron `utilityProcess` rather than introducing a local HTTP backend. An open project has at most one worker for each of the three roles; the ADR 033/034 disposable parsing child is a request-scoped exception, not a fourth long-lived role. Agent tools communicate with Main through a dedicated MessagePort protocol distinct from model streaming and logging traffic. A stale response is rejected and logged; a worker is terminated only for protocol or capability violations, not for one ordinary late response.
 
 ## Electron Security Invariants
 
@@ -507,28 +505,38 @@ Persist agent messages, tool calls, proposals, accepted mutations, job state, an
 Use three database roles:
 
 ```text
-app.sqlite                 <ProjectRoot>/.writellm/project.sqlite
-  app_settings               project_meta
-  recent_projects            manuscript
-  provider_configs           manuscript_briefs
-  encrypted_credentials      sections
-  schema_manifest            section_revisions
-                             section_materializations
-                             knowledge_items
-                             parse_revisions
-                             file_records
-                             imports
-                             jobs
-                             job_transitions
-                             model_requests
-                             agent_sessions
-                             agent_runs
-                             agent_events
-                             mutation_proposals
-                             review_issues
-                             review_issue_events
-                             agent_writing_tasks
-                             schema_manifest
+app.sqlite                  <ProjectRoot>/.writellm/project.sqlite
+  app_settings                project_meta
+  recent_projects             manuscripts
+  provider_configs            manuscript_briefs
+  encrypted_credentials       sections
+  agent_model_catalogs        section_revisions
+  agent_model_preferences     section_materializations
+  agent_provider_preferences  manuscript_assets
+  agent_skills                section_revision_assets
+  publication_presets         manuscript_asset_variants
+  project_templates           manuscript_annotations
+  schema_manifest             knowledge_items
+                              parse_revisions
+                              parse_tasks
+                              active_parse_revisions
+                              normalization_runs
+                              parse_task_events
+                              file_records
+                              imports
+                              jobs
+                              job_transitions
+                              artifact_cleanup_requests
+                              model_requests
+                              agent_sessions
+                              agent_runs
+                              agent_events
+                              agent_writing_tasks
+                              agent_change_set_commands
+                              mutation_proposals
+                              review_issues
+                              review_issue_events
+                              schema_manifest
 
 <ProjectRoot>/.writellm/index.sqlite
   chunks
@@ -731,7 +739,7 @@ Renderer editing uses:
 - a visible save state: clean, saving, saved, conflict, failed;
 - bounded local retry without swallowing errors.
 
-An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, and `import`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, the latest 5 `import`-class revision bodies per section (including the current revision), all `agent_accepted` revisions, and each Agent edit's direct parent. Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
+An unchanged content hash is a no-op and must not create a new revision. Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, `import`, and `undo`. Retention keeps the latest 20 manual autosaves per section, hourly checkpoints for 24 hours, daily checkpoints for 30 days, the latest 5 `import`-class revision bodies per section (including the current revision), all `agent_accepted` revisions, each Agent edit's direct parent, and the direct parent body of every retained `manual_checkpoint` revision (so ADR 022's per-section Undo always retains its restore source). Cleanup is best-effort background maintenance after the body revision transaction, never part of that transaction.
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
 

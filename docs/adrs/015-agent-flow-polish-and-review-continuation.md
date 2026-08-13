@@ -1,6 +1,6 @@
 # ADR 015: Agent Flow Polish And Review Continuation
 
-Status: accepted for Checkpoint 28.1
+Status: accepted for Checkpoint 28.1; amended by ADR 016 for Checkpoint 28.2
 Date: 2026-08-12
 
 ## Context

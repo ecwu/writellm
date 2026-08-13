@@ -47,8 +47,9 @@ compiler, package hook, macro expansion, or external converter is permitted.
 
 ## Consequences
 
-- Project import remains a larger fixture around the same staged plan/apply authority, not a new
-  conversation, model endpoint, or mutation path.
+- Project import inherits ADR 032/CP36's session-bound staging, 30-minute plan TTL, preview/apply,
+  and cleanup boundary, and remains a larger fixture around the same staged plan/apply authority,
+  not a new conversation, model endpoint, or mutation path.
 - A selected directory can expose only bounded captured files; the parser never learns its real
   path.
 - Citation rendering is intentionally conservative and loss-reported rather than pretending to

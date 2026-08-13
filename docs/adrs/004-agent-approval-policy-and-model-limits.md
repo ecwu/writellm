@@ -1,6 +1,6 @@
 # ADR 004: Agent Approval Policy And Model Limits
 
-Status: accepted
+Status: accepted; approval-waiter and YOLO semantics superseded by ADR 005; Renderer model-catalog statement superseded by ADR 008
 Date: 2026-07-22
 
 ## Decision

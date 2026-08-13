@@ -7,7 +7,8 @@
 ## Context
 
 Checkpoint 41A needs a stable final PDF from the same immutable Checkpoint 38 publication
-assembly used by DOCX and LaTeX. The result must preserve selectable mixed CJK/Latin text,
+assembly used by DOCX and LaTeX (that assembly's contract lives in `architecture.md`; it has no
+standalone ADR). The result must preserve selectable mixed CJK/Latin text,
 headings as bookmarks, links, images, formulas, references, page numbers, and a numbered table of
 contents. Rendering must not expose filesystem paths or browser authority to the Renderer, create
 a local HTTP service, or introduce a second publication model.

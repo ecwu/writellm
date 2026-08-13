@@ -46,3 +46,5 @@ needs a crash-safe boundary between reserving a row and removing its file.
   by pagination and indexed SQL projections.
 - CP43B can add candidate lineage to this same asset authority rather than create an image library
   of its own.
+- Migration 0034 (CP42) precedes migration 0033 (CP43A) in numbering despite the reverse checkpoint
+  order; the migration runner's continuous-numbering invariant is satisfied in the shipped tree.

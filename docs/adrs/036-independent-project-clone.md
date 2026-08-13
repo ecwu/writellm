@@ -40,7 +40,8 @@ manifest is written last inside staging, and the complete directory is published
 create-only rename. Failure or cancellation removes staging and never changes the source or
 publishes a destination. After successful publication, Save As closes the source and opens the
 clone through the normal project lifecycle, which is the first point at which recent-project state
-may be updated. The clone has no version-history repository and opens with history uninitialized;
+may be updated. The clone has no version-history repository and opens with history uninitialized (ADR 007's
+initial-checkpoint rule does not apply to clone);
 its missing derived index follows the normal rebuild path.
 
 ## Consequences

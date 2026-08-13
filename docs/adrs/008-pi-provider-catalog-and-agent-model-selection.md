@@ -37,5 +37,6 @@ surfaces. Existing Agent configurations migrate to one legacy custom preset and 
 model so an offline upgrade remains usable.
 
 ADR 004's statement that the Renderer receives no model catalog is superseded only for this
-bounded, non-secret selection catalog. ADR 001 and ADR 005 remain authoritative for Agent tools,
-project capabilities, persistence authority, and proposal semantics.
+bounded, non-secret selection catalog. ADR 001 and ADR 005 remain authoritative for Agent tool
+boundaries, project capabilities, persistence authority, and proposal semantics; their exact tool
+lists evolve across ADR 005/006/013/024/025 toward Protocol v6.

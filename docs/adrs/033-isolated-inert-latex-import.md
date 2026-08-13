@@ -26,8 +26,9 @@ the package's generated API reference were used after the mandatory Context7 loo
 Main extends ADR 032's same source capture, hash, plan capability, preview, apply, and cleanup
 boundary to `.tex`. It sends only bounded UTF-8 source text, its SHA-256, and an opaque request ID
 to a one-request utility child using the existing `background-worker.js` entrypoint. A five-second
-Main timer kills that child on timeout or cancellation. The child never receives paths,
-credentials, project state, network authority, or mutation authority. No TeX compiler, shell
+Main timer kills that child on timeout or cancellation. The child never receives absolute
+filesystem paths, credentials, project state, network authority, or mutation authority (it may
+receive bounded relative logical paths as ordinary string data). No TeX compiler, shell
 escape, bibliography tool, macro-expansion processor, package hook, include resolver, or external
 converter is invoked.
 

@@ -1,6 +1,6 @@
 # ADR 005: Agent Harness Protocol v2
 
-Status: accepted
+Status: accepted; protocol superseded to v3/v4/v5/v6 by ADR 006/013/024/025
 Date: 2026-07-22
 
 ## Context

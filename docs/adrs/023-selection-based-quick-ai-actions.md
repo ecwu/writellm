@@ -37,7 +37,8 @@ selectedBlockIds, selectedText}` with 1–16,384 UTF-16 code units. The selectio
 only for a non-empty text selection. Before sending, the editor flushes and recaptures; section,
 block order, and text must be identical, while the post-flush current revision becomes the submitted
 revision. Main then requires that revision to remain current, every selected block to exist, and the
-exact selected text to occur within the ordered selected-block visible text. Failure starts no run.
+exact selected text to occur within the ordered selected-block visible text, using the same NFC
+projection defined by ADR 021. Failure starts no run.
 
 The toolbar is one compact shadcn-compatible control inside BlockNote's formatting toolbar. It
 opens a grouped menu with labels and descriptions; `Cmd/Ctrl+Shift+K` opens the same menu while a

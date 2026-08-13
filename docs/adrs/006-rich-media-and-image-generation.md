@@ -1,6 +1,6 @@
 # ADR 006: Rich Media Blocks And Agent Image Generation
 
-Status: accepted
+Status: accepted; image-block and asset authority extended by ADR 027/028/029
 Date: 2026-07-22
 
 ## Context
@@ -17,8 +17,9 @@ must remain inside the existing trust boundaries.
   Mermaid and display mathematics use source-backed custom React blocks. Renderer code never
   receives a reusable filesystem path.
 - Immutable asset bytes live under `manuscript/assets/`; project SQLite owns asset identity,
-  revision references, hashes, MIME metadata, and Agent/model lineage. Preview URLs are
-  session-bound capabilities served by the existing application protocol.
+  revision references, hashes, MIME metadata, and Agent/model lineage. Admitted formats are PNG,
+  JPEG, and WebP: the image generator emits PNG/JPEG, while uploaded assets may also be WebP.
+  Preview URLs are session-bound capabilities served by the existing application protocol.
 - The application adds one global `image` provider role implemented by the Google Gemini
   Interactions API through exact-pinned `@google/genai@2.13.0`. The SDK is confined to the existing
   background-worker image gateway; it does not cross into Main, preload, renderer, or Agent tool
