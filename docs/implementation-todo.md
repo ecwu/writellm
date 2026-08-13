@@ -39,6 +39,8 @@ Status markers:
   index rebuild its bounded 60-second recovery window; make the responsive scroll fixture create
   its own overflow, close persisted windows before unregistering IPC during app shutdown, and
   refresh the recovery manifest for the intentionally changed index-recovery fixture.
+- [x] Close a partially initialized Index-worker SQLite handle before reporting startup failure so
+  Windows can delete and rebuild a corrupt derived index without an `EBUSY` retry loop.
 
 ## Current checkpoint
 

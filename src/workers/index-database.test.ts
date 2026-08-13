@@ -49,6 +49,16 @@ describe('IndexDatabase and deterministic chunking', () => {
     uncleanReopen.close()
   })
 
+  it('releases the SQLite handle when startup rejects a corrupt index', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'writellm-index-corrupt-'))
+    roots.push(root)
+    const databasePath = join(root, 'index.sqlite')
+    await writeFile(databasePath, 'corrupt derived index')
+
+    expect(() => new IndexDatabase(databasePath)).toThrow()
+    await expect(rm(databasePath)).resolves.toBeUndefined()
+  })
+
   it('retains the active and three recent generations and removes orphan search storage', async () => {
     const fixtures = await Promise.all(
       Array.from({ length: 6 }, (_, index) =>
