@@ -20,6 +20,32 @@ const targetArgument = process.argv.find((argument) => argument.startsWith('--ta
 const target = resolvePackageTarget(
   targetArgument?.slice('--target='.length) ?? currentPackageTarget().id
 )
+
+const workspaceRoot = resolve('.')
+const writableCacheRoot = join(workspaceRoot, '.cache', 'native')
+const writableTempRoot = join(writableCacheRoot, 'tmp')
+const writableNodeGypRoot = join(writableCacheRoot, 'node-gyp')
+await mkdir(writableTempRoot, { recursive: true })
+await mkdir(writableNodeGypRoot, { recursive: true })
+
+// Codex and some WSL integrations expose a Windows TEMP path to Linux Node.
+// Electron's native rebuild must use a Linux-writable temporary directory.
+if (
+  process.platform === 'linux' &&
+  (process.env.TMPDIR ?? process.env.TMP ?? process.env.TEMP)?.startsWith('/mnt/')
+) {
+  process.env.TMPDIR = writableTempRoot
+  process.env.TMP = writableTempRoot
+  process.env.TEMP = writableTempRoot
+}
+process.env.npm_config_devdir ??= writableNodeGypRoot
+
+// Electron 43's GCC build path is incompatible with its V8 deprecation
+// attribute ordering. Removing only that warning define keeps the ABI and
+// source unchanged while allowing better-sqlite3 to compile on Debian/WSL.
+if (process.platform === 'linux' && !process.env.CXXFLAGS?.includes('-UV8_DEPRECATION_WARNINGS')) {
+  process.env.CXXFLAGS = `${process.env.CXXFLAGS ?? ''} -UV8_DEPRECATION_WARNINGS`.trim()
+}
 const install = process.argv.includes('--install')
 const allowedArguments = new Set([
   '--install',
@@ -68,7 +94,7 @@ const sqliteVecInspection = assertNativeBinaryArchitecture(
 )
 const sqliteVecRoot = resolve('resources/native/sqlite-vec')
 const sqliteVecDirectory = join(sqliteVecRoot, `${target.platform}-${target.arch}`)
-await rm(sqliteVecRoot, { recursive: true, force: true })
+await rm(sqliteVecDirectory, { recursive: true, force: true })
 await mkdir(sqliteVecDirectory, { recursive: true })
 const sqliteVecDestination = join(sqliteVecDirectory, basename(sqliteVecSource))
 await copyFile(sqliteVecSource, sqliteVecDestination)
@@ -88,7 +114,7 @@ process.stdout.write(
 
 function probeAddon(path) {
   const expression = `require(${JSON.stringify(path)}); process.stdout.write(process.versions.modules)`
-  const result = spawnSync(electronBinary, ['-e', expression], {
+  const result = spawnElectron(['-e', expression], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     encoding: 'utf8'
   })
@@ -98,7 +124,7 @@ function probeAddon(path) {
 }
 
 function electronProbe(expression) {
-  const result = spawnSync(electronBinary, ['-p', expression], {
+  const result = spawnElectron(['-p', expression], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     encoding: 'utf8'
   })
@@ -107,6 +133,10 @@ function electronProbe(expression) {
     throw new Error(`Electron probe failed: ${`${result.stderr ?? result.stdout}`.trim()}`)
   }
   return result.stdout.trim()
+}
+
+function spawnElectron(args, options) {
+  return spawnSync(electronBinary, args, options)
 }
 
 function run(command, args) {

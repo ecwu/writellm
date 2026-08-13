@@ -192,18 +192,24 @@ async function fileSha256(path) {
 export async function inspectPackageArtifacts(directory, target, releaseVersion) {
   const entries = await readdir(directory)
   const artifactBase = `WriteLLM-${releaseVersion}-${target.arch}`
+  const linuxArtifactBase = `WriteLLM-${releaseVersion}`
   const expected =
-    target.platform === 'darwin'
-      ? [
-          { label: 'DMG', matches: (name) => name === `${artifactBase}.dmg` },
-          { label: 'ZIP', matches: (name) => name === `${artifactBase}.zip` }
-        ]
-      : target.platform === 'win32'
-        ? [{ label: 'NSIS', matches: (name) => name === `${artifactBase}-setup.exe` }]
-        : [
-            { label: 'AppImage', matches: (name) => name === `${artifactBase}.AppImage` },
-            { label: 'deb', matches: (name) => name === `${artifactBase}.deb` }
+    target.id === 'windows-appx'
+      ? [{ label: 'AppX', matches: (name) => name === `${artifactBase}.appx` }]
+      : target.platform === 'darwin'
+        ? [
+            { label: 'DMG', matches: (name) => name === `${artifactBase}.dmg` },
+            { label: 'ZIP', matches: (name) => name === `${artifactBase}.zip` }
           ]
+        : target.platform === 'win32'
+          ? [{ label: 'NSIS', matches: (name) => name === `${artifactBase}-setup.exe` }]
+          : [
+              {
+                label: 'AppImage',
+                matches: (name) => name === `${linuxArtifactBase}-x86_64.AppImage`
+              },
+              { label: 'deb', matches: (name) => name === `${linuxArtifactBase}-amd64.deb` }
+            ]
   const artifacts = []
   for (const expectation of expected) {
     const candidates = entries.filter(expectation.matches)

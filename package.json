@@ -9,6 +9,10 @@
   "main": "./out/main/index.js",
   "author": "WriteLLM contributors",
   "homepage": "https://github.com/ecwu/writellm",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "pnpm": "11.17.0"
+  },
   "scripts": {
     "check": "biome check .",
     "check:write": "biome check --write .",
@@ -45,9 +49,12 @@
     "postinstall": "node scripts/prepare-native-target.mjs --install",
     "build:unpack": "node scripts/run-package-gate.mjs --unpacked-only",
     "build:win": "node scripts/run-package-gate.mjs --target=windows-x64",
+    "build:windows": "node scripts/run-package-gate.mjs --target=windows-x64",
+    "build:windows-app": "node scripts/run-package-gate.mjs --target=windows-appx",
     "build:mac": "node scripts/run-package-gate.mjs",
     "build:linux": "node scripts/run-package-gate.mjs --target=linux-x64",
     "package:windows-x64": "node scripts/run-package-gate.mjs --target=windows-x64",
+    "package:windows-appx": "node scripts/run-package-gate.mjs --target=windows-appx",
     "package:macos-arm64": "node scripts/run-package-gate.mjs --target=macos-arm64",
     "package:macos-x64": "node scripts/run-package-gate.mjs --target=macos-x64",
     "package:linux-x64": "node scripts/run-package-gate.mjs --target=linux-x64"

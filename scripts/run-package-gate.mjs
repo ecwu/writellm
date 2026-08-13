@@ -35,8 +35,6 @@ const allowedArguments = new Set([
 for (const argument of rawArguments) {
   if (!allowedArguments.has(argument)) throw new Error(`Unknown package-gate argument: ${argument}`)
 }
-assertNativePackageHost(target)
-
 const release = rawArguments.includes('--release')
 const unpackedOnly = rawArguments.includes('--unpacked-only')
 const signedPlatform = target.platform === 'darwin' || target.platform === 'win32'
@@ -82,6 +80,7 @@ if (rawArguments.includes('--plan')) {
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
   process.exit(0)
 }
+assertNativePackageHost(target)
 process.stdout.write(`${JSON.stringify(plan)}\n`)
 await rm(outputDirectory, { recursive: true, force: true })
 await mkdir(outputDirectory, { recursive: true })
@@ -102,6 +101,7 @@ const builderBaseArguments = [
   target.builderArch,
   '--publish=never',
   `--config.directories.output=${outputDirectory}`,
+  ...(target.builderTarget === undefined ? [] : [`--config.win.target=${target.builderTarget}`]),
   ...releaseBuilderArguments(target, releaseMetadata),
   ...(release && target.platform === 'darwin' ? ['--config.mac.notarize=true'] : [])
 ]

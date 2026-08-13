@@ -2,12 +2,16 @@ import { defineConfig } from '@playwright/test'
 
 const requiresSerialWorkers =
   process.env['WRITELLM_E2E_WINDOW_MODE'] === 'interactive' ||
-  (process.platform === 'linux' && Boolean(process.env['CI']))
+  (process.platform === 'linux' &&
+    (Boolean(process.env['CI']) || process.env['WRITELLM_E2E_WINDOW_MODE'] === 'silent'))
 const usesHostedRunner = Boolean(process.env['CI'])
+const usesLinuxHeadlessRunner =
+  process.platform === 'linux' &&
+  (Boolean(process.env['CI']) || process.env['WRITELLM_E2E_WINDOW_MODE'] === 'silent')
 const testTimeout =
   usesHostedRunner && process.platform === 'win32'
     ? 180_000
-    : usesHostedRunner && process.platform === 'linux'
+    : usesLinuxHeadlessRunner
       ? 90_000
       : 45_000
 

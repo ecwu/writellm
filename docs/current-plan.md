@@ -694,6 +694,12 @@ local evidence completes the implementation portion of Checkpoint 27 but does no
 
 ## Current authorized work
 
+The 2026-08-13 local build-environment task is authorized and remains local-only: configure the
+Linux/WSL development toolchain, add a Windows NSIS target plus a Windows AppX target, and keep
+Linux x64 packaging runnable headlessly through Xvfb. Windows targets remain native-Windows-only
+because the packaged native modules must match the target OS; this task does not resume hosted CI,
+Checkpoint 26.9, signing, tagging, or release promotion.
+
 No hosted CI, release-candidate dry run, production promotion, or other GitHub Actions execution is
 authorized. On 2026-08-10 the user stopped the remaining `v0.2026.8.10` macOS x64 package job after
 the account exhausted its included Actions minutes, then directed that every workflow be disabled

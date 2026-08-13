@@ -7,7 +7,17 @@ export const PACKAGE_TARGETS = Object.freeze({
     arch: 'x64',
     builderPlatform: '--win',
     builderArch: '--x64',
+    builderTarget: 'nsis',
     formats: Object.freeze(['nsis'])
+  }),
+  'windows-appx': Object.freeze({
+    id: 'windows-appx',
+    platform: 'win32',
+    arch: 'x64',
+    builderPlatform: '--win',
+    builderArch: '--x64',
+    builderTarget: 'appx',
+    formats: Object.freeze(['appx'])
   }),
   'macos-arm64': Object.freeze({
     id: 'macos-arm64',

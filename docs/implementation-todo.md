@@ -14,6 +14,17 @@ Status markers:
 - `[x]` completed and verified
 - `[!]` blocked
 
+## Local build environment and Windows/Linux packaging (2026-08-13)
+
+- [x] Install the pinned Linux/WSL development environment and document headless Electron usage.
+- [x] Add local Windows NSIS, Windows AppX, and Linux x64 package commands with deterministic
+  target directories and native-host checks.
+- [x] Verify the environment, static checks, Linux build, and target build plans without resuming
+  hosted CI or release promotion. `pnpm run check:fast`, Electron ABI/native inventory, Linux
+  AppImage/deb creation, and all three target plans passed. The packaged E2E suite passed 24/26
+  scenarios with the two remaining failures limited to existing Agent section selection and slow
+  workspace behavior; no installer or native-module failure was observed.
+
 ## Current checkpoint
 
 ### Final Phase 11 Verification And Packaging

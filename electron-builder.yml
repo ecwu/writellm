@@ -15,11 +15,23 @@ win:
   executableName: writellm
   target:
     - nsis
+  icon: build/icon.ico
 nsis:
   artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+appx:
+  artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
+  applicationId: WriteLLM
+  identityName: com.ecwu.writellm
+  displayName: WriteLLM
+  publisherDisplayName: WriteLLM contributors
+  backgroundColor: '#1f2937'
+  languages:
+    - en-US
+  capabilities:
+    - runFullTrust
 mac:
   target:
     - dmg
