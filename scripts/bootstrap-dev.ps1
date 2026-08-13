@@ -20,9 +20,10 @@ if ($null -eq $nodeCommand) {
   }
 }
 
-$nodeVersion = (& node --version).TrimStart('v')
-if ($nodeVersion -ne $requiredNodeVersion) {
-  throw "Expected Node.js $requiredNodeVersion, found $nodeVersion. Install the pinned version before continuing."
+$nodeVersionText = (& node --version).TrimStart('v')
+$nodeVersion = [version]$nodeVersionText
+if ($nodeVersion -lt [version]$requiredNodeVersion -or $nodeVersion.Major -ge 25) {
+  throw "Expected Node.js >= $requiredNodeVersion and < 25, found $nodeVersionText."
 }
 
 $pnpmCommand = Get-Command pnpm -ErrorAction SilentlyContinue

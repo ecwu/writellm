@@ -16,9 +16,9 @@ WriteLLM v2 is being built incrementally from this starter. Before making implem
 
 ## Project Setup
 
-The repository is pinned to Node.js `24.15.0` and pnpm `11.17.0`. On Debian/WSL x64, the
-bootstrap script installs Node and pnpm into the current user's `~/.local`, installs the frozen
-dependency graph, and prepares the Electron native modules:
+The repository requires Node.js `24.15.0` or newer within the Node 24 major line, plus pnpm
+`11.17.0`. On Debian/WSL x64, the bootstrap script installs Node and pnpm into the current user's
+`~/.local`, installs the frozen dependency graph, and prepares the Electron native modules:
 
 ```bash
 $ sudo apt-get update
