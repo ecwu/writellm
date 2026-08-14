@@ -149,7 +149,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "1068753d7c307f8d3d03211d898dc97cbda1b37d1910e48df02cb3a335d8fc07",
+      "sourceSha256": "c4546f77530b40b0dfe579d4f8c49f5011831e0d50ce236b2c66c334f3283a46",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",

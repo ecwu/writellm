@@ -1,6 +1,6 @@
 # ADR 043: Write Auto And YOLO Approval Semantics
 
-Status: accepted for the Checkpoint 50 follow-up refinement; implementation authorized
+Status: accepted for the Checkpoint 50 follow-up refinement; implementation authorized; run-snapshot statement superseded by ADR 044
 Date: 2026-08-14
 
 ## Context

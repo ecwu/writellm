@@ -477,3 +477,35 @@ push, hosted CI, signing, notarization, publication, and release remain unauthor
 
 No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
 signing, notarization, publication, or release action was authorized or performed.
+
+## ADR 044 Refinement: Live Approval Mode Reads At Proposal Time
+
+### User outcome
+
+- The approval mode can be switched at any time — during an active run and while a proposal
+  awaits review — from the composer picker or the session details pane.
+- The auto-approve/review decision for each proposal reads the session's current mode at the
+  moment the proposal is produced; the run-start snapshot no longer drives decisions.
+- An already-paused proposal still requires a manual review action; mode changes apply to the
+  next proposal.
+
+### Scope
+
+- `setApprovalMode` drops the active-run and pending-review refusals; the compatibility check
+  remains.
+- `#handleToolRequest` reads the live session mode via `#sessionApprovalMode` at proposal
+  decision time and logs that mode on `agent.approval.auto_started`.
+- `agent_runs.approval_mode` keeps recording the run-start mode as audit history.
+- The Renderer picker and handler stay enabled during runs and review pauses (still disabled for
+  archived sessions and in-flight writes).
+
+### Local evidence
+
+- New session-service tests cover a mid-run mode change being honored at proposal decision time
+  and a mode change succeeding while a proposal awaits review; the focused session and policy
+  suites passed (69 tests).
+
+### Explicit exclusions
+
+No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
+signing, notarization, publication, or release action was authorized or performed.

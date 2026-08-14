@@ -2076,6 +2076,100 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('applies approval mode changes made during an active run to proposal decisions', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const approveProposalAutomatically = vi.fn(async () =>
+      proposalOutcome('section_patch', 'applied')
+    )
+    const execute = vi.fn(async () => proposalToolResult('section_patch'))
+    const shouldAutoApprove = vi.fn(() => true)
+    const service = createService(database, runtime, undefined, {
+      tools: { execute, shouldAutoApprove, approveProposalAutomatically } as never
+    })
+    const session = service.createSession('Mid-run mode change', 'manual')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Propose a change.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('proposal-call')
+    })
+    service.setApprovalMode(session.agentSessionId, 'yolo')
+    const responsePromise = active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc492',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'proposal-tool-call',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'submit_section_change',
+      args: {}
+    } as never)
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+    expect(shouldAutoApprove).toHaveBeenCalledWith(
+      session.agentSessionId,
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc491',
+      'yolo'
+    )
+    expect(approveProposalAutomatically).toHaveBeenCalledOnce()
+    await expect(responsePromise).resolves.toMatchObject({
+      ok: true,
+      data: { continuation: 'continue' }
+    })
+    active.resolve('finished')
+    await started.completion
+    database.close()
+  })
+
+  it('allows approval mode changes while a proposal awaits review', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn(async () => proposalToolResult('section_patch'))
+    const service = createService(database, runtime, undefined, {
+      tools: { execute, shouldAutoApprove: () => false } as never
+    })
+    const session = service.createSession('Review-time mode change', 'manual')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Propose a change.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('proposal-call')
+    })
+    const responsePromise = active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc493',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'proposal-tool-call',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'submit_section_change',
+      args: {}
+    } as never)
+    await expect(responsePromise).resolves.toMatchObject({
+      ok: true,
+      data: { continuation: 'pause_for_review' }
+    })
+    const updated = service.setApprovalMode(session.agentSessionId, 'yolo')
+    expect(updated.approvalMode).toBe('yolo')
+    active.resolve('awaiting_review')
+    await started.completion
+    database.close()
+  })
+
   it('creates one recorded raw-event compaction summary only under token pressure', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

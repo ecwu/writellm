@@ -787,7 +787,7 @@ export function AgentPanel(props: {
   }
 
   const setApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
-    if (activeSessionArchived || activeRun !== null || conversationLocked) return
+    if (activeSessionArchived) return
     setBusy(true)
     try {
       const session = activeSession ?? (await createSession())
@@ -1998,7 +1998,7 @@ export function AgentPanel(props: {
                         </Popover>
                         <ApprovalModePicker
                           value={activeSession?.approvalMode ?? 'manual'}
-                          disabled={composerSettingsDisabled}
+                          disabled={busy || activeSessionArchived}
                           onSelect={setApprovalMode}
                         />
                       </div>

@@ -134,6 +134,14 @@ values, CHECK constraints, run snapshots, and IPC contracts are unchanged, so no
 required. Focused policy and session tests passed. No commit, push, hosted CI, package, or release
 action was authorized.
 
+The same day the user accepted ADR 044 and authorized decoupling the approval mode from run state.
+`setApprovalMode` no longer refuses changes during an active run or a pending review, and the
+proposal auto-approve/review decision reads the session's current mode at proposal time instead of
+the run-start snapshot; `agent_runs.approval_mode` remains as audit history only. The Renderer
+approval picker stays enabled during runs and review pauses. Focused session and policy tests
+passed, including mid-run and review-time mode changes. No migration, commit, push, hosted CI,
+package, or release action was authorized.
+
 ## Completed baseline
 
 - Checkpoint 24: Main-authoritative, deterministic whole-manuscript native and Markdown export,

@@ -370,3 +370,9 @@ maintenance without turning the active tracker back into a historical log.
   Persisted mode values, CHECK constraints, run snapshots, and IPC contracts are unchanged (no
   migration). New policy matrix tests and the updated session-service matrix passed (67 focused
   tests). No commit, push, hosted CI, package, or release action was performed.
+- Accepted ADR 044 and completed the approval-mode decoupling refinement. `setApprovalMode` no
+  longer refuses changes during an active run or pending review, proposal decisions read the
+  session's current mode at proposal time instead of the run-start snapshot (kept as audit
+  history), and the Renderer approval picker stays enabled during runs and review pauses. New
+  mid-run and review-time mode-change tests passed in the focused suites (69 tests). No commit,
+  push, hosted CI, package, or release action was performed.

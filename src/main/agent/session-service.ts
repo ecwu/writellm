@@ -494,11 +494,7 @@ export class AgentSessionService {
   }
 
   setApprovalMode(agentSessionId: string, mode: AgentApprovalMode): AgentSessionRecord {
-    if (this.#workBySession.has(agentSessionId)) {
-      throw new Error('Agent approval mode cannot change while a run is active')
-    }
     this.#assertCompatibleSession(agentSessionId)
-    this.#assertConversationReady(agentSessionId)
     const now = this.#now().toISOString()
     this.options.database.immediate((database) => {
       database
@@ -2216,11 +2212,14 @@ export class AgentSessionService {
       const tools = this.options.tools
       const proposal = mutationProposalToolResultSchema.safeParse(data)
       if (proposal.success) {
+        // The approval decision reads the session's current mode rather than the
+        // run-start snapshot so mid-run mode changes apply to the next proposal.
+        const currentApprovalMode = this.#sessionApprovalMode(active.agentSessionId)
         const shouldAutoApprove =
           tools?.shouldAutoApprove?.(
             active.agentSessionId,
             proposal.data.proposalId,
-            active.approvalMode
+            currentApprovalMode
           ) ?? false
         if (shouldAutoApprove) {
           if (tools?.approveProposalAutomatically === undefined) {
@@ -2231,7 +2230,7 @@ export class AgentSessionService {
               event: 'agent.approval.auto_started',
               proposalId: proposal.data.proposalId,
               kind: proposal.data.kind,
-              mode: active.approvalMode
+              mode: currentApprovalMode
             },
             'Automatic Agent proposal approval started'
           )
