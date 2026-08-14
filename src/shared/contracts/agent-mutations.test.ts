@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_MUTATION_OPERATION_LIMIT,
   briefUpdateSchema,
+  generateImageArgsSchema,
+  modelSubmitSectionChangeArgsSchema,
   outlinePatchSchema,
   rejectMutationProposalInputSchema,
   sectionPatchSchema
@@ -106,5 +108,51 @@ describe('Agent mutation contracts', () => {
         ]
       }).success
     ).toBe(false)
+  })
+
+  it('defaults root insertion anchors and keeps image insert/iterate modes disjoint', () => {
+    expect(
+      modelSubmitSectionChangeArgsSchema.parse({
+        sectionId,
+        operations: [
+          { type: 'insertTextBlocks', placement: 'end', blocks: [{ text: 'New ending.' }] }
+        ]
+      }).operations[0]
+    ).toMatchObject({ type: 'insertTextBlocks', anchor: null, placement: 'end' })
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          { type: 'insertTextBlocks', placement: 'before', blocks: [{ text: 'Invalid root.' }] }
+        ]
+      }).success
+    ).toBe(false)
+
+    const common = {
+      mode: 'insert' as const,
+      sectionId,
+      placement: 'start' as const,
+      prompt: 'A precise architecture diagram',
+      altText: 'Architecture diagram',
+      caption: '',
+      aspectRatio: '16:9' as const,
+      imageSize: '2K' as const
+    }
+    expect(generateImageArgsSchema.parse(common).anchor).toBeNull()
+    expect(
+      generateImageArgsSchema.parse({
+        mode: 'iterate',
+        sectionId,
+        prompt: common.prompt,
+        altText: common.altText,
+        caption: common.caption,
+        aspectRatio: common.aspectRatio,
+        imageSize: common.imageSize,
+        iteration: {
+          sourceBlock: { blockId: 'image-1', expectedBlockHash: 'a'.repeat(64) },
+          disposition: 'replace'
+        }
+      })
+    ).toMatchObject({ mode: 'iterate', iteration: { disposition: 'replace' } })
   })
 })

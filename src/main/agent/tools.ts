@@ -3,6 +3,7 @@ import type { AgentApprovalMode, AgentEditorContext } from '../../shared/contrac
 import {
   agentProposalToolNameSchema,
   generateImageArgsSchema,
+  normalizedGenerateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
   modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema,
@@ -259,7 +260,30 @@ export class MainAgentTools implements AgentToolExecutor {
       throw new AgentToolDomainError('conflict', 'Mutation source snapshot expired')
     }
     if (proposalName === 'generate_image') {
-      const args = generateImageArgsSchema.parse(input.args)
+      const requested = generateImageArgsSchema.parse(input.args)
+      const common = {
+        sectionId: requested.sectionId,
+        prompt: requested.prompt,
+        altText: requested.altText,
+        caption: requested.caption,
+        aspectRatio: requested.aspectRatio,
+        imageSize: requested.imageSize,
+        resolvesReviewIssues: requested.resolvesReviewIssues
+      }
+      const args = normalizedGenerateImageArgsSchema.parse(
+        requested.mode === 'insert'
+          ? {
+              ...common,
+              anchor: requested.anchor,
+              placement: requested.placement
+            }
+          : {
+              ...common,
+              anchor: null,
+              placement: 'end',
+              iteration: requested.iteration
+            }
+      )
       const reviewResolutions = args.resolvesReviewIssues ?? []
       this.#validateReviewResolutions(reviewResolutions, input.agentSessionId)
       const result = this.mutations.proposeGeneratedImage(args, input.snapshot, {
@@ -494,7 +518,7 @@ function normalizeOutlineArguments(
   const resolveRef = (reference: SectionRef): string => {
     const sectionId =
       reference.kind === 'existing' ? reference.sectionId : createdIds.get(reference.clientRef)
-    if (sectionId === undefined || (reference.kind === 'existing' && !nodes.has(sectionId))) {
+    if (sectionId === undefined || !nodes.has(sectionId)) {
       throw new AgentToolDomainError(
         'invalid_arguments',
         'Outline operation contains an unknown SectionRef'
@@ -524,6 +548,30 @@ function normalizeOutlineArguments(
     }
     return anchorIndex + (placement.kind === 'after' ? 1 : 0)
   }
+  const compact = (parentId: string | null): void => {
+    const siblings = [...nodes.entries()]
+      .filter(([, node]) => node.parentId === parentId)
+      .sort((left, right) => left[1].position - right[1].position)
+    siblings.forEach(([, node], position) => {
+      node.position = position
+    })
+  }
+  const openSlot = (parentId: string | null, position: number): void => {
+    for (const node of nodes.values()) {
+      if (node.parentId === parentId && node.position >= position) node.position += 1
+    }
+  }
+  const removeProvisionalNode = (sectionId: string): void => {
+    const current = nodes.get(sectionId)
+    if (current === undefined) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Outline section is absent from provisional state'
+      )
+    }
+    nodes.delete(sectionId)
+    compact(current.parentId)
+  }
   const operations = args.operations.map((operation) => {
     if (operation.type === 'createSection') {
       const sectionId = createdIds.get(operation.clientRef)
@@ -531,9 +579,7 @@ function normalizeOutlineArguments(
         throw new AgentToolDomainError('internal', 'Created section ID is missing')
       const parentSectionId = operation.parent === null ? null : resolveRef(operation.parent)
       const position = positionFor(parentSectionId, operation.placement)
-      for (const node of nodes.values()) {
-        if (node.parentId === parentSectionId && node.position >= position) node.position += 1
-      }
+      openSlot(parentSectionId, position)
       nodes.set(sectionId, { parentId: parentSectionId, position })
       return {
         type: 'createSection',
@@ -556,12 +602,14 @@ function normalizeOutlineArguments(
     }
     if (operation.type === 'deleteSection') {
       const sectionId = resolveRef(operation.section)
-      nodes.delete(sectionId)
+      removeProvisionalNode(sectionId)
       return { type: 'deleteSection', sectionId }
     }
     const sectionId = resolveRef(operation.section)
+    removeProvisionalNode(sectionId)
     const parentSectionId = operation.parent === null ? null : resolveRef(operation.parent)
     const position = positionFor(parentSectionId, operation.placement)
+    openSlot(parentSectionId, position)
     nodes.set(sectionId, { parentId: parentSectionId, position })
     return { type: 'moveSection', sectionId, parentSectionId, position }
   })

@@ -24,6 +24,12 @@ describe('Agent writing policy', () => {
     expect(policy).toContain('[Source: exact source title, p. N]')
     expect(policy).toContain('【来源：准确来源标题，第 N 页】')
     expect(policy).toContain('Task state is collaboration metadata')
+    expect(policy).toContain('copy every required ID, hash, version, cursor')
+    expect(policy).toContain('entrypoint first, then only task-relevant references')
+    expect(policy).toContain('retry the same operation at most once')
+    expect(policy).toContain('never widen the user-authorized artifact')
+    expect(policy).toContain('Approval authorizes only the reviewed proposal')
+    expect(policy).toContain('list issues, claim the exact issue, and only then associate')
     expect(new TextEncoder().encode(policy).byteLength).toBeLessThan(16_384)
   })
 

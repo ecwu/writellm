@@ -85,8 +85,16 @@ export const listReviewIssuesArgsSchema = strictObject({
   statuses: z.array(reviewIssueStatusSchema).max(4).default([]),
   priorities: z.array(reviewPrioritySchema).max(4).default([]),
   categories: z.array(reviewIssueCategorySchema).max(11).default([]),
-  sectionId: z.uuid().optional(),
-  cursor: z.string().min(1).max(512).optional(),
+  sectionId: z
+    .uuid()
+    .optional()
+    .describe('Copy an exact sectionId from get_writing_context or read_outline.'),
+  cursor: z
+    .string()
+    .min(1)
+    .max(512)
+    .optional()
+    .describe('Copy list_review_issues.nextCursor exactly; omit to restart.'),
   limit: z.number().int().min(1).max(100).default(50)
 })
 
@@ -97,8 +105,16 @@ export const listReviewIssuesResultSchema = strictObject({
 })
 
 const reviewIssueCandidateSchema = strictObject({
-  existingIssueId: z.uuid().optional(),
-  expectedVersion: z.number().int().positive().optional(),
+  existingIssueId: z
+    .uuid()
+    .optional()
+    .describe('Copy list_review_issues.issues[].issueId when refreshing an issue.'),
+  expectedVersion: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Copy list_review_issues.issues[].version for existingIssueId.'),
   priority: reviewPrioritySchema,
   category: reviewIssueCategorySchema,
   title: z.string().trim().min(1).max(500),
@@ -113,7 +129,10 @@ const reviewIssueCandidateSchema = strictObject({
   anchor: reviewIssueAnchorSchema.nullable().default(null)
 }).refine(
   (value) => (value.existingIssueId === undefined) === (value.expectedVersion === undefined),
-  { message: 'Existing issue refresh requires both ID and expected version' }
+  {
+    message:
+      'Expected existingIssueId and expectedVersion together, received only one. Call list_review_issues, copy both fields, and retry record_review_issues once.'
+  }
 )
 
 export const recordReviewIssuesArgsSchema = strictObject({
@@ -131,24 +150,40 @@ export const recordReviewIssuesResultSchema = strictObject({
 export const reviewIssueUpdateOperationSchema = z.discriminatedUnion('action', [
   strictObject({
     action: z.literal('claim'),
-    issueId: z.uuid(),
-    expectedVersion: z.number().int().positive()
+    issueId: z.uuid().describe('Copy list_review_issues.issues[].issueId.'),
+    expectedVersion: z
+      .number()
+      .int()
+      .positive()
+      .describe('Copy list_review_issues.issues[].version for issueId.')
   }),
   strictObject({
     action: z.literal('release'),
-    issueId: z.uuid(),
-    expectedVersion: z.number().int().positive()
+    issueId: z.uuid().describe('Copy list_review_issues.issues[].issueId.'),
+    expectedVersion: z
+      .number()
+      .int()
+      .positive()
+      .describe('Copy list_review_issues.issues[].version for issueId.')
   }),
   strictObject({
     action: z.literal('resolve'),
-    issueId: z.uuid(),
-    expectedVersion: z.number().int().positive(),
+    issueId: z.uuid().describe('Copy list_review_issues.issues[].issueId.'),
+    expectedVersion: z
+      .number()
+      .int()
+      .positive()
+      .describe('Copy list_review_issues.issues[].version for issueId.'),
     reason: z.string().trim().min(1).max(4_096)
   }),
   strictObject({
     action: z.literal('reopen'),
-    issueId: z.uuid(),
-    expectedVersion: z.number().int().positive()
+    issueId: z.uuid().describe('Copy list_review_issues.issues[].issueId.'),
+    expectedVersion: z
+      .number()
+      .int()
+      .positive()
+      .describe('Copy list_review_issues.issues[].version for issueId.')
   })
 ])
 

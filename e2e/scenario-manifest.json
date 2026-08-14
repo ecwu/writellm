@@ -3,6 +3,7 @@
   "version": 1,
   "scenarios": [
     { "id": "accessibility.shell-settings", "tiers": ["critical", "packaged"] },
+    { "id": "agent.cp50-scope-and-preflight", "tiers": ["packaged"] },
     { "id": "agent.grounded-proposal-workflow", "tiers": ["critical", "packaged"] },
     { "id": "agent.global-writing-skill", "tiers": [] },
     { "id": "agent.multi-conversation-concurrency", "tiers": ["critical", "packaged"] },

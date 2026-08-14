@@ -4,6 +4,7 @@ import {
   agentCompactionFailedPayloadSchema,
   agentCompactionStartedPayloadSchema,
   agentCompactionSummaryPayloadSchema,
+  agentToolPreflightDiagnosticSchema,
   agentUserMessagePayloadSchema
 } from '../../../../shared/contracts/agent'
 import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
@@ -40,6 +41,14 @@ export interface AgentToolActivity {
   result: AgentToolResultPayload | null
   durationMs: number
   stopped: boolean
+}
+
+export interface AgentPreflightFailure {
+  toolName: string
+  code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed'
+  message: string
+  paths: string[]
+  durationMs: number
 }
 
 export interface WritingTaskChangeSetEntry {
@@ -99,6 +108,7 @@ export type AgentTimelineItem =
       tool: AgentToolActivity
       proposal: MutationProposalRecord | null
     }
+  | { type: 'preflight_failure'; id: string; failure: AgentPreflightFailure }
   | { type: 'approval_decision'; id: string; payload: AgentApprovalDecisionPayload }
   | { type: 'run_interrupted'; id: string; terminal: AgentRunTerminal }
   | { type: 'run_completed'; id: string; terminal: AgentRunTerminal }
@@ -340,6 +350,30 @@ export function projectAgentTimeline(
       } else {
         pendingTools.push(tool)
       }
+      continue
+    }
+    if (event.type === 'tool_preflight_failed') {
+      flushTools()
+      const diagnostic = agentToolPreflightDiagnosticSchema.safeParse(event.payload.diagnostic)
+      items.push({
+        type: 'preflight_failure',
+        id: event.agentEventId,
+        failure: {
+          toolName:
+            typeof event.payload.requestedToolName === 'string'
+              ? event.payload.requestedToolName.slice(0, 256)
+              : 'unknown tool',
+          code: diagnostic.success ? diagnostic.data.code : 'preparation_failed',
+          message: diagnostic.success
+            ? diagnostic.data.message
+            : 'Tool preparation failed before Main dispatch. Open Details for the historical diagnostic.',
+          paths: diagnostic.success ? diagnostic.data.paths : [],
+          durationMs:
+            typeof event.payload.durationMs === 'number' && event.payload.durationMs >= 0
+              ? event.payload.durationMs
+              : 0
+        }
+      })
       continue
     }
     if (event.type === 'approval_decision') {

@@ -26,6 +26,14 @@ export const AGENT_PENDING_MESSAGE_LIMIT = 20
 export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
 
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
+
+export const agentToolPreflightDiagnosticSchema = z
+  .object({
+    code: z.enum(['invalid_arguments', 'unknown_tool', 'preparation_failed']),
+    message: z.string().min(1).max(1_000),
+    paths: z.array(z.string().min(1).max(512)).max(16)
+  })
+  .strict()
 export { agentModelLimitsSchema, type AgentModelLimits } from './agent-model-limits'
 
 export const agentEditorContextSchema = z
@@ -327,6 +335,8 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       toolCallId: z.string().min(1).max(256),
       requestedToolName: z.string().min(1).max(256),
       phase: z.literal('pre_dispatch'),
+      diagnostic: agentToolPreflightDiagnosticSchema.optional(),
+      durationMs: z.number().int().nonnegative().max(86_400_000).optional(),
       timestamp: z.number().int().nonnegative()
     })
     .strict()

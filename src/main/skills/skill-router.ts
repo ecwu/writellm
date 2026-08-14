@@ -178,7 +178,14 @@ export class WritingSkillRuntime {
       }
     }
     if (state.primary === null) {
-      throw new SkillReadError('unauthorized', 'Read a candidate SKILL.md before its references')
+      const recoveryUri = [...state.candidates.keys()][0]
+      throw new SkillReadError(
+        'unauthorized',
+        recoveryUri === undefined
+          ? 'No run-authorized Writing Skill entrypoint is available'
+          : `Expected a Writing Skill entrypoint before references; the next authorized URI is ${recoveryUri}`,
+        recoveryUri
+      )
     }
     const primary = state.primary
     const file = primary.files.find(
@@ -310,7 +317,8 @@ export class WritingSkillRuntime {
 export class SkillReadError extends Error {
   constructor(
     readonly code: 'unauthorized' | 'conflict',
-    message: string
+    message: string,
+    readonly recoveryUri?: string
   ) {
     super(message)
   }

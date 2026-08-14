@@ -796,7 +796,7 @@ The user approved the proposed Section update, and it is now applied. Treat the 
 </AUTHORITATIVE_REVIEW_STATE>
 
 <CURRENT_USER_REQUEST instructionSemantics="true">
-Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.
+Continue only the original user request that remains unresolved after this approved proposal. Approval authorizes this reviewed proposal only: do not add a new artifact, section, mutation kind, completeness check, or section-body draft unless the original request explicitly required it. If the original request is now complete, report the applied or satisfied outcome and stop.
 </CURRENT_USER_REQUEST>`
       await expect(panel.getByText(approvalContinuation, { exact: true })).toHaveCount(0)
       await expect(

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
+import { ZodError } from 'zod'
 import {
   AGENT_PENDING_MESSAGE_LIMIT,
   AGENT_PENDING_MESSAGE_MAX_BYTES,
@@ -1953,6 +1954,22 @@ export class AgentSessionService {
     )
     if (event.type === 'tool_attempted' || event.type === 'tool_preflight_failed') {
       const { type, modelRequestId, ...payload } = event
+      if (event.type === 'tool_preflight_failed') {
+        this.options.log.warn(
+          {
+            event: 'agent.tool.preflight_failed',
+            agentRunId: active.agentRunId,
+            modelRequestId,
+            toolName: event.requestedToolName,
+            phase: event.phase,
+            code: event.diagnostic?.code,
+            paths: event.diagnostic?.paths,
+            pathCount: event.diagnostic?.paths.length ?? 0,
+            durationMs: event.durationMs
+          },
+          'Agent tool failed before Main dispatch'
+        )
+      }
       await this.#appendAndPublishEvent({
         sessionId: active.agentSessionId,
         runId: active.agentRunId,
@@ -2149,12 +2166,13 @@ export class AgentSessionService {
     if (signal.aborted) {
       return toolErrorResponse(request, 'aborted', 'Agent tool request was aborted', true)
     }
+    const toolStartedAt = this.#now().getTime()
     const callPayload = agentToolCallPayloadSchema.parse({
       toolCallId: request.toolCallId,
       toolName: request.toolName,
       contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
       args: request.args,
-      timestamp: this.#now().getTime()
+      timestamp: toolStartedAt
     })
     const toolCallEvent = await this.#appendAndPublishEvent({
       sessionId: active.agentSessionId,
@@ -2291,6 +2309,29 @@ export class AgentSessionService {
         'Agent tool execution failed'
       )
       const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
+      const structured = structuredToolError(
+        safe.code,
+        safe.message,
+        safe.retryable,
+        request.toolName,
+        safe.recoveryUri
+      )
+      this.options.log.warn(
+        {
+          event: 'agent.tool.safe_failure_projected',
+          agentRunId,
+          modelRequestId: request.modelRequestId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          phase: 'dispatched',
+          code: structured.code,
+          category: structured.category,
+          recoveryAction: structured.recovery.action,
+          recoveryTool: structured.recovery.tool,
+          durationMs: Math.max(0, this.#now().getTime() - toolStartedAt)
+        },
+        'Projected a safe Agent tool failure'
+      )
       const resultPayload = agentToolResultPayloadSchema.parse({
         toolCallId: request.toolCallId,
         toolName: request.toolName,
@@ -2298,10 +2339,12 @@ export class AgentSessionService {
         isError: true,
         result: null,
         error: {
-          code: safe.code,
-          message: safe.message,
+          code: structured.code,
+          message: structured.message,
           retryable: safe.retryable,
-          operationId: active.operationId
+          operationId: active.operationId,
+          category: structured.category,
+          recovery: structured.recovery
         },
         citationIds: [],
         knowledgeItemIds: [],
@@ -2315,7 +2358,7 @@ export class AgentSessionService {
         payload: resultPayload,
         modelRequestId: request.modelRequestId
       })
-      return toolErrorResponse(request, safe.code, safe.message, safe.retryable)
+      return toolErrorResponse(request, safe.code, safe.message, safe.retryable, safe.recoveryUri)
     }
   }
 
@@ -3962,13 +4005,14 @@ function toolErrorResponse(
   request: AgentToolRequest,
   code: Extract<AgentToolResponse, { ok: false }>['error']['code'],
   message: string,
-  retryable: boolean
+  retryable: boolean,
+  recoveryUri?: string
 ): AgentToolResponse {
   return agentToolResponseSchema.parse({
     ...toolResponseCapability(request),
     schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
     ok: false,
-    error: structuredToolError(code, message, retryable)
+    error: structuredToolError(code, message, retryable, request.toolName, recoveryUri)
   })
 }
 
@@ -3981,6 +4025,7 @@ function safeToolError(
   code: Extract<AgentToolResponse, { ok: false }>['error']['code']
   message: string
   retryable: boolean
+  recoveryUri?: string
 } {
   if (deadlineSignal.aborted && !signal.aborted) {
     return { code: 'deadline_exceeded', message: 'Agent tool deadline exceeded', retryable: true }
@@ -3992,7 +4037,25 @@ function safeToolError(
     return { code: err.code, message: err.message.slice(0, 1_000), retryable: err.retryable }
   }
   if (err instanceof SkillReadError) {
-    return { code: err.code, message: err.message.slice(0, 1_000), retryable: false }
+    return {
+      code: err.code,
+      message: err.message.slice(0, 1_000),
+      retryable: false,
+      ...(err.recoveryUri === undefined ? {} : { recoveryUri: err.recoveryUri })
+    }
+  }
+  if (err instanceof ZodError) {
+    const issue = err.issues[0]
+    const path = issue?.path.length ? ` at /${issue.path.join('/')}` : ''
+    return {
+      code: 'invalid_arguments',
+      message:
+        `Invalid arguments for ${toolName}${path}: ${issue?.message ?? 'the input shape is invalid'}`.slice(
+          0,
+          1_000
+        ),
+      retryable: false
+    }
   }
   if (toolName === 'generate_image') {
     const httpStatus = findToolErrorHttpStatus(err)
@@ -4154,47 +4217,143 @@ function findToolErrorProviderCode(error: unknown, depth = 0): string | undefine
 function structuredToolError(
   code: Extract<AgentToolResponse, { ok: false }>['error']['code'],
   message: string,
-  retryable: boolean
+  retryable: boolean,
+  toolName: AgentToolRequest['toolName'],
+  recoveryUri?: string
 ): Extract<AgentToolResponse, { ok: false }>['error'] {
+  const refreshTool = recoveryToolFor(toolName)
   switch (code) {
     case 'invalid_arguments':
-      return { code, category: 'validation', message, recovery: { action: 'fix_arguments' } }
+      if (/citation|source label/iu.test(message)) {
+        return {
+          code,
+          category: 'validation',
+          message: actionableToolErrorMessage(
+            message,
+            'Call search_knowledge, then read_citations, copy the returned provenance, and retry once.'
+          ),
+          recovery: { action: 'refresh_context', tool: 'search_knowledge', maxAttempts: 1 }
+        }
+      }
+      return {
+        code,
+        category: 'validation',
+        message: actionableToolErrorMessage(message, 'Fix the named fields and retry once.'),
+        recovery: { action: 'fix_arguments', maxAttempts: 1 }
+      }
     case 'unauthorized':
-      return { code, category: 'authorization', message, recovery: { action: 'do_not_retry' } }
+      if (toolName === 'read_writing_skill' && recoveryUri !== undefined) {
+        return {
+          code,
+          category: 'authorization',
+          message: actionableToolErrorMessage(
+            message,
+            `Call read_writing_skill with recovery.uri and retry once.`
+          ),
+          recovery: {
+            action: 'refresh_context',
+            tool: 'read_writing_skill',
+            maxAttempts: 1,
+            uri: recoveryUri
+          }
+        }
+      }
+      return {
+        code,
+        category: 'authorization',
+        message: actionableToolErrorMessage(message, 'Do not retry this operation.'),
+        recovery: { action: 'do_not_retry' }
+      }
     case 'not_found':
     case 'conflict':
       return {
         code,
         category: code === 'conflict' ? 'conflict' : 'precondition',
-        message,
-        recovery: { action: 'refresh_context', tool: 'get_writing_context', maxAttempts: 1 }
+        message: actionableToolErrorMessage(
+          message,
+          `Call ${refreshTool}, copy the refreshed values, and retry once.`
+        ),
+        recovery: {
+          action: 'refresh_context',
+          tool: refreshTool,
+          maxAttempts: 1,
+          ...(recoveryUri === undefined ? {} : { uri: recoveryUri })
+        }
       }
     case 'stale_cursor':
       return {
         code,
         category: 'conflict',
-        message,
-        recovery: { action: 'restart_pagination', maxAttempts: 1 }
+        message: actionableToolErrorMessage(
+          message,
+          `Call ${toolName} without a cursor and restart once.`
+        ),
+        recovery: { action: 'restart_pagination', tool: toolName, maxAttempts: 1 }
       }
     case 'result_too_large':
-      return { code, category: 'precondition', message, recovery: { action: 'reduce_scope' } }
+      return {
+        code,
+        category: 'precondition',
+        message: actionableToolErrorMessage(message, 'Reduce the requested page or result size.'),
+        recovery: { action: 'reduce_scope' }
+      }
     case 'deadline_exceeded':
-      return { code, category: 'transient', message, recovery: { action: 'retry', maxAttempts: 1 } }
+      return {
+        code,
+        category: 'transient',
+        message: actionableToolErrorMessage(message, 'Retry this operation once.'),
+        recovery: { action: 'retry', maxAttempts: 1 }
+      }
     case 'aborted':
-      return { code, category: 'cancelled', message, recovery: { action: 'do_not_retry' } }
+      return {
+        code,
+        category: 'cancelled',
+        message: actionableToolErrorMessage(message, 'Do not retry automatically.'),
+        recovery: { action: 'do_not_retry' }
+      }
     case 'unavailable':
       return {
         code,
         category: 'transient',
-        message,
+        message: actionableToolErrorMessage(
+          message,
+          retryable ? 'Retry this operation once.' : 'Ask the user to verify provider access.'
+        ),
         recovery: {
           action: retryable ? 'retry' : 'ask_user',
           maxAttempts: retryable ? 1 : undefined
         }
       }
     case 'internal':
-      return { code, category: 'internal', message, recovery: { action: 'do_not_retry' } }
+      return {
+        code,
+        category: 'internal',
+        message: actionableToolErrorMessage(
+          message,
+          'Do not retry automatically; report the failure.'
+        ),
+        recovery: { action: 'do_not_retry' }
+      }
   }
+}
+
+function recoveryToolFor(toolName: AgentToolRequest['toolName']): AgentToolRequest['toolName'] {
+  if (toolName === 'submit_section_change' || toolName === 'generate_image') return 'read_section'
+  if (toolName === 'submit_outline_change') return 'read_outline'
+  if (toolName === 'record_review_issues' || toolName === 'update_review_issues') {
+    return 'list_review_issues'
+  }
+  if (toolName === 'create_writing_task' || toolName === 'update_writing_task') {
+    return 'get_writing_task'
+  }
+  if (toolName === 'read_writing_skill') return 'read_writing_skill'
+  if (toolName === 'read_citations') return 'search_knowledge'
+  return toolName
+}
+
+function actionableToolErrorMessage(message: string, next: string): string {
+  const trimmed = message.trim().replace(/[.\s]+$/u, '')
+  return `${trimmed}. Next: ${next}`.slice(0, 1_000)
 }
 
 function submitResultFromOutcome(

@@ -48,7 +48,8 @@ export const toolResultMetaSchema = z
       z.literal(4),
       z.literal(5),
       z.literal(6),
-      z.literal(7)
+      z.literal(7),
+      z.literal(8)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -121,7 +122,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 8,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -133,7 +134,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -169,7 +170,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 8,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -183,7 +184,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 7,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 8,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -197,7 +198,12 @@ function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'ta
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 
 export const readWritingSkillArgsSchema = strictObject({
-  uri: z.string().min(1).max(2_048).startsWith('writellm://skills/')
+  uri: z
+    .string()
+    .min(1)
+    .max(2_048)
+    .startsWith('writellm://skills/')
+    .describe('Copy the exact writellm:// URI from the run Skill snapshot or prior Skill result.')
 })
 
 export const readWritingSkillResultSchema = strictObject({
@@ -236,58 +242,100 @@ export const readWritingSkillResultSchema = strictObject({
 export const getWritingContextArgsSchema = strictObject({
   includeBrief: z.boolean().default(true),
   includeOutline: z.boolean().default(true),
-  activeSectionId: z.uuid().optional()
+  activeSectionId: z
+    .uuid()
+    .optional()
+    .describe('Use an exact sectionId from the current editor context when overriding selection.')
 })
 
 export const readOutlineArgsSchema = strictObject({
-  rootSectionId: z.uuid().optional(),
+  rootSectionId: z
+    .uuid()
+    .optional()
+    .describe('Copy read_outline.sections[].sectionId when reading a subtree.'),
   maxDepth: z.number().int().min(1).max(64).default(8),
-  cursor: z.string().min(1).max(512).optional(),
+  cursor: z
+    .string()
+    .min(1)
+    .max(512)
+    .optional()
+    .describe('Copy read_outline.nextCursor exactly; omit to restart.'),
   limit: z.number().int().min(1).max(100).default(50)
 })
 
-export const readSectionArgsSchema = strictObject({
-  sectionId: z.uuid(),
-  view: z.enum(['summary', 'canonical', 'fragment']).default('summary'),
-  blockId: z.string().min(1).max(256).optional(),
-  blockIds: z.array(z.string().min(1).max(256)).max(100).optional(),
-  cursor: z.string().min(1).max(512).optional(),
-  limit: z.number().int().min(1).max(AGENT_SECTION_PAGE_LIMIT).default(20),
+const readSectionIdSchema = z
+  .uuid()
+  .describe('Copy a sectionId from get_writing_context or read_outline in this run.')
+const readSectionBlockIdSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .describe('Copy read_section.blocks[].blockId exactly.')
+const readSectionSummaryArgsSchema = strictObject({
+  sectionId: readSectionIdSchema,
+  view: z.literal('summary').default('summary'),
+  blockIds: z.array(readSectionBlockIdSchema).max(100).optional(),
+  cursor: z
+    .string()
+    .min(1)
+    .max(512)
+    .optional()
+    .describe('Copy read_section.nextCursor exactly; omit to restart.'),
+  limit: z.number().int().min(1).max(AGENT_SECTION_PAGE_LIMIT).default(20)
+}).refine((value) => value.blockIds === undefined || value.cursor === undefined, {
+  message: 'blockIds and cursor cannot be combined'
+})
+const readSectionCanonicalArgsSchema = strictObject({
+  sectionId: readSectionIdSchema,
+  view: z.literal('canonical'),
+  blockId: readSectionBlockIdSchema
+})
+const readSectionFragmentArgsSchema = strictObject({
+  sectionId: readSectionIdSchema,
+  view: z.literal('fragment'),
+  blockId: readSectionBlockIdSchema,
   offset: z.number().int().nonnegative().default(0),
   maxChars: z.number().int().min(256).max(65_536).default(16_384)
 })
-  .refine((value) => value.blockIds === undefined || value.cursor === undefined, {
-    message: 'blockIds and cursor cannot be combined'
-  })
-  .refine((value) => value.view === 'summary' || value.blockId !== undefined, {
-    message: 'Canonical and fragment views require blockId'
-  })
+export const readSectionArgsSchema = z.union([
+  readSectionSummaryArgsSchema,
+  readSectionCanonicalArgsSchema,
+  readSectionFragmentArgsSchema
+])
 
 export const searchKnowledgeArgsSchema = strictObject({
   query: z.string().trim().min(1).max(2_000),
   knowledgeItemIds: z.array(z.uuid()).max(20).default([]),
   fileExtensions: z.array(z.enum(SUPPORTED_KNOWLEDGE_EXTENSIONS)).max(10).default([]),
   parseRevisionIds: z.array(z.uuid()).max(20).default([]),
-  pageFrom: z.number().int().nonnegative().optional(),
-  pageTo: z.number().int().nonnegative().optional(),
+  pageFrom: z.number().int().nonnegative().optional().describe('Zero-based first source page.'),
+  pageTo: z.number().int().nonnegative().optional().describe('Zero-based last source page.'),
   heading: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(AGENT_KNOWLEDGE_RESULT_LIMIT).default(10),
   rerank: z.boolean().default(true)
-}).refine(
-  (value) =>
-    value.pageFrom === undefined || value.pageTo === undefined || value.pageFrom <= value.pageTo,
-  { message: 'Page range is invalid' }
-)
+}).superRefine((value, context) => {
+  if (value.pageFrom !== undefined && value.pageTo !== undefined && value.pageFrom > value.pageTo) {
+    context.addIssue({
+      code: 'custom',
+      path: ['pageTo'],
+      message: `Expected pageFrom <= pageTo, received pageFrom=${value.pageFrom} and pageTo=${value.pageTo}. Correct the range and retry search_knowledge once.`
+    })
+  }
+})
 
 export const readCitationsArgsSchema = strictObject({
   citationIds: z
     .array(z.string().regex(/^citation-[a-f0-9]{40}$/))
     .max(AGENT_CITATION_RESULT_LIMIT)
-    .default([]),
+    .default([])
+    .describe('Copy citation IDs from search_knowledge.hits[].citationId.'),
   requests: z
     .array(
       strictObject({
-        citationId: z.string().regex(/^citation-[a-f0-9]{40}$/),
+        citationId: z
+          .string()
+          .regex(/^citation-[a-f0-9]{40}$/)
+          .describe('Copy search_knowledge.hits[].citationId.'),
         offset: z.number().int().nonnegative().default(0),
         maxChars: z.number().int().min(256).max(65_536).default(16_384)
       })
@@ -296,20 +344,30 @@ export const readCitationsArgsSchema = strictObject({
     .default([])
 })
   .refine((args) => args.citationIds.length > 0 || args.requests.length > 0, {
-    message: 'At least one citation must be requested'
+    message:
+      'Expected at least one citationIds or requests entry, received both empty. Call search_knowledge, copy a citationId, and retry read_citations once.'
   })
   .refine((args) => args.citationIds.length + args.requests.length <= AGENT_CITATION_RESULT_LIMIT, {
-    message: 'Citation request count exceeds its bound'
+    message: `Expected at most ${AGENT_CITATION_RESULT_LIMIT} combined citation requests. Reduce the request and retry read_citations once.`
   })
 
 export const searchManuscriptArgsSchema = strictObject({
   query: z.string().trim().min(1).max(2_000),
   sectionIds: z.array(z.uuid()).max(100).default([]),
-  cursor: z.string().min(1).max(512).optional(),
+  cursor: z
+    .string()
+    .min(1)
+    .max(512)
+    .optional()
+    .describe('Copy search_manuscript.nextCursor exactly; omit to restart.'),
   limit: z.number().int().min(1).max(50).default(20)
 })
 
-export const inspectChangeArgsSchema = strictObject({ proposalId: z.uuid() })
+export const inspectChangeArgsSchema = strictObject({
+  proposalId: z
+    .uuid()
+    .describe('Copy the exact proposalId returned by a submit tool in this conversation.')
+})
 
 export const draftCheckNameSchema = z.enum([
   'document_structure',
@@ -814,6 +872,32 @@ const successResponses = z.discriminatedUnion('toolName', [
   })
 ])
 
+export const agentToolRecoverySchema = strictObject({
+  action: z.enum([
+    'fix_arguments',
+    'refresh_context',
+    'restart_pagination',
+    'reduce_scope',
+    'retry',
+    'retry_after',
+    'ask_user',
+    'do_not_retry'
+  ]),
+  tool: agentToolNameSchema.optional(),
+  maxAttempts: z.number().int().positive().max(10).optional(),
+  uri: z.string().min(1).max(2_048).startsWith('writellm://').optional()
+})
+
+export const agentToolErrorCategorySchema = z.enum([
+  'validation',
+  'authorization',
+  'precondition',
+  'conflict',
+  'transient',
+  'cancelled',
+  'internal'
+])
+
 const errorResponse = strictObject({
   ...toolResponseBase,
   ok: z.literal(false),
@@ -831,31 +915,9 @@ const errorResponse = strictObject({
       'aborted',
       'internal'
     ]),
-    category: z.enum([
-      'validation',
-      'authorization',
-      'precondition',
-      'conflict',
-      'transient',
-      'cancelled',
-      'internal'
-    ]),
+    category: agentToolErrorCategorySchema,
     message: z.string().min(1).max(1_000),
-    recovery: strictObject({
-      action: z.enum([
-        'fix_arguments',
-        'refresh_context',
-        'restart_pagination',
-        'reduce_scope',
-        'retry',
-        'retry_after',
-        'ask_user',
-        'do_not_retry'
-      ]),
-      tool: agentToolNameSchema.optional(),
-      maxAttempts: z.number().int().positive().max(10).optional(),
-      retryAfterMs: z.number().int().nonnegative().max(86_400_000).optional()
-    })
+    recovery: agentToolRecoverySchema
   })
 })
 
@@ -884,7 +946,9 @@ export const agentToolResultPayloadSchema = strictObject({
       code: z.string().min(1).max(100),
       message: z.string().min(1).max(1_000),
       retryable: z.boolean().optional(),
-      operationId: z.string().min(1).max(256).optional()
+      operationId: z.string().min(1).max(256).optional(),
+      category: agentToolErrorCategorySchema.optional(),
+      recovery: agentToolRecoverySchema.optional()
     })
     .strict()
     .nullable(),

@@ -16,5 +16,6 @@
   },
   "[jsonc]": {
     "editor.defaultFormatter": "biomejs.biome"
-  }
+  },
+  "cSpell.words": ["blocknote", "prosemirror", "writellm"]
 }

@@ -330,8 +330,12 @@ export function registerAgentIpc(options: {
             'Authorized Agent writing task resume'
           )
         } else {
-          if (input.prompt === undefined) throw new Error('Agent prompt is required')
-          prompt = input.prompt
+          if (input.approvedProposalId === undefined) {
+            if (input.prompt === undefined) throw new Error('Agent prompt is required')
+            prompt = input.prompt
+          } else {
+            prompt = ''
+          }
         }
       }
       if (input.approvedProposalId !== undefined) {
@@ -360,7 +364,7 @@ export function registerAgentIpc(options: {
           continueRequested: true
         })
         reuseSkillFromRunId ??= proposal.agentRunId
-        prompt = buildApprovalContinuationPrompt(proposal, input.prompt ?? '')
+        prompt = buildApprovalContinuationPrompt(proposal)
         presentation = { kind: 'approval_continuation' }
         options.logger.info(
           {

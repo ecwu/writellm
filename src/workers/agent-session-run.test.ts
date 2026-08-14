@@ -463,6 +463,70 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
+  it('projects a safe preflight diagnostic and continues the turn after invalid arguments', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-invalid', 'search_knowledge', {
+              query: 'PRIVATE_ARGUMENT_VALUE',
+              limit: 'not-a-number'
+            })
+          : completionResponse('Recovered answer', 'response-after-invalid-tool')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    const toolRequests: unknown[] = []
+    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_call_requested') {
+          control?.authorizeModelCall({
+            operation: 'authorize_model_call',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            continuationId: event.continuationId,
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc499',
+            systemPrompt: request.systemPrompt
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(toolRequests).toEqual([])
+    const failure = events.find((event) => event.type === 'tool_preflight_failed')
+    expect(failure).toMatchObject({
+      type: 'tool_preflight_failed',
+      requestedToolName: 'search_knowledge',
+      phase: 'pre_dispatch',
+      diagnostic: {
+        code: 'invalid_arguments',
+        paths: expect.arrayContaining(['/limit'])
+      }
+    })
+    expect(JSON.stringify(failure)).not.toContain('PRIVATE_ARGUMENT_VALUE')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        message: expect.objectContaining({ content: 'Recovered answer' })
+      })
+    )
+  })
+
   it('ends at a manual-review barrier without requesting a continuation model call', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(

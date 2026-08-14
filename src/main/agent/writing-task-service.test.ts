@@ -88,7 +88,7 @@ describe('WritingTaskService', () => {
         },
         { agentSessionId: sessionId, agentRunId: runId }
       )
-    ).toThrow(/changed/u)
+    ).toThrow('Expected writing-task plan version 1, actual version is 2')
     database.close()
   })
 

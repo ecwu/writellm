@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_TOOL_ARGUMENT_BYTES,
+  agentToolCallPayloadSchema,
   agentToolRequestSchema,
+  agentToolResultPayloadSchema,
   getWritingContextArgsSchema,
   readCitationsArgsSchema,
   readWritingSkillResultSchema,
   readSectionArgsSchema,
-  searchKnowledgeArgsSchema
+  searchKnowledgeArgsSchema,
+  toolResultMetaSchema
 } from './agent-tools'
+import { AGENT_TOOL_CONTRACT_VERSION } from './agent-mutations'
 
 const capability = {
   type: 'tool_request' as const,
@@ -20,6 +24,42 @@ const capability = {
 }
 
 describe('Agent read-tool contracts', () => {
+  it('writes contract v8 while retaining v1-v7 event replay compatibility', () => {
+    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(8)
+    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8]) {
+      expect(
+        toolResultMetaSchema.parse({
+          contractVersion,
+          toolName: 'get_writing_context',
+          toolCallId: 'tool-historical',
+          modelRequestId: capability.modelRequestId
+        }).contractVersion
+      ).toBe(contractVersion)
+    }
+    expect(
+      agentToolCallPayloadSchema.parse({
+        toolCallId: 'tool-v1',
+        toolName: 'get_writing_context',
+        args: {},
+        timestamp: 1
+      }).contractVersion
+    ).toBe(1)
+    expect(
+      agentToolResultPayloadSchema.parse({
+        toolCallId: 'tool-v7',
+        toolName: 'get_writing_context',
+        contractVersion: 7,
+        isError: true,
+        result: null,
+        error: { code: 'not_found', message: 'Historical safe error.' },
+        citationIds: [],
+        knowledgeItemIds: [],
+        parseRevisionIds: [],
+        timestamp: 1
+      }).error
+    ).toEqual({ code: 'not_found', message: 'Historical safe error.' })
+  })
+
   it('applies bounded defaults without admitting project capabilities in model arguments', () => {
     expect(getWritingContextArgsSchema.parse({})).toEqual({
       includeBrief: true,

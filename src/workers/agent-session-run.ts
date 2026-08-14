@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
+import { Value } from 'typebox/value'
+import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
 import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
@@ -104,6 +106,8 @@ export async function runAgentSession(
   >()
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
+  const rawArgumentsByToolCallId = new Map<string, unknown>()
+  const toolStartedAtByToolCallId = new Map<string, number>()
   let lastAssistant: AssistantMessage | undefined
   let lastAssistantRetriesExhausted = false
   let lastAssistantHttpStatus: number | undefined
@@ -340,6 +344,8 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent tool attempt has no authorized source model request')
       }
+      rawArgumentsByToolCallId.set(event.toolCallId, event.args)
+      toolStartedAtByToolCallId.set(event.toolCallId, Date.now())
       onEvent({
         type: 'tool_attempted',
         modelRequestId,
@@ -358,15 +364,28 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent tool preflight failure has no authorized source model request')
       }
+      const diagnostic = safePreflightDiagnostic(
+        event.toolName,
+        rawArgumentsByToolCallId.get(event.toolCallId)
+      )
+      const startedAt = toolStartedAtByToolCallId.get(event.toolCallId)
       onEvent({
         type: 'tool_preflight_failed',
         modelRequestId,
         toolCallId: event.toolCallId,
         requestedToolName: event.toolName,
         phase: 'pre_dispatch',
+        diagnostic,
+        ...(startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - startedAt) }),
         timestamp: Date.now()
       })
+      rawArgumentsByToolCallId.delete(event.toolCallId)
+      toolStartedAtByToolCallId.delete(event.toolCallId)
       return
+    }
+    if (event.type === 'tool_execution_end') {
+      rawArgumentsByToolCallId.delete(event.toolCallId)
+      toolStartedAtByToolCallId.delete(event.toolCallId)
     }
     if (
       event.type === 'message_update' &&
@@ -765,4 +784,58 @@ function describeArgumentShape(value: unknown, depth = 0): string {
     )
   }
   return typeof value
+}
+
+function safePreflightDiagnostic(
+  requestedToolName: string,
+  rawArguments: unknown
+): {
+  code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed'
+  message: string
+  paths: string[]
+} {
+  const tool = AGENT_MODEL_VISIBLE_TOOL_SPECS.find(
+    (candidate) => candidate.name === requestedToolName
+  )
+  if (tool === undefined) {
+    return {
+      code: 'unknown_tool',
+      message:
+        'The requested tool is not registered. Choose one of the model-visible WriteLLM tools and retry once.',
+      paths: []
+    }
+  }
+  try {
+    const converted = structuredClone(rawArguments)
+    Value.Convert(tool.parameters, converted)
+    const paths = [
+      ...new Set(
+        [...Value.Errors(tool.parameters, converted)]
+          .slice(0, 16)
+          .map((error) => error.instancePath || '/')
+      )
+    ]
+    if (paths.length > 0) {
+      return {
+        code: 'invalid_arguments',
+        message:
+          `Arguments for ${tool.name} failed preflight at ${paths.join(', ')}. Received shape: ${describeArgumentShape(rawArguments)}. Fix the named fields and retry once.`.slice(
+            0,
+            1_000
+          ),
+        paths
+      }
+    }
+  } catch {
+    return {
+      code: 'preparation_failed',
+      message: `Arguments for ${tool.name} could not be prepared safely. Use the documented object shape and retry once.`,
+      paths: []
+    }
+  }
+  return {
+    code: 'preparation_failed',
+    message: `${tool.name} passed basic argument validation but was blocked before Main dispatch. Separate reads from mutations, submit at most one mutation, and retry once.`,
+    paths: []
+  }
 }

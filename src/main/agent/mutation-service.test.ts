@@ -15,6 +15,7 @@ import { AgentToolDomainError } from './read-tools'
 import { AgentContextBuilder } from './context'
 import { ReviewIssueService } from './review-issue-service'
 import { WritingTaskService } from './writing-task-service'
+import { MainAgentTools } from './tools'
 
 const roots: string[] = []
 const log = pino({ level: 'silent' })
@@ -794,6 +795,88 @@ describe('MutationProposalService', () => {
     expect(value.manuscript.listSections().map((section) => section.title)).toContain(
       'Applied section'
     )
+    value.database.close()
+  })
+
+  it('normalizes sequential outline moves against the updated provisional sibling order', async () => {
+    const value = await fixture()
+    const root = value.manuscript.listSections()[0]
+    if (root === undefined) throw new Error('Missing root section')
+    const second = value.manuscript.createSection({
+      baseOutlineVersion: value.manuscript.getWorkspace().outlineVersion,
+      title: 'Second',
+      parentSectionId: null,
+      position: 1
+    })
+    const third = value.manuscript.createSection({
+      baseOutlineVersion: value.manuscript.getWorkspace().outlineVersion,
+      title: 'Third',
+      parentSectionId: null,
+      position: 2
+    })
+    value.manuscript.createSection({
+      baseOutlineVersion: value.manuscript.getWorkspace().outlineVersion,
+      title: 'Fourth',
+      parentSectionId: null,
+      position: 3
+    })
+    const contextBuilder = new AgentContextBuilder(value.manuscript)
+    const snapshot = contextBuilder.capture('snapshot-outline-sequence', {
+      activeSectionId: null,
+      activeBlockId: null,
+      selectedBlockIds: []
+    })
+    const tools = new MainAgentTools(
+      { contextBuilder: () => contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+    const context = value.toolCall('submit_outline_change')
+    const result = await tools.execute({
+      toolName: 'submit_outline_change',
+      args: {
+        operations: [
+          {
+            type: 'moveSection',
+            section: { kind: 'existing', sectionId: third.sectionId },
+            parent: null,
+            placement: { kind: 'before', anchor: { kind: 'existing', sectionId: root.sectionId } }
+          },
+          {
+            type: 'deleteSection',
+            section: { kind: 'existing', sectionId: second.sectionId }
+          },
+          {
+            type: 'createSection',
+            clientRef: 'created-conclusion',
+            parent: null,
+            placement: { kind: 'after', anchor: { kind: 'existing', sectionId: root.sectionId } },
+            title: 'Conclusion',
+            objective: null,
+            status: 'planned'
+          },
+          {
+            type: 'moveSection',
+            section: { kind: 'created', clientRef: 'created-conclusion' },
+            parent: null,
+            placement: { kind: 'first' }
+          }
+        ]
+      },
+      editorContext: snapshot.editorContext,
+      snapshot,
+      ...context
+    })
+
+    const proposal = value.service
+      .list(agentSessionId)
+      .find((item) => item.proposalId === result.proposalId)
+    if (proposal?.payload.kind !== 'outline_patch') throw new Error('Missing outline proposal')
+    expect(proposal.payload.mutation.operations).toMatchObject([
+      { type: 'moveSection', sectionId: third.sectionId, parentSectionId: null, position: 0 },
+      { type: 'deleteSection', sectionId: second.sectionId },
+      { type: 'createSection', parentSectionId: null, position: 2, title: 'Conclusion' },
+      { type: 'moveSection', parentSectionId: null, position: 0 }
+    ])
     value.database.close()
   })
 

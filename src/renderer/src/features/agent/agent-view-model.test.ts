@@ -88,6 +88,49 @@ describe('Agent renderer view model', () => {
     expect(findToolResult(events, 'tool-1')).toMatchObject({ isError: false })
   })
 
+  it('projects new and historical preflight failures with safe fallbacks', () => {
+    const timeline = projectAgentTimeline([
+      record(1, 'tool_preflight_failed', {
+        requestedToolName: 'submit_section_change',
+        diagnostic: {
+          code: 'invalid_arguments',
+          message: 'Expected operations; received a missing field. Fix it and retry once.',
+          paths: ['/operations']
+        },
+        durationMs: 7
+      }),
+      record(2, 'tool_preflight_failed', {
+        requestedToolName: 'submit_outline_change'
+      })
+    ])
+
+    expect(timeline).toEqual([
+      {
+        type: 'preflight_failure',
+        id: '019c6a5c-8d34-7a8e-a602-000000000001',
+        failure: {
+          toolName: 'submit_section_change',
+          code: 'invalid_arguments',
+          message: 'Expected operations; received a missing field. Fix it and retry once.',
+          paths: ['/operations'],
+          durationMs: 7
+        }
+      },
+      {
+        type: 'preflight_failure',
+        id: '019c6a5c-8d34-7a8e-a602-000000000002',
+        failure: {
+          toolName: 'submit_outline_change',
+          code: 'preparation_failed',
+          message:
+            'Tool preparation failed before Main dispatch. Open Details for the historical diagnostic.',
+          paths: [],
+          durationMs: 0
+        }
+      }
+    ])
+  })
+
   it('hides synthesized approval prompts and presents only original review feedback', () => {
     const events = [
       record(1, 'approval_decision', {

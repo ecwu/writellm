@@ -175,8 +175,6 @@ describe('Agent session IPC', () => {
     await value.invoke(IPC_CHANNELS.agentStartRun, {
       projectSessionId,
       agentSessionId,
-      prompt:
-        'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
       approvedProposalId: proposalId,
       scope: 'project',
       editorContext: {
@@ -200,8 +198,9 @@ describe('Agent session IPC', () => {
     )
     expect(continuedPrompt).toContain('<CURRENT_USER_REQUEST instructionSemantics="true">')
     expect(continuedPrompt).toContain(
-      'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.'
+      'Continue only the original user request that remains unresolved after this approved proposal.'
     )
+    expect(continuedPrompt).not.toContain('check_draft')
     expect(continuedPrompt).not.toContain(proposalId)
     expect(continuedPrompt).not.toContain('{')
     expect(value.sessions.startRun).toHaveBeenLastCalledWith(

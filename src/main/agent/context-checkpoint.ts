@@ -314,6 +314,9 @@ export function buildNextCompactionMaterial(input: {
               ? null
               : {
                   code: parsed.error.code,
+                  message: parsed.error.message,
+                  category: parsed.error.category ?? null,
+                  recovery: parsed.error.recovery ?? null,
                   retryable: parsed.error.retryable ?? false,
                   operationId: parsed.error.operationId ?? null
                 }

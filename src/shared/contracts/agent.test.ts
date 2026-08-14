@@ -6,6 +6,7 @@ import {
   agentHistorySchema,
   agentQueueCommandSchema,
   agentRunStartSchema,
+  agentRuntimeEventSchema,
   agentRuntimeMessageSchema,
   agentUserMessagePayloadSchema
 } from './agent'
@@ -76,6 +77,32 @@ describe('Agent contracts', () => {
         presentation: { kind: 'review_feedback', displayContent: 'x'.repeat(4_097) }
       })
     ).toThrow()
+  })
+
+  it('reads legacy preflight failures and bounds new safe diagnostics', () => {
+    const legacy = {
+      type: 'tool_preflight_failed' as const,
+      modelRequestId: ids.modelRequestId,
+      toolCallId: 'tool-legacy',
+      requestedToolName: 'submit_section_change',
+      phase: 'pre_dispatch' as const,
+      timestamp: 1
+    }
+    expect(agentRuntimeEventSchema.parse(legacy)).toEqual(legacy)
+    expect(
+      agentRuntimeEventSchema.parse({
+        ...legacy,
+        diagnostic: {
+          code: 'invalid_arguments',
+          message: 'Expected operations; received a missing field. Fix it and retry once.',
+          paths: ['/operations']
+        },
+        durationMs: 4
+      })
+    ).toMatchObject({
+      diagnostic: { code: 'invalid_arguments', paths: ['/operations'] },
+      durationMs: 4
+    })
   })
 
   it('reads legacy checkpoints and validates continuous v2 checkpoint coverage', () => {

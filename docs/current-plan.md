@@ -105,13 +105,25 @@ Stop-or-Send terminal action. The worker mirrors the queue while placing only it
 an awaited consumption barrier persists the exact user message before the provider call. Pending
 content remains request-scoped and clears with the run. `check:fast`, 179 Electron-hosted test
 files / 922 tests plus the production build, the focused Real-Electron queue/provider-order
-scenario, screenshot inspection, Impeccable, and diff checks passed. Two full fresh E2E attempts
-reached 36/38 and 37/38; the only repeatable remaining failure is the pre-existing out-of-scope
-Writing Skill picker popover intercepting its parent dialog Close action, while the Checkpoint 49
-scenario passed on every run and again alone against the final build. No migration, dependency,
-worker role, durable job, package/release, hosted CI, commit, push, or publication work ran.
+scenario, screenshot inspection, Impeccable, and diff checks passed. The pre-existing Writing Skill
+picker popover interception exposed during its full E2E runs was subsequently fixed and is covered
+by the final Checkpoint 50 full and packaged suites. No migration, dependency, worker role, durable
+job, hosted CI, push, or publication work ran.
 Detailed scope and evidence live in
 [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-49-agent-pending-follow-up-queue).
+
+On 2026-08-13 the user accepted ADR 042 and authorized Checkpoint 50 after hands-on Agent logs
+showed repeated proposal preparation failures and asked that the review cover every model-visible
+tool rather than only section editing. ADR 042 and the Phase 12 plan now define a provider-neutral
+Pi-style contract, recovery, schema-compatibility, and presentation hardening for all 20 registered tools, with
+targeted repairs for the evidenced section, outline, image, and Writing Skill failures plus the
+approval-continuation scope gap. Checkpoint 49 was first closed and independently committed as
+`45cb477`. Checkpoint 50 is complete: focused contract/unit coverage, `check:fast`, 179
+Electron-hosted files / 931 tests with three skips plus production build, 39/39 unpacked E2E, and
+27/27 packaged E2E all passed. The deterministic Brief-and-outline regression recorded zero
+preflight failures and no unauthorized section mutation. At the user's direction, a live Gemini
+request is not part of CP50 verification. The worktree still preserves the unrelated local settings
+and section editor changes; CP50 remains uncommitted pending separate authorization.
 
 ## Completed baseline
 

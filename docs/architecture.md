@@ -1314,6 +1314,14 @@ Main:
 
 Tool errors are thrown and preserved as structured errors. They are not returned as successful text content.
 
+Under ADR 042, model-visible tool schemas are compact Pi preflight shapes rather than replicas of
+every Main domain invariant. Every standard call accepted by Main must pass preflight; Main remains
+authoritative and may reject a broader preflight-valid call with a self-contained safe error and
+one bounded recovery. Tool descriptions remain at most four sentences, cross-tool sequencing stays
+in the application policy, and the complete 20-tool envelope is limited to 48 KiB with no tool over
+8 KiB. Contract v8 preserves v1-v7 event replay because persisted arguments and results are opaque
+records, not reparsed through current per-tool schemas.
+
 The tool bridge carries tool requests and results only. Provider-call authorization remains on the capability-bound Agent run protocol: initial, steering, and follow-up calls use pre-authorized `model_requests` IDs, while a post-tool continuation must request a new ID from Main and wait until Main has durably created the linked row. The worker never invents a model-request ID and never starts an unrecorded provider call.
 
 Accepted ADR 041 keeps pending Follow-up content request-scoped and Main-authoritative. Main creates

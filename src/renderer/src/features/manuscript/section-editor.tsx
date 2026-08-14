@@ -758,7 +758,11 @@ function QuickActionFormattingToolbar(props: {
       {getFormattingToolbarItems()}
       <DropdownMenu open={props.open} onOpenChange={props.onOpenChange}>
         <DropdownMenuTrigger asChild>
-          <Button variant='ghost' size='sm' aria-label='Open Agent quick actions'>
+          <Button
+            variant='ghost'
+            className='data-[state=open]:bg-accent data-[state=open]:text-accent-foreground'
+            aria-label='Open Agent quick actions'
+          >
             <WandSparkles data-icon='inline-start' /> AI
           </Button>
         </DropdownMenuTrigger>

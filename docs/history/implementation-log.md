@@ -344,3 +344,19 @@ maintenance without turning the active tracker back into a historical log.
   passed. The full E2E suite retained one separately reproduced pre-existing Writing Skill popover
   failure; the Checkpoint 49 scenario passed on every run. No package, commit, push, release, or
   hosted action ran.
+- Independently committed the completed Checkpoint 49 work as `45cb477`, excluding the unrelated
+  local `.vscode/settings.json`, `section-editor.tsx`, and Checkpoint 50 design changes. Then
+  accepted ADR 042 and started authorized Checkpoint 50 to harden all 20 Agent tools using compact
+  Pi-style preflight schemas, Main-authoritative invariants, contract v8, tool-aware recovery, and
+  safe failure presentation.
+- Completed Checkpoint 50 under accepted ADR 042. All 20 model-visible tools now use compact
+  Pi-style descriptions and one-way-compatible model schemas with Main-authoritative business
+  invariants; contract v8 preserves v1-v7 replay, canonical section payloads are opaque to the
+  model, outline provisional ordering and image modes are repaired, errors carry safe actionable
+  recovery, and approval continuation remains within the original request scope. Focused suites,
+  `check:fast`, 179 Electron-hosted files / 931 tests with three skips and production build, all 39
+  unpacked E2E scenarios, the zero-preflight Brief/outline regression, the native/package smoke,
+  and all 27 packaged E2E scenarios passed. At the user's direction, CP50 did not send a live
+  Gemini request; deterministic provider-neutral evidence is the closure gate. No hosted CI,
+  signing, notarization, push, publication, or release was performed, and CP50 remains uncommitted
+  pending separate authorization.

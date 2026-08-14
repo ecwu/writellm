@@ -69,6 +69,9 @@ Status markers:
 - [x] Checkpoint 49: replace the permanent running Queue/Steer controls with a bounded,
   Main-authoritative multi-message waiting list above the composer, per-item Steer/Delete, and one
   Stop-or-Send terminal action while preserving provider and persistence ordering.
+- [x] Checkpoint 50: audit and harden all 20 model-visible Agent tool contracts with Pi-style
+  one-way schema compatibility, tool-aware recovery, compact descriptions, approval-continuation
+  scope discipline, and safe failure presentation under accepted ADR 042.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

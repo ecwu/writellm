@@ -108,6 +108,7 @@ test(
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await details.getByRole('button', { name: 'Choose writing skill' }).click()
       await launched.page.getByRole('option', { name: /e2e-writing/ }).click()
+      await launched.page.keyboard.press('Escape')
       await details.getByRole('button', { name: 'Close', exact: true }).click()
       await expect(details).toBeHidden()
       await panel.getByLabel('Agent message').fill('Write a short draft.')

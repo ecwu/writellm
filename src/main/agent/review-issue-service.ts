@@ -748,7 +748,7 @@ function assertExpectedVersion(issue: ReviewIssueTable, expectedVersion: number)
   if (issue.version !== expectedVersion) {
     throw new AgentToolDomainError(
       'conflict',
-      'Review issue version changed; refresh the Problem Set'
+      `Expected review issue version ${expectedVersion}, actual version is ${issue.version}`
     )
   }
 }
@@ -765,7 +765,10 @@ function agentTransition(
 } {
   if (operation.action === 'claim') {
     if (issue.status === 'resolved' || issue.status === 'dismissed') {
-      throw new AgentToolDomainError('conflict', 'Only open or in-progress issues can be claimed')
+      throw new AgentToolDomainError(
+        'conflict',
+        `Cannot claim review issue in actual state ${issue.status}; allowed states are open or in_progress`
+      )
     }
     return {
       status: 'in_progress',
@@ -782,13 +785,16 @@ function agentTransition(
     if (issue.status !== 'resolved' && issue.status !== 'dismissed') {
       throw new AgentToolDomainError(
         'conflict',
-        'Only resolved or dismissed issues can be reopened'
+        `Cannot reopen review issue in actual state ${issue.status}; allowed states are resolved or dismissed`
       )
     }
     return { status: 'open', assigned: null, event: 'reopened', summary: null }
   }
   if (issue.status !== 'in_progress' || issue.assigned_agent_session_id !== agentSessionId) {
-    throw new AgentToolDomainError('conflict', 'Review issue is not claimed by this conversation')
+    throw new AgentToolDomainError(
+      'conflict',
+      `Expected an in_progress issue claimed by this conversation; actual state is ${issue.status}`
+    )
   }
   if (operation.action === 'release') {
     return { status: 'open', assigned: null, event: 'released', summary: null }

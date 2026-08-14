@@ -34,6 +34,14 @@ describe('Pi-native progressive Writing Skill routing', () => {
     expect(routed.prompt.mandatory).not.toContain('Other private body')
     if (routed.state === undefined) throw new Error('Missing progressive state')
 
+    await expect(
+      router.read(routed.state, virtualSkillPath(primary.skillId, primary.commit, 'reference-1.md'))
+    ).rejects.toMatchObject({
+      code: 'unauthorized',
+      recoveryUri: other.filePath,
+      message: expect.stringContaining(other.filePath)
+    })
+
     const selected = await router.read(routed.state, primary.filePath)
     expect(selected.snapshot).toMatchObject({
       routingStatus: 'selected',

@@ -59,7 +59,7 @@ export class WritingTaskService {
           if (duplicateRefs.has(step.clientRef)) {
             throw new AgentToolDomainError(
               'conflict',
-              'Writing task client references must be unique'
+              `Expected unique writing-task clientRef values; duplicate found at steps[${index}]. Call get_writing_task, replace that clientRef, and retry once`
             )
           }
           duplicateRefs.add(step.clientRef)
@@ -372,13 +372,16 @@ export class WritingTaskService {
       throw new AgentToolDomainError('unauthorized', 'Writing task belongs to another conversation')
     }
     if (current.planVersion !== args.expectedPlanVersion) {
-      throw new AgentToolDomainError('conflict', 'Writing task plan changed; read it and retry')
+      throw new AgentToolDomainError(
+        'conflict',
+        `Expected writing-task plan version ${args.expectedPlanVersion}, actual version is ${current.planVersion}`
+      )
     }
     const currentById = new Map(current.plan.steps.map((step) => [step.stepId, step]))
     const seenExisting = new Set<string>()
     const seenRefs = new Set<string>()
     const createdStepRefs: Record<string, string> = {}
-    const steps: WritingTaskStep[] = args.steps.map((candidate) => {
+    const steps: WritingTaskStep[] = args.steps.map((candidate, index) => {
       if ('stepId' in candidate) {
         if (seenExisting.has(candidate.stepId)) {
           throw new AgentToolDomainError('conflict', 'Writing task step IDs must be unique')
@@ -392,7 +395,10 @@ export class WritingTaskService {
         return { ...candidate }
       }
       if (seenRefs.has(candidate.clientRef)) {
-        throw new AgentToolDomainError('conflict', 'Writing task client references must be unique')
+        throw new AgentToolDomainError(
+          'conflict',
+          `Expected unique writing-task clientRef values; duplicate found at steps[${index}]`
+        )
       }
       seenRefs.add(candidate.clientRef)
       const stepId = this.#createId()

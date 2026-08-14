@@ -10,6 +10,7 @@ import {
 } from '../../../../shared/contracts/agent-ipc'
 import {
   generateImageArgsSchema,
+  normalizedGenerateImageArgsSchema,
   modelSubmitSectionChangeArgsSchema,
   type MutationProposalRecord
 } from '../../../../shared/contracts/agent-mutations'
@@ -1032,7 +1033,7 @@ export function AgentPanel(props: {
       return false
     }
     if (
-      (trimmed.length === 0 && quickAction === undefined) ||
+      (trimmed.length === 0 && quickAction === undefined && approvedProposalId === undefined) ||
       activeSessionArchived ||
       (!allowWhileBusy && busy) ||
       ((activeRun !== null || conversationLocked) &&
@@ -1059,7 +1060,11 @@ export function AgentPanel(props: {
       const run = await window.desktop.agent.startRun({
         projectSessionId: props.projectSessionId,
         agentSessionId: session.agentSessionId,
-        ...(quickAction === undefined ? { prompt: trimmed } : { quickAction }),
+        ...(quickAction === undefined
+          ? approvedProposalId === undefined
+            ? { prompt: trimmed }
+            : {}
+          : { quickAction }),
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         ...(rejectedProposalId === undefined ? {} : { rejectedProposalId }),
         includedAnnotationIds,
@@ -1334,7 +1339,7 @@ export function AgentPanel(props: {
           (result.outcome === 'applied' || result.outcome === 'already_satisfied')
         ) {
           const continued = await startRun(
-            'Continue the requested writing task. Verify the updated manuscript and run check_draft when appropriate.',
+            '',
             result.proposal.proposalId,
             true,
             true,
@@ -3466,6 +3471,25 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'activity') return <ActivityGroup item={item} />
+  if (item.type === 'preflight_failure') {
+    return (
+      <Alert variant='destructive' data-testid='agent-preflight-failure'>
+        <AlertCircle />
+        <AlertTitle>
+          {item.failure.toolName} · {item.failure.code}
+        </AlertTitle>
+        <AlertDescription className='flex flex-col gap-1'>
+          <span>{item.failure.message}</span>
+          {item.failure.paths.length > 0 ? (
+            <span className='font-mono text-xs'>{item.failure.paths.join(', ')}</span>
+          ) : null}
+          <span className='text-xs'>
+            Failed before dispatch · {formatAgentDuration(item.failure.durationMs)}
+          </span>
+        </AlertDescription>
+      </Alert>
+    )
+  }
   if (item.type === 'approval_decision') {
     return (
       <Marker role='status'>
@@ -3698,7 +3722,12 @@ function ToolActivityRow(props: { tool: AgentToolActivity; stopped: boolean }): 
         <Alert variant='destructive'>
           <AlertCircle />
           <AlertTitle>{tool.result.error.code}</AlertTitle>
-          <AlertDescription>{tool.result.error.message}</AlertDescription>
+          <AlertDescription className='flex flex-col gap-1'>
+            <span>{tool.result.error.message}</span>
+            {toolRecoveryLabel(tool.result.error.recovery) === null ? null : (
+              <span>{toolRecoveryLabel(tool.result.error.recovery)}</span>
+            )}
+          </AlertDescription>
         </Alert>
       ) : null}
       {citations.length > 0 ? <CitationAttachments citations={citations} /> : null}
@@ -3739,11 +3768,17 @@ function ProposalMessage(props: {
   const proposal = props.item.proposal
   if (proposal === null) {
     const failed = props.item.tool.result?.isError === true
+    const error = props.item.tool.result?.error ?? null
     return (
       <Marker role='status'>
         <MarkerIcon>{failed ? <X className='text-destructive' /> : <Spinner />}</MarkerIcon>
-        <MarkerContent className={failed ? 'text-destructive' : 'shimmer'}>
-          {failed ? 'Proposal could not be prepared' : 'Preparing a reviewable proposal…'}
+        <MarkerContent className={failed ? 'flex flex-col gap-1 text-destructive' : 'shimmer'}>
+          {failed
+            ? (error?.message ?? 'Proposal could not be prepared')
+            : 'Preparing a reviewable proposal…'}
+          {error === null || toolRecoveryLabel(error.recovery) === null ? null : (
+            <span className='text-xs'>{toolRecoveryLabel(error.recovery)}</span>
+          )}
         </MarkerContent>
       </Marker>
     )
@@ -3860,6 +3895,23 @@ function ProposalMessage(props: {
       </MessageContent>
     </Message>
   )
+}
+
+function toolRecoveryLabel(
+  recovery:
+    | {
+        action: string
+        tool?: string
+        maxAttempts?: number
+        uri?: string
+      }
+    | undefined
+): string | null {
+  if (recovery === undefined) return null
+  const target = recovery.uri ?? recovery.tool
+  const attempts =
+    recovery.maxAttempts === undefined ? '' : ` · at most ${recovery.maxAttempts} retry`
+  return `Recovery: ${recovery.action}${target === undefined ? '' : ` with ${target}`}${attempts}`
 }
 
 function CitationAttachments(props: { citations: AgentCitationDisplay[] }): React.JSX.Element {
@@ -4253,7 +4305,9 @@ export function sectionFollowTargetForAgentEvent(
   }
   if (call.data.toolName === 'generate_image') {
     const args = generateImageArgsSchema.safeParse(call.data.args)
-    return args.success ? args.data.sectionId : null
+    if (args.success) return args.data.sectionId
+    const legacy = normalizedGenerateImageArgsSchema.safeParse(call.data.args)
+    return legacy.success ? legacy.data.sectionId : null
   }
   return null
 }

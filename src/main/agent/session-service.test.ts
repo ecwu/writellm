@@ -19,6 +19,7 @@ import type {
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { AgentSessionService, type AgentSessionServiceOptions } from './session-service'
+import { AgentToolDomainError } from './read-tools'
 
 const temporaryDirectories: string[] = []
 const log = pino({ level: 'silent' })
@@ -1719,7 +1720,7 @@ describe('AgentSessionService', () => {
       ok: false,
       error: {
         code: 'unauthorized',
-        message: 'Agent tool request is unauthorized'
+        message: 'Agent tool request is unauthorized. Next: Do not retry this operation.'
       }
     })
     expect(execute).not.toHaveBeenCalled()
@@ -1729,6 +1730,75 @@ describe('AgentSessionService', () => {
 
     active.resolve()
     await started.completion
+    database.close()
+  })
+
+  it('returns tool-aware recovery for conflicts, stale cursors, and citation provenance', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn(async (input: { toolName: AgentToolRequest['toolName'] }) => {
+      if (input.toolName === 'submit_section_change') {
+        throw new AgentToolDomainError('conflict', 'Target block hash is stale')
+      }
+      if (input.toolName === 'read_outline') {
+        throw new AgentToolDomainError('stale_cursor', 'Outline cursor is stale')
+      }
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Citation provenance is missing for the requested source label'
+      )
+    })
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const fixtures = [
+      {
+        toolName: 'submit_section_change' as const,
+        args: {
+          sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
+          operations: [{ type: 'insertTextBlocks', placement: 'end', blocks: [{ text: 'Body.' }] }]
+        },
+        expected: { action: 'refresh_context', tool: 'read_section', maxAttempts: 1 }
+      },
+      {
+        toolName: 'read_outline' as const,
+        args: { cursor: 'stale' },
+        expected: { action: 'restart_pagination', tool: 'read_outline', maxAttempts: 1 }
+      },
+      {
+        toolName: 'read_citations' as const,
+        args: { citationIds: [`citation-${'a'.repeat(40)}`] },
+        expected: { action: 'refresh_context', tool: 'search_knowledge', maxAttempts: 1 }
+      }
+    ]
+
+    for (const [index, fixture] of fixtures.entries()) {
+      const session = service.createSession(`Recovery ${index}`)
+      const started = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Recover safely.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      const active = runtime.active()
+      const response = await active.requestTool({
+        type: 'tool_request',
+        requestId: `019c6a5c-8d34-7a8e-a602-3d37a52dc48${index}`,
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: `tool-recovery-${index}`,
+        modelRequestId: active.input.modelRequestId,
+        toolName: fixture.toolName,
+        args: fixture.args
+      } as AgentToolRequest)
+      expect(response).toMatchObject({
+        ok: false,
+        error: {
+          recovery: fixture.expected,
+          message: expect.stringContaining('Next:')
+        }
+      })
+      active.resolve()
+      await started.completion
+    }
     database.close()
   })
 
@@ -1760,6 +1830,7 @@ describe('AgentSessionService', () => {
       modelRequestId: active.input.modelRequestId,
       toolName: 'generate_image',
       args: {
+        mode: 'insert',
         sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
         anchor: null,
         placement: 'end',
@@ -1777,7 +1848,7 @@ describe('AgentSessionService', () => {
         code: 'unavailable',
         category: 'transient',
         message:
-          'Image provider rejected the generation request (HTTP 400 / INVALID_ARGUMENT); verify the image API key, model access, and provider settings',
+          'Image provider rejected the generation request (HTTP 400 / INVALID_ARGUMENT); verify the image API key, model access, and provider settings. Next: Ask the user to verify provider access.',
         recovery: { action: 'ask_user' }
       }
     })

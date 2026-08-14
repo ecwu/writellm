@@ -15,7 +15,7 @@ import { resolvesReviewIssueSchema } from './review'
 import { modelSubmitWritingRulesChangeArgsSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 7
+export const AGENT_TOOL_CONTRACT_VERSION = 8
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -43,7 +43,10 @@ const modelBriefChangesSchema = manuscriptBriefFieldsSchema
   .omit({ extensible: true })
   .partial()
   .strict()
-  .refine((changes) => Object.keys(changes).length > 0, 'At least one brief field must change')
+  .refine(
+    (changes) => Object.keys(changes).length > 0,
+    'Expected at least one Brief change field, received an empty changes object. Add one changed field and retry submit_brief_change once.'
+  )
 
 const resolvesReviewIssuesSchema = z.array(resolvesReviewIssueSchema).max(20).optional()
 
@@ -191,8 +194,14 @@ export const agentProposalToolNameSchema = z.enum([
 ])
 
 const sectionRefSchema = z.discriminatedUnion('kind', [
-  strictObject({ kind: z.literal('existing'), sectionId: sectionIdSchema }),
-  strictObject({ kind: z.literal('created'), clientRef: z.string().min(1).max(256) })
+  strictObject({
+    kind: z.literal('existing'),
+    sectionId: sectionIdSchema
+  }),
+  strictObject({
+    kind: z.literal('created'),
+    clientRef: z.string().min(1).max(256)
+  })
 ])
 const outlinePlacementSchema = z.discriminatedUnion('kind', [
   strictObject({ kind: z.literal('first') }),
@@ -244,23 +253,32 @@ const modelOutlineOperationSchema = z.discriminatedUnion('type', [
 ])
 
 export const modelSubmitOutlineChangeArgsSchema = strictObject({
-  operations: z.array(modelOutlineOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
+  operations: z
+    .array(modelOutlineOperationSchema)
+    .min(1)
+    .max(AGENT_MUTATION_OPERATION_LIMIT)
+    .describe(
+      'Copy existing sectionId values from read_outline; created references copy a preceding createSection.clientRef.'
+    ),
   citationIds: mutationCitationIdsSchema,
   resolvesReviewIssues: resolvesReviewIssuesSchema
 })
 
 const blockPreconditionSchema = strictObject({
-  blockId: z.string().min(1).max(256),
-  expectedBlockHash: z.string().regex(/^[a-f0-9]{64}$/u)
+  blockId: z.string().min(1).max(256).describe('Copy read_section.blocks[].blockId from this run.'),
+  expectedBlockHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .describe('Copy read_section.blocks[].blockHash for the same block from this run.')
 })
 const generateImageIterationSchema = strictObject({
   sourceBlock: blockPreconditionSchema,
-  disposition: z.enum(['replace', 'insert_after'])
+  disposition: z
+    .enum(['replace', 'insert_after'])
+    .describe('Choose whether the candidate replaces the source or is inserted after it.')
 })
-export const generateImageArgsSchema = strictObject({
+const generateImageCommonShape = {
   sectionId: sectionIdSchema,
-  anchor: blockPreconditionSchema.nullable(),
-  placement: z.enum(['before', 'after', 'start', 'end']),
   prompt: z
     .string()
     .trim()
@@ -274,15 +292,45 @@ export const generateImageArgsSchema = strictObject({
   caption: z.string().max(2_000),
   aspectRatio: z.enum(['auto', '1:1', '16:9']),
   imageSize: z.enum(['1K', '2K']),
+  resolvesReviewIssues: resolvesReviewIssuesSchema
+}
+export const generateImageArgsSchema = z.discriminatedUnion('mode', [
+  strictObject({
+    mode: z.literal('insert'),
+    ...generateImageCommonShape,
+    anchor: blockPreconditionSchema
+      .nullable()
+      .default(null)
+      .describe('Copy a read_section block precondition, or omit for the section root.'),
+    placement: z
+      .enum(['before', 'after', 'start', 'end'])
+      .describe('Use start/end at the root and before/after with an anchor.')
+  }).refine(
+    ({ anchor, placement }) =>
+      anchor === null
+        ? placement === 'start' || placement === 'end'
+        : placement === 'before' || placement === 'after',
+    'Image insertion expected start/end without an anchor or before/after with one'
+  ),
+  strictObject({
+    mode: z.literal('iterate'),
+    ...generateImageCommonShape,
+    iteration: generateImageIterationSchema
+  })
+])
+
+export const normalizedGenerateImageArgsSchema = strictObject({
+  sectionId: sectionIdSchema,
+  anchor: blockPreconditionSchema.nullable(),
+  placement: z.enum(['before', 'after', 'start', 'end']),
+  prompt: generateImageCommonShape.prompt,
+  altText: generateImageCommonShape.altText,
+  caption: generateImageCommonShape.caption,
+  aspectRatio: generateImageCommonShape.aspectRatio,
+  imageSize: generateImageCommonShape.imageSize,
   iteration: generateImageIterationSchema.optional(),
   resolvesReviewIssues: resolvesReviewIssuesSchema
-}).refine(
-  ({ anchor, placement }) =>
-    anchor === null
-      ? placement === 'start' || placement === 'end'
-      : placement === 'before' || placement === 'after',
-  'Placement does not match the anchor'
-)
+})
 const textBlockTypeSchema = z.enum([
   'paragraph',
   'heading',
@@ -300,8 +348,13 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
   }),
   strictObject({
     type: z.literal('insertTextBlocks'),
-    anchor: blockPreconditionSchema.nullable(),
-    placement: z.enum(['before', 'after', 'start', 'end']),
+    anchor: blockPreconditionSchema
+      .nullable()
+      .default(null)
+      .describe('Copy a read_section block precondition, or omit for the section root.'),
+    placement: z
+      .enum(['before', 'after', 'start', 'end'])
+      .describe('Use start/end at the root and before/after with an anchor.'),
     blocks: z
       .array(
         strictObject({
@@ -312,11 +365,22 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
       )
       .min(1)
       .max(AGENT_MUTATION_BLOCK_LIMIT)
-  }),
+  }).refine(
+    ({ anchor, placement }) =>
+      anchor === null
+        ? placement === 'start' || placement === 'end'
+        : placement === 'before' || placement === 'after',
+    'Section insertion expected start/end without an anchor or before/after with one'
+  ),
   strictObject({
     type: z.literal('insertRichBlock'),
-    anchor: blockPreconditionSchema.nullable(),
-    placement: z.enum(['before', 'after', 'start', 'end']),
+    anchor: blockPreconditionSchema
+      .nullable()
+      .default(null)
+      .describe('Copy a read_section block precondition, or omit for the section root.'),
+    placement: z
+      .enum(['before', 'after', 'start', 'end'])
+      .describe('Use start/end at the root and before/after with an anchor.'),
     block: strictObject({
       clientRef: z.string().min(1).max(256).optional(),
       blockType: z.enum(['mermaid', 'math']),
@@ -325,7 +389,13 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
       textAlignment: z.enum(['left', 'center', 'right', 'justify']).default('center'),
       previewWidth: z.number().int().min(64).max(8_192).default(720)
     })
-  }),
+  }).refine(
+    ({ anchor, placement }) =>
+      anchor === null
+        ? placement === 'start' || placement === 'end'
+        : placement === 'before' || placement === 'after',
+    'Section insertion expected start/end without an anchor or before/after with one'
+  ),
   strictObject({
     type: z.literal('removeBlocks'),
     targets: z.array(blockPreconditionSchema).min(1).max(AGENT_MUTATION_BLOCK_LIMIT)
@@ -608,6 +678,7 @@ export type OutlinePatch = z.infer<typeof outlinePatchSchema>
 export type OutlineMutationOperation = z.infer<typeof outlineMutationOperationSchema>
 export type SectionPatch = z.infer<typeof sectionPatchSchema>
 export type GenerateImageArgs = z.infer<typeof generateImageArgsSchema>
+export type NormalizedGenerateImageArgs = z.infer<typeof normalizedGenerateImageArgsSchema>
 export type BlockMutationOperation = z.infer<typeof blockMutationOperationSchema>
 export type MutationProposalKind = z.infer<typeof mutationProposalKindSchema>
 export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>

@@ -19,7 +19,7 @@ import {
   undoMutationProposalInputSchema,
   type AgentProposalToolName,
   type BriefUpdate,
-  type GenerateImageArgs,
+  type NormalizedGenerateImageArgs,
   type MutationCitedSource,
   type MutationPreview,
   type MutationProposalRecord,
@@ -432,7 +432,7 @@ export class MutationProposalService {
   }
 
   proposeGeneratedImage(
-    rawArgs: GenerateImageArgs,
+    rawArgs: NormalizedGenerateImageArgs,
     snapshot: WritingSnapshot,
     context: ProposalToolExecutionContext
   ): MutationProposalToolResult {
@@ -2344,10 +2344,10 @@ function findDocumentBlock(
 function resolveImageIteration(
   database: Database.Database,
   document: BlockNoteDocument,
-  input: NonNullable<GenerateImageArgs['iteration']>,
+  input: NonNullable<NormalizedGenerateImageArgs['iteration']>,
   instruction: string
 ): {
-  sourceBlock: NonNullable<GenerateImageArgs['iteration']>['sourceBlock']
+  sourceBlock: NonNullable<NormalizedGenerateImageArgs['iteration']>['sourceBlock']
   disposition: 'replace' | 'insert_after'
   parentAssetId: string
   parentPrompt: string

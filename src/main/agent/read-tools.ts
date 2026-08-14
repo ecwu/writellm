@@ -315,12 +315,12 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     let blocks = flattened.map(withoutCanonical)
     let missingBlockIds: string[] = []
     let nextCursor: string | null = null
-    if (args.blockIds !== undefined) {
+    if (args.view === 'summary' && args.blockIds !== undefined) {
       const requested = new Set(args.blockIds)
       blocks = flattened.filter((block) => requested.has(block.blockId)).map(withoutCanonical)
       const found = new Set(blocks.map((block) => block.blockId))
       missingBlockIds = args.blockIds.filter((blockId) => !found.has(blockId))
-    } else {
+    } else if (args.view === 'summary') {
       const offset = args.cursor === undefined ? 0 : decodeCursor(args.cursor, snapshot.snapshotId)
       blocks = flattened.slice(offset, offset + args.limit).map(withoutCanonical)
       if (offset + blocks.length < flattened.length) {
@@ -329,10 +329,10 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     }
     const entry = snapshotEntry
     const selected =
-      args.blockId === undefined
+      args.view === 'summary'
         ? undefined
         : flattened.find((block) => block.blockId === args.blockId)
-    if (args.blockId !== undefined && selected === undefined) missingBlockIds.push(args.blockId)
+    if (args.view !== 'summary' && selected === undefined) missingBlockIds.push(args.blockId)
     const canonicalJson = selected === undefined ? undefined : JSON.stringify(selected.canonical)
     return readSectionResultSchema.parse({
       section: {

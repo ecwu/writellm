@@ -189,11 +189,15 @@ export const agentStartRunInputSchema = strictObject({
   const requestKinds = [input.prompt, input.quickAction, input.resumeWritingTask].filter(
     (value) => value !== undefined
   ).length
-  if (requestKinds !== 1) {
+  const expectedRequestKinds = input.approvedProposalId === undefined ? 1 : 0
+  if (requestKinds !== expectedRequestKinds) {
     context.addIssue({
       code: 'custom',
       path: ['prompt'],
-      message: 'Exactly one prompt, quick action, or writing-task resume is required'
+      message:
+        input.approvedProposalId === undefined
+          ? 'Exactly one prompt, quick action, or writing-task resume is required'
+          : 'Approved proposal continuation is authored by Main and accepts no Renderer prompt'
     })
   }
   if (input.quickAction !== undefined) {

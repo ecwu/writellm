@@ -122,7 +122,7 @@ export const createWritingTaskArgsSchema = strictObject({
   steps: z
     .array(
       strictObject({
-        clientRef: z.uuid(),
+        clientRef: z.uuid().describe('Supply a unique temporary step reference in this call.'),
         title: z.string().trim().min(1).max(500)
       })
     )
@@ -136,21 +136,25 @@ export const createWritingTaskResultSchema = strictObject({
 })
 
 const retainedWritingTaskStepSchema = strictObject({
-  stepId: writingTaskStepIdSchema,
+  stepId: writingTaskStepIdSchema.describe('Copy get_writing_task.task.plan.steps[].stepId.'),
   title: z.string().trim().min(1).max(500),
   status: writingTaskStepStatusSchema,
   statusReason: z.string().trim().min(1).max(2_000).nullable()
 })
 
 const addedWritingTaskStepSchema = strictObject({
-  clientRef: z.uuid(),
+  clientRef: z.uuid().describe('Supply a unique temporary reference for this new step.'),
   title: z.string().trim().min(1).max(500),
   status: z.enum(['pending', 'active'])
 })
 
 export const updateWritingTaskArgsSchema = strictObject({
-  taskId: writingTaskIdSchema,
-  expectedPlanVersion: z.number().int().positive(),
+  taskId: writingTaskIdSchema.describe('Copy get_writing_task.task.taskId.'),
+  expectedPlanVersion: z
+    .number()
+    .int()
+    .positive()
+    .describe('Copy get_writing_task.task.planVersion.'),
   objective: z.string().trim().min(1).max(4_096),
   steps: z
     .array(z.union([retainedWritingTaskStepSchema, addedWritingTaskStepSchema]))

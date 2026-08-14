@@ -1,6 +1,21 @@
 import { EventEmitter } from 'node:events'
+import { validateToolArguments } from '@earendil-works/pi-ai/compat'
 import { describe, expect, it, vi } from 'vitest'
-import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
+import {
+  AGENT_MODEL_VISIBLE_TOOL_ENVELOPE,
+  AGENT_MODEL_VISIBLE_TOOL_SPECS
+} from '../shared/agent-tool-specs'
+import {
+  agentToolRequestSchema,
+  readCitationsArgsSchema,
+  searchKnowledgeArgsSchema,
+  type AgentToolName
+} from '../shared/contracts/agent-tools'
+import {
+  modelSubmitBriefChangeArgsSchema,
+  modelSubmitSectionChangeArgsSchema
+} from '../shared/contracts/agent-mutations'
+import { recordReviewIssuesArgsSchema } from '../shared/contracts/review'
 import {
   AgentReadToolBridge,
   getWritingContextParameters,
@@ -13,6 +28,60 @@ import {
 } from './agent-tools'
 
 describe('Pi Agent tool TypeBox schemas', () => {
+  it('keeps all 20 Pi-style contracts compact and one-way compatible with Main defaults', () => {
+    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(20)
+    const sizes = Object.fromEntries(
+      AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => [
+        tool.name,
+        Buffer.byteLength(
+          JSON.stringify({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          })
+        )
+      ])
+    )
+    expect(
+      Buffer.byteLength(JSON.stringify(AGENT_MODEL_VISIBLE_TOOL_ENVELOPE)),
+      JSON.stringify(sizes)
+    ).toBeLessThanOrEqual(48 * 1_024)
+    for (const tool of AGENT_MODEL_VISIBLE_TOOL_SPECS) {
+      expect(
+        Buffer.byteLength(
+          JSON.stringify({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          })
+        )
+      ).toBeLessThanOrEqual(8 * 1_024)
+      expect(sentenceCount(tool.description), tool.name).toBeLessThanOrEqual(4)
+      expect(tool.description, tool.name).not.toMatch(/\{\s*"?\w+/u)
+      expect(tool).not.toHaveProperty('guidance')
+    }
+
+    for (const [toolName, args] of Object.entries(minimalValidToolArguments()) as Array<
+      [AgentToolName, Record<string, unknown>]
+    >) {
+      const tool = AGENT_MODEL_VISIBLE_TOOL_SPECS.find((candidate) => candidate.name === toolName)
+      if (tool === undefined) throw new Error(`Missing tool ${toolName}`)
+      const request = agentToolRequestSchema.parse({
+        type: 'tool_request',
+        requestId: UUIDS.request,
+        projectSessionId: UUIDS.project,
+        agentSessionId: UUIDS.session,
+        agentRunId: UUIDS.run,
+        toolCallId: `tool-${toolName}`,
+        modelRequestId: UUIDS.model,
+        toolName,
+        args
+      })
+      expect(() => piValidate(tool, args), `${toolName} minimal`).not.toThrow()
+      expect(() => piValidate(tool, request.args), `${toolName} defaulted boundary`).not.toThrow()
+    }
+  })
+
   it('matches the authoritative Zod field and bound surface', () => {
     expect(getWritingContextParameters.additionalProperties).toBe(false)
     expect(Object.keys(getWritingContextParameters.properties).sort()).toEqual([
@@ -39,6 +108,86 @@ describe('Pi Agent tool TypeBox schemas', () => {
     )
     expect(createSection?.properties.clientRef).not.toHaveProperty('format')
     expect(submitSectionChangeParameters.properties.operations.maxItems).toBe(50)
+  })
+
+  it('lets broad Pi schemas reach actionable Main validation for business invariants', () => {
+    const cases = [
+      {
+        toolName: 'submit_brief_change' as const,
+        args: { changes: {} },
+        parse: () => modelSubmitBriefChangeArgsSchema.parse({ changes: {} }),
+        message: 'Expected at least one Brief change field'
+      },
+      {
+        toolName: 'search_knowledge' as const,
+        args: { query: 'evidence', pageFrom: 8, pageTo: 3 },
+        parse: () => searchKnowledgeArgsSchema.parse({ query: 'evidence', pageFrom: 8, pageTo: 3 }),
+        message: 'received pageFrom=8 and pageTo=3'
+      },
+      {
+        toolName: 'read_citations' as const,
+        args: { citationIds: [], requests: [] },
+        parse: () => readCitationsArgsSchema.parse({ citationIds: [], requests: [] }),
+        message: 'received both empty'
+      },
+      {
+        toolName: 'record_review_issues' as const,
+        args: {
+          issues: [
+            {
+              existingIssueId: UUIDS.issue,
+              priority: 'P2',
+              category: 'consistency',
+              title: 'Inconsistent term',
+              description: 'One exact term differs.',
+              evidence: 'Deterministic comparison.',
+              sourceKind: 'deterministic'
+            }
+          ]
+        },
+        parse: () =>
+          recordReviewIssuesArgsSchema.parse({
+            issues: [
+              {
+                existingIssueId: UUIDS.issue,
+                priority: 'P2',
+                category: 'consistency',
+                title: 'Inconsistent term',
+                description: 'One exact term differs.',
+                evidence: 'Deterministic comparison.',
+                sourceKind: 'deterministic'
+              }
+            ]
+          }),
+        message: 'Expected existingIssueId and expectedVersion together'
+      },
+      {
+        toolName: 'submit_section_change' as const,
+        args: {
+          sectionId: UUIDS.section,
+          operations: [
+            { type: 'insertTextBlocks', placement: 'before', blocks: [{ text: 'Body.' }] }
+          ]
+        },
+        parse: () =>
+          modelSubmitSectionChangeArgsSchema.parse({
+            sectionId: UUIDS.section,
+            operations: [
+              { type: 'insertTextBlocks', placement: 'before', blocks: [{ text: 'Body.' }] }
+            ]
+          }),
+        message: 'Section insertion expected start/end without an anchor'
+      }
+    ]
+
+    for (const fixture of cases) {
+      const tool = AGENT_MODEL_VISIBLE_TOOL_SPECS.find(
+        (candidate) => candidate.name === fixture.toolName
+      )
+      if (tool === undefined) throw new Error(`Missing tool ${fixture.toolName}`)
+      expect(() => piValidate(tool, fixture.args), fixture.toolName).not.toThrow()
+      expect(fixture.parse, fixture.toolName).toThrow(fixture.message)
+    }
   })
 
   it('exposes only the v4 bounded model-facing parameter surfaces without capabilities', () => {
@@ -116,15 +265,9 @@ describe('Pi Agent tool TypeBox schemas', () => {
       expect(tool.parameters).toBe(shared?.parameters)
     })
     const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
-    expect(skillReader?.description).toContain('do not reread an entrypoint')
-    expect(skillReader?.description).toContain('no more than four task-relevant references')
-    expect(skillReader?.description).toContain(
-      'do not mix Skill reads with non-Skill tools in the same assistant response'
-    )
-    expect(skillReader?.description).toContain('wait for their results before using other tools')
-    expect(
-      tools.find((tool) => tool.name === 'submit_outline_change')?.prepareArguments
-    ).toBeUndefined()
+    expect(skillReader?.description).toContain('never widens the approved scope')
+    expect(skillReader?.description).toContain('exact URI named by recovery')
+    expect(tools.every((tool) => tool.prepareArguments === undefined)).toBe(true)
     const proposal = tools.find((tool) => tool.name === 'submit_brief_change')
     if (proposal === undefined) throw new Error('Missing proposal tool')
     const result = await proposal.execute('tool-proposal', { changes: { title: 'Revised' } })
@@ -256,6 +399,126 @@ describe('Pi Agent tool TypeBox schemas', () => {
     bridge.close()
   })
 })
+
+const UUIDS = {
+  request: '019c6a5c-8d34-7a8e-a602-3d37a52dc601',
+  project: '019c6a5c-8d34-7a8e-a602-3d37a52dc602',
+  session: '019c6a5c-8d34-7a8e-a602-3d37a52dc603',
+  run: '019c6a5c-8d34-7a8e-a602-3d37a52dc604',
+  model: '019c6a5c-8d34-7a8e-a602-3d37a52dc605',
+  section: '019c6a5c-8d34-7a8e-a602-3d37a52dc606',
+  proposal: '019c6a5c-8d34-7a8e-a602-3d37a52dc607',
+  issue: '019c6a5c-8d34-7a8e-a602-3d37a52dc608',
+  task: '019c6a5c-8d34-7a8e-a602-3d37a52dc609',
+  step: '019c6a5c-8d34-7a8e-a602-3d37a52dc610',
+  client: '019c6a5c-8d34-7a8e-a602-3d37a52dc611'
+} as const
+
+function minimalValidToolArguments(): Record<AgentToolName, Record<string, unknown>> {
+  return {
+    get_writing_context: {},
+    read_outline: {},
+    read_section: { sectionId: UUIDS.section },
+    search_knowledge: { query: 'evidence' },
+    search_manuscript: { query: 'term' },
+    read_citations: { citationIds: [`citation-${'b'.repeat(40)}`] },
+    read_writing_skill: { uri: `writellm://skills/test/${'c'.repeat(40)}/SKILL.md` },
+    inspect_change: { proposalId: UUIDS.proposal },
+    check_draft: { scope: { type: 'manuscript' } },
+    list_review_issues: {},
+    get_writing_task: {},
+    record_review_issues: {
+      issues: [
+        {
+          priority: 'P2',
+          category: 'consistency',
+          title: 'Inconsistent term',
+          description: 'One exact term differs.',
+          evidence: 'Deterministic comparison.',
+          sourceKind: 'deterministic'
+        }
+      ]
+    },
+    update_review_issues: {
+      operations: [{ action: 'claim', issueId: UUIDS.issue, expectedVersion: 1 }]
+    },
+    create_writing_task: {
+      objective: 'Revise two sections',
+      steps: [{ clientRef: UUIDS.client, title: 'Revise the first section' }]
+    },
+    update_writing_task: {
+      taskId: UUIDS.task,
+      expectedPlanVersion: 1,
+      objective: 'Revise two sections',
+      steps: [
+        {
+          stepId: UUIDS.step,
+          title: 'Revise the first section',
+          status: 'active',
+          statusReason: null
+        }
+      ]
+    },
+    submit_brief_change: { changes: { title: 'Revised title' } },
+    submit_writing_rules_change: {
+      operations: [
+        {
+          type: 'add',
+          clientRef: 'rule-1',
+          rule: { category: 'terminology', instruction: 'Use one canonical term.' }
+        }
+      ]
+    },
+    submit_outline_change: {
+      operations: [
+        {
+          type: 'createSection',
+          clientRef: 'section-1',
+          parent: null,
+          placement: { kind: 'last' },
+          title: 'Conclusion',
+          objective: null,
+          status: 'planned'
+        }
+      ]
+    },
+    submit_section_change: {
+      sectionId: UUIDS.section,
+      operations: [
+        {
+          type: 'insertTextBlocks',
+          placement: 'end',
+          blocks: [{ text: 'Body text.' }]
+        }
+      ]
+    },
+    generate_image: {
+      mode: 'insert',
+      sectionId: UUIDS.section,
+      placement: 'end',
+      prompt: 'A precise architecture diagram',
+      altText: 'Architecture diagram',
+      caption: '',
+      aspectRatio: '16:9',
+      imageSize: '2K'
+    }
+  }
+}
+
+function piValidate(
+  tool: (typeof AGENT_MODEL_VISIBLE_TOOL_SPECS)[number],
+  args: Record<string, unknown>
+): unknown {
+  return validateToolArguments(tool as never, {
+    id: 'fixture-call',
+    name: tool.name,
+    arguments: args
+  })
+}
+
+function sentenceCount(description: string): number {
+  return description.split(/(?<=[.!?])\s+/u).filter(Boolean).length
+}
 
 class FakeMessagePort extends EventEmitter {
   peer: FakeMessagePort | undefined

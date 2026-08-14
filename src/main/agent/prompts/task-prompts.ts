@@ -93,10 +93,7 @@ const quickActionInstructions = {
     'Check the selection against the manuscript brief, outline, terminology, and surrounding sections, then propose only changes needed for consistency.'
 } as const
 
-export function buildApprovalContinuationPrompt(
-  proposal: ReviewProposalPromptInput,
-  requestedContinuation: string
-): string {
+export function buildApprovalContinuationPrompt(proposal: ReviewProposalPromptInput): string {
   const subject = proposalSubject(proposal, true)
   const result =
     proposal.status === 'satisfied'
@@ -110,7 +107,8 @@ export function buildApprovalContinuationPrompt(
     }),
     formatPromptBlock({
       tag: 'CURRENT_USER_REQUEST',
-      content: requestedContinuation.trim(),
+      content:
+        'Continue only the original user request that remains unresolved after this approved proposal. Approval authorizes this reviewed proposal only: do not add a new artifact, section, mutation kind, completeness check, or section-body draft unless the original request explicitly required it. If the original request is now complete, report the applied or satisfied outcome and stop.',
       instructionSemantics: 'true'
     })
   ].join('\n\n')
