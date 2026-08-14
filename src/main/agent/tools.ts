@@ -126,20 +126,9 @@ export class MainAgentTools implements AgentToolExecutor {
     const proposal = this.mutations
       .list(agentSessionId)
       .find((candidate) => candidate.proposalId === proposalId)
-    if (proposal === undefined || mode === 'manual' || proposal.payload.kind === 'brief_update') {
-      return false
-    }
-    if (proposal.payload.kind === 'outline_patch') {
-      return (
-        mode === 'yolo' &&
-        proposal.payload.mutation.operations.length <= 10 &&
-        proposal.payload.mutation.operations.every(
-          (operation) => operation.type === 'createSection' || operation.type === 'updateSection'
-        )
-      )
-    }
-    if (proposal.payload.kind === 'generated_image_insert') return true
-    return sectionPolicyAllows(proposal.payload.mutation.operations, proposal.payload.preview, mode)
+    if (proposal === undefined || mode === 'manual') return false
+    if (mode === 'section_auto') return proposal.payload.kind !== 'brief_update'
+    return true
   }
 
   getProposal(agentSessionId: string, proposalId: string): MutationProposalRecord | undefined {
@@ -827,72 +816,6 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T
 }
 
-function sectionPolicyAllows(
-  operations: Extract<
-    ReturnType<MutationProposalService['list']>[number]['payload'],
-    { kind: 'section_patch' }
-  >['mutation']['operations'],
-  preview: ReturnType<MutationProposalService['list']>[number]['payload']['preview'],
-  mode: AgentApprovalMode
-): boolean {
-  const touched = new Set<string>()
-  let insertedCharacters = 0
-  let deletedCharacters = Math.max(0, preview.beforeText.length - preview.afterText.length)
-  let requiresYolo = false
-  for (const operation of operations) {
-    if (operation.type === 'updateBlock') {
-      touched.add(operation.blockId)
-      if (
-        operation.update.type !== undefined ||
-        operation.update.props !== undefined ||
-        operation.update.children !== undefined ||
-        !isPlainInlineContent(operation.update.content)
-      ) {
-        return false
-      }
-      insertedCharacters += inlineTextLength(operation.update.content)
-    } else if (operation.type === 'insertBlocks') {
-      if (!operation.blocks.every(isPlainTextBlock)) return false
-      insertedCharacters += operation.blocks.reduce(
-        (total, block) => total + inlineTextLength(block.content),
-        0
-      )
-    } else if (operation.type === 'removeBlocks') {
-      requiresYolo = true
-      for (const blockId of operation.blockIds) touched.add(blockId)
-    } else if (operation.type === 'moveBlocks') {
-      requiresYolo = true
-      touched.add(operation.anchorBlockId)
-      for (const blockId of operation.blockIds) touched.add(blockId)
-    } else {
-      return false
-    }
-  }
-  deletedCharacters = Math.max(deletedCharacters, 0)
-  if (mode === 'section_auto') {
-    return (
-      !requiresYolo &&
-      touched.size <= 5 &&
-      insertedCharacters <= 4_000 &&
-      deletedCharacters <= 1_000
-    )
-  }
-  return touched.size <= 20 && insertedCharacters <= 16_000 && deletedCharacters <= 8_000
-}
-
-function isPlainTextBlock(block: {
-  type: string
-  props?: unknown
-  content?: unknown
-  children?: unknown[]
-}): boolean {
-  return (
-    block.type !== 'table' &&
-    (block.children?.length ?? 0) === 0 &&
-    isPlainInlineContent(block.content)
-  )
-}
-
 function isPlainInlineContent(content: unknown): boolean {
   return (
     typeof content === 'string' ||
@@ -910,18 +833,5 @@ function isPlainInlineContent(content: unknown): boolean {
               item.styles !== null &&
               Object.keys(item.styles).length === 0))
       ))
-  )
-}
-
-function inlineTextLength(content: unknown): number {
-  if (typeof content === 'string') return content.length
-  if (!Array.isArray(content)) return 0
-  return content.reduce(
-    (total, item) =>
-      total +
-      (item !== null && typeof item === 'object' && 'text' in item && typeof item.text === 'string'
-        ? item.text.length
-        : 0),
-    0
   )
 }

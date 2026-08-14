@@ -4243,14 +4243,14 @@ function retrySkillSelection(run: AgentRunRecord | null): SkillSelection {
 
 function approvalModeLabel(mode: AgentApprovalMode): string {
   if (mode === 'manual') return 'Manual'
-  if (mode === 'section_auto') return 'Section'
+  if (mode === 'section_auto') return 'Write Auto'
   return 'YOLO'
 }
 
 function approvalModeDescription(mode: AgentApprovalMode): string {
   if (mode === 'manual') return 'Review every proposed manuscript change'
-  if (mode === 'section_auto') return 'Apply section edits automatically; review other changes'
-  return 'Apply all changes permitted by the existing policy'
+  if (mode === 'section_auto') return 'Apply writing changes automatically; review Brief and rules'
+  return 'Apply every proposed change automatically without review'
 }
 
 export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {

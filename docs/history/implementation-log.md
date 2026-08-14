@@ -360,3 +360,13 @@ maintenance without turning the active tracker back into a historical log.
   Gemini request; deterministic provider-neutral evidence is the closure gate. No hosted CI,
   signing, notarization, push, publication, or release was performed, and CP50 remains uncommitted
   pending separate authorization.
+
+## 2026-08-14
+
+- Accepted ADR 043 and completed the authorized approval-semantics refinement. `manual` is
+  unchanged; the middle mode is presented as Write Auto and applies every section, outline, and
+  image proposal without block/character limits while Brief and Writing Rules changes still pause;
+  `yolo` keeps its name and applies every proposal kind including Brief/Writing Rules changes.
+  Persisted mode values, CHECK constraints, run snapshots, and IPC contracts are unchanged (no
+  migration). New policy matrix tests and the updated session-service matrix passed (67 focused
+  tests). No commit, push, hosted CI, package, or release action was performed.

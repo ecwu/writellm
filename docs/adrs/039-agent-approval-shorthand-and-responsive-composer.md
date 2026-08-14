@@ -1,6 +1,6 @@
 # ADR 039: Agent Approval Shorthand And Responsive Composer
 
-Status: accepted for Checkpoint 48; implementation authorized
+Status: accepted for Checkpoint 48; implementation authorized; `Section` shorthand superseded by ADR 043
 Date: 2026-08-13
 
 ## Context

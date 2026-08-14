@@ -2006,10 +2006,11 @@ describe('AgentSessionService', () => {
 
   it.each([
     ['manual', 'brief_update', true, false],
-    ['section_auto', 'outline_patch', true, false],
+    ['section_auto', 'outline_patch', false, true],
     ['manual', 'section_patch', true, false],
     ['section_auto', 'section_patch', false, true],
-    ['yolo', 'brief_update', true, false]
+    ['section_auto', 'brief_update', true, false],
+    ['yolo', 'brief_update', false, true]
   ] as const)('enforces approval mode %s for %s proposals', async (mode, kind, blocks, autoApproves) => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

@@ -445,3 +445,35 @@ post-fix evidence still shows repeated Pi-local preparation loops.
 Checkpoint 49 is independently committed and no longer overlaps this work. Checkpoint 50 authorizes
 ADR/architecture amendments, product code, tests, and the specified local package gate. Commit,
 push, hosted CI, signing, notarization, publication, and release remain unauthorized.
+
+## ADR 043 Refinement: Write Auto And YOLO Approval Semantics
+
+### User outcome
+
+- `manual` is unchanged: every proposal pauses for review.
+- The middle mode is presented as **Write Auto** and applies every section, outline, and image
+  proposal automatically, with no touched-block, character-volume, block-structure, or
+  outline-operation limits. Brief and Writing Rules (`brief_update`) proposals still pause.
+- `yolo` keeps its name and applies every proposal kind automatically, including Brief/Writing
+  Rules changes.
+
+### Scope
+
+- `MainAgentTools.shouldAutoApprove` reduced to the three mode rules; the per-mode ceilings and
+  the section-operation policy helper are removed.
+- Persisted values (`manual`, `section_auto`, `yolo`), CHECK constraints, run snapshots, and IPC
+  contracts are unchanged; no migration. Write Auto is the presentation name of `section_auto`.
+- Composer/settings labels and menu descriptions updated; the focused E2E approval-menu
+  expectations updated to match.
+
+### Local evidence
+
+- New `src/main/agent/tools-approval-policy.test.ts` covers the full mode-by-kind matrix,
+  including Brief/Writing Rules remaining manual in Write Auto and auto-applying in YOLO.
+- The session-service approval matrix cases were updated to the new semantics; both focused
+  suites passed (67 tests).
+
+### Explicit exclusions
+
+No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
+signing, notarization, publication, or release action was authorized or performed.

@@ -626,12 +626,12 @@ test(
       ).toBeVisible()
       await expect(
         launched.page.getByRole('menuitemradio', {
-          name: /Section Apply section edits automatically; review other changes/
+          name: /Write Auto Apply writing changes automatically; review Brief and rules/
         })
       ).toBeVisible()
       await expect(
         launched.page.getByRole('menuitemradio', {
-          name: /YOLO Apply all changes permitted by the existing policy/
+          name: /YOLO Apply every proposed change automatically without review/
         })
       ).toBeVisible()
       if (screenshotDirectory !== undefined) {

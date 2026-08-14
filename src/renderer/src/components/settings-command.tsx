@@ -421,7 +421,7 @@ function GeneralSettings({
               }}
             >
               <ToggleGroupItem value='manual'>Manual</ToggleGroupItem>
-              <ToggleGroupItem value='section_auto'>Section auto</ToggleGroupItem>
+              <ToggleGroupItem value='section_auto'>Write Auto</ToggleGroupItem>
               <ToggleGroupItem value='yolo'>YOLO</ToggleGroupItem>
             </ToggleGroup>
           </Field>

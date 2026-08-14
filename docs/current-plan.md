@@ -125,6 +125,15 @@ preflight failures and no unauthorized section mutation. At the user's direction
 request is not part of CP50 verification. The worktree still preserves the unrelated local settings
 and section editor changes; CP50 remains uncommitted pending separate authorization.
 
+On 2026-08-14 the user accepted ADR 043 and authorized one further refinement after hands-on use
+showed the automatic approval modes still paused on routine edits. `manual` is unchanged; the
+middle mode is presented as Write Auto and now applies every section, outline, and image proposal
+without block or character limits while Brief and Writing Rules changes still pause; `yolo` keeps
+its name and applies every proposal kind including Brief/Writing Rules changes. The persisted mode
+values, CHECK constraints, run snapshots, and IPC contracts are unchanged, so no migration was
+required. Focused policy and session tests passed. No commit, push, hosted CI, package, or release
+action was authorized.
+
 ## Completed baseline
 
 - Checkpoint 24: Main-authoritative, deterministic whole-manuscript native and Markdown export,
