@@ -827,15 +827,32 @@ export class MutationProposalService {
       if (payload.kind !== 'generated_image_insert') {
         throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
       }
-      const section = requireSection(database, payload.mutation.sectionId)
-      if (section.current_revision_id !== payload.mutation.baseRevisionId)
-        throw staleBase('section')
+      const section = database
+        .prepare('SELECT * FROM sections WHERE section_id = ?')
+        .get(payload.mutation.sectionId) as SectionTable | undefined
+      if (section === undefined || section.deleted_at !== null) {
+        // A removed target must resolve the proposal instead of throwing: a throw
+        // leaves the proposal pending and deadlocks the review wait.
+        return {
+          decision: this.#recordRefreshConflict(
+            database,
+            row,
+            'target_missing',
+            'The proposal target is no longer available'
+          )
+        }
+      }
+      if (section.current_revision_id !== payload.mutation.baseRevisionId) {
+        return { decision: this.#refreshGeneratedImageProposal(database, row, payload, section) }
+      }
       const revision = requireRevision(database, payload.mutation.baseRevisionId)
       const document = blockNoteDocumentSchema.parse(JSON.parse(revision.content_json))
       if (payload.mutation.anchor !== null) {
         verifyBlockPrecondition(document, payload.mutation.anchor)
       }
-      if (payload.mutation.assetId !== null) return { row, payload, needsGeneration: false }
+      if (payload.mutation.assetId !== null) {
+        return { decision: null, row, payload, needsGeneration: false }
+      }
       const now = this.#now().toISOString()
       const changed = database
         .prepare(
@@ -850,8 +867,25 @@ export class MutationProposalService {
           'Image proposal is no longer pending'
         )
       }
-      return { row, payload, needsGeneration: true }
+      return { decision: null, row, payload, needsGeneration: true }
     })
+    if (prepared.decision !== null) {
+      if (prepared.decision.outcome === 'refresh_required') {
+        this.options.log.info(
+          {
+            event: 'agent.image_refresh.refresh_required',
+            proposalId,
+            replacementProposalId: prepared.decision.proposal.proposalId,
+            agentSessionId
+          },
+          'Stale generated image proposal refreshed for review'
+        )
+      }
+      return approveMutationProposalResultSchema.parse({
+        ...prepared.decision,
+        sectionChanged: null
+      })
+    }
 
     let payload = prepared.payload
     if (prepared.needsGeneration) {
@@ -1025,7 +1059,19 @@ export class MutationProposalService {
       if (currentPayload.kind !== 'generated_image_insert') {
         throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
       }
-      const section = requireSection(database, currentPayload.mutation.sectionId)
+      const section = database
+        .prepare('SELECT * FROM sections WHERE section_id = ?')
+        .get(currentPayload.mutation.sectionId) as SectionTable | undefined
+      if (section === undefined || section.deleted_at !== null) {
+        // A removed target must resolve the proposal instead of throwing: a throw
+        // leaves the proposal pending and deadlocks the review wait.
+        return this.#recordRefreshConflict(
+          database,
+          row,
+          'target_missing',
+          'The proposal target is no longer available'
+        )
+      }
       if (section.current_revision_id !== currentPayload.mutation.baseRevisionId) {
         return this.#refreshGeneratedImageProposal(database, row, currentPayload, section)
       }
@@ -1402,7 +1448,14 @@ export class MutationProposalService {
                 rejected_reason = ?, updated_at = ?
           WHERE mutation_proposal_id = ? AND status IN ('pending', 'generating')`
       )
-      .run(now, 'A refreshed proposal reuses the generated asset', now, row.mutation_proposal_id)
+      .run(
+        now,
+        payload.mutation.assetId === null
+          ? 'A refreshed proposal replaces this outdated proposal'
+          : 'A refreshed proposal reuses the generated asset',
+        now,
+        row.mutation_proposal_id
+      )
     const previousProposal = proposalFromRow(
       database
         .prepare('SELECT * FROM mutation_proposals WHERE mutation_proposal_id = ?')
@@ -2901,8 +2954,8 @@ function updateTerminalProposal(
   const changed = database
     .prepare(
       `UPDATE mutation_proposals
-          SET status = ?, decision_at = ?, rejected_reason = ?, updated_at = ?
-        WHERE mutation_proposal_id = ? AND status = 'pending'`
+          SET status = ?, decision_at = COALESCE(decision_at, ?), rejected_reason = ?, updated_at = ?
+        WHERE mutation_proposal_id = ? AND status IN ('pending', 'generating')`
     )
     .run(status, now, reason.slice(0, 4_096), now, proposalId)
   if (changed.changes !== 1) {

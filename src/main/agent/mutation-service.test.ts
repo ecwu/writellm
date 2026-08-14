@@ -1233,11 +1233,111 @@ describe('MutationProposalService', () => {
     value.database.close()
   })
 
-  it('rejects a stale image base before calling the billable gateway', async () => {
+  it('refreshes a stale image base before calling the billable gateway', async () => {
     const value = await fixture()
     const opened = value.persistence.openEditor().activeSection
     if (opened === null) throw new Error('Missing section')
     const snapshot = new AgentContextBuilder(value.manuscript).capture('stale-image-snapshot', {
+      activeSectionId: opened.section.sectionId,
+      selectedBlockIds: [],
+      activeBlockId: null
+    })
+    const generateImage = vi.fn(async () => {
+      seedImageModelRequest(value.database)
+      return {
+        dataBase64: png(64, 36).toString('base64'),
+        mimeType: 'image/png',
+        effectiveImageSize: '1K',
+        modelRequestId: imageModelRequestId,
+        metadata: {
+          usage: {
+            inputTokens: 10,
+            outputTokens: 20,
+            cacheReadTokens: null,
+            cacheWriteTokens: null,
+            estimatedCostUsdMicros: null
+          },
+          responseIds: ['gemini-response'],
+          retryCount: 0,
+          providerModelId: 'gemini-3.1-flash-image'
+        }
+      }
+    })
+    const service = new MutationProposalService({
+      projectId: value.manifest.projectId,
+      projectSessionId,
+      database: value.database,
+      manuscript: value.manuscript,
+      editorPersistence: value.persistence,
+      manuscriptAssets: new ManuscriptAssetService({
+        projectRoot: value.projectRoot,
+        projectId: value.manifest.projectId,
+        database: value.database,
+        log
+      }),
+      modelExecution: { generateImage } as never,
+      flushForMutation: async () => undefined,
+      log
+    })
+    const proposed = service.proposeGeneratedImage(
+      {
+        sectionId: opened.section.sectionId,
+        anchor: null,
+        placement: 'end',
+        prompt: 'An image that must not be billed after a stale edit',
+        altText: 'Stale image',
+        caption: '',
+        aspectRatio: 'auto',
+        imageSize: '1K'
+      },
+      snapshot,
+      value.toolCall('generate_image')
+    )
+    const edited = await value.persistence.save({
+      projectSessionId,
+      sectionId: opened.section.sectionId,
+      baseRevisionId: opened.revision.sectionRevisionId,
+      baseContentHash: opened.revision.contentHash,
+      document: [paragraph('new-base', 'Changed before approval')]
+    })
+
+    const refreshed = await service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: proposed.proposalId
+    })
+    expect(refreshed).toMatchObject({
+      outcome: 'refresh_required',
+      previousProposal: { status: 'superseded' },
+      proposal: { status: 'pending', kind: 'generated_image_insert' }
+    })
+    expect(generateImage).not.toHaveBeenCalled()
+    if (
+      refreshed.outcome !== 'refresh_required' ||
+      refreshed.proposal.payload.kind !== 'generated_image_insert'
+    ) {
+      throw new Error('Expected a refreshed image proposal')
+    }
+    expect(refreshed.proposal.payload.mutation).toMatchObject({
+      baseRevisionId: edited.revision.sectionRevisionId,
+      assetId: null
+    })
+
+    const applied = await service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: refreshed.proposal.proposalId
+    })
+    expect(applied).toMatchObject({ outcome: 'applied', proposal: { status: 'applied' } })
+    expect(generateImage).toHaveBeenCalledTimes(1)
+    value.database.close()
+  })
+
+  it('resolves an image proposal as conflicted when its section was removed before approval', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const snapshot = new AgentContextBuilder(value.manuscript).capture('missing-image-snapshot', {
       activeSectionId: opened.section.sectionId,
       selectedBlockIds: [],
       activeBlockId: null
@@ -1256,6 +1356,7 @@ describe('MutationProposalService', () => {
         log
       }),
       modelExecution: { generateImage } as never,
+      flushForMutation: async () => undefined,
       log
     })
     const proposed = service.proposeGeneratedImage(
@@ -1263,8 +1364,8 @@ describe('MutationProposalService', () => {
         sectionId: opened.section.sectionId,
         anchor: null,
         placement: 'end',
-        prompt: 'An image that must not be billed after a stale edit',
-        altText: 'Stale image',
+        prompt: 'An image whose target section is removed before approval',
+        altText: 'Removed target image',
         caption: '',
         aspectRatio: 'auto',
         imageSize: '1K'
@@ -1272,16 +1373,22 @@ describe('MutationProposalService', () => {
       snapshot,
       value.toolCall('generate_image')
     )
-    await value.persistence.save({
+    value.database.immediate((database) =>
+      database
+        .prepare('UPDATE sections SET deleted_at = ? WHERE section_id = ?')
+        .run('2026-07-21T00:02:00.000Z', opened.section.sectionId)
+    )
+
+    const result = await service.approve({
       projectSessionId,
-      sectionId: opened.section.sectionId,
-      baseRevisionId: opened.revision.sectionRevisionId,
-      baseContentHash: opened.revision.contentHash,
-      document: [paragraph('new-base', 'Changed before approval')]
+      agentSessionId,
+      proposalId: proposed.proposalId
     })
-    await expect(
-      service.approve({ projectSessionId, agentSessionId, proposalId: proposed.proposalId })
-    ).rejects.toMatchObject({ code: 'stale_base' })
+    expect(result).toMatchObject({
+      outcome: 'conflict',
+      conflict: { code: 'target_missing' },
+      proposal: { status: 'conflicted' }
+    })
     expect(generateImage).not.toHaveBeenCalled()
     value.database.close()
   })
