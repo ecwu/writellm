@@ -2,7 +2,7 @@
 
 Status: Phase 12 Checkpoint 49 is implemented and verified. Phase 11 remains complete and
 verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-13
+Recorded: 2026-08-14
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -39,6 +39,30 @@ per-candidate audit are recorded in
 No hosted CI, signing, notarization, tag, or release promotion has run.
 
 ## Current authorized work
+
+On 2026-08-14 the user opened the `cordis-reform` branch for code-first architecture
+pre-research into Cordis and DeepSeek Harness. The frozen source-study snapshot lives in
+[`audits/2026-08-14-cordis-and-deepseek-harness-prestudy.md`](audits/2026-08-14-cordis-and-deepseek-harness-prestudy.md).
+The resulting proposed replacement is recorded in
+[`adrs/045-isolated-cordis-agent-replacement.md`](adrs/045-isolated-cordis-agent-replacement.md),
+[`cordis-reform/target-architecture.md`](cordis-reform/target-architecture.md), and
+[`cordis-reform/implementation-plan.md`](cordis-reform/implementation-plan.md), with per-stage
+Chinese detail documents under
+[`cordis-reform/stages/`](cordis-reform/stages/README.md) (R0-R9, source-checked against the
+pinned cordis fork and DeepSeek Harness commits). The user-fixed
+direction is a greenfield Cordis engine, isolated selectable Pi/Cordis runtimes during transition,
+no session/event compatibility or conversion, and eventual Pi deletion. The product objective is
+now explicitly broader than an engine swap: structured prompt/context contributions, trusted
+transactional content/config reload, plugin diagnostics, a durable request trajectory, and a local
+cross-process debug trace are first-class target capabilities. Arbitrary external package loading and
+development code HMR remain separate trust decisions. The detailed architecture still requires
+explicit acceptance before R1; no dependency, migration, implementation checkpoint, plugin
+marketplace, dynamic code-execution surface, or Pi-data deletion is authorized yet. A same-day
+design review revised the proposal in place: composition trust boundaries are per process with a
+core-only Renderer runtime, the span-trace model is deferred to a separate decision, composer-UX
+and quick-action parity rows were added, R4 is flagged as the highest-blast-radius stage, and plan
+mode plus subagents are excluded while goals and structured user questions are reserved as deferred
+post-parity extension stages.
 
 Phase 12 is authorized as a use-and-fix phase with one explicitly agreed checkpoint at a time.
 Checkpoint 48 is implemented under accepted ADR 038: the Agent composer now centers Add, truthful
