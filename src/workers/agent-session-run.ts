@@ -27,8 +27,8 @@ import {
   parseRetryAfterMs
 } from './agent-provider-stream'
 import {
+  AgentContextBudgetController,
   agentMessageBudget,
-  boundAgentContextByTokens,
   estimateAgentTokens
 } from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
@@ -51,7 +51,13 @@ export async function runAgentSession(
   onEvent: (event: AgentRuntimeEvent) => void,
   registerControl: (control: AgentSessionRunControl) => void,
   externalSignal: AbortSignal | undefined,
-  toolPort: MessagePortMain
+  toolPort: MessagePortMain,
+  log?: (
+    level: 'info' | 'warn',
+    event: string,
+    message: string,
+    fields?: Record<string, unknown>
+  ) => void
 ): Promise<AgentSessionRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
   const runtimeCredential =
@@ -75,6 +81,32 @@ export async function runAgentSession(
     modelLimits,
     maxOutputTokens: request.maxOutputTokens
   })
+  const contextBudget = new AgentContextBudgetController(
+    agentMessageBudget(request.maxOutputTokens, modelLimits),
+    (event) => {
+      const batchHash = createHash('sha256').update(event.batchKey).digest('hex')
+      if (event.type === 'active_batch_retry') {
+        log?.(
+          'warn',
+          'agent.context.active_batch_retry',
+          'Retrying an oversized Agent read batch',
+          {
+            agentRunId: request.agentRunId,
+            batchHash,
+            toolNames: event.toolNames,
+            maxAttempts: 1
+          }
+        )
+        return
+      }
+      log?.(
+        'info',
+        'agent.context.active_batch_recovered',
+        'Recovered Agent context with a smaller read batch',
+        { agentRunId: request.agentRunId, batchHash }
+      )
+    }
+  )
   const modelRequestIds = [request.modelRequestId]
   const systemPromptByModelRequestId = new Map<string, string>()
   interface QueueEntry {
@@ -138,13 +170,7 @@ export async function runAgentSession(
     },
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
-    transformContext: (messages) =>
-      Promise.resolve(
-        boundAgentContextByTokens(
-          messages,
-          agentMessageBudget(request.maxOutputTokens, modelLimits)
-        )
-      ),
+    transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
     prepareNextTurnWithContext: async ({ context, toolResults }) => {
       if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
@@ -541,6 +567,8 @@ export async function runAgentSession(
   }
 
   if (runError !== undefined) throw runError
+  const contextError = contextBudget.terminalError()
+  if (contextError !== null) throw contextError
 
   if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
   if (lastAssistant.stopReason === 'error') {

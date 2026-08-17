@@ -1,7 +1,7 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 50 is complete under accepted ADR 042
-Recorded: 2026-08-13
+Status: Checkpoint 51 is complete and verified under accepted ADR 046
+Recorded: 2026-08-17
 
 ## Purpose
 
@@ -509,3 +509,64 @@ signing, notarization, publication, or release action was authorized or performe
 
 No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
 signing, notarization, publication, or release action was authorized or performed.
+
+## Checkpoint 51: Pi Active Tool-Loop Context Recovery
+
+### User outcome
+
+- A long editing request keeps its newest readable section body and concurrency identifiers in the
+  next model call instead of replacing them with an unusable projection.
+- If one read is too large, WriteLLM silently asks the Agent to read one smaller range once. The
+  Agent does not tell the user to refresh, claim that the manuscript is missing, or guess omitted
+  hashes.
+- Only final exhaustion is visible: earlier confirmed changes remain, untouched content was not
+  force-edited, and the user is advised to continue one section or smaller range at a time.
+
+### Scope and implementation
+
+- [x] Accept ADR 046 and preserve the current user request plus atomic assistant/tool-result
+  batches in the Pi provider-facing context.
+- [x] Retain the newest fitting read batch in full; project only older completed reads through a
+  typed `historical_projection` with no mutation authority; never project mutation/effect results.
+- [x] Add one run-local `active_batch_retry` path for a smaller sequential read and terminate a
+  second oversized batch as `tool_batch_context_exhausted` before another provider call.
+- [x] Update Agent policy for sequential body consumption, single retry, and truthful handling of
+  projections without editor-refresh or manuscript-loss claims.
+- [x] Propagate the terminal code through the existing Worker/Main contract and render an
+  actionable failure detail only on final exhaustion; successful recovery remains log-only.
+- [x] Preserve the full transcript, durable events, checkpoint markers, registered tools, IPC
+  surface, database schema, and process boundaries.
+
+### Acceptance gate
+
+- [x] Focused unit and worker tests cover atomic pairing, current-user anchoring, newest-batch
+  retention, historical privacy, parallel results, mutation exclusion, one successful smaller-read
+  recovery, terminal exhaustion, and no mutation replay.
+- [x] Main/Renderer tests cover typed error propagation, no provider-overflow restart, the exact
+  final user guidance, and absence of successful-recovery timeline noise.
+- [x] `pnpm check:fast`, `pnpm check:electron`, `pnpm check:e2e`, and `pnpm check:package` pass,
+  including the long-document Real-Electron regression.
+- [x] The delivery branch was created from `origin/main`; final delivery requires a fresh remote
+  comparison, one intentional commit, a fast-forward of local `main`, and a non-force push.
+
+### Local evidence
+
+- Seven focused test files passed 120 tests. The prompt-budget review passed its two focused tests
+  after accepting the intentional policy-size change from 10,421 to 10,963 characters.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 180 files and 956 tests with the three
+  benchmark suites skipped, followed by the production build.
+- The focused long-document Real-Electron scenario proved RQ1/RQ2 historical projection while RQ3
+  body text, `blockId`, `blockHash`, and `revisionId` remained complete. The full E2E gate passed
+  40/40 scenarios with no flaky, skipped, or failed result.
+- The recovery verifier passed all 25 fixtures from 23 sources. `pnpm check:package` verified
+  Electron 43.1.0 / ABI 148, the no-Team-ID macOS arm64 App, all 12 packaged smoke scenarios, and
+  28/28 packaged E2E scenarios including the long-document regression.
+- The accepted local environment reports Node 26.7.0 against the repository's Node 24 engine
+  range; pnpm 11.17.0, Electron ABI/native checks, every required gate, and the app build completed.
+
+### Explicit exclusions
+
+Checkpoint 51 adds no model-visible tool, IPC method, database migration, dependency, durable job,
+worker role, hosted CI, signed release, notarization, or publication flow. The package gate's local
+DMG/ZIP inspection artifacts are ignored and are not committed or published. Delivery is one
+intentional commit fast-forwarded directly to `origin/main`; force push is prohibited.

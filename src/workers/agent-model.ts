@@ -290,7 +290,8 @@ async function handleSessionRun(
             active.control = control
           },
           controller.signal,
-          toolPort
+          toolPort,
+          workerLog
         )
         response = {
           type: 'result',
@@ -340,10 +341,14 @@ function serializeError(error: Error): {
   message: string
   stack?: string
   httpStatus?: number
-  code?: 'context_overflow'
+  code?: 'context_overflow' | 'tool_batch_context_exhausted'
 } {
   const httpStatus = findHttpStatus(error)
-  const code = isContextOverflowError(error) ? 'context_overflow' : undefined
+  const code = hasErrorCode(error, 'tool_batch_context_exhausted')
+    ? 'tool_batch_context_exhausted'
+    : isContextOverflowError(error)
+      ? 'context_overflow'
+      : undefined
   const message = safeDiagnosticMessage(error, httpStatus, code)
   const stack = safeStack(error.stack, message)
   return {
@@ -358,9 +363,12 @@ function serializeError(error: Error): {
 function safeDiagnosticMessage(
   error: Error,
   httpStatus?: number,
-  code?: 'context_overflow'
+  code?: 'context_overflow' | 'tool_batch_context_exhausted'
 ): string {
   if (code === 'context_overflow') return 'Agent provider context window exceeded'
+  if (code === 'tool_batch_context_exhausted') {
+    return 'The latest Agent read batch still exceeds context after one smaller-read recovery'
+  }
   if (error.name === 'ProviderTimeoutError') return 'Agent provider request timed out'
   if (error.name === 'ProviderRetriesExhaustedError') {
     return 'Agent provider request failed after 5 attempts'
@@ -369,6 +377,12 @@ function safeDiagnosticMessage(
   return httpStatus === undefined
     ? 'Agent model request failed'
     : `Agent model request failed with HTTP ${httpStatus}`
+}
+
+function hasErrorCode(error: unknown, expected: string, depth = 0): boolean {
+  if (depth > 6 || error === null || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; cause?: unknown }
+  return candidate.code === expected || hasErrorCode(candidate.cause, expected, depth + 1)
 }
 
 function isContextOverflowError(error: unknown, depth = 0): boolean {

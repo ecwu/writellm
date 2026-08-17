@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 49 is complete and verified. Phase 11 remains complete and verified.
+Status: Phase 12 Checkpoint 51 is implemented and verified. Phase 11 remains complete and verified.
 Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-13
+Recorded: 2026-08-17
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -72,6 +72,9 @@ Status markers:
 - [x] Checkpoint 50: audit and harden all 20 model-visible Agent tool contracts with Pi-style
   one-way schema compatibility, tool-aware recovery, compact descriptions, approval-continuation
   scope discipline, and safe failure presentation under accepted ADR 042.
+- [x] Checkpoint 51: preserve the current Pi assistant/tool-result batch across provider-context
+  pruning, project only completed older read batches, and allow one structured smaller-read
+  recovery before a truthful terminal context-capacity failure under ADR 046.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

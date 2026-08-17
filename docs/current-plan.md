@@ -1,8 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 49 is implemented and verified. Phase 11 remains complete and
-verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-13
+Status: Phase 12 Checkpoint 51 is implemented and verified under accepted ADR 046. Phase 11
+remains complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
+disabled.
+Recorded: 2026-08-17
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -39,6 +40,18 @@ per-candidate audit are recorded in
 No hosted CI, signing, notarization, tag, or release promotion has run.
 
 ## Current authorized work
+
+On 2026-08-17 the user accepted ADR 046 and authorized Checkpoint 51 plus direct fast-forward
+delivery to `origin/main`. The current Pi runtime now preserves the current user request and atomic
+assistant/tool-result batches in provider context, projects only completed older reads without
+mutation authority, and permits one silent smaller sequential read before a truthful terminal
+failure. Full transcripts, durable events, mutation safety, tools, IPC, database, and process
+boundaries remain unchanged. Focused tests, `check:fast`, 180 Electron-hosted files / 956 tests
+with three benchmark skips plus production build, 40/40 full Real-Electron scenarios, 25 recovery
+fixtures, 12 packaged smoke scenarios, and 28/28 packaged E2E scenarios passed. The no-identity
+package gate verified that the macOS arm64 App has no Apple Team ID; its local artifacts remain
+ignored and unpublished. Delivery must remain one commit based on the latest `origin/main`, exclude
+every `cordis-reform` commit, fast-forward local `main`, and use no force push.
 
 Phase 12 is authorized as a use-and-fix phase with one explicitly agreed checkpoint at a time.
 Checkpoint 48 is implemented under accepted ADR 038: the Agent composer now centers Add, truthful

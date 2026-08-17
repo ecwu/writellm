@@ -632,11 +632,27 @@ export function agentTerminalLabel(code: string): string {
       return 'Model request could not be started'
     case 'agent_context_failed':
       return 'Agent context could not be built'
+    case 'current_turn_too_large':
+      return 'The request is too large for this model context'
+    case 'context_overflow':
+      return 'The model context limit was exceeded'
+    case 'context_overflow_after_activity':
+      return 'The model context limit was exceeded after work began'
+    case 'tool_batch_context_exhausted':
+      return 'Reading context was too large to continue safely'
     case 'run_failed':
       return 'Run failed'
     default:
       return 'Run interrupted'
   }
+}
+
+export function agentTerminalDetail(code: string): string | null {
+  if (code !== 'tool_batch_context_exhausted') return null
+  return (
+    'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; ' +
+    'the remaining content was not force-edited. Continue with one section or a smaller range.'
+  )
 }
 
 function terminalFromEvent(

@@ -463,6 +463,173 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
+  it('uses one Pi tool-loop turn to recover an oversized active read with a smaller read', async () => {
+    const bodies: unknown[] = []
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        fetchAttempt += 1
+        const body = JSON.parse(String(init?.body))
+        bodies.push(body)
+        if (fetchAttempt === 1) {
+          return toolCallResponse('read-rq3-large', 'read_section', {
+            sectionId: request.agentSessionId,
+            limit: 20
+          })
+        }
+        if (fetchAttempt === 2) {
+          return toolCallResponse('read-rq3-small', 'read_section', {
+            sectionId: request.agentSessionId,
+            limit: 5
+          })
+        }
+        return completionResponse('RQ3 continued safely', 'response-after-smaller-read')
+      })
+    )
+    const { port1, port2 } = createFakeMessageChannel()
+    let toolCount = 0
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      toolCount += 1
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: sectionReadResult(
+          toolCount === 1 ? 'oversized RQ3 body '.repeat(2_000) : 'bounded RQ3 body'
+        )
+      })
+    })
+    const events: AgentRuntimeEvent[] = []
+    const logs: string[] = []
+    let control: AgentSessionRunControl | undefined
+    let authorizationIndex = 0
+    const modelRequestIds = [
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc417'
+    ]
+    await runAgentSession(
+      {
+        ...request,
+        modelLimits: {
+          contextWindowTokens: 21_000,
+          inputLimitTokens: null,
+          outputLimitTokens: 100,
+          source: 'manual_override',
+          catalogModelKey: null,
+          resolvedAt: null
+        }
+      },
+      (event) => {
+        events.push(event)
+        if (event.type !== 'model_call_requested') return
+        const modelRequestId = modelRequestIds[authorizationIndex]
+        authorizationIndex += 1
+        if (modelRequestId === undefined) throw new Error('Unexpected model authorization')
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId,
+          systemPrompt: request.systemPrompt
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never,
+      (_level, event) => logs.push(event)
+    )
+
+    expect(fetchAttempt).toBe(3)
+    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toEqual([])
+    expect(toolCount).toBe(2)
+    expect(JSON.stringify(bodies[1])).toContain('active_batch_retry')
+    expect(JSON.stringify(bodies[1])).toContain('maxConcurrentBodyReads')
+    expect(JSON.stringify(bodies[1])).not.toContain('oversized RQ3 body')
+    expect(JSON.stringify(bodies[2])).toContain('bounded RQ3 body')
+    expect(JSON.stringify(bodies[2])).toContain('block-rq3')
+    expect(JSON.stringify(bodies[2])).toContain('b'.repeat(64))
+    expect(logs).toEqual([
+      'agent.context.active_batch_retry',
+      'agent.context.active_batch_recovered'
+    ])
+    expect(events.filter((event) => event.type === 'model_call_requested')).toHaveLength(2)
+  })
+
+  it('fails before a third provider call when the smaller active read is still oversized', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return toolCallResponse(
+          fetchAttempt === 1 ? 'read-large-first' : 'read-large-second',
+          'read_section',
+          { sectionId: request.agentSessionId, limit: fetchAttempt === 1 ? 20 : 5 }
+        )
+      })
+    )
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: sectionReadResult('still oversized '.repeat(2_000))
+      })
+    })
+    let control: AgentSessionRunControl | undefined
+    let authorizationIndex = 0
+    const modelRequestIds = [
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc417'
+    ]
+    const running = runAgentSession(
+      {
+        ...request,
+        modelLimits: {
+          contextWindowTokens: 21_000,
+          inputLimitTokens: null,
+          outputLimitTokens: 100,
+          source: 'manual_override',
+          catalogModelKey: null,
+          resolvedAt: null
+        }
+      },
+      (event) => {
+        if (event.type !== 'model_call_requested') return
+        const modelRequestId = modelRequestIds[authorizationIndex]
+        authorizationIndex += 1
+        if (modelRequestId === undefined) throw new Error('Unexpected model authorization')
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId,
+          systemPrompt: request.systemPrompt
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    await expect(running).rejects.toMatchObject({
+      code: 'tool_batch_context_exhausted'
+    })
+    expect(fetchAttempt).toBe(2)
+  })
+
   it('projects a safe preflight diagnostic and continues the turn after invalid arguments', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(
@@ -894,6 +1061,44 @@ function knowledgeHit() {
     snippet: 'Evidence',
     headingPath: [],
     sourceBlockIds: ['source-block']
+  }
+}
+
+function sectionReadResult(text: string) {
+  const chunks = text.match(/[\s\S]{1,8000}/gu) ?? ['']
+  return {
+    section: {
+      sectionId: request.agentSessionId,
+      parentSectionId: null,
+      position: 0,
+      level: 1,
+      title: 'RQ3',
+      objective: null,
+      status: 'drafting',
+      currentRevisionId: request.modelRequestId,
+      wordCount: 10,
+      characterCount: text.length
+    },
+    revisionId: request.modelRequestId,
+    blocks: chunks.map((chunk, index) => ({
+      blockId: index === 0 ? 'block-rq3' : `block-rq3-${index}`,
+      blockType: 'paragraph',
+      parentBlockId: null,
+      depth: 0,
+      ordinal: index,
+      text: chunk,
+      textTruncated: false,
+      blockHash: 'b'.repeat(64),
+      childBlockIds: [],
+      hasRichContent: false
+    })),
+    canonicalBlock: null,
+    canonicalFragment: null,
+    fragmentOffset: null,
+    nextFragmentOffset: null,
+    missingBlockIds: [],
+    nextCursor: null,
+    totalBlocks: chunks.length
   }
 }
 

@@ -1293,6 +1293,43 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('records an exhausted active read batch without replaying prior tool activity', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn()
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Continue one bounded RQ3 section.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const error: Error & { code?: string } = new Error(
+      'The latest Agent read batch still exceeds context after one smaller-read recovery'
+    )
+    error.name = 'AgentToolBatchContextExhaustedError'
+    error.code = 'tool_batch_context_exhausted'
+    runtime.active(started.agentRunId).reject(error)
+    await started.completion
+
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'tool_batch_context_exhausted'
+    })
+    expect(
+      service.listEvents(session.agentSessionId).filter((event) => event.type === 'run_interrupted')
+    ).toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          status: 'failed',
+          code: 'tool_batch_context_exhausted'
+        })
+      })
+    )
+    database.close()
+  })
+
   it('records an explicit user stop and blocks queueing after cancellation', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

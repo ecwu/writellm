@@ -1069,6 +1069,15 @@ with deterministic complete-turn and typed-tool-fact reduction. Provider overflo
 only before assistant, tool, proposal, or other external activity; overflow after activity is never
 replayed. See ADR 019.
 
+Within an active Pi request, provider-context transforms preserve the current user message and each
+assistant tool-call message with all of its consecutive tool results as one atomic batch. The newest
+batch that fits remains complete; only older completed read batches may become typed,
+non-authoritative historical projections, and mutation/effect results are never projected. If the
+newest read batch alone is too large, the ordinary Pi loop receives one typed request for a smaller,
+sequential read. A second oversized batch terminates as `tool_batch_context_exhausted` before
+another provider call, without replaying any mutation or side effect. The full runtime transcript
+and durable events remain unchanged; successful recovery is structured-log-only. See ADR 046.
+
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
 ### Agent composer interaction

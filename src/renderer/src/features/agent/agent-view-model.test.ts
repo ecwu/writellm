@@ -5,6 +5,7 @@ import {
   aggregateAgentUsage,
   agentReviewState,
   agentToolActivityLabel,
+  agentTerminalDetail,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
@@ -793,9 +794,23 @@ describe('Agent renderer view model', () => {
       'Model request could not be started'
     )
     expect(agentTerminalLabel('agent_context_failed')).toBe('Agent context could not be built')
+    expect(agentTerminalLabel('current_turn_too_large')).toBe(
+      'The request is too large for this model context'
+    )
+    expect(agentTerminalLabel('context_overflow')).toBe('The model context limit was exceeded')
+    expect(agentTerminalLabel('context_overflow_after_activity')).toBe(
+      'The model context limit was exceeded after work began'
+    )
+    expect(agentTerminalLabel('tool_batch_context_exhausted')).toBe(
+      'Reading context was too large to continue safely'
+    )
     expect(agentTerminalLabel('run_failed')).toBe('Run failed')
     expect(agentTerminalLabel('run_interrupted')).toBe('Run interrupted')
     expect(agentTerminalLabel('unknown_code')).toBe('Run interrupted')
+    expect(agentTerminalDetail('tool_batch_context_exhausted')).toBe(
+      'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; the remaining content was not force-edited. Continue with one section or a smaller range.'
+    )
+    expect(agentTerminalDetail('context_overflow')).toBeNull()
   })
 })
 

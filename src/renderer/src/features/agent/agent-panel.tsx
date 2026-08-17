@@ -145,6 +145,7 @@ import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker
 import {
   aggregateAgentUsage,
   agentToolActivityLabel,
+  agentTerminalDetail,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
@@ -3528,6 +3529,7 @@ function TimelineItem(props: {
     if (item.terminal.outcome === 'awaiting_review') {
       return <RunDurationMarker durationMs={item.terminal.durationMs} />
     }
+    const terminalDetail = agentTerminalDetail(item.terminal.code)
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -3537,11 +3539,16 @@ function TimelineItem(props: {
             <CircleStop className='text-destructive' />
           )}
         </MarkerIcon>
-        <MarkerContent>
-          {item.terminal.code === 'user_stopped'
-            ? 'Stopped'
-            : agentTerminalLabel(item.terminal.code)}{' '}
-          · after {formatAgentDuration(item.terminal.durationMs)}
+        <MarkerContent className={terminalDetail === null ? undefined : 'flex flex-col gap-1'}>
+          <span>
+            {item.terminal.code === 'user_stopped'
+              ? 'Stopped'
+              : agentTerminalLabel(item.terminal.code)}{' '}
+            · after {formatAgentDuration(item.terminal.durationMs)}
+          </span>
+          {terminalDetail === null ? null : (
+            <span className='text-xs text-muted-foreground'>{terminalDetail}</span>
+          )}
         </MarkerContent>
       </Marker>
     )

@@ -3903,6 +3903,7 @@ type AgentRunTermination =
         | 'provider_retries_exhausted'
         | 'context_overflow'
         | 'context_overflow_after_activity'
+        | 'tool_batch_context_exhausted'
         | 'run_failed'
     }
   | { status: 'interrupted'; code: 'user_stopped' | 'project_closed' | 'run_interrupted' }
@@ -3950,6 +3951,9 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
   if (error instanceof AgentRunContextOverflowError) {
     return { status: 'failed', code: error.code }
   }
+  if (hasErrorCode(error, 'tool_batch_context_exhausted')) {
+    return { status: 'failed', code: 'tool_batch_context_exhausted' }
+  }
   if (signal.aborted) return { status: 'interrupted', code: 'run_interrupted' }
   if (
     error instanceof Error &&
@@ -3959,6 +3963,12 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
     return { status: 'interrupted', code: 'run_interrupted' }
   }
   return { status: 'failed', code: 'run_failed' }
+}
+
+function hasErrorCode(error: unknown, expected: string, depth = 0): boolean {
+  if (depth > 6 || error === null || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; cause?: unknown }
+  return candidate.code === expected || hasErrorCode(candidate.cause, expected, depth + 1)
 }
 
 function isContextOverflowError(error: unknown, depth = 0): boolean {

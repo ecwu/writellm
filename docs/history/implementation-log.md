@@ -376,3 +376,13 @@ maintenance without turning the active tracker back into a historical log.
   history), and the Renderer approval picker stays enabled during runs and review pauses. New
   mid-run and review-time mode-change tests passed in the focused suites (69 tests). No commit,
   push, hosted CI, package, or release action was performed.
+
+## 2026-08-17
+
+- Accepted ADR 046 and completed Checkpoint 51 to align Pi provider-context pruning with the active
+  tool loop: current user anchoring, atomic assistant/result batches, full newest-read retention,
+  non-authoritative projection of completed older reads, and one smaller sequential recovery before
+  a no-replay terminal failure. Focused/static/Electron gates, 40/40 full Real-Electron scenarios,
+  25 recovery fixtures, 12 packaged smoke scenarios, and 28/28 packaged E2E scenarios passed. The
+  authorized delivery is one feature commit fast-forwarded to `origin/main`, explicitly excluding
+  `cordis-reform`; package artifacts remain ignored and unpublished.

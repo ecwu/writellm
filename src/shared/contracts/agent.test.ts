@@ -163,5 +163,19 @@ describe('Agent contracts', () => {
         status: 'completed'
       }).success
     ).toBe(false)
+    expect(
+      agentRuntimeMessageSchema.safeParse({
+        type: 'error',
+        requestId: ids.requestId,
+        projectSessionId: ids.projectSessionId,
+        agentSessionId: ids.agentSessionId,
+        agentRunId: ids.agentRunId,
+        error: {
+          name: 'AgentToolBatchContextExhaustedError',
+          message: 'The latest Agent read batch still exceeds context',
+          code: 'tool_batch_context_exhausted'
+        }
+      }).success
+    ).toBe(true)
   })
 })

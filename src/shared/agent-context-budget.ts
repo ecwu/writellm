@@ -135,56 +135,259 @@ export function groupAgentTurns(messages: AgentMessage[]): AgentMessage[][] {
   return groups
 }
 
+type AgentContextUnit = {
+  readonly messages: AgentMessage[]
+  readonly kind: 'user' | 'assistant_batch' | 'other'
+  readonly batchKey: string | null
+  readonly projectableReadBatch: boolean
+}
+
+export type AgentContextProjectionEvent =
+  | { readonly type: 'active_batch_retry'; readonly batchKey: string; readonly toolNames: string[] }
+  | { readonly type: 'active_batch_recovered'; readonly batchKey: string }
+
+export class AgentToolBatchContextExhaustedError extends Error {
+  readonly code = 'tool_batch_context_exhausted'
+
+  constructor() {
+    super('The latest Agent read batch still exceeds context after one smaller-read recovery')
+    this.name = 'AgentToolBatchContextExhaustedError'
+  }
+}
+
+export class AgentContextBudgetController {
+  #pendingRecoveryBatchKey: string | null = null
+  #terminalError: AgentToolBatchContextExhaustedError | null = null
+
+  constructor(
+    private readonly tokenBudget: number,
+    private readonly onProjection?: (event: AgentContextProjectionEvent) => void
+  ) {}
+
+  transform(messages: AgentMessage[]): AgentMessage[] {
+    if (this.#terminalError !== null) throw this.#terminalError
+    const result = boundAgentContext(messages, this.tokenBudget)
+    if (result.activeRetryBatchKey === null) {
+      if (
+        this.#pendingRecoveryBatchKey !== null &&
+        result.latestBatchKey !== this.#pendingRecoveryBatchKey
+      ) {
+        this.onProjection?.({
+          type: 'active_batch_recovered',
+          batchKey: this.#pendingRecoveryBatchKey
+        })
+        this.#pendingRecoveryBatchKey = null
+      }
+      return result.messages
+    }
+    if (
+      this.#pendingRecoveryBatchKey !== null &&
+      this.#pendingRecoveryBatchKey !== result.activeRetryBatchKey
+    ) {
+      this.#terminalError = new AgentToolBatchContextExhaustedError()
+      throw this.#terminalError
+    }
+    if (this.#pendingRecoveryBatchKey === null) {
+      this.#pendingRecoveryBatchKey = result.activeRetryBatchKey
+      this.onProjection?.({
+        type: 'active_batch_retry',
+        batchKey: result.activeRetryBatchKey,
+        toolNames: result.activeRetryToolNames
+      })
+    }
+    return result.messages
+  }
+
+  terminalError(): AgentToolBatchContextExhaustedError | null {
+    return this.#terminalError
+  }
+}
+
 export function boundAgentContextByTokens(
   messages: AgentMessage[],
   tokenBudget: number
 ): AgentMessage[] {
-  const budget = Math.max(AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS, Math.floor(tokenBudget))
-  const groups = groupAgentTurns(messages)
-  const selected: AgentMessage[][] = []
-  let tokens = 0
-  for (const group of groups.reverse()) {
-    const groupTokens = estimateAgentTokens(group)
-    if (tokens + groupTokens <= budget) {
-      selected.push(group)
-      tokens += groupTokens
-      continue
-    }
-    if (selected.length === 0) {
-      const projected = projectReadToolResults(group)
-      const projectedTokens = estimateAgentTokens(projected)
-      if (projectedTokens <= budget) {
-        selected.push(projected)
-        tokens += projectedTokens
-        continue
-      }
-      throw new AgentCurrentTurnTooLargeError()
-    }
-  }
-  return selected.reverse().flat()
+  return boundAgentContext(messages, tokenBudget).messages
 }
 
-function projectReadToolResults(messages: AgentMessage[]): AgentMessage[] {
-  return messages.map((message) => {
+function boundAgentContext(
+  messages: AgentMessage[],
+  tokenBudget: number
+): {
+  messages: AgentMessage[]
+  activeRetryBatchKey: string | null
+  activeRetryToolNames: string[]
+  latestBatchKey: string | null
+} {
+  const budget = Math.max(AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS, Math.floor(tokenBudget))
+  const activeStart = activeRequestStart(messages)
+  const completedGroups = groupAgentTurns(messages.slice(0, activeStart))
+  const activeUnits = groupAgentMessageBatches(messages.slice(activeStart))
+  const latestBatchIndex = findLatestAssistantBatch(activeUnits)
+  const latestBatch = latestBatchIndex < 0 ? undefined : activeUnits[latestBatchIndex]
+  const requiredIndexes = new Set<number>()
+  for (const [index, unit] of activeUnits.entries()) {
+    if (
+      unit.kind === 'user' ||
+      !unit.projectableReadBatch ||
+      (latestBatchIndex >= 0 && index === latestBatchIndex)
+    ) {
+      requiredIndexes.add(index)
+    }
+  }
+  let activeRetryBatchKey: string | null = null
+  let activeRetryToolNames: string[] = []
+  let selectedActive = activeUnits.map((unit) => unit.messages)
+  let selectedMessages = selectedActive.flat()
+  if (estimateAgentTokens(selectedMessages) > budget) {
+    selectedActive = activeUnits.map((unit, index) =>
+      requiredIndexes.has(index) ? unit.messages : projectToolBatch(unit, 'historical_projection')
+    )
+    selectedMessages = selectedActive.flat()
+  }
+  if (estimateAgentTokens(selectedMessages) > budget) {
+    if (latestBatch === undefined || !latestBatch.projectableReadBatch) {
+      throw new AgentCurrentTurnTooLargeError()
+    }
+    selectedActive = activeUnits.map((unit, index) => {
+      if (index === latestBatchIndex) return projectToolBatch(unit, 'active_batch_retry')
+      if (requiredIndexes.has(index)) return unit.messages
+      return projectToolBatch(unit, 'historical_projection')
+    })
+    selectedMessages = selectedActive.flat()
+    if (estimateAgentTokens(selectedMessages) > budget) throw new AgentCurrentTurnTooLargeError()
+    activeRetryBatchKey = latestBatch.batchKey
+    activeRetryToolNames = toolResultNames(latestBatch)
+  }
+
+  let tokens = estimateAgentTokens(selectedMessages)
+  const selectedCompleted: AgentMessage[][] = []
+  for (const group of [...completedGroups].reverse()) {
+    const groupTokens = estimateAgentTokens(group)
+    if (tokens + groupTokens > budget) continue
+    selectedCompleted.push(group)
+    tokens += groupTokens
+  }
+  return {
+    messages: [...selectedCompleted.reverse().flat(), ...selectedMessages],
+    activeRetryBatchKey,
+    activeRetryToolNames,
+    latestBatchKey: latestBatch?.batchKey ?? null
+  }
+}
+
+function activeRequestStart(messages: readonly AgentMessage[]): number {
+  let start = 0
+  for (const [index, message] of messages.entries()) {
+    if (isTerminalAssistant(message)) start = index + 1
+  }
+  return start
+}
+
+function isTerminalAssistant(message: AgentMessage): boolean {
+  return message.role === 'assistant' && !message.content.some((part) => part.type === 'toolCall')
+}
+
+function groupAgentMessageBatches(messages: readonly AgentMessage[]): AgentContextUnit[] {
+  const units: AgentContextUnit[] = []
+  let index = 0
+  while (index < messages.length) {
+    const message = messages[index]
+    if (message === undefined) break
+    if (message.role === 'assistant') {
+      const batch: AgentMessage[] = [message]
+      index += 1
+      while (index < messages.length && messages[index]?.role === 'toolResult') {
+        const toolResult = messages[index]
+        if (toolResult !== undefined) batch.push(toolResult)
+        index += 1
+      }
+      const results = batch.filter(isToolResult)
+      units.push({
+        messages: batch,
+        kind: 'assistant_batch',
+        batchKey:
+          results.length === 0 ? null : results.map((result) => result.toolCallId).join(':'),
+        projectableReadBatch:
+          results.length > 0 && results.every((result) => isProjectableToolResult(result))
+      })
+      continue
+    }
+    units.push({
+      messages: [message],
+      kind: message.role === 'user' ? 'user' : 'other',
+      batchKey: null,
+      projectableReadBatch: false
+    })
+    index += 1
+  }
+  return units
+}
+
+function findLatestAssistantBatch(units: readonly AgentContextUnit[]): number {
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    if (units[index]?.kind === 'assistant_batch' && units[index]?.batchKey !== null) return index
+  }
+  return -1
+}
+
+function projectToolBatch(
+  unit: AgentContextUnit,
+  mode: 'historical_projection' | 'active_batch_retry'
+): AgentMessage[] {
+  if (!unit.projectableReadBatch) return unit.messages
+  return unit.messages.map((message) => {
     if (!isProjectableToolResult(message)) return message
-    const facts = projectSafeFacts(message.details)
+    const activeRetry = mode === 'active_batch_retry'
+    const envelope = activeRetry
+      ? {
+          schemaVersion: 1,
+          projection: mode,
+          contentAvailable: false,
+          mutationAuthority: false,
+          code: 'tool_result_batch_too_large',
+          retryable: true,
+          toolName: message.toolName,
+          toolCallId: message.toolCallId,
+          recovery: {
+            action: 'retry_smaller_read',
+            maxAttempts: 1,
+            constraints: {
+              maxConcurrentBodyReads: 1,
+              readSectionSummaryLimit: 5,
+              canonicalFragmentMaxChars: 8_192,
+              searchLimit: 5,
+              citationRequests: 1
+            }
+          }
+        }
+      : {
+          schemaVersion: 1,
+          projection: mode,
+          contentAvailable: false,
+          mutationAuthority: false,
+          toolName: message.toolName,
+          toolCallId: message.toolCallId,
+          isError: message.isError,
+          facts: projectSafeFacts(unwrapToolDetails(message.details))
+        }
     return {
       ...message,
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            projected: true,
-            toolName: message.toolName,
-            toolCallId: message.toolCallId,
-            isError: message.isError,
-            facts
-          })
-        }
-      ],
-      details: facts
+      content: [{ type: 'text' as const, text: JSON.stringify(envelope) }],
+      details: envelope,
+      isError: activeRetry || message.isError
     }
   })
+}
+
+function toolResultNames(unit: AgentContextUnit): string[] {
+  return [...new Set(unit.messages.filter(isToolResult).map((message) => message.toolName))]
+}
+
+function isToolResult(
+  message: AgentMessage
+): message is Extract<AgentMessage, { role: 'toolResult' }> {
+  return message.role === 'toolResult'
 }
 
 function isProjectableToolResult(
@@ -214,11 +417,29 @@ function projectSafeFacts(value: unknown, depth = 0): unknown {
     return value.slice(0, 100).map((entry) => projectSafeFacts(entry, depth + 1))
   }
   if (typeof value !== 'object') return null
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => SAFE_FACT_KEYS.has(key))
-      .map(([key, entry]) => [key, projectSafeFacts(entry, depth + 1)])
-  )
+  const facts: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (SAFE_FACT_KEYS.has(key)) {
+      facts[key] = projectSafeFacts(entry, depth + 1)
+      continue
+    }
+    if (entry !== null && typeof entry === 'object') {
+      const nested = projectSafeFacts(entry, depth + 1)
+      if (hasProjectedFacts(nested)) facts[key] = nested
+    }
+  }
+  return facts
+}
+
+function unwrapToolDetails(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  return 'data' in record ? record.data : value
+}
+
+function hasProjectedFacts(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  return value !== null && typeof value === 'object' && Object.keys(value).length > 0
 }
 
 function looksLikePrivatePath(value: string): boolean {
