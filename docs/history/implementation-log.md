@@ -389,6 +389,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-18
 
+- Completed the authorized local `0.2026.8.17` candidate maintenance: advanced release metadata,
+  refreshed three stale recovery source hashes plus one renamed fail-closed Agent case, and passed
+  `check:fast`, all 25 recovery fixtures from 23 sources, the no-identity macOS arm64 production
+  package, native/ASAR/resource and signature-policy checks, 12/12 packaged smoke scenarios, and
+  28/28 packaged Real-Electron scenarios. The clean release commit receives the annotated
+  `v0.2026.8.17` tag and the final App is rebuilt from that tag. No push, hosted CI, Apple Developer
+  ID signing, notarization, GitHub Release creation, or promotion ran.
+
 - Accepted ADR 047 and completed Checkpoint 52. The application now has a read-only Checks
   workspace whose Main-owned, snapshot-bound service derives article-level Knowledge citation
   coverage from current manuscript revisions and only the active current text-index generation.

@@ -117,7 +117,7 @@
       "id": "missing-and-incompatible-index",
       "category": "index",
       "source": "src/main/search/index-service.test.ts",
-      "sourceSha256": "a15de881efa4d26d656ef7916bd0be7462393c222d19b3e39c27065f8268ac79",
+      "sourceSha256": "48913b85b9f9087ccac142e9a206febfd4d5e19ec73ee76c223433baf92deeb5",
       "tests": [
         "does not activate a generation built from a superseded parse revision",
         "does not activate when a parse revision changes during index build"
@@ -127,7 +127,7 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "9390147182389e0105d9d1a1178069a282290c7ed12dd4d88b74688865ef7218",
+      "sourceSha256": "6ba9d2aa1e605411a0a0b3236618361006116ccfaf8627e38aafeb54b650f0fa",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",
@@ -149,7 +149,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "cd991c9d5f3a9f08535f3d63e3026e46216ebd708fae5a043e1425a929a966ed",
+      "sourceSha256": "27e7085fcbece3a14cb071001d8602755e6e0f21746652a1e3f6200e7ea7f019",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",
@@ -163,7 +163,7 @@
         "persists manual review as a completed wait state and locks only that conversation",
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "rejects a tool request carrying a mismatched project-session capability",
-        "continues the current run with deterministic complete-turn fallback after automatic failure",
+        "stops before provider work when automatic failure would omit a user turn",
         "keeps the latest successful rolling checkpoint when a later step fails",
         "keeps the fallback on title failure and cancels an in-flight title request on close",
         "archives and restores idle conversations idempotently while rejecting archived writes"

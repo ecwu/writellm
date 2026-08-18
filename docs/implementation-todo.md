@@ -16,6 +16,19 @@ Status markers:
 - `[x]` completed and verified
 - `[!]` blocked
 
+## Local v0.2026.8.17 tag and macOS App (2026-08-18)
+
+- [x] Advance release metadata to `0.2026.8.17`, create the clean local release commit and
+  annotated `v0.2026.8.17` tag, then build and verify the no-identity macOS arm64 App from that
+  tagged revision. Push, hosted CI, signing/notarization, GitHub Release creation, and promotion
+  remain out of scope.
+
+Local evidence: `check:fast` and `git diff --check` passed; the recovery manifest was refreshed for
+three changed source hashes and one renamed fail-closed Agent test, then all 25 cases from 23
+sources passed. The no-identity macOS arm64 unpacked package gate passed the production build,
+native/ASAR/resource and no-Team-ID signature checks, 12/12 packaged runtime smoke scenarios, and
+28/28 packaged Real-Electron scenarios. The final App is rebuilt from the clean annotated tag.
+
 ## Application icon redesign and Dock contrast (2026-08-13)
 
 - [x] Replace the dark textured application icon with a bright folded-paper WriteLLM mark, derive

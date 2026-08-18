@@ -26,7 +26,9 @@ tests) and production build, all 25 recovery fixtures from 23 sources, clean sco
 diff checks, and 38/38 fresh Real-Electron scenarios. The no-identity macOS arm64 package gate
 verified Electron 43.1.0 / ABI 148, arm64 `better-sqlite3` and `sqlite-vec`, the ASAR/resource
 inventory, 12/12 packaged smoke scenarios, and 26/26 packaged E2E scenarios, and produced the
-0.2026.8.16 App, DMG, and ZIP.
+0.2026.8.16 App, DMG, and ZIP. The later local `0.2026.8.17` maintenance build passed the updated
+25-case recovery-fixture manifest, all 12 packaged smoke scenarios, and 28/28 packaged E2E
+scenarios, producing the no-Team-ID macOS arm64 App.
 
 Local packaging is additionally verified on Windows, macOS x64, and Linux through the added
 per-target package commands (`package:windows-x64`, `package:windows-appx`, `package:macos-x64`,
@@ -37,9 +39,19 @@ asset-store race-recovery error.
 Checkpoint 26.9 (hosted CI and release promotion) remains paused; its acceptance gate and
 per-candidate audit are recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
-No hosted CI, signing, notarization, tag, or release promotion has run.
+No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release creation, or release
+promotion has run. The only new tag is the explicitly authorized local `v0.2026.8.17` candidate.
 
 ## Current authorized work
+
+On 2026-08-18 the user authorized the next local patch candidate, `0.2026.8.17`, including the
+necessary release-metadata update, local release commit, annotated `v0.2026.8.17` tag, and a
+no-identity macOS arm64 App build. The pre-tag package gate passed 25 recovery fixtures from 23
+sources, the production build, native/ASAR/resource and no-Team-ID signature verification, all 12
+packaged smoke scenarios, and all 28 packaged Real-Electron scenarios. The recovery manifest was
+updated for three changed test sources and one renamed fail-closed Agent recovery case before the
+successful gate. The final App is rebuilt from the clean annotated tag. Push, hosted CI, Apple
+Developer ID signing, notarization, GitHub Release creation, and promotion remain outside scope.
 
 On 2026-08-18 the user accepted the decision-complete bottom-docked Agent plan design, authorized
 Checkpoint 56, and the bounded Renderer refinement completed. The permanently expanded plan and
