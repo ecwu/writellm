@@ -4,7 +4,14 @@ import { agentOutputLimit, estimateAgentTokens } from '../../shared/agent-contex
 
 export const AGENT_RUNTIME_HISTORY_EVENT_LIMIT = 200
 export const AGENT_RUNTIME_HISTORY_BYTE_LIMIT = 2 * 1024 * 1024
-export const AGENT_COMPACTION_TARGET_MAX_TOKENS = 24_000
+export const AGENT_POST_COMPACTION_MAX_TOKENS = 32_000
+export const AGENT_CHECKPOINT_MAX_TOKENS = 12_000
+
+export interface AgentCompactionBudgets {
+  readonly postCompactionBudgetTokens: number
+  readonly checkpointBudgetTokens: number
+  readonly recentTailBudgetTokens: number
+}
 
 export interface AgentContextPlanInput {
   readonly modelLimits: AgentModelLimits
@@ -26,7 +33,9 @@ export interface AgentContextPlan {
   readonly historyTokens: number
   readonly currentRequestTokens: number
   readonly conversationBudgetTokens: number
-  readonly compactionTargetTokens: number
+  readonly postCompactionBudgetTokens: number
+  readonly checkpointBudgetTokens: number
+  readonly recentTailBudgetTokens: number
   readonly requiresCompaction: boolean
   readonly reasons: readonly ('token_budget' | 'runtime_envelope')[]
 }
@@ -62,6 +71,7 @@ export class AgentContextPlanner {
       systemPromptTokens -
       advertisedToolTokens -
       currentRequestTokens
+    const compactionBudgets = agentCompactionBudgets(conversationBudgetTokens)
     const base = {
       effectiveInputLimit,
       reservedOutputTokens,
@@ -71,10 +81,7 @@ export class AgentContextPlanner {
       historyTokens,
       currentRequestTokens,
       conversationBudgetTokens,
-      compactionTargetTokens: Math.max(
-        0,
-        Math.min(AGENT_COMPACTION_TARGET_MAX_TOKENS, Math.floor(conversationBudgetTokens * 0.5))
-      )
+      ...compactionBudgets
     }
     if (conversationBudgetTokens <= 0) throw new AgentCurrentTurnTooLargeError(base)
     const reasons: Array<'token_budget' | 'runtime_envelope'> = []
@@ -86,6 +93,25 @@ export class AgentContextPlanner {
       reasons.push('runtime_envelope')
     }
     return { ...base, requiresCompaction: reasons.length > 0, reasons }
+  }
+}
+
+export function agentCompactionBudgets(conversationBudgetTokens: number): AgentCompactionBudgets {
+  const postCompactionBudgetTokens = Math.max(
+    0,
+    Math.min(AGENT_POST_COMPACTION_MAX_TOKENS, Math.floor(conversationBudgetTokens * 0.5))
+  )
+  const checkpointBudgetTokens =
+    postCompactionBudgetTokens === 0
+      ? 0
+      : Math.max(
+          1,
+          Math.min(AGENT_CHECKPOINT_MAX_TOKENS, Math.floor(postCompactionBudgetTokens * 0.375))
+        )
+  return {
+    postCompactionBudgetTokens,
+    checkpointBudgetTokens,
+    recentTailBudgetTokens: postCompactionBudgetTokens - checkpointBudgetTokens
   }
 }
 

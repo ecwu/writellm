@@ -49,6 +49,7 @@ import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
 import { AgentToolDomainError } from './read-tools'
 import { extractSectionAgentText } from '../manuscript/content'
+import { blockNoteDocumentSchema } from '../../shared/contracts/manuscript'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
@@ -296,6 +297,16 @@ export class MainAgentTools implements AgentToolExecutor {
             input.agentRunId,
             operation.target.blockId,
             operation.target.expectedBlockHash
+          )
+        }
+        if (operation.type === 'insertExistingImage') {
+          this.mutations.assertExistingImageRead(
+            input.agentSessionId,
+            input.agentRunId,
+            operation.source.sectionId,
+            operation.source.blockId,
+            operation.source.expectedBlockHash,
+            args.sectionId
           )
         }
       }
@@ -722,13 +733,93 @@ function normalizeSectionArguments(
       }
     }
     if (operation.type === 'moveBlocks') {
-      for (const target of operation.targets) verify(target)
+      for (const target of operation.targets) {
+        if (blocks.has(target.blockId)) {
+          verify(target)
+          continue
+        }
+        if (findBlockInOtherSection(snapshot, args.sectionId, target.blockId) !== undefined) {
+          throw new AgentToolDomainError(
+            'invalid_arguments',
+            'moveBlocks cannot cross sections; use insertExistingImage for an image, then remove the original only after the insertion is applied or satisfied'
+          )
+        }
+        verify(target)
+      }
       verify(operation.anchor)
       return {
         type: 'moveBlocks',
         blockIds: operation.targets.map((target) => target.blockId),
         anchorBlockId: operation.anchor.blockId,
         placement: operation.placement
+      }
+    }
+    if (operation.type === 'insertExistingImage') {
+      if (operation.source.sectionId === args.sectionId) {
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'insertExistingImage requires different source and target sections; use moveBlocks within one section'
+        )
+      }
+      if (operation.anchor !== null) verify(operation.anchor)
+      const sourceEntry = snapshot.workspace.sections.find(
+        (candidate) => candidate.section.sectionId === operation.source.sectionId
+      )
+      if (sourceEntry === undefined) {
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'Source section is absent from snapshot'
+        )
+      }
+      const sourceContent = snapshot.sectionContents.get(sourceEntry.section.currentRevisionId)
+      if (sourceContent === undefined) {
+        throw new AgentToolDomainError('conflict', 'Source section snapshot expired')
+      }
+      const indexedSourceBlock = indexCanonicalBlocks(sourceContent).get(operation.source.blockId)
+      const sourceBlock = sourceContent.find(
+        (candidate) =>
+          candidate !== null &&
+          typeof candidate === 'object' &&
+          'id' in candidate &&
+          candidate.id === operation.source.blockId
+      )
+      if (sourceBlock === undefined) {
+        if (indexedSourceBlock !== undefined) {
+          throw new AgentToolDomainError(
+            'invalid_arguments',
+            'insertExistingImage supports only a root-level image block'
+          )
+        }
+        throw new AgentToolDomainError('conflict', 'Source image block no longer exists')
+      }
+      const actualSourceHash = createHash('sha256')
+        .update(JSON.stringify(sourceBlock))
+        .digest('hex')
+      if (actualSourceHash !== operation.source.expectedBlockHash) {
+        throw new AgentToolDomainError(
+          'conflict',
+          'Source image block hash does not match the source snapshot'
+        )
+      }
+      const parsedSource = blockNoteDocumentSchema.parse([sourceBlock])[0]
+      if (parsedSource.type !== 'image') {
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'insertExistingImage requires an existing image block'
+        )
+      }
+      if (parsedSource.children.length > 0) {
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'insertExistingImage does not support a nested image subtree'
+        )
+      }
+      const created = { ...parsedSource, id: randomUUID() }
+      return {
+        type: 'insertBlocks',
+        anchorBlockId: operation.anchor?.blockId ?? null,
+        placement: operation.placement,
+        blocks: [created]
       }
     }
     verify(operation.target)
@@ -756,6 +847,21 @@ function normalizeSectionArguments(
     idMapping: { createdBlockRefs: Object.fromEntries(createdBlockRefs) },
     resolvesReviewIssues: args.resolvesReviewIssues ?? []
   }
+}
+
+function findBlockInOtherSection(
+  snapshot: WritingSnapshot,
+  excludedSectionId: string,
+  blockId: string
+): unknown | undefined {
+  for (const candidate of snapshot.workspace.sections) {
+    if (candidate.section.sectionId === excludedSectionId) continue
+    const content = snapshot.sectionContents.get(candidate.section.currentRevisionId)
+    if (content === undefined) continue
+    const block = indexCanonicalBlocks(content).get(blockId)
+    if (block !== undefined) return block
+  }
+  return undefined
 }
 
 function indexCanonicalBlocks(content: readonly unknown[]): Map<string, unknown> {

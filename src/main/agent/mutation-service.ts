@@ -31,7 +31,10 @@ import {
   type OutlinePatch,
   type SectionPatch
 } from '../../shared/contracts/agent-mutations'
-import { agentToolResultPayloadSchema } from '../../shared/contracts/agent-tools'
+import {
+  agentToolResultPayloadSchema,
+  readSectionResultSchema
+} from '../../shared/contracts/agent-tools'
 import {
   blockNoteDocumentSchema,
   figureIdForBlock,
@@ -288,6 +291,109 @@ export class MutationProposalService {
         'replaceCanonicalBlock requires a matching canonical read from the current Agent run'
       )
     }
+  }
+
+  assertExistingImageRead(
+    agentSessionId: string,
+    agentRunId: string,
+    sourceSectionId: string,
+    blockId: string,
+    expectedBlockHash: string,
+    targetSectionId: string
+  ): void {
+    if (sourceSectionId === targetSectionId) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'insertExistingImage requires different source and target sections; use moveBlocks within one section'
+      )
+    }
+    const rows = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT payload_json FROM agent_events
+             WHERE agent_session_id = ? AND agent_run_id = ? AND type = 'tool_result'
+             ORDER BY sequence DESC`
+          )
+          .all(agentSessionId, agentRunId) as Array<{ payload_json: string }>
+    )
+    const found = rows.some((row) => {
+      const event = agentToolResultPayloadSchema.safeParse(JSON.parse(row.payload_json))
+      if (
+        !event.success ||
+        event.data.toolName !== 'read_section' ||
+        event.data.isError ||
+        event.data.result === null
+      ) {
+        return false
+      }
+      const read = readSectionResultSchema.safeParse(event.data.result)
+      if (!read.success || read.data.section.sectionId !== sourceSectionId) return false
+      if (
+        read.data.blocks.some(
+          (block) =>
+            block.blockId === blockId &&
+            block.blockType === 'image' &&
+            block.blockHash === expectedBlockHash
+        )
+      ) {
+        return true
+      }
+      const canonical = read.data.canonicalBlock
+      return (
+        canonical !== null &&
+        typeof canonical === 'object' &&
+        'id' in canonical &&
+        canonical.id === blockId &&
+        'type' in canonical &&
+        canonical.type === 'image' &&
+        createHash('sha256').update(JSON.stringify(canonical)).digest('hex') === expectedBlockHash
+      )
+    })
+    if (!found) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'insertExistingImage requires a matching image block hash from read_section in the current Agent run'
+      )
+    }
+    const hasActiveAnchor = this.options.database.immediate((database) => {
+      const annotation = database
+        .prepare(
+          `SELECT 1 FROM manuscript_annotations
+           WHERE section_id = ? AND block_id = ? AND status = 'open'
+           LIMIT 1`
+        )
+        .pluck()
+        .get(sourceSectionId, blockId)
+      if (annotation === 1) return true
+      return (
+        database
+          .prepare(
+            `SELECT 1 FROM review_issues
+             WHERE section_id = ? AND block_id = ? AND status IN ('open', 'in_progress')
+             LIMIT 1`
+          )
+          .pluck()
+          .get(sourceSectionId, blockId) === 1
+      )
+    })
+    if (hasActiveAnchor) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'insertExistingImage does not support images with active section-scoped annotations or review anchors'
+      )
+    }
+    this.options.log.info(
+      {
+        event: 'agent.image_relocation.source_verified',
+        agentSessionId,
+        agentRunId,
+        sourceSectionId,
+        targetSectionId,
+        blockId
+      },
+      'Existing image relocation source verified'
+    )
   }
 
   propose(

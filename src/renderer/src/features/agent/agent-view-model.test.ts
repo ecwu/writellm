@@ -16,6 +16,7 @@ import {
   findLatestPrompt,
   findToolResult,
   isSectionProposalOutdated,
+  latestAgentContextSnapshot,
   mergeAgentEvents,
   protectTerminalAgentRuns,
   projectAgentTimeline
@@ -231,6 +232,88 @@ describe('Agent renderer view model', () => {
       retryCount: 2,
       skillRouteRequests: 0
     })
+  })
+
+  it('pairs the latest context usage with its originating matching model run', () => {
+    const run = {
+      ...runRecord('completed'),
+      providerPresetId: 'writer-preset',
+      modelLimits: {
+        ...runRecord('completed').modelLimits,
+        contextWindowTokens: 258_000
+      }
+    }
+    const event = assistantRecord(1, 'Done.')
+    event.payload = {
+      ...event.payload,
+      metadata: {
+        ...(event.payload.metadata as Record<string, unknown>),
+        contextTokensUsed: 115_000,
+        contextTokensEstimated: false
+      }
+    }
+
+    expect(
+      latestAgentContextSnapshot([event], [run], {
+        presetId: 'writer-preset',
+        modelId: 'writer'
+      })
+    ).toMatchObject({
+      agentRunId: base.agentRunId,
+      used: 115_000,
+      estimated: false,
+      contextWindowTokens: 258_000,
+      percent: (115_000 / 258_000) * 100
+    })
+  })
+
+  it('hides missing-run and stale-model context usage instead of reusing another limit', () => {
+    const currentRun = { ...runRecord('completed'), providerPresetId: 'current-preset' }
+    const event = assistantRecord(1, 'Done.')
+
+    expect(
+      latestAgentContextSnapshot([event], [], {
+        presetId: 'current-preset',
+        modelId: 'writer'
+      })
+    ).toBeNull()
+    expect(
+      latestAgentContextSnapshot([event], [currentRun], {
+        presetId: 'other-preset',
+        modelId: 'writer'
+      })
+    ).toBeNull()
+    expect(
+      latestAgentContextSnapshot([event], [currentRun], {
+        presetId: 'current-preset',
+        modelId: 'other-model'
+      })
+    ).toBeNull()
+  })
+
+  it('uses provider input plus cache reads when explicit context usage is unavailable', () => {
+    const run = { ...runRecord('completed'), providerPresetId: 'writer-preset' }
+    const event = assistantRecord(1, 'Done.')
+    event.payload = {
+      ...event.payload,
+      metadata: {
+        ...(event.payload.metadata as Record<string, unknown>),
+        usage: {
+          inputTokens: 12_000,
+          outputTokens: 4,
+          cacheReadTokens: 3_000,
+          cacheWriteTokens: 0,
+          estimatedCostUsdMicros: null
+        }
+      }
+    }
+
+    expect(
+      latestAgentContextSnapshot([event], [run], {
+        presetId: 'writer-preset',
+        modelId: 'writer'
+      })
+    ).toMatchObject({ used: 15_000, estimated: false })
   })
 
   it('includes bounded historical SkillRouter usage without double-counting Agent messages', () => {
@@ -724,7 +807,8 @@ describe('Agent renderer view model', () => {
       },
       {
         ...record(2, 'compaction_summary', {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          handoffMode: 'bounded_conversation_memory',
           compactionId,
           trigger: 'manual',
           stepIndex: 1,
@@ -741,6 +825,9 @@ describe('Agent renderer view model', () => {
           estimatedTokensAfter: 4_000,
           checkpointTokens: 2_000,
           tailTokens: 2_000,
+          postCompactionBudgetTokens: 32_000,
+          checkpointBudgetTokens: 12_000,
+          recentTailBudgetTokens: 20_000,
           timestamp: 2
         }),
         agentRunId: null
@@ -790,6 +877,9 @@ describe('Agent renderer view model', () => {
       'Writing skill exceeds the prompt budget'
     )
     expect(agentTerminalLabel('compaction_failed')).toBe('Session compaction failed')
+    expect(agentTerminalLabel('compaction_required')).toBe(
+      'Conversation could not be compacted safely'
+    )
     expect(agentTerminalLabel('model_request_start_failed')).toBe(
       'Model request could not be started'
     )
@@ -809,6 +899,9 @@ describe('Agent renderer view model', () => {
     expect(agentTerminalLabel('unknown_code')).toBe('Run interrupted')
     expect(agentTerminalDetail('tool_batch_context_exhausted')).toBe(
       'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; the remaining content was not force-edited. Continue with one section or a smaller range.'
+    )
+    expect(agentTerminalDetail('compaction_required')).toBe(
+      'WriteLLM stopped before dropping an earlier user requirement. Retry Compact, choose a larger-context model, or continue in a new conversation with the requirements you still need.'
     )
     expect(agentTerminalDetail('context_overflow')).toBeNull()
   })

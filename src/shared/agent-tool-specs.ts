@@ -268,7 +268,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'submit_section_change',
     label: 'Propose section patch',
     description:
-      'Propose a block-hash-guarded change to one section without directly editing it. Every block precondition must copy blockId and blockHash from read_section in this run; for an empty-section insertion, omit anchor and use placement start or end. Main binds the revision and inserted IDs, and only an applied or satisfied result means the manuscript changed. On conflict, call read_section and retry once.',
+      'Propose a block-hash-guarded change to one section without directly editing it. Every block precondition must copy blockId and blockHash from read_section in this run; insertExistingImage copies one Main-authoritative image from a different source section, while an empty-section insertion omits anchor and uses start or end. Main binds the revision and inserted IDs, and only an applied or satisfied result means the manuscript changed. For an image relocation, remove the original only after insertion applies; never refresh and retry a conflicting source deletion.',
     parameters: parameters(modelSubmitSectionChangeArgsSchema, makeCanonicalBlocksOpaque),
     executionMode: 'sequential'
   },

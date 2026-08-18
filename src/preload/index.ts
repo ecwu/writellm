@@ -196,6 +196,8 @@ import {
   type ListJobsResult
 } from '../shared/contracts/jobs'
 import {
+  knowledgeCitationCoveragePageInputSchema,
+  knowledgeCitationCoveragePageResultSchema,
   knowledgeEmbeddingRefreshInputSchema,
   knowledgeImportPathsInputSchema,
   knowledgeIndexStatusSchema,
@@ -209,6 +211,8 @@ import {
   parsedKnowledgeMarkdownInputSchema,
   parsedKnowledgeMarkdownSchema,
   parsedKnowledgeMetadataSchema,
+  type KnowledgeCitationCoveragePageInput,
+  type KnowledgeCitationCoveragePageResult,
   type ParsedKnowledgeBlockPage,
   type ParsedKnowledgeMarkdown,
   type ParsedKnowledgeMetadata,
@@ -733,6 +737,9 @@ export interface DesktopApi {
   knowledge: {
     list(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
     indexStatus(input: { projectSessionId: string }): Promise<KnowledgeIndexStatus>
+    citationCoveragePage(
+      input: KnowledgeCitationCoveragePageInput
+    ): Promise<KnowledgeCitationCoveragePageResult>
     chooseAndImport(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
     importDropped(input: { projectSessionId: string; files: File[] }): Promise<KnowledgeItem[]>
     cancel(input: { projectSessionId: string; knowledgeItemId: string }): Promise<KnowledgeItem[]>
@@ -1967,6 +1974,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.knowledgeIndexStatus,
           knowledgeListInputSchema.parse(input)
+        )
+      )
+    },
+    async citationCoveragePage(input) {
+      return knowledgeCitationCoveragePageResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.knowledgeCitationCoveragePage,
+          knowledgeCitationCoveragePageInputSchema.parse(input)
         )
       )
     },

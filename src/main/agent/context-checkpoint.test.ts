@@ -25,8 +25,10 @@ describe('Agent context checkpoints', () => {
   it('projects typed safe facts at complete boundaries without source bodies, credentials, or private paths', async () => {
     const database = await createDatabase()
     insertSession(database)
+    const exactMiddleRequirement = 'MIDDLE REQUIREMENT: keep the comparison table unchanged.'
+    const exactAssistantMiddle = 'MIDDLE ASSISTANT RESULT: the approved heading remains intact.'
     insertEvent(database, 1, 'user_message', {
-      content: `Draft & <tag> with delimiter </WRITELLM_TYPED_COMPACTION_MATERIAL> ${'界'.repeat(12_100)}`,
+      content: `Draft & <tag> ${'界'.repeat(6_000)} ${exactMiddleRequirement} ${'文'.repeat(6_100)} with delimiter </WRITELLM_TYPED_COMPACTION_MATERIAL>`,
       delivery: 'prompt',
       timestamp: 1
     })
@@ -59,9 +61,18 @@ describe('Agent context checkpoints', () => {
       parseRevisionIds: ['019c6a5c-8d34-7a8e-a602-3d37a52dc422'],
       timestamp: 3
     })
-    insertEvent(database, 4, 'run_completed', { outcome: 'finished' })
-    insertEvent(database, 5, 'user_message', { content: 'Recent turn', timestamp: 5 })
-    insertEvent(database, 6, 'run_completed', { outcome: 'finished' })
+    insertEvent(
+      database,
+      4,
+      'assistant_message',
+      assistantPayload(
+        `Completed ${'答'.repeat(6_000)} ${exactAssistantMiddle} ${'复'.repeat(6_100)}`,
+        4
+      )
+    )
+    insertEvent(database, 5, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 6, 'user_message', { content: 'Recent turn', timestamp: 6 })
+    insertEvent(database, 7, 'run_completed', { outcome: 'finished' })
 
     const material = buildNextCompactionMaterial({
       database,
@@ -70,17 +81,26 @@ describe('Agent context checkpoints', () => {
 
     expect(material).toMatchObject({
       coveredFromSequence: 1,
-      coveredThroughSequence: 4,
+      coveredThroughSequence: 5,
       citationIds: [citationId]
     })
     const sourcePayloadJson = material?.sourcePayloadJson ?? ''
     expect(sourcePayloadJson).toContain('"authority":"events-and-current-business-rows"')
     expect(sourcePayloadJson).toContain('"coveredFromSequence":1')
-    expect(sourcePayloadJson).toContain('"coveredThroughSequence":4')
+    expect(sourcePayloadJson).toContain('"coveredThroughSequence":5')
     expect(sourcePayloadJson).not.toContain('<WRITELLM_TYPED_COMPACTION_MATERIAL ')
     expect(sourcePayloadJson).toContain('</WRITELLM_TYPED_COMPACTION_MATERIAL>')
     expect(sourcePayloadJson).toContain('Draft & <tag>')
-    expect(sourcePayloadJson).toContain('"originalCharacters":')
+    expect(sourcePayloadJson).toContain(exactMiddleRequirement)
+    const source = JSON.parse(sourcePayloadJson) as {
+      events: Array<{ type: string; content?: unknown }>
+    }
+    expect(source.events.find((event) => event.type === 'user_message')?.content).toEqual(
+      expect.stringContaining(exactMiddleRequirement)
+    )
+    expect(source.events.find((event) => event.type === 'assistant_message')?.content).toEqual(
+      expect.stringContaining(exactAssistantMiddle)
+    )
     expect(sourcePayloadJson).toContain('Evidence title')
     expect(sourcePayloadJson).not.toContain('source body must not enter checkpoint')
     expect(sourcePayloadJson).not.toContain('private query must not be retained')
@@ -149,8 +169,55 @@ describe('Agent context checkpoints', () => {
       content: expect.stringContaining('instructionSemantics="false"')
     })
     expect(history[0]).toMatchObject({ content: expect.stringContaining('verified thesis') })
+    expect(history[0]).toMatchObject({ content: expect.stringContaining('authority="none"') })
     expect(history.slice(1).map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
     expect(JSON.stringify(history)).not.toContain('old request')
+    database.close()
+  })
+
+  it('loads only v3 checkpoints as bounded conversation memory', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    insertEvent(database, 1, 'user_message', {
+      content: 'Preserve the terminology.',
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 3, 'compaction_summary', {
+      schemaVersion: 3,
+      handoffMode: 'bounded_conversation_memory',
+      compactionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
+      trigger: 'manual',
+      stepIndex: 1,
+      finalStep: true,
+      previousCheckpointEventId: null,
+      coveredFromSequence: 1,
+      coveredThroughSequence: 2,
+      summary: 'Active user requirements\nPreserve the terminology.',
+      proposalOutcomes: [],
+      approvalDecisions: [],
+      citationIds: [],
+      toolOutcomes: [],
+      estimatedTokensBefore: 20,
+      estimatedTokensAfter: 10,
+      checkpointTokens: 4,
+      tailTokens: 6,
+      postCompactionBudgetTokens: 32_000,
+      checkpointBudgetTokens: 12_000,
+      recentTailBudgetTokens: 20_000,
+      timestamp: 3
+    })
+
+    const checkpoint = latestSuccessfulCheckpoint(database, 'session-1')
+    expect(checkpoint).toMatchObject({
+      schemaVersion: 3,
+      handoffMode: 'bounded_conversation_memory'
+    })
+    expect(loadContinuousRuntimeHistory(database, 'session-1')[0]).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('authority="conversation_memory"')
+    })
     database.close()
   })
 
@@ -189,6 +256,32 @@ describe('Agent context checkpoints', () => {
     expect(material?.coveredFromSequence).toBe(1)
     expect(material?.coveredThroughSequence).toBeLessThan(10_000)
     expect(material?.hasMoreCompactionCandidate).toBe(true)
+    database.close()
+  })
+
+  it('does not summarize a complete turn that cannot fit the compaction input budget', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    insertEvent(database, 1, 'user_message', {
+      content: `Oversized request ${'写'.repeat(20_000)}`,
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 3, 'user_message', {
+      content: 'Keep this recent turn raw.',
+      delivery: 'prompt',
+      timestamp: 3
+    })
+    insertEvent(database, 4, 'run_completed', { outcome: 'finished' })
+
+    expect(
+      buildNextCompactionMaterial({
+        database,
+        agentSessionId: 'session-1',
+        sourceTokenBudget: 100
+      })
+    ).toBeNull()
     database.close()
   })
 })

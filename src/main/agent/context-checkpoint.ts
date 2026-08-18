@@ -5,8 +5,10 @@ import {
   agentCompactionSummaryPayloadSchema,
   agentUserMessagePayloadSchema,
   type AgentCompactionCheckpointPayload,
+  type AgentCompactionCheckpointV2Payload,
   type AgentHistoryMessage
 } from '../../shared/contracts/agent'
+import { estimateAgentTokens } from '../../shared/agent-context-budget'
 import {
   agentToolCallPayloadSchema,
   agentToolResultPayloadSchema
@@ -16,7 +18,6 @@ import { formatPromptBlock } from './prompts/prompt-block'
 
 const PAGE_SIZE = 50
 const SOURCE_EVENT_LIMIT = 240
-const LONG_TEXT_LIMIT = 1_024
 const SAFE_TOOL_KEYS = new Set([
   'proposalId',
   'effectiveProposalId',
@@ -70,6 +71,8 @@ export interface LatestCheckpoint {
   readonly summary: string
   readonly coveredThroughSequence: number
   readonly timestamp: number
+  readonly schemaVersion: 1 | 2 | 3
+  readonly handoffMode: 'bounded_conversation_memory' | null
 }
 
 export interface CompactionMaterial {
@@ -109,7 +112,9 @@ export function latestSuccessfulCheckpoint(
       eventId: row.agent_event_id,
       summary: parsed.data.summary,
       coveredThroughSequence: parsed.data.coveredThroughSequence,
-      timestamp: parsed.data.timestamp
+      timestamp: parsed.data.timestamp,
+      schemaVersion: 'schemaVersion' in parsed.data ? parsed.data.schemaVersion : 1,
+      handoffMode: 'handoffMode' in parsed.data ? parsed.data.handoffMode : null
     }
   }
   return null
@@ -146,6 +151,8 @@ export function loadContinuousRuntimeHistory(
   const checkpoint = latestSuccessfulCheckpoint(database, agentSessionId)
   const history: AgentHistoryMessage[] = []
   if (checkpoint !== null) {
+    const boundedHandoff =
+      checkpoint.schemaVersion === 3 && checkpoint.handoffMode === 'bounded_conversation_memory'
     history.push({
       role: 'user',
       content: formatPromptBlock({
@@ -153,7 +160,8 @@ export function loadContinuousRuntimeHistory(
         content: checkpoint.summary,
         instructionSemantics: 'false',
         attributes: {
-          authority: 'none',
+          authority: boundedHandoff ? 'conversation_memory' : 'none',
+          ...(boundedHandoff ? { handoffMode: checkpoint.handoffMode } : {}),
           coveredThroughSequence: String(checkpoint.coveredThroughSequence)
         }
       }),
@@ -251,6 +259,7 @@ export function buildNextCompactionMaterial(input: {
   database: ProjectDatabase
   agentSessionId: string
   excludeRunId?: string
+  sourceTokenBudget?: number
 }): CompactionMaterial | null {
   const previousCheckpoint = latestSuccessfulCheckpoint(input.database, input.agentSessionId)
   const coveredFromSequence = (previousCheckpoint?.coveredThroughSequence ?? 0) + 1
@@ -259,9 +268,34 @@ export function buildNextCompactionMaterial(input: {
     excludeRunId: input.excludeRunId
   })
   if (rows.length === 0) return null
-  const boundary = compactionBoundary(rows, input.excludeRunId !== undefined)
-  if (boundary < 0) return null
-  const selected = rows.slice(0, boundary + 1)
+  let boundary = compactionBoundary(rows, input.excludeRunId !== undefined)
+  while (boundary >= 0) {
+    const material = createCompactionMaterial(
+      input,
+      previousCheckpoint,
+      rows.slice(0, boundary + 1)
+    )
+    if (
+      input.sourceTokenBudget === undefined ||
+      estimateAgentTokens(material.sourcePayloadJson) <= input.sourceTokenBudget
+    ) {
+      return material
+    }
+    boundary = previousCompactionBoundary(rows, boundary)
+  }
+  return null
+}
+
+function createCompactionMaterial(
+  input: {
+    database: ProjectDatabase
+    agentSessionId: string
+    excludeRunId?: string
+  },
+  previousCheckpoint: LatestCheckpoint | null,
+  selected: readonly EventRow[]
+): CompactionMaterial {
+  const coveredFromSequence = (previousCheckpoint?.coveredThroughSequence ?? 0) + 1
   const remainingTerminalCount = countTerminalEventsAfter(
     input.database,
     input.agentSessionId,
@@ -276,14 +310,14 @@ export function buildNextCompactionMaterial(input: {
     switch (row.type) {
       case 'user_message': {
         const parsed = agentUserMessagePayloadSchema.parse(payload)
-        return { sequence: row.sequence, type: row.type, content: projectLongText(parsed.content) }
+        return { sequence: row.sequence, type: row.type, content: parsed.content }
       }
       case 'assistant_message': {
         const parsed = agentAssistantMessagePayloadSchema.parse(payload)
         return {
           sequence: row.sequence,
           type: row.type,
-          content: projectLongText(parsed.content),
+          content: parsed.content,
           stopReason: parsed.stopReason,
           interrupted: parsed.interrupted
         }
@@ -375,14 +409,20 @@ export function buildNextCompactionMaterial(input: {
       (total, row) => total + Buffer.byteLength(row.payload_json),
       0
     ),
-    hasMoreCompactionCandidate: remainingTerminalCount >= (input.excludeRunId === undefined ? 2 : 1)
+    hasMoreCompactionCandidate: remainingTerminalCount >= 2
   }
 }
 
 export function isV2Checkpoint(
   value: ReturnType<typeof agentCompactionSummaryPayloadSchema.parse>
-): value is AgentCompactionCheckpointPayload {
+): value is AgentCompactionCheckpointV2Payload {
   return 'schemaVersion' in value && value.schemaVersion === 2
+}
+
+export function isV3Checkpoint(
+  value: ReturnType<typeof agentCompactionSummaryPayloadSchema.parse>
+): value is AgentCompactionCheckpointPayload {
+  return 'schemaVersion' in value && value.schemaVersion === 3
 }
 
 function loadEventChunk(
@@ -430,6 +470,14 @@ function compactionBoundary(rows: readonly EventRow[], allowOnlyBoundary: boolea
   )
   if (boundaries.length >= 2) return boundaries.at(-2) ?? -1
   return allowOnlyBoundary ? (boundaries.at(-1) ?? -1) : -1
+}
+
+function previousCompactionBoundary(rows: readonly EventRow[], beforeIndex: number): number {
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    const type = rows[index]?.type
+    if (type === 'run_completed' || type === 'run_interrupted') return index
+  }
+  return -1
 }
 
 function countTerminalEventsAfter(
@@ -491,17 +539,6 @@ function authoritativeProposalOutcomes(
       replacesProposalId: row['replaces_proposal_id'],
       reasonCode: safeReasonCode(row['rejected_reason'])
     }))
-}
-
-function projectLongText(value: string): string | Record<string, unknown> {
-  if (Array.from(value).length <= LONG_TEXT_LIMIT) return value
-  const characters = Array.from(value)
-  return {
-    first: characters.slice(0, 512).join(''),
-    last: characters.slice(-256).join(''),
-    originalCharacters: characters.length,
-    sha256: createHash('sha256').update(value).digest('hex')
-  }
 }
 
 function projectSafeObject(value: unknown, depth = 0): unknown {

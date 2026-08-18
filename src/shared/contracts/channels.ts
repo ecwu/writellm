@@ -148,6 +148,7 @@ export const IPC_CHANNELS = {
   agentActivity: 'agent:activity',
   knowledgeList: 'knowledge:list',
   knowledgeIndexStatus: 'knowledge:index-status',
+  knowledgeCitationCoveragePage: 'knowledge:citation-coverage-page',
   knowledgeChooseAndImport: 'knowledge:choose-and-import',
   knowledgeImportDropped: 'knowledge:import-dropped',
   knowledgeCancel: 'knowledge:cancel',

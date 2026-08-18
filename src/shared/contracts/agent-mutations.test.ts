@@ -128,6 +128,59 @@ describe('Agent mutation contracts', () => {
       }).success
     ).toBe(false)
 
+    const sourceSectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc614'
+    expect(
+      modelSubmitSectionChangeArgsSchema.parse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertExistingImage',
+            source: {
+              sectionId: sourceSectionId,
+              blockId: 'source-image',
+              expectedBlockHash: 'b'.repeat(64)
+            },
+            placement: 'end'
+          }
+        ]
+      }).operations[0]
+    ).toMatchObject({ type: 'insertExistingImage', anchor: null, placement: 'end' })
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertExistingImage',
+            source: {
+              sectionId: sourceSectionId,
+              blockId: 'source-image',
+              expectedBlockHash: 'b'.repeat(64)
+            },
+            placement: 'before'
+          }
+        ]
+      }).success
+    ).toBe(false)
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertExistingImage',
+            source: {
+              sectionId: sourceSectionId,
+              blockId: 'source-image',
+              expectedBlockHash: 'b'.repeat(64),
+              assetId: manuscriptId,
+              url: 'https://example.com/forged.png'
+            },
+            placement: 'end',
+            block: { type: 'image' }
+          }
+        ]
+      }).success
+    ).toBe(false)
+
     const common = {
       mode: 'insert' as const,
       sectionId,

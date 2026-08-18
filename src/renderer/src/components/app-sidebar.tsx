@@ -13,6 +13,7 @@ import {
   CircleDot,
   FileText,
   LibraryBig,
+  ListChecks,
   Images,
   ClipboardList,
   ListTree,
@@ -42,6 +43,7 @@ import {
 export type WorkspaceKind =
   | 'manuscript'
   | 'knowledge'
+  | 'checks'
   | 'assets'
   | 'references'
   | 'find'
@@ -61,6 +63,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenBrief(): void
   onOpenOutlineEditor(): void
   onOpenKnowledge(): void
+  onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
   onOpenIssues(): void
@@ -88,6 +91,7 @@ export function AppSidebar({
   onOpenBrief,
   onOpenOutlineEditor,
   onOpenKnowledge,
+  onOpenChecks,
   onOpenAssets,
   onOpenReferences,
   onOpenIssues,
@@ -130,6 +134,7 @@ export function AppSidebar({
         <WorkspaceRail
           activeWorkspace={activeWorkspace}
           onOpenKnowledge={onOpenKnowledge}
+          onOpenChecks={onOpenChecks}
           onOpenAssets={onOpenAssets}
           onOpenReferences={() => {
             setOpen(true)
@@ -363,6 +368,7 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 export function WorkspaceRail(props: {
   activeWorkspace: WorkspaceKind
   onOpenKnowledge(): void
+  onOpenChecks(): void
   onOpenAssets(): void
   onOpenManuscript(): void
   onOpenReferences(): void
@@ -439,6 +445,18 @@ export function WorkspaceRail(props: {
                 >
                   <LibraryBig />
                   <span>Knowledge</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Checks'
+                  tooltip={{ children: 'Checks', hidden: false }}
+                  isActive={props.activeWorkspace === 'checks'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenChecks}
+                >
+                  <ListChecks />
+                  <span>Checks</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

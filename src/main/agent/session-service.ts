@@ -111,7 +111,12 @@ import {
   SESSION_TITLE_SYSTEM_PROMPT,
   TOOL_CONTINUATION_REQUEST
 } from './prompts/task-prompts'
-import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
+import {
+  agentCompactionBudgets,
+  AgentContextPlanner,
+  AgentCurrentTurnTooLargeError,
+  type AgentCompactionBudgets
+} from './context-planner'
 import {
   buildNextCompactionMaterial,
   latestSuccessfulCheckpoint,
@@ -230,6 +235,7 @@ export interface AgentSessionServiceOptions {
     sourcePayloadJson: string
     coveredThroughSequence: number
     estimatedInputTokens: number
+    maxOutputTokens: number
     signal: AbortSignal
   }) => Promise<{ summary: string; modelRequestId: string }>
   messageTokenBudget?: number
@@ -1191,7 +1197,9 @@ export class AgentSessionService {
           ? 'user_stopped'
           : err instanceof AgentCurrentTurnTooLargeError
             ? 'current_turn_too_large'
-            : 'agent_context_failed',
+            : err instanceof AgentCompactionRequiredError
+              ? 'compaction_required'
+              : 'agent_context_failed',
         err
       )
     }
@@ -1568,6 +1576,7 @@ export class AgentSessionService {
         const modelLimits =
           (await this.options.resolveModelLimits?.(config, active.controller.signal)) ??
           legacyModelLimits()
+        const budgets = agentCompactionBudgets(agentMessageBudget(8_192, modelLimits))
         active.phase = 'summarizing'
         void this.#publishActivitySnapshot()
         const steps = await this.#runRollingCompaction({
@@ -1580,7 +1589,7 @@ export class AgentSessionService {
           modelLimits,
           signal: active.controller.signal,
           maxSteps: 8,
-          targetTokens: 0
+          ...budgets
         })
         if (steps === 0)
           throw new Error('Conversation compaction had no complete head to summarize')
@@ -2568,7 +2577,9 @@ export class AgentSessionService {
         modelLimits: active.modelLimits,
         signal: active.controller.signal,
         maxSteps: 4,
-        targetTokens: plan.compactionTargetTokens
+        postCompactionBudgetTokens: plan.postCompactionBudgetTokens,
+        checkpointBudgetTokens: plan.checkpointBudgetTokens,
+        recentTailBudgetTokens: plan.recentTailBudgetTokens
       })
       if (steps === 0) throw new Error('Provider overflow recovery found no history to compact')
     } catch (err) {
@@ -2583,10 +2594,17 @@ export class AgentSessionService {
       })
       throw err
     }
-    const history = boundHistoryByCompleteTurns(
-      loadContinuousRuntimeHistory(this.options.database, active.agentSessionId, active.agentRunId),
-      plan.conversationBudgetTokens
+    const fullHistory = loadContinuousRuntimeHistory(
+      this.options.database,
+      active.agentSessionId,
+      active.agentRunId
     )
+    const history = boundHistoryByCompleteTurns(fullHistory, plan.conversationBudgetTokens)
+    if (historyProjectionChanged(fullHistory, history)) {
+      throw new AgentCompactionRequiredError(
+        new Error('Provider overflow recovery would omit uncompacted conversation history')
+      )
+    }
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -3378,16 +3396,14 @@ export class AgentSessionService {
       uncheckpointedPayloadBytes: envelope.payloadBytes
     })
     if (this.options.messageTokenBudget !== undefined) {
+      const conversationBudgetTokens = Math.min(
+        plan.conversationBudgetTokens,
+        this.options.messageTokenBudget
+      )
       plan = {
         ...plan,
-        conversationBudgetTokens: Math.min(
-          plan.conversationBudgetTokens,
-          this.options.messageTokenBudget
-        ),
-        compactionTargetTokens: Math.min(
-          plan.compactionTargetTokens,
-          Math.floor(this.options.messageTokenBudget * 0.5)
-        ),
+        conversationBudgetTokens,
+        ...agentCompactionBudgets(conversationBudgetTokens),
         requiresCompaction:
           plan.requiresCompaction || plan.historyTokens > this.options.messageTokenBudget
       }
@@ -3403,6 +3419,7 @@ export class AgentSessionService {
       compactionId,
       trigger: 'auto_threshold'
     })
+    let compactionError: unknown = null
     try {
       const steps = await this.#runRollingCompaction({
         agentSessionId: active.agentSessionId,
@@ -3414,10 +3431,13 @@ export class AgentSessionService {
         modelLimits: active.modelLimits,
         signal: active.controller.signal,
         maxSteps: 4,
-        targetTokens: plan.compactionTargetTokens
+        postCompactionBudgetTokens: plan.postCompactionBudgetTokens,
+        checkpointBudgetTokens: plan.checkpointBudgetTokens,
+        recentTailBudgetTokens: plan.recentTailBudgetTokens
       })
       if (steps === 0) throw new Error('No complete historical turn was available for compaction')
     } catch (err) {
+      compactionError = err
       this.options.log.error(
         { event: 'agent.compaction.failed', err, agentRunId: active.agentRunId, compactionId },
         'Automatic Agent context compaction failed'
@@ -3442,43 +3462,71 @@ export class AgentSessionService {
       active.agentRunId
     )
     const bounded = boundHistoryByCompleteTurns(history, plan.conversationBudgetTokens)
-    if (bounded.length < history.length) {
-      this.options.log.warn(
+    if (historyProjectionChanged(history, bounded)) {
+      const err = new AgentCompactionRequiredError(
+        compactionError ?? new Error('Compacted history still exceeds the safe runtime envelope')
+      )
+      this.options.log.error(
         {
-          event: 'agent.compaction.fallback_applied',
+          event: 'agent.compaction.unsafe_omission_rejected',
+          err,
           agentRunId: active.agentRunId,
           retainedMessages: bounded.length,
-          omittedMessages: history.length - bounded.length
+          omittedMessages: Math.max(0, history.length - bounded.length)
         },
-        'Agent context continued with deterministic complete-turn fallback'
+        'Agent context stopped before omitting uncheckpointed conversation history'
       )
+      throw err
     }
-    return agentHistorySchema.parse(bounded)
+    return agentHistorySchema.parse(history)
   }
 
-  async #runRollingCompaction(input: {
-    agentSessionId: string
-    agentRunId: string | null
-    compactionId: string
-    trigger: AgentCompactionTrigger
-    config: Extract<ProviderConfig, { role: 'agent' }>
-    credential: string
-    modelLimits: AgentModelLimits
-    signal: AbortSignal
-    maxSteps: number
-    targetTokens: number
-  }): Promise<number> {
+  async #runRollingCompaction(
+    input: {
+      agentSessionId: string
+      agentRunId: string | null
+      compactionId: string
+      trigger: AgentCompactionTrigger
+      config: Extract<ProviderConfig, { role: 'agent' }>
+      credential: string
+      modelLimits: AgentModelLimits
+      signal: AbortSignal
+      maxSteps: number
+    } & AgentCompactionBudgets
+  ): Promise<number> {
     const summarize = this.options.summarizeHistory
     if (summarize === undefined) throw new Error('Agent context compaction is unavailable')
+    if (input.postCompactionBudgetTokens <= 0 || input.checkpointBudgetTokens <= 0) {
+      throw new AgentCompactionRequiredError(
+        new Error('The selected model has no safe post-compaction history budget')
+      )
+    }
+    const sourceTokenBudget = agentMessageBudget(input.checkpointBudgetTokens, input.modelLimits)
     let completedSteps = 0
     for (let stepIndex = 1; stepIndex <= input.maxSteps; stepIndex += 1) {
       input.signal.throwIfAborted()
       const material = buildNextCompactionMaterial({
         database: this.options.database,
         agentSessionId: input.agentSessionId,
-        ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId })
+        ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
+        sourceTokenBudget
       })
-      if (material === null) break
+      if (material === null) {
+        const remaining = loadContinuousRuntimeHistory(
+          this.options.database,
+          input.agentSessionId,
+          input.agentRunId ?? undefined
+        )
+        if (
+          completedSteps > 0 &&
+          estimateAgentTokens(remaining) <= input.postCompactionBudgetTokens
+        ) {
+          break
+        }
+        throw new AgentCompactionRequiredError(
+          new Error('No complete historical turn fits the compaction model input budget')
+        )
+      }
       const estimatedTokensBefore = estimateAgentTokens(material.sourcePayloadJson)
       const summarized = await summarize({
         agentSessionId: input.agentSessionId,
@@ -3491,11 +3539,12 @@ export class AgentSessionService {
         sourcePayloadJson: material.sourcePayloadJson,
         coveredThroughSequence: material.coveredThroughSequence,
         estimatedInputTokens: estimatedTokensBefore,
+        maxOutputTokens: input.checkpointBudgetTokens,
         signal: input.signal
       })
       const summary = boundCheckpointSummary(
         summarized.summary.trim().slice(0, 32_768),
-        input.targetTokens > 0 ? Math.max(256, input.targetTokens) : 24_000
+        input.checkpointBudgetTokens
       )
       if (summary.length === 0) throw new Error('Agent compaction returned an empty summary')
       const tail = loadRuntimeTailAfterSequence(
@@ -3507,12 +3556,13 @@ export class AgentSessionService {
       const checkpointTokens = estimateAgentTokens(summary)
       const tailTokens = estimateAgentTokens(tail)
       const estimatedTokensAfter = checkpointTokens + tailTokens
+      const fitsPostCompactionBudget = estimatedTokensAfter <= input.postCompactionBudgetTokens
+      const fitsReservedTail = tailTokens <= input.recentTailBudgetTokens
       const finalStep =
-        estimatedTokensAfter <= input.targetTokens ||
-        !material.hasMoreCompactionCandidate ||
-        stepIndex === input.maxSteps
+        fitsPostCompactionBudget && (fitsReservedTail || !material.hasMoreCompactionCandidate)
       const payload = agentCompactionCheckpointPayloadSchema.parse({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory',
         compactionId: input.compactionId,
         trigger: input.trigger,
         stepIndex,
@@ -3529,6 +3579,9 @@ export class AgentSessionService {
         estimatedTokensAfter,
         checkpointTokens,
         tailTokens,
+        postCompactionBudgetTokens: input.postCompactionBudgetTokens,
+        checkpointBudgetTokens: input.checkpointBudgetTokens,
+        recentTailBudgetTokens: input.recentTailBudgetTokens,
         timestamp: this.#now().getTime()
       })
       await this.#appendAndPublishEvent({
@@ -3553,6 +3606,11 @@ export class AgentSessionService {
         'Agent rolling context checkpoint step completed'
       )
       if (finalStep) break
+      if (!material.hasMoreCompactionCandidate || stepIndex === input.maxSteps) {
+        throw new AgentCompactionRequiredError(
+          new Error('The newest complete historical turn exceeds the safe compaction budget')
+        )
+      }
     }
     return completedSteps
   }
@@ -3903,6 +3961,7 @@ type AgentRunTermination =
         | 'provider_retries_exhausted'
         | 'context_overflow'
         | 'context_overflow_after_activity'
+        | 'compaction_required'
         | 'tool_batch_context_exhausted'
         | 'run_failed'
     }
@@ -3938,6 +3997,15 @@ class AgentRunContextOverflowError extends Error {
   }
 }
 
+class AgentCompactionRequiredError extends Error {
+  readonly code = 'compaction_required'
+
+  constructor(cause: unknown) {
+    super('Conversation history could not be compacted without losing user requirements', { cause })
+    this.name = 'AgentCompactionRequiredError'
+  }
+}
+
 function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermination {
   if (signal.aborted && signal.reason instanceof AgentRunCancellationError) {
     return { status: 'interrupted', code: signal.reason.code }
@@ -3949,6 +4017,9 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
     return { status: 'failed', code: 'provider_retries_exhausted' }
   }
   if (error instanceof AgentRunContextOverflowError) {
+    return { status: 'failed', code: error.code }
+  }
+  if (error instanceof AgentCompactionRequiredError) {
     return { status: 'failed', code: error.code }
   }
   if (hasErrorCode(error, 'tool_batch_context_exhausted')) {
@@ -4172,6 +4243,16 @@ function boundHistoryByCompleteTurns(
       : []),
     ...selected.reverse().flat()
   ]
+}
+
+function historyProjectionChanged(
+  original: readonly AgentHistoryMessage[],
+  projected: readonly AgentHistoryMessage[]
+): boolean {
+  return (
+    original.length !== projected.length ||
+    projected.some((message, index) => message !== original[index])
+  )
 }
 
 function isCheckpointHistoryMessage(

@@ -1,8 +1,9 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 51 is implemented and verified. Phase 11 remains complete and verified.
-Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-17
+Status: Phase 12 Checkpoint 56 is implemented and verified. Checkpoints 52-55 and Phase 11 remain
+complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
+disabled.
+Recorded: 2026-08-18
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -75,6 +76,19 @@ Status markers:
 - [x] Checkpoint 51: preserve the current Pi assistant/tool-result batch across provider-context
   pruning, project only completed older read batches, and allow one structured smaller-read
   recovery before a truthful terminal context-capacity failure under ADR 046.
+- [x] Checkpoint 52: add a read-only Checks workspace and bounded Main-owned article-level
+  Knowledge citation coverage over the active current index generation under ADR 047.
+- [x] Checkpoint 53: allow Main to copy one exact existing image into another section without
+  generation, then permit exact source removal only after the destination insertion applies under
+  ADR 048.
+- [x] Checkpoint 54: replace lossy conversation pre-projection with a writing-specific bounded
+  handoff plus an adaptive recent raw-turn tail, and fail before provider work rather than silently
+  omitting uncheckpointed user requirements under ADR 049.
+- [x] Checkpoint 55: surface the latest trustworthy run-matched context-window usage as a neutral,
+  accessible circular indicator beside the Agent model/Thinking trigger under ADR 050.
+- [x] Checkpoint 56: replace the permanently expanded Agent writing-task header with a centered
+  bottom Step capsule and a keyboard-accessible plan/change-set Popover while preserving existing
+  task and proposal authority.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

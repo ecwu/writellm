@@ -51,6 +51,84 @@ export const knowledgeIndexStatusSchema = z
     indexed: z.boolean()
   })
   .strict()
+
+export const knowledgeCitationCoverageFilterSchema = z.enum([
+  'all',
+  'cited',
+  'uncited',
+  'attention'
+])
+export const knowledgeCitationCoveragePageInputSchema = editorSessionInputSchema
+  .extend({
+    filter: knowledgeCitationCoverageFilterSchema.default('all'),
+    query: z.string().trim().max(512).default(''),
+    cursor: z.string().min(1).max(1_024).optional(),
+    limit: z.number().int().min(1).max(100).default(50)
+  })
+  .strict()
+
+export const knowledgeCitationCoverageSummarySchema = z
+  .object({
+    indexedSourceCount: z.number().int().nonnegative().max(5_000),
+    citedSourceCount: z.number().int().nonnegative().max(5_000),
+    uncitedSourceCount: z.number().int().nonnegative().max(5_000),
+    ambiguousSourceCount: z.number().int().nonnegative().max(5_000),
+    unmatchedCitationTitleCount: z.number().int().nonnegative().max(50_000),
+    unmatchedCitationOccurrenceCount: z.number().int().nonnegative().max(2_500_000_000),
+    attentionCount: z.number().int().nonnegative().max(55_000),
+    coverageRatio: z.number().finite().min(0).max(1).nullable()
+  })
+  .strict()
+
+export const knowledgeCitationCoverageSourceItemSchema = z
+  .object({
+    kind: z.literal('source'),
+    knowledgeItemId: z.uuid(),
+    displayName: z.string().min(1).max(512),
+    extension: z.string().max(20).nullable(),
+    status: z.enum(['cited', 'uncited', 'ambiguous']),
+    citationCount: z.number().int().nonnegative().max(50_000)
+  })
+  .strict()
+export const knowledgeCitationCoverageUnmatchedItemSchema = z
+  .object({
+    kind: z.literal('unmatched_citation'),
+    title: z.string().min(1).max(512),
+    citationCount: z.number().int().positive().max(50_000)
+  })
+  .strict()
+export const knowledgeCitationCoverageItemSchema = z.discriminatedUnion('kind', [
+  knowledgeCitationCoverageSourceItemSchema,
+  knowledgeCitationCoverageUnmatchedItemSchema
+])
+
+const knowledgeCitationCoverageUnavailableSchema = z
+  .object({ state: z.literal('unavailable'), reason: z.literal('index_unavailable') })
+  .strict()
+const knowledgeCitationCoveragePreparingSchema = z
+  .object({ state: z.literal('preparing'), reason: z.literal('index_preparing') })
+  .strict()
+const knowledgeCitationCoverageStaleSchema = z
+  .object({ state: z.literal('stale'), reason: z.literal('snapshot_changed') })
+  .strict()
+const knowledgeCitationCoverageReadySchema = z
+  .object({
+    state: z.literal('ready'),
+    snapshotId: z.string().regex(/^[a-f0-9]{64}$/),
+    indexGenerationId: z.string().min(1).max(256),
+    outlineVersion: z.number().int().positive(),
+    summary: knowledgeCitationCoverageSummarySchema,
+    items: z.array(knowledgeCitationCoverageItemSchema).max(100),
+    filteredTotal: z.number().int().nonnegative().max(55_000),
+    nextCursor: z.string().min(1).max(1_024).nullable()
+  })
+  .strict()
+export const knowledgeCitationCoveragePageResultSchema = z.discriminatedUnion('state', [
+  knowledgeCitationCoverageUnavailableSchema,
+  knowledgeCitationCoveragePreparingSchema,
+  knowledgeCitationCoverageStaleSchema,
+  knowledgeCitationCoverageReadySchema
+])
 export const knowledgeImportPathsInputSchema = editorSessionInputSchema
   .extend({ paths: z.array(z.string().min(1).max(32_768)).min(1).max(50) })
   .strict()
@@ -233,6 +311,14 @@ export const parsedKnowledgeAssetSchema = z
 
 export type KnowledgeItem = z.infer<typeof knowledgeItemSchema>
 export type KnowledgeIndexStatus = z.infer<typeof knowledgeIndexStatusSchema>
+export type KnowledgeCitationCoverageFilter = z.infer<typeof knowledgeCitationCoverageFilterSchema>
+export type KnowledgeCitationCoveragePageInput = z.input<
+  typeof knowledgeCitationCoveragePageInputSchema
+>
+export type KnowledgeCitationCoveragePageResult = z.infer<
+  typeof knowledgeCitationCoveragePageResultSchema
+>
+export type KnowledgeCitationCoverageItem = z.infer<typeof knowledgeCitationCoverageItemSchema>
 export type KnowledgeImportPathsInput = z.infer<typeof knowledgeImportPathsInputSchema>
 export type KnowledgeItemActionInput = z.infer<typeof knowledgeItemActionInputSchema>
 export type KnowledgeEmbeddingRefreshInput = z.infer<typeof knowledgeEmbeddingRefreshInputSchema>

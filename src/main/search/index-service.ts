@@ -21,6 +21,19 @@ interface CurrentIndexGeneration {
   sources: IndexSource[]
 }
 
+export type CurrentIndexedSourceSnapshot =
+  | { state: 'preparing' }
+  | { state: 'unavailable' }
+  | {
+      state: 'ready'
+      generationId: string
+      sources: Array<{
+        knowledgeItemId: string
+        displayName: string
+        extension: string | null
+      }>
+    }
+
 export type IndexReadiness = 'preparing' | 'available' | 'unavailable'
 
 export const GENERATION_BUILD_DEBOUNCE_MS = 1_500
@@ -430,6 +443,30 @@ export class ProjectIndexService {
     const snapshot = await this.options.client.inspect()
     this.#activeGenerationId = snapshot.activeGenerationId
     return snapshot.activeGenerationId === current.generationId
+  }
+
+  async currentIndexedSources(signal: AbortSignal): Promise<CurrentIndexedSourceSnapshot> {
+    if (this.#readiness === 'preparing') return { state: 'preparing' }
+    if (this.#readiness === 'unavailable') return { state: 'unavailable' }
+    const before = this.#currentGeneration()
+    const snapshot = await this.options.client.inspect(signal)
+    this.#activeGenerationId = snapshot.activeGenerationId
+    const after = this.#currentGeneration()
+    if (
+      before.generationId !== after.generationId ||
+      snapshot.activeGenerationId !== after.generationId
+    ) {
+      return { state: 'preparing' }
+    }
+    return {
+      state: 'ready',
+      generationId: after.generationId,
+      sources: after.sources.map(({ knowledgeItemId, displayName, extension }) => ({
+        knowledgeItemId,
+        displayName,
+        extension
+      }))
+    }
   }
 
   isRetrievalAvailable(): boolean {

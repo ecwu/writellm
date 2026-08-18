@@ -9,6 +9,7 @@ import {
 } from '../../../../shared/contracts/agent'
 import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
+import type { AgentModelSelection } from '../../../../shared/contracts/providers'
 import {
   agentToolCallPayloadSchema,
   agentToolResultPayloadSchema,
@@ -628,6 +629,8 @@ export function agentTerminalLabel(code: string): string {
       return 'Writing skill exceeds the prompt budget'
     case 'compaction_failed':
       return 'Session compaction failed'
+    case 'compaction_required':
+      return 'Conversation could not be compacted safely'
     case 'model_request_start_failed':
       return 'Model request could not be started'
     case 'agent_context_failed':
@@ -648,11 +651,19 @@ export function agentTerminalLabel(code: string): string {
 }
 
 export function agentTerminalDetail(code: string): string | null {
-  if (code !== 'tool_batch_context_exhausted') return null
-  return (
-    'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; ' +
-    'the remaining content was not force-edited. Continue with one section or a smaller range.'
-  )
+  if (code === 'compaction_required') {
+    return (
+      'WriteLLM stopped before dropping an earlier user requirement. Retry Compact, choose a ' +
+      'larger-context model, or continue in a new conversation with the requirements you still need.'
+    )
+  }
+  if (code === 'tool_batch_context_exhausted') {
+    return (
+      'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; ' +
+      'the remaining content was not force-edited. Continue with one section or a smaller range.'
+    )
+  }
+  return null
 }
 
 function terminalFromEvent(
@@ -933,10 +944,20 @@ export function aggregateAgentUsage(
   return { inputTokens, outputTokens, retryCount, skillRouteRequests }
 }
 
-export function latestAgentContextUsage(events: AgentEventRecord[]): {
+export interface AgentContextSnapshot {
+  agentRunId: string
   used: number
   estimated: boolean
-} | null {
+  contextWindowTokens: number
+  percent: number
+}
+
+export function latestAgentContextSnapshot(
+  events: AgentEventRecord[],
+  runs: AgentRunRecord[],
+  selection: AgentModelSelection | null
+): AgentContextSnapshot | null {
+  if (selection === null) return null
   for (const event of [...events].reverse()) {
     if (event.type !== 'assistant_message') continue
     const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
@@ -948,7 +969,22 @@ export function latestAgentContextUsage(events: AgentEventRecord[]): {
         : metadata.usage.inputTokens + (metadata.usage.cacheReadTokens ?? 0)
     const used = metadata.contextTokensUsed ?? providerUsed
     if (used !== null) {
-      return { used, estimated: metadata.contextTokensEstimated ?? false }
+      const run = runs.find((candidate) => candidate.agentRunId === event.agentRunId)
+      if (
+        run === undefined ||
+        run.providerPresetId !== selection.presetId ||
+        run.modelId !== selection.modelId
+      ) {
+        return null
+      }
+      const contextWindowTokens = run.modelLimits.contextWindowTokens
+      return {
+        agentRunId: run.agentRunId,
+        used,
+        estimated: metadata.contextTokensEstimated ?? false,
+        contextWindowTokens,
+        percent: Math.min(100, Math.max(0, (used / contextWindowTokens) * 100))
+      }
     }
   }
   return null

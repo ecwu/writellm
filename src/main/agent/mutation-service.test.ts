@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
+import { AnnotationService } from '../manuscript/annotation-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
@@ -1810,6 +1811,203 @@ describe('MutationProposalService', () => {
     ).toEqual([paragraph('review-target', 'Applied despite issue race')])
     value.database.close()
   })
+
+  it('relocates the SPACE image by applying a target copy before removing the source without generation', async () => {
+    const value = await imageRelocationFixture()
+    const tools = new MainAgentTools(
+      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+    const insertion = await tools.execute({
+      toolName: 'submit_section_change',
+      args: {
+        sectionId: value.targetSection.sectionId,
+        operations: [
+          {
+            type: 'insertExistingImage',
+            source: {
+              sectionId: value.sourceSection.sectionId,
+              blockId: value.imageBlock.id,
+              expectedBlockHash: value.imageHash
+            },
+            anchor: { blockId: value.targetAnchor.id, expectedBlockHash: value.targetAnchorHash },
+            placement: 'after'
+          }
+        ]
+      },
+      editorContext: value.snapshot.editorContext,
+      snapshot: value.snapshot,
+      ...value.toolCall('submit_section_change')
+    })
+
+    expect(insertion).toMatchObject({ kind: 'section_patch', status: 'pending' })
+    expect(currentContent(value, value.sourceSection.sectionId)).toContainEqual(value.imageBlock)
+    expect(currentContent(value, value.targetSection.sectionId).filter(isImage)).toHaveLength(0)
+
+    const inserted = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: insertion.proposalId
+    })
+    expect(inserted).toMatchObject({ outcome: 'applied' })
+    const targetImage = currentContent(value, value.targetSection.sectionId).find(isImage)
+    expect(targetImage).toMatchObject({ type: 'image', props: value.imageBlock.props })
+    expect(targetImage?.id).not.toBe(value.imageBlock.id)
+    expect(currentContent(value, value.sourceSection.sectionId)).toContainEqual(value.imageBlock)
+
+    const removalSnapshot = value.contextBuilder.capture('space-removal-snapshot', {
+      activeSectionId: value.sourceSection.sectionId,
+      activeBlockId: value.imageBlock.id,
+      selectedBlockIds: [value.imageBlock.id]
+    })
+    const removal = await tools.execute({
+      toolName: 'submit_section_change',
+      args: {
+        sectionId: value.sourceSection.sectionId,
+        operations: [
+          {
+            type: 'removeBlocks',
+            targets: [{ blockId: value.imageBlock.id, expectedBlockHash: value.imageHash }]
+          }
+        ]
+      },
+      editorContext: removalSnapshot.editorContext,
+      snapshot: removalSnapshot,
+      ...value.toolCall('submit_section_change')
+    })
+    const removed = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: removal.proposalId
+    })
+    expect(removed).toMatchObject({ outcome: 'applied' })
+    expect(currentContent(value, value.sourceSection.sectionId).filter(isImage)).toHaveLength(0)
+    expect(currentContent(value, value.targetSection.sectionId).filter(isImage)).toHaveLength(1)
+    expect(
+      value.database.immediate((database) =>
+        database
+          .prepare("SELECT COUNT(*) FROM model_requests WHERE operation_kind = 'image'")
+          .pluck()
+          .get()
+      )
+    ).toBe(0)
+    value.database.close()
+  })
+
+  it('rejects an existing image relocation with an active annotation before proposal creation', async () => {
+    const value = await imageRelocationFixture()
+    new AnnotationService({ database: value.database, log }).create({
+      kind: 'note',
+      body: 'Keep this figure anchored here.',
+      sectionId: value.sourceSection.sectionId,
+      blockId: value.imageBlock.id
+    })
+    const tools = new MainAgentTools(
+      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+
+    await expect(submitExistingImage(tools, value)).rejects.toMatchObject({
+      code: 'invalid_arguments',
+      message: expect.stringContaining('active section-scoped')
+    })
+    expect(value.service.list(agentSessionId)).toHaveLength(0)
+    value.database.close()
+  })
+
+  it('rejects an existing image relocation without a matching current-run read', async () => {
+    const value = await imageRelocationFixture()
+    value.database.immediate((database) =>
+      database.prepare("DELETE FROM agent_events WHERE type = 'tool_result'").run()
+    )
+    const tools = new MainAgentTools(
+      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+
+    await expect(submitExistingImage(tools, value)).rejects.toMatchObject({
+      code: 'invalid_arguments',
+      message: expect.stringContaining('current Agent run')
+    })
+    expect(value.service.list(agentSessionId)).toHaveLength(0)
+    value.database.close()
+  })
+
+  it('keeps the applied target copy when the original source hash changes before deletion', async () => {
+    const value = await imageRelocationFixture()
+    const tools = new MainAgentTools(
+      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+    const insertion = await submitExistingImage(tools, value)
+    expect(
+      await value.service.approve({
+        projectSessionId,
+        agentSessionId,
+        proposalId: insertion.proposalId
+      })
+    ).toMatchObject({ outcome: 'applied' })
+    const currentSource = value.manuscript.getSection(value.sourceSection.sectionId)
+    const currentSourceRevision = value.manuscript.getRevision(currentSource.currentRevisionId)
+    const changedImage = {
+      ...value.imageBlock,
+      props: { ...value.imageBlock.props, caption: 'Caption changed after insertion.' }
+    } as BlockNoteDocument[number]
+    await value.persistence.save({
+      projectSessionId,
+      sectionId: currentSource.sectionId,
+      baseRevisionId: currentSourceRevision.sectionRevisionId,
+      baseContentHash: currentSourceRevision.contentHash,
+      document: [changedImage, paragraph('background-body', 'Background text.')]
+    })
+    const removalSnapshot = value.contextBuilder.capture('changed-source-removal-snapshot', {
+      activeSectionId: currentSource.sectionId,
+      activeBlockId: changedImage.id,
+      selectedBlockIds: [changedImage.id]
+    })
+
+    await expect(
+      tools.execute({
+        toolName: 'submit_section_change',
+        args: {
+          sectionId: currentSource.sectionId,
+          operations: [
+            {
+              type: 'removeBlocks',
+              targets: [{ blockId: changedImage.id, expectedBlockHash: value.imageHash }]
+            }
+          ]
+        },
+        editorContext: removalSnapshot.editorContext,
+        snapshot: removalSnapshot,
+        ...value.toolCall('submit_section_change')
+      })
+    ).rejects.toMatchObject({ code: 'conflict' })
+    expect(currentContent(value, currentSource.sectionId).filter(isImage)).toHaveLength(1)
+    expect(currentContent(value, value.targetSection.sectionId).filter(isImage)).toHaveLength(1)
+    expect(value.service.list(agentSessionId)).toHaveLength(1)
+    value.database.close()
+  })
+
+  it('rejects an existing image relocation with an unavailable asset before proposal creation', async () => {
+    const value = await imageRelocationFixture()
+    value.database.immediate((database) =>
+      database
+        .prepare("UPDATE manuscript_assets SET deletion_state = 'deleting' WHERE asset_id = ?")
+        .run(value.assetId)
+    )
+    const tools = new MainAgentTools(
+      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+
+    await expect(submitExistingImage(tools, value)).rejects.toMatchObject({
+      code: 'invalid_arguments',
+      message: 'Mutation references an unavailable manuscript asset'
+    })
+    expect(value.service.list(agentSessionId)).toHaveLength(0)
+    value.database.close()
+  })
 })
 
 async function fixture() {
@@ -1896,6 +2094,203 @@ async function fixture() {
       }
     }
   }
+}
+
+async function imageRelocationFixture() {
+  const value = await fixture()
+  const opened = value.persistence.openEditor().activeSection
+  if (opened === null) throw new Error('Missing source section')
+  const assets = new ManuscriptAssetService({
+    projectRoot: value.projectRoot,
+    projectId: value.manifest.projectId,
+    database: value.database,
+    log
+  })
+  const asset = await assets.store({
+    bytes: png(96, 54),
+    mimeType: 'image/png',
+    sourceType: 'upload',
+    originalName: 'space-taxonomy.png'
+  })
+  const imageBlock: BlockNoteDocument[number] = {
+    id: 'space-taxonomy-image',
+    type: 'image',
+    props: {
+      backgroundColor: 'default',
+      textAlignment: 'center',
+      name: 'SPACE taxonomy',
+      url: asset.logicalUrl,
+      caption: 'The SPACE taxonomy and reference loop.',
+      figureId: 'figure:space-taxonomy',
+      altText: 'SPACE taxonomy diagram',
+      showPreview: true,
+      previewWidth: 960
+    },
+    children: []
+  }
+  const sourceSaved = await value.persistence.save({
+    projectSessionId,
+    sectionId: opened.section.sectionId,
+    baseRevisionId: opened.revision.sectionRevisionId,
+    baseContentHash: opened.revision.contentHash,
+    document: [imageBlock, paragraph('background-body', 'Background text.')]
+  })
+  const targetSection = value.manuscript.createSection({
+    baseOutlineVersion: value.manuscript.getWorkspace().outlineVersion,
+    title: 'Scope, Reference Loop, and the SPACE Taxonomy',
+    parentSectionId: null,
+    position: 1
+  })
+  const targetBase = value.manuscript.getRevision(targetSection.currentRevisionId)
+  const targetAnchor = paragraph('scope-third-paragraph', 'Third paragraph.')
+  await value.persistence.save({
+    projectSessionId,
+    sectionId: targetSection.sectionId,
+    baseRevisionId: targetBase.sectionRevisionId,
+    baseContentHash: targetBase.contentHash,
+    document: [targetAnchor]
+  })
+  const sourceSection = value.manuscript.getSection(opened.section.sectionId)
+  const currentTargetSection = value.manuscript.getSection(targetSection.sectionId)
+  const imageHash = createHash('sha256').update(JSON.stringify(imageBlock)).digest('hex')
+  seedReadSectionResult(value.database, {
+    section: sourceSection,
+    revision: sourceSaved.revision,
+    block: imageBlock,
+    blockHash: imageHash
+  })
+  const contextBuilder = new AgentContextBuilder(value.manuscript)
+  const snapshot = contextBuilder.capture('space-relocation-snapshot', {
+    activeSectionId: targetSection.sectionId,
+    activeBlockId: targetAnchor.id,
+    selectedBlockIds: [targetAnchor.id]
+  })
+  return {
+    ...value,
+    assetId: asset.assetId,
+    sourceSection,
+    targetSection: currentTargetSection,
+    imageBlock,
+    imageHash,
+    targetAnchor,
+    targetAnchorHash: createHash('sha256').update(JSON.stringify(targetAnchor)).digest('hex'),
+    contextBuilder,
+    snapshot
+  }
+}
+
+function submitExistingImage(
+  tools: MainAgentTools,
+  value: Awaited<ReturnType<typeof imageRelocationFixture>>
+) {
+  return tools.execute({
+    toolName: 'submit_section_change',
+    args: {
+      sectionId: value.targetSection.sectionId,
+      operations: [
+        {
+          type: 'insertExistingImage',
+          source: {
+            sectionId: value.sourceSection.sectionId,
+            blockId: value.imageBlock.id,
+            expectedBlockHash: value.imageHash
+          },
+          anchor: null,
+          placement: 'end'
+        }
+      ]
+    },
+    editorContext: value.snapshot.editorContext,
+    snapshot: value.snapshot,
+    ...value.toolCall('submit_section_change')
+  })
+}
+
+function seedReadSectionResult(
+  database: ProjectDatabase,
+  input: {
+    section: ReturnType<ManuscriptService['getSection']>
+    revision: ReturnType<ManuscriptService['getRevision']>
+    block: BlockNoteDocument[number]
+    blockHash: string
+  }
+): void {
+  const payload = {
+    toolCallId: 'read-source-image',
+    toolName: 'read_section',
+    contractVersion: 8,
+    isError: false,
+    result: {
+      section: {
+        sectionId: input.section.sectionId,
+        parentSectionId: input.section.parentSectionId,
+        position: input.section.position,
+        level: input.section.level,
+        title: input.section.title,
+        objective: input.section.objective,
+        status: input.section.status,
+        currentRevisionId: input.section.currentRevisionId,
+        wordCount: input.revision.wordCount,
+        characterCount: input.revision.characterCount
+      },
+      revisionId: input.revision.sectionRevisionId,
+      blocks: [
+        {
+          blockId: input.block.id,
+          blockType: input.block.type,
+          parentBlockId: null,
+          depth: 0,
+          ordinal: 0,
+          text: '',
+          textTruncated: false,
+          blockHash: input.blockHash,
+          childBlockIds: input.block.children.map((child) => child.id),
+          hasRichContent: true
+        }
+      ],
+      canonicalBlock: null,
+      canonicalFragment: null,
+      fragmentOffset: null,
+      nextFragmentOffset: null,
+      missingBlockIds: [],
+      nextCursor: null,
+      totalBlocks: 2
+    },
+    error: null,
+    citationIds: [],
+    knowledgeItemIds: [],
+    parseRevisionIds: [],
+    timestamp: 1
+  }
+  database.immediate((native) =>
+    native
+      .prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, agent_run_id, sequence, type,
+           payload_json, model_request_id, created_at
+         ) VALUES (?, ?, ?, 900, 'tool_result', ?, ?, ?)`
+      )
+      .run(
+        '019d0000-0000-4000-8000-000000000900',
+        agentSessionId,
+        agentRunId,
+        JSON.stringify(payload),
+        modelRequestId,
+        '2026-07-21T00:00:00.000Z'
+      )
+  )
+}
+
+function currentContent(
+  value: Awaited<ReturnType<typeof fixture>>,
+  sectionId: string
+): BlockNoteDocument {
+  const section = value.manuscript.getSection(sectionId)
+  return value.manuscript.getRevision(section.currentRevisionId).content
+}
+
+function isImage(block: BlockNoteDocument[number]): boolean {
+  return block.type === 'image'
 }
 
 const imageModelRequestId = '019c6a5c-8d34-4a8e-a602-3d37a52dc799'

@@ -36,6 +36,10 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Circle,
+  CircleCheck,
+  CircleDotDashed,
+  CircleMinus,
   CircleStop,
   Clock3,
   CornerDownRight,
@@ -136,9 +140,11 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { useTheme } from '@/theme-provider'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
 import { AgentMarkdown } from './agent-markdown'
+import { AgentContextUsageIndicator } from './agent-context-usage-indicator'
 import { AgentModelEffortPicker } from './agent-model-effort-picker'
 import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
@@ -155,7 +161,7 @@ import {
   formatAgentDuration,
   findLatestPrompt,
   isSectionProposalOutdated,
-  latestAgentContextUsage,
+  latestAgentContextSnapshot,
   mergeAgentEvents,
   protectTerminalAgentRuns,
   projectAgentTimeline,
@@ -688,13 +694,12 @@ export function AgentPanel(props: {
   ]
     .filter((detail) => detail !== null)
     .join(' ')
-  const contextUsage = useMemo(() => latestAgentContextUsage(events), [events])
   const latestRun = runs[0] ?? null
-  const contextLimits = activeRun?.modelLimits ?? latestRun?.modelLimits ?? null
-  const contextPercent =
-    contextUsage === null || contextLimits === null
-      ? 0
-      : Math.min(100, (contextUsage.used / contextLimits.contextWindowTokens) * 100)
+  const modelSelection = activeSession?.modelSelection ?? providerCatalog.defaultSelection
+  const contextSnapshot = useMemo(
+    () => latestAgentContextSnapshot(events, runs, modelSelection),
+    [events, modelSelection, runs]
+  )
   const waitingProposal = proposals.find((proposal) => proposal.status === 'pending')
   const generatingProposal = proposals.find((proposal) => proposal.status === 'generating')
   const workflowState =
@@ -1595,98 +1600,6 @@ export function AgentPanel(props: {
           </span>
         </div>
 
-        {activeSession?.writingTask ? (
-          <section
-            className='flex max-h-48 flex-col gap-2 overflow-y-auto border-b px-4 py-3'
-            aria-label='Writing task'
-            data-testid='agent-writing-task'
-          >
-            <div className='flex items-start justify-between gap-2'>
-              <h3 className='min-w-0 text-sm font-medium leading-snug'>
-                {activeSession.writingTask.objective}
-              </h3>
-              <div className='flex shrink-0 items-center gap-1'>
-                <Badge variant='outline'>Plan v{activeSession.writingTask.planVersion}</Badge>
-                <Badge variant='outline'>
-                  {activeSession.writingTask.progress.completedCount}/
-                  {activeSession.writingTask.plan.steps.length}
-                </Badge>
-                <Button
-                  variant='ghost'
-                  size='icon-sm'
-                  aria-label='Revise writing task plan'
-                  disabled={!canControlTask}
-                  onClick={() => setTaskEditorOpen(true)}
-                >
-                  <Pencil />
-                </Button>
-                <Button
-                  variant='ghost'
-                  size='icon-sm'
-                  aria-label='Resume writing task'
-                  disabled={
-                    !canControlTask || activeSession.writingTask.progress.currentStepId === null
-                  }
-                  onClick={() => void resumeWritingTask()}
-                >
-                  <Play />
-                </Button>
-              </div>
-            </div>
-            <ol className='flex flex-col gap-1'>
-              {activeSession.writingTask.plan.steps.map((step, index) => {
-                const progress = activeSession.writingTask?.progress.steps.find(
-                  (candidate) => candidate.stepId === step.stepId
-                )
-                return (
-                  <li key={step.stepId} className='flex min-w-0 items-start gap-2 text-xs'>
-                    <Badge
-                      variant={
-                        progress?.state === 'disagreement'
-                          ? 'destructive'
-                          : step.status === 'active'
-                            ? 'secondary'
-                            : 'outline'
-                      }
-                      className='mt-0.5 shrink-0'
-                    >
-                      {writingTaskProgressLabel(progress?.state ?? step.status)}
-                    </Badge>
-                    <span className='min-w-0'>
-                      <span className='line-clamp-2'>
-                        {index + 1}. {step.title}
-                      </span>
-                      {step.statusReason !== null ? (
-                        <span className='line-clamp-2 text-muted-foreground'>
-                          {step.statusReason}
-                        </span>
-                      ) : null}
-                    </span>
-                  </li>
-                )
-              })}
-            </ol>
-            {activeSession.writingTask.progress.hasDisagreement ? (
-              <p className='flex items-start gap-1.5 text-xs text-destructive'>
-                <TriangleAlert className='mt-0.5 size-3.5 shrink-0' />
-                Plan status disagrees with a run or manuscript outcome. Revise or resume to
-                reconcile it.
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        {activeSession?.writingTask ? (
-          <WritingTaskChangeSetPanel
-            task={activeSession.writingTask}
-            proposals={proposals}
-            currentRevisionIds={effectiveRevisionIds}
-            sectionTitles={props.sectionTitles}
-            busy={busy || activeSessionArchived}
-            onBatch={decideChangeSet}
-          />
-        ) : null}
-
         <div className='min-h-0 flex-1'>
           {loading ? (
             <Marker role='status' className='p-4'>
@@ -1712,6 +1625,21 @@ export function AgentPanel(props: {
             />
           )}
         </div>
+
+        {activeSession?.writingTask ? (
+          <WritingTaskProgressDock
+            key={`${activeSession.agentSessionId}:${activeSession.writingTask.taskId}:${activeSessionArchived}`}
+            task={activeSession.writingTask}
+            proposals={proposals}
+            currentRevisionIds={effectiveRevisionIds}
+            sectionTitles={props.sectionTitles}
+            canControl={canControlTask}
+            busy={busy || activeSessionArchived}
+            onEdit={() => setTaskEditorOpen(true)}
+            onResume={resumeWritingTask}
+            onBatch={decideChangeSet}
+          />
+        ) : null}
 
         <div
           className='flex min-w-0 flex-col gap-3 border-t px-4 py-3'
@@ -2004,11 +1932,10 @@ export function AgentPanel(props: {
                         />
                       </div>
                       <div className='ml-auto flex min-w-0 flex-1 items-center justify-end gap-1'>
+                        <AgentContextUsageIndicator snapshot={contextSnapshot} />
                         <AgentModelEffortPicker
                           presets={availableModelPresets}
-                          selection={
-                            activeSession?.modelSelection ?? providerCatalog.defaultSelection
-                          }
+                          selection={modelSelection}
                           levels={supportedThinkingLevels}
                           effort={
                             activeSession?.thinkingLevel ??
@@ -2123,11 +2050,9 @@ export function AgentPanel(props: {
         proposals={proposals}
         usage={usage}
         usageDetails={usageDetails}
-        contextUsage={contextUsage}
-        contextLimits={contextLimits}
-        contextPercent={contextPercent}
+        contextSnapshot={contextSnapshot}
         availableModelPresets={availableModelPresets}
-        modelSelection={activeSession?.modelSelection ?? providerCatalog.defaultSelection}
+        modelSelection={modelSelection}
         thinkingLevel={
           activeSession?.thinkingLevel ?? providerCatalog.defaultThinkingLevel ?? 'medium'
         }
@@ -2911,9 +2836,7 @@ function AgentDetailsDialog(props: {
     skillRouteRequests: number
   }
   usageDetails: string
-  contextUsage: ReturnType<typeof latestAgentContextUsage>
-  contextLimits: AgentRunRecord['modelLimits'] | null
-  contextPercent: number
+  contextSnapshot: ReturnType<typeof latestAgentContextSnapshot>
   availableModelPresets: AgentProviderCatalog['presets']
   modelSelection: AgentModelSelection | null
   thinkingLevel: AgentThinkingLevel
@@ -3013,17 +2936,17 @@ function AgentDetailsDialog(props: {
               <dt className='text-muted-foreground'>Error code</dt>
               <dd>{run?.errorCode ?? '—'}</dd>
             </dl>
-            {props.contextLimits ? (
+            {props.contextSnapshot ? (
               <div className='grid gap-2 text-xs text-muted-foreground'>
                 <div className='flex justify-between gap-3'>
                   <span>Context</span>
                   <span className='tabular-nums'>
-                    {props.contextUsage?.estimated ? '~' : ''}
-                    {props.contextUsage?.used.toLocaleString() ?? '—'} /{' '}
-                    {props.contextLimits.contextWindowTokens.toLocaleString()}
+                    {props.contextSnapshot.estimated ? '~' : ''}
+                    {props.contextSnapshot.used.toLocaleString()} /{' '}
+                    {props.contextSnapshot.contextWindowTokens.toLocaleString()}
                   </span>
                 </div>
-                <Progress value={props.contextPercent} />
+                <Progress value={props.contextSnapshot.percent} />
               </div>
             ) : null}
             {props.usageDetails ? (
@@ -3073,6 +2996,237 @@ const CHANGE_SET_STATUSES: MutationProposalRecord['status'][] = [
   'undone'
 ]
 
+function WritingTaskProgressDock(props: {
+  task: WritingTaskView
+  proposals: MutationProposalRecord[]
+  currentRevisionIds: Readonly<Record<string, string>>
+  sectionTitles: Readonly<Record<string, string>>
+  canControl: boolean
+  busy: boolean
+  onEdit(): void
+  onResume(): Promise<void>
+  onBatch(input: {
+    taskId: string
+    proposalIds: string[]
+    action: 'apply' | 'reject'
+    rejectReason: string | null
+    createCheckpoint: boolean
+  }): Promise<ChangeSetBatchResult>
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const overlayOpenRef = useRef(false)
+  const proposalNavigationRef = useRef<string | null>(null)
+  const summary = writingTaskDockSummary(props.task)
+  const titleId = `agent-writing-task-title-${props.task.taskId}`
+  const currentProgress =
+    props.task.progress.steps.find(
+      (progress) => progress.stepId === props.task.progress.currentStepId
+    ) ?? null
+
+  const changeOpen = (nextOpen: boolean): void => {
+    if (!nextOpen && overlayOpenRef.current) return
+    setOpen(nextOpen)
+  }
+
+  return (
+    <div className='flex shrink-0 justify-center px-4 py-2' data-testid='agent-writing-task'>
+      <Popover open={open} onOpenChange={changeOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant='secondary'
+            size='sm'
+            className='rounded-full tabular-nums'
+            aria-label={summary.ariaLabel}
+            data-testid='agent-writing-task-trigger'
+          >
+            {props.task.progress.hasDisagreement ? (
+              <TriangleAlert data-icon='inline-start' className='text-destructive' />
+            ) : summary.complete ? (
+              <CircleCheck data-icon='inline-start' className='text-success' />
+            ) : currentProgress === null ? (
+              <TriangleAlert data-icon='inline-start' className='text-warning' />
+            ) : (
+              <WritingTaskStateIcon state={currentProgress.state} inButton />
+            )}
+            {summary.label}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          side='top'
+          align='center'
+          sideOffset={8}
+          aria-labelledby={titleId}
+          onCloseAutoFocus={(event) => {
+            const proposalId = proposalNavigationRef.current
+            if (proposalId === null) return
+            event.preventDefault()
+            proposalNavigationRef.current = null
+            requestAnimationFrame(() => {
+              const target = document.querySelector<HTMLElement>(
+                `[data-testid="agent-proposal-${proposalId}"]`
+              )
+              target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              target?.focus({ preventScroll: true })
+            })
+          }}
+          className='flex max-h-[min(70vh,36rem)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-0 overflow-hidden p-0'
+          data-testid='agent-writing-task-popover'
+        >
+          <div className='flex min-w-0 items-start gap-2 px-3 py-3'>
+            <div className='min-w-0 flex-1'>
+              <h3 id={titleId} className='line-clamp-3 text-sm font-medium leading-snug'>
+                {props.task.objective}
+              </h3>
+              <Badge variant='outline' className='mt-2'>
+                Plan v{props.task.planVersion}
+              </Badge>
+            </div>
+            <div className='flex shrink-0 items-center gap-1'>
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                aria-label='Revise writing task plan'
+                disabled={!props.canControl}
+                onClick={() => {
+                  setOpen(false)
+                  props.onEdit()
+                }}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                aria-label='Resume writing task'
+                disabled={!props.canControl || props.task.progress.currentStepId === null}
+                onClick={() => {
+                  setOpen(false)
+                  void props.onResume()
+                }}
+              >
+                <Play />
+              </Button>
+            </div>
+          </div>
+          <div className='min-h-0 overflow-y-auto'>
+            <section className='px-3 pb-3' aria-label='Plan steps'>
+              <ol className='flex flex-col gap-2'>
+                {props.task.plan.steps.map((step, index) => {
+                  const progress = props.task.progress.steps.find(
+                    (candidate) => candidate.stepId === step.stepId
+                  )
+                  const state = progress?.state ?? step.status
+                  const current = props.task.progress.currentStepId === step.stepId
+                  return (
+                    <li
+                      key={step.stepId}
+                      className='flex min-w-0 items-start gap-2 text-sm'
+                      aria-current={current ? 'step' : undefined}
+                    >
+                      <WritingTaskStateIcon state={state} />
+                      <span className='min-w-0 flex-1'>
+                        <span className='sr-only'>{writingTaskProgressLabel(state)}. </span>
+                        <span className='line-clamp-2'>
+                          {index + 1}. {step.title}
+                        </span>
+                        {step.statusReason !== null ? (
+                          <span className='line-clamp-2 text-xs text-muted-foreground'>
+                            {step.statusReason}
+                          </span>
+                        ) : null}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ol>
+              {props.task.progress.hasDisagreement ? (
+                <p className='mt-3 flex items-start gap-1.5 text-xs text-destructive'>
+                  <TriangleAlert className='mt-0.5 size-3.5 shrink-0' />
+                  Plan status disagrees with a run or manuscript outcome. Revise or resume to
+                  reconcile it.
+                </p>
+              ) : null}
+            </section>
+            <WritingTaskChangeSetPanel
+              task={props.task}
+              proposals={props.proposals}
+              currentRevisionIds={props.currentRevisionIds}
+              sectionTitles={props.sectionTitles}
+              busy={props.busy}
+              onBatch={props.onBatch}
+              onNavigate={(proposalId) => {
+                proposalNavigationRef.current = proposalId
+                setOpen(false)
+              }}
+              onOverlayOpenChange={(nextOpen) => {
+                overlayOpenRef.current = nextOpen
+              }}
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+function WritingTaskStateIcon(props: {
+  state: WritingTaskProgressState | WritingTaskStepStatus
+  inButton?: boolean
+}): React.JSX.Element {
+  const size = props.inButton ? undefined : 'size-4'
+  if (props.state === 'in_progress') {
+    return <Spinner className={cn('shrink-0', size)} aria-hidden='true' />
+  }
+  if (props.state === 'completed' || props.state === 'verified_complete') {
+    return <CircleCheck className={cn('shrink-0 text-success', size)} aria-hidden='true' />
+  }
+  if (props.state === 'reported_complete' || props.state === 'ready' || props.state === 'active') {
+    return (
+      <CircleDotDashed className={cn('shrink-0 text-muted-foreground', size)} aria-hidden='true' />
+    )
+  }
+  if (props.state === 'awaiting_review' || props.state === 'blocked' || props.state === 'stopped') {
+    return <AlertCircle className={cn('shrink-0 text-warning', size)} aria-hidden='true' />
+  }
+  if (props.state === 'failed' || props.state === 'disagreement') {
+    return <TriangleAlert className={cn('shrink-0 text-destructive', size)} aria-hidden='true' />
+  }
+  if (props.state === 'skipped') {
+    return <CircleMinus className={cn('shrink-0 text-muted-foreground', size)} aria-hidden='true' />
+  }
+  return <Circle className={cn('shrink-0 text-muted-foreground', size)} aria-hidden='true' />
+}
+
+export function writingTaskDockSummary(task: WritingTaskView): {
+  label: string
+  ariaLabel: string
+  complete: boolean
+} {
+  const total = task.plan.steps.length
+  if (task.progress.remainingCount === 0) {
+    return {
+      label: 'Plan complete',
+      ariaLabel: 'Writing task, plan complete, open details',
+      complete: true
+    }
+  }
+  const currentIndex = task.plan.steps.findIndex(
+    (step) => step.stepId === task.progress.currentStepId
+  )
+  if (currentIndex >= 0) {
+    return {
+      label: `Step ${currentIndex + 1} / ${total}`,
+      ariaLabel: `Writing task, Step ${currentIndex + 1} of ${total}, open details`,
+      complete: false
+    }
+  }
+  return {
+    label: 'Plan needs attention',
+    ariaLabel: 'Writing task, plan needs attention, open details',
+    complete: false
+  }
+}
+
 function WritingTaskChangeSetPanel(props: {
   task: WritingTaskView
   proposals: MutationProposalRecord[]
@@ -3086,6 +3240,8 @@ function WritingTaskChangeSetPanel(props: {
     rejectReason: string | null
     createCheckpoint: boolean
   }): Promise<ChangeSetBatchResult>
+  onNavigate(proposalId: string): void
+  onOverlayOpenChange(open: boolean): void
 }): React.JSX.Element | null {
   const { resolvedTheme } = useTheme()
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -3129,21 +3285,18 @@ function WritingTaskChangeSetPanel(props: {
     setSelected(new Set())
     if (action === 'reject') {
       setRejectOpen(false)
+      props.onOverlayOpenChange(false)
       setRejectReason('')
     }
   }
 
   const navigateToProposal = (proposalId: string): void => {
-    const target = document.querySelector<HTMLElement>(
-      `[data-testid="agent-proposal-${proposalId}"]`
-    )
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    target?.focus({ preventScroll: true })
+    props.onNavigate(proposalId)
   }
 
   return (
-    <Collapsible className='group/change-set border-b' data-testid='agent-writing-change-set'>
-      <div className='flex min-h-11 items-center gap-2 px-4 py-2'>
+    <Collapsible className='group/change-set border-t' data-testid='agent-writing-change-set'>
+      <div className='flex min-h-11 items-center gap-2 px-3 py-2'>
         <CollapsibleTrigger className='flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
           <ChevronRight className='size-4 shrink-0 transition-transform group-data-[state=open]/change-set:rotate-90' />
           <span className='min-w-0 flex-1 truncate text-sm font-medium'>Task change set</span>
@@ -3154,7 +3307,7 @@ function WritingTaskChangeSetPanel(props: {
         ) : null}
       </div>
       <CollapsibleContent>
-        <div className='flex max-h-80 flex-col gap-3 overflow-y-auto px-4 pb-4'>
+        <div className='flex flex-col gap-3 px-3 pb-3'>
           {selectableIds.length > 0 ? (
             <div className='flex flex-wrap items-center gap-2 border-b pb-3'>
               <Button
@@ -3168,7 +3321,10 @@ function WritingTaskChangeSetPanel(props: {
                 size='sm'
                 variant='outline'
                 disabled={props.busy || selectedIds.length === 0}
-                onClick={() => setRejectOpen(true)}
+                onClick={() => {
+                  setRejectOpen(true)
+                  props.onOverlayOpenChange(true)
+                }}
               >
                 <X data-icon='inline-start' /> Reject selected
               </Button>
@@ -3292,7 +3448,14 @@ function WritingTaskChangeSetPanel(props: {
           ))}
         </div>
       </CollapsibleContent>
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      <Dialog
+        open={rejectOpen}
+        onOpenChange={(nextOpen) => {
+          setRejectOpen(nextOpen)
+          props.onOverlayOpenChange(nextOpen)
+          if (!nextOpen) setRejectReason('')
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject selected proposals</DialogTitle>
@@ -3311,7 +3474,14 @@ function WritingTaskChangeSetPanel(props: {
             />
           </Field>
           <DialogFooter>
-            <Button variant='outline' onClick={() => setRejectOpen(false)}>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setRejectOpen(false)
+                props.onOverlayOpenChange(false)
+                setRejectReason('')
+              }}
+            >
               Cancel
             </Button>
             <Button

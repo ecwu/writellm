@@ -407,6 +407,21 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
     placement: z.enum(['before', 'after'])
   }),
   strictObject({
+    type: z.literal('insertExistingImage'),
+    source: strictObject({
+      sectionId: sectionIdSchema,
+      ...blockPreconditionSchema.shape
+    }),
+    anchor: blockPreconditionSchema.nullable().default(null),
+    placement: z.enum(['before', 'after', 'start', 'end'])
+  }).refine(
+    ({ anchor, placement }) =>
+      anchor === null
+        ? placement === 'start' || placement === 'end'
+        : placement === 'before' || placement === 'after',
+    'Existing image insertion expected start/end without an anchor or before/after with one'
+  ),
+  strictObject({
     type: z.literal('replaceCanonicalBlock'),
     target: blockPreconditionSchema,
     block: blockNoteBlockSchema

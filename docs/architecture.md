@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), and ADR 038
-Recorded: 2026-07-31; amended through 2026-08-13
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, and ADR 049
+Recorded: 2026-07-31; amended through 2026-08-18
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -822,6 +822,14 @@ A mutation proposal includes the target section and `baseRevisionId`. Main valid
 
 Accepted operations create a new revision and retain provenance to the agent run, tool call, proposal, source revision, and cited knowledge blocks.
 
+Existing-image cross-section relocation is the narrow exception to ordinary single-section block
+resolution. `submit_section_change.insertExistingImage` names one exact current-run source-image
+precondition; Main copies the authoritative active-asset-backed block into the target section as an
+ordinary `insertBlocks` proposal with a new block ID and stable figure identity. Only an applied or
+satisfied insertion permits a later exact-hash removal proposal against the source section. The
+two proposals are not atomic: source conflict leaves the safe duplicate and is never refreshed
+into deletion of newer content. Generic cross-section targets remain rejected. See ADR 048.
+
 When a pending section proposal's base is no longer current, Main does not apply it. Main performs
 operation-aware three-way checks against the retained base and current BlockNote documents. A
 non-conflicting result creates a new pending replacement proposal based on the current revision;
@@ -997,6 +1005,24 @@ Agent tools receive the same citation IDs as the UI. A separate read tool may ex
 
 For mixed Chinese and English corpora, evaluate `unicode61` and `trigram` FTS behavior with representative fixtures. Short-query fallback is mandatory.
 
+### Citation coverage checks
+
+Knowledge citation coverage is a Main-owned, read-only derivation over the current manuscript
+revisions and the source set of the active current index generation. Text-index readiness defines
+the denominator; vector-embedding readiness is not required. A stale active generation is never
+used as a fallback denominator.
+
+Canonical citation titles use the same NFC-plus-trim, case-sensitive grouping as the References
+rail and ignore page for article identity. A unique match counts the indexed article once, repeated
+occurrences remain an article-level count, duplicate indexed titles are ambiguous and do not enter
+the numerator, and titles with no indexed source remain separate unmatched citations. An empty
+denominator has no percentage.
+
+The Renderer receives only bounded, paginated source identity, display metadata, status, counts,
+and snapshot identity through project-session-scoped IPC. It receives no normalized artifact path,
+source block or page location, manuscript text, or index database authority. Coverage is not
+persisted and does not replace the Agent draft checker, citation provenance, or retrieval filters.
+
 ## Agent Architecture
 
 ### Runtime choice
@@ -1062,12 +1088,21 @@ Full manuscript and knowledge access is through tools with pagination and size l
 
 Automatic compaction is triggered by the final conversation budget or before the 200-event/2-MiB
 runtime envelope could omit uncheckpointed history. It advances only across continuous complete
-run/turn boundaries, persists each successful step immediately, and targets checkpoint plus tail at
-the smaller of 24,000 tokens or half the conversation budget. Automatic work is limited to four
-steps and manual work to eight. Failure preserves the latest successful checkpoint and continues
-with deterministic complete-turn and typed-tool-fact reduction. Provider overflow is retried once
-only before assistant, tool, proposal, or other external activity; overflow after activity is never
-replayed. See ADR 019.
+run/turn boundaries and persists each successful step immediately. The post-compaction history
+budget is the smaller of 32,000 tokens or half the conversation budget; at its maximum it reserves
+12,000 tokens for a bounded writing handoff and 20,000 tokens for recent complete raw turns.
+User and terminal assistant messages enter compaction verbatim, while tool data remains a safe
+typed projection. Automatic and manual work share this tail-preserving policy and remain limited
+to four and eight steps respectively.
+
+Payload-v3 handoffs are conversation memory rather than manuscript, evidence, proposal, approval,
+or mutation authority. Application policy preserves their recorded user requirements and
+unfinished work unless the current request supersedes them, while every authoritative project
+fact and mutation precondition is freshly rebuilt or reread. Legacy checkpoints retain no such
+continuation semantics. A compaction failure may continue only without omitting an uncheckpointed
+user turn; otherwise it fails before provider activity. Provider overflow is retried once only
+before assistant, tool, proposal, or other external activity and is never replayed afterward. See
+ADRs 019 and 049.
 
 Within an active Pi request, provider-context transforms preserve the current user message and each
 assistant tool-call message with all of its consecutive tool results as one atomic batch. The newest
@@ -1089,6 +1124,14 @@ not become hidden prompt text. The collapsed model trigger uses the recognizable
 plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
 Provider identity remains visible inside model browsing and diagnostics where duplicate names need
 disambiguation.
+
+When the latest valid assistant context usage belongs to a run matching the conversation's current
+model selection, a neutral read-only circular indicator appears immediately before the model trigger.
+It uses that same run's immutable context window, exposes used/left percentages and compact token
+counts on hover or keyboard focus, and stays hidden for unknown or mismatched usage rather than
+claiming zero. The indicator has no click action and remains inside the elastic model/Thinking group,
+so the four top-level composer actions and narrow-panel truncation rules do not change. Agent Details
+uses the same matched snapshot. See ADR 050.
 
 Approval uses the compact `Manual`, `Section`, and `YOLO` labels without a status icon; its menu
 describes the existing WriteLLM proposal policy and must never imply generic computer, shell,

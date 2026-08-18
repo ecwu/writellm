@@ -1,9 +1,9 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
-import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
+import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
 import { ZipFile } from 'yazl'
 
 function makeMinimalPdf(): string {
@@ -58,6 +58,8 @@ async function diagnosticEventCount(page: Page, event: string): Promise<number> 
 
 async function startSuccessfulMineruServer(zipBytes: Buffer) {
   const stats = { parseTaskId: '', uploadedBytes: 0 }
+  let batchCounter = 0
+  const batches = new Map<string, { dataId: string; fileName: string }>()
   const server = createServer((request, response) => {
     const port = (server.address() as AddressInfo).port
     if (request.method === 'POST' && request.url === '/api/v4/file-urls/batch') {
@@ -65,17 +67,23 @@ async function startSuccessfulMineruServer(zipBytes: Buffer) {
       request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
       request.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-          files: Array<{ data_id: string }>
+          files: Array<{ data_id: string; name?: string }>
         }
         stats.parseTaskId = body.files[0]?.data_id ?? ''
+        batchCounter += 1
+        const batchId = `e2e-batch-${batchCounter}`
+        batches.set(batchId, {
+          dataId: stats.parseTaskId,
+          fileName: body.files[0]?.name ?? 'parsed source.pdf'
+        })
         response.writeHead(200, { 'content-type': 'application/json' })
         response.end(
           JSON.stringify({
             code: 0,
             trace_id: 'e2e-submit-trace',
             data: {
-              batch_id: 'e2e-batch-1',
-              file_urls: [`http://127.0.0.1:${port}/upload?signature=private`]
+              batch_id: batchId,
+              file_urls: [`http://127.0.0.1:${port}/upload?batch=${batchId}&signature=private`]
             }
           })
         )
@@ -92,18 +100,26 @@ async function startSuccessfulMineruServer(zipBytes: Buffer) {
       })
       return
     }
-    if (request.method === 'GET' && request.url === '/api/v4/extract-results/batch/e2e-batch-1') {
+    const batchMatch = request.url?.match(/^\/api\/v4\/extract-results\/batch\/(e2e-batch-\d+)$/u)
+    if (request.method === 'GET' && batchMatch !== undefined && batchMatch !== null) {
+      const batchId = batchMatch[1] ?? ''
+      const batch = batches.get(batchId)
+      if (batch === undefined) {
+        response.writeHead(404)
+        response.end()
+        return
+      }
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(
         JSON.stringify({
           code: 0,
           trace_id: 'e2e-poll-trace',
           data: {
-            batch_id: 'e2e-batch-1',
+            batch_id: batchId,
             extract_result: [
               {
-                file_name: 'parsed source.pdf',
-                data_id: stats.parseTaskId,
+                file_name: batch.fileName,
+                data_id: batch.dataId,
                 state: 'done',
                 full_zip_url: `http://127.0.0.1:${port}/result.zip`
               }
@@ -364,6 +380,84 @@ test(
       if (!launchedClosed) await launched.app.close()
       await reopened?.app.close()
       await recovered?.app.close()
+      await new Promise<void>((resolve, reject) =>
+        mineru.server.close((error) => (error ? reject(error) : resolve()))
+      )
+    }
+  }
+)
+
+test(
+  'checks article-level citation coverage and refreshes after manuscript edits',
+  scenario('knowledge.citation-coverage'),
+  async ({ testRoot }) => {
+    const duplicateA = join(testRoot, 'source-a', 'duplicate source.pdf')
+    const duplicateB = join(testRoot, 'source-b', 'duplicate source.pdf')
+    const unique = join(testRoot, 'unique source.pdf')
+    const unused = join(testRoot, 'unused source.pdf')
+    await mkdir(join(testRoot, 'source-a'))
+    await mkdir(join(testRoot, 'source-b'))
+    await writeFile(duplicateA, `${makeMinimalPdf()}\n% duplicate-a`)
+    await writeFile(duplicateB, `${makeMinimalPdf()}\n% duplicate-b`)
+    await writeFile(unique, `${makeMinimalPdf()}\n% unique`)
+    await writeFile(unused, `${makeMinimalPdf()}\n% unused`)
+    const mineru = await startSuccessfulMineruServer(await resultZip())
+    const projectName = 'Citation coverage checks'
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot],
+      knowledgeDialogPaths: [unique, duplicateA, duplicateB, unused]
+    })
+    try {
+      await configureMineruProvider(launched.page, mineru.port)
+      await createProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      const knowledge = launched.page.getByTestId('knowledge-workspace')
+      for (let index = 0; index < 4; index += 1) {
+        await knowledge.getByTestId('knowledge-upload-button').click()
+      }
+      await expect(knowledge.getByTestId(/^knowledge-file-/)).toHaveCount(4, { timeout: 30_000 })
+      await expect(knowledge.getByTestId('knowledge-stat-indexed')).toContainText(/Yes\s*Indexed/, {
+        timeout: 60_000
+      })
+
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      const editor = sectionEditor(launched.page)
+      await editor.click()
+      await launched.page.keyboard.type(
+        '[Source: unique source.pdf, p. 1] [Source: duplicate source.pdf] [Source: Missing source.pdf]'
+      )
+      await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
+
+      const checks = launched.page.getByTestId('checks-workspace')
+      await expect(
+        checks.getByRole('heading', { name: 'Knowledge citation coverage' })
+      ).toBeVisible()
+      const summary = checks.getByRole('region', { name: 'Coverage summary' })
+      await expect(summary.getByText('25%', { exact: true }).first()).toBeVisible()
+      await expect(summary.getByText('4', { exact: true })).toBeVisible()
+      await expect(summary.getByText('1', { exact: true })).toHaveCount(2)
+      await expect(summary.getByText('3', { exact: true })).toBeVisible()
+      const table = checks.getByRole('table')
+      await expect(table.getByText('duplicate source.pdf', { exact: true })).toHaveCount(2)
+      await expect(table.getByText('Ambiguous title', { exact: true })).toHaveCount(2)
+      await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()
+      await checks.getByRole('radio', { name: 'Needs attention', exact: true }).click()
+      await expect(table.getByText('Missing source.pdf', { exact: true })).toBeVisible()
+      await expect(table.getByText('Not indexed', { exact: true })).toBeVisible()
+
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await editor.click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.type(' [Source: unused source.pdf]')
+      await expect(sectionEditor(launched.page)).toContainText('[Source: unused source.pdf]')
+      await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
+      await expect(summary.getByText('50%', { exact: true }).first()).toBeVisible()
+      await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()
+      await expect(table.getByText('Cited', { exact: true })).toHaveCount(2)
+      await expect(table.getByText('Ambiguous title', { exact: true })).toHaveCount(2)
+    } finally {
+      await launched.app.close()
       await new Promise<void>((resolve, reject) =>
         mineru.server.close((error) => (error ? reject(error) : resolve()))
       )

@@ -18,6 +18,7 @@
     { "id": "knowledge.import-lifecycle", "tiers": ["packaged"] },
     { "id": "knowledge.original-survives-reopen", "tiers": [] },
     { "id": "knowledge.parse-preview-search", "tiers": ["critical", "packaged"] },
+    { "id": "knowledge.citation-coverage", "tiers": [] },
     { "id": "knowledge.rebuilds-derived-index", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.checkpoint-restore-preserves-history", "tiers": ["packaged"] },
     { "id": "manuscript.citation-display-references-export", "tiers": [] },

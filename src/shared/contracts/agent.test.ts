@@ -105,7 +105,7 @@ describe('Agent contracts', () => {
     })
   })
 
-  it('reads legacy checkpoints and validates continuous v2 checkpoint coverage', () => {
+  it('reads legacy/v2 checkpoints and validates bounded-handoff v3 budgets', () => {
     expect(
       agentCompactionSummaryPayloadSchema.parse({
         summary: 'Legacy summary',
@@ -142,6 +142,18 @@ describe('Agent contracts', () => {
         coveredThroughSequence: 20
       })
     ).toThrow('coverage is invalid')
+    const v3 = {
+      ...checkpoint,
+      schemaVersion: 3 as const,
+      handoffMode: 'bounded_conversation_memory' as const,
+      postCompactionBudgetTokens: 32_000,
+      checkpointBudgetTokens: 12_000,
+      recentTailBudgetTokens: 20_000
+    }
+    expect(agentCompactionSummaryPayloadSchema.parse(v3)).toEqual(v3)
+    expect(() =>
+      agentCompactionSummaryPayloadSchema.parse({ ...v3, recentTailBudgetTokens: 19_999 })
+    ).toThrow('budgets are inconsistent')
   })
 
   it('rejects oversized history and stale response envelope shapes', () => {

@@ -27,6 +27,40 @@ const config: ProviderConfig = {
 }
 
 describe('ProjectIndexService embeddings', () => {
+  it('projects only safe source identity from the active current text generation', async () => {
+    const inspect = vi
+      .fn()
+      .mockResolvedValueOnce({ activeGenerationId: expectedIndexGeneration() })
+      .mockResolvedValueOnce({ activeGenerationId: 'generation-stale' })
+    const service = new ProjectIndexService({
+      projectRoot,
+      projectId,
+      database: projectDatabaseWithSource(),
+      jobs: { enqueue: vi.fn() } as never,
+      client: {
+        initialize: vi.fn(async () => ({ activeGenerationId: expectedIndexGeneration() })),
+        inspect
+      } as unknown as IndexClient,
+      getEmbeddingProvider: async () => config,
+      embedBatch: async () => ({ embeddings: [], metadata: {} }) as never,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+    await service.initialize()
+
+    const snapshot = await service.currentIndexedSources(new AbortController().signal)
+
+    expect(snapshot).toEqual({
+      state: 'ready',
+      generationId: expectedIndexGeneration(),
+      sources: [{ knowledgeItemId, displayName: 'Fixture', extension: 'pdf' }]
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('relative_path')
+    expect(JSON.stringify(snapshot)).not.toContain('/private/')
+    await expect(service.currentIndexedSources(new AbortController().signal)).resolves.toEqual({
+      state: 'preparing'
+    })
+  })
+
   it('reports whether the active index matches the current parsed source generation', async () => {
     const inspect = vi
       .fn()

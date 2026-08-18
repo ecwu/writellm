@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 51 is implemented and verified under accepted ADR 046. Phase 11
-remains complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
+Status: Phase 12 Checkpoint 56 is implemented and verified. Checkpoints 52-55 and Phase 11 remain
+complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
 disabled.
-Recorded: 2026-08-17
+Recorded: 2026-08-18
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -41,6 +41,66 @@ No hosted CI, signing, notarization, tag, or release promotion has run.
 
 ## Current authorized work
 
+On 2026-08-18 the user accepted the decision-complete bottom-docked Agent plan design, authorized
+Checkpoint 56, and the bounded Renderer refinement completed. The permanently expanded plan and
+change-set blocks no longer consume the conversation header; one centered Step capsule above the
+composer opens a bounded, keyboard-accessible shadcn Popover containing plan controls, semantic
+step states, and the unchanged change-set workflow. Current-step ordinal, terminal history,
+proposal authority, task state machine, IPC, persistence, providers, and workers remain unchanged.
+Focused tests, `check:fast`, the 183-file / 991-test Electron-hosted gate plus production build,
+one fresh focused Real-Electron scenario, four responsive screenshot inspections, scoped
+Impeccable, independent finish review, and diff checks passed. No package/release, hosted CI,
+commit, push, signing, notarization, or publication work ran. Detailed evidence lives in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-56-agent-plan-bottom-progress-capsule).
+
+On 2026-08-18 the user accepted the decision-complete Agent context-usage indicator plan,
+authorized Checkpoint 55 under ADR 050, and the bounded implementation completed. The Renderer
+places a neutral, read-only
+circular usage indicator before the model/Thinking trigger only when the latest valid assistant
+usage can be paired with its originating run and that run matches the current model selection.
+Hover/focus reveals used and remaining percentages plus compact token counts; unknown or mismatched
+usage stays hidden, Agent Details remains available, and no click action or warning-color policy is
+added. Focused Renderer tests, `check:fast`, the 183-file / 990-test Electron-hosted gate plus
+production build, one fresh focused Real-Electron scenario, two screenshot inspections, scoped
+Impeccable, independent finish review, and diff checks passed. This checkpoint adds no IPC,
+persistence, provider, worker, model request, dependency, migration, package/release, hosted CI,
+commit, push, signing, notarization, or publication work.
+Detailed scope and evidence live in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-55-agent-composer-context-usage-indicator).
+
+On 2026-08-18 the user accepted ADR 049 and completed Checkpoint 54. The implementation replaces
+the lossy 1,024-character pre-summary projection with verbatim completed user/assistant turns,
+adds an adaptive maximum 12k semantic handoff plus 20k recent raw tail, introduces backward-
+compatible checkpoint payload v3 with constrained conversation-memory semantics, aligns manual
+and automatic retention, and prevents automatic failure fallback from silently omitting an
+uncheckpointed user turn. The focused 107-test evidence, `check:fast`, 182-file / 984-test
+Electron-hosted gate with three intentional benchmark skips and production build, fresh 41/41
+Real-Electron suite, and diff checks passed. Raw events, current project context,
+proposal/mutation authority, IPC, workers, and database schema remain unchanged. Detailed scope
+and evidence live in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-54-harness-style-writing-context-compaction).
+
+On 2026-08-18 the user accepted ADR 048, authorized Checkpoint 53, and the bounded implementation
+completed. `submit_section_change.insertExistingImage` now lets Main copy an exact current-run
+root-level source image into another section without invoking image generation or accepting
+model-authored asset data. Relocation remains two ordinary single-section proposals: destination
+insertion must apply before exact source removal, and a removal conflict leaves the safe duplicate.
+The focused 56-test evidence, `check:fast`, 185-file / 980-test Electron-hosted gate with three
+intentional benchmark skips and production build, fresh 41/41 Real-Electron suite, and diff checks
+passed. No migration, proposal kind, IPC method, UI, provider, worker, dependency, package/release
+action, commit, push, hosted CI, signing, notarization, or publication ran. Detailed evidence lives
+in [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-53-existing-image-cross-section-relocation).
+
+On 2026-08-18 the user accepted the decision-complete Knowledge citation coverage plan and
+authorized Checkpoint 52. The completed slice adds a read-only Checks workspace and one bounded
+Main-owned coverage derivation over the current manuscript revisions and active current Knowledge
+index generation. Focused logic/Main/IPC tests, `check:fast`, the final 181-file / 965-test
+Electron-hosted gate plus production build, 41/41 fresh Real-Electron scenarios, scoped
+Impeccable, and diff checks passed. It adds no migration, durable job, worker role, model-visible
+Agent tool, retrieval exclusion, package/release action, commit, push, hosted CI, signing,
+notarization, or publication. Detailed evidence lives in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-52-knowledge-citation-coverage-checks).
+
 On 2026-08-17 the user accepted ADR 046 and authorized Checkpoint 51 plus direct fast-forward
 delivery to `origin/main`. The current Pi runtime now preserves the current user request and atomic
 assistant/tool-result batches in provider context, projects only completed older reads without
@@ -62,8 +122,9 @@ three focused Real-Electron flows, visual inspection, scoped/full-code static ch
 and diff checks passed. Formal checkpoint closure remains pending only because the ordinary static
 gate reports formatting in the user-owned concurrent `.vscode/settings.json` edit, which this work
 did not rewrite. Detailed evidence lives in
-[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md). No later Phase 12 checkpoint,
-migration, new Agent capability, hosted CI, commit, push, or publication is authorized. On
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md). No later Phase 12 checkpoint
+beyond the completed Checkpoint 56, migration, broader Agent capability, hosted CI, commit, push,
+or publication is authorized. On
 2026-08-13 the user additionally authorized one local no-identity macOS arm64 unpacked App build
 from the current Checkpoint 48 worktree for hands-on use. That authorization does not include a
 DMG, ZIP, signing, notarization, hosted CI, release, or promotion. The authorized build is complete:

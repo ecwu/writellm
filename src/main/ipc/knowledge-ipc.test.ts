@@ -84,8 +84,14 @@ function harness() {
   const projectIndex = {
     readiness: vi.fn<() => 'preparing' | 'available' | 'unavailable'>(() => 'available'),
     requestEmbeddingRefresh: vi.fn(async () => undefined),
-    isCurrentGenerationIndexed: vi.fn(async () => true)
+    isCurrentGenerationIndexed: vi.fn(async () => true),
+    currentIndexedSources: vi.fn(async () => ({
+      state: 'ready' as const,
+      generationId: 'generation-current',
+      sources: [{ knowledgeItemId, displayName: 'Fixture', extension: 'pdf' }]
+    }))
   }
+  const releaseOperation = vi.fn()
   const context = {
     projectRoot: '/private/project.writellm',
     mineruWorkflow,
@@ -95,6 +101,34 @@ function harness() {
     runtime: { scheduler: { cancel: vi.fn() } },
     knowledgeNormalization,
     projectIndex,
+    operations: { track: vi.fn(() => releaseOperation) },
+    manuscript: {
+      assemble: vi.fn(() => ({
+        manuscriptId: '55555555-5555-4555-8555-555555555555',
+        outlineVersion: 1,
+        brief: {},
+        sections: [
+          {
+            section: { sectionId: '66666666-6666-4666-8666-666666666666' },
+            revision: {
+              sectionRevisionId: '77777777-7777-4777-8777-777777777777',
+              contentHash: 'a'.repeat(64),
+              content: [
+                {
+                  id: 'block-1',
+                  type: 'paragraph',
+                  props: {},
+                  content: [{ type: 'text', text: '[Source: Fixture, p. 2]', styles: {} }],
+                  children: []
+                }
+              ]
+            }
+          }
+        ],
+        wordCount: 0,
+        characterCount: 0
+      }))
+    },
     knowledgeImports: {
       list: vi.fn(() => []),
       importPaths: vi.fn(),
@@ -128,6 +162,8 @@ function harness() {
     mineruWorkflow,
     knowledgeNormalization,
     projectIndex,
+    context,
+    releaseOperation,
     revoke: () => {
       active = false
     },
@@ -192,6 +228,53 @@ describe('knowledge IPC', () => {
     expect(projectIndex.isCurrentGenerationIndexed).not.toHaveBeenCalled()
   })
 
+  it('returns a bounded, session-authorized citation coverage page', async () => {
+    const { invoke, projectIndex, context, releaseOperation } = harness()
+
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeCitationCoveragePage, {
+        projectSessionId,
+        filter: 'all',
+        query: '',
+        limit: 100
+      })
+    ).resolves.toMatchObject({
+      state: 'ready',
+      summary: { indexedSourceCount: 1, citedSourceCount: 1, coverageRatio: 1 },
+      items: [
+        {
+          kind: 'source',
+          knowledgeItemId,
+          displayName: 'Fixture',
+          extension: 'pdf',
+          status: 'cited',
+          citationCount: 1
+        }
+      ],
+      nextCursor: null
+    })
+    expect(projectIndex.currentIndexedSources).toHaveBeenCalledTimes(2)
+    expect(context.operations.track).toHaveBeenCalledWith(expect.any(AbortController))
+    expect(releaseOperation).toHaveBeenCalledOnce()
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeCitationCoveragePage, {
+        projectSessionId,
+        filter: 'all',
+        query: '',
+        limit: 101
+      })
+    ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.knowledgeCitationCoveragePage, {
+        projectSessionId,
+        filter: 'all',
+        query: '',
+        limit: 10,
+        privatePath: '/private/project.writellm'
+      })
+    ).rejects.toThrow()
+  })
+
   it('cancels parsing through a session-authorized knowledge action', async () => {
     const { invoke, mineruWorkflow } = harness()
 
@@ -251,6 +334,30 @@ describe('knowledge IPC', () => {
     await expect(
       third.invoke(IPC_CHANNELS.knowledgeIndexStatus, { projectSessionId })
     ).rejects.toThrow('Knowledge index status could not be loaded')
+
+    const fourth = harness()
+    fourth.projectIndex.currentIndexedSources
+      .mockResolvedValueOnce({
+        state: 'ready',
+        generationId: 'generation-current',
+        sources: [{ knowledgeItemId, displayName: 'Fixture', extension: 'pdf' }]
+      })
+      .mockImplementationOnce(async () => {
+        fourth.revoke()
+        return {
+          state: 'ready',
+          generationId: 'generation-current',
+          sources: [{ knowledgeItemId, displayName: 'Fixture', extension: 'pdf' }]
+        }
+      })
+    await expect(
+      fourth.invoke(IPC_CHANNELS.knowledgeCitationCoveragePage, {
+        projectSessionId,
+        filter: 'all',
+        query: '',
+        limit: 10
+      })
+    ).rejects.toThrow('Knowledge citation coverage could not be loaded')
   })
 
   it('authorizes the sender and rejects renderer-only fields at the strict asset boundary', async () => {

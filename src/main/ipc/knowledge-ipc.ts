@@ -3,6 +3,8 @@ import { stat } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
+  knowledgeCitationCoveragePageInputSchema,
+  knowledgeCitationCoveragePageResultSchema,
   knowledgeEmbeddingRefreshInputSchema,
   knowledgeImportPathsInputSchema,
   knowledgeIndexStatusSchema,
@@ -26,6 +28,7 @@ import {
   pdfPreviewResultSchema
 } from '../../shared/contracts/knowledge-mapping'
 import type { PdfPreviewCapabilities } from '../knowledge/pdf-preview-capabilities'
+import { KnowledgeCitationCoverageService } from '../knowledge/knowledge-citation-coverage-service'
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
 import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
@@ -71,6 +74,84 @@ export function registerKnowledgeIpc(options: {
         'Failed to inspect knowledge index status'
       )
       throw new Error('Knowledge index status could not be loaded', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.knowledgeCitationCoveragePage, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = knowledgeCitationCoveragePageInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const startedAt = Date.now()
+    if (context.projectIndex === null) {
+      const result = knowledgeCitationCoveragePageResultSchema.parse({
+        state: 'unavailable',
+        reason: 'index_unavailable'
+      })
+      options.logger.info(
+        {
+          event: 'knowledge.citation_coverage.completed',
+          projectSessionId: parsed.projectSessionId,
+          filter: parsed.filter,
+          state: result.state,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge citation coverage page loaded'
+      )
+      return result
+    }
+    const controller = new AbortController()
+    const release = context.operations?.track(controller)
+    try {
+      const service = new KnowledgeCitationCoverageService({
+        manuscript: context.manuscript,
+        projectIndex: context.projectIndex
+      })
+      const result = knowledgeCitationCoveragePageResultSchema.parse(
+        await service.page(
+          {
+            filter: parsed.filter,
+            query: parsed.query,
+            ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
+            limit: parsed.limit
+          },
+          controller.signal
+        )
+      )
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      options.logger.info(
+        {
+          event: 'knowledge.citation_coverage.completed',
+          projectSessionId: parsed.projectSessionId,
+          filter: parsed.filter,
+          state: result.state,
+          ...(result.state === 'ready'
+            ? {
+                indexGenerationId: result.indexGenerationId,
+                indexedSourceCount: result.summary.indexedSourceCount,
+                citedSourceCount: result.summary.citedSourceCount,
+                attentionCount: result.summary.attentionCount,
+                returnedItemCount: result.items.length
+              }
+            : {}),
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge citation coverage page loaded'
+      )
+      return result
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'knowledge.citation_coverage.failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          filter: parsed.filter,
+          durationMs: Date.now() - startedAt
+        },
+        'Knowledge citation coverage page failed'
+      )
+      throw new Error('Knowledge citation coverage could not be loaded', { cause: err })
+    } finally {
+      release?.()
     }
   })
 
@@ -388,6 +469,7 @@ export function registerKnowledgeIpc(options: {
     for (const channel of [
       IPC_CHANNELS.knowledgeList,
       IPC_CHANNELS.knowledgeIndexStatus,
+      IPC_CHANNELS.knowledgeCitationCoveragePage,
       IPC_CHANNELS.knowledgeChooseAndImport,
       IPC_CHANNELS.knowledgeImportDropped,
       IPC_CHANNELS.knowledgeCancel,

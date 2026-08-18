@@ -78,6 +78,7 @@ import {
   ExpandedCitationPreview
 } from '@/features/knowledge/citation-preview'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
+import { KnowledgeCitationCoverageWorkspace } from '@/features/checks/knowledge-citation-coverage-workspace'
 import { ReviewCenterPanel } from '@/features/review/review-center-panel'
 import { WritingRulesPanel } from '@/features/review/writing-rules-panel'
 import { AnnotationCreateDialog } from '@/features/review/annotation-create-dialog'
@@ -171,7 +172,14 @@ export function WritingWorkspace(props: {
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<
-    'manuscript' | 'knowledge' | 'assets' | 'references' | 'find' | 'issues' | 'writing_rules'
+    | 'manuscript'
+    | 'knowledge'
+    | 'checks'
+    | 'assets'
+    | 'references'
+    | 'find'
+    | 'issues'
+    | 'writing_rules'
   >('manuscript')
   const [citationDraft, setCitationDraft] = useState<{
     sectionId: string
@@ -1489,6 +1497,12 @@ export function WritingWorkspace(props: {
     if (await flushCurrent()) setOutlineEditOpen(true)
   }
 
+  const openChecksFromManuscript = async (): Promise<void> => {
+    if (!(await flushCurrent())) return
+    props.onAgentOpenChange(false)
+    setActiveWorkspace('checks')
+  }
+
   if (activeWorkspace === 'knowledge') {
     return (
       <KnowledgeManager
@@ -1496,6 +1510,7 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         onOpenManuscript={closeFind}
         onOpenAssets={() => setActiveWorkspace('assets')}
+        onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenReferences={() => setActiveWorkspace('references')}
         onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
@@ -1513,6 +1528,7 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         workspace={workspace}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenReferences={() => setActiveWorkspace('references')}
         onOpenIssues={() => setActiveWorkspace('issues')}
@@ -1527,6 +1543,24 @@ export function WritingWorkspace(props: {
             requestAnimationFrame(() => editorRef.current?.revealBlock(blockId))
           })
         }}
+      />
+    )
+  }
+
+  if (activeWorkspace === 'checks') {
+    return (
+      <KnowledgeCitationCoverageWorkspace
+        projectSessionId={props.projectSessionId}
+        projectName={props.projectName}
+        onOpenManuscript={() => setActiveWorkspace('manuscript')}
+        onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenAssets={() => setActiveWorkspace('assets')}
+        onOpenReferences={() => setActiveWorkspace('references')}
+        onOpenIssues={() => setActiveWorkspace('issues')}
+        onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
+        onOpenFind={openFind}
+        onOpenSettings={props.onOpenSettings}
+        onError={props.onError}
       />
     )
   }
@@ -1552,6 +1586,7 @@ export function WritingWorkspace(props: {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
         }}
+        onOpenChecks={() => void openChecksFromManuscript()}
         onOpenAssets={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('assets')

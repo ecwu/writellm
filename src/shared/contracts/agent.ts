@@ -411,7 +411,7 @@ export const agentLegacyCompactionSummaryPayloadSchema = z
     timestamp: z.number().int().nonnegative()
   })
   .strict()
-export const agentCompactionCheckpointPayloadSchema = z
+export const agentCompactionCheckpointV2PayloadSchema = z
   .object({
     schemaVersion: z.literal(2),
     compactionId: z.uuid(),
@@ -436,8 +436,44 @@ export const agentCompactionCheckpointPayloadSchema = z
   .refine((value) => value.coveredFromSequence <= value.coveredThroughSequence, {
     message: 'Compaction checkpoint coverage is invalid'
   })
+export const agentCompactionCheckpointPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(3),
+    handoffMode: z.literal('bounded_conversation_memory'),
+    compactionId: z.uuid(),
+    trigger: agentCompactionTriggerSchema,
+    stepIndex: z.number().int().positive().max(8),
+    finalStep: z.boolean(),
+    previousCheckpointEventId: agentEventIdSchema.nullable(),
+    coveredFromSequence: z.number().int().positive(),
+    coveredThroughSequence: z.number().int().positive(),
+    summary: z.string().min(1).max(32_768),
+    proposalOutcomes: z.array(z.record(z.string(), z.unknown())).max(256),
+    approvalDecisions: z.array(z.record(z.string(), z.unknown())).max(256),
+    citationIds: z.array(z.string().regex(/^citation-[a-f0-9]{40}$/u)).max(1_000),
+    toolOutcomes: z.array(z.record(z.string(), z.unknown())).max(512),
+    estimatedTokensBefore: z.number().int().nonnegative(),
+    estimatedTokensAfter: z.number().int().nonnegative(),
+    checkpointTokens: z.number().int().nonnegative(),
+    tailTokens: z.number().int().nonnegative(),
+    postCompactionBudgetTokens: z.number().int().positive(),
+    checkpointBudgetTokens: z.number().int().positive(),
+    recentTailBudgetTokens: z.number().int().nonnegative(),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
+  .refine((value) => value.coveredFromSequence <= value.coveredThroughSequence, {
+    message: 'Compaction checkpoint coverage is invalid'
+  })
+  .refine(
+    (value) =>
+      value.checkpointBudgetTokens + value.recentTailBudgetTokens ===
+      value.postCompactionBudgetTokens,
+    { message: 'Compaction checkpoint budgets are inconsistent' }
+  )
 export const agentCompactionSummaryPayloadSchema = z.union([
   agentLegacyCompactionSummaryPayloadSchema,
+  agentCompactionCheckpointV2PayloadSchema,
   agentCompactionCheckpointPayloadSchema
 ])
 export const agentCompactionStartedPayloadSchema = z
@@ -502,6 +538,9 @@ export type AgentEventType = z.infer<typeof agentEventTypeSchema>
 export type AgentCompactionSummaryPayload = z.infer<typeof agentCompactionSummaryPayloadSchema>
 export type AgentCompactionCheckpointPayload = z.infer<
   typeof agentCompactionCheckpointPayloadSchema
+>
+export type AgentCompactionCheckpointV2Payload = z.infer<
+  typeof agentCompactionCheckpointV2PayloadSchema
 >
 export type AgentCompactionStartedPayload = z.infer<typeof agentCompactionStartedPayloadSchema>
 export type AgentCompactionFailedPayload = z.infer<typeof agentCompactionFailedPayloadSchema>

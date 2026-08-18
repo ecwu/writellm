@@ -479,7 +479,7 @@ if (!hasSingleInstanceLock) {
                 {
                   systemPrompt: HISTORY_COMPACTION_SYSTEM_PROMPT,
                   prompt: formatHistoryCompactionInput(input.sourcePayloadJson),
-                  maxOutputTokens: 4_096
+                  maxOutputTokens: input.maxOutputTokens
                 },
                 {
                   operationId: input.compactionId,

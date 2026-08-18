@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
 import { estimateAgentTokens } from '../../shared/agent-context-budget'
-import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
+import {
+  agentCompactionBudgets,
+  AgentContextPlanner,
+  AgentCurrentTurnTooLargeError
+} from './context-planner'
 
 const limits: AgentModelLimits = {
   contextWindowTokens: 64_000,
@@ -13,6 +17,19 @@ const limits: AgentModelLimits = {
 }
 
 describe('AgentContextPlanner', () => {
+  it('scales the checkpoint and raw-tail split for small and large conversation windows', () => {
+    expect(agentCompactionBudgets(10_000)).toEqual({
+      postCompactionBudgetTokens: 5_000,
+      checkpointBudgetTokens: 1_875,
+      recentTailBudgetTokens: 3_125
+    })
+    expect(agentCompactionBudgets(100_000)).toEqual({
+      postCompactionBudgetTokens: 32_000,
+      checkpointBudgetTokens: 12_000,
+      recentTailBudgetTokens: 20_000
+    })
+  })
+
   it('budgets the final system prompt, exact tool envelope, history, CJK/emoji request, output, and safety reserve', () => {
     const systemPrompt = `System ${'技能'.repeat(800)}`
     const tools = [{ name: 'read', description: '🔎'.repeat(300), parameters: { type: 'object' } }]
@@ -42,8 +59,14 @@ describe('AgentContextPlanner', () => {
         plan.advertisedToolTokens -
         plan.currentRequestTokens
     )
-    expect(plan.compactionTargetTokens).toBe(
-      Math.min(24_000, Math.floor(plan.conversationBudgetTokens * 0.5))
+    expect(plan.postCompactionBudgetTokens).toBe(
+      Math.min(32_000, Math.floor(plan.conversationBudgetTokens * 0.5))
+    )
+    expect(plan.checkpointBudgetTokens).toBe(
+      Math.min(12_000, Math.floor(plan.postCompactionBudgetTokens * 0.375))
+    )
+    expect(plan.recentTailBudgetTokens).toBe(
+      plan.postCompactionBudgetTokens - plan.checkpointBudgetTokens
     )
   })
 

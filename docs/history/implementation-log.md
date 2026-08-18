@@ -386,3 +386,48 @@ maintenance without turning the active tracker back into a historical log.
   25 recovery fixtures, 12 packaged smoke scenarios, and 28/28 packaged E2E scenarios passed. The
   authorized delivery is one feature commit fast-forwarded to `origin/main`, explicitly excluding
   `cordis-reform`; package artifacts remain ignored and unpublished.
+
+## 2026-08-18
+
+- Accepted ADR 047 and completed Checkpoint 52. The application now has a read-only Checks
+  workspace whose Main-owned, snapshot-bound service derives article-level Knowledge citation
+  coverage from current manuscript revisions and only the active current text-index generation.
+  Duplicate titles remain ambiguous, unmatched citations remain explicit, and no private path or
+  persisted coverage authority crosses IPC. Focused tests, `check:fast`, 181 Electron-hosted test
+  files / 965 tests plus production build, all 41 fresh Real-Electron scenarios, screenshot
+  inspection, Impeccable, and diff checks passed. No migration, package, commit, push, hosted CI,
+  signing, release, or publication action ran.
+- Accepted ADR 048 and completed Checkpoint 53. Main can now copy one exact current-run,
+  active-asset-backed root image into another section through the existing section proposal path,
+  preserving figure metadata while minting a destination block ID. Agent policy requires an
+  applied destination insertion before exact source removal; pending or failed insertion cannot
+  delete the source, and a changed source hash leaves a safe duplicate without a deletion retry.
+  Cross-section `moveBlocks` now returns actionable argument repair. Focused tests, `check:fast`,
+  182 Electron-hosted test files / 980 tests plus production build, and all 41 fresh Real-Electron
+  scenarios passed. No migration, provider call, package, commit, push, hosted CI, signing,
+  release, or publication action ran.
+- Accepted ADR 049 and completed Checkpoint 54. Conversation compaction now combines freshly
+  rebuilt authoritative writing context, a bounded writing-specific v3 handoff, and an adaptive
+  recent suffix of verbatim complete turns. Long user and terminal assistant messages are no
+  longer reduced to 1,024-character head/tail projections; legacy/v2 checkpoints remain
+  authority-free, while v3 can continue user goals and constraints without granting manuscript,
+  evidence, proposal, or mutation authority. Unsafe recovery now stops before omitting an
+  uncheckpointed requirement. Focused tests, `check:fast`, 182 Electron-hosted test files / 984
+  tests plus production build, and all 41 fresh Real-Electron scenarios passed. No migration,
+  provider call, package, commit, push, hosted CI, signing, release, or publication action ran.
+- Accepted ADR 050 and completed Checkpoint 55. The Renderer now shows latest trustworthy
+  run-matched context usage as a neutral accessible circular indicator beside the Agent
+  model/Thinking trigger, with keyboard/hover detail and no stale-model or unknown zero state.
+  Focused tests, `check:fast`, 183 Electron-hosted files / 990 tests plus production build, one
+  focused Real-Electron scenario, screenshot inspection, scoped Impeccable, independent finish
+  review, and diff checks passed. No new action, IPC, persistence, provider, worker, migration,
+  dependency, package/release, hosted CI, commit, push, signing, notarization, or publication work
+  ran.
+- Completed Checkpoint 56. The Agent writing-task plan now occupies one centered Step capsule above
+  the composer and opens a bounded, accessible shadcn Popover containing the semantic step list,
+  plan controls, and unchanged change-set workflow; terminal plans remain available as
+  `Plan complete`. Focused tests, `check:fast`, 183 Electron-hosted files / 991 tests plus
+  production build, one fresh focused Real-Electron scenario, four responsive screenshot
+  inspections, scoped Impeccable, independent finish review, and diff checks passed. No IPC,
+  persistence, provider, worker, migration, dependency, package/release, hosted CI, commit, push,
+  signing, notarization, or publication work ran.

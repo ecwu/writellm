@@ -18,6 +18,7 @@ import type {
 } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
+import { loadContinuousRuntimeHistory } from './context-checkpoint'
 import { AgentSessionService, type AgentSessionServiceOptions } from './session-service'
 import { AgentToolDomainError } from './read-tools'
 
@@ -2289,7 +2290,12 @@ describe('AgentSessionService', () => {
     expect(summaries[0]).toMatchObject({
       agentRunId: second.agentRunId,
       modelRequestId: expect.any(String),
-      payload: { coveredFromSequence: 1, coveredThroughSequence: 3, schemaVersion: 2 }
+      payload: {
+        coveredFromSequence: 1,
+        coveredThroughSequence: 3,
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory'
+      }
     })
     runtime.active().reject(workerExitError())
     await second.completion
@@ -2310,7 +2316,7 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
-  it('continues the current run with deterministic complete-turn fallback after automatic failure', async () => {
+  it('stops before provider work when automatic failure would omit a user turn', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const service = createService(database, runtime, undefined, {
@@ -2345,16 +2351,12 @@ describe('AgentSessionService', () => {
       prompt: 'Continue despite summary failure.',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
-    expect(runtime.active(second.agentRunId).input.history).toEqual([
-      expect.objectContaining({
-        role: 'user',
-        content: expect.stringContaining('<WRITELLM_CONTEXT_OMISSION')
-      })
-    ])
-    expect(JSON.stringify(runtime.active(second.agentRunId).input.history)).not.toContain(
-      '界'.repeat(100)
-    )
-    expect(service.requireRun(second.agentRunId).status).toBe('running')
+    await second.completion
+    expect(() => runtime.active(second.agentRunId)).toThrow('No fake Agent run is active')
+    expect(service.requireRun(second.agentRunId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'compaction_required'
+    })
     expect(service.listEvents(session.agentSessionId)).toContainEqual(
       expect.objectContaining({
         agentRunId: second.agentRunId,
@@ -2367,8 +2369,6 @@ describe('AgentSessionService', () => {
         })
       })
     )
-    runtime.active(second.agentRunId).resolve()
-    await second.completion
     database.close()
   })
 
@@ -2414,7 +2414,11 @@ describe('AgentSessionService', () => {
             userTurn ? 'user_message' : 'run_completed',
             JSON.stringify(
               userTurn
-                ? { content: `turn-${sequence}`, delivery: 'prompt', timestamp: sequence }
+                ? {
+                    content: `turn-${sequence}-${'x'.repeat(2_000)}`,
+                    delivery: 'prompt',
+                    timestamp: sequence
+                  }
                 : { outcome: 'finished' }
             ),
             '2026-08-12T00:00:00.000Z'
@@ -2436,19 +2440,165 @@ describe('AgentSessionService', () => {
           coveredFromSequence: number
           coveredThroughSequence: number
           finalStep: boolean
+          schemaVersion: number
+          handoffMode: string
+          postCompactionBudgetTokens: number
+          checkpointBudgetTokens: number
+          recentTailBudgetTokens: number
         }
         return {
           compactionId: payload.compactionId,
           from: payload.coveredFromSequence,
           through: payload.coveredThroughSequence,
-          finalStep: payload.finalStep
+          finalStep: payload.finalStep,
+          schemaVersion: payload.schemaVersion,
+          handoffMode: payload.handoffMode,
+          budgets: [
+            payload.postCompactionBudgetTokens,
+            payload.checkpointBudgetTokens,
+            payload.recentTailBudgetTokens
+          ]
         }
       })
     ).toEqual([
-      { compactionId, from: 1, through: 238, finalStep: false },
-      { compactionId, from: 239, through: 476, finalStep: false },
-      { compactionId, from: 477, through: 598, finalStep: true }
+      {
+        compactionId,
+        from: 1,
+        through: 238,
+        finalStep: false,
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory',
+        budgets: [32_000, 12_000, 20_000]
+      },
+      {
+        compactionId,
+        from: 239,
+        through: 476,
+        finalStep: false,
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory',
+        budgets: [32_000, 12_000, 20_000]
+      },
+      {
+        compactionId,
+        from: 477,
+        through: 598,
+        finalStep: true,
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory',
+        budgets: [32_000, 12_000, 20_000]
+      }
     ])
+    expect(summarizeHistory).toHaveBeenCalledTimes(3)
+    expect(summarizeHistory.mock.calls.every(([input]) => input.maxOutputTokens === 12_000)).toBe(
+      true
+    )
+    expect(summarizeHistory.mock.calls[1]?.[0].sourcePayloadJson).toContain(
+      'Rolling checkpoint through 238'
+    )
+    expect(summarizeHistory.mock.calls[2]?.[0].sourcePayloadJson).toContain(
+      'Rolling checkpoint through 476'
+    )
+    const runtimeHistory = loadContinuousRuntimeHistory(database, session.agentSessionId)
+    expect(runtimeHistory[0]).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('authority="conversation_memory"')
+    })
+    expect(runtimeHistory.at(-1)).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('turn-599-')
+    })
+    database.close()
+  })
+
+  it('lets one newest complete turn borrow unused checkpoint budget without truncation', async () => {
+    const database = await createDatabase()
+    const summarizeHistory = vi.fn(
+      async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
+        const repository = new ModelRequestRepository(database, log)
+        const request = await repository.start({
+          operation: 'agent',
+          provider: config,
+          request: { purpose: 'manual_compaction_tail_borrow' },
+          inputItems: 1,
+          operationId: input.compactionId,
+          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+        })
+        await repository.succeed(request.modelRequestId, {
+          metadata: metadata('manual-tail-borrow'),
+          outputItems: 1
+        })
+        return {
+          summary: 'Goal and requested deliverable\nPreserve the earlier goal.',
+          modelRequestId: request.modelRequestId
+        }
+      }
+    )
+    const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
+    const session = service.createSession('Large recent turn')
+    const recentTurn = `Keep this recent turn verbatim: ${'x'.repeat(85_000)}`
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        1,
+        'user_message',
+        JSON.stringify({ content: 'Summarize this older goal.', delivery: 'prompt', timestamp: 1 }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        2,
+        'run_completed',
+        JSON.stringify({ outcome: 'finished' }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        3,
+        'user_message',
+        JSON.stringify({ content: recentTurn, delivery: 'prompt', timestamp: 3 }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        4,
+        'run_completed',
+        JSON.stringify({ outcome: 'finished' }),
+        '2026-08-12T00:00:00.000Z'
+      )
+    })
+
+    await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+    const summary = service
+      .listEvents(session.agentSessionId)
+      .find((event) => event.type === 'compaction_summary')
+    expect(summary).toMatchObject({
+      payload: expect.objectContaining({
+        schemaVersion: 3,
+        finalStep: true,
+        coveredThroughSequence: 2,
+        postCompactionBudgetTokens: 32_000,
+        checkpointBudgetTokens: 12_000,
+        recentTailBudgetTokens: 20_000,
+        tailTokens: expect.any(Number)
+      })
+    })
+    if (summary === undefined) throw new Error('Expected a compaction summary')
+    expect((summary.payload as { tailTokens: number }).tailTokens).toBeGreaterThan(20_000)
+    expect(loadContinuousRuntimeHistory(database, session.agentSessionId).at(-1)).toMatchObject({
+      role: 'user',
+      content: recentTurn
+    })
     database.close()
   })
 
@@ -2496,7 +2646,11 @@ describe('AgentSessionService', () => {
             userTurn ? 'user_message' : 'run_completed',
             JSON.stringify(
               userTurn
-                ? { content: `turn-${sequence}`, delivery: 'prompt', timestamp: sequence }
+                ? {
+                    content: `turn-${sequence}-${'x'.repeat(2_000)}`,
+                    delivery: 'prompt',
+                    timestamp: sequence
+                  }
                 : { outcome: 'finished' }
             ),
             '2026-08-12T00:00:00.000Z'

@@ -129,7 +129,7 @@ function sendToolCall(
       created: 1,
       model: 'writer-model-resolved',
       choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-      usage: { prompt_tokens: 21, completion_tokens: 8, total_tokens: 29 }
+      usage: { prompt_tokens: 59_000, completion_tokens: 8, total_tokens: 59_008 }
     }
   ])
 }
@@ -149,7 +149,7 @@ function sendCompletion(response: ServerResponse, text: string): void {
       created: 1,
       model: 'writer-model-resolved',
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 34, completion_tokens: 9, total_tokens: 43 }
+      usage: { prompt_tokens: 59_000, completion_tokens: 9, total_tokens: 59_009 }
     }
   ])
 }
@@ -660,6 +660,7 @@ test(
         .getByLabel('Agent message')
         .fill('Ground the Agent revision target section in the imported evidence.')
       await expect(sendButton).toBeEnabled()
+      await expect(panel.getByTestId('agent-context-usage')).toHaveCount(0)
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
           path: join(screenshotDirectory, 'cp48-agent-composer-ready.png'),
@@ -867,6 +868,55 @@ Continue only the original user request that remains unresolved after this appro
       }, sectionId)
       expect(appliedTruth.proposal.status).toBe('applied')
       expect(appliedTruth.workflowState).toBe('idle')
+      await expect(panel.getByLabel('Agent message')).toBeVisible()
+      const contextUsageIndicator = panel.getByTestId('agent-context-usage')
+      await expect(contextUsageIndicator).toBeVisible()
+      await expect(contextUsageIndicator).toHaveAttribute('role', 'progressbar')
+      await expect(contextUsageIndicator).toHaveAttribute('aria-valuenow', '45')
+      await contextUsageIndicator.focus()
+      await expect(contextUsageIndicator).toBeFocused()
+      const contextUsageTooltip = launched.page.getByRole('tooltip')
+      await expect(contextUsageTooltip).toContainText('Context window')
+      await expect(contextUsageTooltip).toContainText('45% used (55% left)')
+      await expect(contextUsageTooltip).toContainText('59k / 131k tokens used')
+      await modelSelector.focus()
+      await expect(contextUsageTooltip).not.toBeVisible()
+      await browserWindow.evaluate((window) => window.setContentSize(1000, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
+      const [narrowApprovalBox, narrowRingBox, narrowModelBox, narrowSendBox] = await Promise.all([
+        approvalSelector.boundingBox(),
+        contextUsageIndicator.boundingBox(),
+        modelSelector.boundingBox(),
+        sendButton.boundingBox()
+      ])
+      if (
+        narrowApprovalBox === null ||
+        narrowRingBox === null ||
+        narrowModelBox === null ||
+        narrowSendBox === null
+      ) {
+        throw new Error('Agent context and composer controls must have visible bounds')
+      }
+      expect(narrowApprovalBox.x + narrowApprovalBox.width).toBeLessThanOrEqual(narrowRingBox.x)
+      expect(narrowRingBox.x + narrowRingBox.width).toBeLessThanOrEqual(narrowModelBox.x)
+      expect(narrowModelBox.x + narrowModelBox.width).toBeLessThanOrEqual(narrowSendBox.x)
+      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
+      const contextScreenshotDirectory = process.env.WRITELLM_CP55_SCREENSHOT_DIR
+      if (contextScreenshotDirectory !== undefined) {
+        await mkdir(contextScreenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(contextScreenshotDirectory, 'cp55-agent-context-usage.png'),
+          animations: 'disabled'
+        })
+        await contextUsageIndicator.focus()
+        await expect(contextUsageTooltip).toBeVisible()
+        await launched.page.screenshot({
+          path: join(contextScreenshotDirectory, 'cp55-agent-context-usage-tooltip.png'),
+          animations: 'disabled'
+        })
+        await modelSelector.focus()
+      }
       expect(appliedTruth.userMessages.at(-1)).toBe(approvalContinuation)
       expect(appliedTruth.userMessages.at(-1)).not.toContain(appliedTruth.proposal.proposalId)
       expect(appliedTruth.userMessages.at(-1)).not.toContain('{')

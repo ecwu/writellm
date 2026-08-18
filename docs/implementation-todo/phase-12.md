@@ -1,7 +1,7 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 51 is complete and verified under accepted ADR 046
-Recorded: 2026-08-17
+Status: Checkpoint 56 is complete and verified as a Renderer-only refinement
+Recorded: 2026-08-18
 
 ## Purpose
 
@@ -570,3 +570,349 @@ Checkpoint 51 adds no model-visible tool, IPC method, database migration, depend
 worker role, hosted CI, signed release, notarization, or publication flow. The package gate's local
 DMG/ZIP inspection artifacts are ignored and are not committed or published. Delivery is one
 intentional commit fast-forwarded directly to `origin/main`; force push is prohibited.
+
+## Checkpoint 52: Knowledge Citation Coverage Checks
+
+Decision: accepted ADR 047.
+
+### User outcome
+
+- A dedicated Checks workspace shows what share of the currently indexed Knowledge articles is
+  cited by the current manuscript.
+- Coverage stays article-grained: repeated citations contribute an occurrence count, while block,
+  page, and section detail is not exposed.
+- Duplicate source titles and citation titles without an indexed source remain explicit Needs
+  attention results instead of inflating coverage or guessing an identity.
+
+### Scope and implementation
+
+- [x] Accept ADR 047 and fix the active-current-index denominator, canonical title matching,
+  ambiguity, unmatched citation, null-percentage, bounded projection, and read-only UI semantics.
+- [x] Add strict shared contracts, a safe current-index source snapshot, the Main-owned coverage
+  service, project-session IPC, Preload projection, cancellation, and structured lifecycle logs.
+- [x] Add the independent Checks workspace, responsive source ledger, summary, progress, filters,
+  search, pagination, refresh, and explicit preparing/unavailable/empty/stale states.
+- [x] Flush the active editor before navigation and refresh coverage after section mutations or
+  index-generation lifecycle changes.
+- [x] Add focused domain, index, IPC, Preload, Renderer, and Real-Electron regression coverage.
+- [x] Pass the authorized static, Electron, fresh-build E2E, Impeccable, and diff gates and record
+  exact local evidence.
+
+### Acceptance gate
+
+- Unique, repeated, Unicode-normalized, case-distinct, page-qualified, ambiguous, and unmatched
+  citation fixtures produce the exact article counts and null zero-denominator result.
+- Only the active generation matching the latest source fingerprint contributes articles; stale,
+  preparing, unavailable, cancelled, and mid-request source changes fail closed without private
+  path projection.
+- Pagination, filters, title query, snapshot-bound cursor restart, sender authorization, session
+  revocation, original-error logging, and response bounds are covered.
+- Renderer coverage includes rail navigation, editor-flush failure, summary/progress, every filter,
+  load-more, refresh, keyboard access, narrow layout, and all non-ready/empty states.
+- Focused tests pass before `pnpm check:fast` and `pnpm check:electron`; a fresh build precedes
+  `pnpm check:e2e`. The scoped Impeccable detector and `git diff --check` pass. Because the work
+  adds no worker/native/package boundary, `check:package` remains out of scope.
+
+### Local evidence (2026-08-18)
+
+- Focused coverage/index verification passed 16 tests; focused Knowledge IPC verification passed
+  7 tests. Fixtures cover NFC/trim, case sensitivity, page suffixes, repeated occurrences,
+  ambiguity, unmatched citations, zero denominator, filters/query, pagination-bound snapshots,
+  active-generation changes, safe projection, explicit index states, cancellation, strict bounds,
+  sender authorization, and session revocation.
+- `pnpm check:fast` passed. The final `pnpm check:electron` passed 181 test files / 965 tests with
+  three intentionally skipped benchmark tests, followed by a successful production build.
+- A fresh `pnpm check:e2e` passed all 41/41 scenarios with no flaky, skipped, or failed scenario.
+  `knowledge.citation-coverage` exercised four indexed sources, cited/uncited/ambiguous/unmatched
+  results, title filters, editor flush, and the updated snapshot after another manuscript edit.
+  The existing section-conflict scenario additionally proved that a failed flush does not open
+  Checks.
+- The completed-page screenshot was inspected at the real Electron desktop viewport. The scoped
+  Impeccable detector returned no findings, and final Biome plus `git diff --check` passed. Local
+  Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0,
+  Electron 43.1.0 / ABI 148, native preparation, tests, and builds all completed.
+- No migration, package gate, commit, push, hosted CI, signing, notarization, release, or
+  publication action ran.
+
+### Explicit exclusions
+
+Checkpoint 52 adds no database migration, stored coverage history, section scope, manual ignore,
+source-opening action, model-visible Agent tool, retrieval exclusion filter, dependency, worker
+protocol, durable job, package/release, hosted CI, commit, push, signing, notarization, or
+publication. The existing `check_draft.unused_resources` semantics remain unchanged.
+
+## Checkpoint 53: Existing Image Cross-Section Relocation
+
+Decision: accepted ADR 048.
+
+### User outcome
+
+- An Agent can relocate an existing manuscript image into another section without generating new
+  image bytes or asking the user to recreate the figure manually.
+- Destination insertion always precedes source deletion. A failure may leave a visible duplicate
+  for recovery but never removes the only copy.
+- Same-section movement remains `moveBlocks`; generic cross-section blocks remain unsupported.
+
+### Scope and implementation
+
+- [x] Accept ADR 048 and preserve the twenty-tool, Main-authoritative, single-section proposal
+  boundary with one explicit existing-image source-copy exception.
+- [x] Add the model-only `insertExistingImage` operation, exact current-run source read and active
+  asset/annotation validation, authoritative image copying, new destination block identity, stable
+  figure identity, and ordinary `insertBlocks` normalization.
+- [x] Add application policy for insert-before-delete sequencing and terminal source-removal
+  conflicts; correct cross-section `moveBlocks` recovery without changing ordinary stale recovery.
+- [x] Add focused contract, normalization, proposal, approval-policy, and failure-path coverage.
+- [x] Add the SPACE image Main-tool/database regression and pass the authorized verification gates.
+
+### Acceptance gate
+
+- Root and anchored destination insertion preserve active asset, caption, alt text, presentation,
+  and `figureId`, mint a new block ID, and never call the image provider.
+- Non-image, same-section, missing, stale, unread, inactive-asset, annotated, and invalid-anchor
+  inputs fail closed before proposal persistence.
+- Manual mode stops on a pending insertion. Write Auto and YOLO may remove the source only after an
+  applied or satisfied insertion, using the original source hash; source conflict is not retried
+  with refreshed authority.
+- A cross-section `moveBlocks` target receives an actionable `fix_arguments` error naming
+  `insertExistingImage`; ordinary missing and stale same-section blocks keep `read_section`
+  recovery.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, a fresh `pnpm check:e2e`, and
+  `git diff --check` pass. No package gate is required because no native, worker, or packaged
+  resource boundary changes.
+
+### Local evidence (2026-08-18)
+
+- Five focused contract, normalization, proposal, policy, and tool-envelope suites passed 54 tests;
+  the explicit prompt-budget baseline suite passed 2 more. They cover root/anchored insertion,
+  metadata and `figureId` retention, new block identity, twenty-tool/8 KiB bounds, forged input,
+  same-section/non-image/nested/missing/stale/unread/cross-project source cases, target anchors,
+  inactive assets, active annotations, and cross-section `moveBlocks` recovery.
+- The SPACE fixture used a registered upload asset and real Main proposal/database services. A
+  pending destination proposal left the source untouched; approval copied the image after the
+  target paragraph; exact source removal then left one target image and zero image model requests.
+  A changed source hash left both copies and persisted no removal proposal.
+- `pnpm check:fast` passed. The final `pnpm check:electron` passed 182 test files / 980 tests with
+  three intentionally skipped benchmark tests, followed by a successful production build. The
+  deliberate policy growth updated the reviewed prompt baseline from 10,963 to 11,667 bytes and
+  remains below the 16 KiB policy limit.
+- A fresh `pnpm check:e2e` build passed all 41/41 Real-Electron scenarios with no flaky, skipped,
+  or failed scenario. Final Biome and `git diff --check` passed. Local Node 26.7.0 remains outside
+  the repository's Node 24 engine range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed
+  the authorized gates.
+- No package gate, migration, provider call, commit, push, hosted CI, signing, notarization,
+  release, or publication action ran.
+
+### Explicit exclusions
+
+Checkpoint 53 adds no migration, new tool name, proposal kind, IPC, Renderer surface, provider
+call, dependency, worker role, durable relocation state, generic block copy, atomic multi-section
+transaction, package/release, hosted CI, commit, push, signing, notarization, or publication.
+
+## Checkpoint 54: Harness-Style Writing Context Compaction
+
+Decision: accepted ADR 049; implementation authorized.
+
+### User outcome
+
+- Long requests keep requirements from their middle instead of summarizing only a 1,024-character
+  head/tail projection.
+- A compacted conversation resumes from current authoritative writing context, a writing-specific
+  bounded handoff, and up to 20,000 tokens of recent complete raw turns.
+- Handoff constraints can guide continuity but cannot authorize a manuscript change or replace a
+  current project/evidence read.
+- A compaction failure never silently drops an uncheckpointed user requirement before provider
+  work.
+
+### Scope and implementation
+
+- [x] Accept ADR 049 and amend ADR 019's target, manual, handoff-semantics, and fallback decisions.
+- [x] Add adaptive 32k post-compaction, 12k checkpoint, and 20k recent-tail budgets; preserve
+  complete raw turns for both automatic and manual compaction.
+- [x] Pass full completed user/assistant text to the compaction model while retaining bounded safe
+  projections for tools, credentials, private paths, and source bodies.
+- [x] Add the writing-specific summary contract, checkpoint payload v3, legacy/v2 replay, and
+  bounded conversation-memory usage policy.
+- [x] Reject oversized indivisible history and unsafe summary-failure omission before provider
+  activity without replaying tools, proposals, mutations, or effects.
+- [x] Add focused budget, projection, prompt, session, compatibility, and failure coverage; pass
+  the static, Electron, fresh E2E, and diff gates and record exact evidence.
+
+### Acceptance gate
+
+- A requirement in the middle of a long Chinese or English user message reaches compaction
+  verbatim; full terminal assistant text also reaches it, while large tool bodies, credentials,
+  and private paths do not.
+- At the maximum, post-compaction history contains no more than 12k checkpoint tokens and reserves
+  up to 20k for recent complete turns. Smaller contexts scale at 37.5/62.5 percent without
+  truncating the current request or a retained turn.
+- Automatic and manual compaction produce payload-v3 checkpoints. Legacy/v2 events remain readable
+  with no conversation authority; v3 loads as bounded conversation memory beneath current policy,
+  Brief, Writing Rules, and current user intent.
+- Repeated compaction carries active requirements, exclusions, terminology, decisions, evidence
+  gaps, and unfinished work while marking overridden directions as superseded.
+- Automatic failure continues only when no uncheckpointed user turn would be omitted. Oversized
+  indivisible history and unsafe fallback terminate before a provider call with an actionable,
+  retryable error and no side-effect replay.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, a fresh `pnpm check:e2e`, and
+  `git diff --check` pass. No package gate is required because no native, worker-entrypoint, or
+  packaged-resource boundary changes.
+
+### Local evidence
+
+- The focused contract/planner/projection/prompt/session/Renderer suite passed 8 files / 107 tests.
+  It covers long Chinese and English request middles, long terminal assistant text, token-first
+  source selection, 240-event paging, adaptive small/large budgets, v1/v2/v3 compatibility,
+  conversation-memory authority, rolling handoff continuity, unsafe-fallback rejection, and a
+  newest 20k-plus raw turn borrowing unused checkpoint budget without truncation.
+- `pnpm check:fast` passed Biome over 601 files plus Node and Renderer typechecks. The deliberate
+  policy addition updated the reviewed fixed-prompt baseline to 12,148 bytes and remains under the
+  16 KiB policy ceiling.
+- `pnpm check:electron` passed 182 test files / 984 tests with three intentionally skipped
+  benchmark tests, followed by a successful production build.
+- A fresh `pnpm check:e2e` build passed all 41/41 Real-Electron scenarios with no flaky, skipped,
+  or failed scenario. Final `git diff --check` passed.
+- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
+  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
+  provider, commit, push, signing, notarization, or publication action ran.
+
+### Explicit exclusions
+
+Checkpoint 54 adds no editable memory/rule ledger, compaction table, database migration, durable
+job, model-visible tool, IPC method, Renderer setting, provider-specific prompt, worker role,
+dependency, package/release action, hosted CI, commit, push, signing, notarization, publication, or
+cross-conversation memory.
+
+## Checkpoint 55: Agent Composer Context Usage Indicator
+
+Decision: accepted ADR 050; implementation authorized.
+
+### User outcome
+
+- The latest trustworthy context-window usage is visible beside the model/Thinking summary during
+  ordinary writing instead of being available only in Agent Details.
+- Hover or keyboard focus reveals used and remaining percentages plus compact token counts.
+- A new conversation or a model switch never presents unknown or stale-model usage as zero or as
+  capacity for the newly selected model.
+
+### Scope and implementation
+
+- [x] Accept ADR 050 and preserve the four-action composer hierarchy, neutral visual language,
+  run-specific model limits, and existing Agent Details surface.
+- [x] Derive one latest valid assistant usage snapshot paired with its originating run, and expose
+  it only while that run matches the conversation's current model selection.
+- [x] Add the fixed-width accessible circular indicator, focus/hover tooltip, compact formatting,
+  estimated marker, and narrow-panel layout containment.
+- [x] Add focused Renderer/view-model and Real-Electron coverage; pass the static, Electron, UI,
+  Impeccable, and diff gates and record exact evidence.
+
+### Acceptance gate
+
+- Before the first trustworthy model response, after an unmatched model switch, or when the run is
+  unavailable, the ring is absent rather than empty or zero.
+- Valid exact and estimated usage use the originating run's immutable context window; percentages
+  clamp to 0-100, the tooltip reports whole used/left percentages and compact token counts, and
+  Agent Details consumes the same snapshot.
+- The indicator is keyboard-focusable with progress semantics, has no click action or warning
+  color, and appears immediately before the model trigger without overlapping Approval or Send at
+  the established narrow Agent-panel width.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, an applicable fresh-build Real-Electron
+  gate, one bounded screenshot review, the scoped Impeccable detector, and `git diff --check` pass.
+  No package gate is required because no native, worker, or packaged-resource boundary changes.
+
+### Explicit exclusions
+
+Checkpoint 55 adds no IPC method, database migration, persisted usage state, provider call,
+worker change, model capability, threshold-warning policy, Details navigation shortcut,
+dependency, package/release action, hosted CI, commit, push, signing, notarization, publication, or
+change to the existing context-compaction policy.
+
+### Local evidence
+
+- The focused context-indicator and Agent view-model suites passed 2 files / 27 tests. They cover
+  exact and estimated labels, compact counts, clamped progress, ARIA/focus semantics, unknown
+  hiding, run correlation, model/preset mismatch, originating-run limits, and provider
+  input-plus-cache fallback.
+- `pnpm check:fast` passed Biome over 603 files plus Node and Renderer typechecks.
+  `pnpm check:electron` passed 183 test files / 990 tests with three intentionally skipped
+  benchmark files/tests, followed by a successful production build.
+- The fresh focused Real-Electron `agent.grounded-proposal-workflow` scenario passed. It verifies
+  pre-response absence, 45-percent progress semantics, keyboard focus, the exact tooltip, and
+  non-overlap among Approval, ring, model, and Send at the established narrow width.
+- Default and focused-tooltip screenshots were inspected. The scoped Impeccable detector returned
+  no findings, the independent Impeccable finish reviewer returned `ship` with no material
+  findings, and `git diff --check` passed.
+- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
+  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
+  provider, commit, push, signing, notarization, or publication action ran.
+
+## Checkpoint 56: Agent Plan Bottom Progress Capsule
+
+Decision: user-approved plan; implementation authorized. No new ADR is required because the
+refinement preserves ADR 025's task identity, state machine, persistence, and Renderer authority.
+
+### User outcome
+
+- The conversation no longer loses a large permanent region to the full writing-task plan and
+  task change set.
+- A centered capsule above the composer reports the current step ordinal and opens the complete
+  plan on click, Enter, or Space; terminal plans remain inspectable as `Plan complete`.
+- The existing task change set remains fully usable inside the same detail surface without
+  becoming a second review flow.
+
+### Scope and implementation
+
+- [x] Replace the fixed task and change-set blocks with one bottom-docked shadcn Popover trigger.
+- [x] Project current-step, terminal, attention, review, blocked, failed, skipped, and disagreement
+  states through semantic Lucide icons and accessible text without changing shared contracts.
+- [x] Move the existing change-set Collapsible into the Popover, preserve batch actions and the
+  reject Dialog, and close the Popover before navigating to a timeline proposal.
+- [x] Add focused summary and Real-Electron coverage for ordinal semantics, keyboard interaction,
+  focus restoration, nested review, restart recovery, and proposal navigation.
+- [x] Pass the static, Electron, fresh-build E2E, screenshot, Impeccable, and diff gates and record
+  exact local evidence.
+
+### Acceptance gate
+
+- The default Agent layout contains no permanently expanded plan or task change set above the
+  message timeline; the capsule occupies one non-overlapping row above the composer.
+- `Step N / Total` derives N from the current step's ordered position rather than completed count.
+  A terminal task remains available as `Plan complete`; a non-terminal task without a current step
+  truthfully reports that the plan needs attention.
+- The Popover supports click, Enter, Space, Escape, focus restoration, session/task replacement,
+  archived read-only behavior, bounded scrolling, and the 360-640px Agent width range.
+- Plan revision, Resume, change-set expansion, batch Reject, and exact proposal navigation retain
+  their existing behavior and authority.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, a fresh focused Real-Electron run,
+  screenshot inspection, scoped Impeccable, independent finish review, and `git diff --check`
+  pass. No package gate is required because no native, worker, or packaged-resource boundary
+  changes.
+
+### Local evidence
+
+- The focused Agent panel suite passed 11/11 tests. The new view-model regression proves that
+  `Step N / Total` uses the `currentStepId` position even when `completedCount` differs, and covers
+  terminal and missing-current-step labels. `pnpm check:fast` passed Biome over 603 files plus Node
+  and Renderer typechecks.
+- The final `pnpm check:electron` passed 183 test files / 991 tests with three intentionally skipped
+  benchmark files/tests, followed by a successful production build. The fresh focused
+  Real-Electron `agent.writing-task-identity` scenario passed against that build.
+- The Real-Electron scenario covers Enter, Space, Escape, trigger focus restoration, accessible
+  dialog naming, plan editing, Resume, change-set expansion, nested Reject Dialog, batch result,
+  post-close proposal focus, archive/restore, restart recovery, and historical change-set access.
+- Collapsed 480px plus open 360px, 480px, and 640px Agent-panel screenshots were inspected. The
+  capsule remains centered in its own row, the Popover stays within panel bounds, internal content
+  wraps or scrolls, and neither the message timeline nor composer is covered.
+- The scoped Impeccable detector returned no findings. The independent finish reviewer identified
+  close-autofocus and dialog-naming gaps; both were fixed with regression assertions, and the
+  bounded re-review returned `ready` with no unresolved risk. Final formatting and
+  `git diff --check` passed.
+- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
+  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
+  provider, migration, dependency, commit, push, signing, notarization, or publication action ran.
+
+### Explicit exclusions
+
+Checkpoint 56 adds no IPC method, database migration, shared contract, Agent tool, provider call,
+worker change, dependency, new review authority, package/release action, hosted CI, commit, push,
+signing, notarization, publication, or application-wide visual redesign.

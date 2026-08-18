@@ -4,6 +4,7 @@ import type {
   AgentRendererEvent,
   AgentSessionRecord
 } from '../../../../shared/contracts/agent-ipc'
+import type { WritingTaskView } from '../../../../shared/contracts/writing-task'
 import {
   agentComposerKeyAction,
   agentComposerRunningAction,
@@ -13,7 +14,8 @@ import {
   hasManualCompactionHead,
   sectionFollowTargetForAgentEvent,
   selectAttentionSession,
-  slashCommandQuery
+  slashCommandQuery,
+  writingTaskDockSummary
 } from './agent-panel'
 
 const activeSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc521'
@@ -21,6 +23,40 @@ const backgroundSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc522'
 const targetSectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc523'
 
 describe('Agent panel flow selection', () => {
+  it('labels the writing-task dock from the current step ordinal and keeps terminal history', () => {
+    const task = writingTaskView()
+    expect(writingTaskDockSummary(task)).toEqual({
+      label: 'Step 2 / 3',
+      ariaLabel: 'Writing task, Step 2 of 3, open details',
+      complete: false
+    })
+    expect(
+      writingTaskDockSummary({
+        ...task,
+        progress: {
+          ...task.progress,
+          currentStepId: null,
+          completedCount: 3,
+          remainingCount: 0
+        }
+      })
+    ).toEqual({
+      label: 'Plan complete',
+      ariaLabel: 'Writing task, plan complete, open details',
+      complete: true
+    })
+    expect(
+      writingTaskDockSummary({
+        ...task,
+        progress: { ...task.progress, currentStepId: null, remainingCount: 1 }
+      })
+    ).toEqual({
+      label: 'Plan needs attention',
+      ariaLabel: 'Writing task, plan needs attention, open details',
+      complete: false
+    })
+  })
+
   it('restores running work before review attention and the latest ready conversation', () => {
     const ready = session('019c6a5c-8d34-7a8e-a602-3d37a52dc501', 'idle')
     const review = session('019c6a5c-8d34-7a8e-a602-3d37a52dc502', 'awaiting_review')
@@ -253,6 +289,50 @@ function toolEvent(
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc527',
       createdAt: '2026-08-12T00:00:00.000Z'
     }
+  }
+}
+
+function writingTaskView(): WritingTaskView {
+  const stepIds = [
+    '019c6a5c-8d34-7a8e-a602-3d37a52dc531',
+    '019c6a5c-8d34-7a8e-a602-3d37a52dc532',
+    '019c6a5c-8d34-7a8e-a602-3d37a52dc533'
+  ]
+  const statuses = ['pending', 'active', 'pending'] as const
+  return {
+    taskId: '019c6a5c-8d34-7a8e-a602-3d37a52dc530',
+    agentSessionId: activeSessionId,
+    objective: 'Revise the manuscript coherently.',
+    planVersion: 1,
+    plan: {
+      schemaVersion: 1,
+      steps: stepIds.map((stepId, index) => ({
+        stepId,
+        title: `Step ${index + 1}`,
+        status: statuses[index] ?? 'pending',
+        statusReason: null
+      }))
+    },
+    progress: {
+      currentStepId: stepIds[1] ?? null,
+      completedCount: 0,
+      remainingCount: 3,
+      hasDisagreement: false,
+      steps: stepIds.map((stepId, index) => ({
+        stepId,
+        state: index === 1 ? 'in_progress' : 'pending',
+        runCount: index === 1 ? 1 : 0,
+        proposalCount: 0,
+        successfulEffectCount: 0,
+        pendingEffectCount: 0,
+        adverseEffectCount: 0,
+        latestRunId: null,
+        note: index === 1 ? 'The step is active.' : 'The step is pending.'
+      }))
+    },
+    createdByAgentRunId: null,
+    createdAt: '2026-08-18T00:00:00.000Z',
+    updatedAt: '2026-08-18T00:00:00.000Z'
   }
 }
 
