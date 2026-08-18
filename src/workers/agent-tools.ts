@@ -921,7 +921,7 @@ export class AgentToolBridge {
         name: 'generate_image',
         label: 'Generate and insert image',
         description:
-          'Create a reviewable request for one Gemini-generated image and insert it as a new image block. Main binds the source revision, anchor, model request, asset, and block IDs.',
+          'Create a reviewable request for one generated image and insert it as a new image block. Main binds the active provider, source revision, anchor, model request, asset, and block IDs.',
         parameters: generateImageParameters,
         executionMode: 'sequential',
         execute: (toolCallId, args, signal) =>

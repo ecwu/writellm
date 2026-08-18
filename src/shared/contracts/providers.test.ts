@@ -7,6 +7,7 @@ import {
   agentThinkingLevelSchema,
   effectiveGoogleGeminiImageSize,
   GOOGLE_GEMINI_IMAGE_MODELS,
+  imageProviderCatalogSchema,
   providerConfigSchema
 } from './providers'
 
@@ -175,6 +176,105 @@ describe('provider contracts', () => {
     expect(effectiveGoogleGeminiImageSize('gemini-3-pro-image', '2K')).toBe('2K')
     expect(effectiveGoogleGeminiImageSize('gemini-3.1-flash-lite-image', '2K')).toBe('1K')
     expect(effectiveGoogleGeminiImageSize('gemini-2.5-flash-image', '2K')).toBe('1K')
+  })
+
+  it('accepts only fixed OpenAI and xAI image models without custom endpoints', () => {
+    const common = {
+      role: 'image' as const,
+      timeoutMs: 120_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto' as const,
+      defaultImageSize: '1K' as const
+    }
+    expect(
+      providerConfigSchema.parse({
+        ...common,
+        providerId: 'openai',
+        model: 'gpt-image-2'
+      })
+    ).toMatchObject({ providerId: 'openai', model: 'gpt-image-2' })
+    expect(
+      providerConfigSchema.parse({
+        ...common,
+        providerId: 'xai',
+        model: 'grok-imagine-image-2.0'
+      })
+    ).toMatchObject({ providerId: 'xai', model: 'grok-imagine-image-2.0' })
+    for (const invalid of [
+      { ...common, providerId: 'openai', model: 'gpt-image-1' },
+      { ...common, providerId: 'xai', model: 'grok-imagine-image-quality' },
+      {
+        ...common,
+        providerId: 'openai',
+        model: 'gpt-image-2',
+        baseUrl: 'https://proxy.example.test/v1'
+      }
+    ]) {
+      expect(providerConfigSchema.safeParse(invalid).success).toBe(false)
+    }
+  })
+
+  it('rejects image catalog snapshots that alter the fixed directory or active selection', () => {
+    const catalog = {
+      activeProviderId: 'openai' as const,
+      sources: [
+        {
+          providerId: 'google-gemini' as const,
+          label: 'Google Gemini',
+          models: [...GOOGLE_GEMINI_IMAGE_MODELS],
+          config: null,
+          configured: false,
+          available: false,
+          active: false,
+          issues: []
+        },
+        {
+          providerId: 'openai' as const,
+          label: 'OpenAI',
+          models: ['gpt-image-2'],
+          config: null,
+          configured: false,
+          available: false,
+          active: true,
+          issues: []
+        },
+        {
+          providerId: 'xai' as const,
+          label: 'xAI',
+          models: ['grok-imagine-image-2.0'],
+          config: null,
+          configured: false,
+          available: false,
+          active: false,
+          issues: []
+        }
+      ]
+    }
+    expect(imageProviderCatalogSchema.safeParse(catalog).success).toBe(true)
+    expect(
+      imageProviderCatalogSchema.safeParse({
+        ...catalog,
+        sources: [catalog.sources[1], catalog.sources[0], catalog.sources[2]]
+      }).success
+    ).toBe(false)
+    expect(
+      imageProviderCatalogSchema.safeParse({
+        ...catalog,
+        sources: catalog.sources.map((source) => ({ ...source, active: false }))
+      }).success
+    ).toBe(false)
+    expect(
+      imageProviderCatalogSchema.safeParse({
+        ...catalog,
+        sources: [
+          catalog.sources[0],
+          { ...catalog.sources[1], models: ['gpt-image-proxy'] },
+          catalog.sources[2]
+        ]
+      }).success
+    ).toBe(false)
   })
 
   it('keeps every importable format explicitly covered by the MinerU capability', () => {

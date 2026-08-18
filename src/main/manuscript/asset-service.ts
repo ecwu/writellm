@@ -73,7 +73,7 @@ export class ManuscriptAssetService {
       prompt: string
       aspectRatio: 'auto' | '1:1' | '16:9'
       requestedImageSize: '1K' | '2K'
-      effectiveImageSize: '1K' | '2K'
+      effectiveImageSize: '1K' | '2K' | null
     } | null
   }): Promise<ManuscriptAssetResult> {
     const startedAt = Date.now()

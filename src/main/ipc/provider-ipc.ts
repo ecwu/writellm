@@ -16,6 +16,7 @@ import {
   agentPresetInputSchema,
   agentPresetCredentialInputSchema,
   providerConnectionTestResultSchema,
+  imageProviderSelectionInputSchema,
   providerRoleInputSchema,
   providerSaveInputSchema,
   providerSettingsSnapshotSchema
@@ -74,13 +75,25 @@ export function registerProviderIpc({
   })
   ipc.handle(IPC_CHANNELS.providersRemove, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
-    const { role } = providerRoleInputSchema.parse(rawInput)
-    return providerSettingsSnapshotSchema.parse(await providers.remove(role))
+    const input = providerRoleInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.remove(input.role, input.role === 'image' ? input.providerId : undefined)
+    )
   })
   ipc.handle(IPC_CHANNELS.providersTestConnection, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
-    const { role } = providerRoleInputSchema.parse(rawInput)
-    return providerConnectionTestResultSchema.parse(await providers.testConnection(role))
+    const input = providerRoleInputSchema.parse(rawInput)
+    return providerConnectionTestResultSchema.parse(
+      await providers.testConnection(
+        input.role,
+        input.role === 'image' ? input.providerId : undefined
+      )
+    )
+  })
+  ipc.handle(IPC_CHANNELS.providersSetActiveImage, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { providerId } = imageProviderSelectionInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(await providers.setActiveImageProvider(providerId))
   })
   ipc.handle(IPC_CHANNELS.providersSaveAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
@@ -243,6 +256,7 @@ export function registerProviderIpc({
       IPC_CHANNELS.providersSave,
       IPC_CHANNELS.providersRemove,
       IPC_CHANNELS.providersTestConnection,
+      IPC_CHANNELS.providersSetActiveImage,
       IPC_CHANNELS.providersSaveAgentPreset,
       IPC_CHANNELS.providersRemoveAgentPreset,
       IPC_CHANNELS.providersRefreshAgentPreset,

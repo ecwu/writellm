@@ -130,4 +130,17 @@ describe('AppSettingsRepository', () => {
     await expect(repository.getLastAgentThinkingLevel()).resolves.toBe('medium')
     database.close()
   })
+
+  it('stores only a fixed active image provider and can clear the selection', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
+    await expect(repository.setActiveImageProviderId('openai')).resolves.toBe('openai')
+    await expect(repository.getActiveImageProviderId()).resolves.toBe('openai')
+    await expect(repository.setActiveImageProviderId('custom' as 'openai')).rejects.toThrow()
+    await expect(repository.setActiveImageProviderId(null)).resolves.toBeNull()
+    await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
+    database.close()
+  })
 })

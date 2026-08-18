@@ -144,6 +144,49 @@ describe('provider utility probe request', () => {
     expect(JSON.stringify(response)).not.toContain('gemini-secret')
   })
 
+  it.each([
+    ['openai', 'gpt-image-2', 'https://api.openai.com/v1/models/gpt-image-2', 'openai-secret'],
+    [
+      'xai',
+      'grok-imagine-image-2.0',
+      'https://api.x.ai/v1/models/grok-imagine-image-2.0',
+      'xai-secret'
+    ]
+  ] as const)('tests %s image access through the SDK model lookup without generating', async (providerId, model, expectedUrl, credential) => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
+      const sdkRequest = input instanceof Request ? input : new Request(input, init)
+      expect(sdkRequest.url).toBe(expectedUrl)
+      expect(sdkRequest.method).toBe('GET')
+      expect(sdkRequest.headers.get('authorization')).toBe(`Bearer ${credential}`)
+      return new Response(
+        JSON.stringify({ id: model, object: 'model', created: 1, owned_by: providerId }),
+        {
+          headers: { 'content-type': 'application/json' }
+        }
+      )
+    })
+    const response = await runProviderProbeRequest(
+      {
+        ...imageRequest,
+        config: {
+          role: 'image',
+          providerId,
+          model,
+          timeoutMs: 30_000,
+          embeddingDimension: null,
+          batchLimit: 1,
+          fileSizeLimitMb: null,
+          defaultAspectRatio: 'auto',
+          defaultImageSize: '1K'
+        },
+        credential
+      },
+      fetchImplementation
+    )
+    expect(response).toMatchObject({ type: 'result', status: 200 })
+    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+  })
+
   it('serializes a diagnostic error without the credential', async () => {
     const response = await runProviderProbeRequest(request, async () => {
       throw new Error('offline')

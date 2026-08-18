@@ -92,6 +92,9 @@ importers:
       mermaid:
         specifier: 11.16.0
         version: 11.16.0
+      openai:
+        specifier: 7.5.0
+        version: 7.5.0(@aws-sdk/credential-provider-node@3.972.68)(@smithy/signature-v4@5.6.5)(ws@8.21.1)(zod@4.4.3)
       p-queue:
         specifier: 9.3.1
         version: 9.3.1
@@ -4359,6 +4362,27 @@ packages:
       ws: ^8.18.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
+  openai@7.5.0:
+    resolution: {integrity: sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
       ws:
         optional: true
       zod:
@@ -10393,6 +10417,13 @@ snapshots:
 
   openai@6.26.0(ws@8.21.1)(zod@4.4.3):
     optionalDependencies:
+      ws: 8.21.1
+      zod: 4.4.3
+
+  openai@7.5.0(@aws-sdk/credential-provider-node@3.972.68)(@smithy/signature-v4@5.6.5)(ws@8.21.1)(zod@4.4.3):
+    optionalDependencies:
+      '@aws-sdk/credential-provider-node': 3.972.68
+      '@smithy/signature-v4': 5.6.5
       ws: 8.21.1
       zod: 4.4.3
 

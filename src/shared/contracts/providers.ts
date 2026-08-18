@@ -8,7 +8,9 @@ export const providerIdSchema = z.enum([
   'openai-compatible',
   'cohere-compatible',
   'mineru',
-  'google-gemini'
+  'google-gemini',
+  'openai',
+  'xai'
 ])
 export type ProviderId = z.infer<typeof providerIdSchema>
 
@@ -102,6 +104,15 @@ export const googleGeminiImageModelSchema = z.enum(GOOGLE_GEMINI_IMAGE_MODELS)
 export type GoogleGeminiImageModel = z.infer<typeof googleGeminiImageModelSchema>
 export const googleGeminiImageSizeSchema = z.enum(['1K', '2K'])
 export type GoogleGeminiImageSize = z.infer<typeof googleGeminiImageSizeSchema>
+export const imageSizeSchema = googleGeminiImageSizeSchema
+export type ImageSize = z.infer<typeof imageSizeSchema>
+export const IMAGE_PROVIDER_IDS = ['google-gemini', 'openai', 'xai'] as const
+export const imageProviderIdSchema = z.enum(IMAGE_PROVIDER_IDS)
+export type ImageProviderId = z.infer<typeof imageProviderIdSchema>
+export const OPENAI_IMAGE_MODELS = ['gpt-image-2'] as const
+export const openAiImageModelSchema = z.enum(OPENAI_IMAGE_MODELS)
+export const XAI_IMAGE_MODELS = ['grok-imagine-image-2.0'] as const
+export const xAiImageModelSchema = z.enum(XAI_IMAGE_MODELS)
 export const GOOGLE_GEMINI_IMAGE_MODEL_SIZES = {
   'gemini-3.1-flash-lite-image': ['1K'],
   'gemini-3.1-flash-image': ['1K', '2K'],
@@ -245,46 +256,59 @@ const endpointProviderCommonFields = {
 
 const modelRevisionSchema = z.string().trim().min(1).max(256)
 
-export const providerConfigSchema = z
-  .discriminatedUnion('role', [
-    z.object({
-      ...endpointProviderCommonFields,
-      role: z.literal('agent'),
-      providerId: z.string().trim().min(1).max(200),
-      api: piApiSchema.optional(),
-      presetId: agentPresetIdSchema.optional(),
-      providerName: z.string().trim().min(1).max(200).optional(),
-      modelName: z.string().trim().min(1).max(500).optional(),
-      modelRevision: modelRevisionSchema,
-      contextWindowTokens: z.number().int().min(8_192).max(10_000_000).nullable().optional(),
-      embeddingDimension: z.null(),
-      fileSizeLimitMb: z.null()
-    }),
-    z.object({
-      ...endpointProviderCommonFields,
-      role: z.literal('embedding'),
-      providerId: z.literal('openai-compatible'),
-      modelRevision: modelRevisionSchema,
-      embeddingDimension: z.number().int().min(1).max(65_536),
-      fileSizeLimitMb: z.null()
-    }),
-    z.object({
-      ...endpointProviderCommonFields,
-      role: z.literal('rerank'),
-      providerId: z.literal('cohere-compatible'),
-      modelRevision: modelRevisionSchema,
-      embeddingDimension: z.null(),
-      fileSizeLimitMb: z.null()
-    }),
-    z.object({
-      ...endpointProviderCommonFields,
-      role: z.literal('mineru'),
-      providerId: z.literal('mineru'),
-      embeddingDimension: z.null(),
-      fileSizeLimitMb: z.number().int().min(1).max(200)
-    }),
-    z.object({
-      ...providerCommonFields,
+const nonImageProviderConfigSchema = z.discriminatedUnion('role', [
+  z.object({
+    ...endpointProviderCommonFields,
+    role: z.literal('agent'),
+    providerId: z.string().trim().min(1).max(200),
+    api: piApiSchema.optional(),
+    presetId: agentPresetIdSchema.optional(),
+    providerName: z.string().trim().min(1).max(200).optional(),
+    modelName: z.string().trim().min(1).max(500).optional(),
+    modelRevision: modelRevisionSchema,
+    contextWindowTokens: z.number().int().min(8_192).max(10_000_000).nullable().optional(),
+    embeddingDimension: z.null(),
+    fileSizeLimitMb: z.null()
+  }),
+  z.object({
+    ...endpointProviderCommonFields,
+    role: z.literal('embedding'),
+    providerId: z.literal('openai-compatible'),
+    modelRevision: modelRevisionSchema,
+    embeddingDimension: z.number().int().min(1).max(65_536),
+    fileSizeLimitMb: z.null()
+  }),
+  z.object({
+    ...endpointProviderCommonFields,
+    role: z.literal('rerank'),
+    providerId: z.literal('cohere-compatible'),
+    modelRevision: modelRevisionSchema,
+    embeddingDimension: z.null(),
+    fileSizeLimitMb: z.null()
+  }),
+  z.object({
+    ...endpointProviderCommonFields,
+    role: z.literal('mineru'),
+    providerId: z.literal('mineru'),
+    embeddingDimension: z.null(),
+    fileSizeLimitMb: z.number().int().min(1).max(200)
+  })
+])
+
+const imageProviderCommonFields = {
+  timeoutMs: providerCommonFields.timeoutMs,
+  batchLimit: providerCommonFields.batchLimit,
+  role: z.literal('image'),
+  embeddingDimension: z.null(),
+  fileSizeLimitMb: z.null(),
+  defaultAspectRatio: z.enum(['auto', '1:1', '16:9']),
+  defaultImageSize: imageSizeSchema
+}
+
+export const imageProviderConfigSchema = z.discriminatedUnion('providerId', [
+  z
+    .object({
+      ...imageProviderCommonFields,
       baseUrl: z
         .enum([
           'https://generativelanguage.googleapis.com',
@@ -292,14 +316,28 @@ export const providerConfigSchema = z
         ])
         .optional(),
       model: googleGeminiImageModelSchema,
-      role: z.literal('image'),
-      providerId: z.literal('google-gemini'),
-      embeddingDimension: z.null(),
-      fileSizeLimitMb: z.null(),
-      defaultAspectRatio: z.enum(['auto', '1:1', '16:9']),
-      defaultImageSize: googleGeminiImageSizeSchema
+      providerId: z.literal('google-gemini')
     })
-  ])
+    .strict()
+    .transform(({ baseUrl: _legacyBaseUrl, ...current }) => current),
+  z
+    .object({
+      ...imageProviderCommonFields,
+      providerId: z.literal('openai'),
+      model: openAiImageModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...imageProviderCommonFields,
+      providerId: z.literal('xai'),
+      model: xAiImageModelSchema
+    })
+    .strict()
+])
+
+export const providerConfigSchema = z
+  .union([nonImageProviderConfigSchema, imageProviderConfigSchema])
   .superRefine((config, context) => {
     if (config.role === 'mineru') {
       if (!['pipeline', 'vlm', 'MinerU-HTML'].includes(config.model)) {
@@ -318,15 +356,11 @@ export const providerConfigSchema = z
       }
     }
   })
-  .transform((config) => {
-    if (config.role !== 'image') return config
-    const { baseUrl: _legacyBaseUrl, ...current } = config
-    return current
-  })
 
 export type ProviderConfig = z.infer<typeof providerConfigSchema>
 export type ProviderConfigForRole<R extends ProviderRole> = Extract<ProviderConfig, { role: R }>
 export type MineruProviderConfig = Extract<ProviderConfig, { role: 'mineru' }>
+export type ImageProviderConfig = z.infer<typeof imageProviderConfigSchema>
 
 export const credentialBackendStatusSchema = z.object({
   platform: z.enum(['darwin', 'win32', 'linux', 'other']),
@@ -362,9 +396,81 @@ export const providerStatusSchema = z.object({
 })
 export type ProviderStatus = z.infer<typeof providerStatusSchema>
 
+export const imageProviderStatusSchema = z.object({
+  providerId: imageProviderIdSchema,
+  label: z.string().min(1).max(100),
+  models: z.array(z.string().min(1).max(200)).min(1).max(4),
+  config: imageProviderConfigSchema.nullable(),
+  configured: z.boolean(),
+  available: z.boolean(),
+  active: z.boolean(),
+  issues: z.array(z.string().max(500))
+})
+export type ImageProviderStatus = z.infer<typeof imageProviderStatusSchema>
+
+const fixedImageCatalog = [
+  {
+    providerId: 'google-gemini',
+    label: 'Google Gemini',
+    models: GOOGLE_GEMINI_IMAGE_MODELS
+  },
+  { providerId: 'openai', label: 'OpenAI', models: OPENAI_IMAGE_MODELS },
+  { providerId: 'xai', label: 'xAI', models: XAI_IMAGE_MODELS }
+] as const
+
+export const imageProviderCatalogSchema = z
+  .object({
+    activeProviderId: imageProviderIdSchema.nullable(),
+    sources: z.tuple([
+      imageProviderStatusSchema,
+      imageProviderStatusSchema,
+      imageProviderStatusSchema
+    ])
+  })
+  .superRefine((catalog, context) => {
+    for (const [index, expected] of fixedImageCatalog.entries()) {
+      const source = catalog.sources[index]
+      if (
+        source.providerId !== expected.providerId ||
+        source.label !== expected.label ||
+        source.models.length !== expected.models.length ||
+        source.models.some((model, modelIndex) => model !== expected.models[modelIndex])
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index],
+          message: 'Image provider catalog entry does not match the fixed directory'
+        })
+      }
+      if (source.config !== null && source.config.providerId !== source.providerId) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'config'],
+          message: 'Image provider configuration does not match its catalog entry'
+        })
+      }
+      if (source.active !== (catalog.activeProviderId === source.providerId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'active'],
+          message: 'Image provider active state does not match the catalog selection'
+        })
+      }
+      if (source.available && (source.config === null || !source.configured)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'available'],
+          message: 'An available image provider must have configuration and a credential'
+        })
+      }
+    }
+  })
+export type ImageProviderCatalog = z.infer<typeof imageProviderCatalogSchema>
+
 export const providerSettingsSnapshotSchema = z.object({
   credentialBackend: credentialBackendStatusSchema,
   providers: z.array(providerStatusSchema).length(5),
+  imageCatalog: imageProviderCatalogSchema,
   agentCatalog: agentProviderCatalogSchema.default({ presets: [], defaultSelection: null })
 })
 export type ProviderSettingsSnapshot = z.infer<typeof providerSettingsSnapshotSchema>
@@ -375,8 +481,16 @@ export const providerSaveInputSchema = z.object({
 })
 export type ProviderSaveInput = z.infer<typeof providerSaveInputSchema>
 
-export const providerRoleInputSchema = z.object({ role: providerRoleSchema })
+export const providerRoleInputSchema = z.union([
+  z.object({ role: z.enum(['agent', 'embedding', 'rerank', 'mineru']) }).strict(),
+  z.object({ role: z.literal('image'), providerId: imageProviderIdSchema }).strict()
+])
 export type ProviderRoleInput = z.infer<typeof providerRoleInputSchema>
+
+export const imageProviderSelectionInputSchema = z
+  .object({ providerId: imageProviderIdSchema })
+  .strict()
+export type ImageProviderSelectionInput = z.infer<typeof imageProviderSelectionInputSchema>
 
 export const providerConnectionTestResultSchema = z.object({
   ok: z.boolean(),

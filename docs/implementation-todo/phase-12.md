@@ -1,6 +1,6 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 56 is complete and verified as a Renderer-only refinement
+Status: Checkpoint 57 is in progress under accepted ADR 051
 Recorded: 2026-08-18
 
 ## Purpose
@@ -916,3 +916,77 @@ refinement preserves ADR 025's task identity, state machine, persistence, and Re
 Checkpoint 56 adds no IPC method, database migration, shared contract, Agent tool, provider call,
 worker change, dependency, new review authority, package/release action, hosted CI, commit, push,
 signing, notarization, publication, or application-wide visual redesign.
+
+## Checkpoint 57: Fixed Multi-Provider Image Generation
+
+Decision: accepted ADR 051; implementation authorized.
+
+### User outcome
+
+- Image generation can use a saved Google Gemini, OpenAI, or xAI configuration without discarding
+  either of the other two credentials.
+- One source is explicitly active at a time, and a failure or removal never silently spends money
+  through another provider.
+- Existing Agent image generation, proposals, assets, and candidate history continue to work with
+  accurate provider/model lineage.
+
+### Scope and implementation
+
+- [x] Add the strict three-source/model catalog, active-source snapshot and IPC, independent
+  configuration IDs and credential bindings, and the forward legacy-Gemini app.sqlite migration.
+- [x] Add exact-pinned `openai@7.5.0`; implement OpenAI Image API and xAI-compatible SDK generation
+  plus non-generating model probes in the existing background-worker with retries disabled.
+- [x] Preserve bounded image/error projections, request cancellation, Main MIME/byte/dimension/hash
+  validation, nullable OpenAI auto effective size, and existing model-request/asset lineage.
+- [x] Replace the singleton Image API settings workspace with three fixed source workspaces and one
+  global active-source selection; keep all Agent tool descriptions provider-neutral.
+- [x] Add focused contract, migration/security, worker, Main/IPC, Renderer, and Real-Electron
+  coverage and pass every authorized gate.
+
+### Acceptance gate
+
+- Fixed provider/model schemas reject custom endpoints and mismatches; snapshots never expose
+  credentials, and save/test/remove operations identify the exact image source.
+- Legacy Gemini configuration and ciphertext migrate without loss; credentials remain independent;
+  switching preserves them; removing the active source clears selection and generation fails
+  closed.
+- OpenAI and xAI requests serialize exactly the approved fields, use one request with SDK retries
+  disabled, honor cancellation/timeout, and reject missing, malformed, or oversized base64.
+- Main uses the source captured when a request starts, records exact provider/model lineage, and
+  validates every returned asset before publication.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, complete Real-Electron settings and
+  generation coverage, `pnpm check:package`, and `git diff --check` pass. Live billable OpenAI/xAI
+  smoke is excluded unless the user separately supplies keys and authorizes one request each.
+
+### Local evidence
+
+- Focused contract, migration/repository, ProviderService, IPC, worker serialization/probe,
+  Main model-request/asset, and Renderer suites passed 10 files / 83 tests. They cover the fixed
+  provider/model directory, endpoint rejection, nullable OpenAI auto size, exact OpenAI/xAI SDK
+  request bodies, bounded base64/MIME/error handling, cancellation, non-generating model probes,
+  legacy Gemini migration, independent credentials, explicit switching, fail-closed removal, and
+  exact provider/model lineage.
+- `pnpm check:fast` passed. The final `pnpm check:electron` passed 184 files / 1009 tests with three
+  intentional benchmark skips, then completed the production build. The macOS
+  `task_name_for_pid` diagnostics were non-fatal and Vitest produced its normal passing summary.
+- The updated focused Real-Electron settings lifecycle passed 1/1, then the fresh full suite passed
+  41/41 with no flaky, skipped, or failed scenario. It saves all three encrypted credentials,
+  switches the active source, proves removing the active OpenAI source clears selection without
+  erasing Gemini/xAI, verifies snapshots omit all three secrets, activates xAI, and reopens with
+  the same state. The successful generation path is covered without billing by the worker/Main
+  HTTP and asset fixtures; no product test seam or custom endpoint was added.
+- The recovery manifest passed all 25 cases from 23 sources after refreshing the three intentionally
+  changed test-source hashes. `pnpm check:package` passed the no-Team-ID macOS arm64 unpacked app,
+  native/ASAR/resource inventory, app.sqlite v9, all 12 packaged smoke scenarios, all 28 packaged
+  Real-Electron scenarios, and DMG/ZIP creation plus structural hashes.
+- `git diff --check` passed. Local Node 26.7.0 remains outside the repository's Node 24 engine
+  range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate. No live
+  OpenAI/xAI image request, hosted CI, commit, push, signing identity, notarization, release,
+  promotion, or publication action ran.
+
+### Explicit exclusions
+
+No Responses API image generation, image editing, masks, reference images, transparent output,
+multi-image batches, 4K, automatic fallback, proxy/custom endpoints, provider-specific worker,
+generic image plugin framework, hosted CI, commit, push, signing, notarization, release, or
+publication action is authorized.

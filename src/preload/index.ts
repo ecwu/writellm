@@ -371,10 +371,12 @@ import {
   agentPresetCredentialInputSchema,
   agentPresetLoginInputSchema,
   providerConnectionTestResultSchema,
+  imageProviderSelectionInputSchema,
   providerRoleInputSchema,
   providerSaveInputSchema,
   providerSettingsSnapshotSchema,
   type ProviderConnectionTestResult,
+  type ImageProviderSelectionInput,
   type AgentAuthFlowInput,
   type AgentAuthInteractionEvent,
   type AgentAuthPromptResponse,
@@ -795,6 +797,7 @@ export interface DesktopApi {
     save(input: ProviderSaveInput): Promise<ProviderSettingsSnapshot>
     remove(input: ProviderRoleInput): Promise<ProviderSettingsSnapshot>
     testConnection(input: ProviderRoleInput): Promise<ProviderConnectionTestResult>
+    setActiveImage(input: ImageProviderSelectionInput): Promise<ProviderSettingsSnapshot>
     saveAgentPreset(input: AgentCustomPresetInput): Promise<ProviderSettingsSnapshot>
     removeAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
     refreshAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
@@ -2151,6 +2154,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.providersTestConnection,
           providerRoleInputSchema.parse(input)
+        )
+      )
+    },
+    async setActiveImage(input) {
+      return providerSettingsSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.providersSetActiveImage,
+          imageProviderSelectionInputSchema.parse(input)
         )
       )
     },

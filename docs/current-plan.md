@@ -1,8 +1,8 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 56 is implemented and verified. Checkpoints 52-55 and Phase 11 remain
-complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
-disabled.
+Status: Phase 12 Checkpoint 57 is complete and verified under accepted ADR 051. Checkpoint 56 and
+Phase 11 remain complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions
+workflows are disabled.
 Recorded: 2026-08-18
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -43,6 +43,20 @@ No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release cre
 promotion has run. The only new tag is the explicitly authorized local `v0.2026.8.17` candidate.
 
 ## Current authorized work
+
+On 2026-08-18 the user accepted ADR 051 and completed Checkpoint 57. The former Gemini-exclusive
+image role is now one fixed Google Gemini, OpenAI, and xAI catalog with independently stored
+configurations and encrypted credentials, one explicit active source, and no automatic fallback
+or billing retry. OpenAI `gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned
+`openai@7.5.0` inside the existing background-worker; the Agent tool, model-request, asset
+publication, proposal, and candidate-lineage authorities remain unchanged. The forward app.sqlite
+v9 migration preserves legacy Gemini configuration and ciphertext while rebinding the credential.
+Focused tests, `check:fast`, the 184-file / 1009-test Electron-hosted gate with three intentional
+benchmark skips and production build, 41/41 fresh Real-Electron scenarios, 25 recovery fixtures,
+the no-identity macOS arm64 package gate, 12/12 packaged smoke scenarios, 28/28 packaged E2E
+scenarios, and diff checks passed. No live billable OpenAI/xAI generation ran because keys and
+separate spending authorization were not provided. Detailed scope and evidence are recorded in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-57-fixed-multi-provider-image-generation).
 
 On 2026-08-18 the user authorized the next local patch candidate, `0.2026.8.17`, including the
 necessary release-metadata update, local release commit, annotated `v0.2026.8.17` tag, and a
@@ -135,8 +149,8 @@ and diff checks passed. Formal checkpoint closure remains pending only because t
 gate reports formatting in the user-owned concurrent `.vscode/settings.json` edit, which this work
 did not rewrite. Detailed evidence lives in
 [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md). No later Phase 12 checkpoint
-beyond the completed Checkpoint 56, migration, broader Agent capability, hosted CI, commit, push,
-or publication is authorized. On
+beyond the in-progress Checkpoint 57, broader Agent capability, hosted CI, commit, push, or
+publication is authorized. On
 2026-08-13 the user additionally authorized one local no-identity macOS arm64 unpacked App build
 from the current Checkpoint 48 worktree for hands-on use. That authorization does not include a
 DMG, ZIP, signing, notarization, hosted CI, release, or promotion. The authorized build is complete:

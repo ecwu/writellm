@@ -6,6 +6,7 @@ import { migration0005 } from './0005-agent-skills'
 import { migration0006 } from './0006-recent-project-path-uniqueness'
 import { migration0007 } from './0007-publication-presets'
 import { migration0008 } from './0008-project-templates'
+import { migration0009 } from './0009-multi-provider-images'
 
 export const appMigrations = [
   migration0001,
@@ -15,5 +16,6 @@ export const appMigrations = [
   migration0005,
   migration0006,
   migration0007,
-  migration0008
+  migration0008,
+  migration0009
 ] as const

@@ -5,6 +5,7 @@ import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import { openAppDatabase, type AppDatabase } from '../app-db/connection'
+import { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
 import { credentialBindingFingerprint } from './credential-binding'
 import { ProviderService, type ConnectionProbe } from './provider-service'
@@ -35,6 +36,18 @@ const imageConfig: ProviderConfig = {
   fileSizeLimitMb: null,
   defaultAspectRatio: 'auto',
   defaultImageSize: '1K'
+}
+
+const openAiImageConfig: ProviderConfig = {
+  ...imageConfig,
+  providerId: 'openai',
+  model: 'gpt-image-2'
+}
+
+const xAiImageConfig: ProviderConfig = {
+  ...imageConfig,
+  providerId: 'xai',
+  model: 'grok-imagine-image-2.0'
 }
 
 class FakeSafeStorage implements SafeStorageAdapter {
@@ -70,6 +83,20 @@ async function database(): Promise<AppDatabase> {
   })
 }
 
+function providerService(
+  appDatabase: AppDatabase,
+  credentials: CredentialService,
+  probe: ConnectionProbe = noProbe
+): ProviderService {
+  return new ProviderService(
+    appDatabase,
+    credentials,
+    new AppSettingsRepository(appDatabase, log),
+    log,
+    probe
+  )
+}
+
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })))
 })
@@ -78,7 +105,7 @@ describe('ProviderService', () => {
   it('persists only ciphertext, reports status, replaces keys, and removes the provider', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
-    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    const service = providerService(appDatabase, credentials)
 
     let snapshot = await service.save(agentConfig, 'first-secret')
     expect(snapshot.providers.find((provider) => provider.role === 'agent')).toMatchObject({
@@ -120,10 +147,9 @@ describe('ProviderService', () => {
   it('reports a missing key before attempting the network request', async () => {
     const appDatabase = await database()
     const probe = vi.fn<ConnectionProbe>()
-    const service = new ProviderService(
+    const service = providerService(
       appDatabase,
       new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
-      log,
       probe
     )
     await service.save(agentConfig)
@@ -139,7 +165,7 @@ describe('ProviderService', () => {
   it('binds credentials to the endpoint security identity and changes it atomically', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
-    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    const service = providerService(appDatabase, credentials)
     await service.save(agentConfig, 'first-secret')
 
     await service.save({
@@ -183,7 +209,7 @@ describe('ProviderService', () => {
   it('rolls back an endpoint update when credential invalidation cannot commit', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
-    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    const service = providerService(appDatabase, credentials)
     await service.save(agentConfig, 'first-secret')
     appDatabase.immediate((nativeDatabase) => {
       nativeDatabase.exec(`
@@ -211,10 +237,9 @@ describe('ProviderService', () => {
       expect(credential).toBe('bad-secret')
       return { status: 401 }
     })
-    const service = new ProviderService(
+    const service = providerService(
       appDatabase,
       new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
-      log,
       probe
     )
     await service.save(agentConfig, 'bad-secret')
@@ -238,7 +263,7 @@ describe('ProviderService', () => {
       log,
       'linux'
     )
-    const service = new ProviderService(appDatabase, credentials, log, noProbe)
+    const service = providerService(appDatabase, credentials)
 
     expect(credentials.backendStatus()).toMatchObject({
       platform: 'linux',
@@ -287,11 +312,9 @@ describe('ProviderService', () => {
 
   it('validates registered limits before durable configuration is written', async () => {
     const appDatabase = await database()
-    const service = new ProviderService(
+    const service = providerService(
       appDatabase,
-      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
-      log,
-      noProbe
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
     )
 
     await expect(service.save({ ...agentConfig, batchLimit: 2 }, 'secret')).rejects.toThrow(
@@ -305,11 +328,9 @@ describe('ProviderService', () => {
 
   it('persists Gemini without an endpoint and reads only the legacy official marker', async () => {
     const appDatabase = await database()
-    const service = new ProviderService(
+    const service = providerService(
       appDatabase,
-      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
-      log,
-      noProbe
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
     )
 
     let snapshot = await service.save(imageConfig, 'gemini-secret')
@@ -319,7 +340,7 @@ describe('ProviderService', () => {
     let stored = await appDatabase.kysely
       .selectFrom('provider_configs')
       .select('config_json')
-      .where('id', '=', 'image')
+      .where('id', '=', 'image:google-gemini')
       .executeTakeFirstOrThrow()
     expect(stored.config_json).not.toContain('baseUrl')
     await appDatabase.kysely
@@ -330,7 +351,7 @@ describe('ProviderService', () => {
           baseUrl: 'https://generativelanguage.googleapis.com/v1beta'
         })
       })
-      .where('id', '=', 'image')
+      .where('id', '=', 'image:google-gemini')
       .execute()
     snapshot = await service.snapshot()
     expect(snapshot.providers.find((provider) => provider.role === 'image')?.config).toEqual(
@@ -358,9 +379,49 @@ describe('ProviderService', () => {
     stored = await appDatabase.kysely
       .selectFrom('provider_configs')
       .select('config_json')
-      .where('id', '=', 'image')
+      .where('id', '=', 'image:google-gemini')
       .executeTakeFirstOrThrow()
     expect(stored.config_json).not.toContain('baseUrl')
+    appDatabase.close()
+  })
+
+  it('keeps three image credentials independent and clears an explicitly removed active source', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const service = providerService(appDatabase, credentials)
+
+    let snapshot = await service.save(imageConfig, 'gemini-secret')
+    expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
+    await service.save(openAiImageConfig, 'openai-secret')
+    snapshot = await service.save(xAiImageConfig, 'xai-secret')
+    expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
+    expect(snapshot.imageCatalog.sources.map((source) => source.configured)).toEqual([
+      true,
+      true,
+      true
+    ])
+    await expect(
+      credentials.withCredential('image:google-gemini', async (value) => value)
+    ).resolves.toBe('gemini-secret')
+    await expect(credentials.withCredential('image:openai', async (value) => value)).resolves.toBe(
+      'openai-secret'
+    )
+    await expect(credentials.withCredential('image:xai', async (value) => value)).resolves.toBe(
+      'xai-secret'
+    )
+
+    snapshot = await service.setActiveImageProvider('xai')
+    expect(snapshot.imageCatalog.activeProviderId).toBe('xai')
+    await expect(service.getConfiguredProvider('image')).resolves.toMatchObject({
+      providerId: 'xai',
+      model: 'grok-imagine-image-2.0'
+    })
+    snapshot = await service.remove('image', 'xai')
+    expect(snapshot.imageCatalog.activeProviderId).toBeNull()
+    expect(
+      snapshot.imageCatalog.sources.find((source) => source.providerId === 'openai')
+    ).toMatchObject({ configured: true, available: true })
+    await expect(service.getConfiguredProvider('image')).rejects.toThrow('not active')
     appDatabase.close()
   })
 })

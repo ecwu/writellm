@@ -297,9 +297,9 @@ describe('application database', () => {
       .execute()
     expect(credentials).toEqual([
       {
-        provider_config_id: 'image',
+        provider_config_id: 'image:google-gemini',
         binding_fingerprint: credentialBindingFingerprint({
-          providerConfigId: 'image',
+          providerConfigId: 'image:google-gemini',
           provider: 'google-gemini',
           configJson: JSON.stringify(immutableConfig)
         })
@@ -307,10 +307,26 @@ describe('application database', () => {
     ])
     await expect(
       upgraded.kysely
+        .selectFrom('encrypted_credentials')
+        .select(['id', 'ciphertext'])
+        .executeTakeFirstOrThrow()
+    ).resolves.toEqual({
+      id: 'image:google-gemini:api-key',
+      ciphertext: 'ciphertext:image'
+    })
+    await expect(
+      upgraded.kysely
+        .selectFrom('app_settings')
+        .select('value_json')
+        .where('key', '=', 'image.active-provider.v1')
+        .executeTakeFirstOrThrow()
+    ).resolves.toEqual({ value_json: '"google-gemini"' })
+    await expect(
+      upgraded.kysely
         .insertInto('encrypted_credentials')
         .values({
           id: 'image:invalid-binding',
-          provider_config_id: 'image',
+          provider_config_id: 'image:google-gemini',
           ciphertext: 'ciphertext',
           binding_fingerprint: 'g'.repeat(64),
           created_at: timestamp,

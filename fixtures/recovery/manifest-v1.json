@@ -7,7 +7,7 @@
       "id": "app-schema-history",
       "category": "migration",
       "source": "src/main/app-db/connection.test.ts",
-      "sourceSha256": "49a749245dab9694923673bb660cf2e0cd2f50864c849367e29ca27742a3cd51",
+      "sourceSha256": "01c49d7018b19dcdf3d9991269f7ed40b6257b6f44df1d1a5d373a8228aa4276",
       "tests": [
         "upgrades the v1 application schema, preserves data, and verifies a pre-migration backup",
         "keeps the newest pointer per project path when upgrading the recent-project schema"
@@ -96,7 +96,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "eafa83bd48e5bc005e12f85029290a833fc5616d18a2b67eaf080a57e4779c12",
+      "sourceSha256": "2d6abb03e82ffad5d97d297a54ee2dc9d17b358f9746c4f60814f55910a696d2",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",
@@ -194,7 +194,7 @@
       "id": "credential-backend-reporting",
       "category": "security",
       "source": "src/main/providers/provider-service.test.ts",
-      "sourceSha256": "c1f57504c2806bcc72b8b01a8c805c5bc3924740cae82e3fa5c410c51960e87f",
+      "sourceSha256": "ac12f7057e6d8dded7d2278a31431d6b1f9f8640c6cbb0309b52769e3df9cc20",
       "tests": [
         "persists only ciphertext, reports status, replaces keys, and removes the provider",
         "rejects insecure Linux basic_text persistence and reports the backend"

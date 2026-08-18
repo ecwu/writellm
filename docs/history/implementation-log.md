@@ -439,3 +439,14 @@ maintenance without turning the active tracker back into a historical log.
   inspections, scoped Impeccable, independent finish review, and diff checks passed. No IPC,
   persistence, provider, worker, migration, dependency, package/release, hosted CI, commit, push,
   signing, notarization, or publication work ran.
+- Accepted ADR 051 and completed Checkpoint 57. Image generation now uses one fixed Google Gemini,
+  OpenAI `gpt-image-2`, and xAI `grok-imagine-image-2.0` catalog with independently encrypted
+  credentials, one explicit active source, fixed official endpoints, no automatic fallback, and
+  exact-pinned `openai@7.5.0` confined to the background worker. The app.sqlite v9 migration
+  preserves legacy Gemini configuration/ciphertext; strict IPC, safe SDK error/base64 projection,
+  nullable OpenAI auto sizing, request-scoped provider/model lineage, and the existing asset and
+  proposal authority remain enforced. Focused tests, `check:fast`, 184 Electron-hosted files / 1009
+  tests plus production build, 41/41 full Real-Electron scenarios, 25 recovery fixtures, the
+  no-identity macOS arm64 package gate, 12/12 packaged smoke scenarios, 28/28 packaged E2E
+  scenarios, and diff checks passed. No billable live image request, commit, push, hosted CI,
+  signing identity, notarization, release, promotion, or publication ran.

@@ -102,6 +102,9 @@ native/ASAR/resource and no-Team-ID signature checks, 12/12 packaged runtime smo
 - [x] Checkpoint 56: replace the permanently expanded Agent writing-task header with a centered
   bottom Step capsule and a keyboard-accessible plan/change-set Popover while preserving existing
   task and proposal authority.
+- [x] Checkpoint 57: replace Gemini-exclusive image generation with one fixed Google Gemini,
+  OpenAI, and xAI catalog, independently stored credentials, and one explicit active source under
+  ADR 051 without automatic fallback or a generic provider plugin.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

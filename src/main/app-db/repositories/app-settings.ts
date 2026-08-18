@@ -18,8 +18,10 @@ import { projectIdSchema } from '../../../shared/contracts/projects'
 import {
   agentModelSelectionSchema,
   agentThinkingLevelSchema,
+  imageProviderIdSchema,
   type AgentThinkingLevel,
-  type AgentModelSelection
+  type AgentModelSelection,
+  type ImageProviderId
 } from '../../../shared/contracts/providers'
 
 export const THEME_PREFERENCE_KEY = 'theme.preference'
@@ -31,6 +33,7 @@ const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
 const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
 const AGENT_LAST_THINKING_LEVEL_KEY = 'agent.last-thinking-level.v1'
+export const ACTIVE_IMAGE_PROVIDER_KEY = 'image.active-provider.v1'
 const ACCENT_PREFERENCE_KEY = 'theme.accent'
 const CITATION_DISPLAY_MODE_KEY = 'editor.citation-display-mode.v1'
 const modelLimitsCacheSchema = z.record(
@@ -183,6 +186,23 @@ export class AppSettingsRepository {
   async setLastAgentThinkingLevel(level: AgentThinkingLevel): Promise<AgentThinkingLevel> {
     const value = agentThinkingLevelSchema.parse(level)
     await this.#writeSetting(AGENT_LAST_THINKING_LEVEL_KEY, value)
+    return value
+  }
+
+  async getActiveImageProviderId(): Promise<ImageProviderId | null> {
+    return this.#readSetting(
+      ACTIVE_IMAGE_PROVIDER_KEY,
+      imageProviderIdSchema.nullable(),
+      null,
+      'app.settings.invalid_active_image_provider'
+    )
+  }
+
+  async setActiveImageProviderId(
+    providerId: ImageProviderId | null
+  ): Promise<ImageProviderId | null> {
+    const value = imageProviderIdSchema.nullable().parse(providerId)
+    await this.#writeSetting(ACTIVE_IMAGE_PROVIDER_KEY, value)
     return value
   }
 

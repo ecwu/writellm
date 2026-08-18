@@ -3,7 +3,10 @@ import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import type { ProviderSettingsSnapshot } from '../../shared/contracts/providers'
+import {
+  GOOGLE_GEMINI_IMAGE_MODELS,
+  type ProviderSettingsSnapshot
+} from '../../shared/contracts/providers'
 import { registerProviderIpc, type ProviderIpcMain } from './provider-ipc'
 
 function emptyStatus(
@@ -82,6 +85,41 @@ const snapshot: ProviderSettingsSnapshot = {
     },
     ...(['embedding', 'rerank', 'mineru', 'image'] as const).map(emptyStatus)
   ],
+  imageCatalog: {
+    activeProviderId: null,
+    sources: [
+      {
+        providerId: 'google-gemini',
+        label: 'Google Gemini',
+        models: [...GOOGLE_GEMINI_IMAGE_MODELS],
+        config: null,
+        configured: false,
+        available: false,
+        active: false,
+        issues: []
+      },
+      {
+        providerId: 'openai',
+        label: 'OpenAI',
+        models: ['gpt-image-2'],
+        config: null,
+        configured: false,
+        available: false,
+        active: false,
+        issues: []
+      },
+      {
+        providerId: 'xai',
+        label: 'xAI',
+        models: ['grok-imagine-image-2.0'],
+        config: null,
+        configured: false,
+        available: false,
+        active: false,
+        issues: []
+      }
+    ]
+  },
   agentCatalog: { presets: [], defaultSelection: null }
 }
 
@@ -95,6 +133,7 @@ function harness() {
     snapshot: vi.fn(async () => snapshot),
     save: vi.fn(async () => snapshot),
     remove: vi.fn(async () => snapshot),
+    setActiveImageProvider: vi.fn(async () => snapshot),
     testConnection: vi.fn(async () => ({
       ok: true,
       code: 'connected' as const,
@@ -166,6 +205,25 @@ describe('provider IPC', () => {
     ).rejects.toThrow()
     expect(providers.remove).not.toHaveBeenCalled()
     expect(providers.save).not.toHaveBeenCalled()
+  })
+
+  it('requires an exact image source for remove/test and validates activation', async () => {
+    const { invoke, providers } = harness()
+    await expect(invoke(IPC_CHANNELS.providersRemove, { role: 'image' })).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersTestConnection, { role: 'image', providerId: 'custom' })
+    ).rejects.toThrow()
+
+    await invoke(IPC_CHANNELS.providersRemove, { role: 'image', providerId: 'openai' })
+    expect(providers.remove).toHaveBeenCalledWith('image', 'openai')
+    await invoke(IPC_CHANNELS.providersSetActiveImage, { providerId: 'xai' })
+    expect(providers.setActiveImageProvider).toHaveBeenCalledWith('xai')
+    await expect(
+      invoke(IPC_CHANNELS.providersSetActiveImage, {
+        providerId: 'openai',
+        baseUrl: 'https://proxy.example.test'
+      })
+    ).rejects.toThrow()
   })
 
   it('validates and forwards Agent availability and manual model updates', async () => {

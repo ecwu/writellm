@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai'
+import OpenAI from 'openai'
 import type {
   AuxiliaryUtilityRequest,
   AuxiliaryUtilityResponse
@@ -13,14 +14,18 @@ export async function runAuxiliaryModelRequest(
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.operation === 'embedding') return runEmbedding(request, fetchImplementation, signal)
   if (request.operation === 'rerank') return runRerank(request, fetchImplementation, signal)
-  return runImageGeneration(request, signal)
+  return runImageGeneration(request, fetchImplementation, signal)
 }
 
 async function runImageGeneration(
   request: Extract<AuxiliaryUtilityRequest, { operation: 'image' }>,
+  fetchImplementation: typeof fetch,
   externalSignal?: AbortSignal
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.config.role !== 'image') throw new Error('Image provider role is required')
+  if (request.config.providerId !== 'google-gemini') {
+    return runOpenAiCompatibleImageGeneration(request, fetchImplementation, externalSignal)
+  }
   const controller = new AbortController()
   const unlink = linkAbortSignal(externalSignal, controller)
   const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
@@ -113,6 +118,138 @@ async function runImageGeneration(
   }
 }
 
+async function runOpenAiCompatibleImageGeneration(
+  request: Extract<AuxiliaryUtilityRequest, { operation: 'image' }>,
+  fetchImplementation: typeof fetch,
+  externalSignal?: AbortSignal
+): Promise<AuxiliaryUtilityResponse> {
+  if (request.config.role !== 'image' || request.config.providerId === 'google-gemini') {
+    throw new Error('OpenAI-compatible image provider is required')
+  }
+  const controller = new AbortController()
+  const unlink = linkAbortSignal(externalSignal, controller)
+  const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
+  const providerLabel = request.config.providerId === 'openai' ? 'OpenAI' : 'xAI'
+  try {
+    const client = new OpenAI({
+      apiKey: request.credential,
+      baseURL:
+        request.config.providerId === 'xai' ? 'https://api.x.ai/v1' : 'https://api.openai.com/v1',
+      maxRetries: 0,
+      fetch: fetchImplementation
+    })
+    const effectiveImageSize =
+      request.config.providerId === 'openai' && request.input.aspectRatio === 'auto'
+        ? null
+        : request.input.imageSize
+    const params =
+      request.config.providerId === 'openai'
+        ? {
+            model: request.config.model,
+            prompt: request.input.prompt,
+            n: 1,
+            quality: 'auto' as const,
+            output_format: 'png' as const,
+            size: openAiImageSize(request.input.aspectRatio, request.input.imageSize)
+          }
+        : {
+            model: request.config.model,
+            prompt: request.input.prompt,
+            n: 1,
+            response_format: 'b64_json' as const,
+            aspect_ratio: request.input.aspectRatio,
+            resolution: request.input.imageSize.toLowerCase()
+          }
+    let result: Awaited<ReturnType<ReturnType<typeof client.images.generate>['withResponse']>>
+    try {
+      result = await settleOnAbort(
+        client.images
+          .generate(params as OpenAI.Images.ImageGenerateParamsNonStreaming, {
+            signal: controller.signal
+          })
+          .withResponse(),
+        controller.signal
+      )
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          externalSignal?.aborted
+            ? `${providerLabel} image request was cancelled`
+            : `${providerLabel} image request timed out`
+        )
+      }
+      throw safeSdkError(providerLabel, error)
+    }
+    const images = result.data.data
+    if (images.length !== 1 || images[0]?.b64_json === undefined) {
+      throw new Error(`${providerLabel} response did not contain one base64 image`)
+    }
+    const dataBase64 = images[0].b64_json
+    if (!isCanonicalBase64(dataBase64)) {
+      throw new Error(`${providerLabel} returned malformed image data`)
+    }
+    const detectedMime = detectImageMime(dataBase64)
+    if (detectedMime === null) throw new Error(`${providerLabel} returned unsupported image data`)
+    if (request.config.providerId === 'openai' && detectedMime !== 'image/png') {
+      throw new Error('OpenAI returned a non-PNG image')
+    }
+    const usage = objectField(result.data, 'usage')
+    return {
+      type: 'image-result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      result: {
+        dataBase64,
+        mimeType: detectedMime,
+        effectiveImageSize,
+        metadata: {
+          usage: {
+            inputTokens: numberField(usage, ['input_tokens']),
+            outputTokens: numberField(usage, ['output_tokens']),
+            cacheReadTokens: null,
+            cacheWriteTokens: null,
+            estimatedCostUsdMicros: null
+          },
+          responseIds:
+            result.request_id === null || result.request_id.length > 500 ? [] : [result.request_id],
+          retryCount: 0,
+          providerModelId: request.config.model
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeout)
+    unlink()
+  }
+}
+
+function openAiImageSize(aspectRatio: 'auto' | '1:1' | '16:9', imageSize: '1K' | '2K'): string {
+  if (aspectRatio === 'auto') return 'auto'
+  if (aspectRatio === '1:1') return imageSize === '1K' ? '1024x1024' : '2048x2048'
+  return imageSize === '1K' ? '1280x720' : '2048x1152'
+}
+
+function detectImageMime(dataBase64: string): 'image/png' | 'image/jpeg' | null {
+  const bytes = Buffer.from(dataBase64.slice(0, 32), 'base64')
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  return null
+}
+
 function settleOnAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason)
   return new Promise<T>((resolve, reject) => {
@@ -148,6 +285,37 @@ function safeGeminiSdkError(value: unknown): Error {
   if (status !== undefined) error.status = status
   if (providerCode !== undefined) error.providerCode = providerCode
   return error
+}
+
+function safeSdkError(providerLabel: string, value: unknown): Error {
+  const record =
+    value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null
+  const status = numericStatus(record)
+  const providerCode = normalizeMachineCode(
+    stringValue(record?.code) ?? stringValue(objectField(record, 'error')?.code)
+  )
+  const error = new Error(
+    `${providerLabel} image request failed${status === undefined ? '' : ` with HTTP ${status}`}${
+      providerCode === undefined ? '' : ` (${providerCode})`
+    }`,
+    { cause: value }
+  ) as Error & { status?: number; providerCode?: string }
+  if (status !== undefined) error.status = status
+  if (providerCode !== undefined) error.providerCode = providerCode
+  return error
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length <= 200 ? value : undefined
+}
+
+function normalizeMachineCode(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+  return /^[A-Z][A-Z0-9_]{1,127}$/.test(normalized) ? normalized : undefined
 }
 
 function numericStatus(value: Record<string, unknown> | null): number | undefined {

@@ -60,7 +60,7 @@ const capabilities: Record<ProviderRole, ProviderCapability> = {
     providerId: 'google-gemini',
     label: 'Image generation',
     capabilities: ['image-generation'],
-    supportedFormats: ['png'],
+    supportedFormats: ['png', 'jpeg'],
     maxBatchSize: 1,
     maxFileSizeMb: 20,
     maxPages: null

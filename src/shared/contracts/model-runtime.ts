@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { googleGeminiImageSizeSchema, providerConfigSchema } from './providers'
+import { imageSizeSchema, providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
 import { agentRuntimeAuthSchema } from './agent-auth'
@@ -123,7 +123,7 @@ export const imageGenerationInputSchema = z
         'Image prompt exceeds 16 KiB'
       ),
     aspectRatio: z.enum(['auto', '1:1', '16:9']),
-    imageSize: googleGeminiImageSizeSchema
+    imageSize: imageSizeSchema
   })
   .strict()
 export type ImageGenerationInput = z.infer<typeof imageGenerationInputSchema>
@@ -132,7 +132,7 @@ export const imageGenerationResultSchema = z
   .object({
     dataBase64: z.string().min(4).max(28_000_000),
     mimeType: z.enum(['image/png', 'image/jpeg']),
-    effectiveImageSize: googleGeminiImageSizeSchema,
+    effectiveImageSize: imageSizeSchema.nullable(),
     metadata: modelExecutionMetadataSchema
   })
   .strict()

@@ -285,6 +285,10 @@ test(
         await imageDialog.getByRole('option', { name: /^Image API/ }).click()
         await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
         await expect(imageDialog.getByLabel('Request timeout (milliseconds)')).toHaveCount(0)
+        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
+        await expect(imageDialog.getByRole('button', { name: /^Google Gemini/ })).toBeVisible()
+        await expect(imageDialog.getByRole('button', { name: /^OpenAI/ })).toBeVisible()
+        await expect(imageDialog.getByRole('button', { name: /^xAI/ })).toBeVisible()
         await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3.1-flash-image')
         await imageDialog.getByLabel('Model ID').click()
         await expect(
@@ -297,6 +301,53 @@ test(
           'placeholder',
           /Stored/
         )
+        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
+
+        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
+        await expect(imageDialog.locator('input[readonly]')).toHaveValue('gpt-image-2')
+        await imageDialog.getByLabel('OpenAI API key').fill('e2e-openai-secret')
+        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+        await expect(imageDialog.getByLabel('OpenAI API key')).toHaveAttribute(
+          'placeholder',
+          /Stored/
+        )
+        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
+
+        await imageDialog.getByRole('button', { name: /^xAI/ }).click()
+        await expect(imageDialog.locator('input[readonly]')).toHaveValue('grok-imagine-image-2.0')
+        await imageDialog.getByLabel('xAI API key').fill('e2e-xai-secret')
+        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
+        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
+        await expect(imageDialog.getByText('Active: OpenAI', { exact: true })).toBeVisible()
+
+        await imageDialog.getByRole('button', { name: 'Remove', exact: true }).click()
+        const removeImageProvider = first.page.getByRole('alertdialog', {
+          name: 'Remove OpenAI image configuration?'
+        })
+        await removeImageProvider.getByRole('button', { name: 'Remove provider' }).click()
+        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
+        await expect
+          .poll(async () => {
+            const catalog = (await first.page.evaluate(() => window.desktop.providers.snapshot()))
+              .imageCatalog
+            return {
+              activeProviderId: catalog.activeProviderId,
+              available: Object.fromEntries(
+                catalog.sources.map((source) => [source.providerId, source.available])
+              ),
+              leakedSecret: /e2e-(?:gemini|openai|xai)-secret/.test(JSON.stringify(catalog))
+            }
+          })
+          .toEqual({
+            activeProviderId: null,
+            available: { 'google-gemini': true, openai: false, xai: true },
+            leakedSecret: false
+          })
+
+        await imageDialog.getByRole('button', { name: /^xAI/ }).click()
+        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
+        await expect(imageDialog.getByText('Active: xAI', { exact: true })).toBeVisible()
         await first.page.keyboard.press('Escape')
 
         await clickAndExpectProject(
@@ -379,8 +430,22 @@ test(
         const imageDialog = restarted.page.getByRole('dialog', { name: 'Settings' })
         await imageDialog.getByRole('option', { name: /^Image API/ }).click()
         await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
+        await expect(imageDialog.getByText('Active: xAI', { exact: true })).toBeVisible()
+        await expect(imageDialog.locator('input[readonly]')).toHaveValue('grok-imagine-image-2.0')
+        await expect(imageDialog.getByLabel('xAI API key')).toHaveValue('')
+        await expect(imageDialog.getByLabel('xAI API key')).toHaveAttribute('placeholder', /Stored/)
+        await imageDialog.getByRole('button', { name: /^Google Gemini/ }).click()
         await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3-pro-image')
         await expect(imageDialog.getByLabel('Gemini API key')).toHaveValue('')
+        await expect(imageDialog.getByLabel('Gemini API key')).toHaveAttribute(
+          'placeholder',
+          /Stored/
+        )
+        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
+        await expect(imageDialog.getByLabel('OpenAI API key')).toHaveAttribute(
+          'placeholder',
+          'Required'
+        )
       } finally {
         await closeApp(restarted.app)
       }

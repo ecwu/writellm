@@ -172,6 +172,7 @@ export const IPC_CHANNELS = {
   providersSave: 'providers:save',
   providersRemove: 'providers:remove',
   providersTestConnection: 'providers:test-connection',
+  providersSetActiveImage: 'providers:set-active-image',
   providersSaveAgentPreset: 'providers:save-agent-preset',
   providersRemoveAgentPreset: 'providers:remove-agent-preset',
   providersRefreshAgentPreset: 'providers:refresh-agent-preset',

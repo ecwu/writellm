@@ -231,6 +231,7 @@ if (!hasSingleInstanceLock) {
       const providers = new ProviderService(
         appDatabase,
         credentials,
+        appSettings,
         loggerSystem.createModuleLogger('app', 'provider-configuration'),
         providerProbe.probe
       )

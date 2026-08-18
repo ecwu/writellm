@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, and ADR 049
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, and ADR 051
 Recorded: 2026-07-31; amended through 2026-08-18
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -226,6 +226,7 @@ search becomes available.
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
+| Image generation        | Fixed Gemini/OpenAI/xAI catalog in the background-worker                       |
 | MinerU                  | independent HTTP adapter and one durable parse workflow; URLs stay ephemeral  |
 | Secrets                 | Electron `safeStorage` with an application credential-store adapter           |
 | Tests                   | Vitest and Playwright Electron E2E                                            |
@@ -1256,21 +1257,20 @@ revision and proposal lineage remains authoritative. Outline-delete undo and sec
 remain deferred.
 
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
-the provider, source revision, block ID, and asset ID; the background worker performs only the
-typed Gemini request through exact-pinned `@google/genai@2.13.0`. The SDK is confined to that worker
-gateway and is not exposed through Main, preload, renderer, or Agent tool code. The tool produces
+the active image provider, source revision, block ID, and asset ID; the background worker performs
+one typed request through the fixed catalog in ADR 051. Google Gemini retains exact-pinned
+`@google/genai@2.13.0`; OpenAI `gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned
+`openai@7.5.0`, with xAI's client fixed to `https://api.x.ai/v1`. SDKs are confined to that worker
+gateway and are not exposed through Main, preload, renderer, or Agent tool code. The tool produces
 one project asset and one typed insertion proposal, never a reusable network or filesystem
-capability. The image provider has no configurable or persisted endpoint: the worker constructs
-the official client with only the request-scoped API key and invokes Interactions with
-`response_format.type = "image"` and `mime_type = "image/jpeg"` (the only value the Interactions
-API accepts; `image/png` is rejected with HTTP 400). `auto` omits `aspect_ratio`;
-fixed-1K models normalize a requested 2K to 1K, while selectable-size models send 1K or 2K.
-Renderer settings expose only the encrypted key input and a Main-validated catalog of
-`gemini-3.1-flash-lite-image`,
-`gemini-3.1-flash-image`, `gemini-3-pro-image`, and `gemini-2.5-flash-image`.
-The worker accepts bounded PNG/JPEG output and reports its actual MIME; only Main validates image
-magic and atomically publishes the project asset before a `writellm-asset:<assetId>` block
-reference can be committed.
+capability. No image source accepts a configurable endpoint, SDK retries are disabled, and xAI
+must return base64 rather than a temporary URL. The worker accepts bounded PNG/JPEG output and
+reports its actual MIME; only Main validates image magic, dimensions, hash, and bytes and atomically
+publishes the project asset before a `writellm-asset:<assetId>` block reference can be committed.
+All three encrypted source credentials may coexist, but zero or one source is explicitly active;
+removal clears an active selection and never triggers fallback. OpenAI `aspectRatio = auto` may
+return a nullable effective size intent while project asset lineage still records the requested
+size and Main-validated actual dimensions.
 
 Asset deletion is a Main-owned two-phase operation. Protection is rechecked in the same immediate
 transaction that changes an unprotected row from `active` to `deleting`; new revision/proposal
@@ -1433,6 +1433,12 @@ Write-type agent tools remain sequential even when Pi permits parallel tool exec
 ## Secrets And Provider Configuration
 
 Provider configuration is application-global because credentials are device/user concerns, not portable project content.
+
+- The application-global image role uses the fixed three-source catalog in ADR 051. Gemini,
+  OpenAI, and xAI configurations and safeStorage credentials are independently bound and may
+  coexist, but one explicit app setting selects zero or one active source. Saving the first usable
+  source may initialize that selection; removing the active source clears it. Generation never
+  falls back, rotates, retries through another source, or accepts an arbitrary endpoint.
 
 - Agent configuration is an application-global Pi provider catalog rather than one singleton
   endpoint. The pinned Pi built-in providers define their static model metadata, wire protocol,

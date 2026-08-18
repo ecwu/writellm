@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai'
+import OpenAI from 'openai'
 import type {
   ProviderProbeRequest,
   ProviderProbeResponse
@@ -12,7 +13,9 @@ export async function runProviderProbeRequest(
 ): Promise<ProviderProbeResponse> {
   try {
     if (request.config.role === 'image') {
-      return await runGeminiProviderProbe(request, signal)
+      return request.config.providerId === 'google-gemini'
+        ? await runGeminiProviderProbe(request, signal)
+        : await runOpenAiProviderProbe(request, fetchImplementation, signal)
     }
     const path =
       request.config.role === 'mineru' ? 'api/v4/extract/task/__writellm_probe__' : 'models'
@@ -64,6 +67,48 @@ export async function runProviderProbeRequest(
         ...(error.stack === undefined ? {} : { stack: error.stack.slice(0, 32_768) })
       }
     }
+  }
+}
+
+async function runOpenAiProviderProbe(
+  request: ProviderProbeRequest,
+  fetchImplementation: typeof fetch,
+  signal?: AbortSignal
+): Promise<ProviderProbeResponse> {
+  if (request.config.role !== 'image' || request.config.providerId === 'google-gemini') {
+    throw new Error('OpenAI-compatible image provider is required')
+  }
+  const client = new OpenAI({
+    apiKey: request.credential,
+    baseURL:
+      request.config.providerId === 'xai' ? 'https://api.x.ai/v1' : 'https://api.openai.com/v1',
+    maxRetries: 0,
+    fetch: fetchImplementation
+  })
+  try {
+    await client.models.retrieve(request.config.model, { signal })
+    return {
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId ?? null,
+      status: 200
+    }
+  } catch (error) {
+    const status = sdkHttpStatus(error)
+    if (status !== undefined) {
+      return {
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId ?? null,
+        status
+      }
+    }
+    if (signal?.aborted) {
+      const aborted = new Error('Image provider probe aborted')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
+    throw new Error('Image provider probe failed', { cause: error })
   }
 }
 
