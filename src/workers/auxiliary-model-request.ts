@@ -4,25 +4,34 @@ import type {
   AuxiliaryUtilityRequest,
   AuxiliaryUtilityResponse
 } from '../shared/contracts/model-runtime'
-import { effectiveGoogleGeminiImageSize } from '../shared/contracts/providers'
+import {
+  effectiveGoogleGeminiImageSize,
+  effectiveGoogleVertexImageSize
+} from '../shared/contracts/providers'
+import { createGoogleVertexClient, type GoogleVertexClientFactory } from './google-vertex-client'
 import { linkAbortSignal } from './shared/linked-abort-signal'
 
 export async function runAuxiliaryModelRequest(
   request: AuxiliaryUtilityRequest,
   fetchImplementation: typeof fetch = fetch,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  googleVertexClientFactory: GoogleVertexClientFactory = createGoogleVertexClient
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.operation === 'embedding') return runEmbedding(request, fetchImplementation, signal)
   if (request.operation === 'rerank') return runRerank(request, fetchImplementation, signal)
-  return runImageGeneration(request, fetchImplementation, signal)
+  return runImageGeneration(request, fetchImplementation, signal, googleVertexClientFactory)
 }
 
 async function runImageGeneration(
   request: Extract<AuxiliaryUtilityRequest, { operation: 'image' }>,
   fetchImplementation: typeof fetch,
-  externalSignal?: AbortSignal
+  externalSignal: AbortSignal | undefined,
+  googleVertexClientFactory: GoogleVertexClientFactory
 ): Promise<AuxiliaryUtilityResponse> {
   if (request.config.role !== 'image') throw new Error('Image provider role is required')
+  if (request.config.providerId === 'google-vertex') {
+    return runGoogleVertexImageGeneration(request, externalSignal, googleVertexClientFactory)
+  }
   if (request.config.providerId !== 'google-gemini') {
     return runOpenAiCompatibleImageGeneration(request, fetchImplementation, externalSignal)
   }
@@ -118,12 +127,128 @@ async function runImageGeneration(
   }
 }
 
+async function runGoogleVertexImageGeneration(
+  request: Extract<AuxiliaryUtilityRequest, { operation: 'image' }>,
+  externalSignal: AbortSignal | undefined,
+  googleVertexClientFactory: GoogleVertexClientFactory
+): Promise<AuxiliaryUtilityResponse> {
+  if (request.config.role !== 'image' || request.config.providerId !== 'google-vertex') {
+    throw new Error('Google Vertex image provider is required')
+  }
+  const controller = new AbortController()
+  const unlink = linkAbortSignal(externalSignal, controller)
+  const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
+  const effectiveImageSize = effectiveGoogleVertexImageSize(
+    request.config.model,
+    request.input.imageSize
+  )
+  try {
+    let payload: unknown
+    try {
+      const models = googleVertexClientFactory({
+        project: request.config.projectId,
+        location: request.config.location
+      })
+      payload = await settleOnAbort(
+        models.generateContent({
+          model: request.config.model,
+          contents: request.input.prompt,
+          config: {
+            abortSignal: controller.signal,
+            candidateCount: 1,
+            responseModalities: ['TEXT', 'IMAGE'],
+            imageConfig: {
+              ...(request.input.aspectRatio === 'auto'
+                ? {}
+                : { aspectRatio: request.input.aspectRatio }),
+              imageSize: effectiveImageSize
+            }
+          }
+        }),
+        controller.signal
+      )
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          externalSignal?.aborted
+            ? 'Google Vertex image request was cancelled'
+            : 'Google Vertex image request timed out',
+          { cause: err }
+        )
+      }
+      throw safeSdkError('Google Vertex', err)
+    }
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('Google Vertex returned a malformed response')
+    }
+    const candidates = arrayField(payload, 'candidates')
+    if (candidates === null || candidates.length !== 1) {
+      throw new Error('Google Vertex response did not contain one candidate')
+    }
+    const content = objectField(candidates[0], 'content')
+    const parts = content === null ? null : arrayField(content, 'parts')
+    const images =
+      parts?.flatMap((part) => {
+        const inlineData = objectField(part, 'inlineData')
+        return inlineData === null ? [] : [inlineData]
+      }) ?? []
+    if (images.length !== 1) {
+      throw new Error('Google Vertex response did not contain one inline image')
+    }
+    const dataBase64 =
+      typeof images[0]?.data === 'string' && images[0].data.length <= 28_000_000
+        ? images[0].data
+        : undefined
+    const mimeType = stringValue(images[0]?.mimeType)
+    if (dataBase64 === undefined || !isCanonicalBase64(dataBase64)) {
+      throw new Error('Google Vertex returned malformed image data')
+    }
+    if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') {
+      throw new Error('Google Vertex returned an unsupported image MIME')
+    }
+    if (detectImageMime(dataBase64) !== mimeType) {
+      throw new Error('Google Vertex image MIME did not match its bytes')
+    }
+    const usage = objectField(payload, 'usageMetadata')
+    const responseId = stringValue(payload.responseId)
+    return {
+      type: 'image-result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      result: {
+        dataBase64,
+        mimeType,
+        effectiveImageSize,
+        metadata: {
+          usage: {
+            inputTokens: numberField(usage, ['promptTokenCount']),
+            outputTokens: numberField(usage, ['candidatesTokenCount']),
+            cacheReadTokens: numberField(usage, ['cachedContentTokenCount']),
+            cacheWriteTokens: null,
+            estimatedCostUsdMicros: null
+          },
+          responseIds: responseId === undefined ? [] : [responseId],
+          retryCount: 0,
+          providerModelId: request.config.model
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeout)
+    unlink()
+  }
+}
+
 async function runOpenAiCompatibleImageGeneration(
   request: Extract<AuxiliaryUtilityRequest, { operation: 'image' }>,
   fetchImplementation: typeof fetch,
   externalSignal?: AbortSignal
 ): Promise<AuxiliaryUtilityResponse> {
-  if (request.config.role !== 'image' || request.config.providerId === 'google-gemini') {
+  if (
+    request.config.role !== 'image' ||
+    request.config.providerId === 'google-gemini' ||
+    request.config.providerId === 'google-vertex'
+  ) {
     throw new Error('OpenAI-compatible image provider is required')
   }
   const controller = new AbortController()
@@ -250,6 +375,12 @@ function detectImageMime(dataBase64: string): 'image/png' | 'image/jpeg' | null 
   return null
 }
 
+function arrayField(value: unknown, key: string): unknown[] | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const field = (value as Record<string, unknown>)[key]
+  return Array.isArray(field) ? field : null
+}
+
 function settleOnAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason)
   return new Promise<T>((resolve, reject) => {
@@ -366,10 +497,26 @@ function findMachineCode(value: unknown, depth = 0): string | undefined {
 }
 
 function isCanonicalBase64(value: string): boolean {
-  return (
-    value.length <= 28_000_000 &&
-    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
-  )
+  if (value.length > 28_000_000 || value.length % 4 !== 0) return false
+
+  let contentLength = value.length
+  if (value.endsWith('=')) {
+    contentLength -= 1
+    if (value.charCodeAt(contentLength - 1) === 0x3d) contentLength -= 1
+  }
+
+  for (let index = 0; index < contentLength; index += 1) {
+    const code = value.charCodeAt(index)
+    const isAlphabetCharacter =
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a) ||
+      (code >= 0x30 && code <= 0x39) ||
+      code === 0x2b ||
+      code === 0x2f
+    if (!isAlphabetCharacter) return false
+  }
+
+  return true
 }
 
 function objectField(value: unknown, key: string): Record<string, unknown> | null {

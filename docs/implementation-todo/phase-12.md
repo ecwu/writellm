@@ -1,7 +1,7 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 57 is in progress under accepted ADR 051
-Recorded: 2026-08-18
+Status: Checkpoint 59 is complete and verified under accepted ADR 052
+Recorded: 2026-08-19
 
 ## Purpose
 
@@ -990,3 +990,164 @@ No Responses API image generation, image editing, masks, reference images, trans
 multi-image batches, 4K, automatic fallback, proxy/custom endpoints, provider-specific worker,
 generic image plugin framework, hosted CI, commit, push, signing, notarization, release, or
 publication action is authorized.
+
+## Checkpoint 58: Independent Markdown Preview Workspace
+
+Decision: user-approved plan; implementation authorized. No new ADR is required because the
+refinement preserves the accepted workspace shell, Markdown conversion boundary, Renderer
+sandbox, and project-session capability authority.
+
+### User outcome
+
+- Preview is a first-class global-sidebar destination immediately after Manuscript rather than an
+  action hidden inside the Outline editor.
+- The main content region becomes a calm, readable Markdown surface with deliberate hierarchy,
+  measure, and vertical rhythm in light, dark, desktop, and narrow-window states.
+- The preview remains truthful to the existing lossy Markdown export projection and explicitly
+  reports formatting differences without inventing Brief or References content.
+
+### Scope and implementation
+
+- [x] Add the Preview rail destination and independent shadcn sidebar workspace; flush the active
+  editor before leaving Manuscript, preserve section context, and remove the old Dialog entry.
+- [x] Render the existing `manuscriptToMarkdown` projection through the current safe Markdown,
+  project-asset, Mermaid, and KaTeX boundaries.
+- [x] Add the project-owned shadcn Typeset stylesheet and a 16px / 1.75 / 1.35em manuscript preset
+  inside an approximately 70ch reading measure.
+- [x] Add focused Renderer and Real-Electron coverage, run the authorized static/Electron/E2E/UI/
+  Impeccable/diff gates, and record exact local evidence.
+
+### Acceptance gate
+
+- Outline contains no preview action or preview callback. Preview rail navigation never opens a
+  Dialog, exposes an active destination in every workspace, and a failed editor flush leaves the
+  author in Manuscript.
+- The workspace uses the established rail, contextual sidebar, and `SidebarInset`; loading, error,
+  empty, retry, refresh, mobile-sheet, keyboard-focus, and return-to-Manuscript paths remain usable.
+- GFM headings, paragraphs, lists, quotes, code, tables, task lists, images, Mermaid, and math render
+  without horizontal page overflow. Only allowed HTTPS links and session-resolved logical project
+  assets become active URLs.
+- The article contains the existing Markdown projection only: no Brief title/description,
+  objective, or References appendix is injected. Any conversion losses produce one concise count.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh affected Real-Electron coverage,
+  bounded light/dark and desktop/narrow screenshot inspection, scoped Impeccable, and
+  `git diff --check` pass. No package gate is required for this Renderer-only change.
+
+### Local evidence (2026-08-19)
+
+- The new three-test Renderer suite passed headings, paragraphs, lists, quotes, GFM table scroll,
+  code, KaTeX, Mermaid interception, Typeset classes, loss counting, Brief/objective/References
+  exclusion, HTTPS filtering, and strict `writellm-asset:` acceptance. The existing conversion and
+  rich-media tests remained green.
+- The focused Real-Electron workspace, conflict, and rich-media scenarios passed. They prove the
+  Outline action is absent, Preview is an independent active rail destination with no Dialog,
+  an unsaved body flushes before navigation, a stale-save conflict stays in Manuscript, section
+  order/body survives projection, objectives stay private, the project-asset capability resolves,
+  sanitized Mermaid, KaTeX, captions, and return-to-section context remain intact, and desktop and
+  620px layouts avoid horizontal page overflow.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 185 test files / 1012 tests with three
+  intentional benchmark skips and completed the production build. A fresh full
+  `pnpm test:e2e` passed 41/41 scenarios with no flaky, skipped, or failed scenario.
+- Light desktop, 620px light narrow-window, and dark rich-media screenshots were inspected. The
+  scoped Impeccable detector returned no findings, final Biome passed, and `git diff --check`
+  passed. Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm
+  11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate.
+- No package/release gate, migration, dependency install, billable provider call, hosted CI,
+  commit, push, signing, notarization, release, promotion, or publication ran.
+
+Packaging addendum: after Checkpoint 58 completion, the user separately authorized one local
+no-identity macOS arm64 unpacked App build for hands-on use. `pnpm build:unpack` passed the
+Electron 43.1.0 / ABI 148 native and ASAR/resource inventory, all 12 packaged runtime smoke
+scenarios, and all 28 packaged Real-Electron scenarios with no flaky, skipped, or failed result.
+It produced `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing identity discovery,
+notarization, hosted CI, commit, push, release, promotion, or publication was performed.
+
+### Explicit exclusions
+
+Checkpoint 58 adds no IPC method, shared contract, database migration, persisted preview state,
+worker or provider change, dependency, native manuscript/Markdown mode switch, package/release
+action, hosted CI, commit, push, signing, notarization, or publication.
+
+## Checkpoint 59: Google Cloud Vertex AI Nano Banana Image Source
+
+Decision: accepted ADR 052; implementation complete.
+
+### User outcome
+
+- Google Vertex AI is an independent image source beside Google Gemini / AI Studio.
+- The user configures one Google Cloud Project ID and uses this computer's local Application
+  Default Credentials, then explicitly activates Vertex without deleting or overwriting any other source.
+- Nano Banana, Nano Banana Pro, and Nano Banana 2 retain accurate provider/model lineage through the
+  existing generation, asset, proposal, and Agent workflows.
+
+### Scope and implementation
+
+- [x] Add the strict `google-vertex` configuration and four-source catalog without a schema migration.
+- [x] Add the fixed global Vertex SDK client with ADC, a non-generating probe, and one
+  `generateContent` image request in the existing background worker.
+- [x] Add the Vertex Project ID, fixed location, model, and local-ADC guidance settings surface.
+- [x] Add focused contract, provider, worker, IPC, Renderer, and Real-Electron coverage and pass all
+  authorized static, Electron, E2E, package, and diff gates.
+
+### Acceptance gate
+
+- Vertex accepts only a valid Project ID, `global`, and the three fixed Nano Banana model IDs;
+  WriteLLM never accepts, transmits through IPC, or persists a Vertex API key or ADC token.
+- Requests use only the official SDK's fixed global Vertex project endpoint and ADC authentication,
+  one prompt, text-plus-image modalities, one inline PNG/JPEG image, and no application retry.
+- Removing active Vertex clears selection without changing Gemini/OpenAI/xAI; failures never trigger
+  another provider.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete Real-Electron coverage,
+  `pnpm check:package`, and `git diff --check` pass. No live billable request runs without separate
+  local ADC and authorization.
+
+### Local evidence
+
+- Focused shared-contract, ProviderService, provider/auxiliary worker client, worker request, IPC,
+  Renderer, and model-execution lineage suites passed 9 files / 83 tests. They cover the
+  four-source order, strict Project ID/global/model directory, Vertex API-key rejection, omitted
+  credential envelopes, ADC client initialization, non-generating `countTokens`, one image request,
+  size mapping, cancellation, safe errors, inline-image validation, ambient activation/removal,
+  and exact `google-vertex` provider/model lineage.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 185 files / 1026 tests with three
+  intentional benchmark skips, then completed the production build. Electron's macOS
+  `task_name_for_pid` diagnostics were non-fatal and Vitest produced its normal passing summary.
+- The first complete Real-Electron run passed 40/41 and exposed one overly strict test expectation
+  for the visible model label; after correcting that assertion, the fresh complete suite passed
+  41/41 with no flaky, skipped, or failed scenario. It saves Vertex without a credential field,
+  activates and removes it without changing Gemini, resaves it, and verifies restart recovery.
+- All 25 recovery fixtures from 23 sources passed after refreshing the two intentionally changed
+  source hashes. `pnpm check:package` passed the no-Team-ID macOS arm64 App, native/ASAR/resource
+  inventory, app.sqlite v9, all 12 packaged smoke scenarios, all 28 packaged E2E scenarios, and
+  DMG/ZIP creation plus structural hashes.
+- `git diff --check` passed. Local Node 26.7.0 remains outside the repository's Node 24 engine
+  range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate. No live
+  ADC probe, billable image request, hosted CI, commit, push, signing identity, notarization,
+  release, promotion, or publication action ran.
+
+### Hands-on repair evidence
+
+- The first live trial returned a Vertex candidate and one inline image through local ADC, then
+  failed inside the worker with `RangeError: Maximum call stack size exceeded` while a recursive
+  regular expression validated the multi-megabyte Base64 payload. No 401, 403, model, quota, or
+  other provider error occurred.
+- The validator now performs one bounded linear scan over the existing standard Base64 alphabet,
+  four-character length, terminal padding, and 28,000,000-character constraints. It does not
+  allocate decoded image bytes or alter the later MIME/magic/Main publication checks.
+- The focused worker suite passed 32/32, including an 8,000,000-character inline PNG regression
+  that reproduced the previous stack failure. `pnpm check:fast` passed; `pnpm check:electron`
+  passed 185 files / 1027 tests with three intentional benchmark skips plus the production build;
+  fresh complete Real-Electron E2E passed 41/41.
+- All 25 recovery fixtures from 23 sources passed. The no-Team-ID macOS arm64 package gate passed
+  all 12 packaged smoke and 28/28 packaged E2E scenarios, then rebuilt the App, DMG, and ZIP. The
+  DMG SHA-256 is `7ce00678c4318a5fd8cd81e2190feb9dec9612620e5da611c9523d1ce2179ce4`;
+  the ZIP SHA-256 is `6aae715d4a8e7ca2e63a80f416cee7d93ec1e02da8f587130eb2301d7b9359be`.
+- The replacement build used the current dirty worktree and did not run a second billable Vertex
+  image request. No commit, push, hosted CI, Apple identity signing, notarization, release,
+  promotion, or publication ran.
+
+### Explicit exclusions
+
+No Imagen model, Express Mode, custom OAuth flow, service-account JSON import, custom location/endpoint/model,
+image editing, reference image, multi-image batch, 4K, automatic fallback, provider-specific worker,
+hosted CI, commit, push, signing, notarization, release, promotion, or publication is authorized.

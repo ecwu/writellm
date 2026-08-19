@@ -2,12 +2,25 @@ import { z } from 'zod'
 import { providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
 
-export const providerProbeRequestSchema = z.object({
-  requestId: z.uuid(),
-  projectSessionId: projectSessionIdSchema.nullable().optional(),
-  config: providerConfigSchema,
-  credential: z.string().min(1).max(16_384)
-})
+export const providerProbeRequestSchema = z
+  .object({
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema.nullable().optional(),
+    config: providerConfigSchema,
+    credential: z.string().min(1).max(16_384).optional()
+  })
+  .superRefine((request, context) => {
+    if (
+      !(request.config.role === 'image' && request.config.providerId === 'google-vertex') &&
+      request.credential === undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['credential'],
+        message: 'Provider credential is required'
+      })
+    }
+  })
 export type ProviderProbeRequest = z.infer<typeof providerProbeRequestSchema>
 
 export const providerProbeResponseSchema = z.discriminatedUnion('type', [

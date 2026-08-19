@@ -44,6 +44,14 @@ const openAiImageConfig: ProviderConfig = {
   model: 'gpt-image-2'
 }
 
+const vertexImageConfig: ProviderConfig = {
+  ...imageConfig,
+  providerId: 'google-vertex',
+  projectId: 'writellm-images-123',
+  location: 'global',
+  model: 'gemini-3.1-flash-image'
+}
+
 const xAiImageConfig: ProviderConfig = {
   ...imageConfig,
   providerId: 'xai',
@@ -255,6 +263,35 @@ describe('ProviderService', () => {
     appDatabase.close()
   })
 
+  it('tests Vertex with ambient ADC and rejects any supplied Vertex API key', async () => {
+    const appDatabase = await database()
+    const probe = vi.fn<ConnectionProbe>(async (config, credential) => {
+      expect(config).toMatchObject({
+        providerId: 'google-vertex',
+        projectId: 'writellm-images-123'
+      })
+      expect(credential).toBeUndefined()
+      return { status: 403 }
+    })
+    const service = providerService(
+      appDatabase,
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
+      probe
+    )
+
+    await expect(service.save(vertexImageConfig, 'must-not-be-stored')).rejects.toThrow(
+      'Application Default Credentials'
+    )
+    await service.save(vertexImageConfig)
+    await expect(service.testConnection('image', 'google-vertex')).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_auth',
+      message: expect.stringContaining('local ADC')
+    })
+    expect(probe).toHaveBeenCalledOnce()
+    appDatabase.close()
+  })
+
   it('rejects insecure Linux basic_text persistence and reports the backend', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(
@@ -385,21 +422,26 @@ describe('ProviderService', () => {
     appDatabase.close()
   })
 
-  it('keeps three image credentials independent and clears an explicitly removed active source', async () => {
+  it('keeps Vertex ambient ADC independent from three image credentials and clears an explicitly removed active source', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
     const service = providerService(appDatabase, credentials)
 
     let snapshot = await service.save(imageConfig, 'gemini-secret')
     expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
+    await service.save(vertexImageConfig)
     await service.save(openAiImageConfig, 'openai-secret')
     snapshot = await service.save(xAiImageConfig, 'xai-secret')
     expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
     expect(snapshot.imageCatalog.sources.map((source) => source.configured)).toEqual([
       true,
       true,
+      true,
       true
     ])
+    await expect(
+      credentials.withCredential('image:google-vertex', async (value) => value)
+    ).rejects.toThrow('credential')
     await expect(
       credentials.withCredential('image:google-gemini', async (value) => value)
     ).resolves.toBe('gemini-secret')
@@ -409,6 +451,14 @@ describe('ProviderService', () => {
     await expect(credentials.withCredential('image:xai', async (value) => value)).resolves.toBe(
       'xai-secret'
     )
+
+    await service.setActiveImageProvider('google-vertex')
+    await expect(
+      service.withConfiguredProvider('image', async (config, credential) => ({
+        providerId: config.providerId,
+        credential
+      }))
+    ).resolves.toEqual({ providerId: 'google-vertex', credential: undefined })
 
     snapshot = await service.setActiveImageProvider('xai')
     expect(snapshot.imageCatalog.activeProviderId).toBe('xai')

@@ -287,6 +287,7 @@ test(
         await expect(imageDialog.getByLabel('Request timeout (milliseconds)')).toHaveCount(0)
         await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
         await expect(imageDialog.getByRole('button', { name: /^Google Gemini/ })).toBeVisible()
+        await expect(imageDialog.getByRole('button', { name: /^Google Vertex AI/ })).toBeVisible()
         await expect(imageDialog.getByRole('button', { name: /^OpenAI/ })).toBeVisible()
         await expect(imageDialog.getByRole('button', { name: /^xAI/ })).toBeVisible()
         await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3.1-flash-image')
@@ -303,6 +304,19 @@ test(
         )
         await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
 
+        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
+        await expect(imageDialog.getByLabel('Vertex location')).toHaveValue('global')
+        await imageDialog.getByLabel('Google Cloud Project ID').fill('e2e-vertex-project')
+        await imageDialog.getByLabel('Model ID').click()
+        await first.page
+          .getByRole('option', { name: /Nano Banana Pro.*gemini-3-pro-image/ })
+          .click()
+        await expect(imageDialog.getByText('Application Default Credentials')).toBeVisible()
+        await expect(imageDialog.getByText(/gcloud auth application-default login/)).toBeVisible()
+        await expect(imageDialog.locator('input[type="password"]')).toHaveCount(0)
+        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
+
         await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
         await expect(imageDialog.locator('input[readonly]')).toHaveValue('gpt-image-2')
         await imageDialog.getByLabel('OpenAI API key').fill('e2e-openai-secret')
@@ -317,6 +331,32 @@ test(
         await expect(imageDialog.locator('input[readonly]')).toHaveValue('grok-imagine-image-2.0')
         await imageDialog.getByLabel('xAI API key').fill('e2e-xai-secret')
         await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+
+        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
+        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
+        await expect(
+          imageDialog.getByText('Active: Google Vertex AI', { exact: true })
+        ).toBeVisible()
+        await imageDialog.getByRole('button', { name: 'Remove', exact: true }).click()
+        const removeVertexProvider = first.page.getByRole('alertdialog', {
+          name: 'Remove Google Vertex AI image configuration?'
+        })
+        await expect(
+          removeVertexProvider.getByText(/Local ADC files are not changed/)
+        ).toBeVisible()
+        await removeVertexProvider.getByRole('button', { name: 'Remove provider' }).click()
+        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
+        await expect(
+          imageDialog.getByRole('button', { name: /^Google Gemini.*gemini-3-pro-image/ })
+        ).toBeVisible()
+
+        await imageDialog.getByLabel('Google Cloud Project ID').fill('e2e-vertex-project')
+        await imageDialog.getByLabel('Model ID').click()
+        await first.page
+          .getByRole('option', { name: /Nano Banana Pro.*gemini-3-pro-image/ })
+          .click()
+        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+
         await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
         await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
         await expect(imageDialog.getByText('Active: OpenAI', { exact: true })).toBeVisible()
@@ -336,12 +376,17 @@ test(
               available: Object.fromEntries(
                 catalog.sources.map((source) => [source.providerId, source.available])
               ),
-              leakedSecret: /e2e-(?:gemini|openai|xai)-secret/.test(JSON.stringify(catalog))
+              leakedSecret: /e2e-(?:gemini|vertex|openai|xai)-secret/.test(JSON.stringify(catalog))
             }
           })
           .toEqual({
             activeProviderId: null,
-            available: { 'google-gemini': true, openai: false, xai: true },
+            available: {
+              'google-gemini': true,
+              'google-vertex': true,
+              openai: false,
+              xai: true
+            },
             leakedSecret: false
           })
 
@@ -441,6 +486,13 @@ test(
           'placeholder',
           /Stored/
         )
+        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
+        await expect(imageDialog.getByLabel('Google Cloud Project ID')).toHaveValue(
+          'e2e-vertex-project'
+        )
+        await expect(imageDialog.getByLabel('Model ID')).toContainText('Nano Banana Pro')
+        await expect(imageDialog.getByText('Application Default Credentials')).toBeVisible()
+        await expect(imageDialog.locator('input[type="password"]')).toHaveCount(0)
         await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
         await expect(imageDialog.getByLabel('OpenAI API key')).toHaveAttribute(
           'placeholder',

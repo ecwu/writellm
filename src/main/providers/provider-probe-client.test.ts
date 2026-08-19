@@ -16,6 +16,20 @@ const config: ProviderConfig = {
   fileSizeLimitMb: null
 }
 
+const vertexConfig: ProviderConfig = {
+  role: 'image',
+  providerId: 'google-vertex',
+  projectId: 'writellm-images-123',
+  location: 'global',
+  model: 'gemini-3.1-flash-image',
+  timeoutMs: 30_000,
+  embeddingDimension: null,
+  batchLimit: 1,
+  fileSizeLimitMb: null,
+  defaultAspectRatio: 'auto',
+  defaultImageSize: '1K'
+}
+
 class FakeUtilityProcess extends EventEmitter {
   readonly kill = vi.fn(() => true)
   readonly postMessage = vi.fn((request: { requestId: string }) => {
@@ -66,5 +80,24 @@ describe('ProviderProbeClient', () => {
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('sends no credential field for an ambient Vertex ADC probe', async () => {
+    const child = new FakeUtilityProcess()
+    const client = new ProviderProbeClient(
+      '/private/provider-probe.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never
+    )
+
+    await expect(
+      client.probe(vertexConfig, undefined, new AbortController().signal)
+    ).resolves.toEqual({
+      status: 204
+    })
+    expect(child.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ config: vertexConfig })
+    )
+    expect(child.postMessage.mock.calls[0]?.[0]).not.toHaveProperty('credential')
   })
 })

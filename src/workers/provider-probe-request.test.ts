@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ProviderProbeRequest } from '../shared/contracts/provider-probe'
+import {
+  providerProbeRequestSchema,
+  type ProviderProbeRequest
+} from '../shared/contracts/provider-probe'
+import type { GoogleVertexClientFactory, GoogleVertexModels } from './google-vertex-client'
 import { runProviderProbeRequest } from './provider-probe-request'
 
 const request: ProviderProbeRequest = {
@@ -34,6 +38,32 @@ const imageRequest: ProviderProbeRequest = {
   credential: 'gemini-secret'
 }
 
+const vertexImageRequest: ProviderProbeRequest = {
+  ...imageRequest,
+  config: {
+    role: 'image',
+    providerId: 'google-vertex',
+    projectId: 'writellm-images-123',
+    location: 'global',
+    model: 'gemini-3.1-flash-image',
+    timeoutMs: 30_000,
+    embeddingDimension: null,
+    batchLimit: 1,
+    fileSizeLimitMb: null,
+    defaultAspectRatio: 'auto',
+    defaultImageSize: '1K'
+  }
+}
+
+function vertexProbeFactory(
+  countTokens: GoogleVertexModels['countTokens']
+): GoogleVertexClientFactory {
+  return vi.fn(({ project, location }) => {
+    expect({ project, location }).toEqual({ project: 'writellm-images-123', location: 'global' })
+    return { countTokens, generateContent: vi.fn() }
+  })
+}
+
 async function withSdkFetch<T>(fetchMock: typeof fetch, operation: () => Promise<T>): Promise<T> {
   vi.stubGlobal('fetch', fetchMock)
   vi.stubEnv('GOOGLE_API_KEY', '')
@@ -47,6 +77,12 @@ async function withSdkFetch<T>(fetchMock: typeof fetch, operation: () => Promise
 }
 
 describe('provider utility probe request', () => {
+  it('allows credentialless Vertex ADC probes but requires credentials for other providers', () => {
+    expect(providerProbeRequestSchema.safeParse(vertexImageRequest).success).toBe(true)
+    const { credential: _credential, ...credentiallessGemini } = imageRequest
+    expect(providerProbeRequestSchema.safeParse(credentiallessGemini).success).toBe(false)
+  })
+
   it('preserves a versioned base path and sends the credential only as authorization', async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toBe('https://api.example.test/v1/models')
@@ -142,6 +178,45 @@ describe('provider utility probe request', () => {
     expect(response).toMatchObject({ type: 'result', status: 401 })
     expect(JSON.stringify(response)).not.toContain('PRIVATE')
     expect(JSON.stringify(response)).not.toContain('gemini-secret')
+  })
+
+  it('tests Vertex ADC project access through one non-generating countTokens request', async () => {
+    const countTokens = vi.fn<GoogleVertexModels['countTokens']>(async (input) => {
+      expect(input.model).toBe('gemini-3.1-flash-image')
+      expect(input.contents).toBe('WriteLLM connection probe')
+      expect(input.config?.abortSignal).toBeUndefined()
+      return { totalTokens: 4 }
+    })
+
+    await expect(
+      runProviderProbeRequest(
+        vertexImageRequest,
+        vi.fn<typeof fetch>(),
+        undefined,
+        vertexProbeFactory(countTokens)
+      )
+    ).resolves.toEqual({
+      type: 'result',
+      requestId: imageRequest.requestId,
+      projectSessionId: null,
+      status: 200
+    })
+    expect(countTokens).toHaveBeenCalledTimes(1)
+  })
+
+  it('projects only the Vertex ADC authorization status without exposing diagnostics', async () => {
+    const countTokens = vi.fn<GoogleVertexModels['countTokens']>(async () => {
+      throw Object.assign(new Error('PRIVATE ADC detail'), { status: 403 })
+    })
+    const response = await runProviderProbeRequest(
+      vertexImageRequest,
+      vi.fn<typeof fetch>(),
+      undefined,
+      vertexProbeFactory(countTokens)
+    )
+    expect(response).toMatchObject({ type: 'result', status: 403 })
+    expect(JSON.stringify(response)).not.toContain('PRIVATE')
+    expect(JSON.stringify(response)).not.toContain('ADC detail')
   })
 
   it.each([

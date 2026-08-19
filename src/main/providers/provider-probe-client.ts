@@ -44,7 +44,7 @@ export class ProviderProbeClient {
 
   private run(
     config: ProviderConfig,
-    credential: string,
+    credential: string | undefined,
     signal: AbortSignal
   ): Promise<ConnectionProbeResult> {
     if (signal.aborted) return Promise.reject(abortError())
@@ -52,7 +52,7 @@ export class ProviderProbeClient {
       requestId: randomUUID(),
       projectSessionId: null,
       config,
-      credential
+      ...(credential === undefined ? {} : { credential })
     }
     return this.#worker
       .request<ProviderProbeResponse>({

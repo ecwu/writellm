@@ -49,6 +49,16 @@ const snapshot: ProviderSettingsSnapshot = {
         issues: []
       },
       {
+        providerId: 'google-vertex',
+        label: 'Google Vertex AI',
+        models: ['gemini-2.5-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-image'],
+        config: null,
+        configured: false,
+        available: false,
+        active: false,
+        issues: []
+      },
+      {
         providerId: 'openai',
         label: 'OpenAI',
         models: ['gpt-image-2'],
@@ -96,11 +106,64 @@ describe('ProviderSettingsWorkspace image catalog', () => {
     )
 
     expect(html).toContain('Google Gemini')
+    expect(html).toContain('Google Vertex AI')
     expect(html).toContain('OpenAI')
     expect(html).toContain('xAI')
     expect(html).toContain('Active: OpenAI')
     expect(html).toContain('gpt-image-2')
     expect(html).toContain('Requests never fall back or rotate')
     expect(html).not.toContain('Gemini-generated')
+  })
+
+  it('renders the independent Vertex project, global location, and local ADC guidance', () => {
+    const vertexSnapshot: ProviderSettingsSnapshot = {
+      ...snapshot,
+      imageCatalog: {
+        activeProviderId: 'google-vertex',
+        sources: snapshot.imageCatalog.sources.map((source) =>
+          source.providerId === 'google-vertex'
+            ? {
+                ...source,
+                config: {
+                  role: 'image',
+                  providerId: 'google-vertex',
+                  projectId: 'writellm-images-123',
+                  location: 'global',
+                  model: 'gemini-3-pro-image',
+                  timeoutMs: 120_000,
+                  embeddingDimension: null,
+                  batchLimit: 1,
+                  fileSizeLimitMb: null,
+                  defaultAspectRatio: 'auto',
+                  defaultImageSize: '1K'
+                },
+                configured: true,
+                available: true,
+                active: true
+              }
+            : { ...source, active: false }
+        ) as ProviderSettingsSnapshot['imageCatalog']['sources']
+      }
+    }
+    const html = renderToStaticMarkup(
+      <ProviderSettingsWorkspace
+        role='image'
+        snapshot={vertexSnapshot}
+        closeAction={<button type='button'>Close</button>}
+        onSnapshotChange={() => undefined}
+        onError={() => undefined}
+      />
+    )
+
+    expect(html).toContain('Active: Google Vertex AI')
+    expect(html).toContain('Google Cloud Project ID')
+    expect(html).toContain('writellm-images-123')
+    expect(html).toContain('Vertex location')
+    expect(html).toContain('global')
+    expect(html).toContain('Application Default Credentials')
+    expect(html).toContain('gcloud auth application-default login')
+    expect(html).toContain('No Google credential is saved by WriteLLM')
+    expect(html).toContain('roles/aiplatform.user')
+    expect(html).not.toContain('type="password"')
   })
 })

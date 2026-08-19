@@ -1,9 +1,8 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 57 is complete and verified under accepted ADR 051. Checkpoint 56 and
-Phase 11 remain complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions
-workflows are disabled.
-Recorded: 2026-08-18
+Status: Phase 12 Checkpoint 59, Checkpoint 58, Checkpoint 57, and Phase 11 are complete and
+verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-19
 
 This file describes only the active delivery state. Long-lived system rules belong in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence belongs in the
@@ -43,6 +42,50 @@ No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release cre
 promotion has run. The only new tag is the explicitly authorized local `v0.2026.8.17` candidate.
 
 ## Current authorized work
+
+The Checkpoint 59 hands-on repair is complete. Runtime logs proved that ADC and Vertex generation
+had succeeded and that the App then overflowed the JavaScript regular-expression stack while
+validating the returned multi-megabyte Base64 image. A bounded linear validator now preserves the
+same 28,000,000-character, alphabet, length, and padding contract without recursive matching; an
+8,000,000-character inline PNG regression passes. `check:fast`, the 185-file / 1027-test
+Electron-hosted gate with three intentional benchmark skips and production build, fresh 41/41
+Real-Electron E2E, all 25 recovery fixtures, and the no-Team-ID macOS arm64 package gate with
+12/12 packaged smoke and 28/28 packaged E2E scenarios passed. The replacement App, DMG, and ZIP
+were rebuilt from the current dirty worktree. ADC, provider transport, model directory, response
+cap, Main validation/publication, retry, and fallback boundaries are unchanged; no second live
+billable image request, commit, push, signing, notarization, release, or publication ran.
+
+On 2026-08-19 the user accepted ADR 052 and completed Checkpoint 59. The bounded change adds
+Google Cloud Vertex AI as a fourth independent image source beside Google Gemini, OpenAI, and xAI.
+It uses a validated Project ID, fixed `global` endpoint, local Application Default Credentials, and
+the fixed Nano Banana, Nano Banana Pro, and Nano Banana 2 model directory. WriteLLM stores no Vertex
+credential. Existing Gemini configuration and lineage remain unchanged; one source stays explicitly
+active, with no automatic fallback, cross-provider retry, custom endpoint, custom OAuth flow,
+service-account JSON import, image-editing expansion, hosted CI, commit, push, signing,
+notarization, or publication.
+Focused contract, provider, worker, IPC, Renderer, and lineage coverage passed 9 files / 83 tests;
+`check:fast`, the 185-file / 1026-test Electron-hosted gate with three intentional benchmark skips
+and production build, the fresh 41/41 Real-Electron suite, all 25 recovery fixtures from 23
+sources, and the no-Team-ID macOS arm64 package gate with 12/12 packaged smoke and 28/28 packaged
+E2E scenarios all passed. No live ADC probe or billable image request ran.
+Detailed scope and evidence live in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-59-google-cloud-vertex-ai-nano-banana-image-source).
+
+On 2026-08-19 the user approved and completed Checkpoint 58. Whole-manuscript Markdown preview is
+now an independent global-sidebar workspace after Manuscript; entry flushes the active section,
+the old Outline action and Dialog are gone, and the existing lossy Markdown projection renders
+through project-owned shadcn Typeset styles with session-bound images plus the existing safe
+Mermaid/KaTeX paths. Focused Renderer tests, `check:fast`, the 185-file / 1012-test
+Electron-hosted gate with three intentional benchmark skips and production build, the fresh 41/41
+Real-Electron suite, light/dark desktop and narrow screenshot inspection, scoped Impeccable, and
+diff checks passed. It adds no IPC, shared contract, persistence, worker, provider, migration, or
+dependency. Package/release, hosted CI, commit, push, signing, notarization, and publication remain
+outside the Checkpoint implementation scope. The user subsequently authorized one local
+no-identity macOS arm64 unpacked App build from the completed worktree: the package gate passed
+Electron 43.1.0 / ABI 148 inventory, all 12 packaged smoke scenarios, and 28/28 packaged E2E
+scenarios with no flaky, skipped, or failed result. No DMG, ZIP, release, signing identity,
+notarization, hosted CI, commit, push, or publication was performed. Detailed work and evidence live in
+[`implementation-todo/phase-12.md`](implementation-todo/phase-12.md#checkpoint-58-independent-markdown-preview-workspace).
 
 On 2026-08-18 the user accepted ADR 051 and completed Checkpoint 57. The former Gemini-exclusive
 image role is now one fixed Google Gemini, OpenAI, and xAI catalog with independently stored

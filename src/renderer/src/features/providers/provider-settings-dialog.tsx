@@ -21,6 +21,7 @@ import type {
   AgentProviderPresetSummary,
   CustomAgentPiApi,
   GoogleGeminiImageModel,
+  GoogleVertexImageModel,
   ImageProviderConfig,
   ImageProviderId,
   PiApi,
@@ -29,7 +30,10 @@ import type {
   ProviderRole,
   ProviderSettingsSnapshot
 } from '../../../../shared/contracts/providers'
-import { GOOGLE_GEMINI_IMAGE_MODELS } from '../../../../shared/contracts/providers'
+import {
+  GOOGLE_GEMINI_IMAGE_MODELS,
+  GOOGLE_VERTEX_IMAGE_MODELS
+} from '../../../../shared/contracts/providers'
 import { resolveModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
 import type { ModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
 import { ProviderLogo, ProviderLogoPicker } from '@/components/provider-logo'
@@ -345,6 +349,15 @@ function defaultImageConfig(providerId: ImageProviderId): ImageProviderConfig {
   if (providerId === 'google-gemini') {
     return { ...common, providerId, model: 'gemini-3.1-flash-image' }
   }
+  if (providerId === 'google-vertex') {
+    return {
+      ...common,
+      providerId,
+      projectId: 'my-google-cloud-project',
+      location: 'global',
+      model: 'gemini-3.1-flash-image'
+    }
+  }
   if (providerId === 'openai') return { ...common, providerId, model: 'gpt-image-2' }
   return { ...common, providerId, model: 'grok-imagine-image-2.0' }
 }
@@ -382,7 +395,9 @@ function ImageProviderWorkspace({
     try {
       const next = await window.desktop.providers.save({
         config,
-        ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
+        ...(config.providerId === 'google-vertex' || apiKey.trim() === ''
+          ? {}
+          : { apiKey: apiKey.trim() })
       })
       onSnapshotChange(next)
       setApiKey('')
@@ -448,8 +463,8 @@ function ImageProviderWorkspace({
             <div>
               <h2 className='text-xl font-semibold'>Image API</h2>
               <p className='text-sm text-muted-foreground'>
-                Save independent credentials, then explicitly choose the only source used for new
-                image requests.
+                Configure each source independently, then explicitly choose the only source used for
+                new image requests. Google Vertex AI uses this computer's local ADC login.
               </p>
             </div>
             <div className='flex shrink-0 items-center gap-2'>
@@ -462,7 +477,7 @@ function ImageProviderWorkspace({
             </div>
           </header>
 
-          {snapshot.credentialBackend.warning ? (
+          {snapshot.credentialBackend.warning && selectedProviderId !== 'google-vertex' ? (
             <Alert variant='destructive'>
               <ShieldAlert />
               <AlertTitle>Secure credential storage unavailable</AlertTitle>
@@ -504,7 +519,7 @@ function ImageProviderWorkspace({
             </FieldDescription>
           </Field>
 
-          <div className='grid gap-2 sm:grid-cols-3'>
+          <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
             {snapshot.imageCatalog.sources.map((item) => (
               <Button
                 key={item.providerId}
@@ -559,6 +574,24 @@ function ImageProviderWorkspace({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+              ) : config.providerId === 'google-vertex' ? (
+                <Select
+                  value={config.model}
+                  onValueChange={(model: GoogleVertexImageModel) => setConfig({ ...config, model })}
+                >
+                  <SelectTrigger id={imageModelId}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {GOOGLE_VERTEX_IMAGE_MODELS.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {vertexImageModelLabel(model)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               ) : (
                 <Input id={imageModelId} value={config.model} readOnly />
               )}
@@ -566,17 +599,44 @@ function ImageProviderWorkspace({
                 Uses the fixed official {source.label} endpoint; custom endpoints are not accepted.
               </FieldDescription>
             </Field>
-            <ConfigField label={`${source.label} API key`}>
-              <Input
-                type='password'
-                value={apiKey}
-                autoComplete='new-password'
-                placeholder={
-                  source.configured ? 'Stored — enter a new value to replace' : 'Required'
-                }
-                onChange={(event) => setApiKey(event.target.value)}
-              />
-            </ConfigField>
+            {config.providerId === 'google-vertex' ? (
+              <>
+                <ConfigField label='Google Cloud Project ID'>
+                  <Input
+                    value={config.projectId}
+                    autoComplete='off'
+                    placeholder='my-google-cloud-project'
+                    onChange={(event) => setConfig({ ...config, projectId: event.target.value })}
+                  />
+                </ConfigField>
+                <ConfigField label='Vertex location'>
+                  <Input value={config.location} readOnly />
+                </ConfigField>
+              </>
+            ) : null}
+            {config.providerId === 'google-vertex' ? (
+              <Alert>
+                <ShieldAlert />
+                <AlertTitle>Application Default Credentials</AlertTitle>
+                <AlertDescription>
+                  Uses the local Google Cloud ADC account. Run gcloud auth application-default login
+                  on this computer, enable Vertex AI for the project, and grant that identity
+                  roles/aiplatform.user. No Google credential is saved by WriteLLM.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <ConfigField label={`${source.label} API key`}>
+                <Input
+                  type='password'
+                  value={apiKey}
+                  autoComplete='new-password'
+                  placeholder={
+                    source.configured ? 'Stored — enter a new value to replace' : 'Required'
+                  }
+                  onChange={(event) => setApiKey(event.target.value)}
+                />
+              </ConfigField>
+            )}
           </FieldGroup>
 
           <div className='flex flex-wrap items-center justify-between gap-2'>
@@ -618,8 +678,9 @@ function ImageProviderWorkspace({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {source.label} image configuration?</AlertDialogTitle>
             <AlertDialogDescription>
-              Its encrypted credential is removed. If this source is active, image generation stops
-              until another saved source is explicitly activated.
+              {source.providerId === 'google-vertex'
+                ? 'Its project configuration is removed. Local ADC files are not changed. If this source is active, image generation stops until another saved source is explicitly activated.'
+                : 'Its encrypted credential is removed. If this source is active, image generation stops until another saved source is explicitly activated.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -633,6 +694,12 @@ function ImageProviderWorkspace({
       </AlertDialog>
     </>
   )
+}
+
+function vertexImageModelLabel(model: GoogleVertexImageModel): string {
+  if (model === 'gemini-2.5-flash-image') return `Nano Banana · ${model}`
+  if (model === 'gemini-3-pro-image') return `Nano Banana Pro · ${model}`
+  return `Nano Banana 2 · ${model}`
 }
 
 function SingletonConfigFields({

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./typeset.css";
 @import "@blocknote/shadcn/style.css";
 @import "katex/dist/katex.min.css";
 @source "../../../../node_modules/@blocknote/shadcn";
@@ -194,39 +195,6 @@
      side menu uses the space just outside the column. */
   .writing-editor .bn-editor {
     padding-inline: 0;
-  }
-
-  .manuscript-preview-body,
-  .manuscript-preview-body .bn-editor,
-  .manuscript-preview-body .bn-block-group,
-  .manuscript-preview-body .bn-block-outer,
-  .manuscript-preview-body .bn-block,
-  .manuscript-preview-body .bn-block-content,
-  .manuscript-preview-body .bn-inline-content,
-  .manuscript-preview-body .bn-react-node-view-renderer,
-  .manuscript-preview-body [data-file-block] .bn-file-block-content-wrapper {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .manuscript-preview-body .bn-editor {
-    padding-inline: 0;
-  }
-
-  .manuscript-preview-body .bn-inline-content {
-    overflow-wrap: anywhere;
-  }
-
-  .manuscript-preview-body [data-content-type="table"] .tableWrapper,
-  .manuscript-preview-body [data-content-type="codeBlock"] > pre {
-    max-width: 100%;
-    overflow-x: auto;
-  }
-
-  .manuscript-preview-body [data-file-block] .bn-visual-media-wrapper,
-  .manuscript-preview-body [data-file-block] .bn-visual-media {
-    max-width: 100%;
-    height: auto;
   }
 
   .writing-editor .writellm-readable-citation {

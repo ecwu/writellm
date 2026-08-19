@@ -76,6 +76,7 @@ export function AssetWorkspace(props: {
   projectName: string
   workspace: ManuscriptWorkspace | undefined
   onOpenManuscript(): void
+  onOpenPreview(): void
   onOpenReferences(): void
   onOpenIssues(): void
   onOpenWritingRules(): void
@@ -138,6 +139,7 @@ export function AssetWorkspace(props: {
       >
         <WorkspaceRail
           activeWorkspace='assets'
+          onOpenPreview={props.onOpenPreview}
           onOpenAssets={() => undefined}
           onOpenKnowledge={props.onOpenKnowledge}
           onOpenChecks={props.onOpenChecks}

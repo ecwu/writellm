@@ -1,9 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 56 is implemented and verified. Checkpoints 52-55 and Phase 11 remain
-complete and verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are
-disabled.
-Recorded: 2026-08-18
+Status: Phase 12 Checkpoint 59, Checkpoint 58, Checkpoint 57, and Phase 11 are complete and
+verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-19
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
 or completes. Detailed checkpoint plans and verification evidence live in the linked Phase files;
@@ -105,6 +104,15 @@ native/ASAR/resource and no-Team-ID signature checks, 12/12 packaged runtime smo
 - [x] Checkpoint 57: replace Gemini-exclusive image generation with one fixed Google Gemini,
   OpenAI, and xAI catalog, independently stored credentials, and one explicit active source under
   ADR 051 without automatic fallback or a generic provider plugin.
+- [x] Checkpoint 58: move the whole-manuscript Markdown preview out of the Outline editor into an
+  independent global-sidebar workspace and apply project-owned shadcn Typeset reading styles
+  without widening Renderer authority or adding a dependency.
+- [x] Build and verify one user-authorized no-identity macOS arm64 unpacked App from the completed
+  Checkpoint 58 worktree; do not create DMG/ZIP artifacts or perform release work.
+- [x] Checkpoint 59: add Google Cloud Vertex AI as a fourth independent image source with Project
+  ID, local Application Default Credentials, and the fixed Nano Banana model directory
+  under ADR 052 without changing the existing Gemini source or adding automatic fallback; repair
+  the hands-on large-inline-image validation failure and rebuild the trial App.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

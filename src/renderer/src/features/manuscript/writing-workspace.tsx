@@ -45,7 +45,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGroupRef } from 'react-resizable-panels'
-import { AppSidebar } from '@/components/app-sidebar'
+import { AppSidebar, type WorkspaceKind } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -86,7 +86,7 @@ import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
 import { AssetWorkspace } from './asset-workspace'
 import { adjacentSectionAfterDelete } from './outline-tree'
-import { ManuscriptPreview } from './manuscript-preview'
+import { ManuscriptPreviewWorkspace } from './manuscript-preview'
 import { ManuscriptImportDialog } from './manuscript-import-dialog'
 import { ManuscriptFindPanel, type ManuscriptFindScope } from './manuscript-find-panel'
 import {
@@ -155,7 +155,6 @@ export function WritingWorkspace(props: {
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
   const [briefOpen, setBriefOpen] = useState(false)
   const [briefError, setBriefError] = useState<string | null>(null)
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [publicationOpen, setPublicationOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importPlan, setImportPlan] = useState<ManuscriptImportPlan | null>(null)
@@ -171,16 +170,7 @@ export function WritingWorkspace(props: {
   const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
   const sideChatGroupRef = useGroupRef()
   const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
-  const [activeWorkspace, setActiveWorkspace] = useState<
-    | 'manuscript'
-    | 'knowledge'
-    | 'checks'
-    | 'assets'
-    | 'references'
-    | 'find'
-    | 'issues'
-    | 'writing_rules'
-  >('manuscript')
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceKind>('manuscript')
   const [citationDraft, setCitationDraft] = useState<{
     sectionId: string
     sectionRevisionId: string
@@ -361,7 +351,7 @@ export function WritingWorkspace(props: {
   const previewQuery = useQuery({
     queryKey: ['manuscript-preview', props.projectSessionId],
     queryFn: () => window.desktop.manuscript.preview({ projectSessionId: props.projectSessionId }),
-    enabled: previewOpen,
+    enabled: activeWorkspace === 'preview',
     staleTime: 0
   })
 
@@ -1377,12 +1367,17 @@ export function WritingWorkspace(props: {
       return true
     })
 
-  const openPreview = async (): Promise<void> => {
+  const openPreviewWorkspace = async (): Promise<void> => {
     if (!(await flushCurrent())) return
-    setPreviewOpen(true)
-    await queryClient.invalidateQueries({
-      queryKey: ['manuscript-preview', props.projectSessionId]
-    })
+    props.onAgentOpenChange(false)
+    setActiveWorkspace('preview')
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: ['manuscript-preview', props.projectSessionId]
+      })
+    } catch {
+      props.onError('The manuscript preview could not be refreshed.')
+    }
   }
 
   const runActiveEditorAction = async (
@@ -1485,14 +1480,6 @@ export function WritingWorkspace(props: {
     await publicationQuery.refetch()
   }
 
-  const previewFromPanel = async (): Promise<void> => {
-    try {
-      await openPreview()
-    } catch {
-      props.onError('The manuscript preview could not be loaded.')
-    }
-  }
-
   const openOutlineEditor = async (): Promise<void> => {
     if (await flushCurrent()) setOutlineEditOpen(true)
   }
@@ -1509,6 +1496,7 @@ export function WritingWorkspace(props: {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}
+        onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenReferences={() => setActiveWorkspace('references')}
@@ -1528,6 +1516,7 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         workspace={workspace}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenReferences={() => setActiveWorkspace('references')}
@@ -1553,6 +1542,7 @@ export function WritingWorkspace(props: {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
+        onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
@@ -1561,6 +1551,28 @@ export function WritingWorkspace(props: {
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
         onError={props.onError}
+      />
+    )
+  }
+
+  if (activeWorkspace === 'preview') {
+    return (
+      <ManuscriptPreviewWorkspace
+        projectSessionId={props.projectSessionId}
+        projectName={props.projectName}
+        assembly={previewQuery.data}
+        loading={previewQuery.isPending || previewQuery.isFetching}
+        error={previewQuery.isError}
+        onRetry={() => void previewQuery.refetch()}
+        onOpenManuscript={closeFind}
+        onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenChecks={() => setActiveWorkspace('checks')}
+        onOpenAssets={() => setActiveWorkspace('assets')}
+        onOpenReferences={() => setActiveWorkspace('references')}
+        onOpenIssues={() => setActiveWorkspace('issues')}
+        onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
+        onOpenFind={openFind}
+        onOpenSettings={props.onOpenSettings}
       />
     )
   }
@@ -1582,6 +1594,7 @@ export function WritingWorkspace(props: {
         onSelectSection={(sectionId) => void selectSection(sectionId)}
         onOpenBrief={() => setBriefOpen(true)}
         onOpenOutlineEditor={() => void openOutlineEditor()}
+        onOpenPreview={() => void openPreviewWorkspace()}
         onOpenKnowledge={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
@@ -1917,7 +1930,6 @@ export function WritingWorkspace(props: {
           onCreateSection={createOutlineSection}
           onDeleteSection={deleteOutlineSection}
           onOpenSection={selectSection}
-          onPreviewAll={previewFromPanel}
         />
       ) : null}
 
@@ -1995,14 +2007,6 @@ export function WritingWorkspace(props: {
         onError={props.onError}
       />
 
-      <ManuscriptPreview
-        projectSessionId={props.projectSessionId}
-        open={previewOpen}
-        assembly={previewQuery.data}
-        loading={previewQuery.isPending || previewQuery.isFetching}
-        error={previewQuery.isError}
-        onOpenChange={setPreviewOpen}
-      />
       <ReferenceSourceDialog
         projectSessionId={props.projectSessionId}
         state={referenceDialog}

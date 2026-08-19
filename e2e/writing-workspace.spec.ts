@@ -635,12 +635,23 @@ test(
       await conclusionTreeItem.locator('button[id^="outline-tree-item-"]').click()
       await expect(outlinePanel.getByLabel('Section objective')).toBeVisible()
 
-      await outlinePanel.getByRole('button', { name: 'Preview all', exact: true }).click()
-      const previewDialog = launched.page.getByTestId('whole-manuscript-preview-dialog')
+      await expect(
+        outlinePanel.getByRole('button', { name: 'Preview all', exact: true })
+      ).toHaveCount(0)
+      await outlinePanel.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect(outlinePanel).not.toBeVisible()
+      await sectionEditor(launched.page).click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.type(' Preview flush draft')
+      await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
+      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
+      const previewWorkspace = launched.page.getByTestId('manuscript-preview-workspace')
       const previewScroll = launched.page.getByTestId('whole-manuscript-preview-scroll')
       const preview = launched.page.getByTestId('whole-manuscript-preview')
+      await expect(previewWorkspace).toBeVisible()
+      await expect(launched.page.getByRole('dialog')).toHaveCount(0)
       await expect(preview).toBeVisible()
-      await expect(preview.getByRole('heading', { name: manuscriptTitle })).toBeVisible()
+      await expect(preview.getByRole('heading', { name: 'Conclusion' })).toBeVisible()
       const previewText = await preview.textContent()
       expect(previewText?.indexOf('Conclusion')).toBeLessThan(
         previewText?.indexOf('Introduction') ?? 0
@@ -648,10 +659,11 @@ test(
       expect(previewText).toContain('Opening evidence')
       expect(previewText).toContain('Final synthesis')
       expect(previewText).toContain('Supporting context')
+      expect(previewText).toContain('Preview flush draft')
       expect(previewText).not.toContain('Frame the opening evidence.')
       await expect
         .poll(() =>
-          previewDialog.evaluate((element) => {
+          previewWorkspace.evaluate((element) => {
             const bounds = element.getBoundingClientRect()
             return (
               bounds.left >= 0 &&
@@ -670,11 +682,15 @@ test(
         .poll(() => preview.evaluate((element) => element.scrollWidth <= element.clientWidth))
         .toBe(true)
       await launched.page.keyboard.press('Escape')
-      await expect(preview).not.toBeVisible()
+      await expect(preview).toBeVisible()
       await browserWindow.evaluate((window) => window.setContentSize(900, 800))
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
-      await outlinePanel.getByRole('button', { name: 'Done', exact: true }).click()
-      await expect(outlinePanel).not.toBeVisible()
+      await expect(
+        launched.page.getByRole('button', { name: 'Preview', exact: true })
+      ).toHaveAttribute('data-active', 'true')
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Background')
+      await expect(sectionEditor(launched.page)).toContainText('Preview flush draft')
       await expect(
         launched.page.getByTestId(/^outline-section-/).filter({ hasText: 'Introduction' })
       ).toContainText('Drafting')
@@ -882,6 +898,9 @@ test(
       await expect(editor).toContainText('Local stale draft')
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
       await expect(launched.page.getByTestId('checks-workspace')).toHaveCount(0)
+      await expect(editor).toContainText('Local stale draft')
+      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
+      await expect(launched.page.getByTestId('manuscript-preview-workspace')).toHaveCount(0)
       await expect(editor).toContainText('Local stale draft')
       await launched.page.getByRole('button', { name: 'Reload canonical version' }).click()
       await expect(editor).toContainText('External canonical update')
@@ -1374,15 +1393,16 @@ test(
 
       await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
       const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
-      await outline.getByRole('button', { name: 'Preview all', exact: true }).click()
+      await expect(outline.getByRole('button', { name: 'Preview all', exact: true })).toHaveCount(0)
+      await outline.getByRole('button', { name: 'Done', exact: true }).click()
+      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
       const manuscriptPreview = launched.page.getByTestId('whole-manuscript-preview')
       const manuscriptImage = manuscriptPreview.getByRole('img', { name: 'Edited uploaded pixel' })
       await expect(manuscriptPreview).toBeVisible()
-      await expect(manuscriptPreview.getByRole('img', { name: 'Flow' })).toBeVisible()
+      await expect(manuscriptPreview.getByRole('img', { name: 'Mermaid diagram' })).toBeVisible()
+      await expect(manuscriptPreview.getByText('Flow', { exact: true })).toBeVisible()
       await expect(manuscriptPreview.getByRole('math')).toBeVisible()
-      await expect(
-        manuscriptPreview.getByRole('textbox', { name: 'Display formula caption' })
-      ).toHaveValue('Energy')
+      await expect(manuscriptPreview.getByText('Energy', { exact: true })).toBeVisible()
       await expect
         .poll(() =>
           manuscriptImage.evaluate((element) => (element as HTMLImageElement).naturalWidth)
@@ -1391,9 +1411,8 @@ test(
       expect(await manuscriptImage.getAttribute('src')).toMatch(
         /^writellm:\/\/bundle\/project-asset\//
       )
-      await launched.page.keyboard.press('Escape')
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
       await expect(manuscriptPreview).not.toBeVisible()
-      await outline.getByRole('button', { name: 'Done', exact: true }).click()
 
       await launched.page.getByRole('button', { name: 'Section actions', exact: true }).click()
       await launched.page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()

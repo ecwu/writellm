@@ -6,9 +6,12 @@ import {
   agentModelSummarySchema,
   agentThinkingLevelSchema,
   effectiveGoogleGeminiImageSize,
+  effectiveGoogleVertexImageSize,
   GOOGLE_GEMINI_IMAGE_MODELS,
+  GOOGLE_VERTEX_IMAGE_MODELS,
   imageProviderCatalogSchema,
-  providerConfigSchema
+  providerConfigSchema,
+  providerSaveInputSchema
 } from './providers'
 
 describe('provider contracts', () => {
@@ -38,6 +41,47 @@ describe('provider contracts', () => {
         metadataVerified: true
       }).supportedThinkingLevels
     ).toEqual(['off', 'medium', 'max'])
+  })
+
+  it('accepts only the fixed global Google Vertex Nano Banana configuration', () => {
+    const vertex = {
+      role: 'image' as const,
+      providerId: 'google-vertex' as const,
+      projectId: 'writellm-images-123',
+      location: 'global' as const,
+      model: 'gemini-3.1-flash-image' as const,
+      timeoutMs: 120_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto' as const,
+      defaultImageSize: '1K' as const
+    }
+    for (const model of GOOGLE_VERTEX_IMAGE_MODELS) {
+      expect(providerConfigSchema.safeParse({ ...vertex, model }).success).toBe(true)
+    }
+    expect(
+      providerConfigSchema.safeParse({ ...vertex, projectId: 'Invalid Project' }).success
+    ).toBe(false)
+    expect(providerConfigSchema.safeParse({ ...vertex, location: 'us-central1' }).success).toBe(
+      false
+    )
+    expect(
+      providerConfigSchema.safeParse({ ...vertex, model: 'gemini-3.1-flash-lite-image' }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({
+        ...vertex,
+        baseUrl: 'https://vertex-proxy.example.test'
+      }).success
+    ).toBe(false)
+    expect(effectiveGoogleVertexImageSize('gemini-2.5-flash-image', '2K')).toBe('1K')
+    expect(effectiveGoogleVertexImageSize('gemini-3-pro-image', '2K')).toBe('2K')
+    expect(effectiveGoogleVertexImageSize('gemini-3.1-flash-image', '2K')).toBe('2K')
+    expect(providerSaveInputSchema.safeParse({ config: vertex }).success).toBe(true)
+    expect(
+      providerSaveInputSchema.safeParse({ config: vertex, apiKey: 'must-not-be-accepted' }).success
+    ).toBe(false)
   })
 
   it('accepts custom Agent Providers without the legacy generation timeout', () => {
@@ -231,6 +275,16 @@ describe('provider contracts', () => {
           issues: []
         },
         {
+          providerId: 'google-vertex' as const,
+          label: 'Google Vertex AI',
+          models: [...GOOGLE_VERTEX_IMAGE_MODELS],
+          config: null,
+          configured: false,
+          available: false,
+          active: false,
+          issues: []
+        },
+        {
           providerId: 'openai' as const,
           label: 'OpenAI',
           models: ['gpt-image-2'],
@@ -256,7 +310,7 @@ describe('provider contracts', () => {
     expect(
       imageProviderCatalogSchema.safeParse({
         ...catalog,
-        sources: [catalog.sources[1], catalog.sources[0], catalog.sources[2]]
+        sources: [catalog.sources[1], catalog.sources[0], catalog.sources[2], catalog.sources[3]]
       }).success
     ).toBe(false)
     expect(
@@ -270,8 +324,9 @@ describe('provider contracts', () => {
         ...catalog,
         sources: [
           catalog.sources[0],
-          { ...catalog.sources[1], models: ['gpt-image-proxy'] },
-          catalog.sources[2]
+          catalog.sources[1],
+          { ...catalog.sources[2], models: ['gpt-image-proxy'] },
+          catalog.sources[3]
         ]
       }).success
     ).toBe(false)

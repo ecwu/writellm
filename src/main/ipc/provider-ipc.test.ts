@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   GOOGLE_GEMINI_IMAGE_MODELS,
+  GOOGLE_VERTEX_IMAGE_MODELS,
   type ProviderSettingsSnapshot
 } from '../../shared/contracts/providers'
 import { registerProviderIpc, type ProviderIpcMain } from './provider-ipc'
@@ -92,6 +93,16 @@ const snapshot: ProviderSettingsSnapshot = {
         providerId: 'google-gemini',
         label: 'Google Gemini',
         models: [...GOOGLE_GEMINI_IMAGE_MODELS],
+        config: null,
+        configured: false,
+        available: false,
+        active: false,
+        issues: []
+      },
+      {
+        providerId: 'google-vertex',
+        label: 'Google Vertex AI',
+        models: [...GOOGLE_VERTEX_IMAGE_MODELS],
         config: null,
         configured: false,
         available: false,
@@ -218,6 +229,8 @@ describe('provider IPC', () => {
     expect(providers.remove).toHaveBeenCalledWith('image', 'openai')
     await invoke(IPC_CHANNELS.providersSetActiveImage, { providerId: 'xai' })
     expect(providers.setActiveImageProvider).toHaveBeenCalledWith('xai')
+    await invoke(IPC_CHANNELS.providersSetActiveImage, { providerId: 'google-vertex' })
+    expect(providers.setActiveImageProvider).toHaveBeenCalledWith('google-vertex')
     await expect(
       invoke(IPC_CHANNELS.providersSetActiveImage, {
         providerId: 'openai',

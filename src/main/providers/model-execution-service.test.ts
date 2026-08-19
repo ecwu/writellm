@@ -42,6 +42,7 @@ afterEach(async () => {
 function service(options?: {
   agent?: AgentModelRuntime
   images?: ImageGenerationGateway
+  imageConfig?: Extract<ProviderConfig, { role: 'image' }>
 }): ModelExecutionService {
   const configs: Record<'agent' | 'embedding' | 'rerank' | 'image', ProviderConfig> = {
     agent: {
@@ -77,7 +78,7 @@ function service(options?: {
       batchLimit: 10,
       fileSizeLimitMb: null
     },
-    image: {
+    image: options?.imageConfig ?? {
       role: 'image',
       providerId: 'google-gemini',
       model: 'gemini-3.1-flash-image',
@@ -92,8 +93,14 @@ function service(options?: {
   const providers = {
     withConfiguredProvider: async <T>(
       role: 'agent' | 'embedding' | 'rerank' | 'image',
-      operation: (config: ProviderConfig, credential: string) => Promise<T>
-    ) => operation(configs[role], 'runtime-secret')
+      operation: (config: ProviderConfig, credential: string | undefined) => Promise<T>
+    ) =>
+      operation(
+        configs[role],
+        role === 'image' && configs.image.providerId === 'google-vertex'
+          ? undefined
+          : 'runtime-secret'
+      )
   } as unknown as ProviderService
   const agent: AgentModelRuntime =
     options?.agent ??
@@ -248,7 +255,21 @@ describe('ModelExecutionService', () => {
 
   it('records request-scoped image generation without persisting prompt or bytes', async () => {
     const project = await database()
-    const result = await service().generateImage(
+    const result = await service({
+      imageConfig: {
+        role: 'image',
+        providerId: 'google-vertex',
+        projectId: 'writellm-images-123',
+        location: 'global',
+        model: 'gemini-3.1-flash-image',
+        timeoutMs: 120_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null,
+        defaultAspectRatio: 'auto',
+        defaultImageSize: '1K'
+      }
+    }).generateImage(
       project,
       { prompt: 'PRIVATE-IMAGE-PROMPT', aspectRatio: '16:9', imageSize: '1K' },
       {
@@ -269,7 +290,9 @@ describe('ModelExecutionService', () => {
       input_items: 1,
       output_items: 1,
       operation_id: 'operation-image',
-      agent_run_id: 'agent-run-image'
+      agent_run_id: 'agent-run-image',
+      provider_id: 'google-vertex',
+      model_id: 'gemini-3.1-flash-image'
     })
     expect(JSON.stringify(row)).not.toContain('PRIVATE-IMAGE-PROMPT')
     expect(JSON.stringify(row)).not.toContain('aW1hZ2U=')

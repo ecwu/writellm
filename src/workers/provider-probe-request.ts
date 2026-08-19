@@ -5,17 +5,23 @@ import type {
   ProviderProbeResponse
 } from '../shared/contracts/provider-probe'
 import { fetchConfiguredEndpoint, readBoundedText } from './outbound-http'
+import { createGoogleVertexClient, type GoogleVertexClientFactory } from './google-vertex-client'
 
 export async function runProviderProbeRequest(
   request: ProviderProbeRequest,
   fetchImplementation: typeof fetch = fetch,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  googleVertexClientFactory: GoogleVertexClientFactory = createGoogleVertexClient
 ): Promise<ProviderProbeResponse> {
   try {
     if (request.config.role === 'image') {
-      return request.config.providerId === 'google-gemini'
-        ? await runGeminiProviderProbe(request, signal)
-        : await runOpenAiProviderProbe(request, fetchImplementation, signal)
+      if (request.config.providerId === 'google-gemini') {
+        return await runGeminiProviderProbe(request, signal)
+      }
+      if (request.config.providerId === 'google-vertex') {
+        return await runGoogleVertexProviderProbe(request, signal, googleVertexClientFactory)
+      }
+      return await runOpenAiProviderProbe(request, fetchImplementation, signal)
     }
     const path =
       request.config.role === 'mineru' ? 'api/v4/extract/task/__writellm_probe__' : 'models'
@@ -75,7 +81,11 @@ async function runOpenAiProviderProbe(
   fetchImplementation: typeof fetch,
   signal?: AbortSignal
 ): Promise<ProviderProbeResponse> {
-  if (request.config.role !== 'image' || request.config.providerId === 'google-gemini') {
+  if (
+    request.config.role !== 'image' ||
+    request.config.providerId === 'google-gemini' ||
+    request.config.providerId === 'google-vertex'
+  ) {
     throw new Error('OpenAI-compatible image provider is required')
   }
   const client = new OpenAI({
@@ -109,6 +119,49 @@ async function runOpenAiProviderProbe(
       throw aborted
     }
     throw new Error('Image provider probe failed', { cause: error })
+  }
+}
+
+async function runGoogleVertexProviderProbe(
+  request: ProviderProbeRequest,
+  signal: AbortSignal | undefined,
+  googleVertexClientFactory: GoogleVertexClientFactory
+): Promise<ProviderProbeResponse> {
+  if (request.config.role !== 'image' || request.config.providerId !== 'google-vertex') {
+    throw new Error('Google Vertex image provider is required')
+  }
+  const models = googleVertexClientFactory({
+    project: request.config.projectId,
+    location: request.config.location
+  })
+  try {
+    await models.countTokens({
+      model: request.config.model,
+      contents: 'WriteLLM connection probe',
+      ...(signal === undefined ? {} : { config: { abortSignal: signal } })
+    })
+    return {
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId ?? null,
+      status: 200
+    }
+  } catch (error) {
+    const status = sdkHttpStatus(error)
+    if (status !== undefined) {
+      return {
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId ?? null,
+        status
+      }
+    }
+    if (signal?.aborted) {
+      const aborted = new Error('Google Vertex provider probe aborted')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
+    throw new Error('Google Vertex provider probe failed', { cause: error })
   }
 }
 

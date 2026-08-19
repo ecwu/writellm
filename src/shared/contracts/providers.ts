@@ -9,6 +9,7 @@ export const providerIdSchema = z.enum([
   'cohere-compatible',
   'mineru',
   'google-gemini',
+  'google-vertex',
   'openai',
   'xai'
 ])
@@ -106,7 +107,21 @@ export const googleGeminiImageSizeSchema = z.enum(['1K', '2K'])
 export type GoogleGeminiImageSize = z.infer<typeof googleGeminiImageSizeSchema>
 export const imageSizeSchema = googleGeminiImageSizeSchema
 export type ImageSize = z.infer<typeof imageSizeSchema>
-export const IMAGE_PROVIDER_IDS = ['google-gemini', 'openai', 'xai'] as const
+export const GOOGLE_VERTEX_IMAGE_MODELS = [
+  'gemini-2.5-flash-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-flash-image'
+] as const
+export const googleVertexImageModelSchema = z.enum(GOOGLE_VERTEX_IMAGE_MODELS)
+export type GoogleVertexImageModel = z.infer<typeof googleVertexImageModelSchema>
+export const googleCloudProjectIdSchema = z
+  .string()
+  .trim()
+  .min(6)
+  .max(30)
+  .regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, 'Use a valid Google Cloud Project ID')
+export const googleVertexLocationSchema = z.literal('global')
+export const IMAGE_PROVIDER_IDS = ['google-gemini', 'google-vertex', 'openai', 'xai'] as const
 export const imageProviderIdSchema = z.enum(IMAGE_PROVIDER_IDS)
 export type ImageProviderId = z.infer<typeof imageProviderIdSchema>
 export const OPENAI_IMAGE_MODELS = ['gpt-image-2'] as const
@@ -119,12 +134,25 @@ export const GOOGLE_GEMINI_IMAGE_MODEL_SIZES = {
   'gemini-3-pro-image': ['1K', '2K'],
   'gemini-2.5-flash-image': ['1K']
 } as const satisfies Record<GoogleGeminiImageModel, readonly GoogleGeminiImageSize[]>
+export const GOOGLE_VERTEX_IMAGE_MODEL_SIZES = {
+  'gemini-2.5-flash-image': ['1K'],
+  'gemini-3-pro-image': ['1K', '2K'],
+  'gemini-3.1-flash-image': ['1K', '2K']
+} as const satisfies Record<GoogleVertexImageModel, readonly GoogleGeminiImageSize[]>
 
 export function effectiveGoogleGeminiImageSize(
   model: GoogleGeminiImageModel,
   requested: GoogleGeminiImageSize
 ): GoogleGeminiImageSize {
   const supported: readonly GoogleGeminiImageSize[] = GOOGLE_GEMINI_IMAGE_MODEL_SIZES[model]
+  return supported.includes(requested) ? requested : '1K'
+}
+
+export function effectiveGoogleVertexImageSize(
+  model: GoogleVertexImageModel,
+  requested: GoogleGeminiImageSize
+): GoogleGeminiImageSize {
+  const supported: readonly GoogleGeminiImageSize[] = GOOGLE_VERTEX_IMAGE_MODEL_SIZES[model]
   return supported.includes(requested) ? requested : '1K'
 }
 
@@ -323,6 +351,15 @@ export const imageProviderConfigSchema = z.discriminatedUnion('providerId', [
   z
     .object({
       ...imageProviderCommonFields,
+      providerId: z.literal('google-vertex'),
+      projectId: googleCloudProjectIdSchema,
+      location: googleVertexLocationSchema,
+      model: googleVertexImageModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ...imageProviderCommonFields,
       providerId: z.literal('openai'),
       model: openAiImageModelSchema
     })
@@ -414,6 +451,11 @@ const fixedImageCatalog = [
     label: 'Google Gemini',
     models: GOOGLE_GEMINI_IMAGE_MODELS
   },
+  {
+    providerId: 'google-vertex',
+    label: 'Google Vertex AI',
+    models: GOOGLE_VERTEX_IMAGE_MODELS
+  },
   { providerId: 'openai', label: 'OpenAI', models: OPENAI_IMAGE_MODELS },
   { providerId: 'xai', label: 'xAI', models: XAI_IMAGE_MODELS }
 ] as const
@@ -422,6 +464,7 @@ export const imageProviderCatalogSchema = z
   .object({
     activeProviderId: imageProviderIdSchema.nullable(),
     sources: z.tuple([
+      imageProviderStatusSchema,
       imageProviderStatusSchema,
       imageProviderStatusSchema,
       imageProviderStatusSchema
@@ -460,7 +503,7 @@ export const imageProviderCatalogSchema = z
         context.addIssue({
           code: 'custom',
           path: ['sources', index, 'available'],
-          message: 'An available image provider must have configuration and a credential'
+          message: 'An available image provider must have configuration and authentication'
         })
       }
     }
@@ -475,10 +518,24 @@ export const providerSettingsSnapshotSchema = z.object({
 })
 export type ProviderSettingsSnapshot = z.infer<typeof providerSettingsSnapshotSchema>
 
-export const providerSaveInputSchema = z.object({
-  config: providerConfigSchema,
-  apiKey: z.string().trim().min(1).max(16_384).optional()
-})
+export const providerSaveInputSchema = z
+  .object({
+    config: providerConfigSchema,
+    apiKey: z.string().trim().min(1).max(16_384).optional()
+  })
+  .superRefine((input, context) => {
+    if (
+      input.config.role === 'image' &&
+      input.config.providerId === 'google-vertex' &&
+      input.apiKey !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['apiKey'],
+        message: 'Google Vertex AI uses local Application Default Credentials'
+      })
+    }
+  })
 export type ProviderSaveInput = z.infer<typeof providerSaveInputSchema>
 
 export const providerRoleInputSchema = z.union([

@@ -14,7 +14,6 @@ import {
   Circle,
   CircleDot,
   ExternalLink,
-  FileText,
   IndentDecrease,
   IndentIncrease,
   Plus,
@@ -128,7 +127,6 @@ export function OutlineEditPanel(props: {
   onCreateSection(parentSectionId: string | null, title: string): Promise<string | null>
   onDeleteSection(sectionId: string): Promise<boolean>
   onOpenSection(sectionId: string): Promise<boolean>
-  onPreviewAll(): Promise<void>
 }): React.JSX.Element {
   const sections = useMemo(
     () => props.workspace.sections.map((item) => item.section),
@@ -417,17 +415,6 @@ export function OutlineEditPanel(props: {
               <div className='flex flex-wrap items-center gap-2'>
                 <Button variant='outline' size='sm' onClick={() => setCreateParentId(null)}>
                   <Plus data-icon='inline-start' /> New section
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() =>
-                    void saveDraft().then(async (saved) => {
-                      if (saved) await props.onPreviewAll()
-                    })
-                  }
-                >
-                  <FileText data-icon='inline-start' /> Preview all
                 </Button>
                 <Button
                   size='sm'

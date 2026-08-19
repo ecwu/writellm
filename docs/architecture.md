@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, and ADR 051
-Recorded: 2026-07-31; amended through 2026-08-18
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, ADR 051, and ADR 052
+Recorded: 2026-07-31; amended through 2026-08-19
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -1258,16 +1258,19 @@ remain deferred.
 
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
 the active image provider, source revision, block ID, and asset ID; the background worker performs
-one typed request through the fixed catalog in ADR 051. Google Gemini retains exact-pinned
-`@google/genai@2.13.0`; OpenAI `gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned
-`openai@7.5.0`, with xAI's client fixed to `https://api.x.ai/v1`. SDKs are confined to that worker
+one typed request through the fixed catalog in ADRs 051 and 052. Google Gemini retains exact-pinned
+`@google/genai@2.13.0`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
+Application Default Credentials and the three fixed Nano Banana model IDs; OpenAI
+`gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned `openai@7.5.0`, with xAI's client
+fixed to `https://api.x.ai/v1`. SDKs and provider transports are confined to that worker
 gateway and are not exposed through Main, preload, renderer, or Agent tool code. The tool produces
 one project asset and one typed insertion proposal, never a reusable network or filesystem
 capability. No image source accepts a configurable endpoint, SDK retries are disabled, and xAI
 must return base64 rather than a temporary URL. The worker accepts bounded PNG/JPEG output and
 reports its actual MIME; only Main validates image magic, dimensions, hash, and bytes and atomically
 publishes the project asset before a `writellm-asset:<assetId>` block reference can be committed.
-All three encrypted source credentials may coexist, but zero or one source is explicitly active;
+The three encrypted API-key credentials may coexist with Vertex's ambient ADC configuration, but
+zero or one source is explicitly active;
 removal clears an active selection and never triggers fallback. OpenAI `aspectRatio = auto` may
 return a nullable effective size intent while project asset lineage still records the requested
 size and Main-validated actual dimensions.
@@ -1434,9 +1437,10 @@ Write-type agent tools remain sequential even when Pi permits parallel tool exec
 
 Provider configuration is application-global because credentials are device/user concerns, not portable project content.
 
-- The application-global image role uses the fixed three-source catalog in ADR 051. Gemini,
-  OpenAI, and xAI configurations and safeStorage credentials are independently bound and may
-  coexist, but one explicit app setting selects zero or one active source. Saving the first usable
+- The application-global image role uses the fixed four-source catalog in ADRs 051 and 052. Gemini,
+  Vertex AI, OpenAI, and xAI configurations are independently bound and may coexist; Gemini,
+  OpenAI, and xAI credentials use safeStorage while Vertex uses local ADC without persisting a
+  credential. One explicit app setting selects zero or one active source. Saving the first usable
   source may initialize that selection; removing the active source clears it. Generation never
   falls back, rotates, retries through another source, or accepts an arbitrary endpoint.
 

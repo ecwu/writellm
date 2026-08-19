@@ -198,14 +198,24 @@ export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
     credential: z.string().min(1).max(16_384),
     input: rerankInputSchema
   }),
-  z.object({
-    operation: z.literal('image'),
-    requestId: z.uuid(),
-    projectSessionId: projectSessionIdSchema,
-    config: providerConfigSchema.refine((config) => config.role === 'image'),
-    credential: z.string().min(1).max(16_384),
-    input: imageGenerationInputSchema
-  })
+  z
+    .object({
+      operation: z.literal('image'),
+      requestId: z.uuid(),
+      projectSessionId: projectSessionIdSchema,
+      config: providerConfigSchema.refine((config) => config.role === 'image'),
+      credential: z.string().min(1).max(16_384).optional(),
+      input: imageGenerationInputSchema
+    })
+    .superRefine((request, context) => {
+      if (request.config.providerId !== 'google-vertex' && request.credential === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['credential'],
+          message: 'Image provider credential is required'
+        })
+      }
+    })
 ])
 export type AuxiliaryUtilityRequest = z.infer<typeof auxiliaryUtilityRequestSchema>
 

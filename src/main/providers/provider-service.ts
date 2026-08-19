@@ -2,6 +2,7 @@ import type { Logger } from 'pino'
 import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import {
   GOOGLE_GEMINI_IMAGE_MODELS,
+  GOOGLE_VERTEX_IMAGE_MODELS,
   IMAGE_PROVIDER_IDS,
   OPENAI_IMAGE_MODELS,
   XAI_IMAGE_MODELS,
@@ -47,7 +48,7 @@ export interface ConnectionProbeResult {
 
 export type ConnectionProbe = (
   config: ProviderConfig,
-  credential: string,
+  credential: string | undefined,
   signal: AbortSignal
 ) => Promise<ConnectionProbeResult>
 
@@ -104,9 +105,12 @@ export class ProviderService {
             issues.push('Stored image provider configuration is invalid.')
           }
         }
-        const configured = await this.credentials.hasCredential(configId)
+        const usesAmbientAuth = providerId === 'google-vertex'
+        const configured = usesAmbientAuth
+          ? config !== null
+          : await this.credentials.hasCredential(configId)
         if (config !== null && !configured) issues.push('Provider credential is missing.')
-        if (config !== null && !credentialBackend.securePersistence) {
+        if (config !== null && !usesAmbientAuth && !credentialBackend.securePersistence) {
           issues.push(credentialBackend.warning ?? 'Secure credential storage is unavailable.')
         }
         return {
@@ -115,7 +119,10 @@ export class ProviderService {
           models: [...imageProviderModels(providerId)],
           config,
           configured,
-          available: config !== null && configured && credentialBackend.securePersistence,
+          available:
+            config !== null &&
+            configured &&
+            (usesAmbientAuth || credentialBackend.securePersistence),
           active: activeProviderId === providerId,
           issues
         }
@@ -265,6 +272,9 @@ export class ProviderService {
 
   async save(config: ProviderConfig, apiKey?: string): Promise<ProviderSettingsSnapshot> {
     const parsed = providerConfigSchema.parse(config)
+    if (usesAmbientAuthentication(parsed) && apiKey !== undefined) {
+      throw new Error('Google Vertex AI uses local Application Default Credentials')
+    }
     const capability =
       parsed.role === 'image'
         ? imageProviderCapability(parsed.providerId)
@@ -319,7 +329,9 @@ export class ProviderService {
           })
         )
         .execute()
-      if (ciphertext !== undefined) {
+      if (parsed.role === 'image' && parsed.providerId === 'google-vertex') {
+        await this.credentials.removeCredential(configId, transaction)
+      } else if (ciphertext !== undefined) {
         await this.credentials.persistEncrypted(configId, ciphertext, transaction)
       } else if (securityIdentityChanged) {
         await this.credentials.removeCredential(configId, transaction)
@@ -344,8 +356,9 @@ export class ProviderService {
     if (
       parsed.role === 'image' &&
       (await this.settings.getActiveImageProviderId()) === null &&
-      (await this.credentials.hasCredential(configId)) &&
-      this.credentials.backendStatus().securePersistence
+      (usesAmbientAuthentication(parsed) ||
+        ((await this.credentials.hasCredential(configId)) &&
+          this.credentials.backendStatus().securePersistence))
     ) {
       await this.settings.setActiveImageProviderId(parsed.providerId)
       this.log.info(
@@ -389,10 +402,10 @@ export class ProviderService {
     ) {
       throw new Error('Image provider configuration is invalid')
     }
-    if (!(await this.credentials.hasCredential(configId))) {
+    if (!usesAmbientAuthentication(config) && !(await this.credentials.hasCredential(configId))) {
       throw new CredentialUnavailableError('Image provider credential is missing')
     }
-    if (!this.credentials.backendStatus().securePersistence) {
+    if (!usesAmbientAuthentication(config) && !this.credentials.backendStatus().securePersistence) {
       throw new CredentialUnavailableError('Secure credential storage is unavailable')
     }
     await this.settings.setActiveImageProviderId(providerId)
@@ -405,11 +418,17 @@ export class ProviderService {
 
   async withConfiguredProvider<R extends ProviderRole, T>(
     role: R,
-    operation: (config: ProviderConfigForRole<R>, credential: string) => Promise<T>
+    operation: (
+      config: ProviderConfigForRole<R>,
+      credential: R extends 'image' ? string | undefined : string
+    ) => Promise<T>
   ): Promise<T> {
     const config = await this.getConfiguredProvider(role)
+    if (usesAmbientAuthentication(config)) {
+      return operation(config, undefined as R extends 'image' ? string | undefined : string)
+    }
     return this.credentials.withCredential(providerConfigId(config), (credential) =>
-      operation(config, credential)
+      operation(config, credential as R extends 'image' ? string | undefined : string)
     )
   }
 
@@ -475,15 +494,24 @@ export class ProviderService {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
-      const response = await this.credentials.withCredential(configId, (credential) =>
-        this.probe(config, credential, controller.signal)
-      )
+      const response = usesAmbientAuthentication(config)
+        ? await this.probe(config, undefined, controller.signal)
+        : await this.credentials.withCredential(configId, (credential) =>
+            this.probe(config, credential, controller.signal)
+          )
       if (
         response.status === 401 ||
         response.status === 403 ||
         isMineruAuthCode(response.providerCode)
       ) {
-        return result(false, 'invalid_auth', 'Provider rejected the credential.', startedAt)
+        return result(
+          false,
+          'invalid_auth',
+          config.role === 'image' && config.providerId === 'google-vertex'
+            ? 'Vertex could not use local ADC for this project. Check the active account, project access, and roles/aiplatform.user.'
+            : 'Provider rejected the credential.',
+          startedAt
+        )
       }
       if (response.status >= 200 && response.status < 300) {
         return result(true, 'connected', 'Connection succeeded.', startedAt)
@@ -525,6 +553,10 @@ export function imageProviderConfigId(providerId: ImageProviderId): string {
   return `image:${providerId}`
 }
 
+function usesAmbientAuthentication(config: ProviderConfig): boolean {
+  return config.role === 'image' && config.providerId === 'google-vertex'
+}
+
 function providerConfigId(config: ProviderConfig): string {
   return config.role === 'image' ? imageProviderConfigId(config.providerId) : config.role
 }
@@ -536,12 +568,14 @@ function requireImageProviderId(providerId: ImageProviderId | undefined): ImageP
 
 function imageProviderLabel(providerId: ImageProviderId): string {
   if (providerId === 'google-gemini') return 'Google Gemini'
+  if (providerId === 'google-vertex') return 'Google Vertex AI'
   if (providerId === 'openai') return 'OpenAI'
   return 'xAI'
 }
 
 function imageProviderModels(providerId: ImageProviderId): readonly string[] {
   if (providerId === 'google-gemini') return GOOGLE_GEMINI_IMAGE_MODELS
+  if (providerId === 'google-vertex') return GOOGLE_VERTEX_IMAGE_MODELS
   if (providerId === 'openai') return OPENAI_IMAGE_MODELS
   return XAI_IMAGE_MODELS
 }

@@ -42,6 +42,7 @@ import {
 
 export type WorkspaceKind =
   | 'manuscript'
+  | 'preview'
   | 'knowledge'
   | 'checks'
   | 'assets'
@@ -62,6 +63,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onSelectSection(sectionId: string): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
+  onOpenPreview(): void
   onOpenKnowledge(): void
   onOpenChecks(): void
   onOpenAssets(): void
@@ -90,6 +92,7 @@ export function AppSidebar({
   onSelectSection,
   onOpenBrief,
   onOpenOutlineEditor,
+  onOpenPreview,
   onOpenKnowledge,
   onOpenChecks,
   onOpenAssets,
@@ -133,6 +136,7 @@ export function AppSidebar({
       <div className='flex min-h-0 flex-1'>
         <WorkspaceRail
           activeWorkspace={activeWorkspace}
+          onOpenPreview={onOpenPreview}
           onOpenKnowledge={onOpenKnowledge}
           onOpenChecks={onOpenChecks}
           onOpenAssets={onOpenAssets}
@@ -367,6 +371,7 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 
 export function WorkspaceRail(props: {
   activeWorkspace: WorkspaceKind
+  onOpenPreview(): void
   onOpenKnowledge(): void
   onOpenChecks(): void
   onOpenAssets(): void
@@ -409,6 +414,18 @@ export function WorkspaceRail(props: {
                 >
                   <ListTree />
                   <span>Manuscript</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Preview'
+                  tooltip={{ children: 'Preview', hidden: false }}
+                  isActive={props.activeWorkspace === 'preview'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenPreview}
+                >
+                  <FileText />
+                  <span>Preview</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

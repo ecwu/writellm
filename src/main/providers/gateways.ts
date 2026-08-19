@@ -103,7 +103,7 @@ export interface RerankGateway {
 export interface ImageGenerationGateway {
   generateImage(
     config: ProviderConfig,
-    credential: string,
+    credential: string | undefined,
     input: ImageGenerationInput,
     signal: AbortSignal,
     projectSessionId: string

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AuxiliaryUtilityRequest } from '../shared/contracts/model-runtime'
 import { runAuxiliaryModelRequest } from './auxiliary-model-request'
+import type { GoogleVertexClientFactory, GoogleVertexModels } from './google-vertex-client'
 
 const embeddingRequest: Extract<AuxiliaryUtilityRequest, { operation: 'embedding' }> = {
   operation: 'embedding',
@@ -55,6 +56,32 @@ const imageRequest: Extract<AuxiliaryUtilityRequest, { operation: 'image' }> = {
   },
   credential: 'gemini-secret',
   input: { prompt: 'A calm technical illustration', aspectRatio: '16:9', imageSize: '2K' }
+}
+
+const vertexImageRequest: Extract<AuxiliaryUtilityRequest, { operation: 'image' }> = {
+  ...imageRequest,
+  config: {
+    role: 'image',
+    providerId: 'google-vertex',
+    projectId: 'writellm-images-123',
+    location: 'global',
+    model: 'gemini-3.1-flash-image',
+    timeoutMs: 5_000,
+    embeddingDimension: null,
+    batchLimit: 1,
+    fileSizeLimitMb: null,
+    defaultAspectRatio: 'auto',
+    defaultImageSize: '1K'
+  }
+}
+
+function vertexFactory(
+  generateContent: GoogleVertexModels['generateContent']
+): GoogleVertexClientFactory {
+  return vi.fn(({ project, location }) => {
+    expect({ project, location }).toEqual({ project: 'writellm-images-123', location: 'global' })
+    return { generateContent, countTokens: vi.fn() }
+  })
 }
 
 function interactionResponse(
@@ -225,6 +252,186 @@ describe('runAuxiliaryModelRequest', () => {
       }
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses one fixed Vertex ADC client request and returns one inline image', async () => {
+    const data = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('vertex-fixture')
+    ]).toString('base64')
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(async (input) => {
+      expect(input.model).toBe('gemini-3.1-flash-image')
+      expect(input.contents).toBe(vertexImageRequest.input.prompt)
+      expect(input.config.abortSignal).toBeInstanceOf(AbortSignal)
+      expect({ ...input.config, abortSignal: undefined }).toEqual({
+        abortSignal: undefined,
+        candidateCount: 1,
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: { aspectRatio: '16:9', imageSize: '2K' }
+      })
+      return {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [{ text: 'Generated image.' }, { inlineData: { mimeType: 'image/png', data } }]
+            }
+          }
+        ],
+        responseId: 'vertex-response-1',
+        usageMetadata: {
+          promptTokenCount: 11,
+          candidatesTokenCount: 22,
+          cachedContentTokenCount: 3
+        }
+      }
+    })
+
+    await expect(
+      runAuxiliaryModelRequest(
+        vertexImageRequest,
+        vi.fn<typeof fetch>(),
+        undefined,
+        vertexFactory(generateContent)
+      )
+    ).resolves.toMatchObject({
+      type: 'image-result',
+      result: {
+        dataBase64: data,
+        mimeType: 'image/png',
+        effectiveImageSize: '2K',
+        metadata: {
+          providerModelId: 'gemini-3.1-flash-image',
+          responseIds: ['vertex-response-1'],
+          retryCount: 0,
+          usage: { inputTokens: 11, outputTokens: 22, cacheReadTokens: 3 }
+        }
+      }
+    })
+    expect(generateContent).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(generateContent.mock.calls)).not.toContain('credential')
+  })
+
+  it('accepts a multi-megabyte Vertex inline PNG without overflowing the validator stack', async () => {
+    const bytes = Buffer.alloc(6_000_000)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
+    const data = bytes.toString('base64')
+    expect(data).toHaveLength(8_000_000)
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(async () => ({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data } }] } }]
+    }))
+
+    const response = await runAuxiliaryModelRequest(
+      vertexImageRequest,
+      vi.fn<typeof fetch>(),
+      undefined,
+      vertexFactory(generateContent)
+    )
+
+    expect(response).toMatchObject({
+      type: 'image-result',
+      result: { mimeType: 'image/png', effectiveImageSize: '2K' }
+    })
+    expect(response.type === 'image-result' ? response.result.dataBase64.length : 0).toBe(
+      data.length
+    )
+    expect(generateContent).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits auto aspect ratio and downgrades Nano Banana 2K to 1K on Vertex', async () => {
+    const data = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff]),
+      Buffer.from('vertex-jpeg')
+    ]).toString('base64')
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(async (input) => {
+      expect(input.config.imageConfig).toEqual({ imageSize: '1K' })
+      return {
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/jpeg', data } }] } }]
+      }
+    })
+    await expect(
+      runAuxiliaryModelRequest(
+        {
+          ...vertexImageRequest,
+          config: { ...vertexImageRequest.config, model: 'gemini-2.5-flash-image' },
+          input: { ...vertexImageRequest.input, aspectRatio: 'auto', imageSize: '2K' }
+        },
+        vi.fn<typeof fetch>(),
+        undefined,
+        vertexFactory(generateContent)
+      )
+    ).resolves.toMatchObject({
+      type: 'image-result',
+      result: { mimeType: 'image/jpeg', effectiveImageSize: '1K' }
+    })
+    expect(generateContent).toHaveBeenCalledTimes(1)
+  })
+
+  it('projects only bounded Vertex SDK diagnostics without a retry or private response text', async () => {
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(async () => {
+      throw Object.assign(new Error('PRIVATE authorization detail'), {
+        status: 403,
+        code: 'PERMISSION_DENIED'
+      })
+    })
+    const pending = runAuxiliaryModelRequest(
+      vertexImageRequest,
+      vi.fn<typeof fetch>(),
+      undefined,
+      vertexFactory(generateContent)
+    )
+    await expect(pending).rejects.toMatchObject({ status: 403, providerCode: 'PERMISSION_DENIED' })
+    await expect(pending).rejects.not.toThrow('PRIVATE')
+    expect(generateContent).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [{ candidates: [] }, 'one candidate'],
+    [
+      {
+        candidates: [
+          {
+            content: {
+              parts: [{ inlineData: { mimeType: 'image/png', data: '%%%bad%%%' } }]
+            }
+          }
+        ]
+      },
+      'malformed image data'
+    ]
+  ])('rejects unsafe Vertex image response %#', async (payload, message) => {
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(async () => payload)
+    await expect(
+      runAuxiliaryModelRequest(
+        vertexImageRequest,
+        vi.fn<typeof fetch>(),
+        undefined,
+        vertexFactory(generateContent)
+      )
+    ).rejects.toThrow(message)
+  })
+
+  it('cancels one Vertex request without retrying', async () => {
+    const controller = new AbortController()
+    const generateContent = vi.fn<GoogleVertexModels['generateContent']>(
+      (input) =>
+        new Promise((_resolve, reject) => {
+          input.config.abortSignal.addEventListener(
+            'abort',
+            () => reject(input.config.abortSignal.reason),
+            { once: true }
+          )
+        })
+    )
+    const pending = runAuxiliaryModelRequest(
+      vertexImageRequest,
+      vi.fn<typeof fetch>(),
+      controller.signal,
+      vertexFactory(generateContent)
+    )
+    controller.abort(new Error('cancelled'))
+    await expect(pending).rejects.toThrow('cancelled')
+    expect(generateContent).toHaveBeenCalledTimes(1)
   })
 
   it.each([

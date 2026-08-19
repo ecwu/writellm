@@ -450,3 +450,39 @@ maintenance without turning the active tracker back into a historical log.
   no-identity macOS arm64 package gate, 12/12 packaged smoke scenarios, 28/28 packaged E2E
   scenarios, and diff checks passed. No billable live image request, commit, push, hosted CI,
   signing identity, notarization, release, promotion, or publication ran.
+
+## 2026-08-19
+
+- Completed Checkpoint 58. Whole-manuscript Markdown preview moved from the Outline Dialog into an
+  independent Preview rail workspace, using the existing export projection and a project-owned
+  shadcn Typeset preset. Session-bound assets, sanitized Mermaid, bounded KaTeX, safe HTTPS links,
+  loss reporting, responsive layout, and return-to-section context remain enforced. Focused tests,
+  `check:fast`, 185 Electron-hosted files / 1012 tests plus production build, the fresh 41/41
+  Real-Electron suite, light/dark desktop and narrow visual inspection, scoped Impeccable, and diff
+  checks passed. No IPC, shared contract, migration, dependency, package/release action, hosted CI,
+  commit, push, signing, notarization, or publication ran.
+- Built the separately authorized Checkpoint 58 hands-on App with the no-identity macOS arm64
+  unpacked package gate. Electron 43.1.0 / ABI 148 native and ASAR/resource inventory, all 12
+  packaged smoke scenarios, and 28/28 packaged E2E scenarios passed with no flaky, skipped, or
+  failed result. The gate produced `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing
+  identity discovery, notarization, hosted CI, commit, push, release, promotion, or publication
+  was performed.
+- Accepted ADR 052 and completed Checkpoint 59. Google Vertex AI is now a fourth independent image
+  source beside Google Gemini, OpenAI, and xAI, with a validated Project ID, fixed `global`
+  location, the three Nano Banana model IDs, and local Application Default Credentials discovered
+  only inside the background worker. WriteLLM accepts and stores no Vertex key or ADC token; one
+  source remains explicitly active with no fallback. Focused suites passed 9 files / 83 tests,
+  `check:fast` passed, the complete Electron-hosted gate passed 185 files / 1026 tests plus three
+  intentional benchmark skips and production build, the fresh Real-Electron suite passed 41/41,
+  all 25 recovery fixtures passed, and the no-Team-ID macOS arm64 package gate passed 12/12 smoke
+  and 28/28 packaged E2E scenarios. No live ADC probe, billable image request, hosted CI, commit,
+  push, signing identity, notarization, release, promotion, or publication ran.
+- Completed the Checkpoint 59 hands-on large-image repair. The first live Vertex request proved
+  local ADC and remote generation were working, but the returned inline image overflowed the
+  worker's recursive Base64 regular expression before Main could publish it. A bounded linear
+  validator and 8,000,000-character regression replaced that failure path. Focused tests,
+  `check:fast`, 185 Electron-hosted files / 1027 tests plus three benchmark skips and production
+  build, 41/41 fresh Real-Electron scenarios, 25 recovery fixtures, 12/12 packaged smoke, and
+  28/28 packaged E2E scenarios passed. A replacement no-Team-ID macOS arm64 App, DMG, and ZIP were
+  built from the current dirty worktree. No second billable image request, commit, push, hosted CI,
+  Apple identity signing, notarization, release, promotion, or publication ran.

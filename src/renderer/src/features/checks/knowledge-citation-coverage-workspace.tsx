@@ -52,6 +52,7 @@ export function KnowledgeCitationCoverageWorkspace(props: {
   projectSessionId: string
   projectName: string
   onOpenManuscript(): void
+  onOpenPreview(): void
   onOpenKnowledge(): void
   onOpenAssets(): void
   onOpenReferences(): void
@@ -153,6 +154,7 @@ export function KnowledgeCitationCoverageWorkspace(props: {
       >
         <WorkspaceRail
           activeWorkspace='checks'
+          onOpenPreview={props.onOpenPreview}
           onOpenChecks={() => undefined}
           onOpenKnowledge={props.onOpenKnowledge}
           onOpenAssets={props.onOpenAssets}

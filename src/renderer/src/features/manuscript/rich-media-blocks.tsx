@@ -78,10 +78,14 @@ function MermaidBlock({
       setError('Mermaid source exceeds the 64 KiB limit.')
       return
     }
-    void renderMermaid(`mermaid-${block.id}`, block.props.source, resolvedTheme === 'dark')
-      .then((rendered) => {
+    void renderMermaidPreviewDataUrl(
+      `mermaid-${block.id}`,
+      block.props.source,
+      resolvedTheme === 'dark'
+    )
+      .then((url) => {
         if (!disposed) {
-          setPreview(svgDataUrl(sanitizeMermaidSvg(rendered)))
+          setPreview(url)
           setError(null)
         }
       })
@@ -146,6 +150,17 @@ function renderMermaid(id: string, source: string, dark: boolean): Promise<strin
     () => undefined
   )
   return task
+}
+
+export async function renderMermaidPreviewDataUrl(
+  id: string,
+  source: string,
+  dark: boolean
+): Promise<string> {
+  if (new TextEncoder().encode(source).byteLength > 64 * 1024) {
+    throw new Error('Mermaid source exceeds the 64 KiB limit')
+  }
+  return svgDataUrl(sanitizeMermaidSvg(await renderMermaid(id, source, dark)))
 }
 
 function MathBlock({

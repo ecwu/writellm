@@ -96,7 +96,7 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "2d6abb03e82ffad5d97d297a54ee2dc9d17b358f9746c4f60814f55910a696d2",
+      "sourceSha256": "602a25c0f61e54b99b09adbdfa3e308220bc71c0c126884e1d9aaafc90d59d69",
       "tests": [
         "creates, closes, reopens, switches, and reopens after app restart",
         "opens a moved root with the stable manifest project ID",
@@ -194,7 +194,7 @@
       "id": "credential-backend-reporting",
       "category": "security",
       "source": "src/main/providers/provider-service.test.ts",
-      "sourceSha256": "ac12f7057e6d8dded7d2278a31431d6b1f9f8640c6cbb0309b52769e3df9cc20",
+      "sourceSha256": "a4aff473d7fd0ccfd883d0f3e3f49dd63042a7ffad2d4b9cf8345837b7de85df",
       "tests": [
         "persists only ciphertext, reports status, replaces keys, and removes the provider",
         "rejects insecure Linux basic_text persistence and reports the backend"

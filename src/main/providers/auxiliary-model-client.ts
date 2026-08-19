@@ -93,7 +93,7 @@ export class AuxiliaryModelClient
 
   generateImage(
     config: ProviderConfig,
-    credential: string,
+    credential: string | undefined,
     rawInput: Parameters<ImageGenerationGateway['generateImage']>[2],
     signal: AbortSignal,
     projectSessionId: string
@@ -104,7 +104,7 @@ export class AuxiliaryModelClient
       requestId: randomUUID(),
       projectSessionId,
       config,
-      credential,
+      ...(credential === undefined ? {} : { credential }),
       input: imageGenerationInputSchema.parse(rawInput)
     }
     return this.#imageQueue.add(

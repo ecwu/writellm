@@ -138,6 +138,10 @@ describe('AppSettingsRepository', () => {
     await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
     await expect(repository.setActiveImageProviderId('openai')).resolves.toBe('openai')
     await expect(repository.getActiveImageProviderId()).resolves.toBe('openai')
+    await expect(repository.setActiveImageProviderId('google-vertex')).resolves.toBe(
+      'google-vertex'
+    )
+    await expect(repository.getActiveImageProviderId()).resolves.toBe('google-vertex')
     await expect(repository.setActiveImageProviderId('custom' as 'openai')).rejects.toThrow()
     await expect(repository.setActiveImageProviderId(null)).resolves.toBeNull()
     await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
