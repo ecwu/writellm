@@ -643,10 +643,6 @@ function App(): React.JSX.Element {
                 setSettingsSection('general')
                 setSettingsOpen(true)
               }}
-              onOpenSkillSettings={() => {
-                setSettingsSection('skills')
-                setSettingsOpen(true)
-              }}
               onError={notifyActionError}
             />
           ) : (

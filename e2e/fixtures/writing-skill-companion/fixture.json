@@ -1,0 +1,7 @@
+{
+  "repository": "writellm/e2e-humanize",
+  "directory": "e2e-humanize",
+  "commit": "ffffffffffffffffffffffffffffffffffffffff",
+  "license": "MIT",
+  "files": ["SKILL.md", "references/rhythm.md", "references/clarity.md"]
+}

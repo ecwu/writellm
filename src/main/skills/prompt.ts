@@ -2,6 +2,7 @@ import { formatSkillInvocation, type Skill } from '@earendil-works/pi-agent-core
 
 export interface WriteLlmSkill extends Skill {
   skillId: string
+  displayName: string
   commit: string
   license: string | null
   source: 'curated' | 'github'

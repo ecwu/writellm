@@ -95,6 +95,7 @@ describe('Agent read-tool contracts', () => {
     expect(
       readWritingSkillResultSchema.parse({
         skillId: 'nature-writing',
+        displayName: 'Nature Writing',
         commit: 'a'.repeat(40),
         relativePath: 'SKILL.md',
         sha256: 'b'.repeat(64),
@@ -102,6 +103,8 @@ describe('Agent read-tool contracts', () => {
         content: 'Skill guidance',
         references: [
           {
+            skillId: 'nature-writing',
+            displayName: 'Nature Writing',
             relativePath: 'references/introduction.md',
             uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/references/introduction.md`,
             sha256: 'c'.repeat(64),

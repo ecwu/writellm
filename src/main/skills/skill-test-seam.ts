@@ -30,25 +30,35 @@ export async function installSkillE2eFixture(options: {
 }): Promise<void> {
   const configured = process.env[E2E_SKILL_FIXTURE_PATH_ENV]
   if (configured === undefined) return
-  if (options.windowPresentation !== 'silent-e2e' || !isAbsolute(configured)) {
+  const configuredRoots = configured.startsWith('[')
+    ? z.array(z.string().min(1)).min(1).max(8).parse(JSON.parse(configured))
+    : [configured]
+  if (
+    options.windowPresentation !== 'silent-e2e' ||
+    configuredRoots.some((root) => !isAbsolute(root))
+  ) {
     throw new Error(`${E2E_SKILL_FIXTURE_PATH_ENV} requires silent E2E mode and an absolute path`)
   }
-  const root = resolve(configured)
-  const fixture = fixtureSchema.parse(
-    JSON.parse(await readFile(join(root, 'fixture.json'), 'utf8'))
-  )
-  const files = await Promise.all(
-    fixture.files.map(async (path) => {
-      const resolved = resolve(root, path)
-      const child = relative(root, resolved)
-      if (child.startsWith('..') || isAbsolute(child))
-        throw new Error('E2E skill fixture file escapes')
-      return { path, bytes: await readFile(resolved) }
-    })
-  )
-  await options.service.installE2eFixture({ ...fixture, files })
+  let fileCount = 0
+  for (const configuredRoot of configuredRoots) {
+    const root = resolve(configuredRoot)
+    const fixture = fixtureSchema.parse(
+      JSON.parse(await readFile(join(root, 'fixture.json'), 'utf8'))
+    )
+    const files = await Promise.all(
+      fixture.files.map(async (path) => {
+        const resolved = resolve(root, path)
+        const child = relative(root, resolved)
+        if (child.startsWith('..') || isAbsolute(child))
+          throw new Error('E2E skill fixture file escapes')
+        return { path, bytes: await readFile(resolved) }
+      })
+    )
+    await options.service.installE2eFixture({ ...fixture, files })
+    fileCount += files.length
+  }
   options.log.info(
-    { event: 'skill.e2e_fixture.installed', fileCount: files.length },
-    'Installed silent E2E writing skill fixture'
+    { event: 'skill.e2e_fixture.installed', fixtureCount: configuredRoots.length, fileCount },
+    'Installed silent E2E writing skill fixtures'
   )
 }

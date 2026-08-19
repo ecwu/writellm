@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, ADR 051, and ADR 052
+Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, ADR 051, ADR 052, ADR 053, and ADR 054
 Recorded: 2026-07-31; amended through 2026-08-19
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -1119,9 +1119,10 @@ Retrieved knowledge is untrusted content. It is clearly delimited and never allo
 ### Agent composer interaction
 
 The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
-Thinking effort, and Send are its four top-level action groups. Context scope and Writing Skill are
-available through one shared Add/leading-slash command catalog and remain in Agent Details; they do
-not become hidden prompt text. The collapsed model trigger uses the recognizable model display name
+Thinking effort, and Send are its four top-level action groups. Context scope is available through
+the shared Add/leading-slash command catalog. Writing Skills are not composer state or a user-facing
+mode: the Agent discovers and loads them through visible tool calls from ordinary conversation.
+The collapsed model trigger uses the recognizable model display name
 plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
 Provider identity remains visible inside model browsing and diagnostics where duplicate names need
 disambiguation.
@@ -1206,17 +1207,20 @@ The UI injects selection capture time and revision; stale block selections are n
 newer body.
 
 `read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
-active run. In Auto mode, the first successful primary `SKILL.md` read atomically selects that one
-primary Skill; a second primary conflicts. Dependency entrypoints are supplied with the primary,
-and at most four manifest-listed primary reference files may be read afterward. Skill guidance is
-delimited below global policy and is never treated as manuscript data. Durable events store only
-IDs, pins, relative paths, hashes, and byte counts, never Skill bodies or private paths.
+active run. In Auto mode, one Skill-only response may add one previously unselected top-level
+`SKILL.md`; a run may compose at most four ordered top-level Skills plus a deduplicated closure of
+at most eight dependencies. Every top-level and dependency manifest contributes exact reference
+capabilities. A run may retain at most twelve complete reference files and 32 KiB of reference
+content, keyed by Skill ID, commit, and relative path. Skill guidance is delimited below global
+policy and is never treated as manuscript data. Durable events store only IDs, pins, relative
+paths, hashes, and byte counts, never Skill bodies or private paths. See ADR 053.
 
-Writing Skill reads form a preparation barrier for downstream work. An already injected explicit
-entrypoint is not reread; Auto selects at most one candidate entrypoint in an otherwise Skill-only
-assistant response. The model may then issue up to four task-relevant reference reads together,
-but it waits for all selected reference results before issuing manuscript, knowledge, citation,
-generation, checking, or submission tools in a later assistant response.
+Writing Skill reads form a preparation barrier for downstream work. Already injected explicit
+entrypoints are not reread; Auto adds at most one new top-level entrypoint in an otherwise
+Skill-only assistant response. The model may then issue independent authorized reference reads
+together within the remaining count and byte budgets, but it waits for every selected result
+before issuing manuscript, knowledge, citation, generation, checking, or submission tools in a
+later assistant response.
 
 Read-only tools may execute in parallel when their results are independent.
 
@@ -1299,13 +1303,15 @@ to a reviewed pin and file allowlist shipped in a later application catalog. Cus
 user-confirmed immutable GitHub commit under TOFU semantics. Only UTF-8 `.md` and `.txt` files are
 accepted, and no skill content is executable.
 
-Each Agent session durably owns `{ mode: 'auto' }`, `{ mode: 'explicit', skillId }`, or
-`{ mode: 'none' }`; new and migrated sessions default to Auto. The setting changes only while the
-session is idle. Explicit selection remains intact if its installation later becomes unavailable,
-and new runs fail closed until the user reinstalls it or changes the setting. A run snapshot
-persists immutable provenance, authorized resources, routing status, and safe errors but never
-Skill bodies. Retry and Continue reuse the original snapshot. Historical `skill_route` model
-requests and legacy snapshot states remain readable, but new runs create no routing request.
+Writing Skills are dynamic per-run Agent actions, never session or composer state. Every new run
+receives the same bounded metadata catalog; an ordinary-language user request and an Agent-initiated
+choice both resolve through `read_writing_skill`. Skill content cannot enter the run before that
+visible tool call succeeds. A versioned run snapshot persists immutable display/provenance records
+for the top-level Skills, dependencies, and resources actually loaded, plus routing status and safe
+errors, but never Skill bodies. Retry reauthorizes the exact recorded versions and reproduces their
+loads through the tool loop. Historical session selection fields, single-primary snapshots, and
+`skill_route` model requests remain readable compatibility data but do not control new runs. See
+ADR 054.
 `listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
 credential surface, so historical conversation totals remain complete.
 
@@ -1313,12 +1319,12 @@ Pi `loadSourcedSkills` runs over a read-only, manifest-backed virtual `Execution
 stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any Pi or
 WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
 `formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog of at most 32 complete entries and
-16 KiB; truncation is logged as `skill_catalog_truncated`. Explicit prompt composition uses
-`formatSkillInvocation` for the frozen primary and dependency entrypoints on every turn, then
-places each invocation inside one escaped application-owned `WRITING_SKILL_ENTRYPOINT` semantic
-block. Prompt order remains global policy, companion/catalog or invocation guidance, trusted
-requirements, then manuscript data. Model-visible locations use `writellm://skills/...`, never
-private filesystem paths.
+16 KiB; truncation is logged as `skill_catalog_truncated`. A successful tool read places that exact
+immutable entrypoint or reference below global policy in one escaped application-owned semantic
+block for later turns in the same run. Top-level precedence follows successful load order;
+dependencies remain below every top-level Skill. Prompt order remains global policy,
+companion/catalog and loaded guidance, trusted requirements, then manuscript data.
+Model-visible locations use `writellm://skills/...`, never private filesystem paths.
 
 Custom-skill update availability is an ephemeral result of the user's explicit GitHub check. Main
 persists only the confirmed immutable commit pin; it does not persist or automatically trust a

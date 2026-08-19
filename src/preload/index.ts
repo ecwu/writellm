@@ -80,8 +80,6 @@ import {
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
-  agentSetSkillSelectionInputSchema,
-  agentSetSkillSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentStopCompactionInputSchema,
@@ -644,9 +642,6 @@ export interface DesktopApi {
       agentSessionId: string
       level: AgentThinkingLevel
     }): Promise<AgentSessionRecord>
-    setSkillSelection(
-      input: ReturnType<typeof agentSetSkillSelectionInputSchema.parse>
-    ): Promise<AgentSessionRecord>
     updateWritingTask(
       input: ReturnType<typeof userUpdateWritingTaskInputSchema.parse>
     ): Promise<WritingTaskView>
@@ -1690,14 +1685,6 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.agentSetThinkingLevel,
           agentSetThinkingLevelInputSchema.parse(input)
-        )
-      )
-    },
-    async setSkillSelection(input) {
-      return agentSetSkillSelectionResultSchema.parse(
-        await ipcRenderer.invoke(
-          IPC_CHANNELS.agentSetSkillSelection,
-          agentSetSkillSelectionInputSchema.parse(input)
         )
       )
     },

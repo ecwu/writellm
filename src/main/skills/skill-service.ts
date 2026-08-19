@@ -557,7 +557,7 @@ export class SkillService {
         'The recorded writing skill manifest does not match the requested version'
       )
     }
-    return this.#loadManifest(manifest, row.license_spdx)
+    return this.#loadManifest(manifest, row.license_spdx, row.display_name)
   }
 
   async readResource(skill: WriteLlmSkill, relativePath: string): Promise<string> {
@@ -589,10 +589,14 @@ export class SkillService {
 
   async #load(row: AgentSkillTable): Promise<WriteLlmSkill> {
     const manifest = parseStoredManifest(row.manifest_json)
-    return this.#loadManifest(manifest, row.license_spdx)
+    return this.#loadManifest(manifest, row.license_spdx, row.display_name)
   }
 
-  async #loadManifest(manifest: StoredManifest, license: string | null): Promise<WriteLlmSkill> {
+  async #loadManifest(
+    manifest: StoredManifest,
+    license: string | null,
+    displayName: string
+  ): Promise<WriteLlmSkill> {
     const entry = manifest.files.find((file) => file.path === 'SKILL.md')
     if (entry === undefined)
       throw new SkillServiceError('skill_manifest_invalid', 'SKILL.md is missing')
@@ -624,6 +628,7 @@ export class SkillService {
     }
     return {
       skillId: manifest.skillId,
+      displayName,
       name: parsed.name,
       description: parsed.description,
       content: parsed.body,

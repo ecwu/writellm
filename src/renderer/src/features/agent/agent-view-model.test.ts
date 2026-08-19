@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
+import type { AgentToolActivity } from './agent-view-model'
 import {
   aggregateAgentUsage,
   agentReviewState,
@@ -473,6 +474,56 @@ describe('Agent renderer view model', () => {
     expect(agentToolActivityLabel(search)).toBe('Searching sources')
   })
 
+  it('names visible Writing Skill entrypoint and reference activity from safe projections', () => {
+    const timeline = projectAgentTimeline([
+      toolCallRecord(1, 'skill-entry', 'read_writing_skill', {
+        uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/SKILL.md`
+      }),
+      toolResultRecord(2, 'skill-entry', 'read_writing_skill', {
+        result: {
+          skillId: 'nature-writing',
+          displayName: 'Nature Writing',
+          relativePath: 'SKILL.md'
+        }
+      }),
+      toolCallRecord(3, 'skill-ref', 'read_writing_skill', {
+        uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/references/method.md`
+      }),
+      toolResultRecord(4, 'skill-ref', 'read_writing_skill', {
+        result: {
+          skillId: 'nature-writing',
+          displayName: 'Nature Writing',
+          relativePath: 'references/method.md'
+        }
+      })
+    ])
+    const activity = timeline[0]
+    expect(activity).toMatchObject({
+      type: 'activity',
+      summary: 'Loaded Nature Writing · 1 reference file'
+    })
+    if (activity?.type !== 'activity') throw new Error('Expected Writing Skill activity')
+    expect(activity.tools.map(agentToolActivityLabel)).toEqual([
+      'Loaded Nature Writing · SKILL.md',
+      'Read Nature Writing · references/method.md'
+    ])
+  })
+
+  it('shows the safe Writing Skill display name while an Auto entrypoint is loading', () => {
+    const timeline = projectAgentTimeline([
+      toolCallRecord(1, 'skill-entry', 'read_writing_skill', {
+        uri: `writellm://skills/github%3Aopaque/${'a'.repeat(40)}/SKILL.md`,
+        displayName: 'Nature Writing'
+      })
+    ])
+    const activity = timeline[0]
+    expect(activity).toMatchObject({ type: 'activity', summary: 'Loading Nature Writing' })
+    if (activity?.type !== 'activity') throw new Error('Expected Writing Skill activity')
+    expect(agentToolActivityLabel(activity.tools[0] as AgentToolActivity)).toBe(
+      'Loading Nature Writing'
+    )
+  })
+
   it('distinguishes a partial failure from a wholly failed activity group', () => {
     const events = [
       assistantRecord(1, 'I will inspect the draft.'),
@@ -934,8 +985,13 @@ function assistantRecord(
   })
 }
 
-function toolCallRecord(sequence: number, toolCallId: string, toolName: string): AgentEventRecord {
-  return record(sequence, 'tool_call', { toolCallId, toolName, args: {}, timestamp: sequence })
+function toolCallRecord(
+  sequence: number,
+  toolCallId: string,
+  toolName: string,
+  args: Record<string, unknown> = {}
+): AgentEventRecord {
+  return record(sequence, 'tool_call', { toolCallId, toolName, args, timestamp: sequence })
 }
 
 function toolResultRecord(
@@ -1074,9 +1130,10 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
 
 function legacySkillSnapshot(): AgentRunRecord['skillSnapshot'] {
   return {
+    schemaVersion: 2,
     mode: 'none',
     routingStatus: 'legacy',
-    primary: null,
+    skills: [],
     dependencies: [],
     resources: [],
     safeError: null

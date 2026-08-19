@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -6,11 +7,13 @@ import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test }
 const SKILL_FIXTURE_ENV = 'WRITELLM_E2E_SKILL_FIXTURE_PATH'
 
 test(
-  'keeps a global skill across projects and snapshots an explicit invocation',
+  'composes global Skills, reads five references, and preserves visible provenance',
   scenario('agent.global-writing-skill'),
   async ({ testRoot }) => {
     const requests: unknown[] = []
-    let autoSkillUri: string | undefined
+    let autoSkillUris: string[] = []
+    let autoReferenceUris: string[] = []
+    let autoToolBatch = 0
     const server = createServer((request, response) => {
       if (request.method === 'GET' && request.url === '/v1/models') {
         response.writeHead(200, { 'content-type': 'application/json' })
@@ -32,16 +35,26 @@ test(
           const lastMessage = body.messages?.at(-1)
           if (
             lastMessage?.role === 'user' &&
-            JSON.stringify(lastMessage.content).includes('Use Auto writing skill.')
+            JSON.stringify(lastMessage.content).includes('Load e2e-writing and e2e-humanize')
           ) {
-            if (autoSkillUri === undefined) throw new Error('Auto Skill URI is missing')
-            sendToolCall(response, autoSkillUri)
+            if (autoSkillUris.length !== 2) throw new Error('Auto Skill URIs are missing')
+            sendToolCalls(response, [autoSkillUris[0] as string], autoToolBatch++)
             return
           }
-          const content =
-            lastMessage?.role === 'tool'
-              ? 'An Auto skill fixture draft.'
-              : 'A global skill fixture draft.'
+          if (lastMessage?.role === 'tool') {
+            const requestText = JSON.stringify(body)
+            if (!requestText.includes('Keep sentence rhythm varied')) {
+              sendToolCalls(response, [autoSkillUris[1] as string], autoToolBatch++)
+              return
+            }
+            if (!requestText.includes('Use concrete nouns and active verbs')) {
+              sendToolCalls(response, autoReferenceUris, autoToolBatch++)
+              return
+            }
+            sendCompletion(response, 'An Auto skill fixture draft.')
+            return
+          }
+          const content = 'A global skill fixture draft.'
           if (JSON.stringify(lastMessage?.content).includes('Write a short draft.')) {
             setTimeout(() => sendCompletion(response, content), 1_500)
             return
@@ -62,7 +75,10 @@ test(
       userData: join(testRoot, 'user-data'),
       dialogPaths: [testRoot, testRoot],
       env: {
-        [SKILL_FIXTURE_ENV]: join(process.cwd(), 'e2e/fixtures/writing-skill')
+        [SKILL_FIXTURE_ENV]: JSON.stringify([
+          join(process.cwd(), 'e2e/fixtures/writing-skill'),
+          join(process.cwd(), 'e2e/fixtures/writing-skill-companion')
+        ])
       }
     })
     try {
@@ -72,6 +88,7 @@ test(
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
       await settings.getByRole('option', { name: 'Writing Skills' }).click()
       await expect(settings.getByRole('switch', { name: 'Enable e2e-writing' })).toBeVisible()
+      await expect(settings.getByRole('switch', { name: 'Enable e2e-humanize' })).toBeVisible()
       await expect(settings.getByText(/^CCF Visual Composer/)).toBeVisible()
       await expect(settings.getByText(/^CCF Paper Reviewer/)).toBeVisible()
       await expect(settings.getByText(/^CCF Integrity Auditor/)).toBeVisible()
@@ -84,13 +101,18 @@ test(
       await expect
         .poll(() =>
           launched.page.evaluate(async () => {
-            const skill = (await window.desktop.skills.snapshot()).installed.find(
-              (candidate) => candidate.name === 'e2e-writing'
+            const installed = (await window.desktop.skills.snapshot()).installed.filter(
+              (candidate) => candidate.name === 'e2e-writing' || candidate.name === 'e2e-humanize'
             )
-            return skill?.displayStatus
+            return installed
+              .map((skill) => [skill.name, skill.displayStatus])
+              .sort(([left], [right]) => (left ?? '').localeCompare(right ?? ''))
           })
         )
-        .toBe('ready')
+        .toEqual([
+          ['e2e-humanize', 'ready'],
+          ['e2e-writing', 'ready']
+        ])
 
       await launched.page.getByLabel('Section title').fill('Draft')
       await launched.page.getByLabel('Section title').press('Tab')
@@ -106,93 +128,60 @@ test(
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
-      await details.getByRole('button', { name: 'Choose writing skill' }).click()
-      await launched.page.getByRole('option', { name: /e2e-writing/ }).click()
-      await launched.page.keyboard.press('Escape')
       await details.getByRole('button', { name: 'Close', exact: true }).click()
       await expect(details).toBeHidden()
-      await panel.getByLabel('Agent message').fill('Write a short draft.')
-      await panel.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toHaveCount(0)
 
-      const runStatus = panel.getByTestId('agent-status')
-      await expect(runStatus).toContainText(
-        /Loading writing guidance|Preparing the next step|Writing an update/
-      )
-      await expect(runStatus.locator('[data-slot="badge"]')).toHaveCount(0)
-      await panel.getByTestId('agent-conversation-menu').click()
-      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
-      details = launched.page.getByRole('dialog', { name: 'Agent details' })
-      await expect(details).toContainText('E2E Agent · Writer model')
-      await expect(details).toContainText('Thinking')
-      await expect(details).toContainText('e2e-writing')
-      await details.getByRole('button', { name: 'Close', exact: true }).click()
-      await expect(details).toBeHidden()
-
-      await expect(panel.getByText('A global skill fixture draft.', { exact: true })).toBeVisible()
-      await panel.getByRole('button', { name: 'Close writing agent' }).click()
-      await launched.page.getByTestId('agent-menubar-trigger').click()
-      await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
-        'Short draft writing'
-      )
-      await panel.getByTestId('agent-conversation-menu').click()
-      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
-      details = launched.page.getByRole('dialog', { name: 'Agent details' })
-      await expect(details.getByRole('button', { name: 'Choose writing skill' })).toContainText(
-        'e2e-writing'
-      )
-      await details.getByRole('button', { name: 'Close', exact: true }).click()
-      await expect(details).toBeHidden()
-      await panel.getByLabel('Agent message').fill('Write a second short draft.')
-      await panel.getByRole('button', { name: 'Send', exact: true }).click()
-      await expect(panel.getByText('A global skill fixture draft.', { exact: true })).toHaveCount(2)
-      const truth = await launched.page.evaluate(async () => {
-        const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
-        const session = (
-          await window.desktop.agent.listSessions({
-            projectSessionId: project.projectSessionId
-          })
-        )[0]
-        if (session === undefined) throw new Error('Agent session is missing')
-        return (
-          await window.desktop.agent.listRuns({
-            projectSessionId: project.projectSessionId,
-            agentSessionId: session.agentSessionId
-          })
-        )[0]
-      })
-      expect(truth?.skillSnapshot).toMatchObject({
-        mode: 'explicit',
-        routingStatus: 'selected',
-        primary: { name: 'e2e-writing', commit: 'e'.repeat(40) }
-      })
-      expect(requests).toHaveLength(2)
-      for (const request of requests) {
-        const requestText = JSON.stringify(request)
-        expect(requestText).toContain('global skill fixture')
-        expect(requestText).toContain('writellm://skills/')
-        expect(requestText).not.toContain('agent-skills')
-      }
-
-      const installedSkill = (
+      const installedSkills = (
         await launched.page.evaluate(() => window.desktop.skills.snapshot())
-      ).installed.find((candidate) => candidate.name === 'e2e-writing')
-      if (installedSkill === undefined) throw new Error('Installed E2E writing skill is missing')
-      autoSkillUri = `writellm://skills/${encodeURIComponent(installedSkill.skillId)}/${installedSkill.commit}/SKILL.md`
-
-      await panel.getByTestId('agent-conversation-switcher').click()
-      await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
-      await panel.getByTestId('agent-conversation-menu').click()
-      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
-      details = launched.page.getByRole('dialog', { name: 'Agent details' })
-      await expect(details.getByRole('button', { name: 'Choose writing skill' })).toContainText(
-        'Auto'
+      ).installed.filter(
+        (candidate) => candidate.name === 'e2e-writing' || candidate.name === 'e2e-humanize'
       )
-      await details.getByRole('button', { name: 'Close', exact: true }).click()
-      await expect(details).toBeHidden()
-      await panel.getByLabel('Agent message').fill('Use Auto writing skill.')
+      const writingSkill = installedSkills.find((skill) => skill.name === 'e2e-writing')
+      const humanizeSkill = installedSkills.find((skill) => skill.name === 'e2e-humanize')
+      if (writingSkill === undefined || humanizeSkill === undefined) {
+        throw new Error('Installed E2E writing Skills are missing')
+      }
+      autoSkillUris = [skillUri(writingSkill), skillUri(humanizeSkill)]
+      autoReferenceUris = [
+        skillUri(writingSkill, 'references/voice.md'),
+        skillUri(writingSkill, 'references/structure.md'),
+        skillUri(writingSkill, 'references/revision.md'),
+        skillUri(humanizeSkill, 'references/rhythm.md'),
+        skillUri(humanizeSkill, 'references/clarity.md')
+      ]
+
+      await panel
+        .getByLabel('Agent message')
+        .fill('Load e2e-writing and e2e-humanize, read their relevant references, then draft.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(panel.getByText('Loaded 2 Writing Skills · 5 reference files')).toBeVisible()
       await expect(panel.getByText('An Auto skill fixture draft.', { exact: true })).toBeVisible()
+      await expect(panel.getByLabel('Writing Skills used for this message')).toHaveCount(0)
+      const screenshotDirectory = process.env.WRITELLM_CP60_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp60-writing-skills-desktop.png'),
+          animations: 'disabled'
+        })
+      }
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1_000)
+      await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toHaveCount(0)
+      const panelWidth = await panel.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth
+      }))
+      expect(panelWidth.scrollWidth).toBeLessThanOrEqual(panelWidth.clientWidth + 1)
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp60-writing-skills-narrow.png'),
+          animations: 'disabled'
+        })
+      }
+      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
 
       const autoTruth = await launched.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
@@ -211,13 +200,55 @@ test(
         )[0]
       })
       expect(autoTruth?.skillSnapshot).toMatchObject({
+        schemaVersion: 2,
         mode: 'auto',
         routingStatus: 'selected',
-        primary: { name: 'e2e-writing', commit: 'e'.repeat(40) }
+        skills: [
+          { name: 'e2e-writing', commit: 'e'.repeat(40) },
+          { name: 'e2e-humanize', commit: 'f'.repeat(40) }
+        ],
+        resources: expect.arrayContaining([
+          expect.objectContaining({
+            skillId: writingSkill.skillId,
+            relativePath: 'references/voice.md'
+          }),
+          expect.objectContaining({
+            skillId: writingSkill.skillId,
+            relativePath: 'references/structure.md'
+          }),
+          expect.objectContaining({
+            skillId: writingSkill.skillId,
+            relativePath: 'references/revision.md'
+          }),
+          expect.objectContaining({
+            skillId: humanizeSkill.skillId,
+            relativePath: 'references/rhythm.md'
+          }),
+          expect.objectContaining({
+            skillId: humanizeSkill.skillId,
+            relativePath: 'references/clarity.md'
+          })
+        ])
       })
+      expect(autoTruth?.skillSnapshot.resources).toHaveLength(5)
       expect(requests).toHaveLength(4)
-      expect(JSON.stringify(requests[2])).toContain(autoSkillUri)
-      expect(JSON.stringify(requests[3])).toContain('WRITELLM_SKILL_GUIDANCE')
+      expect(JSON.stringify(requests[0])).toContain(autoSkillUris[0])
+      expect(JSON.stringify(requests[1])).toContain(autoSkillUris[1])
+      expect(JSON.stringify(requests[2])).toContain('WRITELLM_SKILL_GUIDANCE')
+      expect(JSON.stringify(requests[3])).toContain('Use concrete nouns and active verbs')
+      await panel.getByTestId('agent-conversation-menu').click()
+      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      details = launched.page.getByRole('dialog', { name: 'Agent details' })
+      await expect(details.getByText('2 loaded', { exact: true })).toBeVisible()
+      await expect(details.getByRole('button', { name: 'Choose writing skill' })).toHaveCount(0)
+      await expect(details.getByText('Retained references', { exact: true })).toBeVisible()
+      await expect(details.getByText('references/clarity.md', { exact: false })).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp60-writing-skills-details.png'),
+          animations: 'disabled'
+        })
+      }
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -225,7 +256,7 @@ test(
   }
 )
 
-function sendToolCall(response: ServerResponse, uri: string): void {
+function sendToolCalls(response: ServerResponse, uris: string[], batch: number): void {
   sendSse(response, [
     {
       id: 'auto-skill-tool-call',
@@ -237,14 +268,12 @@ function sendToolCall(response: ServerResponse, uri: string): void {
           index: 0,
           delta: {
             role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: 'read-auto-writing-skill',
-                type: 'function',
-                function: { name: 'read_writing_skill', arguments: JSON.stringify({ uri }) }
-              }
-            ]
+            tool_calls: uris.map((uri, index) => ({
+              index,
+              id: `read-auto-writing-skill-${batch}-${index}`,
+              type: 'function',
+              function: { name: 'read_writing_skill', arguments: JSON.stringify({ uri }) }
+            }))
           },
           finish_reason: null
         }
@@ -259,6 +288,13 @@ function sendToolCall(response: ServerResponse, uri: string): void {
       usage: { prompt_tokens: 20, completion_tokens: 6, total_tokens: 26 }
     }
   ])
+}
+
+function skillUri(skill: { skillId: string; commit: string }, relativePath = 'SKILL.md'): string {
+  return `writellm://skills/${encodeURIComponent(skill.skillId)}/${skill.commit}/${relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')}`
 }
 
 function sendCompletion(response: ServerResponse, content: string): void {

@@ -202,6 +202,13 @@ export async function runAgentSession(
       const calls = assistantMessage.content
         .filter((part) => part.type === 'toolCall')
         .map((part) => ({ id: part.id, name: part.name }))
+      const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')
+      if (skillCalls.length > 0 && calls.some((call) => call.name !== 'read_writing_skill')) {
+        return {
+          block: true,
+          reason: 'Writing Skill preparation cannot be mixed with other tools'
+        }
+      }
       const mutationCalls = calls.filter((call) => isMutationTool(call.name))
       if (isMutationTool(toolCall.name) && mutationCalls.length > 1) {
         return {

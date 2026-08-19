@@ -206,37 +206,35 @@ export const readWritingSkillArgsSchema = strictObject({
     .describe('Copy the exact writellm:// URI from the run Skill snapshot or prior Skill result.')
 })
 
+const writingSkillReferenceDescriptorSchema = strictObject({
+  skillId: z.string().min(1).max(200),
+  displayName: z.string().trim().min(1).max(200),
+  relativePath: z.string().min(1).max(1_024),
+  uri: z.string().min(1).max(2_048).startsWith('writellm://skills/'),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  byteSize: z.number().int().positive().max(SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES)
+})
+
+const writingSkillDependencyResultSchema = strictObject({
+  skillId: z.string().min(1).max(200),
+  displayName: z.string().trim().min(1).max(200),
+  commit: z.string().regex(/^[a-f0-9]{40}$/),
+  relativePath: z.literal('SKILL.md'),
+  uri: z.string().min(1).max(2_048).startsWith('writellm://skills/'),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  byteSize: z.number().int().positive().max(65_536)
+})
+
 export const readWritingSkillResultSchema = strictObject({
   skillId: z.string().min(1).max(200),
+  displayName: z.string().trim().min(1).max(200),
   commit: z.string().regex(/^[a-f0-9]{40}$/),
   relativePath: z.string().min(1).max(1_024),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   byteSize: z.number().int().positive().max(65_536),
   content: z.string().max(65_536),
-  references: z
-    .array(
-      strictObject({
-        relativePath: z.string().min(1).max(1_024),
-        uri: z.string().min(1).max(2_048).startsWith('writellm://skills/'),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-        byteSize: z.number().int().positive().max(SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES)
-      })
-    )
-    .max(31)
-    .default([]),
-  dependencies: z
-    .array(
-      strictObject({
-        skillId: z.string().min(1).max(200),
-        commit: z.string().regex(/^[a-f0-9]{40}$/),
-        relativePath: z.literal('SKILL.md'),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-        byteSize: z.number().int().positive().max(65_536),
-        content: z.string().max(65_536)
-      })
-    )
-    .max(8)
-    .default([])
+  references: z.array(writingSkillReferenceDescriptorSchema).max(31).default([]),
+  dependencies: z.array(writingSkillDependencyResultSchema).max(8).default([])
 })
 
 export const getWritingContextArgsSchema = strictObject({

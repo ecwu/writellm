@@ -7,6 +7,10 @@ export const SKILL_MAX_TOTAL_BYTES = 48 * 1024
 export const SKILL_MAX_ENTRYPOINT_BYTES = 24 * 1024
 export const SKILL_MAX_REFERENCE_BYTES = 8 * 1024
 export const SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES = 64 * 1024
+export const SKILL_MAX_ACTIVE_SKILLS = 4
+export const SKILL_MAX_DEPENDENCIES = 8
+export const SKILL_MAX_RUN_REFERENCES = 12
+export const SKILL_MAX_RUN_REFERENCE_BYTES = 32 * 1024
 
 export const skillIdSchema = z
   .string()
@@ -42,14 +46,9 @@ export const skillRelativePathSchema = z
   .max(1_024)
   .regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\\).+\.(?:md|txt)$/i)
 
-export const skillSelectionSchema = z.discriminatedUnion('mode', [
-  strictObject({ mode: z.literal('auto') }),
-  strictObject({ mode: z.literal('explicit'), skillId: skillIdSchema }),
-  strictObject({ mode: z.literal('none') })
-])
-
 export const skillRunProvenanceSchema = strictObject({
   skillId: skillIdSchema,
+  displayName: z.string().trim().min(1).max(200),
   name: skillNameSchema,
   commit: skillCommitSchema,
   manifestSha256: z.string().regex(/^[a-f0-9]{64}$/)
@@ -63,14 +62,69 @@ export const skillRoutingStatusSchema = z.enum([
   'degraded',
   'failed'
 ])
-export const skillRunSnapshotSchema = strictObject({
+export const skillRunResourceSchema = strictObject({
+  skillId: skillIdSchema,
+  commit: skillCommitSchema,
+  relativePath: skillRelativePathSchema,
+  sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+  byteSize: z.number().int().nonnegative().max(1_048_576).nullable()
+})
+
+const canonicalSkillRunSnapshotSchema = strictObject({
+  schemaVersion: z.literal(2),
   mode: z.enum(['auto', 'explicit', 'none']),
   routingStatus: skillRoutingStatusSchema,
-  primary: skillRunProvenanceSchema.nullable(),
-  dependencies: z.array(skillRunProvenanceSchema).max(8),
+  skills: z.array(skillRunProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
+  dependencies: z.array(skillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
+  resources: z.array(skillRunResourceSchema).max(SKILL_MAX_RUN_REFERENCES),
+  safeError: z.string().min(1).max(200).nullable()
+})
+
+const legacySkillRunProvenanceSchema = strictObject({
+  skillId: skillIdSchema,
+  name: skillNameSchema,
+  commit: skillCommitSchema,
+  manifestSha256: z.string().regex(/^[a-f0-9]{64}$/)
+})
+
+const legacySkillRunSnapshotSchema = strictObject({
+  mode: z.enum(['auto', 'explicit', 'none']),
+  routingStatus: skillRoutingStatusSchema,
+  primary: legacySkillRunProvenanceSchema.nullable(),
+  dependencies: z.array(legacySkillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
   resources: z.array(skillRelativePathSchema).max(4),
   safeError: z.string().min(1).max(200).nullable()
 })
+
+export const skillRunSnapshotSchema = z.preprocess((value) => {
+  const legacy = legacySkillRunSnapshotSchema.safeParse(value)
+  if (!legacy.success) return value
+  const primary = legacy.data.primary
+  return {
+    schemaVersion: 2,
+    mode: legacy.data.mode,
+    routingStatus: legacy.data.routingStatus,
+    skills: primary === null ? [] : [{ ...primary, displayName: primary.name }],
+    dependencies: legacy.data.dependencies.map((dependency) => ({
+      ...dependency,
+      displayName: dependency.name
+    })),
+    resources:
+      primary === null
+        ? []
+        : legacy.data.resources.map((relativePath) => ({
+            skillId: primary.skillId,
+            commit: primary.commit,
+            relativePath,
+            sha256: null,
+            byteSize: null
+          })),
+    safeError: legacy.data.safeError
+  }
+}, canonicalSkillRunSnapshotSchema)
 
 export const skillManifestFileSchema = strictObject({
   path: skillRelativePathSchema,
@@ -186,8 +240,8 @@ export const skillChangeEventSchema = strictObject({
   revision: z.number().int().nonnegative()
 })
 
-export type SkillSelection = z.infer<typeof skillSelectionSchema>
 export type SkillRunSnapshot = z.infer<typeof skillRunSnapshotSchema>
+export type SkillRunResource = z.infer<typeof skillRunResourceSchema>
 export type SkillManifestFile = z.infer<typeof skillManifestFileSchema>
 export type InstalledSkill = z.infer<typeof installedSkillSchema>
 export type SkillsSnapshot = z.infer<typeof skillsSnapshotSchema>

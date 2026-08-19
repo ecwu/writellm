@@ -125,7 +125,6 @@ export const IPC_CHANNELS = {
   agentSetApprovalMode: 'agent:set-approval-mode',
   agentSetModelSelection: 'agent:set-model-selection',
   agentSetThinkingLevel: 'agent:set-thinking-level',
-  agentSetSkillSelection: 'agent:set-skill-selection',
   agentUpdateWritingTask: 'agent:update-writing-task',
   agentListEvents: 'agent:list-events',
   agentListRuns: 'agent:list-runs',

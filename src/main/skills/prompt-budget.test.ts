@@ -8,19 +8,25 @@ import { formatWriteLlmSkill } from './prompt'
 describe('writing skill prompt budget baseline', () => {
   it('stages bounded Skill preparation before downstream tools', () => {
     expect(SKILL_COMPANION_NOTE).toContain(
-      'If a complete WRITING_SKILL_ENTRYPOINT block is already present, do not call read_writing_skill for its SKILL.md again.'
+      'The catalog contains metadata only; even when the user names a Skill, call read_writing_skill'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'read exactly one candidate SKILL.md and make no other tool calls in that assistant response.'
+      'Load at most one new top-level or dependency entrypoint and make no other tool calls in that assistant response.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'read only the task-relevant references you need, up to four'
+      'load every listed dependency through read_writing_skill before references or downstream work.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'do not mix them with non-Skill tool calls in the same assistant response.'
+      'Read only task-relevant advertised references from loaded Skills, up to twelve complete files and 32 KiB total'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'Wait for all selected reference results before planning downstream work'
+      'never mix them with non-Skill tool calls in the same assistant response.'
+    )
+    expect(SKILL_COMPANION_NOTE).toContain(
+      'Wait for all Skill results before planning downstream work'
+    )
+    expect(SKILL_COMPANION_NOTE).toContain(
+      'Once any non-Skill tool is called, do not load another Skill in that run.'
     )
   })
 
@@ -48,7 +54,7 @@ describe('writing skill prompt budget baseline', () => {
     }).toEqual({
       max: 65_536,
       policy: 12_148,
-      companion: 1_348,
+      companion: 1_758,
       emptyInvocation: 197,
       wrappedEntrypoint: 292,
       fixedEnvelope: 165

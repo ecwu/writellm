@@ -265,7 +265,6 @@ describe('Agent IPC contracts', () => {
       workflowState: 'idle',
       modelSelection: null,
       thinkingLevel: 'off',
-      skillSelection: { mode: 'auto' },
       createdAt: '2026-08-11T10:00:00.000Z',
       updatedAt: '2026-08-11T11:00:00.000Z',
       archivedAt: '2026-08-11T11:00:00.000Z'

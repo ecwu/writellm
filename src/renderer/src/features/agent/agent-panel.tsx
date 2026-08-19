@@ -20,7 +20,6 @@ import {
   type AgentApprovalMode
 } from '../../../../shared/contracts/agent'
 import { agentToolCallPayloadSchema } from '../../../../shared/contracts/agent-tools'
-import type { SkillSelection, SkillsSnapshot } from '../../../../shared/contracts/skills'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
 import type {
   AgentModelSelection,
@@ -200,7 +199,6 @@ export function AgentPanel(props: {
   open: boolean
   onOpenChange(open: boolean): void
   onOpenSettings(): void
-  onOpenSkillSettings(): void
   projectSessionId: string
   activeSectionId: string | null
   sectionTitles: Readonly<Record<string, string>>
@@ -232,11 +230,9 @@ export function AgentPanel(props: {
   const [prompt, setPrompt] = useState('')
   const [scopePreference, setScopePreference] = useState<'auto' | AgentStartScope>('auto')
   const [reviewFeedback, setReviewFeedback] = useState('')
-  const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
   const [composerAddOpen, setComposerAddOpen] = useState(false)
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false)
   const [slashSelectionIndex, setSlashSelectionIndex] = useState(0)
-  const [detailsSkillPickerOpen, setDetailsSkillPickerOpen] = useState(false)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [taskEditorOpen, setTaskEditorOpen] = useState(false)
@@ -387,15 +383,10 @@ export function AgentPanel(props: {
     let disposed = false
     setLoading(true)
     setError(null)
-    void Promise.all([
-      refreshSessions(true),
-      window.desktop.providers.snapshot(),
-      window.desktop.skills.snapshot()
-    ])
-      .then(([, snapshot, nextSkills]) => {
+    void Promise.all([refreshSessions(true), window.desktop.providers.snapshot()])
+      .then(([, snapshot]) => {
         if (!disposed) {
           setProviderCatalog(snapshot.agentCatalog)
-          setSkillSnapshot(nextSkills)
         }
       })
       .catch(() => {
@@ -409,18 +400,6 @@ export function AgentPanel(props: {
       disposed = true
     }
   }, [props.open, refreshSessions])
-
-  useEffect(() => {
-    if (!props.open) return
-    return window.desktop.skills.subscribeChanges(() => {
-      void window.desktop.skills
-        .snapshot()
-        .then((next) => {
-          setSkillSnapshot(next)
-        })
-        .catch(() => undefined)
-    })
-  }, [props.open])
 
   useEffect(() => {
     if (!props.open) return
@@ -666,7 +645,6 @@ export function AgentPanel(props: {
   const activeSession =
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
   const activeSessionArchived = activeSession?.status === 'archived'
-  const skillSelection: SkillSelection = activeSession?.skillSelection ?? { mode: 'auto' }
   const activeRun = runs.find((run) => run.status === 'running') ?? null
   const pendingMessages =
     liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId)?.pendingMessages ?? []
@@ -865,30 +843,6 @@ export function AgentPanel(props: {
     }
   }
 
-  const setSkillSelection = async (selection: SkillSelection): Promise<void> => {
-    if (activeSessionArchived || activeRun !== null || conversationLocked) return
-    setBusy(true)
-    setError(null)
-    try {
-      const session = activeSession ?? (await createSession())
-      const updated = await window.desktop.agent.setSkillSelection({
-        projectSessionId: props.projectSessionId,
-        agentSessionId: session.agentSessionId,
-        selection
-      })
-      setSessions((current) =>
-        current.map((session) =>
-          session.agentSessionId === updated.agentSessionId ? updated : session
-        )
-      )
-      setComposerAddOpen(false)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const openSession = (agentSessionId: string): void => {
     setActiveSessionId(agentSessionId)
     setContinuationFailure(null)
@@ -1015,7 +969,6 @@ export function AgentPanel(props: {
     approvedProposalId?: string,
     allowWhileBusy = false,
     skipEditorFlush = false,
-    _selectionOverride?: SkillSelection,
     reuseSkillFromRunId?: string,
     rejectedProposalId?: string,
     quickAction?: AgentQuickActionRequest,
@@ -1121,7 +1074,6 @@ export function AgentPanel(props: {
         undefined,
         false,
         true,
-        undefined,
         undefined,
         undefined,
         request.quickAction,
@@ -1349,7 +1301,6 @@ export function AgentPanel(props: {
             result.proposal.proposalId,
             true,
             true,
-            undefined,
             proposal.agentRunId
           )
           if (!continued) {
@@ -1379,7 +1330,6 @@ export function AgentPanel(props: {
             undefined,
             true,
             true,
-            undefined,
             proposal.agentRunId,
             result.proposal.proposalId
           )
@@ -1473,9 +1423,7 @@ export function AgentPanel(props: {
   const composerCommands = buildComposerCommands({
     selectionAvailable: selectionIsAvailable,
     sectionAvailable: props.activeSectionId !== null,
-    scopePreference,
-    skillSnapshot,
-    skillSelection
+    scopePreference
   })
   const slashQuery = slashCommandQuery(prompt)
   const slashCommands = filterComposerCommands(composerCommands, slashQuery ?? '')
@@ -1492,10 +1440,6 @@ export function AgentPanel(props: {
     if (clearSlash) setPrompt('')
     if (command.action.kind === 'scope') {
       setScopePreference(command.action.value)
-    } else if (command.action.kind === 'skill') {
-      void setSkillSelection(command.action.value)
-    } else {
-      props.onOpenSkillSettings()
     }
   }
 
@@ -1741,7 +1685,6 @@ export function AgentPanel(props: {
                         failedContinuationProposal.proposalId,
                         false,
                         true,
-                        undefined,
                         failedContinuationProposal.agentRunId
                       ).then((started) => {
                         if (started) setContinuationFailure(null)
@@ -1752,7 +1695,6 @@ export function AgentPanel(props: {
                         undefined,
                         false,
                         true,
-                        undefined,
                         failedContinuationProposal.agentRunId,
                         failedContinuationProposal.proposalId
                       ).then((started) => {
@@ -1911,7 +1853,7 @@ export function AgentPanel(props: {
                           <PopoverTrigger asChild>
                             <InputGroupButton
                               size='icon-sm'
-                              aria-label='Add context or Writing Skill'
+                              aria-label='Add context'
                               disabled={composerSettingsDisabled}
                               data-testid='agent-add-menu-trigger'
                             >
@@ -1985,7 +1927,6 @@ export function AgentPanel(props: {
                                     undefined,
                                     false,
                                     false,
-                                    retrySkillSelection(latestRun),
                                     latestRun?.agentRunId
                                   )
                                 }
@@ -2058,16 +1999,10 @@ export function AgentPanel(props: {
         }
         supportedThinkingLevels={supportedThinkingLevels}
         modelReady={modelReady}
-        skillSnapshot={skillSnapshot}
-        skillSelection={skillSelection}
-        skillPickerOpen={detailsSkillPickerOpen}
         busy={busy || conversationLocked || activeRun !== null}
         onModelSelect={setModelSelection}
         onThinkingSelect={setThinkingLevel}
-        onSkillPickerOpenChange={setDetailsSkillPickerOpen}
-        onSkillSelect={setSkillSelection}
         onApprovalModeSelect={setApprovalMode}
-        onOpenSettings={props.onOpenSkillSettings}
       />
       <WritingTaskDialog
         open={taskEditorOpen}
@@ -2255,28 +2190,19 @@ function ConversationCommandGroup(props: {
 
 type ComposerCommand = {
   id: string
-  group: 'Context' | 'Writing skill'
+  group: 'Context'
   label: string
   description: string
   disabled: boolean
   selected: boolean
-  action:
-    | { kind: 'scope'; value: 'auto' | AgentStartScope }
-    | { kind: 'skill'; value: SkillSelection }
-    | { kind: 'skill_settings' }
+  action: { kind: 'scope'; value: 'auto' | AgentStartScope }
 }
 
 export function buildComposerCommands(input: {
   selectionAvailable: boolean
   sectionAvailable: boolean
   scopePreference: 'auto' | AgentStartScope
-  skillSnapshot: SkillsSnapshot | null
-  skillSelection: SkillSelection
 }): ComposerCommand[] {
-  const availableSkills =
-    input.skillSnapshot?.installed.filter(
-      (skill) => skill.enabled && skill.integrityStatus === 'ready'
-    ) ?? []
   return [
     {
       id: 'scope-auto',
@@ -2313,51 +2239,7 @@ export function buildComposerCommands(input: {
       disabled: false,
       selected: input.scopePreference === 'project',
       action: { kind: 'scope', value: 'project' }
-    },
-    {
-      id: 'skill-auto',
-      group: 'Writing skill',
-      label: 'Choose automatically',
-      description: 'Route suitable installed writing guidance for this request',
-      disabled: false,
-      selected: input.skillSelection.mode === 'auto',
-      action: { kind: 'skill', value: { mode: 'auto' } }
-    },
-    {
-      id: 'skill-none',
-      group: 'Writing skill',
-      label: 'No Writing Skill',
-      description: 'Use only the application writing policy',
-      disabled: false,
-      selected: input.skillSelection.mode === 'none',
-      action: { kind: 'skill', value: { mode: 'none' } }
-    },
-    ...availableSkills.map(
-      (skill): ComposerCommand => ({
-        id: `skill-${skill.skillId}`,
-        group: 'Writing skill',
-        label: skill.displayName,
-        description: skill.description,
-        disabled: false,
-        selected:
-          input.skillSelection.mode === 'explicit' &&
-          input.skillSelection.skillId === skill.skillId,
-        action: { kind: 'skill', value: { mode: 'explicit', skillId: skill.skillId } }
-      })
-    ),
-    ...(availableSkills.length === 0
-      ? [
-          {
-            id: 'skill-settings',
-            group: 'Writing skill' as const,
-            label: 'Writing Skills settings',
-            description: 'Install or enable reusable writing guidance',
-            disabled: false,
-            selected: false,
-            action: { kind: 'skill_settings' as const }
-          }
-        ]
-      : [])
+    }
   ]
 }
 
@@ -2400,7 +2282,7 @@ function ComposerCommandMenu(props: {
   onSelectedIdChange?(id: string): void
   onSelect(command: ComposerCommand): void
 }): React.JSX.Element {
-  const groups = ['Context', 'Writing skill'] as const
+  const groups = ['Context'] as const
   return (
     <Command value={props.selectedId} onValueChange={props.onSelectedIdChange}>
       <CommandList>
@@ -2437,11 +2319,6 @@ function ComposerCommandMenu(props: {
 function ComposerCommandIcon(props: { command: ComposerCommand }): React.JSX.Element {
   if (props.command.selected) return <Check />
   const action = props.command.action
-  if (action.kind === 'skill_settings') return <Settings2 />
-  if (action.kind === 'skill') {
-    if (action.value.mode === 'none') return <X />
-    return action.value.mode === 'auto' ? <Bot /> : <FileText />
-  }
   if (action.value === 'selection') return <TextCursorInput />
   if (action.value === 'section') return <FilePenLine />
   if (action.value === 'project') return <FolderOpen />
@@ -2842,16 +2719,10 @@ function AgentDetailsDialog(props: {
   thinkingLevel: AgentThinkingLevel
   supportedThinkingLevels: AgentThinkingLevel[]
   modelReady: boolean
-  skillSnapshot: SkillsSnapshot | null
-  skillSelection: SkillSelection
-  skillPickerOpen: boolean
   busy: boolean
   onModelSelect(selection: AgentModelSelection): Promise<void>
   onThinkingSelect(level: AgentThinkingLevel): Promise<void>
-  onSkillPickerOpenChange(open: boolean): void
-  onSkillSelect(selection: SkillSelection): Promise<void>
   onApprovalModeSelect(mode: AgentApprovalMode): Promise<void>
-  onOpenSettings(): void
 }): React.JSX.Element {
   const timeline = useMemo(
     () =>
@@ -2889,15 +2760,6 @@ function AgentDetailsDialog(props: {
                 disabled={readonly || !props.modelReady}
                 onSelect={props.onThinkingSelect}
               />
-              <SkillPicker
-                open={props.skillPickerOpen}
-                onOpenChange={props.onSkillPickerOpenChange}
-                snapshot={props.skillSnapshot}
-                selection={props.skillSelection}
-                disabled={readonly}
-                onSelect={(selection) => void props.onSkillSelect(selection)}
-                onOpenSettings={props.onOpenSettings}
-              />
             </div>
             <div className='flex flex-wrap gap-2'>
               {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
@@ -2915,6 +2777,7 @@ function AgentDetailsDialog(props: {
               ))}
             </div>
           </section>
+          <SkillsUsedDetails run={run} />
           <section className='grid gap-3'>
             <h3 className='text-sm font-semibold'>Usage</h3>
             <dl className='grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 text-sm'>
@@ -2980,6 +2843,81 @@ function AgentDetailsDialog(props: {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function SkillsUsedDetails(props: { run: AgentRunRecord | null }): React.JSX.Element {
+  const snapshot = props.run?.skillSnapshot ?? null
+  if (snapshot === null) {
+    return (
+      <section className='grid gap-3' aria-labelledby='agent-skills-used-heading'>
+        <h3 id='agent-skills-used-heading' className='text-sm font-semibold'>
+          Skills used
+        </h3>
+        <p className='text-sm text-muted-foreground'>No run has been recorded yet.</p>
+      </section>
+    )
+  }
+  const provenance = [...snapshot.skills, ...snapshot.dependencies]
+  const names = new Map(provenance.map((skill) => [skill.skillId, skill.displayName] as const))
+  return (
+    <section className='grid gap-3' aria-labelledby='agent-skills-used-heading'>
+      <div className='flex items-center justify-between gap-3'>
+        <h3 id='agent-skills-used-heading' className='text-sm font-semibold'>
+          Skills used
+        </h3>
+        <Badge variant='outline'>{snapshot.skills.length} loaded</Badge>
+      </div>
+      {snapshot.skills.length > 0 ? (
+        <ol className='grid gap-1.5 text-sm'>
+          {snapshot.skills.map((skill, index) => (
+            <li key={skill.skillId} className='flex min-w-0 items-center gap-2'>
+              <Badge variant='secondary' className='w-6 justify-center tabular-nums'>
+                {index + 1}
+              </Badge>
+              <span className='min-w-0 flex-1 truncate'>{skill.displayName}</span>
+              <code className='shrink-0 text-xs text-muted-foreground'>
+                {skill.commit.slice(0, 8)}
+              </code>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className='text-sm text-muted-foreground'>No Writing Skill was loaded.</p>
+      )}
+      {snapshot.dependencies.length > 0 ? (
+        <div className='grid gap-1.5'>
+          <p className='text-xs font-medium text-muted-foreground'>Dependencies</p>
+          <ul className='grid gap-1 text-sm'>
+            {snapshot.dependencies.map((skill) => (
+              <li key={skill.skillId} className='flex min-w-0 items-center justify-between gap-3'>
+                <span className='min-w-0 truncate'>{skill.displayName}</span>
+                <code className='shrink-0 text-xs text-muted-foreground'>
+                  {skill.commit.slice(0, 8)}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {snapshot.resources.length > 0 ? (
+        <div className='grid gap-1.5'>
+          <p className='text-xs font-medium text-muted-foreground'>Retained references</p>
+          <ul className='grid gap-1 text-sm'>
+            {snapshot.resources.map((resource) => (
+              <li
+                key={`${resource.skillId}-${resource.commit}-${resource.relativePath}`}
+                className='min-w-0 truncate'
+                title={resource.relativePath}
+              >
+                <span>{names.get(resource.skillId) ?? humanizeSkillId(resource.skillId)}</span>
+                <span className='text-muted-foreground'> · {resource.relativePath}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -3820,7 +3758,11 @@ function ActivityGroup(props: {
     <Collapsible
       className='group/activity min-w-0 max-w-full overflow-hidden'
       defaultOpen={
-        item.status === 'partial' || item.status === 'error' || item.status === 'stopped'
+        (item.status === 'running' &&
+          item.tools.some((tool) => tool.call.toolName === 'read_writing_skill')) ||
+        item.status === 'partial' ||
+        item.status === 'error' ||
+        item.status === 'stopped'
       }
       data-testid='agent-activity-group'
       data-status={item.status}
@@ -4175,114 +4117,13 @@ function ComposerAction({
   )
 }
 
-function SkillPicker({
-  open,
-  onOpenChange,
-  snapshot,
-  selection,
-  disabled,
-  compact = false,
-  onSelect,
-  onOpenSettings
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  snapshot: SkillsSnapshot | null
-  selection: SkillSelection
-  disabled: boolean
-  compact?: boolean
-  onSelect: (selection: SkillSelection) => void
-  onOpenSettings: () => void
-}): React.JSX.Element {
-  const available =
-    snapshot?.installed.filter((skill) => skill.enabled && skill.integrityStatus === 'ready') ?? []
-  const explicit =
-    selection.mode === 'explicit'
-      ? (available.find((skill) => skill.skillId === selection.skillId) ?? null)
-      : null
-  const label =
-    selection.mode === 'auto'
-      ? compact
-        ? 'Skill auto'
-        : 'Skill: Auto'
-      : selection.mode === 'none'
-        ? 'No skill'
-        : (explicit?.displayName ?? 'Selected skill')
-  return (
-    <div className='flex items-center gap-1'>
-      <Popover open={open} onOpenChange={onOpenChange}>
-        <PopoverTrigger asChild>
-          <InputGroupButton
-            size='sm'
-            variant={compact ? 'ghost' : 'outline'}
-            className={compact ? 'h-6 px-2' : undefined}
-            disabled={disabled}
-            aria-label='Choose writing skill'
-          >
-            <Bot data-icon='inline-start' />
-            <span className='max-w-32 truncate'>{label}</span>
-          </InputGroupButton>
-        </PopoverTrigger>
-        <PopoverContent align='start' side='top' className='w-80 p-0'>
-          <Command>
-            <CommandList>
-              <CommandEmpty>No matching writing skill.</CommandEmpty>
-              <CommandGroup heading='Mode'>
-                <CommandItem value='skill-auto' onSelect={() => onSelect({ mode: 'auto' })}>
-                  {selection.mode === 'auto' ? <Check /> : <Bot />}
-                  Auto
-                </CommandItem>
-                <CommandItem value='skill-none' onSelect={() => onSelect({ mode: 'none' })}>
-                  {selection.mode === 'none' ? <Check /> : <X />}
-                  No skill
-                </CommandItem>
-              </CommandGroup>
-              <CommandGroup heading='Installed'>
-                {available.map((skill) => (
-                  <CommandItem
-                    key={skill.skillId}
-                    value={`${skill.displayName} ${skill.description}`}
-                    onSelect={() => onSelect({ mode: 'explicit', skillId: skill.skillId })}
-                  >
-                    {selection.mode === 'explicit' && selection.skillId === skill.skillId ? (
-                      <Check />
-                    ) : (
-                      <FileText />
-                    )}
-                    <span className='min-w-0 flex-1 truncate'>{skill.displayName}</span>
-                    <span className='text-xs text-muted-foreground'>
-                      {skill.commit.slice(0, 8)}
-                    </span>
-                  </CommandItem>
-                ))}
-                {available.length === 0 ? (
-                  <CommandItem
-                    value='open-writing-skills-settings'
-                    onSelect={() => {
-                      onOpenChange(false)
-                      onOpenSettings()
-                    }}
-                  >
-                    <Settings2 /> Open Writing Skills settings
-                  </CommandItem>
-                ) : null}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      {selection.mode === 'explicit' ? (
-        <InputGroupButton
-          size='icon-xs'
-          variant='ghost'
-          aria-label='Remove selected writing skill'
-          onClick={() => onSelect({ mode: 'auto' })}
-        >
-          <X />
-        </InputGroupButton>
-      ) : null}
-    </div>
-  )
+function humanizeSkillId(skillId: string): string {
+  const name = skillId.split(':').at(-1) ?? skillId
+  return name
+    .split('-')
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toLocaleUpperCase()}${part.slice(1)}`)
+    .join(' ')
 }
 
 function upsertSession(
@@ -4408,14 +4249,6 @@ function blockCountLabel(count: number): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The Agent operation failed.'
-}
-
-function retrySkillSelection(run: AgentRunRecord | null): SkillSelection {
-  if (run === null) return { mode: 'auto' }
-  if (run.skillSnapshot.primary !== null) {
-    return { mode: 'explicit', skillId: run.skillSnapshot.primary.skillId }
-  }
-  return run.skillSnapshot.mode === 'none' ? { mode: 'none' } : { mode: 'auto' }
 }
 
 function approvalModeLabel(mode: AgentApprovalMode): string {

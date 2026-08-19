@@ -1,6 +1,6 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 59 is complete and verified under accepted ADR 052
+Status: Checkpoint 60 is complete under accepted ADR 054
 Recorded: 2026-08-19
 
 ## Purpose
@@ -9,6 +9,70 @@ Phase 12 is an evidence-driven refinement phase after the complete Phase 11 feat
 turns hands-on use into small, reviewable fixes and persists each material interaction decision
 before implementation. It is not a pre-authorized feature backlog: one checkpoint is agreed,
 implemented, and verified at a time, and later work requires fresh user direction.
+
+## Checkpoint 60: Observable Dynamic Writing Skills
+
+Decision: accepted ADR 054, superseding ADR 053's session-selection interaction; implementation
+authorized.
+
+### User outcome
+
+- The composer has no Writing Skill selector, badge, chip, or persistent mode.
+- Every run gives the Agent a bounded metadata catalog. A user may name a Skill in ordinary
+  language, or the Agent may discover one, but guidance enters the run only through the same visible
+  `read_writing_skill` tool process.
+- The timeline names every entrypoint, dependency, and reference actually loaded; Agent Details
+  preserves read-only exact run provenance after reinstall, rename, or removal.
+
+### Scope and implementation
+
+- [x] Add version-2 actual-load snapshots and historical normalization without new session state or
+  a project migration; remove the unshipped selection persistence and IPC.
+- [x] Replace the single-primary runtime lock with tool-only ordered composition, separately visible
+  dependency/reference reads, exact cross-Skill allowlists, twelve-file/32-KiB reservations,
+  prompt-budget checks, replay, preparation barriers, and safe structured lifecycle logs.
+- [x] Remove every composer/Details Skill control and badge; add named dynamic loading activity plus
+  read-only Agent Details provenance using existing shadcn primitives.
+- [x] Add focused contract, migration, Main/runtime, Renderer, and Real-Electron coverage and pass
+  the authorized static, Electron, E2E, UI, Impeccable, and diff gates.
+
+### Local evidence
+
+- Version-2 actual-load snapshots, version-1 normalization, exact replay candidates, ordered
+  top-level/dependency provenance, and retained reference hashes are covered by focused shared,
+  Main/router, worker, session, and Renderer tests. No migration 0037 or session selection IPC is
+  present; legacy migration 0026 columns are ignored rather than becoming current product state.
+- The Real-Electron Skill fixture loaded two top-level Skills and five complete reference files via
+  visible `read_writing_skill` calls. It verified no composer or Details selection control, the
+  aggregate timeline activity, safe persisted projections, and read-only Agent Details provenance.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 186 files / 1031 tests with three
+  intentional benchmark skips and completed the production build. The final `pnpm check:e2e`
+  passed all 41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
+- Desktop, narrow, and Agent Details screenshots were inspected using the established shadcn and
+  Impeccable interaction criteria. `git diff --check` passed. No package/release gate, hosted CI,
+  commit, push, signing, notarization, promotion, or publication ran.
+
+### Acceptance gate
+
+- No run inherits a Skill choice from a session or Renderer draft. Version-1 run snapshots remain
+  readable; Retry uses the exact recorded versions, order, dependencies, and retained references.
+- Dynamic discovery adds no hidden model request and at most one new entrypoint per Skill-only
+  response. User-named and Agent-discovered Skills follow the identical tool path.
+  Top-level plus dependency references are exact-URI-only, whole-file, idempotent, and cannot exceed
+  twelve files, 32 KiB, or the 65,536-byte Skill prompt budget.
+- The Renderer names actual Skill and relative-file loads, shows no idle Skill state, remains
+  keyboard accessible at narrow width, and receives no Skill body, virtual URI, private path,
+  credential, or broader capability.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, production build, fresh affected
+  Real-Electron coverage, bounded desktop/narrow visual inspection, scoped Impeccable, and
+  `git diff --check` pass. No package/release gate is required.
+
+### Explicit exclusions
+
+No executable scripts, binary assets, arbitrary discovery, filesystem/network/shell authority,
+skill-authored tool, route model, embedding classifier, marketplace, automatic update, selection
+mode, multi-agent workflow, package/release action, hosted CI, commit, push, signing,
+notarization, promotion, or publication is authorized.
 
 ## Operating Boundary
 

@@ -91,7 +91,7 @@ export type AgentReviewState =
   | 'resolved'
 
 export type AgentTimelineItem =
-  | { type: 'user'; id: string; payload: AgentUserMessagePayload }
+  | { type: 'user'; id: string; runId: string | null; payload: AgentUserMessagePayload }
   | { type: 'assistant'; id: string; payload: AgentAssistantMessagePayload }
   | {
       type: 'activity'
@@ -304,6 +304,7 @@ export function projectAgentTimeline(
       items.push({
         type: 'user',
         id: event.agentEventId,
+        runId: event.agentRunId,
         payload:
           parsed.data.presentation?.kind === 'review_feedback' ||
           parsed.data.presentation?.kind === 'annotation_context'
@@ -762,6 +763,90 @@ function toolEndTimestamp(
   return terminalTimestamp(event.agentRunId, events, runs, now)
 }
 
+type WritingSkillActivityIdentity = {
+  displayName: string
+  relativePath: string
+}
+
+function writingSkillActivityIdentity(tool: AgentToolActivity): WritingSkillActivityIdentity {
+  const projected = tool.result?.result
+  const projectedName =
+    projected !== null && typeof projected?.displayName === 'string' ? projected.displayName : null
+  const projectedPath =
+    projected !== null && typeof projected?.relativePath === 'string'
+      ? projected.relativePath
+      : null
+  const argumentName =
+    typeof tool.call.args.displayName === 'string' ? tool.call.args.displayName : null
+  const argumentPath =
+    typeof tool.call.args.relativePath === 'string' ? tool.call.args.relativePath : null
+  const uri = typeof tool.call.args.uri === 'string' ? tool.call.args.uri : ''
+  const match = /^writellm:\/\/skills\/([^/]+)\/[a-f0-9]{40}\/(.+)$/u.exec(uri)
+  const skillId = match?.[1] ?? 'writing-skill'
+  return {
+    displayName: projectedName ?? argumentName ?? humanizeSkillId(skillId),
+    relativePath: projectedPath ?? argumentPath ?? match?.[2] ?? 'SKILL.md'
+  }
+}
+
+function humanizeSkillId(skillId: string): string {
+  const name = skillId.split(':').at(-1) ?? skillId
+  return name
+    .split('-')
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toLocaleUpperCase()}${part.slice(1)}`)
+    .join(' ')
+}
+
+function summarizeWritingSkillActivity(tools: AgentToolActivity[]): string {
+  const skillTools = tools.filter((tool) => tool.call.toolName === 'read_writing_skill')
+  const successful = skillTools.filter((tool) => tool.result !== null && !tool.result.isError)
+  const entrypoints = successful.filter(
+    (tool) => writingSkillActivityIdentity(tool).relativePath === 'SKILL.md'
+  )
+  const references = successful.filter(
+    (tool) => writingSkillActivityIdentity(tool).relativePath !== 'SKILL.md'
+  )
+  const parts: string[] = []
+  if (entrypoints.length === 1) {
+    parts.push(`Loaded ${writingSkillActivityIdentity(entrypoints[0]).displayName}`)
+  } else if (entrypoints.length > 1) {
+    parts.push(`Loaded ${entrypoints.length} Writing Skills`)
+  }
+  if (references.length > 0) {
+    parts.push(
+      `${references.length} ${references.length === 1 ? 'reference file' : 'reference files'}`
+    )
+  }
+  if (parts.length > 0) return parts.join(' · ')
+  const running = skillTools.find((tool) => tool.result === null && !toolWasStopped(tool))
+  if (running !== undefined) {
+    const identity = writingSkillActivityIdentity(running)
+    return identity.relativePath === 'SKILL.md'
+      ? `Loading ${identity.displayName}`
+      : `Reading ${identity.displayName} · ${identity.relativePath}`
+  }
+  return 'Writing Skill loading failed'
+}
+
+function writingSkillActivityLabel(tool: AgentToolActivity, running: boolean): string {
+  const identity = writingSkillActivityIdentity(tool)
+  const entrypoint = identity.relativePath === 'SKILL.md'
+  if (running) {
+    return entrypoint
+      ? `Loading ${identity.displayName}`
+      : `Reading ${identity.displayName} · ${identity.relativePath}`
+  }
+  if (tool.result?.isError === true || toolWasStopped(tool)) {
+    return entrypoint
+      ? `Could not load ${identity.displayName}`
+      : `Could not read ${identity.displayName} · ${identity.relativePath}`
+  }
+  return entrypoint
+    ? `Loaded ${identity.displayName} · SKILL.md`
+    : `Read ${identity.displayName} · ${identity.relativePath}`
+}
+
 export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
   const counts = new Map<string, number>()
   for (const tool of tools)
@@ -789,7 +874,7 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
     (counts.get('update_review_issues') ?? 0)
   if (issueCount > 0) summaries.push('Updating review issues')
   const skillCount = counts.get('read_writing_skill') ?? 0
-  if (skillCount > 0) summaries.push('Loading writing guidance')
+  if (skillCount > 0) summaries.push(summarizeWritingSkillActivity(tools))
   const taskCount =
     (counts.get('get_writing_task') ?? 0) +
     (counts.get('create_writing_task') ?? 0) +
@@ -829,7 +914,7 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
     case 'read_citations':
       return running ? 'Checking source evidence' : 'Checked source evidence'
     case 'read_writing_skill':
-      return running ? 'Loading writing guidance' : 'Loaded writing guidance'
+      return writingSkillActivityLabel(tool, running)
     case 'inspect_change':
       return running ? 'Reviewing the change' : 'Reviewed the change'
     case 'check_draft':

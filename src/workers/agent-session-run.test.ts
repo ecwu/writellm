@@ -694,6 +694,60 @@ describe('runAgentSession', () => {
     )
   })
 
+  it('blocks Writing Skill preparation mixed with non-Skill tools in one response', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallsResponse([
+              {
+                id: 'tool-skill',
+                name: 'read_writing_skill',
+                args: {
+                  uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/SKILL.md`
+                }
+              },
+              { id: 'tool-search', name: 'search_knowledge', args: { query: 'evidence' } }
+            ])
+          : completionResponse('Recovered after preparation.', 'response-after-mixed-tools')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    const toolRequests: unknown[] = []
+    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_call_requested') {
+          control?.authorizeModelCall({
+            operation: 'authorize_model_call',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            continuationId: event.continuationId,
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc498',
+            systemPrompt: request.systemPrompt
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(toolRequests).toEqual([])
+    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
+  })
+
   it('ends at a manual-review barrier without requesting a continuation model call', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(
@@ -1048,6 +1102,47 @@ function toolCallResponse(
   return new Response(chunks.join(''), {
     status: 200,
     headers: { 'content-type': 'text/event-stream', 'x-request-id': 'response-tool-call' }
+  })
+}
+
+function toolCallsResponse(
+  calls: Array<{ id: string; name: string; args: Record<string, unknown> }>
+): Response {
+  const chunks = [
+    `data: ${JSON.stringify({
+      id: 'response-tool-calls',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'writer-model-resolved',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: calls.map((call, index) => ({
+              index,
+              id: call.id,
+              type: 'function',
+              function: { name: call.name, arguments: JSON.stringify(call.args) }
+            }))
+          },
+          finish_reason: null
+        }
+      ]
+    })}\n\n`,
+    `data: ${JSON.stringify({
+      id: 'response-tool-calls',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'writer-model-resolved',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 }
+    })}\n\n`,
+    'data: [DONE]\n\n'
+  ]
+  return new Response(chunks.join(''), {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream', 'x-request-id': 'response-tool-calls' }
   })
 }
 

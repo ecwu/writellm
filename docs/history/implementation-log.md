@@ -453,6 +453,23 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-19
 
+- Completed the separately authorized local `0.2026.8.19` App candidate for Checkpoint 60.
+  Release metadata advanced after `check:fast`, the 186-file / 1031-test Electron gate and build,
+  41/41 fresh Real-Electron scenarios, and diff checks passed. The clean local release commit
+  received the annotated `v0.2026.8.19` tag, and the no-identity macOS arm64 unpacked package gate
+  rebuilt and verified the App from that tag through recovery, inventory, smoke, and packaged E2E
+  checks. No DMG, ZIP, push, hosted CI, Apple Developer ID signing, notarization, GitHub Release,
+  promotion, or publication ran.
+- Accepted ADR 054 and completed Checkpoint 60. Writing Skills are now per-run, visible Agent tool
+  actions rather than composer or session state: every run receives metadata only, and both a
+  user-named Skill and an Agent-discovered Skill enter context solely through
+  `read_writing_skill`. The bounded preparation phase supports four ordered top-level Skills,
+  eight dependencies, twelve whole reference files / 32 KiB, exact allowlists, immutable replay
+  provenance, safe activity projection, and read-only Agent Details history without scripts or
+  broader authority. Focused coverage passed; `check:fast`, 186 Electron-hosted files / 1031 tests
+  with three benchmark skips plus production build, and the fresh 41/41 Real-Electron suite passed.
+  Desktop, narrow, and Details screenshots plus diff checks passed. No migration, package/release
+  gate, hosted CI, commit, push, signing, notarization, promotion, or publication ran.
 - Completed Checkpoint 58. Whole-manuscript Markdown preview moved from the Outline Dialog into an
   independent Preview rail workspace, using the existing export projection and a project-owned
   shadcn Typeset preset. Session-bound assets, sanitized Mermaid, bounded KaTeX, safe HTTPS links,

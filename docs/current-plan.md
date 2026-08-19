@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 59, Checkpoint 58, Checkpoint 57, and Phase 11 are complete and
-verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
+Status: Phase 12 Checkpoint 60 is complete under accepted ADR 054. Checkpoint 26.9 remains paused
+and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-19
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -39,9 +39,33 @@ Checkpoint 26.9 (hosted CI and release promotion) remains paused; its acceptance
 per-candidate audit are recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release creation, or release
-promotion has run. The newest user-authorized local candidate tag is `v0.2026.8.18`.
+promotion has run. The newest user-authorized local candidate tag is `v0.2026.8.19`.
 
 ## Current authorized work
+
+On 2026-08-19 the user authorized and completed the local `0.2026.8.19` App candidate for
+Checkpoint 60. Release metadata advanced, `check:fast`, `check:electron`, the fresh 41/41
+Real-Electron suite, and `git diff --check` passed before the clean local release commit and
+annotated `v0.2026.8.19` tag. The no-identity macOS arm64 unpacked package gate then rebuilt and
+verified the App from that tag, including recovery fixtures, native/ASAR/resource inventory,
+packaged runtime smoke, and packaged E2E. No DMG, ZIP, push, hosted CI, Apple Developer ID signing,
+notarization, GitHub Release, promotion, or publication ran.
+
+On 2026-08-19 the user refined and completed Checkpoint 60 under accepted ADR 054. Writing Skills
+are dynamic Agent tool actions, not session, composer, or per-message selection state. Every run
+exposes the bounded metadata catalog; whether the user names a Skill in ordinary language or the
+Agent discovers one, its content enters the run only through visible `read_writing_skill` activity.
+The checkpoint keeps up to four loaded top-level Skills, eight dependencies, twelve references, the
+32-KiB resource budget, immutable replay provenance, and the preparation barrier, while removing
+migration 0037, selection IPC, permanent controls, and Skill badges. It adds no executable Skill
+content, new Agent tool, worker, provider, hidden model request, arbitrary filesystem/network/shell
+authority, marketplace, package/release action, hosted CI, commit, push, signing, notarization, or
+publication.
+Focused runtime, contract, Renderer, and Real-Electron coverage passed, followed by `check:fast`,
+the complete Electron-hosted gate (186 files / 1031 tests with three intentional benchmark skips)
+plus production build, and the fresh 41/41 Real-Electron suite. Desktop, narrow, and Agent Details
+screenshots confirmed that the composer has no Skill state while the timeline and Details preserve
+the names and files actually loaded. `git diff --check` passed; no package or release gate ran.
 
 On 2026-08-19 the user authorized and completed the local patch candidate `0.2026.8.18` for the
 completed Checkpoint 58/59 and large-inline-image repair work. `check:fast`, `git diff --check`, all

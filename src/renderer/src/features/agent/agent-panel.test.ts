@@ -140,20 +140,17 @@ describe('Agent panel flow selection', () => {
     expect(agentComposerRunningAction('Queue this next.')).toBe('follow_up')
   })
 
-  it('builds one shared context and Writing Skill catalog for Add and slash filtering', () => {
+  it('keeps the Add and slash catalog limited to context controls', () => {
     const commands = buildComposerCommands({
       selectionAvailable: false,
       sectionAvailable: true,
-      scopePreference: 'auto',
-      skillSnapshot: null,
-      skillSelection: { mode: 'auto' }
+      scopePreference: 'auto'
     })
 
     expect(commands.find((command) => command.id === 'scope-selection')?.disabled).toBe(true)
     expect(commands.find((command) => command.id === 'scope-section')?.disabled).toBe(false)
     expect(commands.find((command) => command.id === 'scope-auto')?.selected).toBe(true)
-    expect(commands.find((command) => command.id === 'skill-auto')?.selected).toBe(true)
-    expect(commands.some((command) => command.id === 'skill-settings')).toBe(true)
+    expect(commands.some((command) => command.id.startsWith('skill-'))).toBe(false)
     expect(filterComposerCommands(commands, 'section').map((command) => command.id)).toEqual([
       'scope-section',
       'scope-auto'
@@ -349,7 +346,6 @@ function session(
     workflowState,
     modelSelection: null,
     thinkingLevel: 'off',
-    skillSelection: { mode: 'auto' },
     createdAt: '2026-08-12T00:00:00.000Z',
     updatedAt: '2026-08-12T00:00:00.000Z',
     archivedAt: null

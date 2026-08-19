@@ -17,7 +17,7 @@ import { mutationProposalRecordSchema } from './agent-mutations'
 import { modelUsageSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
 import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from './providers'
-import { skillRunSnapshotSchema, skillSelectionSchema } from './skills'
+import { skillRunSnapshotSchema } from './skills'
 import { agentQuickActionRequestSchema } from './agent-quick-actions'
 import { writingTaskIdSchema, writingTaskStepIdSchema, writingTaskViewSchema } from './writing-task'
 import { annotationSelectionSchema } from './annotations'
@@ -48,7 +48,6 @@ export const agentSessionRecordSchema = strictObject({
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
   modelSelection: agentModelSelectionSchema.nullable().default(null),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
-  skillSelection: skillSelectionSchema.default({ mode: 'auto' }),
   writingTask: writingTaskViewSchema.nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -77,9 +76,10 @@ export const agentRunRecordSchema = strictObject({
   }),
   editorContext: agentEditorContextSchema,
   skillSnapshot: skillRunSnapshotSchema.default({
+    schemaVersion: 2,
     mode: 'none',
     routingStatus: 'legacy',
-    primary: null,
+    skills: [],
     dependencies: [],
     resources: [],
     safeError: null
@@ -139,10 +139,6 @@ export const agentSetThinkingLevelInputSchema = agentSessionInputSchema.extend({
   level: agentThinkingLevelSchema
 })
 export const agentSetThinkingLevelResultSchema = agentSessionRecordSchema
-export const agentSetSkillSelectionInputSchema = agentSessionInputSchema.extend({
-  selection: skillSelectionSchema
-})
-export const agentSetSkillSelectionResultSchema = agentSessionRecordSchema
 export const agentGenerateSessionTitleInputSchema = agentSessionInputSchema
 export const agentGenerateSessionTitleResultSchema = agentSessionRecordSchema
 export const agentArchiveSessionInputSchema = agentSessionInputSchema

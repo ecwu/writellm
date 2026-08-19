@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 59, Checkpoint 58, Checkpoint 57, and Phase 11 are complete and
-verified. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
+Status: Phase 12 Checkpoint 60 is complete under accepted ADR 054. Checkpoint 26.9 remains paused
+and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-19
 
 This is the short, ordered tracker for active work. Update it when a task starts, becomes blocked,
@@ -14,6 +14,19 @@ Status markers:
 - `[~]` in progress
 - `[x]` completed and verified
 - `[!]` blocked
+
+## Local v0.2026.8.19 tag and macOS App (2026-08-19)
+
+- [x] Advance release metadata to `0.2026.8.19`, create the clean local release commit and
+  annotated `v0.2026.8.19` tag, then build and verify only the no-identity macOS arm64 unpacked App
+  from that tagged revision. DMG/ZIP generation, push, hosted CI, signing/notarization, GitHub
+  Release creation, and promotion remain out of scope.
+
+Local evidence: `check:fast`, the 186-file / 1031-test Electron-hosted gate with three intentional
+benchmark skips and production build, the fresh 41/41 Real-Electron suite, and `git diff --check`
+passed. The unpacked package gate verified recovery fixtures, native/ASAR/resource inventory,
+no-Team-ID signature policy, packaged runtime smoke, and packaged Real-Electron scenarios from the
+clean annotated tag. It produced the App only, with no DMG or ZIP.
 
 ## Local v0.2026.8.18 tag and macOS App (2026-08-19)
 
@@ -126,6 +139,10 @@ native/ASAR/resource and no-Team-ID signature checks, 12/12 packaged runtime smo
   ID, local Application Default Credentials, and the fixed Nano Banana model directory
   under ADR 052 without changing the existing Gemini source or adding automatic fallback; repair
   the hands-on large-inline-image validation failure and rebuild the trial App.
+- [x] Checkpoint 60: let the Agent dynamically discover and visibly load up to four Writing Skills
+  through `read_writing_skill`, progressively read bounded dependency/reference files, preserve
+  exact replay provenance, and remove session/composer Skill state under ADR 054 without executable
+  Skill content or broader Agent authority.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 

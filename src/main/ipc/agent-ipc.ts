@@ -30,8 +30,6 @@ import {
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
-  agentSetSkillSelectionInputSchema,
-  agentSetSkillSelectionResultSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentStopCompactionInputSchema,
@@ -220,17 +218,6 @@ export function registerAgentIpc(options: {
         )
       )
     )
-  })
-  ipc.handle(IPC_CHANNELS.agentSetSkillSelection, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentSetSkillSelectionInputSchema.parse(raw)
-    return lifecycle('agent.session.set_skill_selection', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
-      return agentSetSkillSelectionResultSchema.parse(
-        await service.setSkillSelection(input.agentSessionId, input.selection)
-      )
-    })
   })
   ipc.handle(IPC_CHANNELS.agentUpdateWritingTask, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -582,7 +569,6 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentSetApprovalMode,
     IPC_CHANNELS.agentSetModelSelection,
     IPC_CHANNELS.agentSetThinkingLevel,
-    IPC_CHANNELS.agentSetSkillSelection,
     IPC_CHANNELS.agentUpdateWritingTask,
     IPC_CHANNELS.agentListEvents,
     IPC_CHANNELS.agentListRuns,

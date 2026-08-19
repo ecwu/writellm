@@ -353,6 +353,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
         ok: true,
         data: {
           skillId: 'nature-writing',
+          displayName: 'Nature Writing',
           commit: 'a'.repeat(40),
           relativePath: 'SKILL.md',
           sha256: 'b'.repeat(64),

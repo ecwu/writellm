@@ -3,5 +3,5 @@
   "directory": "e2e-writing",
   "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "license": "MIT",
-  "files": ["SKILL.md"]
+  "files": ["SKILL.md", "references/voice.md", "references/structure.md", "references/revision.md"]
 }

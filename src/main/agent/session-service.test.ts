@@ -246,38 +246,31 @@ describe('AgentSessionService', () => {
   it('releases a reserved slot when asynchronous run preparation fails', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
-    let validationCount = 0
     const activityCounts: number[] = []
     const service = createService(database, runtime, undefined, {
       publishActivity: (snapshot) => {
         activityCounts.push(snapshot.activeCount)
       },
       skillRouter: {
-        validateSelection: async () => {
-          validationCount += 1
-          if (validationCount === 1) return
-          throw new Error('Skill disappeared')
-        },
         route: async () => {
-          throw new Error('Routing must not start')
+          throw new Error('Skill catalog disappeared')
         }
       }
     })
     const failedSession = service.createSession('Missing skill')
-    await service.setSkillSelection(failedSession.agentSessionId, {
-      mode: 'explicit',
-      skillId: 'missing-skill'
-    })
 
-    await expect(
-      service.startRun({
-        agentSessionId: failedSession.agentSessionId,
-        prompt: 'This preparation will fail.',
-        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
-      })
-    ).rejects.toThrow('unavailable')
+    const started = await service.startRun({
+      agentSessionId: failedSession.agentSessionId,
+      prompt: 'This preparation will fail.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await started.completion
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'skill_route_failed'
+    })
     expect(service.projectActivitySnapshot().activeCount).toBe(0)
-    expect(activityCounts).toEqual([1, 0])
+    expect(activityCounts).toEqual([1, 1, 0])
     database.close()
   })
 
@@ -423,9 +416,10 @@ describe('AgentSessionService', () => {
           await routed
           return {
             snapshot: {
+              schemaVersion: 2,
               mode: 'auto',
               routingStatus: 'not_needed',
-              primary: null,
+              skills: [],
               dependencies: [],
               resources: [],
               safeError: null
@@ -622,9 +616,10 @@ describe('AgentSessionService', () => {
       skillRouter: {
         route: async () => ({
           snapshot: {
+            schemaVersion: 2,
             mode: 'auto',
             routingStatus: 'not_needed',
-            primary: null,
+            skills: [],
             dependencies: [],
             resources: [],
             safeError: null
@@ -773,49 +768,33 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
-  it('persists one explicit Writing Skill across consecutive session messages', async () => {
+  it('keeps Writing Skills out of session state and prepares the catalog for every run', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
-    const validateSelection = vi.fn(async () => undefined)
-    const route = vi.fn(async (input: { selection: { mode: string } }) => ({
+    const route = vi.fn(async () => ({
       snapshot: {
-        mode: input.selection.mode as 'explicit',
-        routingStatus: 'selected' as const,
-        primary: {
-          skillId: 'nature-writing',
-          name: 'nature-writing',
-          commit: 'a'.repeat(40),
-          manifestSha256: 'b'.repeat(64)
-        },
+        schemaVersion: 2 as const,
+        mode: 'auto' as const,
+        routingStatus: 'available' as const,
+        skills: [],
         dependencies: [],
         resources: [],
         safeError: null
       },
-      prompt: { mode: 'explicit' as const, mandatory: '<skill>Use it.</skill>', references: [] },
+      prompt: { mode: 'auto' as const, mandatory: '<available_skills />', references: [] },
       modelRequestId: null
     }))
     const service = createService(database, runtime, undefined, {
-      skillRouter: { route, validateSelection }
+      skillRouter: { route }
     })
-    const session = service.createSession('Persistent skill')
-    expect(session.skillSelection).toEqual({ mode: 'auto' })
-    await service.setSkillSelection(session.agentSessionId, {
-      mode: 'explicit',
-      skillId: 'nature-writing'
-    })
-    expect(service.listSessions()[0]?.skillSelection).toEqual({
-      mode: 'explicit',
-      skillId: 'nature-writing'
-    })
+    const session = service.createSession('Dynamic skills')
+    expect(session).not.toHaveProperty('skillSelection')
 
     const first = await service.startRun({
       agentSessionId: session.agentSessionId,
       prompt: 'First message.',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
-    await expect(
-      service.setSkillSelection(session.agentSessionId, { mode: 'auto' })
-    ).rejects.toThrow('active')
     await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(first.agentRunId))
     runtime.active().resolve()
     await first.completion
@@ -828,11 +807,7 @@ describe('AgentSessionService', () => {
     runtime.active().resolve()
     await second.completion
 
-    expect(route.mock.calls.map(([input]) => input.selection)).toEqual([
-      { mode: 'explicit', skillId: 'nature-writing' },
-      { mode: 'explicit', skillId: 'nature-writing' }
-    ])
-    expect(validateSelection).toHaveBeenCalledTimes(3)
+    expect(route).toHaveBeenCalledTimes(2)
     database.close()
   })
 
@@ -1648,14 +1623,18 @@ describe('AgentSessionService', () => {
     const runtime = new FakeAgentRuntime()
     const commit = 'a'.repeat(40)
     const snapshot = {
+      schemaVersion: 2 as const,
       mode: 'auto' as const,
       routingStatus: 'selected' as const,
-      primary: {
-        skillId: 'nature-writing',
-        name: 'nature-writing',
-        commit,
-        manifestSha256: 'b'.repeat(64)
-      },
+      skills: [
+        {
+          skillId: 'nature-writing',
+          displayName: 'Nature Writing',
+          name: 'nature-writing',
+          commit,
+          manifestSha256: 'b'.repeat(64)
+        }
+      ],
       dependencies: [],
       resources: [],
       safeError: null
@@ -1663,24 +1642,31 @@ describe('AgentSessionService', () => {
     const state = {
       mode: 'auto' as const,
       candidates: new Map(),
-      primary: null,
-      lockingPrimaryUri: null,
+      dependencyCandidates: new Map(),
+      activeSkills: [],
+      loadingEntrypointUri: null,
+      entrypointModelRequestIds: new Set<string>(),
       dependencies: [],
-      readResources: new Set<string>(),
-      readingResources: new Set<string>()
+      readResources: new Map(),
+      readingResources: new Map(),
+      replay: false,
+      allowedResourceKeys: null,
+      preparationClosed: false
     }
     const service = createService(database, runtime, undefined, {
       skillRouter: {
         route: async () => ({
-          snapshot: { ...snapshot, routingStatus: 'available' as const, primary: null },
+          snapshot: { ...snapshot, routingStatus: 'available' as const, skills: [] },
           prompt: { mode: 'auto', mandatory: '<available_skills />', references: [] },
           modelRequestId: null,
           state
         }),
         read: async () => ({
           snapshot,
+          prompt: { mode: 'auto', mandatory: '<skill>Loaded.</skill>', references: [] },
           data: {
             skillId: 'nature-writing',
+            displayName: 'Nature Writing',
             commit,
             relativePath: 'SKILL.md',
             sha256: 'c'.repeat(64),
@@ -1716,6 +1702,9 @@ describe('AgentSessionService', () => {
     expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('selected')
     expect(JSON.stringify(service.listEvents(session.agentSessionId))).not.toContain(
       'PRIVATE SKILL BODY'
+    )
+    expect(JSON.stringify(service.listEvents(session.agentSessionId))).not.toContain(
+      'writellm://skills/'
     )
     active.resolve()
     await started.completion
@@ -2990,9 +2979,6 @@ describe('AgentSessionService', () => {
     expect(service.archiveSession(session.agentSessionId)).toEqual(archived)
     expect(() => service.setApprovalMode(session.agentSessionId, 'yolo')).toThrow('archived')
     expect(() => service.setThinkingLevel(session.agentSessionId, 'high')).toThrow('archived')
-    await expect(
-      service.setSkillSelection(session.agentSessionId, { mode: 'none' })
-    ).rejects.toThrow('archived')
     await expect(service.generateSessionTitle(session.agentSessionId)).rejects.toThrow('archived')
     await expect(
       service.startRun({
