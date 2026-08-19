@@ -4,11 +4,13 @@ import type {
   AgentRendererEvent,
   AgentSessionRecord
 } from '../../../../shared/contracts/agent-ipc'
+import type { InstalledSkill } from '../../../../shared/contracts/skills'
 import type { WritingTaskView } from '../../../../shared/contracts/writing-task'
 import {
   agentComposerKeyAction,
   agentComposerRunningAction,
   buildComposerCommands,
+  buildSkillMentionCandidates,
   effectiveScope,
   filterComposerCommands,
   hasManualCompactionHead,
@@ -162,6 +164,67 @@ describe('Agent panel flow selection', () => {
     expect(slashCommandQuery('/section')).toBe('section')
     expect(slashCommandQuery('Use /section here')).toBeNull()
     expect(slashCommandQuery('/section please')).toBeNull()
+  })
+
+  it('offers ready explicit-only Skills for a leading dollar query in stable match order', () => {
+    const candidates = buildSkillMentionCandidates({
+      installed: [
+        installedSkill('method-notes', 'Method Notes', 'Review the method.'),
+        installedSkill('nature-writing', 'Nature Writing', 'Write vivid landscape prose.', {
+          disableModelInvocation: true
+        }),
+        installedSkill('disabled-nature', 'Disabled Nature', 'Nature notes.', {
+          enabled: false
+        })
+      ],
+      prompt: '$nat',
+      query: 'nat',
+      queryStart: 0
+    })
+
+    expect(candidates.map((candidate) => candidate.name)).toEqual(['nature-writing'])
+    expect(candidates[0]).toMatchObject({
+      displayName: 'Nature Writing',
+      disabled: false
+    })
+  })
+
+  it('omits prior mentions, caps four prefixes, and exposes available-name collisions', () => {
+    const installed = [
+      installedSkill('nature-one', 'Nature One', 'First source.', { name: 'shared-name' }),
+      installedSkill('nature-two', 'Nature Two', 'Second source.', { name: 'shared-name' }),
+      installedSkill('fifth-method', 'Fifth Method', 'Fifth source.')
+    ]
+    expect(
+      buildSkillMentionCandidates({
+        installed,
+        prompt: '$shared',
+        query: 'shared',
+        queryStart: 0
+      })
+    ).toEqual([
+      expect.objectContaining({
+        name: 'shared-name',
+        disabled: true,
+        skillId: 'ambiguous:shared-name'
+      })
+    ])
+    expect(
+      buildSkillMentionCandidates({
+        installed,
+        prompt: '$one $two $three $four $',
+        query: '',
+        queryStart: 22
+      })
+    ).toEqual([])
+    expect(
+      buildSkillMentionCandidates({
+        installed: [installedSkill('nature-writing', 'Nature Writing', 'Nature source.')],
+        prompt: '$nature-writing $nat',
+        query: 'nat',
+        queryStart: 16
+      })
+    ).toEqual([])
   })
 
   it('follows valid live section-editing tools from the visible conversation', () => {
@@ -349,5 +412,36 @@ function session(
     createdAt: '2026-08-12T00:00:00.000Z',
     updatedAt: '2026-08-12T00:00:00.000Z',
     archivedAt: null
+  }
+}
+
+function installedSkill(
+  skillId: string,
+  displayName: string,
+  description: string,
+  overrides: Partial<InstalledSkill> = {}
+): InstalledSkill {
+  return {
+    skillId,
+    displayName,
+    name: skillId,
+    description,
+    source: 'curated',
+    repository: 'writellm/skills',
+    directory: skillId,
+    commit: 'a'.repeat(40),
+    license: 'MIT',
+    enabled: true,
+    disableModelInvocation: false,
+    integrityStatus: 'ready',
+    displayStatus: 'ready',
+    dependencies: [],
+    fileCount: 1,
+    totalBytes: 100,
+    installedAt: '2026-08-19T00:00:00.000Z',
+    checkedAt: '2026-08-19T00:00:00.000Z',
+    updateAvailable: false,
+    updateKind: null,
+    ...overrides
   }
 }

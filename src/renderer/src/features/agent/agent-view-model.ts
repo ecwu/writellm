@@ -628,6 +628,14 @@ export function agentTerminalLabel(code: string): string {
       return 'Writing skill routing failed'
     case 'skill_prompt_budget_exceeded':
       return 'Writing skill exceeds the prompt budget'
+    case 'skill_mention_ambiguous':
+      return 'Writing skill name is ambiguous'
+    case 'skill_mention_unavailable':
+      return 'Requested writing skill is unavailable'
+    case 'skill_mention_limit':
+      return 'Too many writing skills were requested'
+    case 'skill_request_unfulfilled':
+      return 'Requested writing skill was not loaded'
     case 'compaction_failed':
       return 'Session compaction failed'
     case 'compaction_required':

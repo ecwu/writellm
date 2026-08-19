@@ -927,6 +927,14 @@ describe('Agent renderer view model', () => {
     expect(agentTerminalLabel('skill_prompt_budget_exceeded')).toBe(
       'Writing skill exceeds the prompt budget'
     )
+    expect(agentTerminalLabel('skill_mention_ambiguous')).toBe('Writing skill name is ambiguous')
+    expect(agentTerminalLabel('skill_mention_unavailable')).toBe(
+      'Requested writing skill is unavailable'
+    )
+    expect(agentTerminalLabel('skill_mention_limit')).toBe('Too many writing skills were requested')
+    expect(agentTerminalLabel('skill_request_unfulfilled')).toBe(
+      'Requested writing skill was not loaded'
+    )
     expect(agentTerminalLabel('compaction_failed')).toBe('Session compaction failed')
     expect(agentTerminalLabel('compaction_required')).toBe(
       'Conversation could not be compacted safely'
@@ -1130,9 +1138,10 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
 
 function legacySkillSnapshot(): AgentRunRecord['skillSnapshot'] {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'none',
     routingStatus: 'legacy',
+    requestedSkills: [],
     skills: [],
     dependencies: [],
     resources: [],

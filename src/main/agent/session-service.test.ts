@@ -416,9 +416,10 @@ describe('AgentSessionService', () => {
           await routed
           return {
             snapshot: {
-              schemaVersion: 2,
+              schemaVersion: 3,
               mode: 'auto',
               routingStatus: 'not_needed',
+              requestedSkills: [],
               skills: [],
               dependencies: [],
               resources: [],
@@ -616,9 +617,10 @@ describe('AgentSessionService', () => {
       skillRouter: {
         route: async () => ({
           snapshot: {
-            schemaVersion: 2,
+            schemaVersion: 3,
             mode: 'auto',
             routingStatus: 'not_needed',
+            requestedSkills: [],
             skills: [],
             dependencies: [],
             resources: [],
@@ -773,9 +775,10 @@ describe('AgentSessionService', () => {
     const runtime = new FakeAgentRuntime()
     const route = vi.fn(async () => ({
       snapshot: {
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         mode: 'auto' as const,
         routingStatus: 'available' as const,
+        requestedSkills: [],
         skills: [],
         dependencies: [],
         resources: [],
@@ -808,6 +811,120 @@ describe('AgentSessionService', () => {
     await second.completion
 
     expect(route).toHaveBeenCalledTimes(2)
+    database.close()
+  })
+
+  it('fails closed without publishing an answer when requested Skills were not loaded', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const publishDelta = vi.fn()
+    const commit = 'a'.repeat(40)
+    const requested = {
+      skillId: 'nature-writing',
+      displayName: 'Nature Writing',
+      name: 'nature-writing',
+      commit,
+      manifestSha256: 'b'.repeat(64)
+    }
+    const state = {
+      mode: 'explicit' as const,
+      candidates: new Map(),
+      automaticCandidateUris: new Set<string>(),
+      requestedSkills: [],
+      requiredSkills: [],
+      invocationSources: new Map<string, 'user' | 'agent'>(),
+      dependencyCandidates: new Map(),
+      activeSkills: [],
+      loadingEntrypointUri: null,
+      entrypointModelRequestIds: new Set<string>(),
+      dependencies: [],
+      readResources: new Map(),
+      readingResources: new Map(),
+      replay: false,
+      allowedResourceKeys: null,
+      preparationClosed: false
+    }
+    const route = vi.fn(async () => ({
+      snapshot: {
+        schemaVersion: 3 as const,
+        mode: 'explicit' as const,
+        routingStatus: 'available' as const,
+        requestedSkills: [requested],
+        skills: [],
+        dependencies: [],
+        resources: [],
+        safeError: null
+      },
+      prompt: {
+        mode: 'explicit' as const,
+        mandatory: '<requested_writing_skills />',
+        references: []
+      },
+      modelRequestId: null,
+      state
+    }))
+    const service = createService(database, runtime, undefined, {
+      publishDelta,
+      skillRouter: { route, isPrepared: vi.fn(() => false) }
+    })
+    const session = service.createSession('Required skill')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: '$nature-writing Rewrite this.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
+    const active = runtime.active(started.agentRunId)
+    expect(route).toHaveBeenCalledWith(
+      expect.objectContaining({ userPrompt: '$nature-writing Rewrite this.' })
+    )
+    await active.emit({ type: 'assistant_delta', delta: 'Must stay hidden' })
+    expect(publishDelta).not.toHaveBeenCalled()
+    await expect(
+      active.emit({
+        type: 'assistant_message',
+        modelRequestId: active.input.modelRequestId,
+        message: { ...assistant('', 'response-tool-use'), stopReason: 'toolUse' }
+      })
+    ).resolves.toBeUndefined()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('response-unfulfilled')
+    })
+    let preparationError: Error | null = null
+    try {
+      await active.emit({
+        type: 'assistant_message',
+        modelRequestId: active.input.modelRequestId,
+        message: assistant('Must not be persisted', 'response-unfulfilled')
+      })
+    } catch (err) {
+      preparationError = err instanceof Error ? err : new Error(String(err))
+    }
+    if (preparationError === null) throw new Error('Expected Skill preparation to fail')
+    active.reject(
+      Object.assign(new Error(preparationError.message), { code: 'skill_request_unfulfilled' })
+    )
+    await started.completion
+
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'skill_request_unfulfilled',
+      skillSnapshot: {
+        schemaVersion: 3,
+        routingStatus: 'failed',
+        requestedSkills: [requested],
+        skills: [],
+        safeError: 'skill_request_unfulfilled'
+      }
+    })
+    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+      'user_message',
+      'assistant_message',
+      'run_interrupted'
+    ])
     database.close()
   })
 
@@ -1623,16 +1740,18 @@ describe('AgentSessionService', () => {
     const runtime = new FakeAgentRuntime()
     const commit = 'a'.repeat(40)
     const snapshot = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       mode: 'auto' as const,
       routingStatus: 'selected' as const,
+      requestedSkills: [],
       skills: [
         {
           skillId: 'nature-writing',
           displayName: 'Nature Writing',
           name: 'nature-writing',
           commit,
-          manifestSha256: 'b'.repeat(64)
+          manifestSha256: 'b'.repeat(64),
+          invocationSource: 'agent' as const
         }
       ],
       dependencies: [],
@@ -1642,6 +1761,10 @@ describe('AgentSessionService', () => {
     const state = {
       mode: 'auto' as const,
       candidates: new Map(),
+      automaticCandidateUris: new Set<string>(),
+      requestedSkills: [],
+      requiredSkills: [],
+      invocationSources: new Map<string, 'user' | 'agent'>(),
       dependencyCandidates: new Map(),
       activeSkills: [],
       loadingEntrypointUri: null,

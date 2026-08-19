@@ -7,7 +7,7 @@ import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test }
 const SKILL_FIXTURE_ENV = 'WRITELLM_E2E_SKILL_FIXTURE_PATH'
 
 test(
-  'composes global Skills, reads five references, and preserves visible provenance',
+  'selects textual Skills, discovers a complement, and preserves visible provenance',
   scenario('agent.global-writing-skill'),
   async ({ testRoot }) => {
     const requests: unknown[] = []
@@ -33,11 +33,8 @@ test(
           }
           requests.push(body)
           const lastMessage = body.messages?.at(-1)
-          if (
-            lastMessage?.role === 'user' &&
-            JSON.stringify(lastMessage.content).includes('Load e2e-writing and e2e-humanize')
-          ) {
-            if (autoSkillUris.length !== 2) throw new Error('Auto Skill URIs are missing')
+          if (lastMessage?.role === 'user' && requests.length === 1) {
+            if (autoSkillUris.length !== 3) throw new Error('Skill URIs are missing')
             sendToolCalls(response, [autoSkillUris[0] as string], autoToolBatch++)
             return
           }
@@ -51,7 +48,11 @@ test(
               sendToolCalls(response, autoReferenceUris, autoToolBatch++)
               return
             }
-            sendCompletion(response, 'An Auto skill fixture draft.')
+            if (!requestText.includes("Preserve the source's paragraph order")) {
+              sendToolCalls(response, [autoSkillUris[2] as string], autoToolBatch++)
+              return
+            }
+            sendCompletion(response, 'A textual skill fixture draft.')
             return
           }
           const content = 'A global skill fixture draft.'
@@ -77,7 +78,8 @@ test(
       env: {
         [SKILL_FIXTURE_ENV]: JSON.stringify([
           join(process.cwd(), 'e2e/fixtures/writing-skill'),
-          join(process.cwd(), 'e2e/fixtures/writing-skill-companion')
+          join(process.cwd(), 'e2e/fixtures/writing-skill-companion'),
+          join(process.cwd(), 'e2e/fixtures/writing-skill-discovered')
         ])
       }
     })
@@ -139,10 +141,17 @@ test(
       )
       const writingSkill = installedSkills.find((skill) => skill.name === 'e2e-writing')
       const humanizeSkill = installedSkills.find((skill) => skill.name === 'e2e-humanize')
-      if (writingSkill === undefined || humanizeSkill === undefined) {
+      const discoveredSkill = (
+        await launched.page.evaluate(() => window.desktop.skills.snapshot())
+      ).installed.find((skill) => skill.name === 'e2e-discovered')
+      if (
+        writingSkill === undefined ||
+        humanizeSkill === undefined ||
+        discoveredSkill === undefined
+      ) {
         throw new Error('Installed E2E writing Skills are missing')
       }
-      autoSkillUris = [skillUri(writingSkill), skillUri(humanizeSkill)]
+      autoSkillUris = [skillUri(writingSkill), skillUri(humanizeSkill), skillUri(discoveredSkill)]
       autoReferenceUris = [
         skillUri(writingSkill, 'references/voice.md'),
         skillUri(writingSkill, 'references/structure.md'),
@@ -151,18 +160,69 @@ test(
         skillUri(humanizeSkill, 'references/clarity.md')
       ]
 
-      await panel
-        .getByLabel('Agent message')
-        .fill('Load e2e-writing and e2e-humanize, read their relevant references, then draft.')
+      const composer = panel.getByLabel('Agent message')
+      await composer.fill('$e2e-w')
+      await expect(launched.page.getByTestId('agent-skill-mention-menu')).toBeVisible()
+      await expect(launched.page.getByText('$e2e-writing', { exact: true })).toBeVisible()
+      await composer.press('Enter')
+      await expect(composer).toHaveValue('$e2e-writing ')
+      await composer.pressSequentially('$e2e-h')
+      await expect(launched.page.getByText('$e2e-humanize', { exact: true })).toBeVisible()
+      await composer.press('Tab')
+      await composer.pressSequentially('Read their relevant references, then draft.')
+      const textualPrompt = '$e2e-writing $e2e-humanize Read their relevant references, then draft.'
+      await expect(composer).toHaveValue(textualPrompt)
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
-      await expect(panel.getByText('Loaded 2 Writing Skills · 5 reference files')).toBeVisible()
-      await expect(panel.getByText('An Auto skill fixture draft.', { exact: true })).toBeVisible()
+      await expect(panel.getByText(textualPrompt, { exact: true })).toBeVisible()
+      await expect
+        .poll(async () => {
+          const project = (await launched.page.evaluate(() => window.desktop.projects.lifecycle()))
+            .activeProject
+          if (project === undefined) return null
+          const session = (
+            await launched.page.evaluate(
+              ({ projectSessionId }) => window.desktop.agent.listSessions({ projectSessionId }),
+              { projectSessionId: project.projectSessionId }
+            )
+          )[0]
+          if (session === undefined) return null
+          const run = (
+            await launched.page.evaluate(
+              ({ projectSessionId, agentSessionId }) =>
+                window.desktop.agent.listRuns({ projectSessionId, agentSessionId }),
+              {
+                projectSessionId: project.projectSessionId,
+                agentSessionId: session.agentSessionId
+              }
+            )
+          )[0]
+          if (run === undefined) return null
+          return {
+            status: run.status,
+            errorCode: run.errorCode,
+            routingStatus: run.skillSnapshot.routingStatus,
+            safeError: run.skillSnapshot.safeError,
+            requested: run.skillSnapshot.requestedSkills.map((skill) => skill.name),
+            loaded: run.skillSnapshot.skills.map((skill) => skill.name)
+          }
+        })
+        .toEqual({
+          status: 'completed',
+          errorCode: null,
+          routingStatus: 'selected',
+          safeError: null,
+          requested: ['e2e-writing', 'e2e-humanize'],
+          loaded: ['e2e-writing', 'e2e-humanize', 'e2e-discovered']
+        })
+      await expect(panel.getByText('Loaded 3 Writing Skills · 5 reference files')).toBeVisible()
+      await expect(panel.getByText('A textual skill fixture draft.', { exact: true })).toBeVisible()
       await expect(panel.getByLabel('Writing Skills used for this message')).toHaveCount(0)
-      const screenshotDirectory = process.env.WRITELLM_CP60_SCREENSHOT_DIR
+      await panel.getByRole('log').evaluate((element) => element.scrollTo({ top: 0 }))
+      const screenshotDirectory = process.env.WRITELLM_CP61_SCREENSHOT_DIR
       if (screenshotDirectory !== undefined) {
         await mkdir(screenshotDirectory, { recursive: true })
         await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp60-writing-skills-desktop.png'),
+          path: join(screenshotDirectory, 'cp61-writing-skills-desktop.png'),
           animations: 'disabled'
         })
       }
@@ -177,7 +237,7 @@ test(
       expect(panelWidth.scrollWidth).toBeLessThanOrEqual(panelWidth.clientWidth + 1)
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp60-writing-skills-narrow.png'),
+          path: join(screenshotDirectory, 'cp61-writing-skills-narrow.png'),
           animations: 'disabled'
         })
       }
@@ -200,12 +260,17 @@ test(
         )[0]
       })
       expect(autoTruth?.skillSnapshot).toMatchObject({
-        schemaVersion: 2,
-        mode: 'auto',
+        schemaVersion: 3,
+        mode: 'explicit',
         routingStatus: 'selected',
-        skills: [
+        requestedSkills: [
           { name: 'e2e-writing', commit: 'e'.repeat(40) },
           { name: 'e2e-humanize', commit: 'f'.repeat(40) }
+        ],
+        skills: [
+          { name: 'e2e-writing', commit: 'e'.repeat(40), invocationSource: 'user' },
+          { name: 'e2e-humanize', commit: 'f'.repeat(40), invocationSource: 'user' },
+          { name: 'e2e-discovered', commit: 'd'.repeat(40), invocationSource: 'agent' }
         ],
         resources: expect.arrayContaining([
           expect.objectContaining({
@@ -231,21 +296,25 @@ test(
         ])
       })
       expect(autoTruth?.skillSnapshot.resources).toHaveLength(5)
-      expect(requests).toHaveLength(4)
+      expect(requests).toHaveLength(5)
+      expect(JSON.stringify(requests[0])).toContain('$e2e-writing $e2e-humanize')
       expect(JSON.stringify(requests[0])).toContain(autoSkillUris[0])
       expect(JSON.stringify(requests[1])).toContain(autoSkillUris[1])
       expect(JSON.stringify(requests[2])).toContain('WRITELLM_SKILL_GUIDANCE')
       expect(JSON.stringify(requests[3])).toContain('Use concrete nouns and active verbs')
+      expect(JSON.stringify(requests[4])).toContain("Preserve the source's paragraph order")
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
       details = launched.page.getByRole('dialog', { name: 'Agent details' })
-      await expect(details.getByText('2 loaded', { exact: true })).toBeVisible()
+      await expect(details.getByText('2 requested · 3 loaded', { exact: true })).toBeVisible()
+      await expect(details.getByText('Requested', { exact: true })).toHaveCount(2)
+      await expect(details.getByText('Discovered', { exact: true })).toHaveCount(1)
       await expect(details.getByRole('button', { name: 'Choose writing skill' })).toHaveCount(0)
       await expect(details.getByText('Retained references', { exact: true })).toBeVisible()
       await expect(details.getByText('references/clarity.md', { exact: false })).toBeVisible()
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp60-writing-skills-details.png'),
+          path: join(screenshotDirectory, 'cp61-writing-skills-details.png'),
           animations: 'disabled'
         })
       }

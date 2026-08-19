@@ -1,0 +1,7 @@
+{
+  "repository": "writellm/e2e-discovered",
+  "directory": "e2e-discovered",
+  "commit": "dddddddddddddddddddddddddddddddddddddddd",
+  "license": "MIT",
+  "files": ["SKILL.md"]
+}

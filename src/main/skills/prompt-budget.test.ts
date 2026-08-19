@@ -8,7 +8,10 @@ import { formatWriteLlmSkill } from './prompt'
 describe('writing skill prompt budget baseline', () => {
   it('stages bounded Skill preparation before downstream tools', () => {
     expect(SKILL_COMPANION_NOTE).toContain(
-      'The catalog contains metadata only; even when the user names a Skill, call read_writing_skill'
+      'The catalogs contain metadata only; even when the user names a Skill, call read_writing_skill'
+    )
+    expect(SKILL_COMPANION_NOTE).toContain(
+      'A requested_writing_skills block is mandatory: load every listed entrypoint in order'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
       'Load at most one new top-level or dependency entrypoint and make no other tool calls in that assistant response.'
@@ -54,7 +57,7 @@ describe('writing skill prompt budget baseline', () => {
     }).toEqual({
       max: 65_536,
       policy: 12_148,
-      companion: 1_758,
+      companion: 1_899,
       emptyInvocation: 197,
       wrappedEntrypoint: 292,
       fixedEnvelope: 165

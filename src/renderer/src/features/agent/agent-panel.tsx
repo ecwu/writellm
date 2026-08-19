@@ -26,12 +26,15 @@ import type {
   AgentProviderCatalog,
   AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
+import type { InstalledSkill, SkillsSnapshot } from '../../../../shared/contracts/skills'
+import { parseLeadingSkillMentions, skillMentionQueryAt } from '../../../../shared/skill-mentions'
 import {
   AlertCircle,
   Archive,
   ArchiveRestore,
   ArrowUp,
   Bot,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
@@ -59,7 +62,7 @@ import {
   Undo2,
   X
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -233,6 +236,9 @@ export function AgentPanel(props: {
   const [composerAddOpen, setComposerAddOpen] = useState(false)
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false)
   const [slashSelectionIndex, setSlashSelectionIndex] = useState(0)
+  const [skillMentionDismissed, setSkillMentionDismissed] = useState(false)
+  const [skillMentionSelectionIndex, setSkillMentionSelectionIndex] = useState(0)
+  const [composerCaret, setComposerCaret] = useState(0)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [taskEditorOpen, setTaskEditorOpen] = useState(false)
@@ -250,10 +256,13 @@ export function AgentPanel(props: {
     presets: [],
     defaultSelection: null
   })
+  const [skillsSnapshot, setSkillsSnapshot] = useState<SkillsSnapshot | null>(null)
   const [revisionTransitions, setRevisionTransitions] = useState<
     Record<string, { from: string | undefined; to: string }>
   >({})
   const activeSessionIdRef = useRef<string | null>(null)
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const pendingComposerCaretRef = useRef<number | null>(null)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
   const skillRoutingPendingRef = useRef<Set<string>>(new Set())
   const draftStateRef = useRef(
@@ -383,10 +392,15 @@ export function AgentPanel(props: {
     let disposed = false
     setLoading(true)
     setError(null)
-    void Promise.all([refreshSessions(true), window.desktop.providers.snapshot()])
-      .then(([, snapshot]) => {
+    void Promise.all([
+      refreshSessions(true),
+      window.desktop.providers.snapshot(),
+      window.desktop.skills.snapshot().catch(() => null)
+    ])
+      .then(([, snapshot, nextSkillsSnapshot]) => {
         if (!disposed) {
           setProviderCatalog(snapshot.agentCatalog)
+          if (nextSkillsSnapshot !== null) setSkillsSnapshot(nextSkillsSnapshot)
         }
       })
       .catch(() => {
@@ -400,6 +414,26 @@ export function AgentPanel(props: {
       disposed = true
     }
   }, [props.open, refreshSessions])
+
+  useLayoutEffect(() => {
+    const nextCaret = pendingComposerCaretRef.current
+    if (nextCaret === null) return
+    const textarea = composerTextareaRef.current
+    if (textarea === null || textarea.value !== prompt) return
+    pendingComposerCaretRef.current = null
+    textarea.focus()
+    textarea.setSelectionRange(nextCaret, nextCaret)
+  }, [prompt])
+
+  useEffect(() => {
+    if (!props.open) return
+    return window.desktop.skills.subscribeChanges(() => {
+      void window.desktop.skills
+        .snapshot()
+        .then(setSkillsSnapshot)
+        .catch(() => undefined)
+    })
+  }, [props.open])
 
   useEffect(() => {
     if (!props.open) return
@@ -1432,6 +1466,23 @@ export function AgentPanel(props: {
   const selectedSlashCommand =
     slashSelectableCommands[slashSelectionIndex % Math.max(1, slashSelectableCommands.length)] ??
     null
+  const skillQuery =
+    activeRun === null && !conversationLocked ? skillMentionQueryAt(prompt, composerCaret) : null
+  const skillMentionCandidates = buildSkillMentionCandidates({
+    installed: skillsSnapshot?.installed ?? [],
+    prompt,
+    query: skillQuery?.query ?? '',
+    queryStart: skillQuery?.start
+  })
+  const skillMentionSelectableCandidates = skillMentionCandidates.filter(
+    (candidate) => !candidate.disabled
+  )
+  const skillMentionOpen =
+    skillQuery !== null && !skillMentionDismissed && !busy && activeRun === null
+  const selectedSkillMention =
+    skillMentionSelectableCandidates[
+      skillMentionSelectionIndex % Math.max(1, skillMentionSelectableCandidates.length)
+    ] ?? null
 
   const runComposerCommand = (command: ComposerCommand, clearSlash: boolean): void => {
     if (command.disabled) return
@@ -1441,6 +1492,20 @@ export function AgentPanel(props: {
     if (command.action.kind === 'scope') {
       setScopePreference(command.action.value)
     }
+  }
+
+  const insertSkillMention = (candidate: SkillMentionCandidate): void => {
+    if (candidate.disabled) return
+    const query = skillMentionQueryAt(prompt, composerCaret)
+    if (query === null) return
+    const insertion = `$${candidate.name} `
+    const nextPrompt = `${prompt.slice(0, query.start)}${insertion}${prompt.slice(query.end)}`
+    const nextCaret = query.start + insertion.length
+    pendingComposerCaretRef.current = nextCaret
+    setPrompt(nextPrompt)
+    setComposerCaret(nextCaret)
+    setSkillMentionDismissed(false)
+    setSkillMentionSelectionIndex(0)
   }
 
   return (
@@ -1780,9 +1845,12 @@ export function AgentPanel(props: {
                 </ul>
               ) : null}
               <Popover
-                open={slashCommandOpen}
+                open={slashCommandOpen || skillMentionOpen}
                 onOpenChange={(open) => {
-                  if (!open) setSlashMenuDismissed(true)
+                  if (!open) {
+                    setSlashMenuDismissed(true)
+                    setSkillMentionDismissed(true)
+                  }
                 }}
               >
                 <PopoverAnchor asChild>
@@ -1790,6 +1858,7 @@ export function AgentPanel(props: {
                     data-disabled={busy || choosingSkill || activeSession?.compatible === false}
                   >
                     <InputGroupTextarea
+                      ref={composerTextareaRef}
                       id='agent-message'
                       value={prompt}
                       placeholder={
@@ -1803,10 +1872,45 @@ export function AgentPanel(props: {
                       disabled={busy || choosingSkill || activeSession?.compatible === false}
                       onChange={(event) => {
                         setPrompt(event.target.value)
+                        setComposerCaret(event.target.selectionStart ?? event.target.value.length)
                         setSlashMenuDismissed(false)
                         setSlashSelectionIndex(0)
+                        setSkillMentionDismissed(false)
+                        setSkillMentionSelectionIndex(0)
+                      }}
+                      onSelect={(event) => {
+                        setComposerCaret(event.currentTarget.selectionStart ?? prompt.length)
                       }}
                       onKeyDown={(event) => {
+                        if (skillMentionOpen && !event.nativeEvent.isComposing) {
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setSkillMentionDismissed(true)
+                            return
+                          }
+                          if (
+                            (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+                            skillMentionSelectableCandidates.length > 0
+                          ) {
+                            event.preventDefault()
+                            setSkillMentionSelectionIndex((current) =>
+                              event.key === 'ArrowDown'
+                                ? (current + 1) % skillMentionSelectableCandidates.length
+                                : (current - 1 + skillMentionSelectableCandidates.length) %
+                                  skillMentionSelectableCandidates.length
+                            )
+                            return
+                          }
+                          if (
+                            (event.key === 'Enter' || event.key === 'Tab') &&
+                            !event.shiftKey &&
+                            selectedSkillMention !== null
+                          ) {
+                            event.preventDefault()
+                            insertSkillMention(selectedSkillMention)
+                            return
+                          }
+                        }
                         if (slashCommandOpen && !event.nativeEvent.isComposing) {
                           if (event.key === 'Escape') {
                             event.preventDefault()
@@ -1962,19 +2066,33 @@ export function AgentPanel(props: {
                   className='w-[var(--radix-popover-trigger-width)] p-0'
                   onOpenAutoFocus={(event) => event.preventDefault()}
                   onCloseAutoFocus={(event) => event.preventDefault()}
-                  data-testid='agent-slash-menu'
+                  data-testid={skillMentionOpen ? 'agent-skill-mention-menu' : 'agent-slash-menu'}
                 >
-                  <ComposerCommandMenu
-                    commands={slashCommands}
-                    selectedId={selectedSlashCommand?.id}
-                    onSelectedIdChange={(id) => {
-                      const index = slashSelectableCommands.findIndex(
-                        (command) => command.id === id
-                      )
-                      if (index >= 0) setSlashSelectionIndex(index)
-                    }}
-                    onSelect={(command) => runComposerCommand(command, true)}
-                  />
+                  {skillMentionOpen ? (
+                    <SkillMentionMenu
+                      candidates={skillMentionCandidates}
+                      selectedId={selectedSkillMention?.skillId}
+                      onSelectedIdChange={(id) => {
+                        const index = skillMentionSelectableCandidates.findIndex(
+                          (candidate) => candidate.skillId === id
+                        )
+                        if (index >= 0) setSkillMentionSelectionIndex(index)
+                      }}
+                      onSelect={insertSkillMention}
+                    />
+                  ) : (
+                    <ComposerCommandMenu
+                      commands={slashCommands}
+                      selectedId={selectedSlashCommand?.id}
+                      onSelectedIdChange={(id) => {
+                        const index = slashSelectableCommands.findIndex(
+                          (command) => command.id === id
+                        )
+                        if (index >= 0) setSlashSelectionIndex(index)
+                      }}
+                      onSelect={(command) => runComposerCommand(command, true)}
+                    />
+                  )}
                 </PopoverContent>
               </Popover>
             </Field>
@@ -2323,6 +2441,128 @@ function ComposerCommandIcon(props: { command: ComposerCommand }): React.JSX.Ele
   if (action.value === 'section') return <FilePenLine />
   if (action.value === 'project') return <FolderOpen />
   return <Bot />
+}
+
+export interface SkillMentionCandidate {
+  skillId: string
+  name: string
+  displayName: string
+  description: string
+  disabled: boolean
+}
+
+export function buildSkillMentionCandidates(input: {
+  installed: readonly InstalledSkill[]
+  prompt: string
+  query: string
+  queryStart?: number
+}): SkillMentionCandidate[] {
+  const mentioned = new Set(
+    parseLeadingSkillMentions(input.prompt)
+      .filter((mention) => mention.end <= (input.queryStart ?? input.prompt.length))
+      .map((mention) => mention.name)
+  )
+  if (mentioned.size >= 4) return []
+  const byName = new Map<string, InstalledSkill[]>()
+  for (const skill of input.installed) {
+    const group = byName.get(skill.name) ?? []
+    group.push(skill)
+    byName.set(skill.name, group)
+  }
+  const normalizedQuery = input.query.toLocaleLowerCase()
+  return [...byName.entries()]
+    .flatMap(([name, skills]): SkillMentionCandidate[] => {
+      if (mentioned.has(name)) return []
+      const loadable = skills.filter((skill) => skill.enabled && skill.integrityStatus === 'ready')
+      if (loadable.length === 0) return []
+      if (loadable.length > 1) {
+        return [
+          {
+            skillId: `ambiguous:${name}`,
+            name,
+            displayName: name,
+            description: `Name is shared by ${loadable.length} available Skills; resolve it in Settings.`,
+            disabled: true
+          }
+        ]
+      }
+      const skill = loadable[0]
+      if (skill === undefined) return []
+      return [
+        {
+          skillId: skill.skillId,
+          name: skill.name,
+          displayName: skill.displayName,
+          description: skill.description,
+          disabled: false
+        }
+      ]
+    })
+    .map((candidate) => ({
+      candidate,
+      score: skillMentionMatchScore(candidate, normalizedQuery)
+    }))
+    .filter((match) => match.score !== null)
+    .sort(
+      (left, right) =>
+        (left.score ?? 0) - (right.score ?? 0) ||
+        left.candidate.name.localeCompare(right.candidate.name) ||
+        left.candidate.skillId.localeCompare(right.candidate.skillId)
+    )
+    .map((match) => match.candidate)
+}
+
+function skillMentionMatchScore(candidate: SkillMentionCandidate, query: string): number | null {
+  if (query.length === 0) return 0
+  const name = candidate.name.toLocaleLowerCase()
+  const displayName = candidate.displayName.toLocaleLowerCase()
+  const description = candidate.description.toLocaleLowerCase()
+  if (name === query) return 0
+  if (name.startsWith(query)) return 1
+  if (displayName.startsWith(query)) return 2
+  if (name.includes(query) || displayName.includes(query)) return 3
+  if (description.includes(query)) return 4
+  return null
+}
+
+function SkillMentionMenu(props: {
+  candidates: SkillMentionCandidate[]
+  selectedId?: string
+  onSelectedIdChange(id: string): void
+  onSelect(candidate: SkillMentionCandidate): void
+}): React.JSX.Element {
+  return (
+    <Command value={props.selectedId} onValueChange={props.onSelectedIdChange}>
+      <CommandList>
+        <CommandEmpty>No matching enabled Writing Skill.</CommandEmpty>
+        <CommandGroup heading='Writing Skills'>
+          {props.candidates.map((candidate) => (
+            <CommandItem
+              key={candidate.skillId}
+              value={candidate.skillId}
+              disabled={candidate.disabled}
+              onSelect={() => props.onSelect(candidate)}
+            >
+              <BookOpen />
+              <span className='min-w-0 flex-1'>
+                <span className='flex min-w-0 items-baseline gap-2'>
+                  <code className='shrink-0 text-xs'>${candidate.name}</code>
+                  {candidate.displayName !== candidate.name ? (
+                    <span className='truncate text-xs text-muted-foreground'>
+                      {candidate.displayName}
+                    </span>
+                  ) : null}
+                </span>
+                <span className='block truncate text-xs text-muted-foreground'>
+                  {candidate.description}
+                </span>
+              </span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  )
 }
 
 function ApprovalModePicker(props: {
@@ -2866,7 +3106,11 @@ function SkillsUsedDetails(props: { run: AgentRunRecord | null }): React.JSX.Ele
         <h3 id='agent-skills-used-heading' className='text-sm font-semibold'>
           Skills used
         </h3>
-        <Badge variant='outline'>{snapshot.skills.length} loaded</Badge>
+        <Badge variant='outline'>
+          {snapshot.requestedSkills.length > 0
+            ? `${snapshot.requestedSkills.length} requested · ${snapshot.skills.length} loaded`
+            : `${snapshot.skills.length} loaded`}
+        </Badge>
       </div>
       {snapshot.skills.length > 0 ? (
         <ol className='grid gap-1.5 text-sm'>
@@ -2876,6 +3120,9 @@ function SkillsUsedDetails(props: { run: AgentRunRecord | null }): React.JSX.Ele
                 {index + 1}
               </Badge>
               <span className='min-w-0 flex-1 truncate'>{skill.displayName}</span>
+              <Badge variant='outline' className='shrink-0'>
+                {skill.invocationSource === 'user' ? 'Requested' : 'Discovered'}
+              </Badge>
               <code className='shrink-0 text-xs text-muted-foreground'>
                 {skill.commit.slice(0, 8)}
               </code>

@@ -53,6 +53,9 @@ export const skillRunProvenanceSchema = strictObject({
   commit: skillCommitSchema,
   manifestSha256: z.string().regex(/^[a-f0-9]{64}$/)
 })
+export const skillRunTopLevelProvenanceSchema = skillRunProvenanceSchema.extend({
+  invocationSource: z.enum(['user', 'agent'])
+})
 export const skillRoutingStatusSchema = z.enum([
   'legacy',
   'pending',
@@ -73,7 +76,18 @@ export const skillRunResourceSchema = strictObject({
   byteSize: z.number().int().nonnegative().max(1_048_576).nullable()
 })
 
-const canonicalSkillRunSnapshotSchema = strictObject({
+const versionThreeSkillRunSnapshotSchema = strictObject({
+  schemaVersion: z.literal(3),
+  mode: z.enum(['auto', 'explicit', 'none']),
+  routingStatus: skillRoutingStatusSchema,
+  requestedSkills: z.array(skillRunProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
+  skills: z.array(skillRunTopLevelProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
+  dependencies: z.array(skillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
+  resources: z.array(skillRunResourceSchema).max(SKILL_MAX_RUN_REFERENCES),
+  safeError: z.string().min(1).max(200).nullable()
+})
+
+const versionTwoSkillRunSnapshotSchema = strictObject({
   schemaVersion: z.literal(2),
   mode: z.enum(['auto', 'explicit', 'none']),
   routingStatus: skillRoutingStatusSchema,
@@ -101,30 +115,48 @@ const legacySkillRunSnapshotSchema = strictObject({
 
 export const skillRunSnapshotSchema = z.preprocess((value) => {
   const legacy = legacySkillRunSnapshotSchema.safeParse(value)
-  if (!legacy.success) return value
-  const primary = legacy.data.primary
+  const normalized = legacy.success
+    ? {
+        schemaVersion: 2 as const,
+        mode: legacy.data.mode,
+        routingStatus: legacy.data.routingStatus,
+        skills:
+          legacy.data.primary === null
+            ? []
+            : [{ ...legacy.data.primary, displayName: legacy.data.primary.name }],
+        dependencies: legacy.data.dependencies.map((dependency) => ({
+          ...dependency,
+          displayName: dependency.name
+        })),
+        resources:
+          legacy.data.primary === null
+            ? []
+            : legacy.data.resources.map((relativePath) => ({
+                skillId: legacy.data.primary?.skillId ?? '',
+                commit: legacy.data.primary?.commit ?? '',
+                relativePath,
+                sha256: null,
+                byteSize: null
+              })),
+        safeError: legacy.data.safeError
+      }
+    : value
+  const versionTwo = versionTwoSkillRunSnapshotSchema.safeParse(normalized)
+  if (!versionTwo.success) return value
   return {
-    schemaVersion: 2,
-    mode: legacy.data.mode,
-    routingStatus: legacy.data.routingStatus,
-    skills: primary === null ? [] : [{ ...primary, displayName: primary.name }],
-    dependencies: legacy.data.dependencies.map((dependency) => ({
-      ...dependency,
-      displayName: dependency.name
+    schemaVersion: 3,
+    mode: versionTwo.data.mode,
+    routingStatus: versionTwo.data.routingStatus,
+    requestedSkills: versionTwo.data.mode === 'explicit' ? versionTwo.data.skills : [],
+    skills: versionTwo.data.skills.map((skill) => ({
+      ...skill,
+      invocationSource: versionTwo.data.mode === 'explicit' ? 'user' : 'agent'
     })),
-    resources:
-      primary === null
-        ? []
-        : legacy.data.resources.map((relativePath) => ({
-            skillId: primary.skillId,
-            commit: primary.commit,
-            relativePath,
-            sha256: null,
-            byteSize: null
-          })),
-    safeError: legacy.data.safeError
+    dependencies: versionTwo.data.dependencies,
+    resources: versionTwo.data.resources,
+    safeError: versionTwo.data.safeError
   }
-}, canonicalSkillRunSnapshotSchema)
+}, versionThreeSkillRunSnapshotSchema)
 
 export const skillManifestFileSchema = strictObject({
   path: skillRelativePathSchema,

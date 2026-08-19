@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 12 Checkpoint 60 is complete under accepted ADR 054. Checkpoint 26.9 remains paused
-and all GitHub Actions workflows are disabled.
+Status: The user-authorized local `0.2026.8.20` App candidate for completed Phase 12 Checkpoint 61
+is complete. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-19
 
 This file describes only the active delivery state. Long-lived system rules belong in
@@ -39,9 +39,32 @@ Checkpoint 26.9 (hosted CI and release promotion) remains paused; its acceptance
 per-candidate audit are recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release creation, or release
-promotion has run. The newest user-authorized local candidate tag is `v0.2026.8.19`.
+promotion has run. The newest user-authorized local candidate tag is `v0.2026.8.20`.
 
 ## Current authorized work
+
+On 2026-08-19 the user authorized and completed the local `0.2026.8.20` App candidate for
+Checkpoint 61. Release metadata advanced; `check:fast`, `check:electron`, the fresh 41/41
+Real-Electron suite, all 25 recovery fixtures from 23 sources, and `git diff --check` passed before
+the clean local release commit and annotated `v0.2026.8.20` tag. The no-identity macOS arm64
+unpacked package gate built and verified the App with Electron 43.1.0 / ABI 148, arm64
+`better-sqlite3` and `sqlite-vec`, the ASAR/resource inventory, all 12 packaged runtime smoke
+scenarios, and 28/28 packaged E2E scenarios. No DMG, ZIP, push, hosted CI, Apple Developer ID
+signing, notarization, GitHub Release, promotion, or publication ran.
+
+On 2026-08-19 the user accepted ADR 055 and completed Checkpoint 61. The bounded change restores a
+Codex-style `$skill-name` discovery affordance only at the start of an idle new-run prompt. The
+selection remains ordinary editable text; Renderer sends no Skill authorization state, while Main
+reparses the prompt and requires visible `read_writing_skill` calls for ordered requested Skills.
+Version-3 snapshots preserve requested pins and user-versus-Agent load provenance without a
+database migration. Existing multi-Skill budgets, reference allowlists, preparation isolation, and
+non-executable security boundaries remain fixed. No package/release, hosted CI, commit, push,
+signing, notarization, promotion, or publication work is authorized.
+Focused shared, Main, session, Renderer, and Real-Electron coverage passed, followed by
+`check:fast`, the complete Electron-hosted gate (187 files / 1043 tests with three intentional
+benchmark skips) plus production build, all 25 recovery fixtures from 23 sources, and the fresh
+41/41 Real-Electron suite. Desktop, narrow, and Agent Details screenshots, the scoped Impeccable
+detector, and `git diff --check` passed. No package or release gate ran.
 
 On 2026-08-19 the user authorized and completed the local `0.2026.8.19` App candidate for
 Checkpoint 60. Release metadata advanced, `check:fast`, `check:electron`, the fresh 41/41

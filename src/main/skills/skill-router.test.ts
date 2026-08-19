@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { SkillReadError, WritingSkillRuntime } from './skill-router'
+import { SkillReadError, SkillRouteError, WritingSkillRuntime } from './skill-router'
 import { virtualSkillPath, type WriteLlmSkill } from './prompt'
 import type { SkillService } from './skill-service'
 
@@ -207,7 +207,159 @@ describe('Pi-native progressive Writing Skill routing', () => {
       'third-method'
     ])
   })
+
+  it('resolves leading user mentions, requires visible reads in text order, then permits discovery', async () => {
+    const requestedFirst = skill('nature-writing', 'Nature instructions')
+    requestedFirst.disableModelInvocation = true
+    const requestedSecond = skill('ccf-humanization', 'Humanization instructions')
+    const discovered = skill('structure-review', 'Structure instructions')
+    const loaded = [discovered, requestedFirst, requestedSecond]
+    const service = serviceFor(loaded)
+    const router = new WritingSkillRuntime(service, logger())
+
+    const routed = await router.route({
+      userPrompt: '$nature-writing $ccf-humanization Rewrite this passage.',
+      signal: new AbortController().signal
+    })
+    expect(routed.snapshot).toMatchObject({
+      schemaVersion: 3,
+      mode: 'explicit',
+      requestedSkills: [{ skillId: 'nature-writing' }, { skillId: 'ccf-humanization' }],
+      skills: []
+    })
+    expect(routed.prompt.mandatory).toContain(requestedFirst.filePath)
+    expect(routed.prompt.mandatory).toContain(requestedSecond.filePath)
+    expect(routed.prompt.mandatory).not.toContain('Nature instructions')
+    if (routed.state === undefined) throw new Error('Missing explicit state')
+
+    await expect(
+      router.read(routed.state, requestedSecond.filePath, 'out-of-order')
+    ).rejects.toMatchObject({ code: 'conflict', recoveryUri: requestedFirst.filePath })
+    const first = await router.read(routed.state, requestedFirst.filePath, 'requested-1')
+    expect(first.snapshot.skills).toEqual([
+      expect.objectContaining({ skillId: requestedFirst.skillId, invocationSource: 'user' })
+    ])
+    expect(router.isPrepared(routed.state)).toBe(false)
+    const second = await router.read(routed.state, requestedSecond.filePath, 'requested-2')
+    expect(second.snapshot.skills).toEqual([
+      expect.objectContaining({ skillId: requestedFirst.skillId, invocationSource: 'user' }),
+      expect.objectContaining({ skillId: requestedSecond.skillId, invocationSource: 'user' })
+    ])
+    expect(router.isPrepared(routed.state)).toBe(true)
+
+    const complementary = await router.read(routed.state, discovered.filePath, 'agent-1')
+    expect(complementary.snapshot.skills.at(-1)).toMatchObject({
+      skillId: discovered.skillId,
+      invocationSource: 'agent'
+    })
+  })
+
+  it('deduplicates repeated mentions and leaves unknown names as ordinary prompt text', async () => {
+    const available = skill('nature-writing', 'Nature instructions')
+    const router = new WritingSkillRuntime(serviceFor([available]), logger())
+    const routed = await router.route({
+      userPrompt: '$unknown $nature-writing $nature-writing Rewrite this.',
+      signal: new AbortController().signal
+    })
+    expect(routed.snapshot.requestedSkills.map((entry) => entry.skillId)).toEqual([
+      'nature-writing'
+    ])
+  })
+
+  it('rejects ambiguous, unavailable, and over-limit mentions before preparation', async () => {
+    const ambiguousOne = skill('first-source', 'One')
+    ambiguousOne.name = 'shared-name'
+    const ambiguousTwo = skill('second-source', 'Two')
+    ambiguousTwo.name = 'shared-name'
+    const ambiguousRouter = new WritingSkillRuntime(
+      serviceFor([ambiguousOne, ambiguousTwo]),
+      logger()
+    )
+    await expect(
+      ambiguousRouter.route({
+        userPrompt: '$shared-name revise',
+        signal: new AbortController().signal
+      })
+    ).rejects.toMatchObject({ code: 'skill_mention_ambiguous' })
+
+    const unavailable = skill('disabled-method', 'Disabled')
+    const unavailableService = serviceFor(
+      [],
+      [{ skillId: unavailable.skillId, name: unavailable.name }]
+    )
+    const unavailableRouter = new WritingSkillRuntime(unavailableService, logger())
+    await expect(
+      unavailableRouter.route({
+        userPrompt: '$disabled-method revise',
+        signal: new AbortController().signal
+      })
+    ).rejects.toMatchObject({ code: 'skill_mention_unavailable' })
+
+    const five = Array.from({ length: 5 }, (_, index) =>
+      skill(`method-${index + 1}`, `Instructions ${index + 1}`)
+    )
+    const overLimitRouter = new WritingSkillRuntime(serviceFor(five), logger())
+    await expect(
+      overLimitRouter.route({
+        userPrompt: `${five.map((entry) => `$${entry.name}`).join(' ')} revise`,
+        signal: new AbortController().signal
+      })
+    ).rejects.toBeInstanceOf(SkillRouteError)
+    await expect(
+      overLimitRouter.route({
+        userPrompt: `${five.map((entry) => `$${entry.name}`).join(' ')} revise`,
+        signal: new AbortController().signal
+      })
+    ).rejects.toMatchObject({ code: 'skill_mention_limit' })
+  })
+
+  it('atomically rejects an explicit combination whose eventual prompt exceeds the budget', async () => {
+    const first = skill('large-first', 'a'.repeat(40_000))
+    const second = skill('large-second', 'b'.repeat(40_000))
+    const service = serviceFor([first, second])
+    const router = new WritingSkillRuntime(service, logger())
+
+    await expect(
+      router.route({
+        userPrompt: '$large-first $large-second Revise.',
+        signal: new AbortController().signal
+      })
+    ).rejects.toThrow('system prompt budget')
+    expect(service.readResource).not.toHaveBeenCalled()
+  })
 })
+
+function logger(): {
+  info: ReturnType<typeof vi.fn>
+  warn: ReturnType<typeof vi.fn>
+  error: ReturnType<typeof vi.fn>
+} {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+}
+
+function serviceFor(
+  loaded: WriteLlmSkill[],
+  additionalInstalled: Array<{ skillId: string; name: string }> = []
+): SkillService {
+  return {
+    loadEnabled: vi.fn(async () => loaded),
+    loadById: vi.fn(async (id: string) => {
+      const found = loaded.find((candidate) => candidate.skillId === id)
+      if (found === undefined) throw new Error('unknown skill')
+      return found
+    }),
+    loadVersion: vi.fn(),
+    readResource: vi.fn(),
+    snapshot: vi.fn(() => ({
+      available: [],
+      revision: 1,
+      installed: [
+        ...loaded.map((entry) => ({ skillId: entry.skillId, name: entry.name })),
+        ...additionalInstalled
+      ]
+    }))
+  } as unknown as SkillService
+}
 
 function skill(
   skillId: string,

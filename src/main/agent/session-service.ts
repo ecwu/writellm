@@ -88,6 +88,7 @@ import {
 import { virtualSkillPath } from '../skills/prompt'
 import {
   SkillReadError,
+  SkillRouteError,
   type SkillRunState,
   type WritingSkillRuntime
 } from '../skills/skill-router'
@@ -1020,7 +1021,11 @@ export class AgentSessionService {
         active.skillState = routed.state ?? null
       } catch (err) {
         throw new AgentRunSetupError(
-          active.controller.signal.aborted ? 'user_stopped' : 'skill_route_failed',
+          active.controller.signal.aborted
+            ? 'user_stopped'
+            : err instanceof SkillRouteError
+              ? err.code
+              : 'skill_route_failed',
           err
         )
       }
@@ -1083,9 +1088,10 @@ export class AgentSessionService {
     }
     if (builtContext?.skillPromptDropped === true) {
       active.skillSnapshot = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         mode: 'auto',
         routingStatus: 'degraded',
+        requestedSkills: [],
         skills: [],
         dependencies: [],
         resources: [],
@@ -1842,6 +1848,13 @@ export class AgentSessionService {
         `${active.partialText}${event.delta}`,
         AGENT_LIVE_PARTIAL_MAX_BYTES
       )
+      if (
+        active.skillState !== null &&
+        this.options.skillRouter?.isPrepared !== undefined &&
+        !this.options.skillRouter.isPrepared(active.skillState)
+      ) {
+        return
+      }
       await this.#publishDelta(active.agentSessionId, active.agentRunId, event.delta)
       return
     }
@@ -1931,6 +1944,14 @@ export class AgentSessionService {
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
     }
+    if (
+      event.message.stopReason !== 'toolUse' &&
+      active.skillState !== null &&
+      this.options.skillRouter?.isPrepared !== undefined &&
+      !this.options.skillRouter.isPrepared(active.skillState)
+    ) {
+      this.#failUnfulfilledSkillRequest(active)
+    }
     await this.#appendAndPublishEvent({
       sessionId: active.agentSessionId,
       runId: active.agentRunId,
@@ -1980,6 +2001,32 @@ export class AgentSessionService {
       },
       'Authorized a consumed Agent Follow-up'
     )
+  }
+
+  #failUnfulfilledSkillRequest(active: ActiveRun): never {
+    const error = new AgentSkillPreparationError(
+      'skill_request_unfulfilled',
+      'The Agent answered before loading every requested Writing Skill'
+    )
+    active.partialText = ''
+    active.skillSnapshot = {
+      ...active.skillSnapshot,
+      routingStatus: 'failed',
+      safeError: error.code
+    }
+    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
+    this.options.log.warn(
+      {
+        event: 'skill.selection.rejected',
+        err: error,
+        agentRunId: active.agentRunId,
+        code: error.code,
+        requestedCount: active.skillSnapshot.requestedSkills.length,
+        loadedCount: active.skillSnapshot.skills.length
+      },
+      'Agent response rejected because requested Writing Skills were not loaded'
+    )
+    throw error
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
@@ -2151,7 +2198,7 @@ export class AgentSessionService {
         ) {
           throw new AgentToolDomainError(
             'conflict',
-            'Load the pending Writing Skill dependencies before downstream tools',
+            'Load the requested Writing Skills and pending dependencies before downstream tools',
             true
           )
         }
@@ -2363,6 +2410,13 @@ export class AgentSessionService {
       if (active.pendingModelRequestIds.size > 0) {
         throw new Error('Agent run completed with unfinished model requests')
       }
+      if (
+        active.skillState !== null &&
+        this.options.skillRouter?.isPrepared !== undefined &&
+        !this.options.skillRouter.isPrepared(active.skillState)
+      ) {
+        this.#failUnfulfilledSkillRequest(active)
+      }
       if (active.skillSnapshot.routingStatus === 'available') {
         active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
         this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
@@ -2384,6 +2438,13 @@ export class AgentSessionService {
         { event: 'agent.run.failed', err, agentRunId: active.agentRunId },
         'Agent run did not complete'
       )
+      if (
+        active.skillState !== null &&
+        this.options.skillRouter?.isPrepared !== undefined &&
+        !this.options.skillRouter.isPrepared(active.skillState)
+      ) {
+        active.partialText = ''
+      }
       if (isContextOverflowError(err)) {
         const activityOccurred = this.#runHasReplayUnsafeActivity(active)
         if (!activityOccurred && !active.overflowRetryAttempted) {
@@ -3800,9 +3861,10 @@ function runtimeModelFromCatalog(resolved: ResolvedAgentCatalogModel): AgentRunt
 
 function pendingSkillSnapshot(): SkillRunSnapshot {
   return skillRunSnapshotSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'auto',
     routingStatus: 'pending',
+    requestedSkills: [],
     skills: [],
     dependencies: [],
     resources: [],
@@ -3921,6 +3983,7 @@ type AgentRunTermination =
         | 'context_overflow_after_activity'
         | 'compaction_required'
         | 'tool_batch_context_exhausted'
+        | 'skill_request_unfulfilled'
         | 'run_failed'
     }
   | { status: 'interrupted'; code: 'user_stopped' | 'project_closed' | 'run_interrupted' }
@@ -3955,6 +4018,16 @@ class AgentRunContextOverflowError extends Error {
   }
 }
 
+class AgentSkillPreparationError extends Error {
+  constructor(
+    readonly code: 'skill_request_unfulfilled',
+    message: string
+  ) {
+    super(message)
+    this.name = 'AgentSkillPreparationError'
+  }
+}
+
 class AgentCompactionRequiredError extends Error {
   readonly code = 'compaction_required'
 
@@ -3979,6 +4052,12 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
   }
   if (error instanceof AgentCompactionRequiredError) {
     return { status: 'failed', code: error.code }
+  }
+  if (error instanceof AgentSkillPreparationError) {
+    return { status: 'failed', code: error.code }
+  }
+  if (hasErrorCode(error, 'skill_request_unfulfilled')) {
+    return { status: 'failed', code: 'skill_request_unfulfilled' }
   }
   if (hasErrorCode(error, 'tool_batch_context_exhausted')) {
     return { status: 'failed', code: 'tool_batch_context_exhausted' }

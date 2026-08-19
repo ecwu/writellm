@@ -453,6 +453,23 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-19
 
+- Completed the separately authorized local `0.2026.8.20` App candidate for Checkpoint 61.
+  Release metadata advanced after `check:fast`, 187 Electron-hosted files / 1043 tests plus
+  production build, 41/41 fresh Real-Electron scenarios, 25 recovery fixtures from 23 sources,
+  and diff checks passed. The clean local release commit received the annotated
+  `v0.2026.8.20` tag, and the no-identity macOS arm64 unpacked package gate verified Electron
+  43.1.0 / ABI 148, arm64 native modules, ASAR/resources, 12/12 packaged smoke scenarios, and
+  28/28 packaged E2E scenarios. No DMG, ZIP, push, hosted CI, Apple Developer ID signing,
+  notarization, GitHub Release, promotion, or publication ran.
+- Accepted ADR 055 and completed Checkpoint 61. Idle new-run prompts now autocomplete up to four
+  leading `$skill-name` references as ordinary editable text. Main reparses and pins exact current
+  versions, requires ordered visible `read_writing_skill` calls, admits explicit-only Skills only
+  through user mentions, fails closed before downstream work or final output, and records v3
+  Requested/Discovered provenance without session state or a database migration. Focused coverage,
+  `check:fast`, 187 Electron-hosted files / 1043 tests with three benchmark skips plus production
+  build, 25 recovery fixtures from 23 sources, and the fresh 41/41 Real-Electron suite passed.
+  Desktop, narrow, Details, Impeccable, and diff checks passed. No tag, package/release, hosted CI,
+  commit, push, signing, notarization, promotion, or publication ran.
 - Completed the separately authorized local `0.2026.8.19` App candidate for Checkpoint 60.
   Release metadata advanced after `check:fast`, the 186-file / 1031-test Electron gate and build,
   41/41 fresh Real-Electron scenarios, and diff checks passed. The clean local release commit

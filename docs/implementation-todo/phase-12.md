@@ -1,6 +1,6 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 60 is complete under accepted ADR 054
+Status: Checkpoint 61 is complete under accepted ADR 055
 Recorded: 2026-08-19
 
 ## Purpose
@@ -9,6 +9,68 @@ Phase 12 is an evidence-driven refinement phase after the complete Phase 11 feat
 turns hands-on use into small, reviewable fixes and persists each material interaction decision
 before implementation. It is not a pre-authorized feature backlog: one checkpoint is agreed,
 implemented, and verified at a time, and later work requires fresh user direction.
+
+## Checkpoint 61: Textual Writing Skill Mentions
+
+Decision: accepted ADR 055; implementation complete.
+
+### User outcome
+
+- Typing `$` at the start of a new Agent message opens installed Writing Skill autocomplete.
+- Selecting a Skill inserts ordinary `$skill-name` text; the prompt has no hidden Skill attachment,
+  badge, chip, dropdown state, or session preference.
+- Main resolves the text and the Agent visibly loads requested guidance through
+  `read_writing_skill` before it can answer or begin downstream work.
+
+### Scope and implementation
+
+- [x] Add the bounded leading-mention grammar, version-3 requested/load-source provenance, exact
+  replay, and fail-closed Main preparation enforcement.
+- [x] Add idle-composer shadcn Command autocomplete using the existing safe Skills snapshot while
+  leaving slash context commands and active-run inputs unchanged.
+- [x] Extend timeline/Details provenance and focused shared, Main, Renderer, and Real-Electron
+  coverage without exposing Skill bodies, virtual URIs, private paths, or new authority.
+- [x] Pass static, Electron, E2E, recovery, responsive visual, Impeccable, and diff gates and record
+  exact local evidence.
+
+### Local evidence
+
+- Shared/parser, v1/v2/v3 contract normalization, Main routing, session preparation, replay,
+  Renderer matching, and error-projection tests cover leading and escaped mentions, ordered
+  multi-Skill loads, explicit-only Skills, conflicts, unavailable and excessive mentions,
+  prompt/reference budgets, dependencies, and fail-closed final answers.
+- The fresh Real-Electron fixture selected two Skills using Enter and Tab, retained the ordinary
+  `$e2e-writing $e2e-humanize` prompt text in the model request, visibly loaded both requested
+  Skills plus one Agent-discovered complement, read five complete references, and projected two
+  Requested plus one Discovered provenance row in Agent Details.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 187 files / 1043 tests with three
+  intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all 41
+  fresh Real-Electron scenarios with no flaky, skipped, or failed scenario. All 25 recovery
+  fixtures from 23 sources passed.
+- Desktop, narrow, and Agent Details screenshots were inspected; the scoped Impeccable detector
+  returned no findings, and `git diff --check` passed. No tag, package, release, hosted CI, commit,
+  push, signing, notarization, promotion, or publication action ran.
+
+### Acceptance gate
+
+- Up to four distinct leading `$name` mentions remain verbatim prompt text and resolve in order;
+  escaped and unknown tokens grant no Skill authority, while ambiguous, unavailable, or excessive
+  recognized mentions fail before content is disclosed to the model.
+- Requested and explicit-only Skills enter context only through named tool calls. Pending requests
+  and dependencies block downstream tools and final answers; automatic discovery may continue only
+  after the requested prefix settles and within the existing shared budgets.
+- Retry and restart preserve pinned requested versions and user/Agent load sources through v3;
+  v1/v2 history remains readable without a project migration.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete Real-Electron coverage,
+  recovery fixtures, desktop/narrow inspection, scoped Impeccable, and `git diff --check` pass. No
+  package/release gate is required.
+
+### Explicit exclusions
+
+No session or per-message Skill selection object, chip, badge, executable content, arbitrary
+filesystem/network/shell access, hidden route model, new provider/tool/dependency, migration,
+package/release action, hosted CI, commit, push, signing, notarization, promotion, or publication is
+authorized.
 
 ## Checkpoint 60: Observable Dynamic Writing Skills
 

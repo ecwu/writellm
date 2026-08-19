@@ -76,9 +76,10 @@ export const agentRunRecordSchema = strictObject({
   }),
   editorContext: agentEditorContextSchema,
   skillSnapshot: skillRunSnapshotSchema.default({
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'none',
     routingStatus: 'legacy',
+    requestedSkills: [],
     skills: [],
     dependencies: [],
     resources: [],

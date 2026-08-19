@@ -1120,8 +1120,11 @@ Retrieved knowledge is untrusted content. It is clearly delimited and never allo
 
 The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
 Thinking effort, and Send are its four top-level action groups. Context scope is available through
-the shared Add/leading-slash command catalog. Writing Skills are not composer state or a user-facing
-mode: the Agent discovers and loads them through visible tool calls from ordinary conversation.
+the shared Add/leading-slash command catalog. Writing Skills are not composer or session state and
+have no persistent selector, chip, badge, or attachment. At the start of a new-run message, `$`
+may autocomplete up to four canonical Skill names into ordinary editable prompt text. Main reparses
+that text; the Agent still discovers and loads guidance only through visible tool calls. Active-run
+Steer and Follow-up input does not reopen Skill preparation. See ADR 055.
 The collapsed model trigger uses the recognizable model display name
 plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
 Provider identity remains visible inside model browsing and diagnostics where duplicate names need
@@ -1304,14 +1307,16 @@ user-confirmed immutable GitHub commit under TOFU semantics. Only UTF-8 `.md` an
 accepted, and no skill content is executable.
 
 Writing Skills are dynamic per-run Agent actions, never session or composer state. Every new run
-receives the same bounded metadata catalog; an ordinary-language user request and an Agent-initiated
-choice both resolve through `read_writing_skill`. Skill content cannot enter the run before that
-visible tool call succeeds. A versioned run snapshot persists immutable display/provenance records
-for the top-level Skills, dependencies, and resources actually loaded, plus routing status and safe
-errors, but never Skill bodies. Retry reauthorizes the exact recorded versions and reproduces their
-loads through the tool loop. Historical session selection fields, single-primary snapshots, and
+receives a bounded automatic metadata catalog. A leading `$skill-name` prompt prefix may additionally
+identify ordered, Main-resolved requested entrypoints, including explicit-only Skills; the text is
+not a Renderer authorization object. Ordinary-language requests and Agent-initiated choices remain
+valid. Every path resolves through `read_writing_skill`, and Skill content cannot enter the run
+before that visible tool call succeeds. Versioned run snapshots persist immutable requested pins,
+user-versus-Agent actual-load provenance, dependencies, resources, routing status, and safe errors,
+but never Skill bodies. Retry reauthorizes exact recorded versions and reproduces their loading as
+visible tool activity. Historical session selection fields, single-primary snapshots, and
 `skill_route` model requests remain readable compatibility data but do not control new runs. See
-ADR 054.
+ADRs 054 and 055.
 `listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
 credential surface, so historical conversation totals remain complete.
 

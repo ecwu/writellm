@@ -5,7 +5,7 @@ const commit = 'a'.repeat(40)
 const manifestSha256 = 'b'.repeat(64)
 
 describe('Writing Skill composition contracts', () => {
-  it('normalizes a v1 run snapshot into immutable v2 provenance and resources', () => {
+  it('normalizes a v1 run snapshot into immutable v3 provenance and resources', () => {
     expect(
       skillRunSnapshotSchema.parse({
         mode: 'explicit',
@@ -21,16 +21,26 @@ describe('Writing Skill composition contracts', () => {
         safeError: null
       })
     ).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       mode: 'explicit',
       routingStatus: 'selected',
-      skills: [
+      requestedSkills: [
         {
           skillId: 'nature-writing',
           displayName: 'nature-writing',
           name: 'nature-writing',
           commit,
           manifestSha256
+        }
+      ],
+      skills: [
+        {
+          skillId: 'nature-writing',
+          displayName: 'nature-writing',
+          name: 'nature-writing',
+          commit,
+          manifestSha256,
+          invocationSource: 'user'
         }
       ],
       dependencies: [],
@@ -44,6 +54,46 @@ describe('Writing Skill composition contracts', () => {
         }
       ],
       safeError: null
+    })
+  })
+
+  it('upgrades v2 explicit and Auto snapshots with deterministic invocation sources', () => {
+    const topLevel = {
+      skillId: 'nature-writing',
+      displayName: 'Nature Writing',
+      name: 'nature-writing',
+      commit,
+      manifestSha256
+    }
+    expect(
+      skillRunSnapshotSchema.parse({
+        schemaVersion: 2,
+        mode: 'explicit',
+        routingStatus: 'selected',
+        skills: [topLevel],
+        dependencies: [],
+        resources: [],
+        safeError: null
+      })
+    ).toMatchObject({
+      schemaVersion: 3,
+      requestedSkills: [topLevel],
+      skills: [{ ...topLevel, invocationSource: 'user' }]
+    })
+    expect(
+      skillRunSnapshotSchema.parse({
+        schemaVersion: 2,
+        mode: 'auto',
+        routingStatus: 'selected',
+        skills: [topLevel],
+        dependencies: [],
+        resources: [],
+        safeError: null
+      })
+    ).toMatchObject({
+      schemaVersion: 3,
+      requestedSkills: [],
+      skills: [{ ...topLevel, invocationSource: 'agent' }]
     })
   })
 })

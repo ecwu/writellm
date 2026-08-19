@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 12 Checkpoint 60 is complete under accepted ADR 054. Checkpoint 26.9 remains paused
+Status: Phase 12 Checkpoint 61 is complete under accepted ADR 055. Checkpoint 26.9 remains paused
 and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-19
 
@@ -143,6 +143,8 @@ native/ASAR/resource and no-Team-ID signature checks, 12/12 packaged runtime smo
   through `read_writing_skill`, progressively read bounded dependency/reference files, preserve
   exact replay provenance, and remove session/composer Skill state under ADR 054 without executable
   Skill content or broader Agent authority.
+- [x] Checkpoint 61: add start-of-message `$skill-name` autocomplete as ordinary prompt text, then
+  require Main-authorized visible tool loading with ordered requested provenance under ADR 055.
 
 Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/phase-12.md).
 
