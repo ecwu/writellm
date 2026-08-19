@@ -486,3 +486,10 @@ maintenance without turning the active tracker back into a historical log.
   28/28 packaged E2E scenarios passed. A replacement no-Team-ID macOS arm64 App, DMG, and ZIP were
   built from the current dirty worktree. No second billable image request, commit, push, hosted CI,
   Apple identity signing, notarization, release, promotion, or publication ran.
+- Completed the separately authorized local `0.2026.8.18` candidate for Checkpoint 58/59 and the
+  large-inline-image repair. Release metadata advanced, `check:fast`, `git diff --check`, all 25
+  recovery cases from 23 sources, the no-identity macOS arm64 package gate, 12/12 packaged smoke
+  scenarios, and 28/28 packaged Real-Electron scenarios passed before the clean local release
+  commit received the annotated `v0.2026.8.18` tag. The App, DMG, and ZIP were rebuilt from that
+  tagged revision. No push, hosted CI, Apple Developer ID signing, notarization, GitHub Release,
+  promotion, or publication ran.

@@ -39,9 +39,17 @@ Checkpoint 26.9 (hosted CI and release promotion) remains paused; its acceptance
 per-candidate audit are recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release creation, or release
-promotion has run. The only new tag is the explicitly authorized local `v0.2026.8.17` candidate.
+promotion has run. The newest user-authorized local candidate tag is `v0.2026.8.18`.
 
 ## Current authorized work
+
+On 2026-08-19 the user authorized and completed the local patch candidate `0.2026.8.18` for the
+completed Checkpoint 58/59 and large-inline-image repair work. `check:fast`, `git diff --check`, all
+25 recovery fixtures from 23 sources, the no-identity macOS arm64 package gate, 12/12 packaged
+runtime smoke scenarios, and 28/28 packaged Real-Electron scenarios passed before the local
+release commit and annotated `v0.2026.8.18` tag. The App, DMG, and ZIP were then rebuilt from the
+clean tagged revision. Push, hosted CI, Apple Developer ID signing, notarization, GitHub Release
+creation, promotion, and publication remained outside scope.
 
 The Checkpoint 59 hands-on repair is complete. Runtime logs proved that ADC and Vertex generation
 had succeeded and that the App then overflowed the JavaScript regular-expression stack while
@@ -51,9 +59,10 @@ same 28,000,000-character, alphabet, length, and padding contract without recurs
 Electron-hosted gate with three intentional benchmark skips and production build, fresh 41/41
 Real-Electron E2E, all 25 recovery fixtures, and the no-Team-ID macOS arm64 package gate with
 12/12 packaged smoke and 28/28 packaged E2E scenarios passed. The replacement App, DMG, and ZIP
-were rebuilt from the current dirty worktree. ADC, provider transport, model directory, response
-cap, Main validation/publication, retry, and fallback boundaries are unchanged; no second live
-billable image request, commit, push, signing, notarization, release, or publication ran.
+were first rebuilt from the repaired worktree and are now represented by the local
+`v0.2026.8.18` candidate. ADC, provider transport, model directory, response cap, Main
+validation/publication, retry, and fallback boundaries are unchanged; no second live billable
+image request, push, signing, notarization, hosted release, or publication ran.
 
 On 2026-08-19 the user accepted ADR 052 and completed Checkpoint 59. The bounded change adds
 Google Cloud Vertex AI as a fourth independent image source beside Google Gemini, OpenAI, and xAI.
