@@ -210,6 +210,26 @@
     flex: none;
   }
 
+  .writing-editor [data-content-type="mathBlock"],
+  .writing-editor [data-content-type="diagram"],
+  .writing-editor [data-content-type="mathBlock"] .bn-preview-with-source-popup,
+  .writing-editor [data-content-type="diagram"] .bn-preview-with-source-popup {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .writing-editor [data-content-type="mathBlock"] .bn-preview-container,
+  .writing-editor [data-content-type="diagram"] .bn-preview-container {
+    max-width: 100%;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .writing-editor [data-content-type="mathBlock"] .bn-source-block-popup,
+  .writing-editor [data-content-type="diagram"] .bn-source-block-popup {
+    max-width: min(100%, 48rem);
+  }
+
   .writing-editor .writellm-readable-citation {
     margin-inline: -0.02em;
     padding-inline: 0.12em;

@@ -8,7 +8,7 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
-import { isMathSourceStructurallySafe } from './math-source-safety'
+import { isMathSourceStructurallySafe } from '../../shared/math-source-safety'
 import { PDF_ASSET_SCHEME } from '../bootstrap/protocol'
 
 export interface PdfPublicationLoss {
@@ -358,14 +358,14 @@ function htmlNode(
       })
       return `<pre><code>${escapeHtml(node.source)}</code></pre>`
     }
-    case 'mermaid':
+    case 'diagram':
       losses.push({
         code: 'mermaid_source_fallback',
         sectionId: node.target.sectionId,
         blockId: node.target.blockId ?? '',
         message: 'Mermaid was retained as source in the PDF publication.'
       })
-      return `${node.caption ? `<p><strong>${escapeHtml(node.caption)}</strong></p>` : ''}<pre><code>${escapeHtml(node.source)}</code></pre>`
+      return `<figure>${node.caption ? `<figcaption><strong>${escapeHtml(node.caption)}</strong></figcaption>` : ''}<pre aria-label="${escapeHtmlAttribute(node.altText || node.caption || 'Mermaid diagram')}"><code>${escapeHtml(node.source)}</code></pre></figure>`
     case 'references':
       return `<section class="references"><h1 id="references">References</h1><ol>${node.entries
         .map((entry) => `<li value="${entry.number}">${escapeHtml(entry.title)}</li>`)

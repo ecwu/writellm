@@ -3,9 +3,11 @@ import {
   accentPreferenceSchema,
   appInfoSchema,
   citationDisplayModeSchema,
+  onboardingStateSchema,
   setAccentPreferenceInputSchema,
   setCitationDisplayModeInputSchema,
   setDefaultAgentApprovalModeInputSchema,
+  setOnboardingStateInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema
 } from '../../shared/contracts/app'
@@ -118,6 +120,26 @@ export function registerIpcHandlers({
     return agentApprovalModeSchema.parse(persisted)
   })
 
+  ipc.handle(IPC_CHANNELS.appGetOnboardingState, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return onboardingStateSchema.parse(await appSettings.getOnboardingState())
+  })
+
+  ipc.handle(IPC_CHANNELS.appSetOnboardingState, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { state } = setOnboardingStateInputSchema.parse(rawInput)
+    const persisted = await appSettings.setOnboardingState(state)
+    logger.info(
+      {
+        event: 'app.settings.onboarding_state_updated',
+        status: persisted.status,
+        ...(persisted.status === 'pending' ? { step: persisted.step } : {})
+      },
+      'Onboarding state updated'
+    )
+    return onboardingStateSchema.parse(persisted)
+  })
+
   ipc.handle(IPC_CHANNELS.publicationPresetsSnapshot, (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return publicationPresetSnapshotSchema.parse(publicationPresets.snapshot())
@@ -160,6 +182,8 @@ export function registerIpcHandlers({
       IPC_CHANNELS.appSetCitationDisplayMode,
       IPC_CHANNELS.appGetDefaultAgentApprovalMode,
       IPC_CHANNELS.appSetDefaultAgentApprovalMode,
+      IPC_CHANNELS.appGetOnboardingState,
+      IPC_CHANNELS.appSetOnboardingState,
       IPC_CHANNELS.publicationPresetsSnapshot,
       IPC_CHANNELS.publicationPresetsCreate,
       IPC_CHANNELS.publicationPresetsUpdate,

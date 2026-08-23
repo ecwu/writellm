@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   blockNoteDocumentSchema,
+  normalizePlainBlockContent,
+  projectLegacyBlockNoteDocument,
   manuscriptBriefFieldsSchema,
   manuscriptWorkspaceSchema,
   MAX_BRIEF_EXTENSIBLE_BYTES,
@@ -75,6 +77,8 @@ describe('approved BlockNote document contract', () => {
           name: 'Architecture illustration',
           url: logicalUrl,
           caption: 'A visible caption',
+          figureId: 'figure:section:image',
+          altText: 'Architecture illustration',
           showPreview: true,
           previewWidth: 720
         },
@@ -82,24 +86,20 @@ describe('approved BlockNote document contract', () => {
       },
       {
         id: 'diagram',
-        type: 'mermaid' as const,
+        type: 'diagram' as const,
         props: {
-          textAlignment: 'center' as const,
-          source: 'flowchart LR\nA --> B',
+          engine: 'mermaid' as const,
           caption: 'Process',
-          previewWidth: 720
+          altText: 'A flows to B'
         },
+        content: [{ type: 'text' as const, text: 'flowchart LR\nA --> B', styles: {} }],
         children: []
       },
       {
         id: 'formula',
-        type: 'math' as const,
-        props: {
-          textAlignment: 'center' as const,
-          source: 'E = mc^2',
-          caption: 'Energy',
-          previewWidth: 720
-        },
+        type: 'mathBlock' as const,
+        props: {},
+        content: [{ type: 'text' as const, text: 'E = mc^2', styles: {} }],
         children: []
       }
     ]
@@ -109,6 +109,53 @@ describe('approved BlockNote document contract', () => {
         { ...document[0], props: { ...document[0]?.props, url: 'https://example.test/a.png' } }
       ]).success
     ).toBe(false)
+  })
+
+  it('normalizes adjacent plain source and projects legacy media without rewriting existing IDs', () => {
+    const normalized = normalizePlainBlockContent([
+      {
+        id: 'math',
+        type: 'mathBlock',
+        props: {},
+        content: [
+          { type: 'text', text: 'E = ', styles: {} },
+          { type: 'text', text: 'mc^2', styles: {} }
+        ],
+        children: []
+      }
+    ])
+    expect(normalized[0]?.content).toEqual([{ type: 'text', text: 'E = mc^2', styles: {} }])
+
+    const projected = projectLegacyBlockNoteDocument([
+      {
+        id: 'legacy-math',
+        type: 'math',
+        props: {
+          textAlignment: 'center',
+          source: 'x+y',
+          caption: 'Legacy caption',
+          previewWidth: 720
+        },
+        children: []
+      },
+      {
+        id: 'legacy-diagram',
+        type: 'mermaid',
+        props: {
+          textAlignment: 'center',
+          source: 'graph TD; A-->B',
+          caption: 'Flow',
+          previewWidth: 720
+        },
+        children: []
+      }
+    ])
+    expect(projected.map((block) => block.type)).toEqual(['mathBlock', 'paragraph', 'diagram'])
+    expect(projected[0]?.id).toBe('legacy-math')
+    expect(projected[2]?.id).toBe('legacy-diagram')
+    expect(projected[1]?.content).toEqual([
+      { type: 'text', text: 'Legacy caption', styles: { italic: true } }
+    ])
   })
 
   it('accepts bounded atomic inline math and rejects props, line breaks, and oversized UTF-8', () => {

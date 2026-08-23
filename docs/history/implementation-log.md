@@ -599,3 +599,44 @@ maintenance without turning the active tracker back into a historical log.
   `v0.2026.8.21` tag, and both `main` and the tag are pushed under explicit user authorization.
   Checkpoint 65 remains incomplete. No DMG, ZIP, hosted CI run, Apple Developer ID signing,
   notarization, GitHub Release, promotion, or publication ran.
+- Completed Checkpoint 65 under ADR 057. WriteLLM now uses BlockNote native Inline Math as a
+  bounded atomic inline node while retaining application-owned display Math and Mermaid through a
+  Renderer-only `displayMath` alias. Schema v4 and migration 0037 preserve revision history and
+  relations while advancing active heads; prose counts, search, replacement, readable citations,
+  and quick actions do not expose or cross formulas; Agent reads use `$source$` and typed section
+  mutations may preserve or create the strict node. Markdown/LaTeX import and
+  Markdown/DOCX/PDF/LaTeX output now carry inline formulas with safe readable loss fallbacks and
+  untrusted bounded KaTeX. Frozen install, both zero-advisory audits, 112 focused tests, all 26
+  recovery fixtures, `check`, `check:fast`, 198 Electron-hosted files / 1097 tests with three
+  benchmark skips plus production build, and the fresh-build 44/44 serial Real-Electron manifest
+  passed. No package/release action, hosted CI, commit, tag, push, signing, notarization,
+  promotion, or publication ran.
+- Accepted ADR 059 and completed Checkpoint 67. True first launches now enter a responsive,
+  fully optional Welcome → Agent → Embedding → Reranking → MinerU → Create Project flow beneath
+  the global Menubar. Versioned Main-owned application state resumes an interrupted step and
+  suppresses completed or upgraded installs; existing provider workspaces and the native
+  project-creation authority remain unchanged. Seventeen focused tests, `check:fast`, 199
+  Electron-hosted files / 1102 tests with three intentional benchmark skips plus production build,
+  and the fresh 45/45 Real-Electron manifest passed. Desktop and 620 px visual/overflow inspection,
+  scoped Impeccable, and diff checks also passed. No migration, dependency, package/release action,
+  hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
+- Accepted ADR 060 and completed Checkpoint 68. BlockNote native `mathBlock` now joins the native
+  Inline Math model, while the application-owned Mermaid implementation moves to a schema-v5
+  plain-content `diagram` using `SourceBlockWithPreview` and shared caption/alt-text metadata.
+  Migration 0038 preserves historical revisions and relationships while advancing active heads;
+  prose operations isolate source, Agent contract v9 creates and preserves both rich blocks, and
+  Markdown/LaTeX import plus Markdown/DOCX/PDF/LaTeX output use the converged projection with safe
+  fallbacks. Frozen install, zero-advisory production/full audits, focused coverage, `check`,
+  `check:fast`, 200 Electron-hosted files / 1107 tests with three intentional benchmark skips plus
+  production build, all 27 recovery fixtures from 25 sources, and the fresh 45/45 Real-Electron
+  manifest passed. Theme, metadata, malicious source, sanitized SVG, no-caption, 620 px, reopen,
+  and export behavior were verified. No package/release action, hosted CI, commit, tag, push,
+  signing, notarization, promotion, or publication ran.
+- Built and prepared the separately authorized local `0.2026.8.22` candidate for the completed
+  Checkpoints 67–68 baseline. Release metadata advanced, and the packaged smoke was aligned with
+  the accepted first-run onboarding and schema-v5 reopen contracts. The unpacked-only no-identity
+  macOS arm64 package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR
+  entries, all 27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 32/32
+  packaged E2E scenarios before producing `dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean
+  candidate commit receives the annotated `v0.2026.8.22` tag locally. No DMG, ZIP, push, hosted CI,
+  Apple Developer ID signing, notarization, GitHub Release, promotion, or publication ran.

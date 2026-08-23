@@ -98,7 +98,7 @@ describe('ManuscriptService', () => {
       ]
     })
     const figureId = seeded.content[0]?.props.figureId
-    expect(seeded).toMatchObject({ contentSchemaVersion: 4 })
+    expect(seeded).toMatchObject({ contentSchemaVersion: 5 })
     expect(figureId).toBe(`figure:${root.section.sectionId}:figure-block`)
     expect(seeded.content[0]?.props.altText).toBe('Legacy description')
 

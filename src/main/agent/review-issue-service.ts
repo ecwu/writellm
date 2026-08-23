@@ -16,14 +16,12 @@ import {
   type ReviewIssueStatus,
   type ReviewIssueUserOperation
 } from '../../shared/contracts/review'
-import {
-  blockNoteDocumentSchema,
-  type BlockNoteBlockValue
-} from '../../shared/contracts/manuscript'
+import type { BlockNoteBlockValue } from '../../shared/contracts/manuscript'
 import type { ProjectDatabase } from '../project/project-database'
 import type { ReviewIssueTable } from '../project/database-types'
 import type { WritingSnapshot } from './context'
 import { AgentToolDomainError } from './read-tools'
+import { decodeStoredSectionContent } from '../manuscript/content'
 
 interface AgentActor {
   agentSessionId: string
@@ -837,19 +835,27 @@ function mapIssue(database: Database.Database, row: ReviewIssueTable): ReviewIss
   if (anchor !== null) {
     const current = database
       .prepare(
-        `SELECT s.current_revision_id, r.content_json
+        `SELECT s.current_revision_id, r.content_json, r.content_schema_version
          FROM sections s LEFT JOIN section_revisions r ON r.section_revision_id = s.current_revision_id
          WHERE s.section_id = ? AND s.deleted_at IS NULL`
       )
       .get(anchor.sectionId) as
-      | { current_revision_id: string; content_json: string | null }
+      | {
+          current_revision_id: string
+          content_json: string | null
+          content_schema_version: number
+        }
       | undefined
     anchorStatus =
       current?.current_revision_id === anchor.revisionId &&
       (anchor.blockId === null ||
         (current.content_json !== null &&
           containsBlock(
-            blockNoteDocumentSchema.parse(JSON.parse(current.content_json)),
+            decodeStoredSectionContent(
+              current.content_json,
+              current.content_schema_version,
+              anchor.sectionId
+            ),
             anchor.blockId
           )))
         ? 'current'

@@ -6,8 +6,11 @@ import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import {
+  blockMathSourceSchema,
   blockNoteDocumentSchema,
+  diagramSourceSchema,
   inlineMathSourceSchema,
+  plainTextContentFromSource,
   type BlockNoteBlockValue,
   type BlockNoteDocument,
   type BlockNoteInlineContent
@@ -209,9 +212,9 @@ async function mapNode(node: MdNode, context: MappingContext): Promise<BlockNote
       return mapList(node, context)
     case 'code': {
       const language = (node.lang ?? '').toLowerCase().slice(0, 200)
-      if (language === 'mermaid') return [mediaBlock('mermaid', node.value ?? '', context)]
+      if (language === 'mermaid') return [mediaBlock('diagram', node.value ?? '', node, context)]
       if (language === 'writellm-math' || language === 'math') {
-        return [mediaBlock('math', node.value ?? '', context)]
+        return [mediaBlock('mathBlock', node.value ?? '', node, context)]
       }
       return [
         {
@@ -224,7 +227,7 @@ async function mapNode(node: MdNode, context: MappingContext): Promise<BlockNote
       ]
     }
     case 'math':
-      return [mediaBlock('math', node.value ?? '', context)]
+      return [mediaBlock('mathBlock', node.value ?? '', node, context)]
     case 'table':
       return [tableBlock(node, context)]
     case 'thematicBreak':
@@ -483,19 +486,37 @@ function textBlock(
 }
 
 function mediaBlock(
-  type: 'mermaid' | 'math',
+  type: 'diagram' | 'mathBlock',
   source: string,
+  node: MdNode,
   context: MappingContext
 ): BlockNoteBlockValue {
+  const result =
+    type === 'diagram'
+      ? diagramSourceSchema.safeParse(source)
+      : blockMathSourceSchema.safeParse(source)
+  if (!result.success) {
+    const firstIssue = result.error.issues[0]?.message ?? 'Structured source is invalid'
+    context.losses.push(
+      finding(
+        type === 'diagram' ? 'diagram_source_fallback' : 'block_math_source_fallback',
+        `${firstIssue}; the source became inert code text`,
+        node
+      )
+    )
+    return {
+      id: context.createId(),
+      type: 'codeBlock',
+      props: { language: type === 'diagram' ? 'mermaid' : 'latex' },
+      content: [text(source.slice(0, 100_000), { code: true })],
+      children: []
+    }
+  }
   return {
     id: context.createId(),
     type,
-    props: {
-      textAlignment: 'center',
-      source,
-      caption: '',
-      previewWidth: 720
-    },
+    props: type === 'diagram' ? { engine: 'mermaid', caption: '', altText: '' } : {},
+    content: plainTextContentFromSource(source),
     children: []
   }
 }

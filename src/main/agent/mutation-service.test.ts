@@ -921,6 +921,68 @@ describe('MutationProposalService', () => {
     value.database.close()
   })
 
+  it('creates native math and application-owned diagram blocks through the Agent tool', async () => {
+    const value = await fixture()
+    const section = value.manuscript.listSections()[0]
+    if (section === undefined) throw new Error('Missing section')
+    const contextBuilder = new AgentContextBuilder(value.manuscript)
+    const snapshot = contextBuilder.capture('snapshot-rich-blocks', {
+      activeSectionId: section.sectionId,
+      activeBlockId: null,
+      selectedBlockIds: []
+    })
+    const tools = new MainAgentTools(
+      { contextBuilder: () => contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+    const result = await tools.execute({
+      toolName: 'submit_section_change',
+      args: {
+        sectionId: section.sectionId,
+        operations: [
+          {
+            type: 'insertRichBlock',
+            placement: 'end',
+            block: { blockType: 'mathBlock', source: String.raw`\frac{x}{y}` }
+          },
+          {
+            type: 'insertRichBlock',
+            placement: 'end',
+            block: {
+              blockType: 'diagram',
+              source: 'flowchart LR\nA --> B',
+              caption: 'Flow',
+              altText: 'A flows to B'
+            }
+          }
+        ]
+      },
+      editorContext: snapshot.editorContext,
+      snapshot,
+      ...value.toolCall('submit_section_change')
+    })
+
+    const applied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: result.proposalId
+    })
+    expect(applied).toMatchObject({ outcome: 'applied' })
+    expect(currentContent(value, section.sectionId)).toMatchObject([
+      {
+        type: 'mathBlock',
+        props: {},
+        content: [{ type: 'text', text: String.raw`\frac{x}{y}`, styles: {} }]
+      },
+      {
+        type: 'diagram',
+        props: { engine: 'mermaid', caption: 'Flow', altText: 'A flows to B' },
+        content: [{ type: 'text', text: 'flowchart LR\nA --> B', styles: {} }]
+      }
+    ])
+    value.database.close()
+  })
+
   it('tombstones a section with accepted Agent lineage and preserves every revision reference', async () => {
     const value = await fixture()
     const root = value.manuscript.listSections()[0]

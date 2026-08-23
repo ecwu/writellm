@@ -27,6 +27,7 @@ import type {
   ProjectTemplateExtractionPreview,
   ProjectTemplateSummary
 } from '../../shared/contracts/project-templates'
+import type { OnboardingState } from '../../shared/contracts/app'
 import { projectNameSchema } from '../../shared/contracts/projects'
 import { AppMenubar } from '@/components/app-menubar'
 import { SettingsCommand } from '@/components/settings-command'
@@ -51,13 +52,8 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-  InputGroupText
-} from '@/components/ui/input-group'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import {
   Item,
   ItemContent,
@@ -68,15 +64,10 @@ import {
 } from '@/components/ui/item'
 import { Spinner } from '@/components/ui/spinner'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
+import { OnboardingFlow } from '@/features/onboarding/onboarding-flow'
+import { ProjectCreationFields } from '@/features/project/project-creation-fields'
 import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
 import {
   ProjectVersionHistory,
@@ -103,7 +94,7 @@ type ProjectAction =
   | 'template'
 
 const actionErrorMessages: Record<
-  ProjectAction | 'load' | 'recent' | 'subscribe' | 'diagnostics',
+  ProjectAction | 'load' | 'recent' | 'subscribe' | 'diagnostics' | 'onboarding',
   string
 > = {
   load: 'WriteLLM could not load the current project. Please try again.',
@@ -117,6 +108,7 @@ const actionErrorMessages: Record<
   clone:
     'WriteLLM could not create an independent project copy. Choose another destination and try again.',
   diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
+  onboarding: 'WriteLLM could not save onboarding progress. You can keep using the application.',
   recovery: 'WriteLLM could not complete that recovery action. Check diagnostics and try again.',
   snapshot: 'WriteLLM could not complete the snapshot action. Please try again.',
   export: 'WriteLLM could not export the manuscript. Choose another destination and try again.',
@@ -137,6 +129,7 @@ function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<ProjectLifecycleSnapshot>(closedSnapshot)
   const [recentProjects, setRecentProjects] = useState<RecentProjects>([])
   const [initialLoading, setInitialLoading] = useState(true)
+  const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [activeAction, setActiveAction] = useState<ProjectAction | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<'general' | 'skills'>('general')
@@ -181,15 +174,33 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  const persistOnboardingState = useCallback(async (state: OnboardingState): Promise<void> => {
+    setOnboardingState(state)
+    try {
+      setOnboardingState(await window.desktop.app.setOnboardingState({ state }))
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error))
+      window.desktop.diagnostics.reportRendererError({
+        event: 'renderer.error',
+        message: normalized.message,
+        stack: normalized.stack,
+        source: 'onboarding state persistence'
+      })
+      notifyActionError(actionErrorMessages.onboarding)
+    }
+  }, [])
+
   useEffect(() => {
     let current = true
 
     void (async () => {
-      const [lifecycleResult, recentResult, templateResult] = await Promise.allSettled([
-        window.desktop.projects.lifecycle(),
-        window.desktop.projects.recent(),
-        window.desktop.projects.templates()
-      ])
+      const [lifecycleResult, recentResult, templateResult, onboardingResult] =
+        await Promise.allSettled([
+          window.desktop.projects.lifecycle(),
+          window.desktop.projects.recent(),
+          window.desktop.projects.templates(),
+          window.desktop.app.getOnboardingState()
+        ])
       if (!current) return
 
       if (lifecycleResult.status === 'fulfilled') {
@@ -206,6 +217,12 @@ function App(): React.JSX.Element {
         setProjectTemplates(templateResult.value)
       } else {
         notifyActionError(actionErrorMessages.template)
+      }
+      if (onboardingResult.status === 'fulfilled') {
+        setOnboardingState(onboardingResult.value)
+      } else {
+        setOnboardingState({ schemaVersion: 1, status: 'pending', step: 'welcome' })
+        notifyActionError(actionErrorMessages.onboarding)
       }
       setInitialLoading(false)
     })()
@@ -539,12 +556,18 @@ function App(): React.JSX.Element {
     activeAction === 'switch'
   const projectSelectionDisabled = snapshot.state !== 'closed'
   const activeProject = snapshot.activeProject
+  const onboardingPending = onboardingState?.status === 'pending'
   const recoveryKind = snapshot.recovery?.kind
   const recoveryIsLockContended =
     snapshot.recovery?.kind === 'open' && snapshot.recovery.reason === 'lock-contended'
   const showOpenRecovery = recoveryKind === undefined || recoveryKind === 'open'
   const showCloseRecovery = recoveryKind === undefined || recoveryKind === 'close'
   const showCreateRecovery = recoveryKind === undefined || recoveryKind === 'create'
+
+  useEffect(() => {
+    if (!activeProject || !onboardingPending) return
+    void persistOnboardingState({ schemaVersion: 1, status: 'completed' })
+  }, [activeProject, onboardingPending, persistOnboardingState])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -643,6 +666,27 @@ function App(): React.JSX.Element {
                 setSettingsSection('general')
                 setSettingsOpen(true)
               }}
+              onError={notifyActionError}
+            />
+          ) : onboardingState?.status === 'pending' &&
+            snapshot.state === 'closed' &&
+            !initialLoading ? (
+            <OnboardingFlow
+              state={onboardingState}
+              projectName={projectName}
+              projectNameError={projectNameError}
+              projectTemplates={projectTemplates}
+              selectedTemplateId={selectedTemplateId}
+              creatingProject={activeAction === 'create'}
+              onStateChange={persistOnboardingState}
+              onProjectNameChange={(name) => {
+                setProjectName(name)
+                setProjectNameError(null)
+              }}
+              onTemplateChange={setSelectedTemplateId}
+              onDeleteSelectedTemplate={() => void deleteSelectedTemplate()}
+              onCreateProject={createProject}
+              onOpenProject={openProject}
               onError={notifyActionError}
             />
           ) : (
@@ -861,7 +905,7 @@ function App(): React.JSX.Element {
       >
         <DialogContent>
           <form
-            className='grid gap-4'
+            className='flex flex-col gap-4'
             onSubmit={(event) => {
               event.preventDefault()
               void createProject()
@@ -873,72 +917,20 @@ function App(): React.JSX.Element {
                 Choose a name first, then select where to create the project folder.
               </DialogDescription>
             </DialogHeader>
-            <Field data-invalid={projectNameError !== null}>
-              <FieldLabel htmlFor='project-name'>Project name</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
-                  id='project-name'
-                  autoFocus
-                  autoComplete='off'
-                  value={projectName}
-                  aria-invalid={projectNameError !== null}
-                  aria-describedby={projectNameError ? 'project-name-error' : 'project-name-hint'}
-                  onChange={(event) => {
-                    setProjectName(event.target.value)
-                    setProjectNameError(null)
-                  }}
-                  placeholder='My project'
-                />
-                <InputGroupAddon align='inline-end'>
-                  <InputGroupText>.writellm</InputGroupText>
-                </InputGroupAddon>
-              </InputGroup>
-              <FieldDescription
-                id={projectNameError ? 'project-name-error' : 'project-name-hint'}
-                className={projectNameError ? 'text-destructive' : undefined}
-              >
-                {projectNameError ?? 'WriteLLM creates a new folder with this name.'}
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor='project-template'>Starting template</FieldLabel>
-              <div className='flex gap-2'>
-                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                  <SelectTrigger id='project-template' className='min-w-0 flex-1'>
-                    <SelectValue placeholder='Blank project' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='blank'>Blank project</SelectItem>
-                    {projectTemplates.map((template) => (
-                      <SelectItem
-                        key={template.templateId}
-                        value={template.templateId}
-                        disabled={template.integrity !== 'ready'}
-                      >
-                        {template.name}
-                        {template.origin === 'user' ? ' · Mine' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {projectTemplates.find((template) => template.templateId === selectedTemplateId)
-                  ?.origin === 'user' ? (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    onClick={() => void deleteSelectedTemplate()}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-              </div>
-              <FieldDescription>
-                {selectedTemplateId === 'blank'
-                  ? 'Start with an empty Brief and one section.'
-                  : (projectTemplates.find((template) => template.templateId === selectedTemplateId)
-                      ?.description ?? 'This template is unavailable.')}
-              </FieldDescription>
-            </Field>
+            <ProjectCreationFields
+              idPrefix='dialog'
+              projectName={projectName}
+              projectNameError={projectNameError}
+              projectTemplates={projectTemplates}
+              selectedTemplateId={selectedTemplateId}
+              autoFocus
+              onProjectNameChange={(name) => {
+                setProjectName(name)
+                setProjectNameError(null)
+              }}
+              onTemplateChange={setSelectedTemplateId}
+              onDeleteSelectedTemplate={() => void deleteSelectedTemplate()}
+            />
             <DialogFooter>
               <DialogClose asChild>
                 <Button type='button' variant='outline'>

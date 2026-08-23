@@ -359,8 +359,15 @@ function fixtureAssembly(): PublicationAssembly {
         ],
         target
       },
-      { type: 'math', source: '\\frac{x}{y}', caption: '', target },
-      { type: 'mermaid', source: 'graph TD; A-->B', caption: 'Flow', target },
+      { type: 'math', source: '\\frac{x}{y}', target },
+      {
+        type: 'diagram',
+        engine: 'mermaid',
+        source: 'graph TD; A-->B',
+        caption: 'Flow',
+        altText: 'A flows to B',
+        target
+      },
       {
         type: 'figure',
         figureId: 'figure:pdf',

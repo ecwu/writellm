@@ -194,6 +194,26 @@ Alpha & 2
     expect(JSON.stringify(result.sections)).not.toContain('"type":"math"')
     expect(JSON.stringify(result.sections)).toContain('"code":true')
   })
+
+  it('preserves unsafe and oversized display mathematics as inert LaTeX blocks', () => {
+    const oversized = '界'.repeat(10_923)
+    const source = String.raw`\begin{document}\section{Formula}
+\begin{equation}\href{https://evil.example}{click}\end{equation}
+\begin{equation}${oversized}\end{equation}
+\end{document}`
+    const result = parseLatexImport({
+      type: 'latex-import-parse',
+      requestId,
+      sourceHash: hash(source),
+      source
+    })
+
+    expect(
+      result.losses.filter((finding) => finding.code === 'block_math_source_fallback')
+    ).toHaveLength(2)
+    expect(result.sections[0]?.nodes.filter((node) => node.type === 'math')).toHaveLength(0)
+    expect(result.sections[0]?.nodes.filter((node) => node.type === 'code')).toHaveLength(2)
+  })
 })
 
 function hash(value: string): string {

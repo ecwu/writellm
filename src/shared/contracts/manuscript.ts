@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import { isMathSourceStructurallySafe } from '../math-source-safety'
 import { WRITING_RULES_NAMESPACE, writingRulesStateSchema } from './writing-rules'
 
 export const MANUSCRIPT_BRIEF_SCHEMA_VERSION = 1
-export const SECTION_CONTENT_SCHEMA_VERSION = 4
+export const SECTION_CONTENT_SCHEMA_VERSION = 5
 export const SECTION_COUNT_ALGORITHM_VERSION = 2
 export const sectionCountAlgorithmVersionSchema = z.union([z.literal(1), z.literal(2)])
 export const SECTION_MATERIALIZATION_FORMAT_VERSION = 1
@@ -12,6 +13,8 @@ export const MAX_SECTION_BLOCKS = 10_000
 export const MAX_SECTION_INLINE_NODES = 50_000
 export const MAX_SECTION_NESTING_DEPTH = 16
 export const MAX_INLINE_MATH_SOURCE_BYTES = 8 * 1024
+export const MAX_BLOCK_MATH_SOURCE_BYTES = 32 * 1024
+export const MAX_DIAGRAM_SOURCE_BYTES = 64 * 1024
 export const MAX_MANUSCRIPT_SECTIONS = 1_000
 export const MAX_MANUSCRIPT_OUTLINE_DEPTH = 64
 export const MAX_MANUSCRIPT_WORKSPACE_BYTES = 8 * 1024 * 1024
@@ -53,24 +56,34 @@ export const manuscriptAssetMimeTypeSchema = z.enum(['image/png', 'image/jpeg', 
 export const figureIdSchema = z.string().min(1).max(600)
 const blockColorSchema = z.string().min(1).max(100)
 const textAlignmentSchema = z.enum(['left', 'center', 'right', 'justify'])
-const mermaidSourceSchema = z
+export const diagramSourceSchema = z
   .string()
   .max(64_000)
+  .refine((value) => !value.includes('\0'), 'Diagram source must not contain NUL')
   .refine(
-    (value) => new TextEncoder().encode(value).byteLength <= 64 * 1024,
-    'Mermaid source exceeds 64 KiB'
+    (value) => new TextEncoder().encode(value).byteLength <= MAX_DIAGRAM_SOURCE_BYTES,
+    'Diagram source exceeds 64 KiB'
   )
-const mathSourceSchema = z
+export const blockMathSourceSchema = z
   .string()
   .max(32_000)
+  .refine((value) => !value.includes('\0'), 'Block LaTeX source must not contain NUL')
   .refine(
-    (value) => new TextEncoder().encode(value).byteLength <= 32 * 1024,
+    isMathSourceStructurallySafe,
+    'Block LaTeX source uses a blocked capability or extreme dimension'
+  )
+  .refine(
+    (value) => new TextEncoder().encode(value).byteLength <= MAX_BLOCK_MATH_SOURCE_BYTES,
     'LaTeX source exceeds 32 KiB'
   )
 export const inlineMathSourceSchema = z
   .string()
   .max(8_192)
   .refine((value) => !/[\r\n\0]/u.test(value), 'Inline LaTeX source must be a single line')
+  .refine(
+    isMathSourceStructurallySafe,
+    'Inline LaTeX source uses a blocked capability or extreme dimension'
+  )
   .refine(
     (value) => new TextEncoder().encode(value).byteLength <= MAX_INLINE_MATH_SOURCE_BYTES,
     'Inline LaTeX source exceeds 8 KiB'
@@ -90,6 +103,20 @@ const textStylesSchema = z
 const styledTextSchema = z
   .object({ type: z.literal('text'), text: z.string().max(100_000), styles: textStylesSchema })
   .strict()
+
+const plainTextNodeSchema = z
+  .object({ type: z.literal('text'), text: z.string().max(64_000), styles: z.object({}).strict() })
+  .strict()
+export const plainTextContentSchema = z.array(plainTextNodeSchema).max(10_000)
+export type PlainTextContent = z.infer<typeof plainTextContentSchema>
+
+export function plainTextContentToString(content: PlainTextContent): string {
+  return content.map((node) => node.text).join('')
+}
+
+export function plainTextContentFromSource(source: string): PlainTextContent {
+  return source.length === 0 ? [] : [{ type: 'text', text: source, styles: {} }]
+}
 
 const safeLinkSchema = z
   .object({
@@ -177,19 +204,33 @@ export type BlockNoteBlockValue = {
     | 'codeBlock'
     | 'table'
     | 'image'
-    | 'mermaid'
-    | 'math'
+    | 'diagram'
+    | 'mathBlock'
   props: Record<string, unknown>
-  content?: z.infer<typeof blockNoteInlineContentSchema>[] | z.infer<typeof tableContentSchema>
+  content?:
+    | z.infer<typeof blockNoteInlineContentSchema>[]
+    | PlainTextContent
+    | z.infer<typeof tableContentSchema>
   children: BlockNoteBlockValue[]
 }
 
-const richMediaPropsSchema = z
+const legacyRichMediaPropsSchema = z
   .object({
     textAlignment: textAlignmentSchema,
-    source: mermaidSourceSchema,
+    source: diagramSourceSchema,
     caption: z.string().max(2_000),
     previewWidth: z.number().int().min(64).max(8_192).optional()
+  })
+  .strict()
+const legacyMathPropsSchema = legacyRichMediaPropsSchema
+  .extend({ source: blockMathSourceSchema })
+  .strict()
+
+const diagramPropsSchema = z
+  .object({
+    engine: z.literal('mermaid'),
+    caption: z.string().max(2_000),
+    altText: z.string().max(2_000)
   })
   .strict()
 
@@ -298,21 +339,41 @@ export const blockNoteBlockSchema: z.ZodType<BlockNoteBlockValue> = z.lazy(() =>
     z
       .object({
         id: blockIdSchema,
-        type: z.literal('mermaid'),
-        props: richMediaPropsSchema,
-        content: z.undefined().optional(),
-        children: z.array(blockNoteBlockSchema)
-      })
-      .strict(),
-    z
-      .object({
-        id: blockIdSchema,
-        type: z.literal('math'),
-        props: richMediaPropsSchema.extend({ source: mathSourceSchema }).strict(),
-        content: z.undefined().optional(),
+        type: z.literal('diagram'),
+        props: diagramPropsSchema,
+        content: plainTextContentSchema,
         children: z.array(blockNoteBlockSchema)
       })
       .strict()
+      .superRefine((block, context) => {
+        const result = diagramSourceSchema.safeParse(plainTextContentToString(block.content))
+        if (!result.success) {
+          context.addIssue({
+            code: 'custom',
+            path: ['content'],
+            message: result.error.issues[0]?.message ?? 'Diagram source is invalid'
+          })
+        }
+      }),
+    z
+      .object({
+        id: blockIdSchema,
+        type: z.literal('mathBlock'),
+        props: z.object({}).strict(),
+        content: plainTextContentSchema,
+        children: z.array(blockNoteBlockSchema)
+      })
+      .strict()
+      .superRefine((block, context) => {
+        const result = blockMathSourceSchema.safeParse(plainTextContentToString(block.content))
+        if (!result.success) {
+          context.addIssue({
+            code: 'custom',
+            path: ['content'],
+            message: result.error.issues[0]?.message ?? 'Block LaTeX source is invalid'
+          })
+        }
+      })
   ])
 )
 
@@ -361,6 +422,115 @@ export const blockNoteDocumentSchema = z
       context.addIssue({ code: 'custom', message: 'Section document is not JSON serializable' })
     }
   })
+
+export const legacyBlockNoteDocumentSchema = z
+  .array(z.record(z.string(), z.unknown()))
+  .superRefine((document, context) => {
+    try {
+      if (
+        new TextEncoder().encode(JSON.stringify(document)).byteLength > MAX_SECTION_DOCUMENT_BYTES
+      ) {
+        context.addIssue({ code: 'custom', message: 'Legacy section document is too large' })
+      }
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'Legacy section document is not JSON serializable'
+      })
+    }
+  })
+
+function legacyMathCaptionId(blockId: string, usedIds: Set<string>): string {
+  let hash = 2_166_136_261
+  for (const character of blockId) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16_777_619)
+  }
+  const base = `legacy-math-caption-${(hash >>> 0).toString(16).padStart(8, '0')}`
+  let candidate = base
+  let suffix = 2
+  while (usedIds.has(candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+  usedIds.add(candidate)
+  return candidate
+}
+
+function collectLegacyBlockIds(values: readonly unknown[], ids: Set<string>): void {
+  for (const value of values) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
+    const record = value as Record<string, unknown>
+    if (typeof record.id === 'string') ids.add(record.id)
+    if (Array.isArray(record.children)) collectLegacyBlockIds(record.children, ids)
+  }
+}
+
+function convertLegacyBlocks(values: readonly unknown[], usedIds: Set<string>): unknown[] {
+  return values.flatMap((value) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return [value]
+    const block = value as Record<string, unknown>
+    const children = Array.isArray(block.children)
+      ? convertLegacyBlocks(block.children, usedIds)
+      : block.children
+    if (block.type === 'mermaid') {
+      const props = legacyRichMediaPropsSchema.parse(block.props)
+      return [
+        {
+          id: block.id,
+          type: 'diagram',
+          props: { engine: 'mermaid', caption: props.caption, altText: '' },
+          content: plainTextContentFromSource(props.source),
+          children
+        }
+      ]
+    }
+    if (block.type === 'math') {
+      const props = legacyMathPropsSchema.parse(block.props)
+      const converted = {
+        id: block.id,
+        type: 'mathBlock',
+        props: {},
+        content: plainTextContentFromSource(props.source),
+        children
+      }
+      if (props.caption.length === 0) return [converted]
+      return [
+        converted,
+        {
+          id: legacyMathCaptionId(String(block.id), usedIds),
+          type: 'paragraph',
+          props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+          content: [{ type: 'text', text: props.caption, styles: { italic: true } }],
+          children: []
+        }
+      ]
+    }
+    return [{ ...block, children }]
+  })
+}
+
+export function projectLegacyBlockNoteDocument(document: unknown): BlockNoteDocument {
+  const legacy = legacyBlockNoteDocumentSchema.parse(document)
+  const usedIds = new Set<string>()
+  collectLegacyBlockIds(legacy, usedIds)
+  return blockNoteDocumentSchema.parse(convertLegacyBlocks(legacy, usedIds))
+}
+
+export function normalizePlainBlockContent(document: BlockNoteDocument): BlockNoteDocument {
+  const visit = (blocks: BlockNoteDocument): BlockNoteDocument =>
+    blocks.map((block) => {
+      const children = visit(block.children)
+      if (block.type !== 'mathBlock' && block.type !== 'diagram') return { ...block, children }
+      const content = plainTextContentSchema.parse(block.content)
+      return {
+        ...block,
+        content: plainTextContentFromSource(plainTextContentToString(content)),
+        children
+      }
+    })
+  return blockNoteDocumentSchema.parse(visit(document))
+}
 
 export const currentBlockNoteDocumentSchema = blockNoteDocumentSchema.superRefine(
   (document, context) => {
@@ -420,7 +590,7 @@ export function normalizeFigureMetadata(
         children
       }
     })
-  return currentBlockNoteDocumentSchema.parse(visit(document))
+  return currentBlockNoteDocumentSchema.parse(normalizePlainBlockContent(visit(document)))
 }
 
 export type BlockNoteDocument = z.infer<typeof blockNoteDocumentSchema>
@@ -579,6 +749,7 @@ export const sectionRevisionSchema = z
       z.literal(1),
       z.literal(2),
       z.literal(3),
+      z.literal(4),
       z.literal(SECTION_CONTENT_SCHEMA_VERSION)
     ]),
     contentHash: contentHashSchema,

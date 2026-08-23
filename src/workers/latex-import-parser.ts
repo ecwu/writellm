@@ -13,7 +13,7 @@ import {
   type LatexImportWorkerRequest,
   type LatexImportWorkerResult
 } from '../shared/contracts/latex-import'
-import { inlineMathSourceSchema } from '../shared/contracts/manuscript'
+import { blockMathSourceSchema, inlineMathSourceSchema } from '../shared/contracts/manuscript'
 
 interface LatexNode {
   type: string
@@ -319,8 +319,19 @@ function mapSequence(nodes: LatexNode[], state: MappingState): LatexImportNode[]
     if (node.type === 'displaymath' || node.type === 'mathenv') {
       flush()
       const source = rawContent(node)
-      if (source.length > 32_000) throw new Error('Display math exceeds the 32 KiB block limit')
-      output.push({ type: 'math', source })
+      const result = blockMathSourceSchema.safeParse(source)
+      if (result.success) {
+        output.push({ type: 'math', source })
+      } else {
+        output.push(...rawBlocks(node, 'latex'))
+        state.losses.push(
+          finding(
+            'block_math_source_fallback',
+            `${result.error.issues[0]?.message ?? 'Block math source is invalid'}; the source was preserved inertly`,
+            node
+          )
+        )
+      }
       continue
     }
     if (node.type === 'environment') {

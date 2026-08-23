@@ -168,9 +168,16 @@ function fixtureAssembly(): PublicationAssembly {
         ],
         target
       },
-      { type: 'math', source: '\\frac{x^2}{y}', caption: '', target },
-      { type: 'math', source: '\\begin{aligned}x^2+y^2\\end{aligned}', caption: '', target },
-      { type: 'mermaid', source: 'graph TD; A-->B', caption: 'Flow', target },
+      { type: 'math', source: '\\frac{x^2}{y}', target },
+      { type: 'math', source: '\\begin{aligned}x^2+y^2\\end{aligned}', target },
+      {
+        type: 'diagram',
+        engine: 'mermaid',
+        source: 'graph TD; A-->B',
+        caption: 'Flow',
+        altText: 'A flows to B',
+        target
+      },
       {
         type: 'figure',
         figureId: 'figure:publication',

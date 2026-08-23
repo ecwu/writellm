@@ -2,7 +2,7 @@ import {
   persistedMutationProposalPayloadSchema,
   type PersistedMutationProposalPayload
 } from '../../shared/contracts/agent-mutations'
-import { blockNoteDocumentSchema, type BlockNoteDocument } from '../../shared/contracts/manuscript'
+import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
 import {
   readableCitationResolutionResultSchema,
   type ExpandedCitation,
@@ -11,6 +11,7 @@ import {
 } from '../../shared/contracts/search'
 import type { ProjectDatabase } from '../project/project-database'
 import type { RetrievalService } from './retrieval-service'
+import { decodeStoredSectionContent } from '../manuscript/content'
 
 const MAX_LINEAGE_REVISIONS = 1_000
 const MAX_CITATION_IDS = 200
@@ -21,6 +22,7 @@ interface LineageRow {
   section_id: string
   prior_revision_id: string | null
   content_json: string
+  content_schema_version: number
   content_body_retained: number
   agent_proposal_id: string | null
   depth: number
@@ -46,12 +48,13 @@ export async function resolveReadableCitation(options: {
       .prepare(
         `WITH RECURSIVE lineage AS (
            SELECT section_revision_id, section_id, prior_revision_id, content_json,
-                  content_body_retained, agent_proposal_id, 0 AS depth
+                  content_schema_version, content_body_retained, agent_proposal_id, 0 AS depth
              FROM section_revisions
             WHERE section_revision_id = ?
            UNION ALL
            SELECT prior.section_revision_id, prior.section_id, prior.prior_revision_id,
-                  prior.content_json, prior.content_body_retained, prior.agent_proposal_id,
+                  prior.content_json, prior.content_schema_version, prior.content_body_retained,
+                  prior.agent_proposal_id,
                   lineage.depth + 1
              FROM section_revisions AS prior
              JOIN lineage ON prior.section_revision_id = lineage.prior_revision_id
@@ -77,7 +80,11 @@ export async function resolveReadableCitation(options: {
     if (current === undefined || Number(current.content_body_retained) !== 1) {
       return { groups: [], limited: false } satisfies ProvenanceCollection
     }
-    const document = blockNoteDocumentSchema.parse(JSON.parse(current.content_json))
+    const document = decodeStoredSectionContent(
+      current.content_json,
+      current.content_schema_version,
+      current.section_id
+    )
     if (!documentContainsBlock(document, options.input.blockId)) {
       return { groups: [], limited: false } satisfies ProvenanceCollection
     }

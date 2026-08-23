@@ -5,6 +5,7 @@ import type {
   BlockNoteTableContent,
   ManuscriptAssembly
 } from './contracts/manuscript'
+import { plainTextContentSchema, plainTextContentToString } from './contracts/manuscript'
 import {
   manuscriptMarkdownLossReportSchema,
   type ManuscriptMarkdownLoss,
@@ -192,20 +193,26 @@ function blockToMarkdown(
       }
       break
     }
-    case 'mermaid': {
-      const props = block.props as { source: string; caption: string }
-      body = `\`\`\`mermaid\n${props.source}\n\`\`\``
+    case 'diagram': {
+      const props = block.props as { caption: string; altText: string }
+      const source = plainTextContentToString(plainTextContentSchema.parse(block.content))
+      body = `\`\`\`mermaid\n${source}\n\`\`\``
       if (props.caption !== '') {
         body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`
+      }
+      if (props.altText !== '') {
+        losses.push({
+          code: 'diagram_alt_text_not_representable',
+          message: 'Diagram alternative text has no Markdown representation.',
+          sectionId,
+          blockId: block.id
+        })
       }
       break
     }
-    case 'math': {
-      const props = block.props as { source: string; caption: string }
-      body = `$$\n${props.source}\n$$`
-      if (props.caption !== '') {
-        body += `\n\n_${renderCitationText(props.caption, block, sectionId, losses, citationNumbers)}_`
-      }
+    case 'mathBlock': {
+      const source = plainTextContentToString(plainTextContentSchema.parse(block.content))
+      body = `$$\n${source}\n$$`
       break
     }
   }

@@ -1,6 +1,6 @@
 import { BlockNoteEditor } from '@blocknote/core'
 import { describe, expect, it } from 'vitest'
-import type { BlockNoteDocument } from '../../../../shared/contracts/manuscript'
+import { projectLegacyBlockNoteDocument } from '../../../../shared/contracts/manuscript'
 import {
   approvedEditorSchema,
   toApprovedEditorDocument,
@@ -14,10 +14,30 @@ const representativeDocuments = [
       {
         id: 'v1-paragraph',
         type: 'paragraph',
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
         content: [{ type: 'text', text: 'Legacy paragraph', styles: { bold: true } }],
-        children: [{ id: 'v1-nested', type: 'bulletListItem', content: 'Nested legacy item' }]
+        children: [
+          {
+            id: 'v1-nested',
+            type: 'bulletListItem',
+            props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+            content: [{ type: 'text', text: 'Nested legacy item', styles: {} }],
+            children: []
+          }
+        ]
       },
-      { id: 'v1-heading', type: 'heading', props: { level: 2 }, content: 'Legacy heading' }
+      {
+        id: 'v1-heading',
+        type: 'heading',
+        props: {
+          level: 2,
+          backgroundColor: 'default',
+          textColor: 'default',
+          textAlignment: 'left'
+        },
+        content: [{ type: 'text', text: 'Legacy heading', styles: {} }],
+        children: []
+      }
     ]
   ],
   [
@@ -28,21 +48,36 @@ const representativeDocuments = [
         type: 'image',
         props: {
           url: 'writellm-asset:019d0000-0000-4000-8000-000000000452',
+          backgroundColor: 'default',
+          textAlignment: 'center',
           name: 'Legacy image',
           caption: 'Legacy caption',
           showPreview: true,
           previewWidth: 480
-        }
+        },
+        children: []
       },
       {
         id: 'v2-mermaid',
         type: 'mermaid',
-        props: { source: 'flowchart LR\nA --> B', caption: 'Flow', previewWidth: 640 }
+        props: {
+          source: 'flowchart LR\nA --> B',
+          caption: 'Flow',
+          textAlignment: 'center',
+          previewWidth: 640
+        },
+        children: []
       },
       {
         id: 'v2-math',
         type: 'math',
-        props: { source: 'E = mc^2', caption: 'Energy', previewWidth: 320 }
+        props: {
+          source: 'E = mc^2',
+          caption: 'Energy',
+          textAlignment: 'center',
+          previewWidth: 320
+        },
+        children: []
       }
     ]
   ],
@@ -54,19 +89,31 @@ const representativeDocuments = [
         type: 'image',
         props: {
           url: 'writellm-asset:019d0000-0000-4000-8000-000000000453',
+          backgroundColor: 'default',
+          textAlignment: 'center',
           name: 'Current image',
           caption: 'Current caption',
           figureId: 'figure:stable:v3',
           altText: 'Current alternative',
           showPreview: true,
           previewWidth: 512
-        }
+        },
+        children: []
       },
       {
         id: 'v3-list',
         type: 'numberedListItem',
-        content: 'Current list',
-        children: [{ id: 'v3-nested', type: 'paragraph', content: 'Nested current block' }]
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+        content: [{ type: 'text', text: 'Current list', styles: {} }],
+        children: [
+          {
+            id: 'v3-nested',
+            type: 'paragraph',
+            props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+            content: [{ type: 'text', text: 'Nested current block', styles: {} }],
+            children: []
+          }
+        ]
       }
     ]
   ]
@@ -132,9 +179,16 @@ describe('BlockNote 0.54.0 native JSON characterization', () => {
           }
         },
         {
-          id: 'display-math-id',
-          type: 'displayMath',
-          props: { source: 'x^2', caption: 'Display', previewWidth: 320 }
+          id: 'block-math-id',
+          type: 'mathBlock',
+          props: {},
+          content: 'x^2'
+        },
+        {
+          id: 'diagram-id',
+          type: 'diagram',
+          props: { engine: 'mermaid', caption: 'Flow', altText: 'A flows to B' },
+          content: 'graph TD; A-->B'
         }
       ]
     })
@@ -157,18 +211,25 @@ describe('BlockNote 0.54.0 native JSON characterization', () => {
       content: 'E = mc^2'
     })
     expect(canonical[8]).toMatchObject({
-      id: 'display-math-id',
-      type: 'math',
-      props: { source: 'x^2', caption: 'Display' }
+      id: 'block-math-id',
+      type: 'mathBlock',
+      props: {},
+      content: [{ type: 'text', text: 'x^2', styles: {} }]
+    })
+    expect(canonical[9]).toMatchObject({
+      id: 'diagram-id',
+      type: 'diagram',
+      props: { engine: 'mermaid', caption: 'Flow', altText: 'A flows to B' }
     })
   })
 
   it.each(representativeDocuments)(
     'round-trips the %s golden without changing block IDs or normalized JSON',
     (_name, document) => {
+      const projected = projectLegacyBlockNoteDocument(document)
       const editor = BlockNoteEditor.create({
         schema: approvedEditorSchema,
-        initialContent: toApprovedEditorDocument(document as unknown as BlockNoteDocument)
+        initialContent: toApprovedEditorDocument(projected)
       })
       const firstSave = toCanonicalDocument(editor.document)
       const restored = BlockNoteEditor.create({
@@ -177,8 +238,8 @@ describe('BlockNote 0.54.0 native JSON characterization', () => {
       })
       const secondSave = toCanonicalDocument(restored.document)
 
-      expect(blockIds(firstSave)).toEqual(blockIds(document))
-      expect(blockIds(secondSave)).toEqual(blockIds(document))
+      expect(blockIds(firstSave)).toEqual(blockIds(projected))
+      expect(blockIds(secondSave)).toEqual(blockIds(projected))
       expect(secondSave).toEqual(firstSave)
     }
   )

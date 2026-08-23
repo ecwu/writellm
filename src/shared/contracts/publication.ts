@@ -9,7 +9,9 @@ import {
   type BlockNoteInlineContent,
   type BlockNoteTableContent,
   type ManuscriptAssembly,
-  type ManuscriptReferenceIndex
+  type ManuscriptReferenceIndex,
+  plainTextContentSchema,
+  plainTextContentToString
 } from './manuscript'
 import { findReadableCitations, normalizeCitationTitle } from '../readable-citation'
 import { projectSessionIdSchema } from './projects'
@@ -117,14 +119,15 @@ export const publicationNodeSchema = z.discriminatedUnion('type', [
   publicationFigureNodeSchema,
   strictObject({
     type: z.literal('math'),
-    source: z.string().min(1).max(16_384),
-    caption: z.string().max(2_000),
+    source: z.string().max(32_000),
     ...targetShape
   }),
   strictObject({
-    type: z.literal('mermaid'),
-    source: z.string().min(1).max(100_000),
+    type: z.literal('diagram'),
+    engine: z.literal('mermaid'),
+    source: z.string().max(64_000),
     caption: z.string().max(2_000),
+    altText: z.string().max(2_000),
     ...targetShape
   }),
   strictObject({
@@ -427,19 +430,20 @@ export function buildPublicationAssembly(input: {
             )
             break
           }
-          case 'math':
+          case 'mathBlock':
             nodes.push({
               type: 'math',
-              source: String(block.props.source),
-              caption: String(block.props.caption ?? ''),
+              source: plainTextContentToString(plainTextContentSchema.parse(block.content)),
               target
             })
             break
-          case 'mermaid':
+          case 'diagram':
             nodes.push({
-              type: 'mermaid',
-              source: String(block.props.source),
+              type: 'diagram',
+              engine: 'mermaid',
+              source: plainTextContentToString(plainTextContentSchema.parse(block.content)),
               caption: String(block.props.caption ?? ''),
+              altText: String(block.props.altText ?? ''),
               target
             })
             recordFinding(

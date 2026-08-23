@@ -54,7 +54,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
             description: tool.description,
             parameters: tool.parameters
           })
-        )
+        ),
+        tool.name
       ).toBeLessThanOrEqual(8 * 1_024)
       expect(sentenceCount(tool.description), tool.name).toBeLessThanOrEqual(4)
       expect(tool.description, tool.name).not.toMatch(/\{\s*"?\w+/u)

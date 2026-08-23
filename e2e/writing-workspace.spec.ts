@@ -131,9 +131,15 @@ test(
       expect(menuBox).not.toBeNull()
       expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(620)
       await launched.page.keyboard.press('Enter')
-      await expect(launched.page.getByLabel('Mermaid source')).toBeVisible()
-      await launched.page.getByLabel('Mermaid source').fill('flowchart LR\nA --> B')
-      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
+      await expect(launched.page.getByRole('button', { name: 'OK', exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Add Mermaid source' }).click()
+      await launched.page.keyboard.type('flowchart LR')
+      await launched.page.keyboard.press('Shift+Enter')
+      await launched.page.keyboard.type('A --> B')
+      await expect(launched.page.locator('code[aria-label="Enter Mermaid source"]')).toContainText(
+        'flowchart LR'
+      )
+      await launched.page.getByRole('button', { name: 'OK', exact: true }).dispatchEvent('click')
       await expect(launched.page.getByRole('img', { name: 'Mermaid diagram' })).toBeVisible()
       await launched.page.keyboard.press('ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
@@ -197,33 +203,33 @@ test(
         'false'
       )
 
-      const hostileRequests: string[] = []
-      launched.page.on('request', (request) => {
-        if (request.url().includes('evil.example')) hostileRequests.push(request.url())
-      })
-      await editor.click()
       await launched.page.keyboard.press('End')
       await launched.page.keyboard.press('Enter')
       await launched.page.keyboard.type(String.raw`Unsafe $\href{https://evil.example}{x}$`)
-      await expect(formulas).toHaveCount(4)
-      await expect(formulas.last().locator('a')).toHaveCount(0)
-      expect(hostileRequests).toEqual([])
+      await expect(
+        launched.page.getByText(
+          'Formula or diagram source exceeds its safe size limit or uses a blocked command.'
+        )
+      ).toBeVisible()
+      await expect(formulas).toHaveCount(3)
 
-      await editor.click()
       await launched.page.keyboard.press('End')
       await launched.page.keyboard.press('Enter')
       await launched.page.keyboard.type(String.raw`Invalid $\badcommand{$`)
-      await expect(formulas).toHaveCount(5)
-      await launched.page.keyboard.press('ControlOrMeta+z')
       await expect(formulas).toHaveCount(4)
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(formulas).toHaveCount(3)
       await launched.page.keyboard.press('ControlOrMeta+Shift+z')
-      await expect(formulas).toHaveCount(5)
+      await expect(formulas).toHaveCount(4)
       const invalidFormula = launched.page.getByRole('button', {
         name: /Invalid equation/u
       })
       await expect(invalidFormula).toBeVisible()
-      await invalidFormula.click()
-      await expect(formulas.last().locator('.bn-preview-with-source-popup')).toHaveAttribute(
+      const invalidMath = invalidFormula.locator(
+        'xpath=ancestor::*[@data-inline-content-type="math"][1]'
+      )
+      await invalidMath.locator('.bn-preview-container').click()
+      await expect(invalidMath.locator('.bn-preview-with-source-popup')).toHaveAttribute(
         'data-open',
         'true'
       )
@@ -243,7 +249,7 @@ test(
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
-      await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(5)
+      await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(4)
 
       const browserWindow = await launched.app.browserWindow(launched.page)
       await browserWindow.evaluate((window) => window.setContentSize(620, 800))
@@ -1501,24 +1507,26 @@ test(
               },
               {
                 id: 'mermaid-diagram',
-                type: 'mermaid',
+                type: 'diagram',
                 props: {
-                  textAlignment: 'center',
-                  source: 'flowchart LR\nA["<img src=x onerror=alert(1)>"] --> B[Finish]',
+                  engine: 'mermaid',
                   caption: 'Flow',
-                  previewWidth: 720
+                  altText: 'Flow'
                 },
+                content: [
+                  {
+                    type: 'text',
+                    text: 'flowchart LR\nA["<img src=x onerror=alert(1)>"] --> B[Finish]',
+                    styles: {}
+                  }
+                ],
                 children: []
               },
               {
                 id: 'display-formula',
-                type: 'math',
-                props: {
-                  textAlignment: 'center',
-                  source: 'E = mc^2',
-                  caption: 'Energy',
-                  previewWidth: 720
-                },
+                type: 'mathBlock',
+                props: {},
+                content: [{ type: 'text', text: 'E = mc^2', styles: {} }],
                 children: []
               }
             ]
@@ -1534,8 +1542,9 @@ test(
       )
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
-      await expect(launched.page.getByText('Mermaid diagram', { exact: true })).toBeVisible()
-      await expect(launched.page.getByText('Display formula', { exact: true })).toBeVisible()
+      const renderedEditor = launched.page.getByTestId('section-editor')
+      await expect(renderedEditor.getByRole('img', { name: 'Flow' })).toBeVisible()
+      await expect(renderedEditor.getByRole('math')).toBeVisible()
       await launched.page.getByRole('button', { name: 'Images', exact: true }).click()
       const assetWorkspace = launched.page.getByTestId('asset-workspace')
       await expect(assetWorkspace.getByText('pixel.png', { exact: true })).toBeVisible()
@@ -1549,8 +1558,25 @@ test(
         .getByRole('button', { name: 'Open Untitled Section', exact: true })
         .first()
         .click()
-      const renderedEditor = launched.page.getByTestId('section-editor')
       await expect(renderedEditor.getByRole('img')).toHaveCount(2)
+      await renderedEditor.locator('.bn-preview-container:has(math)').click()
+      await expect(renderedEditor.locator('code[aria-label="E = mc^2"]')).toBeVisible()
+      await renderedEditor
+        .locator('.bn-preview-with-source-popup[data-open="true"]')
+        .getByRole('button', { name: 'OK', exact: true })
+        .dispatchEvent('click')
+      const diagramSourcePreview = renderedEditor.locator(
+        '.bn-preview-container:has(img[alt="Flow"])'
+      )
+      await diagramSourcePreview.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+      await diagramSourcePreview.dispatchEvent('click')
+      await expect(renderedEditor.locator('code[aria-label="Enter Mermaid source"]')).toContainText(
+        'flowchart LR'
+      )
+      await renderedEditor
+        .locator('.bn-preview-with-source-popup[data-open="true"]')
+        .getByRole('button', { name: 'OK', exact: true })
+        .dispatchEvent('click')
       await renderedEditor.getByRole('button', { name: 'Edit figure metadata' }).click()
       await launched.page.getByLabel('Caption', { exact: true }).fill('Edited project asset')
       await launched.page.getByLabel('Alt text', { exact: true }).fill('Edited uploaded pixel')
@@ -1577,6 +1603,31 @@ test(
         }, mermaidPreview)
       ).toEqual({ activeElements: 0, eventAttributes: 0, remoteLinks: 0 })
 
+      await launched.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: /Settings/u }).click()
+      const settings = launched.page.getByRole('dialog', { name: 'Settings' })
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
+      await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await expect
+        .poll(() => launched.page.evaluate(() => document.documentElement.dataset.theme))
+        .toBe('dark')
+      await launched.page.keyboard.press('Escape')
+      await expect(settings).not.toBeVisible()
+      await expect
+        .poll(() => renderedEditor.getByRole('img', { name: 'Flow' }).getAttribute('src'))
+        .not.toBe(mermaidPreview)
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect
+        .poll(() =>
+          renderedEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)
+        )
+        .toBe(true)
+      await browserWindow.evaluate((window) => window.setContentSize(1280, 900))
+      await expect(
+        launched.page.getByRole('button', { name: 'Edit outline', exact: true })
+      ).toBeVisible()
+
       await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
       const outline = launched.page.getByRole('dialog', { name: 'Outline editor' })
       await expect(outline.getByRole('button', { name: 'Preview all', exact: true })).toHaveCount(0)
@@ -1588,7 +1639,6 @@ test(
       await expect(manuscriptPreview.getByRole('img', { name: 'Mermaid diagram' })).toBeVisible()
       await expect(manuscriptPreview.getByText('Flow', { exact: true })).toBeVisible()
       await expect(manuscriptPreview.getByRole('math')).toBeVisible()
-      await expect(manuscriptPreview.getByText('Energy', { exact: true })).toBeVisible()
       await expect
         .poll(() =>
           manuscriptImage.evaluate((element) => (element as HTMLImageElement).naturalWidth)
@@ -1648,7 +1698,7 @@ test(
         caption: 'Edited project asset',
         figureId: expect.stringMatching(/^figure:/)
       })
-      await expect(launched.page.getByText('Display formula', { exact: true })).toBeVisible()
+      await expect(launched.page.getByTestId('section-editor').getByRole('math')).toBeVisible()
     } finally {
       await launched.app.close()
     }

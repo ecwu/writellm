@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   appSetCitationDisplayMode: 'app:set-citation-display-mode',
   appGetDefaultAgentApprovalMode: 'app:get-default-agent-approval-mode',
   appSetDefaultAgentApprovalMode: 'app:set-default-agent-approval-mode',
+  appGetOnboardingState: 'app:get-onboarding-state',
+  appSetOnboardingState: 'app:set-onboarding-state',
   publicationPresetsSnapshot: 'publication-presets:snapshot',
   publicationPresetsCreate: 'publication-presets:create',
   publicationPresetsUpdate: 'publication-presets:update',

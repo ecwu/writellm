@@ -54,7 +54,11 @@ import type {
   SectionTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { extractSectionAgentText, prepareSectionContent } from '../manuscript/content'
+import {
+  decodeStoredSectionContent,
+  extractSectionAgentText,
+  prepareSectionContent
+} from '../manuscript/content'
 import {
   assetIdFromUrl,
   assetUrl,
@@ -899,7 +903,11 @@ export class MutationProposalService {
           throw new AgentToolDomainError('not_found', 'Section base revision is unavailable')
         }
         const simulation = simulateSectionPatch(
-          blockNoteDocumentSchema.parse(JSON.parse(revision.content_json)),
+          decodeStoredSectionContent(
+            revision.content_json,
+            revision.content_schema_version,
+            revision.section_id
+          ),
           mutation
         )
         return {
@@ -962,7 +970,11 @@ export class MutationProposalService {
         return { decision: this.#refreshGeneratedImageProposal(database, row, payload, section) }
       }
       const revision = requireRevision(database, payload.mutation.baseRevisionId)
-      const document = blockNoteDocumentSchema.parse(JSON.parse(revision.content_json))
+      const document = decodeStoredSectionContent(
+        revision.content_json,
+        revision.content_schema_version,
+        revision.section_id
+      )
       if (payload.mutation.anchor !== null) {
         verifyBlockPrecondition(document, payload.mutation.anchor)
       }
@@ -1273,7 +1285,11 @@ export class MutationProposalService {
       const iteration = currentPayload.mutation.iteration
       const section = requireSection(database, currentPayload.mutation.sectionId)
       const revision = requireRevision(database, section.current_revision_id)
-      const document = blockNoteDocumentSchema.parse(JSON.parse(revision.content_json))
+      const document = decodeStoredSectionContent(
+        revision.content_json,
+        revision.content_schema_version,
+        revision.section_id
+      )
       const lineageId = this.#createId()
       const now = this.#now().toISOString()
       const insertLineage = (sectionProposalId: string | null): void => {
@@ -1491,7 +1507,11 @@ export class MutationProposalService {
     try {
       if (payload.mutation.anchor !== null) {
         verifyBlockPrecondition(
-          blockNoteDocumentSchema.parse(JSON.parse(current.content_json)),
+          decodeStoredSectionContent(
+            current.content_json,
+            current.content_schema_version,
+            current.section_id
+          ),
           payload.mutation.anchor
         )
       }
@@ -1834,8 +1854,16 @@ export class MutationProposalService {
     let baseDocument: BlockNoteDocument
     let currentDocument: BlockNoteDocument
     try {
-      baseDocument = blockNoteDocumentSchema.parse(JSON.parse(base.content_json))
-      currentDocument = blockNoteDocumentSchema.parse(JSON.parse(current.content_json))
+      baseDocument = decodeStoredSectionContent(
+        base.content_json,
+        base.content_schema_version,
+        base.section_id
+      )
+      currentDocument = decodeStoredSectionContent(
+        current.content_json,
+        current.content_schema_version,
+        current.section_id
+      )
     } catch (err) {
       this.options.log.error(
         {
@@ -2127,7 +2155,11 @@ export class MutationProposalService {
           throw new MutationProposalError('stale_base', 'Section base revision is unavailable')
         }
         const simulation = simulateSectionPatch(
-          blockNoteDocumentSchema.parse(JSON.parse(base.content_json)),
+          decodeStoredSectionContent(
+            base.content_json,
+            base.content_schema_version,
+            base.section_id
+          ),
           mutation
         )
         const revisionId = this.#createId()
@@ -2207,7 +2239,11 @@ export class MutationProposalService {
           citationIds: []
         })
         const simulation = simulateSectionPatch(
-          blockNoteDocumentSchema.parse(JSON.parse(base.content_json)),
+          decodeStoredSectionContent(
+            base.content_json,
+            base.content_schema_version,
+            base.section_id
+          ),
           patch
         )
         const revisionId = this.#createId()
@@ -2297,7 +2333,11 @@ export class MutationProposalService {
       revisionNumber: applied.revision_number + 1,
       source: 'undo',
       sourceClass: 'manual_checkpoint',
-      content: blockNoteDocumentSchema.parse(JSON.parse(parent.content_json)),
+      content: decodeStoredSectionContent(
+        parent.content_json,
+        parent.content_schema_version,
+        parent.section_id
+      ),
       priorRevisionId: applied.section_revision_id,
       agentRunId: null,
       agentToolCallId: null,

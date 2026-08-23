@@ -515,13 +515,13 @@ async function exportFixture(): Promise<{
       },
       {
         id: 'diagram',
-        type: 'mermaid',
+        type: 'diagram',
         props: {
-          textAlignment: 'center',
-          source: 'graph TD\nA-->B',
+          engine: 'mermaid',
           caption: '',
-          previewWidth: 720
+          altText: ''
         },
+        content: [{ type: 'text', text: 'graph TD\nA-->B', styles: {} }],
         children: []
       }
     ],

@@ -288,7 +288,7 @@ export const submitSectionChangeParameters = Type.Object(
             blocks: Type.Array(
               Type.Object(
                 {
-                  clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+                  clientRef: Type.Optional(Type.String()),
                   blockType: Type.Optional(textBlockType),
                   text: Type.String({ maxLength: 100_000 })
                 },
@@ -309,29 +309,26 @@ export const submitSectionChangeParameters = Type.Object(
               Type.Literal('start'),
               Type.Literal('end')
             ]),
-            block: Type.Object(
-              {
-                clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
-                blockType: Type.Union([Type.Literal('mermaid'), Type.Literal('math')]),
-                source: Type.String({ minLength: 1, maxLength: 64_000 }),
-                caption: Type.Optional(Type.String({ maxLength: 2_000, default: '' })),
-                textAlignment: Type.Optional(
-                  Type.Union(
-                    [
-                      Type.Literal('left'),
-                      Type.Literal('center'),
-                      Type.Literal('right'),
-                      Type.Literal('justify')
-                    ],
-                    { default: 'center' }
-                  )
-                ),
-                previewWidth: Type.Optional(
-                  Type.Integer({ minimum: 64, maximum: 8_192, default: 720 })
-                )
-              },
-              strict
-            )
+            block: Type.Union([
+              Type.Object(
+                {
+                  clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+                  blockType: Type.Literal('mathBlock'),
+                  source: Type.String({ maxLength: 32_000 })
+                },
+                strict
+              ),
+              Type.Object(
+                {
+                  clientRef: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+                  blockType: Type.Literal('diagram'),
+                  source: Type.String({ maxLength: 64_000 }),
+                  caption: Type.Optional(Type.String({ maxLength: 2_000 })),
+                  altText: Type.Optional(Type.String({ maxLength: 2_000 }))
+                },
+                strict
+              )
+            ])
           },
           strict
         ),

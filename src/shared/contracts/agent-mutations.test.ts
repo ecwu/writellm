@@ -171,6 +171,50 @@ describe('Agent mutation contracts', () => {
     ).toBe(false)
   })
 
+  it('types native block math and application-owned diagrams as disjoint rich blocks', () => {
+    expect(
+      modelSubmitSectionChangeArgsSchema.parse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertRichBlock',
+            placement: 'end',
+            block: { blockType: 'mathBlock', source: String.raw`\frac{x}{y}` }
+          },
+          {
+            type: 'insertRichBlock',
+            placement: 'end',
+            block: {
+              blockType: 'diagram',
+              source: 'flowchart LR\nA --> B',
+              caption: 'Flow',
+              altText: 'A flows to B'
+            }
+          }
+        ]
+      }).operations
+    ).toMatchObject([
+      { type: 'insertRichBlock', anchor: null, block: { blockType: 'mathBlock' } },
+      {
+        type: 'insertRichBlock',
+        anchor: null,
+        block: { blockType: 'diagram', caption: 'Flow', altText: 'A flows to B' }
+      }
+    ])
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertRichBlock',
+            placement: 'end',
+            block: { blockType: 'mathBlock', source: 'x', caption: 'not supported' }
+          }
+        ]
+      }).success
+    ).toBe(false)
+  })
+
   it('defaults root insertion anchors and keeps image insert/iterate modes disjoint', () => {
     expect(
       modelSubmitSectionChangeArgsSchema.parse({

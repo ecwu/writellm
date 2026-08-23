@@ -22,6 +22,7 @@ export interface AppLaunchOptions {
   dialogPaths?: string[]
   knowledgeDialogPaths?: string[]
   windowPresentation?: WindowPresentation
+  onboarding?: 'complete' | 'show'
   env?: Record<string, string>
 }
 
@@ -97,6 +98,17 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
     }
   })
   await page.waitForLoadState('domcontentloaded')
+  if (options.onboarding !== 'show') {
+    const onboardingCompleted = await page.evaluate(async () => {
+      const current = await window.desktop.app.getOnboardingState()
+      if (current.status === 'completed') return true
+      await window.desktop.app.setOnboardingState({
+        state: { schemaVersion: 1, status: 'completed' }
+      })
+      return false
+    })
+    if (!onboardingCompleted) await page.reload({ waitUntil: 'domcontentloaded' })
+  }
   if (windowPresentation === 'silent-e2e') {
     await expect
       .poll(() =>

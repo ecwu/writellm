@@ -18,6 +18,25 @@ export const accentPreferenceSchema = z.enum([
   'orange'
 ])
 export const citationDisplayModeSchema = z.enum(['full', 'numbered', 'icon'])
+export const onboardingStepSchema = z.enum([
+  'welcome',
+  'agent',
+  'embedding',
+  'rerank',
+  'mineru',
+  'project'
+])
+export const onboardingStateSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      schemaVersion: z.literal(1),
+      status: z.literal('pending'),
+      step: onboardingStepSchema
+    })
+    .strict(),
+  z.object({ schemaVersion: z.literal(1), status: z.literal('completed') }).strict()
+])
+export const setOnboardingStateInputSchema = z.object({ state: onboardingStateSchema }).strict()
 
 export const setThemePreferenceInputSchema = z.object({
   preference: themePreferenceSchema
@@ -37,6 +56,9 @@ export const setCitationDisplayModeInputSchema = z
   .strict()
 export type CitationDisplayMode = z.infer<typeof citationDisplayModeSchema>
 export type SetCitationDisplayModeInput = z.infer<typeof setCitationDisplayModeInputSchema>
+export type OnboardingStep = z.infer<typeof onboardingStepSchema>
+export type OnboardingState = z.infer<typeof onboardingStateSchema>
+export type SetOnboardingStateInput = z.infer<typeof setOnboardingStateInputSchema>
 
 export const setDefaultAgentApprovalModeInputSchema = z
   .object({ mode: agentApprovalModeSchema })

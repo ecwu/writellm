@@ -30,7 +30,6 @@ import {
   ListPlus,
   MessageSquareText,
   ScanSearch,
-  Sigma,
   Sparkles,
   WandSparkles,
   Workflow
@@ -68,7 +67,7 @@ import {
   toApprovedEditorDocument,
   toCanonicalDocument
 } from './editor-schema'
-import { inlineMathGuardExtension, selectionContainsInlineMath } from './inline-math-guard'
+import { inlineMathGuardExtension, selectionContainsStructuredSource } from './inline-math-guard'
 import { resolveProjectAssetUrl } from './project-asset-url'
 import {
   readableCitationExtension,
@@ -187,8 +186,7 @@ export const SectionEditor = forwardRef<
       extensions: [
         ...nativeInlineMathExtensions,
         inlineMathGuardExtension({
-          onReject: () =>
-            notifyActionError('Inline formulas must be a single line and no larger than 8 KiB.')
+          onReject: (message) => notifyActionError(message)
         }),
         readableCitationExtension({
           onActivate: (activation) => citationActivationHandlerRef.current(activation),
@@ -273,14 +271,14 @@ export const SectionEditor = forwardRef<
     (action: AgentQuickActionId): void => {
       const proseMirrorSelection = editor.prosemirrorView.state.selection
       if (
-        selectionContainsInlineMath(
+        selectionContainsStructuredSource(
           editor.prosemirrorView.state.doc,
           proseMirrorSelection.from,
           proseMirrorSelection.to
         )
       ) {
         props.onQuickActionError?.(
-          'Quick actions cannot include inline formulas. Select prose only, or ask the Agent to edit the whole block.'
+          'Quick actions cannot cross formulas or diagrams. Select prose only, or ask the Agent to edit the whole block.'
         )
         return
       }
@@ -309,14 +307,14 @@ export const SectionEditor = forwardRef<
       event.stopPropagation()
       const proseMirrorSelection = editor.prosemirrorView.state.selection
       if (
-        selectionContainsInlineMath(
+        selectionContainsStructuredSource(
           editor.prosemirrorView.state.doc,
           proseMirrorSelection.from,
           proseMirrorSelection.to
         )
       ) {
         props.onQuickActionError?.(
-          'Quick actions cannot include inline formulas. Select prose only, or ask the Agent to edit the whole block.'
+          'Quick actions cannot cross formulas or diagrams. Select prose only, or ask the Agent to edit the whole block.'
         )
         return
       }
@@ -603,20 +601,9 @@ export const SectionEditor = forwardRef<
                   icon: <Workflow className='size-4' />,
                   onItemClick: () =>
                     insertOrUpdateBlockForSlashMenu(editor, {
-                      type: 'mermaid',
-                      props: { source: '', caption: '', textAlignment: 'center', previewWidth: 720 }
-                    })
-                },
-                {
-                  title: 'Math',
-                  subtext: 'Insert a display LaTeX formula',
-                  aliases: ['latex', 'equation', 'formula'],
-                  group: 'Rich media',
-                  icon: <Sigma className='size-4' />,
-                  onItemClick: () =>
-                    insertOrUpdateBlockForSlashMenu(editor, {
-                      type: 'displayMath',
-                      props: { source: '', caption: '', textAlignment: 'center', previewWidth: 720 }
+                      type: 'diagram',
+                      props: { engine: 'mermaid', caption: '', altText: '' },
+                      content: ''
                     })
                 }
               ],

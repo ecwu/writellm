@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   AccentPreference,
   CitationDisplayMode,
+  OnboardingState,
   ThemePreference
 } from '../../shared/contracts/app'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -22,6 +23,11 @@ function harness() {
   let preference: ThemePreference = 'system'
   let accent: AccentPreference = 'neutral'
   let citationDisplayMode: CitationDisplayMode = 'full'
+  let onboardingState: OnboardingState = {
+    schemaVersion: 1,
+    status: 'pending',
+    step: 'welcome'
+  }
   const appSettings = {
     getThemePreference: vi.fn(async () => preference),
     setThemePreference: vi.fn(async (next: ThemePreference) => {
@@ -36,6 +42,11 @@ function harness() {
     getCitationDisplayMode: vi.fn(async () => citationDisplayMode),
     setCitationDisplayMode: vi.fn(async (next: CitationDisplayMode) => {
       citationDisplayMode = next
+      return next
+    }),
+    getOnboardingState: vi.fn(async () => onboardingState),
+    setOnboardingState: vi.fn(async (next: OnboardingState) => {
+      onboardingState = next
       return next
     })
   }
@@ -144,6 +155,27 @@ describe('application IPC', () => {
     await expect(
       invoke(IPC_CHANNELS.appSetCitationDisplayMode, { mode: 'compact' })
     ).rejects.toThrow()
+  })
+
+  it('authorizes and validates versioned onboarding progress', async () => {
+    const { appSettings, handlers, unauthorized, invoke } = harness()
+
+    await expect(invoke(IPC_CHANNELS.appGetOnboardingState)).resolves.toEqual({
+      schemaVersion: 1,
+      status: 'pending',
+      step: 'welcome'
+    })
+    const next = { schemaVersion: 1 as const, status: 'pending' as const, step: 'mineru' as const }
+    await expect(invoke(IPC_CHANNELS.appSetOnboardingState, { state: next })).resolves.toEqual(next)
+    expect(appSettings.setOnboardingState).toHaveBeenCalledWith(next)
+    await expect(
+      invoke(IPC_CHANNELS.appSetOnboardingState, {
+        state: { schemaVersion: 1, status: 'pending', step: 'image' }
+      })
+    ).rejects.toThrow()
+    await expect(
+      Promise.resolve(handlers.get(IPC_CHANNELS.appGetOnboardingState)?.(unauthorized as never))
+    ).rejects.toThrow('Unauthorized IPC sender')
   })
 
   it('validates and routes bounded publication preset CRUD', async () => {

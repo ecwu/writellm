@@ -49,7 +49,10 @@ import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
 import { AgentToolDomainError } from './read-tools'
 import { extractSectionAgentText } from '../manuscript/content'
-import { blockNoteDocumentSchema } from '../../shared/contracts/manuscript'
+import {
+  blockNoteDocumentSchema,
+  plainTextContentFromSource
+} from '../../shared/contracts/manuscript'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
@@ -898,22 +901,19 @@ function createTextBlock(type: string, text: string) {
   }
 }
 
-function createRichBlock(input: {
-  blockType: 'mermaid' | 'math'
-  source: string
-  caption: string
-  textAlignment: 'left' | 'center' | 'right' | 'justify'
-  previewWidth: number
-}) {
+function createRichBlock(
+  input:
+    | { blockType: 'mathBlock'; source: string }
+    | { blockType: 'diagram'; source: string; caption: string; altText: string }
+) {
   return {
     id: randomUUID(),
     type: input.blockType,
-    props: {
-      source: input.source,
-      caption: input.caption,
-      textAlignment: input.textAlignment,
-      previewWidth: input.previewWidth
-    },
+    props:
+      input.blockType === 'diagram'
+        ? { engine: 'mermaid', caption: input.caption, altText: input.altText }
+        : {},
+    content: plainTextContentFromSource(input.source),
     children: []
   }
 }

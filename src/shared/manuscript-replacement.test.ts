@@ -63,9 +63,10 @@ describe('manuscript replacement core', () => {
         children: []
       },
       {
-        id: 'math',
-        type: 'math',
-        props: { textAlignment: 'left', source: 'x', caption: 'alpha' },
+        id: 'diagram',
+        type: 'diagram',
+        props: { engine: 'mermaid', caption: 'alpha', altText: 'Alternative' },
+        content: [{ type: 'text', text: 'graph TD; A-->B', styles: {} }],
         children: []
       }
     ]
@@ -90,7 +91,7 @@ describe('manuscript replacement core', () => {
             kind: 'block_caption',
             sectionId: 'section',
             revisionId: 'revision',
-            blockId: 'math',
+            blockId: 'diagram',
             property: 'caption',
             range: { from: 0, to: 5 }
           },

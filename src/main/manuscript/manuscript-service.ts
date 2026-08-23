@@ -28,8 +28,7 @@ import {
   type UpdateSectionInput,
   updateManuscriptBriefInputSchema,
   updateSectionInputSchema,
-  blockNoteDocumentSchema,
-  normalizeFigureMetadata
+  blockNoteDocumentSchema
 } from '../../shared/contracts/manuscript'
 import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
 import {
@@ -43,7 +42,7 @@ import type {
   SectionTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { prepareSectionContent } from './content'
+import { decodeStoredSectionContent, prepareSectionContent } from './content'
 import { recordRevisionAssetReferences } from './asset-service'
 import { ManuscriptRepository } from './manuscript-repository'
 
@@ -760,7 +759,11 @@ export class ManuscriptService {
             'The section body has changed'
           )
         }
-        const currentDocument = blockNoteDocumentSchema.parse(JSON.parse(current.content_json))
+        const currentDocument = decodeStoredSectionContent(
+          current.content_json,
+          current.content_schema_version,
+          current.section_id
+        )
         const document = applyReplacementOperations(
           currentDocument,
           planned.operations,
@@ -855,7 +858,11 @@ export class ManuscriptService {
           'Replacement parent revision is unavailable'
         )
       }
-      const document = blockNoteDocumentSchema.parse(JSON.parse(parent.content_json))
+      const document = decodeStoredSectionContent(
+        parent.content_json,
+        parent.content_schema_version,
+        parent.section_id
+      )
       const prepared = prepareSectionContent(document, section.section_id)
       const revisionId = this.#createId()
       const now = this.#now().toISOString()
@@ -1030,10 +1037,8 @@ function sectionFromRow(row: SectionTable): Section {
 }
 
 function revisionFromRow(row: SectionRevisionTable): SectionRevision {
-  const content = normalizeFigureMetadata(
-    blockNoteDocumentSchema.parse(JSON.parse(row.content_json)),
-    row.section_id
-  )
+  const contentSchemaVersion = contentSchemaVersionFromRow(row)
+  const content = decodeStoredSectionContent(row.content_json, contentSchemaVersion, row.section_id)
   return {
     sectionRevisionId: row.section_revision_id,
     sectionId: row.section_id,
@@ -1041,7 +1046,7 @@ function revisionFromRow(row: SectionRevisionTable): SectionRevision {
     source: row.source,
     sourceClass: row.source_class,
     content,
-    contentSchemaVersion: contentSchemaVersionFromRow(row),
+    contentSchemaVersion,
     contentHash: row.content_hash,
     priorRevisionId: row.prior_revision_id,
     wordCount: row.word_count,
@@ -1074,12 +1079,13 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
   }
 }
 
-function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 | 4 {
+function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 | 4 | 5 {
   if (
     row.content_schema_version !== 1 &&
     row.content_schema_version !== 2 &&
     row.content_schema_version !== 3 &&
-    row.content_schema_version !== 4
+    row.content_schema_version !== 4 &&
+    row.content_schema_version !== 5
   ) {
     throw new Error('Section revision content schema version is unsupported')
   }

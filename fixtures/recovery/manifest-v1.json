@@ -50,6 +50,15 @@
       "tests": ["appends an identical v4 current revision and preserves the current relation graph"]
     },
     {
+      "id": "native-block-math-diagram-schema-v5-history",
+      "category": "migration",
+      "source": "src/main/project/migrations/0038-native-block-math-diagram-schema-v5.test.ts",
+      "sourceSha256": "194d1b2632d3dbed6c89d4da50e2c1a7e8892aee707e4331a0a51c6fa0c4559e",
+      "tests": [
+        "projects the active v4 head while preserving history, IDs, assets, and relation tables"
+      ]
+    },
+    {
       "id": "wal-online-backup-and-restore",
       "category": "database-backup",
       "source": "src/main/db/backup.test.ts",
@@ -114,7 +123,7 @@
       "id": "missing-materializations",
       "category": "materialization",
       "source": "src/main/manuscript/editor-persistence-service.test.ts",
-      "sourceSha256": "23484d629abef34fd7487036af56210748f67a261eb9589477b19fb73d192e9a",
+      "sourceSha256": "b763d0515a6fac04cf73e31e3a14b14a9f97ea4d7e8344ebc96027fe46f5ad87",
       "tests": [
         "reports a pending mirror after rename failure and repairs missing, corrupt, and stale metadata from DB",
         "repairs a file published before its materialization metadata commit"
@@ -145,7 +154,7 @@
       "id": "asset-backed-manuscript-export",
       "category": "export",
       "source": "src/main/manuscript/manuscript-export.test.ts",
-      "sourceSha256": "37c110ffb3028ebe20995718efbb8e04501d1bc484da600150945ac95f2c9245",
+      "sourceSha256": "5e03b4745adfe3d49781ef38fef157d0454932bc9c3fe68491c63987535eaabb",
       "tests": [
         "publishes deterministic native and Markdown packages with verified referenced assets",
         "never overwrites an existing destination and cleans interrupted staging",

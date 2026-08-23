@@ -78,24 +78,20 @@ describe('whole-manuscript Markdown conversion', () => {
           },
           {
             id: 'mermaid-1',
-            type: 'mermaid',
+            type: 'diagram',
             props: {
-              source: 'graph TD\nA-->B',
+              engine: 'mermaid',
               caption: '',
-              textAlignment: 'center',
-              previewWidth: 720
+              altText: 'A flows to B'
             },
+            content: [{ type: 'text', text: 'graph TD\nA-->B', styles: {} }],
             children: []
           },
           {
             id: 'math-1',
-            type: 'math',
-            props: {
-              source: 'E = mc^2',
-              caption: '',
-              textAlignment: 'center',
-              previewWidth: 720
-            },
+            type: 'mathBlock',
+            props: {},
+            content: [{ type: 'text', text: 'E = mc^2', styles: {} }],
             children: []
           }
         ]),
@@ -145,7 +141,11 @@ $$
       expect.arrayContaining([
         expect.objectContaining({ code: 'background_color', blockId: 'p1' }),
         expect.objectContaining({ code: 'text_alignment', blockId: 'image-1' }),
-        expect.objectContaining({ code: 'preview_width', blockId: 'image-1' })
+        expect.objectContaining({ code: 'preview_width', blockId: 'image-1' }),
+        expect.objectContaining({
+          code: 'diagram_alt_text_not_representable',
+          blockId: 'mermaid-1'
+        })
       ])
     )
   })
@@ -367,7 +367,7 @@ function section(
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       content,
-      contentSchemaVersion: 4,
+      contentSchemaVersion: 5,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 1,

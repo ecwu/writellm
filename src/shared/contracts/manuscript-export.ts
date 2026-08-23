@@ -64,6 +64,7 @@ export const manuscriptMarkdownLossSchema = z
       'missing_figure_alt_text',
       'empty_section',
       'mermaid_requires_rendering',
+      'diagram_alt_text_not_representable',
       'mermaid_source_fallback',
       'math_text_fallback',
       'webp_unsupported',

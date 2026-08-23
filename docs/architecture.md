@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 058
+Status: accepted implementation baseline, amended through accepted ADR 060
 Recorded: 2026-07-31; amended through 2026-08-23
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -656,16 +656,20 @@ Section content schema v3 admits native `image` blocks only with
 `altText`, alongside source-backed `mermaid` and display-only `math` blocks. Schema v4 adds native
 atomic inline formulas shaped exactly as `{ type: "math", content: string }`, bounded to one line,
 8,192 characters, and 8 KiB UTF-8 with no styles, props, or NUL. Readers remain compatible with
-v1-v3 revisions and deterministically supply legacy figure metadata in memory. Forward migrations
-append a new current revision rather than rewriting immutable historical JSON or hashes.
+v1-v3 revisions and deterministically supply legacy figure metadata in memory. Schema v5 replaces
+the display-only block with native `mathBlock` and moves the application-owned Mermaid block to a
+plain-content `diagram` with `engine`, `caption`, and `altText` props. Block Math is bounded to
+32,000 characters and 32 KiB UTF-8; Diagram remains bounded to 64,000 characters and 64 KiB UTF-8.
+Both reject NUL and canonicalize adjacent unstyled text. Forward migrations append a new current
+revision rather than rewriting immutable historical JSON or hashes.
 
-The mathematical model is deliberately two-layered: BlockNote native inline Math handles formulas
-inside prose, while WriteLLM retains its application-owned display Math block. Renderer internally
-aliases the display block as `displayMath` to avoid BlockNote's shared block/inline ProseMirror name
-collision, but the canonical persisted block remains `type: "math"`. Mermaid renders lazily with
-strict security and sanitized SVG-as-image output; KaTeX trust stays disabled and publication
-rendering bounds expansion and size. Syntax errors stay local to the formula and never prevent
-persistence. See ADRs 027 and 057.
+The mathematical model is deliberately two-layered and BlockNote-native: Inline Math handles
+formulas inside prose and `mathBlock` handles display formulas as plain source content. Diagram
+remains application-owned because its caption/alternative-text metadata, dynamic theme, serialized
+Mermaid execution, strict configuration, sanitized SVG-as-image isolation, and last-valid-preview
+recovery are durable product and security semantics. KaTeX trust stays disabled and publication
+rendering bounds expansion and size. Syntax errors stay local to Math or Diagram and never prevent
+persistence. See ADRs 027, 057, and 060.
 
 The canonical current and historical section JSON lives in `section_revisions.content_json` in `project.sqlite` so revision changes, accepted agent lineage, and optimistic concurrency are transactional. After a revision commits, a durable materialization step atomically writes:
 
@@ -677,7 +681,7 @@ The materialized file contains the current native BlockNote JSON plus a small sc
 
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
-Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, display math uses
+Markdown import/export is explicitly lossy. Diagram uses a `mermaid` fence, block Math uses
 `$$...$$`, inline math uses `$...$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
 remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
 `manuscript/exports/` and never silently replaces native BlockNote JSON. The completed Checkpoint

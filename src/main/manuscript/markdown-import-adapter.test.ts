@@ -42,8 +42,8 @@ Final paragraph.
       'checkListItem',
       'bulletListItem',
       'table',
-      'math',
-      'mermaid',
+      'mathBlock',
+      'diagram',
       'codeBlock'
     ])
     expect(result.sections[0]?.document[0]?.content).toEqual(
@@ -105,6 +105,35 @@ Final paragraph.
       { type: 'text', text: `$${source}$`, styles: { code: true } }
     ])
     expect(mapped.losses.map((finding) => finding.code)).toContain('inline_math_size_fallback')
+  })
+
+  it('keeps unsafe block math and oversized diagrams as inert source instead of failing import', async () => {
+    const oversizedDiagram = 'A'.repeat(64_001)
+    const mapped = await parseMarkdownImport({
+      bytes: Buffer.from(`# Structured source
+
+$$
+\\href{https://evil.example}{click}
+$$
+
+\`\`\`mermaid
+${oversizedDiagram}
+\`\`\`
+`),
+      displayName: 'bounded-rich-media.md',
+      createId: sequentialIds(),
+      resolveImage: vi.fn()
+    })
+
+    expect(mapped.sections[0]?.document.map((block) => block.type)).toEqual([
+      'codeBlock',
+      'codeBlock'
+    ])
+    expect(mapped.losses.map((finding) => finding.code)).toEqual([
+      'block_math_source_fallback',
+      'diagram_source_fallback'
+    ])
+    expect(mapped.losses.every((finding) => finding.sourceLocation !== null)).toBe(true)
   })
 
   it('logs parse lifecycle and omitted-image failures through the injected logger', async () => {

@@ -40,6 +40,12 @@ export function classifyReplacementTarget(
   }
   const writableTarget = target as WritableSearchTarget
   const source = resolveTarget(document, writableTarget)
+  if (
+    target.kind !== 'block_caption' &&
+    (source.block.type === 'mathBlock' || source.block.type === 'diagram')
+  ) {
+    return { sourceText: source.sourceText, skipReason: 'structured_overlap' }
+  }
   if (overlapsReadableCitation(source.surfaceText, source.flatFrom, source.flatTo)) {
     return { sourceText: source.sourceText, skipReason: 'readable_citation' }
   }

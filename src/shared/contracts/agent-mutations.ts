@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
 import {
   blockNoteBlockSchema,
+  blockMathSourceSchema,
+  diagramSourceSchema,
   manuscriptAssetIdSchema,
   manuscriptBriefFieldsSchema,
   manuscriptIdSchema,
@@ -15,7 +17,7 @@ import { resolvesReviewIssueSchema } from './review'
 import { modelSubmitWritingRulesChangeArgsSchema, writingRuleSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 8
+export const AGENT_TOOL_CONTRACT_VERSION = 9
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -381,14 +383,20 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
     placement: z
       .enum(['before', 'after', 'start', 'end'])
       .describe('Use start/end at the root and before/after with an anchor.'),
-    block: strictObject({
-      clientRef: z.string().min(1).max(256).optional(),
-      blockType: z.enum(['mermaid', 'math']),
-      source: z.string().min(1).max(64_000),
-      caption: z.string().max(2_000).default(''),
-      textAlignment: z.enum(['left', 'center', 'right', 'justify']).default('center'),
-      previewWidth: z.number().int().min(64).max(8_192).default(720)
-    })
+    block: z.discriminatedUnion('blockType', [
+      strictObject({
+        clientRef: z.string().min(1).max(256).optional(),
+        blockType: z.literal('mathBlock'),
+        source: blockMathSourceSchema
+      }),
+      strictObject({
+        clientRef: z.string().min(1).max(256).optional(),
+        blockType: z.literal('diagram'),
+        source: diagramSourceSchema,
+        caption: z.string().max(2_000).default(''),
+        altText: z.string().max(2_000).default('')
+      })
+    ])
   }).refine(
     ({ anchor, placement }) =>
       anchor === null

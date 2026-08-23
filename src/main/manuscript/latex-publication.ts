@@ -5,7 +5,7 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
-import { isMathSourceStructurallySafe } from './math-source-safety'
+import { isMathSourceStructurallySafe } from '../../shared/math-source-safety'
 
 export interface LatexPublicationLoss {
   code:
@@ -198,7 +198,7 @@ function convertNode(
       ]
     case 'math':
       if (safeMath(node.source)) {
-        return ['\\[', node.source, '\\]', ...(node.caption ? [escapeLatex(node.caption)] : []), '']
+        return ['\\[', node.source, '\\]', '']
       }
       losses.push({
         code: 'math_text_fallback',
@@ -207,7 +207,7 @@ function convertNode(
         message: 'Unsafe or unsupported formula source was emitted as readable text.'
       })
       return [`\\texttt{${escapeLatex(node.source)}}`, '']
-    case 'mermaid': {
+    case 'diagram': {
       const content = safeListing(node.source)
       if (content.changed) recordListingLoss(node, losses)
       losses.push({
@@ -218,6 +218,7 @@ function convertNode(
       })
       return [
         ...(node.caption ? [`\\paragraph{${escapeLatex(node.caption)}}`] : []),
+        ...(node.altText ? [`% Alternative text: ${escapeComment(node.altText)}`] : []),
         '\\begin{lstlisting}',
         content.value,
         '\\end{lstlisting}',
@@ -325,7 +326,7 @@ function safeListingOption(value: string): string {
 }
 
 function recordListingLoss(
-  node: Extract<PublicationNode, { type: 'code' | 'mermaid' }>,
+  node: Extract<PublicationNode, { type: 'code' | 'diagram' }>,
   losses: LatexPublicationLoss[]
 ): void {
   losses.push({

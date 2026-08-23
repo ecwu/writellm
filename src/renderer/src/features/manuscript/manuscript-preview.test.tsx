@@ -108,7 +108,7 @@ A-->B
                 children: []
               }
             ],
-            contentSchemaVersion: 4,
+            contentSchemaVersion: 5,
             contentHash: 'a'.repeat(64),
             priorRevisionId: null,
             wordCount: 2,

@@ -3,6 +3,10 @@ import {
   blockNoteDocumentSchema,
   type BlockNoteDocument,
   normalizeFigureMetadata,
+  normalizePlainBlockContent,
+  plainTextContentSchema,
+  plainTextContentToString,
+  projectLegacyBlockNoteDocument,
   SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_COUNT_ALGORITHM_VERSION
 } from '../../shared/contracts/manuscript'
@@ -20,6 +24,19 @@ export interface PreparedSectionContent {
   wordCount: number
   characterCount: number
   countAlgorithmVersion: typeof SECTION_COUNT_ALGORITHM_VERSION
+}
+
+export function decodeStoredSectionContent(
+  contentJson: string,
+  contentSchemaVersion: number,
+  sectionId: string
+): BlockNoteDocument {
+  const stored = JSON.parse(contentJson) as unknown
+  const projected =
+    contentSchemaVersion === SECTION_CONTENT_SCHEMA_VERSION
+      ? blockNoteDocumentSchema.parse(stored)
+      : projectLegacyBlockNoteDocument(stored)
+  return normalizeFigureMetadata(projected, sectionId)
 }
 
 function canonicalize(value: unknown, seen: Set<object>): unknown {
@@ -84,7 +101,7 @@ function extractBlock(value: unknown): string {
       ? (block.props as Record<string, unknown>)
       : undefined
   const body =
-    block.type === 'image' || block.type === 'mermaid' || block.type === 'math'
+    block.type === 'image' || block.type === 'diagram' || block.type === 'mathBlock'
       ? typeof props?.caption === 'string'
         ? props.caption
         : ''
@@ -141,9 +158,23 @@ export function extractSectionAgentText(content: readonly unknown[]): string {
       body = [props?.altText ?? props?.name, props?.caption]
         .filter((item): item is string => typeof item === 'string' && item.length > 0)
         .join('\n')
-    } else if (block.type === 'mermaid' || block.type === 'math') {
-      body = [props?.caption, typeof props?.source === 'string' ? props.source.slice(0, 8_192) : '']
-        .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    } else if (block.type === 'mathBlock') {
+      const source = Array.isArray(block.content)
+        ? plainTextContentToString(plainTextContentSchema.parse(block.content)).slice(0, 32_000)
+        : ''
+      body = `$$${source}$$`
+    } else if (block.type === 'diagram') {
+      const source = Array.isArray(block.content)
+        ? plainTextContentToString(plainTextContentSchema.parse(block.content)).slice(0, 64_000)
+        : ''
+      const caption = typeof props?.caption === 'string' ? props.caption : ''
+      const altText = typeof props?.altText === 'string' ? props.altText : ''
+      body = [
+        `\`\`\`mermaid\n${source}\n\`\`\``,
+        caption.length > 0 ? `Caption: ${caption}` : '',
+        altText.length > 0 ? `Alt text: ${altText}` : ''
+      ]
+        .filter((item) => item.length > 0)
         .join('\n')
     } else {
       body =
@@ -182,10 +213,11 @@ export function prepareSectionContent(
   content: unknown[],
   sectionId?: string
 ): PreparedSectionContent {
+  const parsedContent = blockNoteDocumentSchema.parse(content)
   const preparedContent =
     sectionId === undefined
-      ? (content as BlockNoteDocument)
-      : normalizeFigureMetadata(blockNoteDocumentSchema.parse(content), sectionId)
+      ? normalizePlainBlockContent(parsedContent)
+      : normalizeFigureMetadata(parsedContent, sectionId)
   const canonical = canonicalize(preparedContent, new Set()) as BlockNoteDocument
   const contentJson = JSON.stringify(canonical)
   const contentHash = createHash('sha256').update(contentJson).digest('hex')

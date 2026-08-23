@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { isInlineMathDocumentValid, selectionContainsInlineMath } from './inline-math-guard'
+import {
+  isStructuredSourceDocumentValid,
+  selectionContainsStructuredSource
+} from './inline-math-guard'
 
 interface MockNode {
   textContent: string
@@ -19,32 +22,44 @@ function documentWith(...nodes: MockNode[]) {
   }
 }
 
-describe('inline math editor guard', () => {
+describe('structured source editor guard', () => {
   it('accepts bounded single-line source and rejects character, byte, line, and NUL violations', () => {
     expect(
-      isInlineMathDocumentValid(documentWith({ type: { name: 'math' }, textContent: 'E=mc^2' }))
+      isStructuredSourceDocumentValid(
+        documentWith({ type: { name: 'math' }, textContent: 'E=mc^2' })
+      )
     ).toBe(true)
     expect(
-      isInlineMathDocumentValid(
+      isStructuredSourceDocumentValid(
         documentWith({ type: { name: 'math' }, textContent: 'x'.repeat(8_193) })
       )
     ).toBe(false)
     expect(
-      isInlineMathDocumentValid(
+      isStructuredSourceDocumentValid(
         documentWith({ type: { name: 'math' }, textContent: '界'.repeat(2_731) })
       )
     ).toBe(false)
     expect(
-      isInlineMathDocumentValid(documentWith({ type: { name: 'math' }, textContent: 'x\ny' }))
+      isStructuredSourceDocumentValid(documentWith({ type: { name: 'math' }, textContent: 'x\ny' }))
     ).toBe(false)
     expect(
-      isInlineMathDocumentValid(documentWith({ type: { name: 'math' }, textContent: 'x\0y' }))
+      isStructuredSourceDocumentValid(documentWith({ type: { name: 'math' }, textContent: 'x\0y' }))
+    ).toBe(false)
+    expect(
+      isStructuredSourceDocumentValid(
+        documentWith({ type: { name: 'mathBlock' }, textContent: String.raw`\href{x}{y}` })
+      )
+    ).toBe(false)
+    expect(
+      isStructuredSourceDocumentValid(
+        documentWith({ type: { name: 'diagram' }, textContent: '界'.repeat(22_000) })
+      )
     ).toBe(false)
   })
 
   it('detects atomic formulas in an exact quick-action selection', () => {
     expect(
-      selectionContainsInlineMath(
+      selectionContainsStructuredSource(
         documentWith(
           { type: { name: 'text' }, textContent: 'alpha' },
           { type: { name: 'math' }, textContent: 'x' }
@@ -54,11 +69,18 @@ describe('inline math editor guard', () => {
       )
     ).toBe(true)
     expect(
-      selectionContainsInlineMath(
+      selectionContainsStructuredSource(
         documentWith({ type: { name: 'text' }, textContent: 'alpha' }),
         1,
         2
       )
     ).toBe(false)
+    expect(
+      selectionContainsStructuredSource(
+        documentWith({ type: { name: 'diagram' }, textContent: 'graph TD' }),
+        1,
+        2
+      )
+    ).toBe(true)
   })
 })

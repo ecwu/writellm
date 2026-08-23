@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 15 Checkpoint 66 transient Notebook Knowledge chat is complete. Phase 14 Checkpoint
-65 is the current incomplete checkpoint under its existing authorization. The newest
-user-authorized candidate is `v0.2026.8.21`; Checkpoint 26.9 remains paused and all GitHub Actions
-workflows are disabled.
+Status: Phase 17 Checkpoint 68 native Block Math and application-owned Diagram convergence is
+complete under ADR 060. No further feature work is authorized. The newest user-authorized local
+candidate is `v0.2026.8.22`; Checkpoint 26.9 remains paused and all GitHub Actions workflows are
+disabled.
 Recorded: 2026-08-23
 
 This file records only active delivery state. Long-lived system rules live in
@@ -35,10 +35,22 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   PDF.js, Mermaid, database/query, provider, Renderer, and verification dependencies needed to
   remove current production advisories while preserving IPC, persistence, worker, and product
   authority boundaries under ADR 056.
+- Checkpoint 65 is complete. BlockNote native inline Math now coexists with application-owned
+  display Math and Mermaid through schema-v4 persistence, bounded atomic editing, Agent context,
+  prose-operation isolation, import/export, and safe publication under ADR 057.
 - Checkpoint 66 is complete. Knowledge remains an independent management and exact-search
   workspace, while Notebook adds project-session-scoped selected-source chat with bounded
   retrieval, streamed source-only answers, validated per-message citations, and no durable chat
   content under ADR 058.
+- Checkpoint 67 is complete. A true first launch now opens a responsive, fully optional Welcome →
+  Agent → Embedding → Reranking → MinerU → Create Project flow beneath the global Menubar. The
+  versioned application-global step resumes after interruption, completed or upgraded installs do
+  not reopen it, and provider configuration plus project creation continue through their existing
+  authority boundaries under ADR 059.
+- Checkpoint 68 is complete. It replaces application-owned display Math with BlockNote native
+  `mathBlock`, moves the application-owned Mermaid block to a plain-content `diagram` contract,
+  advances active section content to schema v5, and preserves application-owned Diagram metadata,
+  safety, Agent, interchange, and publication semantics under ADR 060.
 
 Checkpoint 61 passed focused shared/Main/Renderer/Real-Electron coverage, `check:fast`, the complete
 Electron-hosted gate (187 files / 1043 tests with three intentional benchmark skips), the production
@@ -72,6 +84,16 @@ smoke scenarios, and 29/29 packaged E2E scenarios before structurally inspecting
 ZIP. No candidate, release gate, commit, tag, push, hosted CI, Apple Developer ID signing,
 notarization, promotion, or publication ran.
 
+Checkpoint 65 passed frozen installation and zero-advisory production/full audits; 112 focused
+contract, migration, editor, interchange, publication, Agent, and safety tests; `check:fast`; the
+complete Electron-hosted gate (198 files / 1097 passing tests with three intentional benchmark
+skips) and production build; all 26 recovery fixtures from 24 sources; and the complete 44/44
+Real-Electron manifest on the fresh build. The default parallel E2E runner exposed two unrelated
+one-off resource/startup races in different legacy scenarios; both passed immediately in focused
+runs, and the unchanged full manifest passed serially with no flaky, skipped, or failed scenario.
+No package/release action, hosted CI, commit, tag, push, signing, notarization, promotion, or
+publication ran.
+
 The separately authorized Checkpoint 64 hands-on macOS arm64 App build passed from the current
 dirty worktree. The unpacked-only no-identity package gate rebuilt Electron 43.4.1 / ABI 148,
 verified arm64 native modules and 53,145 ASAR entries, passed all 12 packaged smoke and 29/29
@@ -94,6 +116,24 @@ retrieval, no-evidence model-call suppression, citation preview, page-switch rec
 project-session cleanup, and the absence of questions, answers, evidence, external response IDs,
 or content-derived fingerprints from project databases and diagnostics.
 
+Checkpoint 67 passed 17 focused repository, IPC, and Renderer tests; `check:fast`; the complete
+Electron-hosted gate (199 passing files / 1102 passing tests with three intentional benchmark
+skips) and production build; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or
+failed scenario. The dedicated scenario proved first-launch entry, optional provider steps,
+interrupted-step resume, real project creation through the native folder boundary, completion
+persistence, and restart suppression. Wide and 620 px runtime inspection, zero-overflow checks,
+scoped Impeccable, and `git diff --check` also passed.
+
+Checkpoint 68 passed frozen installation and zero-advisory production/full audits; focused
+schema, migration, editor, Agent, interchange, publication, and safety coverage; `check`,
+`check:fast`, the complete Electron-hosted gate (200 passing files / 1107 passing tests with three
+intentional benchmark skips) and production build; all 27 recovery fixtures from 25 protected
+sources; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or failed scenario.
+Runtime verification covered native Inline/Block Math, application-owned plain-content Diagram,
+source safety and recovery, metadata, dynamic theme rendering, sanitized isolated SVG, 620 px
+layout, persistence, reopen, Agent contract v9, and Markdown export. No package/release action,
+hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
+
 The separately authorized local `0.2026.8.20` candidate advanced release metadata, created the
 clean local release commit and annotated `v0.2026.8.20` tag, and passed the no-identity macOS arm64
 unpacked package gate. The gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
@@ -111,14 +151,23 @@ scenarios, and 31/31 packaged E2E scenarios, then produced
 hosted CI run, Apple Developer ID signing, notarization, GitHub Release, promotion, or publication
 ran.
 
+The separately authorized local `0.2026.8.22` candidate snapshots the completed Checkpoints 67–68
+on top of the existing baseline. Its unpacked-only no-identity macOS arm64 package gate verified
+Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from
+25 sources, all 12 packaged smoke scenarios, and 32/32 packaged E2E scenarios, then produced
+`dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean candidate commit receives the annotated
+`v0.2026.8.22` tag locally. No DMG, ZIP, push, hosted CI run, Apple Developer ID signing,
+notarization, GitHub Release, promotion, or publication ran.
+
 ## Current authorized work
 
-Checkpoint 65 returns as the current incomplete checkpoint under ADR 057 after the completed
-Checkpoint 66 reprioritization. Its existing Phase 14 worktree changes remain preserved; no
-Checkpoint 65 implementation or completion claim is part of the Checkpoint 66 delivery.
-The one-time `v0.2026.8.21` candidate commit, tag, App build, and push are complete under the user's
-explicit authorization. Further candidate/release actions, hosted CI, Apple Developer ID signing,
-notarization, promotion, and publication remain unauthorized.
+No further feature delivery is authorized after Checkpoint 68 completion. BlockNote native
+Diagram, BlockNote XL publication, ODT/email export, new IPC or Agent tools, signing,
+notarization, and release work remain outside the accepted checkpoint.
+
+The local `v0.2026.8.22` candidate commit, annotated tag, and unpacked App build are the only newly
+authorized release actions. Push, DMG/ZIP creation, hosted CI, Apple Developer ID signing,
+notarization, GitHub Release, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
@@ -136,8 +185,10 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 11 is complete under ADRs 021–037.
 - Phase 12 is implemented and verified through Checkpoint 62 under ADRs 038–044 and 046–055.
 - Phase 13 Checkpoints 63–64 are implemented and verified; Checkpoint 64 is governed by ADR 056.
-- Phase 14 Checkpoint 65 is partially implemented and current incomplete under ADR 057.
+- Phase 14 Checkpoint 65 is implemented and verified under ADR 057.
 - Phase 15 Checkpoint 66 is implemented and verified under ADR 058.
+- Phase 16 Checkpoint 67 is implemented and verified under ADR 059.
+- Phase 17 Checkpoint 68 is implemented and verified under ADR 060.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

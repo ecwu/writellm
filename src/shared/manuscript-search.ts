@@ -411,7 +411,9 @@ export function enumerateManuscriptSearchSurfaces(
     }
     const visit = (blocks: readonly BlockNoteBlockValue[]): void => {
       for (const block of blocks) {
-        if (Array.isArray(block.content)) {
+        if (block.type === 'mathBlock' || block.type === 'diagram') {
+          // Source-backed blocks are structural boundaries. Diagram caption is added below.
+        } else if (Array.isArray(block.content)) {
           const inline = flattenInline(block.content)
           surfaces.push({
             kind: 'block_inline',
@@ -437,7 +439,7 @@ export function enumerateManuscriptSearchSurfaces(
           })
         }
         if (
-          (block.type === 'image' || block.type === 'mermaid' || block.type === 'math') &&
+          (block.type === 'image' || block.type === 'diagram') &&
           typeof block.props.caption === 'string' &&
           block.props.caption.length > 0
         ) {

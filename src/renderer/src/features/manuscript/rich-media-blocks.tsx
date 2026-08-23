@@ -1,145 +1,162 @@
-import { createReactBlockSpec, type ReactCustomBlockRenderProps } from '@blocknote/react'
-import katex, { type KatexOptions } from 'katex'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
-import { Textarea } from '../../components/ui/textarea'
+import { plainContentToString } from '@blocknote/core'
+import {
+  createReactBlockSpec,
+  PreviewPlaceholder,
+  SourceBlockWithPreview,
+  type ReactCustomBlockRenderProps
+} from '@blocknote/react'
+import { Workflow } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTheme } from '../../theme-provider'
+import { MediaMetadataPopover } from './media-metadata-popover'
 
-const alignmentValues = ['left', 'center', 'right', 'justify'] as const
-
-const sharedPropSchema = {
-  textAlignment: { default: 'center' as const, values: alignmentValues },
-  source: { default: '' },
-  caption: { default: '' },
-  previewWidth: { default: 720 }
-}
-
-const mermaidConfig = {
-  type: 'mermaid',
-  propSchema: sharedPropSchema,
-  content: 'none'
-} as const
-
-const mathConfig = {
-  // BlockNote uses a single ProseMirror node namespace for blocks and inline content. The native
-  // inline formula spec owns `math`, so the editor uses an internal-only alias for the existing
-  // display formula block. The persistence boundary maps this back to canonical `type: "math"`.
-  type: 'displayMath',
-  propSchema: sharedPropSchema,
-  content: 'none'
+const diagramConfig = {
+  type: 'diagram',
+  propSchema: {
+    engine: { default: 'mermaid' as const, values: ['mermaid'] as const },
+    caption: { default: '' },
+    altText: { default: '' }
+  },
+  content: 'plain'
 } as const
 
 let mermaidRenderChain: Promise<void> = Promise.resolve()
+let mermaidRenderSequence = 0
 
-const displayMathOptions = {
-  displayMode: true,
-  throwOnError: true,
-  trust: false,
-  strict: 'error',
-  maxExpand: 1_000,
-  maxSize: 50,
-  output: 'htmlAndMathml'
-} satisfies KatexOptions
-
-export const mermaidBlockSpec = createReactBlockSpec(mermaidConfig, {
-  render: MermaidBlock,
+export const diagramBlockSpec = createReactBlockSpec(diagramConfig, {
+  meta: {
+    code: true,
+    defining: true,
+    isolating: false,
+    hasPreview: true,
+    hardBreakShortcut: 'enter'
+  },
+  render: DiagramBlock,
   toExternalHTML: ({ block }) => (
-    <pre data-rich-block='mermaid'>
-      <code>{block.props.source}</code>
-    </pre>
+    <figure
+      data-rich-block='diagram'
+      data-engine='mermaid'
+      data-alt-text={block.props.altText || undefined}
+    >
+      <pre>
+        <code className='language-mermaid'>{plainContentToString(block.content)}</code>
+      </pre>
+      {block.props.caption ? <figcaption>{block.props.caption}</figcaption> : null}
+    </figure>
   )
 })()
 
-export const displayMathBlockSpec = createReactBlockSpec(mathConfig, {
-  render: MathBlock,
-  toExternalHTML: ({ block }) => (
-    <div data-rich-block='math'>
-      <span>{block.props.source}</span>
-    </div>
-  )
-})()
-
-function MermaidBlock({
+function DiagramBlock({
   block,
-  editor
-}: ReactCustomBlockRenderProps<typeof mermaidConfig>): React.JSX.Element {
-  const { resolvedTheme } = useTheme()
-  const [editing, setEditing] = useState(block.props.source.length === 0)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  editor,
+  contentRef
+}: ReactCustomBlockRenderProps<typeof diagramConfig>): React.JSX.Element {
+  const resolvedTheme = useDiagramTheme()
+  const source = plainContentToString(block.content)
+  const [preview, setPreview] = useState<string>()
+  const [error, setError] = useState<string>()
 
   useEffect(() => {
     let disposed = false
-    if (block.props.source.length === 0) {
-      setPreview(null)
-      setError(null)
+    if (source.length === 0) {
+      setPreview(undefined)
+      setError(undefined)
       return
     }
-    if (new TextEncoder().encode(block.props.source).byteLength > 64 * 1024) {
-      setPreview(null)
-      setError('Mermaid source exceeds the 64 KiB limit.')
+    if (source.includes('\0') || source.length > 64_000) {
+      setError('Mermaid source must not contain NUL and cannot exceed 64,000 characters.')
       return
     }
+    if (new TextEncoder().encode(source).byteLength > 64 * 1024) {
+      setError('Mermaid source cannot exceed 64 KiB.')
+      return
+    }
+    mermaidRenderSequence += 1
     void renderMermaidPreviewDataUrl(
-      `mermaid-${block.id}`,
-      block.props.source,
+      `mermaid-${block.id}-${mermaidRenderSequence}`,
+      source,
       resolvedTheme === 'dark'
     )
       .then((url) => {
         if (!disposed) {
           setPreview(url)
-          setError(null)
+          setError(undefined)
         }
       })
       .catch(() => {
-        if (!disposed) {
-          setPreview(null)
-          setError('This Mermaid diagram is not valid.')
-        }
+        if (!disposed) setError('This Mermaid diagram is not valid or uses unsafe content.')
       })
     return () => {
       disposed = true
     }
-  }, [block.id, block.props.source, resolvedTheme])
+  }, [block.id, resolvedTheme, source])
 
-  return (
-    <RichBlockFrame
-      title='Mermaid diagram'
-      editing={editing}
-      setEditing={setEditing}
-      caption={block.props.caption}
-      onCaption={(caption) => editor.updateBlock(block, { props: { caption } })}
-    >
-      {editing ? (
-        <Textarea
-          aria-label='Mermaid source'
-          className='min-h-40 font-mono'
-          value={block.props.source}
-          maxLength={64_000}
-          onChange={(event) => {
-            const source = event.currentTarget.value
-            if (new TextEncoder().encode(source).byteLength <= 64 * 1024) {
-              editor.updateBlock(block, { props: { source } })
-            }
-          }}
-        />
-      ) : error !== null ? (
-        <p className='rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive'>
-          {error}
-        </p>
-      ) : preview === null ? (
-        <p className='text-sm text-muted-foreground'>Add Mermaid source to render a diagram.</p>
-      ) : (
+  const previewNode =
+    preview === undefined ? undefined : (
+      <figure className='m-0 flex max-w-full flex-col items-center gap-2'>
         <img
           src={preview}
-          alt={block.props.caption || 'Mermaid diagram'}
-          className='mx-auto h-auto max-w-full'
-          style={{ width: Math.min(block.props.previewWidth, 8_192) }}
+          alt={block.props.altText || block.props.caption || 'Mermaid diagram'}
+          className='h-auto max-h-[min(42rem,70vh)] max-w-full object-contain'
+          draggable={false}
         />
-      )}
-    </RichBlockFrame>
+        {block.props.caption ? (
+          <figcaption className='max-w-[70ch] text-center text-sm text-muted-foreground'>
+            {block.props.caption}
+          </figcaption>
+        ) : null}
+      </figure>
+    )
+
+  return (
+    <div className='relative my-2 w-full min-w-0 max-w-full'>
+      <SourceBlockWithPreview
+        block={block}
+        editor={editor}
+        contentRef={contentRef}
+        source={source}
+        preview={previewNode}
+        error={error}
+        emptySourcePlaceholder={
+          <PreviewPlaceholder icon={<Workflow />} text='Add Mermaid source' />
+        }
+        errorPreview={
+          <PreviewPlaceholder error icon={<Workflow />} text='Diagram preview unavailable' />
+        }
+        sourcePlaceholder='Enter Mermaid source'
+      />
+      {editor.isEditable ? (
+        <div className='absolute right-2 top-2 z-10' contentEditable={false}>
+          <MediaMetadataPopover
+            idPrefix={`diagram-${block.id}`}
+            title='Diagram metadata'
+            description='Caption is visible to readers. Alt text describes the diagram for accessibility.'
+            triggerLabel='Edit diagram metadata'
+            caption={block.props.caption}
+            altText={block.props.altText}
+            onSave={(metadata) => editor.updateBlock(block, { props: metadata })}
+          />
+        </div>
+      ) : null}
+    </div>
   )
+}
+
+function useDiagramTheme(): 'light' | 'dark' {
+  const { resolvedTheme } = useTheme()
+  const [documentTheme, setDocumentTheme] = useState<'light' | 'dark'>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : resolvedTheme
+  )
+  useEffect(() => setDocumentTheme(resolvedTheme), [resolvedTheme])
+  useEffect(() => {
+    const root = document.documentElement
+    const update = (): void => setDocumentTheme(root.dataset.theme === 'dark' ? 'dark' : 'light')
+    const observer = new MutationObserver(update)
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'data-theme'] })
+    update()
+    return () => observer.disconnect()
+  }, [])
+  return documentTheme
 }
 
 function renderMermaid(id: string, source: string, dark: boolean): Promise<string> {
@@ -160,111 +177,14 @@ export async function renderMermaidPreviewDataUrl(
   source: string,
   dark: boolean
 ): Promise<string> {
-  if (new TextEncoder().encode(source).byteLength > 64 * 1024) {
-    throw new Error('Mermaid source exceeds the 64 KiB limit')
+  if (
+    source.includes('\0') ||
+    source.length > 64_000 ||
+    new TextEncoder().encode(source).byteLength > 64 * 1024
+  ) {
+    throw new Error('Mermaid source exceeds its safe input boundary')
   }
   return svgDataUrl(sanitizeMermaidSvg(await renderMermaid(id, source, dark)))
-}
-
-function MathBlock({
-  block,
-  editor
-}: ReactCustomBlockRenderProps<typeof mathConfig>): React.JSX.Element {
-  const [editing, setEditing] = useState(block.props.source.length === 0)
-  const [error, setError] = useState<string | null>(null)
-  const previewRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const target = previewRef.current
-    if (editing) return
-    if (target === null || block.props.source.length === 0) {
-      setError(null)
-      if (target !== null) target.replaceChildren()
-      return
-    }
-    if (new TextEncoder().encode(block.props.source).byteLength > 32 * 1024) {
-      setError('LaTeX source exceeds the 32 KiB limit.')
-      target.replaceChildren()
-      return
-    }
-    try {
-      renderDisplayMath(block.props.source, target)
-      setError(null)
-    } catch {
-      target.replaceChildren()
-      setError('This LaTeX formula is not valid or uses an unsafe command.')
-    }
-  }, [block.props.source, editing])
-
-  return (
-    <RichBlockFrame
-      title='Display formula'
-      editing={editing}
-      setEditing={setEditing}
-      caption={block.props.caption}
-      onCaption={(caption) => editor.updateBlock(block, { props: { caption } })}
-    >
-      {editing ? (
-        <Textarea
-          aria-label='LaTeX source'
-          className='min-h-28 font-mono'
-          value={block.props.source}
-          maxLength={32_000}
-          onChange={(event) => {
-            const source = event.currentTarget.value
-            if (new TextEncoder().encode(source).byteLength <= 32 * 1024) {
-              editor.updateBlock(block, { props: { source } })
-            }
-          }}
-        />
-      ) : (
-        <>
-          {error !== null ? (
-            <p className='rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive'>
-              {error}
-            </p>
-          ) : null}
-          <div
-            ref={previewRef}
-            className={error === null ? 'max-w-full overflow-auto py-3 text-center' : 'hidden'}
-          />
-        </>
-      )}
-    </RichBlockFrame>
-  )
-}
-
-function RichBlockFrame(props: {
-  title: string
-  editing: boolean
-  setEditing(value: boolean): void
-  caption: string
-  onCaption(value: string): void
-  children: ReactNode
-}): React.JSX.Element {
-  return (
-    <div className='my-2 w-full rounded-md border bg-background p-3' contentEditable={false}>
-      <div className='mb-3 flex items-center justify-between gap-3'>
-        <span className='text-xs font-medium text-muted-foreground'>{props.title}</span>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          onClick={() => props.setEditing(!props.editing)}
-        >
-          {props.editing ? 'Preview' : 'Edit source'}
-        </Button>
-      </div>
-      {props.children}
-      <Input
-        aria-label={`${props.title} caption`}
-        className='mt-3'
-        value={props.caption}
-        maxLength={2_000}
-        placeholder='Optional caption'
-        onChange={(event) => props.onCaption(event.currentTarget.value)}
-      />
-    </div>
-  )
 }
 
 export function getMermaidRenderConfig(dark: boolean) {
@@ -275,14 +195,6 @@ export function getMermaidRenderConfig(dark: boolean) {
     htmlLabels: false,
     flowchart: { htmlLabels: false }
   }
-}
-
-export function renderDisplayMath(source: string, target: HTMLElement): void {
-  katex.render(source, target, displayMathOptions)
-}
-
-export function renderDisplayMathToString(source: string): string {
-  return katex.renderToString(source, displayMathOptions)
 }
 
 export function sanitizeMermaidSvg(source: string): string {
@@ -307,9 +219,9 @@ export function sanitizeMermaidSvg(source: string): string {
 }
 
 export function isUnsafeMermaidCss(value: string): boolean {
-  if (/\b(?:@import|expression)\b/i.test(value)) return true
-  return [...value.matchAll(/url\(([^)]*)\)/gi)].some((match) => {
-    const target = match[1]?.trim().replace(/^['"]|['"]$/g, '') ?? ''
+  if (/\b(?:@import|expression)\b/iu.test(value)) return true
+  return [...value.matchAll(/url\(([^)]*)\)/giu)].some((match) => {
+    const target = match[1]?.trim().replace(/^['"]|['"]$/gu, '') ?? ''
     return !target.startsWith('#')
   })
 }

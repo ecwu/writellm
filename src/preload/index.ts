@@ -3,17 +3,21 @@ import {
   accentPreferenceSchema,
   appInfoSchema,
   citationDisplayModeSchema,
+  onboardingStateSchema,
   setAccentPreferenceInputSchema,
   setCitationDisplayModeInputSchema,
   setDefaultAgentApprovalModeInputSchema,
+  setOnboardingStateInputSchema,
   setThemePreferenceInputSchema,
   themePreferenceSchema,
   type AppInfo,
   type AccentPreference,
   type CitationDisplayMode,
+  type OnboardingState,
   type SetAccentPreferenceInput,
   type SetCitationDisplayModeInput,
   type SetThemePreferenceInput,
+  type SetOnboardingStateInput,
   type ThemePreference,
   type SetDefaultAgentApprovalModeInput
 } from '../shared/contracts/app'
@@ -436,6 +440,8 @@ export interface DesktopApi {
     setCitationDisplayMode(input: SetCitationDisplayModeInput): Promise<CitationDisplayMode>
     getDefaultAgentApprovalMode(): Promise<AgentApprovalMode>
     setDefaultAgentApprovalMode(input: SetDefaultAgentApprovalModeInput): Promise<AgentApprovalMode>
+    getOnboardingState(): Promise<OnboardingState>
+    setOnboardingState(input: SetOnboardingStateInput): Promise<OnboardingState>
     publicationPresets(): Promise<PublicationPresetSnapshot>
     createPublicationPreset(input: CreatePublicationPresetInput): Promise<PublicationPresetSnapshot>
     updatePublicationPreset(input: UpdatePublicationPresetInput): Promise<PublicationPresetSnapshot>
@@ -928,6 +934,19 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.appSetDefaultAgentApprovalMode,
           setDefaultAgentApprovalModeInputSchema.parse(input)
+        )
+      )
+    },
+    async getOnboardingState() {
+      return onboardingStateSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.appGetOnboardingState)
+      )
+    },
+    async setOnboardingState(input) {
+      return onboardingStateSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.appSetOnboardingState,
+          setOnboardingStateInputSchema.parse(input)
         )
       )
     },

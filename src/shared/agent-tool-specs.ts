@@ -73,6 +73,26 @@ function makeCanonicalBlocksOpaque(value: unknown): unknown {
         additionalProperties: true,
         description: 'Copy the exact canonicalBlock object returned by read_section in this run.'
       }
+    } else if (
+      type &&
+      typeof type === 'object' &&
+      !Array.isArray(type) &&
+      ((type as Record<string, unknown>).const === 'insertRichBlock' ||
+        ((type as Record<string, unknown>).enum as unknown[])?.[0] === 'insertRichBlock')
+    ) {
+      propertyRecord.block = {
+        type: 'object',
+        properties: {
+          clientRef: { type: 'string' },
+          blockType: { type: 'string', enum: ['mathBlock', 'diagram'] },
+          source: { type: 'string', maxLength: 64_000 },
+          caption: { type: 'string', maxLength: 2_000 },
+          altText: { type: 'string', maxLength: 2_000 }
+        },
+        required: ['blockType', 'source'],
+        additionalProperties: false,
+        description: 'mathBlock uses source; diagram may also include caption and altText.'
+      }
     }
   }
   delete record.definitions

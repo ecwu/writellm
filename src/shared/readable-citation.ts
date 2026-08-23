@@ -151,6 +151,10 @@ export function findDocumentCitationOccurrences(input: {
 }
 
 function blockTextSegments(block: BlockNoteDocument[number]): string[] {
+  if (block.type === 'mathBlock') return []
+  if (block.type === 'diagram') {
+    return [typeof block.props.caption === 'string' ? block.props.caption : '']
+  }
   if (Array.isArray(block.content)) return [inlinePlainText(block.content)]
   if (block.type === 'table' && block.content !== undefined) {
     return block.content.rows.flatMap((row) =>
@@ -160,7 +164,7 @@ function blockTextSegments(block: BlockNoteDocument[number]): string[] {
       })
     )
   }
-  if (block.type === 'image' || block.type === 'mermaid' || block.type === 'math') {
+  if (block.type === 'image') {
     return [typeof block.props.caption === 'string' ? block.props.caption : '']
   }
   return []

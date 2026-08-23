@@ -117,7 +117,7 @@ describe('publication figure nodes', () => {
       'paragraph',
       'table',
       'math',
-      'mermaid',
+      'diagram',
       'figure',
       'references'
     ])
@@ -181,14 +181,16 @@ function publicationManuscript(
     },
     {
       id: 'math',
-      type: 'math',
-      props: { textAlignment: 'center', source: 'x^2', caption: '' },
+      type: 'mathBlock',
+      props: {},
+      content: [{ type: 'text', text: 'x^2', styles: {} }],
       children: []
     },
     {
       id: 'mermaid',
-      type: 'mermaid',
-      props: { textAlignment: 'center', source: 'graph TD; A-->B', caption: 'Flow' },
+      type: 'diagram',
+      props: { engine: 'mermaid', caption: 'Flow', altText: 'A flows to B' },
+      content: [{ type: 'text', text: 'graph TD; A-->B', styles: {} }],
       children: []
     },
     image('figure', 'figure:publication', assetId)
@@ -248,7 +250,7 @@ function entry(
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       content,
-      contentSchemaVersion: 4,
+      contentSchemaVersion: 5,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 0,

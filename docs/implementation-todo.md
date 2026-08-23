@@ -1,8 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 15 Checkpoint 66 transient Notebook Knowledge chat is complete. Checkpoint 65 is the
-current incomplete checkpoint; Checkpoint 26.9 remains paused and all GitHub Actions workflows are
-disabled.
+Status: Phase 17 Checkpoint 68 native Block Math and application-owned Diagram convergence is
+complete. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-23
 
 This is the short completion and routing index. Active delivery state lives in
@@ -18,10 +17,14 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 68: adopt native Block Math and converge application-owned Diagram on plain
+  content, schema v5, and shared cross-system semantics under ADR 060.
+- [x] Checkpoint 67: skippable first-run Agent, Embedding, Reranking, MinerU, and project-creation
+  onboarding with versioned application-global progress.
 - [x] Checkpoint 66: independent transient Notebook workspace with selected Knowledge sources,
   multi-turn source-only answers, validated citations, and project-session lifecycle cleanup.
-- [~] Checkpoint 65: native BlockNote inline mathematics is current and incomplete after the
-  completed Checkpoint 66 reprioritization; existing Phase 14 worktree changes are preserved.
+- [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
+  Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [!] Checkpoint 26.9: complete the remaining host-install and protected macOS dry-run promotion
   evidence. Work is paused, both GitHub Actions workflow definitions are disabled, and no hosted
   action may resume without fresh explicit user approval.
@@ -35,6 +38,25 @@ Checkpoint 65 detail: [`implementation-todo/phase-14.md`](implementation-todo/ph
 
 Checkpoint 66 detail: [`implementation-todo/phase-15.md`](implementation-todo/phase-15.md).
 
+Checkpoint 67 detail: [`implementation-todo/phase-16.md`](implementation-todo/phase-16.md).
+
+Checkpoint 68 detail: [`implementation-todo/phase-17.md`](implementation-todo/phase-17.md).
+
+## Phase 17: Native Block Math And Diagram Experience Convergence
+
+- [x] Checkpoint 68: register BlockNote native `mathBlock`, retain an application-owned
+  plain-content `diagram`, and align schema-v5 persistence, Agent, interchange, and publication
+  semantics under ADR 060.
+
+Authoritative detail: [`implementation-todo/phase-17.md`](implementation-todo/phase-17.md).
+
+## Phase 16: First-Run Onboarding
+
+- [x] Checkpoint 67: add a responsive optional first-run flow that reuses the existing provider
+  workspaces and Main-owned project creation boundary under ADR 059.
+
+Authoritative detail: [`implementation-todo/phase-16.md`](implementation-todo/phase-16.md).
+
 ## Phase 15: Transient Notebook Knowledge Chat
 
 - [x] Checkpoint 66: add a dedicated Notebook workspace and Main-owned, non-persistent Knowledge
@@ -44,7 +66,7 @@ Authoritative detail: [`implementation-todo/phase-15.md`](implementation-todo/ph
 
 ## Phase 14: Native Inline Mathematics
 
-- [~] Checkpoint 65: introduce bounded native inline Math end to end without admitting native
+- [x] Checkpoint 65: introduce bounded native inline Math end to end without admitting native
   display Math, Diagram, collaboration, or BlockNote-owned persistence.
 
 Authoritative detail: [`implementation-todo/phase-14.md`](implementation-todo/phase-14.md).
@@ -85,6 +107,8 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 
 ## Completed delivery milestones
 
+- [x] Local no-identity candidate `v0.2026.8.22` for the completed Checkpoints 67–68 baseline;
+  unpacked macOS arm64 App only, with no DMG, ZIP, push, signing, notarization, or release.
 - [x] Checkpoint 64 hands-on no-Team-ID macOS arm64 App build from the current dirty worktree; no
   DMG, ZIP, candidate, commit, tag, push, or release was created.
 - [x] Checkpoint 63 hands-on no-Team-ID macOS arm64 App, DMG, and ZIP build from the current dirty
@@ -110,6 +134,10 @@ Exact verification and artifact boundaries are recorded in
 - [x] Phase 11 Checkpoints 29–47B under ADRs 021–037.
 - [x] Phase 12 Checkpoints 48–62 under ADRs 038–044 and 046–055.
 - [x] Phase 13 Checkpoints 63–64; Checkpoint 64 is governed by ADR 056.
+- [x] Phase 14 Checkpoint 65 under ADR 057.
+- [x] Phase 15 Checkpoint 66 under ADR 058.
+- [x] Phase 16 Checkpoint 67 under ADR 059.
+- [x] Phase 17 Checkpoint 68 under ADR 060.
 
 ## Plan and evidence routing
 
@@ -129,4 +157,7 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 12](implementation-todo/phase-12.md)
 - [Phase 13](implementation-todo/phase-13.md)
 - [Phase 14](implementation-todo/phase-14.md)
+- [Phase 15](implementation-todo/phase-15.md)
+- [Phase 16](implementation-todo/phase-16.md)
+- [Phase 17](implementation-todo/phase-17.md)
 - [Implementation history](history/implementation-log.md)

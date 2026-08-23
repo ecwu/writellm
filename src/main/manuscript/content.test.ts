@@ -10,10 +10,22 @@ describe('section content processing', () => {
   it('canonicalizes object keys without normalizing native string content', () => {
     const decomposed = 'e\u0301'
     const first = prepareSectionContent([
-      { type: 'paragraph', props: { z: 1, a: 2 }, content: [{ text: decomposed }] }
+      {
+        id: 'paragraph',
+        type: 'paragraph',
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+        content: [{ type: 'text', text: decomposed, styles: {} }],
+        children: []
+      }
     ])
     const second = prepareSectionContent([
-      { content: [{ text: decomposed }], props: { a: 2, z: 1 }, type: 'paragraph' }
+      {
+        children: [],
+        content: [{ styles: {}, text: decomposed, type: 'text' }],
+        props: { textAlignment: 'left', textColor: 'default', backgroundColor: 'default' },
+        type: 'paragraph',
+        id: 'paragraph'
+      }
     ])
 
     expect(first.contentJson).toBe(second.contentJson)
@@ -73,11 +85,14 @@ describe('section content processing', () => {
   it('excludes canonical citations without joining the surrounding words', () => {
     const prepared = prepareSectionContent([
       {
+        id: 'citation',
         type: 'paragraph',
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
         content: [
-          { text: 'alpha[Source: Research, p. 4]beta ' },
-          { text: '中文【来源：报告，第 2 页】结束' }
-        ]
+          { type: 'text', text: 'alpha[Source: Research, p. 4]beta ', styles: {} },
+          { type: 'text', text: '中文【来源：报告，第 2 页】结束', styles: {} }
+        ],
+        children: []
       }
     ])
     expect(prepared.countAlgorithmVersion).toBe(2)
@@ -89,24 +104,27 @@ describe('section content processing', () => {
     const content = [
       { type: 'image', props: { name: 'Alt description', caption: 'Image caption' }, children: [] },
       {
-        type: 'mermaid',
-        props: { caption: 'Diagram caption', source: 'flowchart LR\nSecret --> Source' },
+        type: 'diagram',
+        props: { engine: 'mermaid', caption: 'Diagram caption', altText: 'A secret flow' },
+        content: [{ type: 'text', text: 'flowchart LR\nSecret --> Source', styles: {} }],
         children: []
       },
       {
-        type: 'math',
-        props: { caption: 'Formula caption', source: 'E = mc^2' },
+        type: 'mathBlock',
+        props: {},
+        content: [{ type: 'text', text: 'E = mc^2', styles: {} }],
         children: []
       }
     ]
     const visible = extractSectionText(content)
-    expect(visible).toBe('Image caption\nDiagram caption\nFormula caption')
+    expect(visible).toBe('Image caption\nDiagram caption\n')
     expect(visible).not.toContain('Secret')
     expect(visible).not.toContain('mc')
     const agent = extractSectionAgentText(content)
     expect(agent).toContain('Alt description')
-    expect(agent).toContain('flowchart LR')
-    expect(agent).toContain('E = mc^2')
+    expect(agent).toContain('```mermaid\nflowchart LR')
+    expect(agent).toContain('Alt text: A secret flow')
+    expect(agent).toContain('$$E = mc^2$$')
   })
 
   it('treats inline math as structured content for counts and bounded Agent text', () => {
@@ -149,11 +167,13 @@ describe('section content processing', () => {
   it('does not recognize or remove readable-citation syntax across inline math', () => {
     const content = [
       {
+        id: 'split-citation',
         type: 'paragraph',
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
         content: [
-          { type: 'text', text: '[Source: Re' },
+          { type: 'text', text: '[Source: Re', styles: {} },
           { type: 'math', content: 'x' },
-          { type: 'text', text: 'search]' }
+          { type: 'text', text: 'search]', styles: {} }
         ],
         children: []
       }
@@ -164,9 +184,7 @@ describe('section content processing', () => {
   })
 
   it('rejects values that cannot be losslessly represented as JSON', () => {
-    expect(() => prepareSectionContent([{ content: [{ text: undefined }] }])).toThrow(
-      'not JSON serializable'
-    )
+    expect(() => prepareSectionContent([{ content: [{ text: undefined }] }])).toThrow()
   })
 
   it.each([
@@ -187,28 +205,24 @@ describe('section content processing', () => {
       ]
     ],
     [
-      'schema v2 rich media',
+      'schema v5 source blocks',
       [
         {
-          id: 'v2-mermaid',
-          type: 'mermaid',
+          id: 'v5-diagram',
+          type: 'diagram',
           props: {
-            textAlignment: 'center',
-            source: 'flowchart LR\nA --> B',
+            engine: 'mermaid',
             caption: 'Legacy flow',
-            previewWidth: 720
+            altText: 'A flows to B'
           },
+          content: [{ type: 'text', text: 'flowchart LR\nA --> B', styles: {} }],
           children: []
         },
         {
-          id: 'v2-math',
-          type: 'math',
-          props: {
-            textAlignment: 'center',
-            source: 'E = mc^2',
-            caption: 'Legacy equation',
-            previewWidth: 720
-          },
+          id: 'v5-math',
+          type: 'mathBlock',
+          props: {},
+          content: [{ type: 'text', text: 'E = mc^2', styles: {} }],
           children: []
         }
       ]

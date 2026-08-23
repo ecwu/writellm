@@ -3,6 +3,7 @@ import type { Logger } from 'pino'
 import type { LatexImportNode, LatexImportWorkerResult } from '../../shared/contracts/latex-import'
 import {
   blockNoteDocumentSchema,
+  plainTextContentFromSource,
   type BlockNoteBlockValue,
   type BlockNoteDocument,
   type BlockNoteInlineContent
@@ -145,13 +146,9 @@ function mapNode(
       return [
         {
           id: createId(),
-          type: 'math',
-          props: {
-            textAlignment: 'center',
-            source: node.source,
-            caption: '',
-            previewWidth: 720
-          },
+          type: 'mathBlock',
+          props: {},
+          content: plainTextContentFromSource(node.source),
           children: []
         }
       ]

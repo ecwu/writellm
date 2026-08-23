@@ -398,10 +398,18 @@ async function runPackagedAppScenarios(resources) {
       { mineruUrl, embeddingsUrl, agentUrl }
     )
 
-    await page.getByRole('button', { name: 'Create project', exact: true }).click()
-    const createDialog = page.getByRole('dialog', { name: 'Create project' })
-    await createDialog.getByLabel('Project name').fill(projectName)
-    await createDialog.getByRole('button', { name: 'Choose location' }).click()
+    await page.getByRole('button', { name: /Start setup/u }).click()
+    for (const nextHeading of [
+      'Embedding API',
+      'Reranking API',
+      'MinerU API',
+      'Create your first writing project'
+    ]) {
+      await page.getByRole('button', { name: /Continue|Skip for now/u }).click()
+      await page.getByRole('heading', { name: nextHeading, exact: true }).waitFor()
+    }
+    await page.getByLabel('Project name').fill(projectName)
+    await page.getByRole('button', { name: /Choose location & create/u }).click()
     await page
       .locator('[data-slot="sidebar-header"]')
       .filter({ hasText: projectName })
@@ -453,7 +461,7 @@ async function runPackagedAppScenarios(resources) {
               textColor: 'default',
               textAlignment: 'left'
             },
-            content: [{ type: 'text', text: 'Packaged schema-v2 persisted body.', styles: {} }],
+            content: [{ type: 'text', text: 'Packaged schema-v5 persisted body.', styles: {} }],
             children: []
           },
           {
@@ -849,10 +857,10 @@ async function runPackagedAppScenarios(resources) {
           sectionId
         })
         if (
-          loaded.revision.contentSchemaVersion !== 4 ||
-          !JSON.stringify(loaded.revision.content).includes('Packaged schema-v2 persisted body.')
+          loaded.revision.contentSchemaVersion !== 5 ||
+          !JSON.stringify(loaded.revision.content).includes('Packaged schema-v5 persisted body.')
         ) {
-          throw new Error('Schema-v4 content did not survive packaged reopen')
+          throw new Error('Schema-v5 content did not survive packaged reopen')
         }
         const resolved = await window.desktop.editor.resolveAsset({
           projectSessionId: active.projectSessionId,

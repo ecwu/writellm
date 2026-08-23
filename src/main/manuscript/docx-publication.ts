@@ -35,7 +35,7 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
-import { isMathSourceStructurallySafe } from './math-source-safety'
+import { isMathSourceStructurallySafe } from '../../shared/math-source-safety'
 
 export interface DocxPublicationLoss {
   code: 'mermaid_source_fallback' | 'math_text_fallback' | 'webp_unsupported'
@@ -289,7 +289,7 @@ async function convertNode(
         })
       ]
     }
-    case 'mermaid':
+    case 'diagram':
       losses.push({
         code: 'mermaid_source_fallback',
         sectionId: node.target.sectionId,
@@ -297,7 +297,10 @@ async function convertNode(
         message: 'Mermaid was emitted as source because no rendered snapshot was captured.'
       })
       return [
-        new Paragraph({ text: node.caption, style: 'Caption' }),
+        ...(node.caption ? [new Paragraph({ text: node.caption, style: 'Caption' })] : []),
+        ...(node.altText
+          ? [new Paragraph({ text: `Alternative text: ${node.altText}`, style: 'Caption' })]
+          : []),
         new Paragraph({ children: [new TextRun({ text: node.source, font: 'Menlo' })] })
       ]
     case 'references':

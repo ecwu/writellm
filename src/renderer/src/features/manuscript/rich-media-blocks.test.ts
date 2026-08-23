@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   getMermaidRenderConfig,
   isUnsafeMermaidAttribute,
-  isUnsafeMermaidCss,
-  renderDisplayMathToString
+  isUnsafeMermaidCss
 } from './rich-media-blocks'
+import { isMathSourceStructurallySafe } from '../../../../shared/math-source-safety'
 
 describe('rich media block safety', () => {
   it('keeps Mermaid in strict SVG-only mode for both themes', () => {
@@ -39,23 +39,13 @@ describe('rich media block safety', () => {
     expect(isUnsafeMermaidAttribute('style', 'fill: url(#local-gradient)')).toBe(false)
   })
 
-  it('renders display math without enabling trusted HTML or remote resources', () => {
-    const formula = renderDisplayMathToString('x^2 + y^2')
-    expect(formula).toContain('katex-display')
-
-    const link = renderDisplayMathToString(String.raw`\href{javascript:alert(1)}{x}`)
-    expect(link).not.toMatch(/<a(?:\s|>)/)
-    expect(link).not.toContain('href=')
-
-    const image = renderDisplayMathToString(
-      String.raw`\includegraphics{https://example.com/image.png}`
-    )
-    expect(image).not.toMatch(/<img(?:\s|>)/)
-    expect(image).not.toContain('src=')
-  })
-
-  it('rejects invalid and strict-mode HTML-extension formulas', () => {
-    expect(() => renderDisplayMathToString(String.raw`\notARealCommand{x}`)).toThrow()
-    expect(() => renderDisplayMathToString(String.raw`\htmlClass{unsafe}{x}`)).toThrow()
+  it('blocks capability-bearing and extreme Math commands before native rendering', () => {
+    expect(isMathSourceStructurallySafe('x^2 + y^2')).toBe(true)
+    expect(isMathSourceStructurallySafe(String.raw`\href{javascript:alert(1)}{x}`)).toBe(false)
+    expect(
+      isMathSourceStructurallySafe(String.raw`\includegraphics{https://example.com/image.png}`)
+    ).toBe(false)
+    expect(isMathSourceStructurallySafe(String.raw`\htmlClass{unsafe}{x}`)).toBe(false)
+    expect(isMathSourceStructurallySafe(String.raw`\rule{10000em}{1em}`)).toBe(false)
   })
 })

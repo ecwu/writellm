@@ -2,9 +2,11 @@ import type { Logger } from 'pino'
 import {
   accentPreferenceSchema,
   citationDisplayModeSchema,
+  onboardingStateSchema,
   themePreferenceSchema,
   type AccentPreference,
   type CitationDisplayMode,
+  type OnboardingState,
   type ThemePreference
 } from '../../../shared/contracts/app'
 import {
@@ -36,6 +38,16 @@ const AGENT_LAST_THINKING_LEVEL_KEY = 'agent.last-thinking-level.v1'
 export const ACTIVE_IMAGE_PROVIDER_KEY = 'image.active-provider.v1'
 const ACCENT_PREFERENCE_KEY = 'theme.accent'
 const CITATION_DISPLAY_MODE_KEY = 'editor.citation-display-mode.v1'
+export const ONBOARDING_STATE_KEY = 'onboarding.state.v1'
+export const DEFAULT_ONBOARDING_STATE: OnboardingState = {
+  schemaVersion: 1,
+  status: 'pending',
+  step: 'welcome'
+}
+export const COMPLETED_ONBOARDING_STATE: OnboardingState = {
+  schemaVersion: 1,
+  status: 'completed'
+}
 const modelLimitsCacheSchema = z.record(
   z.string().regex(/^[a-f0-9]{64}$/),
   z.object({ limits: agentModelLimitsSchema, refreshedAt: z.iso.datetime() }).strict()
@@ -120,6 +132,34 @@ export class AppSettingsRepository {
   async setCitationDisplayMode(mode: CitationDisplayMode): Promise<CitationDisplayMode> {
     const value = citationDisplayModeSchema.parse(mode)
     await this.#writeSetting(CITATION_DISPLAY_MODE_KEY, value)
+    return value
+  }
+
+  async getOnboardingState(): Promise<OnboardingState> {
+    const row = await this.database.kysely
+      .selectFrom('app_settings')
+      .select('value_json')
+      .where('key', '=', ONBOARDING_STATE_KEY)
+      .executeTakeFirst()
+    if (row === undefined) {
+      return (await this.#hasPriorApplicationState())
+        ? COMPLETED_ONBOARDING_STATE
+        : DEFAULT_ONBOARDING_STATE
+    }
+    try {
+      return onboardingStateSchema.parse(JSON.parse(row.value_json))
+    } catch (err) {
+      this.log.warn(
+        { event: 'app.settings.invalid_onboarding_state', key: ONBOARDING_STATE_KEY, err },
+        'Stored onboarding state is invalid; using the default'
+      )
+      return DEFAULT_ONBOARDING_STATE
+    }
+  }
+
+  async setOnboardingState(state: OnboardingState): Promise<OnboardingState> {
+    const value = onboardingStateSchema.parse(state)
+    await this.#writeSetting(ONBOARDING_STATE_KEY, value)
     return value
   }
 
@@ -249,5 +289,31 @@ export class AppSettingsRepository {
         conflict.column('key').doUpdateSet({ value_json: valueJson, updated_at: now })
       )
       .execute()
+  }
+
+  async #hasPriorApplicationState(): Promise<boolean> {
+    const applicationSetting = await this.database.kysely
+      .selectFrom('app_settings')
+      .select('key')
+      .where('key', '!=', ONBOARDING_STATE_KEY)
+      .limit(1)
+      .executeTakeFirst()
+    if (applicationSetting !== undefined) return true
+
+    for (const table of [
+      'recent_projects',
+      'provider_configs',
+      'agent_provider_preferences',
+      'agent_model_preferences',
+      'agent_skills'
+    ] as const) {
+      const row = await this.database.kysely
+        .selectFrom(table)
+        .selectAll()
+        .limit(1)
+        .executeTakeFirst()
+      if (row !== undefined) return true
+    }
+    return false
   }
 }

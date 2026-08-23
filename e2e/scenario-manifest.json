@@ -36,6 +36,7 @@
     { "id": "manuscript.section-title-wraps", "tiers": [] },
     { "id": "manuscript.workspace-survives-reopen", "tiers": ["packaged"] },
     { "id": "notebook.transient-workspace", "tiers": ["critical", "packaged"] },
+    { "id": "onboarding.optional-provider-to-project", "tiers": ["critical", "packaged"] },
     { "id": "project.create-conflict-preserves-data", "tiers": [] },
     { "id": "project.clone-independent", "tiers": ["critical", "packaged"] },
     { "id": "project.template-built-in", "tiers": ["critical", "packaged"] },

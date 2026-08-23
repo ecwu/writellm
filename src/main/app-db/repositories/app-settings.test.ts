@@ -7,7 +7,10 @@ import { openAppDatabase } from '../connection'
 import {
   DEFAULT_ACCENT_PREFERENCE,
   DEFAULT_CITATION_DISPLAY_MODE,
+  DEFAULT_ONBOARDING_STATE,
+  COMPLETED_ONBOARDING_STATE,
   DEFAULT_THEME_PREFERENCE,
+  ONBOARDING_STATE_KEY,
   THEME_PREFERENCE_KEY,
   AppSettingsRepository
 } from './app-settings'
@@ -33,6 +36,41 @@ afterEach(async () => {
 })
 
 describe('AppSettingsRepository', () => {
+  it('does not treat an existing application state as a first run after upgrade', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await repository.setThemePreference('dark')
+    await expect(repository.getOnboardingState()).resolves.toEqual(COMPLETED_ONBOARDING_STATE)
+    database.close()
+  })
+
+  it('resumes and completes versioned first-run onboarding', async () => {
+    const database = await openTestDatabase()
+    const repository = new AppSettingsRepository(database, log)
+
+    await expect(repository.getOnboardingState()).resolves.toEqual(DEFAULT_ONBOARDING_STATE)
+    await expect(
+      repository.setOnboardingState({ schemaVersion: 1, status: 'pending', step: 'rerank' })
+    ).resolves.toEqual({ schemaVersion: 1, status: 'pending', step: 'rerank' })
+    await expect(repository.getOnboardingState()).resolves.toEqual({
+      schemaVersion: 1,
+      status: 'pending',
+      step: 'rerank'
+    })
+    await expect(
+      repository.setOnboardingState({ schemaVersion: 1, status: 'completed' })
+    ).resolves.toEqual({ schemaVersion: 1, status: 'completed' })
+
+    await database.kysely
+      .updateTable('app_settings')
+      .set({ value_json: '{"schemaVersion":2,"status":"completed"}' })
+      .where('key', '=', ONBOARDING_STATE_KEY)
+      .execute()
+    await expect(repository.getOnboardingState()).resolves.toEqual(DEFAULT_ONBOARDING_STATE)
+    database.close()
+  })
+
   it('persists version-history prompt dismissal independently per project', async () => {
     const database = await openTestDatabase()
     const repository = new AppSettingsRepository(database, log)

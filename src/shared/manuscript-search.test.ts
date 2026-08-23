@@ -167,6 +167,20 @@ describe('manuscript search surfaces', () => {
           showPreview: true
         },
         children: []
+      },
+      {
+        id: 'diagram-1',
+        type: 'diagram',
+        props: { engine: 'mermaid', caption: 'Diagram caption', altText: 'Hidden alternative' },
+        content: [{ type: 'text', text: 'secret diagram source', styles: {} }],
+        children: []
+      },
+      {
+        id: 'math-block-1',
+        type: 'mathBlock',
+        props: {},
+        content: [{ type: 'text', text: 'secret block formula', styles: {} }],
+        children: []
       }
     ] as BlockNoteDocument
     expect(
@@ -185,7 +199,8 @@ describe('manuscript search surfaces', () => {
       ['section_objective', 'Objective'],
       ['table_cell', 'A'],
       ['table_cell', ''],
-      ['block_caption', 'Visible caption']
+      ['block_caption', 'Visible caption'],
+      ['block_caption', 'Diagram caption']
     ])
   })
 

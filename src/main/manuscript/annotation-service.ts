@@ -10,12 +10,10 @@ import {
   listAnnotationsResultSchema,
   type AnnotationRecord
 } from '../../shared/contracts/annotations'
-import {
-  blockNoteDocumentSchema,
-  type BlockNoteBlockValue
-} from '../../shared/contracts/manuscript'
+import type { BlockNoteBlockValue } from '../../shared/contracts/manuscript'
 import type { AnnotationTable } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
+import { decodeStoredSectionContent } from './content'
 
 const MAX_ANNOTATIONS = 5_000
 
@@ -234,7 +232,8 @@ function currentAnchor(
   const row = database
     .prepare(
       `SELECT sections.current_revision_id, sections.deleted_at, section_revisions.content_json,
-              section_revisions.content_body_retained
+              section_revisions.content_body_retained,
+              section_revisions.content_schema_version
        FROM sections
        JOIN section_revisions
          ON section_revisions.section_revision_id = sections.current_revision_id
@@ -246,13 +245,18 @@ function currentAnchor(
         deleted_at: string | null
         content_json: string | null
         content_body_retained: number
+        content_schema_version: number
       }
     | undefined
   if (row === undefined) throw new Error('Annotation section does not exist')
   if (row.deleted_at !== null || row.content_body_retained !== 1 || row.content_json === null) {
     return { anchorStatus: 'orphaned', revisionId: row.current_revision_id }
   }
-  const document = blockNoteDocumentSchema.parse(JSON.parse(row.content_json))
+  const document = decodeStoredSectionContent(
+    row.content_json,
+    row.content_schema_version,
+    sectionId
+  )
   return {
     anchorStatus: containsBlock(document, blockId) ? 'current' : 'orphaned',
     revisionId: row.current_revision_id
