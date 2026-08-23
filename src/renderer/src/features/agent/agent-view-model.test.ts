@@ -5,6 +5,7 @@ import type { AgentToolActivity } from './agent-view-model'
 import {
   aggregateAgentUsage,
   agentReviewState,
+  agentThinkingVisualState,
   agentToolActivityLabel,
   agentTerminalDetail,
   agentTerminalLabel,
@@ -31,6 +32,39 @@ const base = {
 }
 
 describe('Agent renderer view model', () => {
+  it('maps typed Agent work to the bounded thinking-orb states', () => {
+    const searching = projectAgentTimeline([
+      toolCallRecord(1, 'search', 'search_knowledge', { query: 'evidence' })
+    ])
+    expect(
+      agentThinkingVisualState({
+        timeline: searching,
+        runId: base.agentRunId,
+        workflowState: 'running',
+        choosingSkill: false,
+        hasStreamingRun: false
+      })
+    ).toBe('searching')
+    expect(
+      agentThinkingVisualState({
+        timeline: searching,
+        runId: base.agentRunId,
+        workflowState: 'running',
+        choosingSkill: false,
+        hasStreamingRun: true
+      })
+    ).toBe('composing')
+    expect(
+      agentThinkingVisualState({
+        timeline: [],
+        runId: null,
+        workflowState: 'generating',
+        choosingSkill: false,
+        hasStreamingRun: false
+      })
+    ).toBe('shaping')
+  })
+
   it('de-duplicates replay/live overlap by durable sequence', () => {
     const event = record(2, 'run_completed', { status: 'completed' })
     expect(mergeAgentEvents([event], event)).toHaveLength(1)

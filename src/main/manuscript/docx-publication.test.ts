@@ -135,6 +135,7 @@ function fixtureAssembly(): PublicationAssembly {
           { type: 'text', text: 'Evidence ', style: { ...emptyStyle(), bold: true } },
           { type: 'citation', number: 1, title: 'Research Source', pageIndex: 1, raw: '[Source]' },
           { type: 'text', text: ' and ', style: emptyStyle() },
+          { type: 'math', source: 'E = mc^2' },
           {
             type: 'link',
             href: 'https://example.com/research',

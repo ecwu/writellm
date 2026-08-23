@@ -161,7 +161,7 @@ export const migration0033: DatabaseMigration = {
         revision.section_id,
         revision.max_revision_number + 1,
         prepared.contentJson,
-        prepared.contentSchemaVersion,
+        3,
         prepared.contentHash,
         revision.section_revision_id,
         prepared.wordCount,

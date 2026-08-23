@@ -12,7 +12,7 @@ import {
 import { projectSessionIdSchema } from './projects'
 import { writingTaskIdSchema, writingTaskStepIdSchema } from './writing-task'
 import { resolvesReviewIssueSchema } from './review'
-import { modelSubmitWritingRulesChangeArgsSchema } from './writing-rules'
+import { modelSubmitWritingRulesChangeArgsSchema, writingRuleSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
 export const AGENT_TOOL_CONTRACT_VERSION = 8
@@ -424,7 +424,9 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
   strictObject({
     type: z.literal('replaceCanonicalBlock'),
     target: blockPreconditionSchema,
-    block: blockNoteBlockSchema
+    block: blockNoteBlockSchema.describe(
+      'Copy the canonical block and preserve its ID. Inline formulas are atomic content objects shaped exactly as {"type":"math","content":"single-line LaTeX"}; preserve them during prose rewrites.'
+    )
   })
 ])
 
@@ -450,6 +452,114 @@ export const mutationCitedSourceSchema = strictObject({
   retrievedAt: z.iso.datetime().optional()
 })
 
+export const proposalPresentationTextSchema = strictObject({
+  text: z.string().max(4_096).nullable(),
+  truncated: z.boolean()
+})
+
+export const briefPresentationFieldSchema = z.enum([
+  'title',
+  'description',
+  'topic',
+  'targetAudience',
+  'language',
+  'styleTone',
+  'scopeExclusions',
+  'targetLength',
+  'citationRequirements',
+  'additionalInstructions'
+])
+
+const briefPresentationSchema = strictObject({
+  schemaVersion: z.literal(1),
+  kind: z.literal('brief_fields'),
+  fields: z
+    .array(
+      strictObject({
+        field: briefPresentationFieldSchema,
+        before: proposalPresentationTextSchema,
+        after: proposalPresentationTextSchema
+      })
+    )
+    .min(1)
+    .max(10)
+})
+
+const outlinePresentationLocationSchema = strictObject({
+  parentSectionId: sectionIdSchema.nullable(),
+  parentTitle: z.string().max(500).nullable(),
+  position: z.number().int().nonnegative()
+})
+
+const outlinePresentationSectionSchema = strictObject({
+  sectionId: sectionIdSchema,
+  title: z.string().max(500),
+  location: outlinePresentationLocationSchema,
+  objective: proposalPresentationTextSchema,
+  status: sectionStatusSchema
+})
+
+const outlinePresentationFieldChangeSchema = z.discriminatedUnion('field', [
+  strictObject({
+    field: z.literal('title'),
+    before: proposalPresentationTextSchema,
+    after: proposalPresentationTextSchema
+  }),
+  strictObject({
+    field: z.literal('objective'),
+    before: proposalPresentationTextSchema,
+    after: proposalPresentationTextSchema
+  }),
+  strictObject({
+    field: z.literal('status'),
+    before: proposalPresentationTextSchema,
+    after: proposalPresentationTextSchema
+  })
+])
+
+const outlinePresentationOperationSchema = z.discriminatedUnion('type', [
+  strictObject({ type: z.literal('create'), section: outlinePresentationSectionSchema }),
+  strictObject({
+    type: z.literal('update'),
+    sectionId: sectionIdSchema,
+    title: z.string().max(500),
+    changes: z.array(outlinePresentationFieldChangeSchema).min(1).max(3)
+  }),
+  strictObject({
+    type: z.literal('move'),
+    sectionId: sectionIdSchema,
+    title: z.string().max(500),
+    before: outlinePresentationLocationSchema,
+    after: outlinePresentationLocationSchema
+  }),
+  strictObject({ type: z.literal('delete'), section: outlinePresentationSectionSchema })
+])
+
+const outlinePresentationSchema = strictObject({
+  schemaVersion: z.literal(1),
+  kind: z.literal('outline_operations'),
+  operations: z.array(outlinePresentationOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT)
+})
+
+const writingRulePresentationChangeSchema = strictObject({
+  action: z.enum(['add', 'update', 'enable', 'disable', 'remove']),
+  ruleId: z.uuid(),
+  before: writingRuleSchema.nullable(),
+  after: writingRuleSchema.nullable()
+})
+
+const writingRulesPresentationSchema = strictObject({
+  schemaVersion: z.literal(1),
+  kind: z.literal('writing_rules'),
+  changes: z.array(writingRulePresentationChangeSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT)
+})
+
+export const proposalPresentationSchema = z.discriminatedUnion('kind', [
+  briefPresentationSchema,
+  outlinePresentationSchema,
+  writingRulesPresentationSchema
+])
+
 export const mutationPreviewSchema = strictObject({
   summary: z.string().min(1).max(2_000),
   affectedSectionIds: uniqueStrings(sectionIdSchema, AGENT_MUTATION_OPERATION_LIMIT),
@@ -457,7 +567,8 @@ export const mutationPreviewSchema = strictObject({
   afterText: z.string().max(AGENT_MUTATION_PREVIEW_TEXT_LIMIT),
   beforeTextTruncated: z.boolean(),
   afterTextTruncated: z.boolean(),
-  citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT)
+  citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT),
+  presentation: proposalPresentationSchema.optional()
 })
 
 export const mutationProposalToolResultSchema = strictObject({
@@ -696,6 +807,8 @@ export type GenerateImageArgs = z.infer<typeof generateImageArgsSchema>
 export type NormalizedGenerateImageArgs = z.infer<typeof normalizedGenerateImageArgsSchema>
 export type BlockMutationOperation = z.infer<typeof blockMutationOperationSchema>
 export type MutationProposalKind = z.infer<typeof mutationProposalKindSchema>
+export type ProposalPresentation = z.infer<typeof proposalPresentationSchema>
+export type ProposalPresentationText = z.infer<typeof proposalPresentationTextSchema>
 export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>
 export type MutationCitedSource = z.infer<typeof mutationCitedSourceSchema>
 export type MutationPreview = z.infer<typeof mutationPreviewSchema>

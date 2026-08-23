@@ -1,8 +1,17 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useRef } from 'react'
 import { isAllowedExternalUrl } from '../../../../shared/security/urls'
+import { Button } from '@/components/ui/button'
 
-export function AgentMarkdown(props: { content: string }): React.JSX.Element {
+export function AgentMarkdown(props: {
+  content: string
+  citationOrdinals?: readonly number[]
+  onCitation?: (ordinal: number) => void
+}): React.JSX.Element {
+  const citationToken = useRef(globalThis.crypto.randomUUID()).current
+  const citationOrdinals = props.citationOrdinals ?? []
+  const content = notebookCitationMarkdown(props.content, citationOrdinals, citationToken)
   return (
     <article
       className={
@@ -24,16 +33,39 @@ export function AgentMarkdown(props: { content: string }): React.JSX.Element {
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm]}
-        urlTransform={(url, key) => (key === 'href' && isAllowedExternalUrl(url) ? url : '')}
+        urlTransform={(url, key) => {
+          if (key !== 'href') return ''
+          return isNotebookCitationUrl(url, citationToken) || isAllowedExternalUrl(url) ? url : ''
+        }}
         components={{
-          a: ({ children, href }) =>
-            href !== undefined && isAllowedExternalUrl(href) ? (
+          a: ({ children, href }) => {
+            const citationOrdinal = notebookCitationOrdinal(href, citationToken)
+            if (
+              citationOrdinal !== null &&
+              citationOrdinals.includes(citationOrdinal) &&
+              props.onCitation !== undefined
+            ) {
+              return (
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='xs'
+                  className='mx-0.5 inline-flex align-baseline no-underline'
+                  aria-label={`Open citation ${citationOrdinal}`}
+                  onClick={() => props.onCitation?.(citationOrdinal)}
+                >
+                  {children}
+                </Button>
+              )
+            }
+            return href !== undefined && isAllowedExternalUrl(href) ? (
               <a href={href} target='_blank' rel='noreferrer'>
                 {children}
               </a>
             ) : (
               <span>{children}</span>
-            ),
+            )
+          },
           img: ({ alt }) => (
             <span className='text-muted-foreground'>{alt ? `[Image: ${alt}]` : '[Image]'}</span>
           ),
@@ -44,8 +76,37 @@ export function AgentMarkdown(props: { content: string }): React.JSX.Element {
           )
         }}
       >
-        {props.content}
+        {content}
       </ReactMarkdown>
     </article>
   )
+}
+
+export function notebookCitationMarkdown(
+  content: string,
+  citationOrdinals: readonly number[],
+  citationToken = 'registered'
+): string {
+  const allowed = new Set(citationOrdinals)
+  const seen = new Set<number>()
+  return content
+    .replace(/writellm-citation:/giu, 'writellm-citation-text:')
+    .replace(/\[\[cite:(\d{1,3})\]\]/gu, (marker, rawOrdinal: string) => {
+      const ordinal = Number(rawOrdinal)
+      if (!allowed.has(ordinal) || seen.has(ordinal)) return marker
+      seen.add(ordinal)
+      return `[${ordinal}](writellm-citation:${citationToken}:${ordinal})`
+    })
+}
+
+function isNotebookCitationUrl(url: string, citationToken: string): boolean {
+  return notebookCitationOrdinal(url, citationToken) !== null
+}
+
+function notebookCitationOrdinal(href: string | undefined, citationToken: string): number | null {
+  if (href === undefined) return null
+  const prefix = `writellm-citation:${citationToken}:`
+  if (!href.startsWith(prefix)) return null
+  const ordinal = href.slice(prefix.length)
+  return /^\d{1,3}$/u.test(ordinal) ? Number(ordinal) : null
 }

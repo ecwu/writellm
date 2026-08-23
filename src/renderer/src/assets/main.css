@@ -197,6 +197,19 @@
     padding-inline: 0;
   }
 
+  .writing-editor [data-inline-content-type="math"] {
+    display: inline-flex;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    vertical-align: -0.2em;
+    scrollbar-width: thin;
+  }
+
+  .writing-editor [data-inline-content-type="math"] > * {
+    flex: none;
+  }
+
   .writing-editor .writellm-readable-citation {
     margin-inline: -0.02em;
     padding-inline: 0.12em;

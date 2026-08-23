@@ -334,30 +334,33 @@ describe('ModelExecutionService', () => {
   it.each([
     [401, { code: 'invalid_auth', retryable: false, httpStatus: 401 }],
     [503, { code: 'provider_unavailable', retryable: true, httpStatus: 503 }]
-  ] as const)('classifies HTTP %i without persisting a provider response body', async (status, safeError) => {
-    const project = await database()
-    const agent: AgentModelRuntime = {
-      run: vi.fn(async () => {
-        throw Object.assign(new Error('PRIVATE-PROVIDER-BODY'), { status })
-      })
+  ] as const)(
+    'classifies HTTP %i without persisting a provider response body',
+    async (status, safeError) => {
+      const project = await database()
+      const agent: AgentModelRuntime = {
+        run: vi.fn(async () => {
+          throw Object.assign(new Error('PRIVATE-PROVIDER-BODY'), { status })
+        })
+      }
+      await expect(
+        service({ agent }).runAgent(
+          project,
+          { systemPrompt: '', prompt: 'private prompt', maxOutputTokens: 100 },
+          {},
+          new AbortController().signal,
+          () => undefined
+        )
+      ).rejects.toThrow('PRIVATE-PROVIDER-BODY')
+      const row = await project.kysely
+        .selectFrom('model_requests')
+        .select(['error_json'])
+        .executeTakeFirstOrThrow()
+      expect(JSON.parse(row.error_json ?? '{}')).toEqual(safeError)
+      expect(row.error_json).not.toContain('PRIVATE-PROVIDER-BODY')
+      project.close()
     }
-    await expect(
-      service({ agent }).runAgent(
-        project,
-        { systemPrompt: '', prompt: 'private prompt', maxOutputTokens: 100 },
-        {},
-        new AbortController().signal,
-        () => undefined
-      )
-    ).rejects.toThrow('PRIVATE-PROVIDER-BODY')
-    const row = await project.kysely
-      .selectFrom('model_requests')
-      .select(['error_json'])
-      .executeTakeFirstOrThrow()
-    expect(JSON.parse(row.error_json ?? '{}')).toEqual(safeError)
-    expect(row.error_json).not.toContain('PRIVATE-PROVIDER-BODY')
-    project.close()
-  })
+  )
 })
 
 function metadata(providerModelId: string) {

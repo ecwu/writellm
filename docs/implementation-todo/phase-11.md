@@ -1,8 +1,8 @@
 # Phase 11: Post-Checkpoint-28 Writing Experience Roadmap
 
-Status: Checkpoint 31 is locally complete; later checkpoints remain planning-only
+Status: complete through Checkpoint 47B under accepted ADRs 021–037
 
-Recorded: 2026-08-12
+Recorded: 2026-08-13
 Revised: 2026-08-12 — second planning pass. This revision merges two independent reviews of the
 first pass: an internal library/codebase research pass (existing-module inventory plus mature-
 library selection for parsing and export) and an external architecture review (dependency

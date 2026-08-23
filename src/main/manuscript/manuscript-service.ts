@@ -1074,11 +1074,12 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
   }
 }
 
-function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 {
+function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 | 4 {
   if (
     row.content_schema_version !== 1 &&
     row.content_schema_version !== 2 &&
-    row.content_schema_version !== 3
+    row.content_schema_version !== 3 &&
+    row.content_schema_version !== 4
   ) {
     throw new Error('Section revision content schema version is unsupported')
   }

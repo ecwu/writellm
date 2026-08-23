@@ -5,8 +5,9 @@ import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
 
 async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
+  await page.keyboard.press('ControlOrMeta+,')
+  await expect(settings).toBeVisible()
   await settings.getByRole('option', { name: /^Agent API/ }).click()
   await settings.getByRole('button', { name: 'Add provider' }).click()
   const addProvider = page.getByRole('dialog', { name: 'Add provider' })

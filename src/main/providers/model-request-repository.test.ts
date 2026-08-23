@@ -140,4 +140,52 @@ describe('ModelRequestRepository', () => {
     })
     project.close()
   })
+
+  it('supports Notebook metadata-only retention without a content-derived fingerprint or response ID', async () => {
+    const project = await database()
+    const repository = new ModelRequestRepository(
+      project,
+      log,
+      () => new Date('2026-08-23T00:00:00.000Z'),
+      () => '019d0000-0000-7000-8000-000000000430'
+    )
+    const record = await repository.start({
+      operation: 'agent',
+      provider,
+      request: { prompt: 'PRIVATE-NOTEBOOK-QUESTION', evidence: 'PRIVATE-EVIDENCE' },
+      inputItems: 1,
+      retention: 'metadata_only'
+    })
+    await repository.succeed(
+      record.modelRequestId,
+      {
+        metadata: {
+          usage: {
+            inputTokens: 20,
+            outputTokens: 10,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            estimatedCostUsdMicros: null
+          },
+          responseIds: ['external-response-id'],
+          retryCount: 0,
+          providerModelId: 'writer-model'
+        },
+        outputItems: 1
+      },
+      record.retention
+    )
+    const row = await project.kysely
+      .selectFrom('model_requests')
+      .selectAll()
+      .executeTakeFirstOrThrow()
+    expect(row.request_fingerprint).toBe(
+      '273422d3ed91e9f28c09f81a1d284f0e7f04464c3aa015ad14bf5b8145a42fd8'
+    )
+    expect(row.response_ids_json).toBe('[]')
+    expect(JSON.stringify(row)).not.toContain('PRIVATE-NOTEBOOK-QUESTION')
+    expect(JSON.stringify(row)).not.toContain('PRIVATE-EVIDENCE')
+    expect(JSON.stringify(row)).not.toContain('external-response-id')
+    project.close()
+  })
 })

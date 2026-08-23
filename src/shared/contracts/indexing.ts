@@ -11,6 +11,8 @@ const internalPathSchema = z.string().min(1).max(32_768)
 
 export const INDEX_SCHEMA_VERSION = 5
 export const INDEX_CHUNKER_VERSION = 1
+export const ftsSearchModeSchema = z.enum(['phrase', 'terms'])
+export type FtsSearchMode = z.infer<typeof ftsSearchModeSchema>
 
 export const indexSourceSchema = z
   .object({
@@ -149,7 +151,8 @@ const indexUtilityRequestBodySchema = z.discriminatedUnion('operation', [
       requestId: z.uuid(),
       query: z.string().trim().min(1).max(2_000),
       limit: z.number().int().min(1).max(1_000),
-      filters: knowledgeSearchFiltersSchema
+      filters: knowledgeSearchFiltersSchema,
+      mode: ftsSearchModeSchema.default('phrase')
     })
     .strict(),
   z

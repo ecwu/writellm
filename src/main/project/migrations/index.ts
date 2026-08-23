@@ -34,6 +34,7 @@ import { migration0033 } from './0033-figure-metadata'
 import { migration0034 } from './0034-manuscript-asset-metadata'
 import { migration0035 } from './0035-manuscript-asset-variants'
 import { migration0036 } from './0036-manuscript-annotations'
+import { migration0037 } from './0037-inline-math-schema-v4'
 
 export const projectMigrations = [
   migration0001,
@@ -71,5 +72,6 @@ export const projectMigrations = [
   migration0033,
   migration0034,
   migration0035,
-  migration0036
+  migration0036,
+  migration0037
 ] as const

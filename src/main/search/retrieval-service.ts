@@ -52,7 +52,8 @@ export class RetrievalService {
 
   async search(
     rawInput: KnowledgeSearchInput,
-    signal: AbortSignal
+    signal: AbortSignal,
+    options: { ftsMode?: 'phrase' | 'terms' } = {}
   ): Promise<KnowledgeSearchResult> {
     const input = knowledgeSearchInputSchema.parse(rawInput)
     if (signal.aborted) throw abortError()
@@ -66,7 +67,8 @@ export class RetrievalService {
       input.query,
       input.limits.fts,
       input.filters,
-      signal
+      signal,
+      options.ftsMode
     )
     const ftsHydrated = await this.options.client.hydrateCandidates(
       ftsRaw.map((candidate) => candidate.chunkId),

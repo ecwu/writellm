@@ -673,6 +673,17 @@ describe('MutationProposalService', () => {
       },
       recoveryContext
     )
+    expect(proposed.preview.presentation).toEqual({
+      schemaVersion: 1,
+      kind: 'brief_fields',
+      fields: [
+        {
+          field: 'title',
+          before: { text: brief.title, truncated: false },
+          after: { text: 'Recovered title', truncated: false }
+        }
+      ]
+    })
     const restarted = new MutationProposalService({
       projectId: value.manifest.projectId,
       projectSessionId,
@@ -755,6 +766,21 @@ describe('MutationProposalService', () => {
       },
       nextContext
     )
+    expect(proposed.preview.presentation).toMatchObject({
+      schemaVersion: 1,
+      kind: 'outline_operations',
+      operations: [
+        {
+          type: 'create',
+          section: {
+            sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc751',
+            title: 'Pending section',
+            location: { parentSectionId: null, parentTitle: null, position: 1 },
+            status: 'planned'
+          }
+        }
+      ]
+    })
     const rejected = value.service.reject({
       projectSessionId,
       agentSessionId,
@@ -878,6 +904,20 @@ describe('MutationProposalService', () => {
       { type: 'createSection', parentSectionId: null, position: 2, title: 'Conclusion' },
       { type: 'moveSection', parentSectionId: null, position: 0 }
     ])
+    expect(proposal.payload.preview.presentation).toMatchObject({
+      kind: 'outline_operations',
+      operations: [
+        { type: 'move', title: third.title, before: { position: 2 }, after: { position: 0 } },
+        { type: 'delete', section: { sectionId: second.sectionId } },
+        { type: 'create', section: { title: 'Conclusion', location: { position: 2 } } },
+        {
+          type: 'move',
+          title: 'Conclusion',
+          before: { position: 2 },
+          after: { position: 0 }
+        }
+      ]
+    })
     value.database.close()
   })
 
@@ -1632,6 +1672,18 @@ describe('MutationProposalService', () => {
     expect(proposed.preview.afterText).toContain('Active · translation')
     expect(proposed.preview.afterText).toContain('Translate LLM consistently.')
     expect(proposed.preview.afterText).not.toContain('targetAudience')
+    expect(proposed.preview.presentation).toMatchObject({
+      schemaVersion: 1,
+      kind: 'writing_rules',
+      changes: [
+        {
+          action: 'add',
+          ruleId,
+          before: null,
+          after: { instruction: 'Translate LLM consistently.', active: true }
+        }
+      ]
+    })
 
     const applied = await value.service.approve({
       projectSessionId,

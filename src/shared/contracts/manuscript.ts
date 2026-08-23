@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { WRITING_RULES_NAMESPACE, writingRulesStateSchema } from './writing-rules'
 
 export const MANUSCRIPT_BRIEF_SCHEMA_VERSION = 1
-export const SECTION_CONTENT_SCHEMA_VERSION = 3
+export const SECTION_CONTENT_SCHEMA_VERSION = 4
 export const SECTION_COUNT_ALGORITHM_VERSION = 2
 export const sectionCountAlgorithmVersionSchema = z.union([z.literal(1), z.literal(2)])
 export const SECTION_MATERIALIZATION_FORMAT_VERSION = 1
@@ -11,6 +11,7 @@ export const MAX_SECTION_DOCUMENT_BYTES = 2 * 1024 * 1024
 export const MAX_SECTION_BLOCKS = 10_000
 export const MAX_SECTION_INLINE_NODES = 50_000
 export const MAX_SECTION_NESTING_DEPTH = 16
+export const MAX_INLINE_MATH_SOURCE_BYTES = 8 * 1024
 export const MAX_MANUSCRIPT_SECTIONS = 1_000
 export const MAX_MANUSCRIPT_OUTLINE_DEPTH = 64
 export const MAX_MANUSCRIPT_WORKSPACE_BYTES = 8 * 1024 * 1024
@@ -66,6 +67,14 @@ const mathSourceSchema = z
     (value) => new TextEncoder().encode(value).byteLength <= 32 * 1024,
     'LaTeX source exceeds 32 KiB'
   )
+export const inlineMathSourceSchema = z
+  .string()
+  .max(8_192)
+  .refine((value) => !/[\r\n\0]/u.test(value), 'Inline LaTeX source must be a single line')
+  .refine(
+    (value) => new TextEncoder().encode(value).byteLength <= MAX_INLINE_MATH_SOURCE_BYTES,
+    'Inline LaTeX source exceeds 8 KiB'
+  )
 const textStylesSchema = z
   .object({
     bold: z.boolean().optional(),
@@ -99,7 +108,15 @@ const safeLinkSchema = z
   })
   .strict()
 
-export const blockNoteInlineContentSchema = z.union([styledTextSchema, safeLinkSchema])
+const inlineMathSchema = z
+  .object({ type: z.literal('math'), content: inlineMathSourceSchema })
+  .strict()
+
+export const blockNoteInlineContentSchema = z.union([
+  styledTextSchema,
+  safeLinkSchema,
+  inlineMathSchema
+])
 export type BlockNoteInlineContent = z.infer<typeof blockNoteInlineContentSchema>
 
 const commonTextPropsSchema = z
@@ -561,6 +578,7 @@ export const sectionRevisionSchema = z
     contentSchemaVersion: z.union([
       z.literal(1),
       z.literal(2),
+      z.literal(3),
       z.literal(SECTION_CONTENT_SCHEMA_VERSION)
     ]),
     contentHash: contentHashSchema,

@@ -9,6 +9,7 @@ import {
   type IndexSnapshot,
   type IndexCandidate,
   type IndexSource,
+  type FtsSearchMode,
   type VectorGenerationContract,
   type IndexUtilityRequestBody,
   type IndexUtilityResponse
@@ -122,12 +123,13 @@ export class IndexClient {
     query: string,
     limit: number,
     filters: KnowledgeSearchFilters,
-    signal: AbortSignal
+    signal: AbortSignal,
+    mode: FtsSearchMode = 'phrase'
   ): Promise<
     Array<{ chunkId: string; rank: number; strategy: 'unicode61' | 'trigram' | 'substring' }>
   > {
     const response = await this.#send(
-      { operation: 'fts-candidates', requestId: randomUUID(), query, limit, filters },
+      { operation: 'fts-candidates', requestId: randomUUID(), query, limit, filters, mode },
       signal
     )
     if (response.type !== 'fts-candidates') {

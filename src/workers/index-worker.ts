@@ -96,7 +96,7 @@ parentPort.on('message', (event) => {
           response = {
             type: 'fts-candidates',
             requestId,
-            values: database.searchFts(request.query, request.limit, request.filters)
+            values: database.searchFts(request.query, request.limit, request.filters, request.mode)
           }
           break
         case 'hydrate-candidates':

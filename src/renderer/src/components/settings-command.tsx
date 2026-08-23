@@ -8,17 +8,21 @@ import {
   FileOutput,
   FolderOpen,
   ImageIcon,
+  Info,
+  Keyboard,
   KeyRound,
   Monitor,
   Moon,
   Palette,
   Settings2,
+  ShieldAlert,
   Sun,
   X
 } from 'lucide-react'
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
 import type {
   AccentPreference,
+  AppInfo,
   CitationDisplayMode,
   ThemePreference
 } from '../../../shared/contracts/app'
@@ -36,16 +40,32 @@ import {
   CommandShortcut
 } from '@/components/ui/command'
 import { DialogClose } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldTitle } from '@/components/ui/field'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLegend,
+  FieldSet,
+  FieldTitle
+} from '@/components/ui/field'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
 import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings'
 import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
 
-type SettingsSection = 'general' | 'skills' | 'publication' | ProviderRole
+type SettingsSection = 'general' | 'skills' | 'publication' | 'shortcuts' | 'about' | ProviderRole
 
 interface SettingsCommandProps {
   open: boolean
@@ -56,7 +76,7 @@ interface SettingsCommandProps {
   onError: (message: string) => void
 }
 
-const sections: Array<{
+export const settingsSections: Array<{
   id: SettingsSection
   label: string
   icon: typeof Bot
@@ -64,12 +84,39 @@ const sections: Array<{
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'agent', label: 'Agent API', icon: Bot },
   { id: 'skills', label: 'Writing Skills', icon: BookOpen },
-  { id: 'publication', label: 'Publication', icon: FileOutput },
   { id: 'embedding', label: 'Embedding API', icon: Braces },
   { id: 'rerank', label: 'Reranking API', icon: Braces },
   { id: 'mineru', label: 'MinerU API', icon: KeyRound },
-  { id: 'image', label: 'Image API', icon: ImageIcon }
+  { id: 'image', label: 'Image API', icon: ImageIcon },
+  { id: 'publication', label: 'Publication', icon: FileOutput },
+  { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
+  { id: 'about', label: 'About & Diagnostics', icon: Info }
 ]
+
+export const keyboardShortcuts = [
+  { action: 'New project', shortcut: '⌘ / Ctrl + N', context: 'No project open' },
+  { action: 'Open project', shortcut: '⌘ / Ctrl + O', context: 'No project open' },
+  { action: 'Save current section', shortcut: '⌘ / Ctrl + S', context: 'Active project' },
+  { action: 'Open Settings', shortcut: '⌘ / Ctrl + ,', context: 'Anywhere' },
+  { action: 'Find in manuscript', shortcut: '⌘ / Ctrl + F', context: 'Active project' },
+  { action: 'Toggle project sidebar', shortcut: '⌘ / Ctrl + B', context: 'Active project' },
+  { action: 'Toggle writing Agent', shortcut: '⌘ / Ctrl + J', context: 'Active project' },
+  {
+    action: 'Open selection quick actions',
+    shortcut: '⇧ + ⌘ / Ctrl + K',
+    context: 'Selected editor text'
+  },
+  {
+    action: 'Go to previous section',
+    shortcut: '⌘ / Ctrl + ⌥ / Alt + ↑',
+    context: 'Active project'
+  },
+  {
+    action: 'Go to next section',
+    shortcut: '⌘ / Ctrl + ⌥ / Alt + ↓',
+    context: 'Active project'
+  }
+] as const
 
 export function SettingsCommand({
   open,
@@ -80,6 +127,7 @@ export function SettingsCommand({
   onError
 }: SettingsCommandProps): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [section, setSection] = useState<SettingsSection>('general')
   const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('manual')
   const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
@@ -107,18 +155,28 @@ export function SettingsCommand({
     setLoading(true)
     setLoadError(null)
     void Promise.all([
+      window.desktop.app.getInfo(),
       window.desktop.providers.snapshot(),
       window.desktop.app.getDefaultAgentApprovalMode(),
       window.desktop.skills.snapshot(),
       window.desktop.app.publicationPresets()
     ])
-      .then(([nextSnapshot, nextApprovalMode, nextSkillSnapshot, nextPublicationPresets]) => {
-        if (!current) return
-        setSnapshot(nextSnapshot)
-        setApprovalMode(nextApprovalMode)
-        setSkillSnapshot(nextSkillSnapshot)
-        setPublicationPresets(nextPublicationPresets)
-      })
+      .then(
+        ([
+          nextAppInfo,
+          nextSnapshot,
+          nextApprovalMode,
+          nextSkillSnapshot,
+          nextPublicationPresets
+        ]) => {
+          if (!current) return
+          setAppInfo(nextAppInfo)
+          setSnapshot(nextSnapshot)
+          setApprovalMode(nextApprovalMode)
+          setSkillSnapshot(nextSkillSnapshot)
+          setPublicationPresets(nextPublicationPresets)
+        }
+      )
       .catch(() => {
         if (current) setLoadError('Settings could not be loaded.')
       })
@@ -192,7 +250,7 @@ export function SettingsCommand({
         returnFocus.focus()
       }}
     >
-      <div className='grid h-full min-h-0 grid-cols-1 overflow-hidden md:grid-cols-[14rem_minmax(0,1fr)]'>
+      <div className='grid h-full min-h-0 grid-cols-1 overflow-hidden md:grid-cols-[16rem_minmax(0,1fr)]'>
         <aside
           className={`${mobileSectionOpen ? 'hidden md:flex' : 'flex'} min-h-0 flex-col border-r bg-muted/30`}
         >
@@ -204,17 +262,17 @@ export function SettingsCommand({
             </div>
           </div>
           <CommandList className='max-h-none flex-1 p-2'>
-            <CommandGroup heading='Application'>
-              {sections.map((item) => {
+            <CommandGroup>
+              {settingsSections.map((item) => {
                 const Icon = item.icon
-                const provider =
-                  item.id === 'general' || item.id === 'skills' || item.id === 'publication'
-                    ? null
-                    : snapshot?.providers.find((candidate) => candidate.role === item.id)
+                const provider = isProviderSection(item.id)
+                  ? snapshot?.providers.find((candidate) => candidate.role === item.id)
+                  : null
                 return (
                   <CommandItem
                     key={item.id}
                     value={`settings-${item.id}`}
+                    data-settings-section={item.id}
                     data-selected={section === item.id}
                     onSelect={() => {
                       setSection(item.id)
@@ -249,7 +307,7 @@ export function SettingsCommand({
               <ArrowLeft />
             </Button>
             <span className='font-medium'>
-              {sections.find((candidate) => candidate.id === section)?.label}
+              {settingsSections.find((candidate) => candidate.id === section)?.label}
             </span>
           </div>
           <div className='min-h-0 flex-1 overflow-hidden'>
@@ -274,7 +332,6 @@ export function SettingsCommand({
               </div>
             ) : section === 'general' ? (
               <GeneralSettings
-                snapshot={snapshot}
                 theme={preference}
                 accent={accent}
                 approvalMode={approvalMode}
@@ -284,8 +341,6 @@ export function SettingsCommand({
                 onAccent={selectAccent}
                 onApprovalMode={selectApprovalMode}
                 onCitationDisplayMode={selectCitationDisplayMode}
-                onOpenLogs={onOpenLogs}
-                onExportDiagnostics={onExportDiagnostics}
               />
             ) : section === 'skills' && skillSnapshot ? (
               <WritingSkillsSettings
@@ -301,7 +356,17 @@ export function SettingsCommand({
                 onSnapshot={setPublicationPresets}
                 onError={onError}
               />
-            ) : snapshot && section !== 'skills' && section !== 'publication' ? (
+            ) : section === 'shortcuts' ? (
+              <KeyboardShortcutsSettings closeAction={<SettingsCloseButton />} />
+            ) : section === 'about' ? (
+              <AboutDiagnosticsSettings
+                appInfo={appInfo}
+                snapshot={snapshot}
+                closeAction={<SettingsCloseButton />}
+                onOpenLogs={onOpenLogs}
+                onExportDiagnostics={onExportDiagnostics}
+              />
+            ) : snapshot && isProviderSection(section) ? (
               <ProviderSettingsWorkspace
                 role={section}
                 snapshot={snapshot}
@@ -317,8 +382,7 @@ export function SettingsCommand({
   )
 }
 
-function GeneralSettings({
-  snapshot,
+export function GeneralSettings({
   theme,
   accent,
   approvalMode,
@@ -327,11 +391,8 @@ function GeneralSettings({
   onTheme,
   onAccent,
   onApprovalMode,
-  onCitationDisplayMode,
-  onOpenLogs,
-  onExportDiagnostics
+  onCitationDisplayMode
 }: {
-  snapshot: ProviderSettingsSnapshot | null
   theme: ThemePreference
   accent: AccentPreference
   approvalMode: AgentApprovalMode
@@ -341,8 +402,6 @@ function GeneralSettings({
   onAccent: (value: AccentPreference) => Promise<void>
   onApprovalMode: (value: AgentApprovalMode) => Promise<void>
   onCitationDisplayMode: (value: CitationDisplayMode) => Promise<void>
-  onOpenLogs: () => void
-  onExportDiagnostics: () => void
 }): React.JSX.Element {
   return (
     <ScrollArea className='h-full'>
@@ -351,125 +410,240 @@ function GeneralSettings({
           <div className='min-w-0 flex-1'>
             <h2 className='text-xl font-semibold'>General</h2>
             <p className='text-sm text-muted-foreground'>
-              Appearance, Agent behavior, credential security, and diagnostics.
+              Appearance, writing presentation, and default Agent behavior.
+            </p>
+          </div>
+          {closeAction}
+        </header>
+
+        <div className='flex flex-col gap-10'>
+          <FieldSet>
+            <FieldLegend>Appearance</FieldLegend>
+            <FieldGroup>
+              <Field orientation='responsive'>
+                <FieldContent className='min-w-0'>
+                  <FieldTitle id='theme-mode'>Theme mode</FieldTitle>
+                  <FieldDescription>
+                    Follow the system or choose a fixed appearance.
+                  </FieldDescription>
+                </FieldContent>
+                <ToggleGroup
+                  type='single'
+                  value={theme}
+                  aria-labelledby='theme-mode'
+                  variant='outline'
+                  onValueChange={(value) => {
+                    if (value) void onTheme(value as ThemePreference)
+                  }}
+                >
+                  <ToggleGroupItem value='system'>
+                    <Monitor /> System
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='light'>
+                    <Sun /> Light
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='dark'>
+                    <Moon /> Dark
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+
+              <Field>
+                <FieldTitle id='accent-color'>UI accent</FieldTitle>
+                <FieldDescription>
+                  A bounded semantic palette keeps light and dark contrast predictable.
+                </FieldDescription>
+                <ToggleGroup
+                  type='single'
+                  value={accent}
+                  aria-labelledby='accent-color'
+                  variant='outline'
+                  className='flex-wrap justify-start'
+                  onValueChange={(value) => {
+                    if (value) void onAccent(value as AccentPreference)
+                  }}
+                >
+                  {(['neutral', 'blue', 'green', 'violet', 'rose', 'orange'] as const).map(
+                    (value) => (
+                      <ToggleGroupItem key={value} value={value}>
+                        <Palette /> {capitalize(value)}
+                      </ToggleGroupItem>
+                    )
+                  )}
+                </ToggleGroup>
+              </Field>
+            </FieldGroup>
+          </FieldSet>
+
+          <FieldSet>
+            <FieldLegend>Writing</FieldLegend>
+            <FieldGroup>
+              <Field>
+                <FieldTitle id='citation-display'>Citation display</FieldTitle>
+                <FieldDescription>
+                  Choose how canonical source citations appear while editing. Stored manuscript text
+                  remains unchanged.
+                </FieldDescription>
+                <ToggleGroup
+                  type='single'
+                  value={citationDisplayMode}
+                  aria-labelledby='citation-display'
+                  variant='outline'
+                  className='flex-wrap justify-start'
+                  onValueChange={(value) => {
+                    if (value) void onCitationDisplayMode(value as CitationDisplayMode)
+                  }}
+                >
+                  <ToggleGroupItem value='full'>Full</ToggleGroupItem>
+                  <ToggleGroupItem value='numbered'>[1]</ToggleGroupItem>
+                  <ToggleGroupItem value='icon'>Icon</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+            </FieldGroup>
+          </FieldSet>
+
+          <FieldSet>
+            <FieldLegend>Agent defaults</FieldLegend>
+            <FieldGroup>
+              <Field>
+                <FieldTitle id='approval-mode'>Default approval</FieldTitle>
+                <FieldDescription>Applied to newly created conversations.</FieldDescription>
+                <ToggleGroup
+                  type='single'
+                  value={approvalMode}
+                  aria-labelledby='approval-mode'
+                  variant='outline'
+                  className='flex-wrap justify-start'
+                  onValueChange={(value) => {
+                    if (value) void onApprovalMode(value as AgentApprovalMode)
+                  }}
+                >
+                  <ToggleGroupItem value='manual'>Manual</ToggleGroupItem>
+                  <ToggleGroupItem value='section_auto'>Write Auto</ToggleGroupItem>
+                  <ToggleGroupItem value='yolo'>YOLO</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+            </FieldGroup>
+          </FieldSet>
+        </div>
+      </div>
+    </ScrollArea>
+  )
+}
+
+export function KeyboardShortcutsSettings({
+  closeAction
+}: {
+  closeAction: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <ScrollArea className='h-full'>
+      <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
+        <header className='flex items-start gap-3'>
+          <div className='min-w-0 flex-1'>
+            <h2 className='text-xl font-semibold'>Keyboard Shortcuts</h2>
+            <p className='text-sm text-muted-foreground'>
+              Current application commands. Shortcuts are fixed and cannot be customized.
+            </p>
+          </div>
+          {closeAction}
+        </header>
+
+        <div className='border-y'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Action</TableHead>
+                <TableHead className='text-right'>Shortcut</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {keyboardShortcuts.map((shortcut) => (
+                <TableRow key={shortcut.action}>
+                  <TableCell>
+                    <div className='font-medium'>{shortcut.action}</div>
+                    <div className='text-xs text-muted-foreground'>{shortcut.context}</div>
+                  </TableCell>
+                  <TableCell className='text-right font-medium whitespace-normal tabular-nums sm:whitespace-nowrap'>
+                    {shortcut.shortcut}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </ScrollArea>
+  )
+}
+
+export function AboutDiagnosticsSettings({
+  appInfo,
+  snapshot,
+  closeAction,
+  onOpenLogs,
+  onExportDiagnostics
+}: {
+  appInfo: AppInfo | null
+  snapshot: ProviderSettingsSnapshot | null
+  closeAction: React.ReactNode
+  onOpenLogs: () => void
+  onExportDiagnostics: () => void
+}): React.JSX.Element {
+  const credentialBackend = snapshot?.credentialBackend
+  return (
+    <ScrollArea className='h-full'>
+      <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
+        <header className='flex items-start gap-3'>
+          <div className='min-w-0 flex-1'>
+            <h2 className='text-xl font-semibold'>About & Diagnostics</h2>
+            <p className='text-sm text-muted-foreground'>
+              Application information, credential security, and sanitized support tools.
             </p>
           </div>
           {closeAction}
         </header>
 
         <FieldGroup>
-          <Field orientation='horizontal'>
-            <div className='min-w-0 flex-1'>
-              <FieldTitle id='theme-mode'>Theme mode</FieldTitle>
-              <FieldDescription>Follow the system or choose a fixed appearance.</FieldDescription>
-            </div>
-            <ToggleGroup
-              type='single'
-              value={theme}
-              aria-labelledby='theme-mode'
-              variant='outline'
-              onValueChange={(value) => {
-                if (value) void onTheme(value as ThemePreference)
-              }}
-            >
-              <ToggleGroupItem value='system'>
-                <Monitor /> System
-              </ToggleGroupItem>
-              <ToggleGroupItem value='light'>
-                <Sun /> Light
-              </ToggleGroupItem>
-              <ToggleGroupItem value='dark'>
-                <Moon /> Dark
-              </ToggleGroupItem>
-            </ToggleGroup>
+          <Field orientation='responsive'>
+            <FieldContent className='min-w-0'>
+              <FieldTitle>{appInfo?.name ?? 'WriteLLM'}</FieldTitle>
+              <FieldDescription>A local-first AI-assisted writing workspace.</FieldDescription>
+            </FieldContent>
+            <Badge variant='outline'>Version {appInfo?.version ?? 'unavailable'}</Badge>
           </Field>
 
-          <Field>
-            <FieldTitle id='accent-color'>UI accent</FieldTitle>
-            <FieldDescription>
-              A bounded semantic palette keeps light and dark contrast predictable.
-            </FieldDescription>
-            <ToggleGroup
-              type='single'
-              value={accent}
-              aria-labelledby='accent-color'
-              variant='outline'
-              className='flex-wrap justify-start'
-              onValueChange={(value) => {
-                if (value) void onAccent(value as AccentPreference)
-              }}
-            >
-              {(['neutral', 'blue', 'green', 'violet', 'rose', 'orange'] as const).map((value) => (
-                <ToggleGroupItem key={value} value={value}>
-                  <Palette /> {capitalize(value)}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </Field>
-
-          <Field>
-            <FieldTitle id='approval-mode'>Default Agent approval</FieldTitle>
-            <FieldDescription>Applied to newly created conversations.</FieldDescription>
-            <ToggleGroup
-              type='single'
-              value={approvalMode}
-              aria-labelledby='approval-mode'
-              variant='outline'
-              className='flex-wrap justify-start'
-              onValueChange={(value) => {
-                if (value) void onApprovalMode(value as AgentApprovalMode)
-              }}
-            >
-              <ToggleGroupItem value='manual'>Manual</ToggleGroupItem>
-              <ToggleGroupItem value='section_auto'>Write Auto</ToggleGroupItem>
-              <ToggleGroupItem value='yolo'>YOLO</ToggleGroupItem>
-            </ToggleGroup>
-          </Field>
-
-          <Field>
-            <FieldTitle id='citation-display'>Citation display</FieldTitle>
-            <FieldDescription>
-              Choose how canonical source citations appear while editing. Stored manuscript text
-              remains unchanged.
-            </FieldDescription>
-            <ToggleGroup
-              type='single'
-              value={citationDisplayMode}
-              aria-labelledby='citation-display'
-              variant='outline'
-              className='flex-wrap justify-start'
-              onValueChange={(value) => {
-                if (value) void onCitationDisplayMode(value as CitationDisplayMode)
-              }}
-            >
-              <ToggleGroupItem value='full'>Full</ToggleGroupItem>
-              <ToggleGroupItem value='numbered'>[1]</ToggleGroupItem>
-              <ToggleGroupItem value='icon'>Icon</ToggleGroupItem>
-            </ToggleGroup>
-          </Field>
-
-          <Field orientation='horizontal'>
-            <div className='min-w-0 flex-1'>
+          <Field orientation='responsive'>
+            <FieldContent className='min-w-0'>
               <FieldTitle>Credential security</FieldTitle>
               <FieldDescription>
-                Provider secrets remain encrypted in Electron Main and are never returned here.
+                Provider secrets remain in Electron Main and are never returned to Settings.
               </FieldDescription>
-            </div>
-            <Badge
-              variant={snapshot?.credentialBackend.securePersistence ? 'outline' : 'destructive'}
-            >
-              <KeyRound /> {snapshot?.credentialBackend.backend ?? 'Unavailable'}
+            </FieldContent>
+            <Badge variant={credentialBackend?.securePersistence ? 'outline' : 'destructive'}>
+              <KeyRound />
+              {credentialBackend === undefined
+                ? 'Unavailable'
+                : `${credentialBackend.securePersistence ? 'Secure' : 'Not secure'} · ${credentialBackend.backend}`}
             </Badge>
           </Field>
 
-          <Field orientation='horizontal'>
-            <div className='min-w-0 flex-1'>
+          {credentialBackend?.warning ? (
+            <Alert variant='destructive'>
+              <ShieldAlert />
+              <AlertTitle>Secure credential storage unavailable</AlertTitle>
+              <AlertDescription>{credentialBackend.warning}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <Field orientation='responsive'>
+            <FieldContent className='min-w-0'>
               <FieldTitle>Diagnostics</FieldTitle>
               <FieldDescription>
-                Inspect logs or export a sanitized support bundle.
+                Inspect application logs or export the existing sanitized support bundle.
               </FieldDescription>
-            </div>
-            <div className='flex flex-wrap justify-end gap-2'>
+            </FieldContent>
+            <div className='flex flex-wrap gap-2'>
               <Button variant='outline' onClick={onOpenLogs}>
                 <FolderOpen data-icon='inline-start' /> Open logs
               </Button>
@@ -496,4 +670,8 @@ function SettingsCloseButton(): React.JSX.Element {
 
 function capitalize(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
+}
+
+function isProviderSection(section: SettingsSection): section is ProviderRole {
+  return ['agent', 'embedding', 'rerank', 'mineru', 'image'].includes(section)
 }

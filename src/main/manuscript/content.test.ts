@@ -109,9 +109,138 @@ describe('section content processing', () => {
     expect(agent).toContain('E = mc^2')
   })
 
+  it('treats inline math as structured content for counts and bounded Agent text', () => {
+    const content = [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'alpha' },
+          { type: 'math', content: 'E = mc^2' },
+          { type: 'text', text: 'beta' }
+        ],
+        children: []
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [
+                  { type: 'math', content: 'x+y' },
+                  { type: 'text', text: 'cell' }
+                ]
+              ]
+            }
+          ]
+        },
+        children: []
+      }
+    ]
+    expect(extractSectionText(content)).toBe('alpha\nbeta\n\ncell')
+    expect(countSectionText(extractSectionText(content))).toEqual({
+      wordCount: 3,
+      characterCount: 13
+    })
+    expect(extractSectionAgentText(content)).toBe('alpha$E = mc^2$beta\n$x+y$cell')
+  })
+
+  it('does not recognize or remove readable-citation syntax across inline math', () => {
+    const content = [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '[Source: Re' },
+          { type: 'math', content: 'x' },
+          { type: 'text', text: 'search]' }
+        ],
+        children: []
+      }
+    ]
+    const prepared = prepareSectionContent(content)
+    expect(prepared.wordCount).toBe(3)
+    expect(prepared.characterCount).toBe(17)
+  })
+
   it('rejects values that cannot be losslessly represented as JSON', () => {
     expect(() => prepareSectionContent([{ content: [{ text: undefined }] }])).toThrow(
       'not JSON serializable'
     )
+  })
+
+  it.each([
+    [
+      'schema v1 text',
+      [
+        {
+          id: 'v1-paragraph',
+          type: 'paragraph',
+          props: {
+            backgroundColor: 'default',
+            textColor: 'default',
+            textAlignment: 'left'
+          },
+          content: [{ type: 'text', text: 'Legacy text', styles: {} }],
+          children: []
+        }
+      ]
+    ],
+    [
+      'schema v2 rich media',
+      [
+        {
+          id: 'v2-mermaid',
+          type: 'mermaid',
+          props: {
+            textAlignment: 'center',
+            source: 'flowchart LR\nA --> B',
+            caption: 'Legacy flow',
+            previewWidth: 720
+          },
+          children: []
+        },
+        {
+          id: 'v2-math',
+          type: 'math',
+          props: {
+            textAlignment: 'center',
+            source: 'E = mc^2',
+            caption: 'Legacy equation',
+            previewWidth: 720
+          },
+          children: []
+        }
+      ]
+    ],
+    [
+      'schema v3 figure metadata',
+      [
+        {
+          id: 'v3-image',
+          type: 'image',
+          props: {
+            backgroundColor: 'default',
+            textAlignment: 'center',
+            name: 'Current image',
+            url: 'writellm-asset:019d0000-0000-4000-8000-000000000454',
+            caption: 'Current caption',
+            figureId: 'figure:section:v3-image',
+            altText: 'Current alternative',
+            showPreview: true,
+            previewWidth: 512
+          },
+          children: []
+        }
+      ]
+    ]
+  ] as const)('keeps %s JSON and content hashes stable across a no-op save', (_name, content) => {
+    const first = prepareSectionContent(structuredClone(content) as unknown as unknown[])
+    const reopened = JSON.parse(first.contentJson) as unknown[]
+    const second = prepareSectionContent(reopened)
+
+    expect(second.content).toEqual(first.content)
+    expect(second.contentJson).toBe(first.contentJson)
+    expect(second.contentHash).toBe(first.contentHash)
   })
 })

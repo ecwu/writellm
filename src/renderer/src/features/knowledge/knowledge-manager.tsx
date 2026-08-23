@@ -64,6 +64,7 @@ export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
   onOpenManuscript(): void
+  onOpenNotebook?(): void
   onOpenPreview(): void
   onOpenAssets(): void
   onOpenChecks(): void
@@ -256,6 +257,7 @@ export function KnowledgeManager(props: {
           activeWorkspace='knowledge'
           onOpenPreview={props.onOpenPreview}
           onOpenKnowledge={() => undefined}
+          onOpenNotebook={props.onOpenNotebook}
           onOpenAssets={props.onOpenAssets}
           onOpenChecks={props.onOpenChecks}
           onOpenManuscript={props.onOpenManuscript}

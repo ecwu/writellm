@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { contentHashSchema } from './manuscript'
+import { contentHashSchema, inlineMathSourceSchema } from './manuscript'
 import {
   MAX_MANUSCRIPT_IMPORT_SECTIONS,
   MAX_MANUSCRIPT_IMPORT_SOURCE_BYTES
@@ -20,19 +20,23 @@ const findingSchema = z
   })
   .strict()
 
-const inlineSchema = z
-  .object({
-    text: z.string().max(100_000),
-    styles: z
-      .object({
-        bold: z.boolean().optional(),
-        italic: z.boolean().optional(),
-        underline: z.boolean().optional(),
-        code: z.boolean().optional()
-      })
-      .strict()
-  })
-  .strict()
+const inlineSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('text'),
+      text: z.string().max(100_000),
+      styles: z
+        .object({
+          bold: z.boolean().optional(),
+          italic: z.boolean().optional(),
+          underline: z.boolean().optional(),
+          code: z.boolean().optional()
+        })
+        .strict()
+    })
+    .strict(),
+  z.object({ type: z.literal('math'), source: inlineMathSourceSchema }).strict()
+])
 
 const latexImportNodeSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('paragraph'), content: z.array(inlineSchema).max(10_000) }).strict(),

@@ -126,6 +126,11 @@ describe('publication figure nodes', () => {
         ? first.nodes[1].content.find((node) => node.type === 'citation')
         : null
     ).toMatchObject({ type: 'citation', number: 1, title: 'Research Source', pageIndex: 1 })
+    expect(
+      first.nodes[1]?.type === 'paragraph'
+        ? first.nodes[1].content.find((node) => node.type === 'math')
+        : null
+    ).toEqual({ type: 'math', source: 'E = mc^2' })
     expect(first.ready).toBe(false)
     expect(first.findings.map((finding) => finding.code)).toEqual([
       'unresolved_citation',
@@ -157,7 +162,8 @@ function publicationManuscript(
           type: 'text',
           text: 'Evidence [Source: Research Source, p. 2].',
           styles: { italic: true }
-        }
+        },
+        { type: 'math', content: 'E = mc^2' }
       ],
       children: []
     },
@@ -242,7 +248,7 @@ function entry(
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       content,
-      contentSchemaVersion: 3,
+      contentSchemaVersion: 4,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 0,

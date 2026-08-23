@@ -36,6 +36,7 @@ import {
   type AgentProviderCatalog,
   type AgentProviderPresetSummary
 } from '../../shared/contracts/providers'
+import type { AgentModelLimits } from '../../shared/contracts/agent'
 import { resolveModelsDevProviderLogoId } from '../../shared/models-dev-provider-logos'
 import type { AppDatabase } from '../app-db/connection'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
@@ -110,6 +111,49 @@ export interface ResolvedAgentCatalogModel {
   timeoutMs: number
   model: Model<Api>
   auth: AuthResult
+}
+
+export function agentProviderConfigFromResolved(
+  resolved: ResolvedAgentCatalogModel
+): Extract<import('../../shared/contracts/providers').ProviderConfig, { role: 'agent' }> {
+  return providerConfigSchema.parse({
+    role: 'agent',
+    providerId: resolved.providerId,
+    presetId: resolved.presetId,
+    providerName: resolved.presetName,
+    model: resolved.model.id,
+    modelName: resolved.model.name,
+    api: resolved.model.api,
+    baseUrl: resolved.auth.auth.baseUrl ?? resolved.model.baseUrl,
+    modelRevision: `pi-0.80.10:${resolved.model.api}`.slice(0, 256),
+    contextWindowTokens: resolved.model.contextWindow,
+    timeoutMs: resolved.timeoutMs,
+    batchLimit: 1,
+    embeddingDimension: null,
+    fileSizeLimitMb: null
+  }) as Extract<import('../../shared/contracts/providers').ProviderConfig, { role: 'agent' }>
+}
+
+export function agentCredentialFromResolved(resolved: ResolvedAgentCatalogModel): string {
+  return JSON.stringify({
+    ...(resolved.auth.auth.apiKey === undefined ? {} : { apiKey: resolved.auth.auth.apiKey }),
+    ...(resolved.auth.auth.headers === undefined ? {} : { headers: resolved.auth.auth.headers }),
+    ...(resolved.auth.env === undefined ? {} : { env: resolved.auth.env })
+  })
+}
+
+export function agentModelLimitsFromResolved(
+  resolved: ResolvedAgentCatalogModel,
+  resolvedAt: Date = new Date()
+): AgentModelLimits {
+  return {
+    contextWindowTokens: resolved.model.contextWindow,
+    inputLimitTokens: null,
+    outputLimitTokens: resolved.model.maxTokens,
+    source: 'models_dev',
+    catalogModelKey: `${resolved.providerId}:${resolved.model.id}`.slice(0, 500),
+    resolvedAt: resolvedAt.toISOString()
+  }
 }
 
 export function clampResolvedAgentThinkingLevel(

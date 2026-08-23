@@ -25,9 +25,36 @@ describe('PDF publication', () => {
     expect(result.html).toContain('Table of Contents')
     expect(result.html).toContain('<span>2</span>')
     expect(result.html).toContain('katex')
+    expect(result.html).toContain('class="inline-math"')
     expect(result.losses).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'mermaid_source_fallback' })])
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'math_text_fallback' }),
+        expect.objectContaining({ code: 'mermaid_source_fallback' })
+      ])
     )
+  })
+
+  it('never turns hostile inline math into links, remote resources, HTML, or extreme layout', () => {
+    const assembly = fixtureAssembly()
+    const paragraph = assembly.nodes.find((node) => node.type === 'paragraph')
+    if (paragraph?.type !== 'paragraph') throw new Error('Fixture paragraph is missing')
+    paragraph.content = [
+      { type: 'math', source: String.raw`\href{https://evil.example}{click}` },
+      { type: 'math', source: String.raw`\includegraphics{https://evil.example/pixel.png}` },
+      { type: 'math', source: String.raw`\htmlClass{danger}{x}` },
+      { type: 'math', source: String.raw`\rule{9999em}{1em}` }
+    ]
+
+    const result = renderPublicationHtml({
+      assembly,
+      resolveAssetUrl: (id) => `writellm-pdf-asset://asset/${id}`,
+      tableOfContents: false
+    })
+    expect(result.losses.filter((loss) => loss.code === 'math_text_fallback')).toHaveLength(4)
+    expect(result.html).not.toContain('<a href="https://evil.example')
+    expect(result.html).not.toContain('<img src="https://evil.example')
+    expect(result.html).not.toContain('class="danger"')
+    expect(result.html).not.toContain('style="height:9999em')
   })
 
   it('uses one locked-down hidden window, two print passes, and destroys it', async () => {
@@ -175,6 +202,50 @@ describe('PDF publication', () => {
     expect(destroyed).toBe(true)
   })
 
+  it('fails closed and destroys the hidden window when PDF.js receives malformed output', async () => {
+    const failureBytes = Buffer.from('%PDF-1.7\nmalformed')
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    let destroyed = false
+    const destroy = vi.fn(() => {
+      destroyed = true
+    })
+    const createWindow = vi.fn((_options) => ({
+      loadURL: async () => undefined,
+      isDestroyed: () => destroyed,
+      destroy,
+      webContents: {
+        printToPDF: async () => failureBytes,
+        stop: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        session: {
+          setPermissionRequestHandler: vi.fn(),
+          protocol: { handle: vi.fn() }
+        }
+      }
+    }))
+    const renderer = createPdfPublicationRenderer({
+      createWindow: createWindow as never,
+      createId: () => 'malformed'
+    })
+
+    await expect(
+      renderer({
+        assembly: fixtureAssembly(),
+        readAsset: async () => Buffer.from('image'),
+        log
+      })
+    ).rejects.toThrow()
+    expect(destroy).toHaveBeenCalledOnce()
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'manuscript.publication.pdf_render.failed',
+        err: expect.any(Error),
+        printPasses: 1
+      }),
+      expect.any(String)
+    )
+  })
+
   it('logs blocking preflight findings before rejecting', async () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const createWindow = vi.fn()
@@ -263,6 +334,8 @@ function fixtureAssembly(): PublicationAssembly {
         content: [
           { type: 'text', text: 'Evidence ', style: { ...style(), bold: true } },
           { type: 'citation', number: 1, title: 'Source', raw: '[Source]' },
+          { type: 'math', source: 'E = mc^2' },
+          { type: 'math', source: '\\input{/private/secret}' },
           {
             type: 'link',
             href: 'https://example.com/research?a=1&b=2',

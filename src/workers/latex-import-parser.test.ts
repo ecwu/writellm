@@ -46,12 +46,9 @@ Editable body.
     expect(JSON.stringify(result.sections)).toContain('First')
     expect(JSON.stringify(result.sections)).toContain('第二')
     expect(result.losses.map((finding) => finding.code)).toEqual(
-      expect.arrayContaining([
-        'comment_preserved_inert',
-        'inline_math_text_fallback',
-        'footnote_text_fallback'
-      ])
+      expect.arrayContaining(['comment_preserved_inert', 'footnote_text_fallback'])
     )
+    expect(JSON.stringify(result.sections)).toContain('"type":"math","source":"x^{2}"')
     expect(result.unsupported.map((finding) => finding.code)).toEqual(
       expect.arrayContaining(['citation_unresolved', 'latex_construct_preserved_inert'])
     )
@@ -182,6 +179,20 @@ Alpha & 2
         source: deeplyNested
       })
     ).toThrow(/nesting/iu)
+  })
+
+  it('degrades oversized inline mathematics to bounded code text', () => {
+    const formula = '界'.repeat(2_731)
+    const source = String.raw`\begin{document}\section{Formula}$${formula}$\end{document}`
+    const result = parseLatexImport({
+      type: 'latex-import-parse',
+      requestId,
+      sourceHash: hash(source),
+      source
+    })
+    expect(result.losses.map((finding) => finding.code)).toContain('inline_math_size_fallback')
+    expect(JSON.stringify(result.sections)).not.toContain('"type":"math"')
+    expect(JSON.stringify(result.sections)).toContain('"code":true')
   })
 })
 

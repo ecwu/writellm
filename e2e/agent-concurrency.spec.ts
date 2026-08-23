@@ -187,6 +187,7 @@ test(
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect.poll(() => pendingAgentResponses.length).toBe(1)
       await expect(panel.getByTestId('agent-status')).toContainText(/Preparing|Loading|Writing/)
+      await expect(panel.getByTestId('agent-thinking-indicator')).toBeVisible()
 
       await panel.getByTestId('agent-conversation-switcher').click()
       await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()

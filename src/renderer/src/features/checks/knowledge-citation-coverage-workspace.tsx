@@ -54,6 +54,7 @@ export function KnowledgeCitationCoverageWorkspace(props: {
   onOpenManuscript(): void
   onOpenPreview(): void
   onOpenKnowledge(): void
+  onOpenNotebook?(): void
   onOpenAssets(): void
   onOpenReferences(): void
   onOpenIssues(): void
@@ -157,6 +158,7 @@ export function KnowledgeCitationCoverageWorkspace(props: {
           onOpenPreview={props.onOpenPreview}
           onOpenChecks={() => undefined}
           onOpenKnowledge={props.onOpenKnowledge}
+          onOpenNotebook={props.onOpenNotebook}
           onOpenAssets={props.onOpenAssets}
           onOpenManuscript={props.onOpenManuscript}
           onOpenReferences={props.onOpenReferences}

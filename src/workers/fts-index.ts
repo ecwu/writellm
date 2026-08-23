@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import type { FtsSearchMode } from '../shared/contracts/indexing'
 import type { KnowledgeSearchFilters } from '../shared/contracts/search'
 
 export interface FtsCandidate {
@@ -14,10 +15,40 @@ export class FtsIndex {
     generationId: string,
     rawQuery: string,
     limit: number,
-    filters: KnowledgeSearchFilters
+    filters: KnowledgeSearchFilters,
+    mode: FtsSearchMode = 'phrase'
   ): FtsCandidate[] {
     const query = rawQuery.normalize('NFC').trim()
     if (query.length === 0 || limit < 1 || limit > 1_000) return []
+    if (mode === 'terms') return this.searchTerms(generationId, query, limit, filters)
+    return this.searchPhrase(generationId, query, limit, filters)
+  }
+
+  private searchTerms(
+    generationId: string,
+    query: string,
+    limit: number,
+    filters: KnowledgeSearchFilters
+  ): FtsCandidate[] {
+    const best = new Map<string, FtsCandidate>()
+    for (const term of lexicalTerms(query)) {
+      for (const candidate of this.searchPhrase(generationId, term, limit, filters)) {
+        const prior = best.get(candidate.chunkId)
+        if (prior === undefined || candidate.rank < prior.rank)
+          best.set(candidate.chunkId, candidate)
+      }
+    }
+    return [...best.values()]
+      .sort((left, right) => left.rank - right.rank || left.chunkId.localeCompare(right.chunkId))
+      .slice(0, limit)
+  }
+
+  private searchPhrase(
+    generationId: string,
+    query: string,
+    limit: number,
+    filters: KnowledgeSearchFilters
+  ): FtsCandidate[] {
     if (isShortHanQuery(query)) return this.searchSubstring(generationId, query, limit, filters)
     const short = Array.from(query).length < 3
     const strategies = short ? (['unicode61'] as const) : (['unicode61', 'trigram'] as const)
@@ -78,6 +109,65 @@ export class FtsIndex {
       strategy: 'substring' as const
     }))
   }
+}
+
+const QUESTION_STOP_WORDS = new Set([
+  'about',
+  'appears',
+  'are',
+  'does',
+  'exact',
+  'explain',
+  'for',
+  'from',
+  'how',
+  'in',
+  'into',
+  'is',
+  'of',
+  'on',
+  'phrase',
+  'say',
+  'says',
+  'source',
+  'the',
+  'this',
+  'to',
+  'what',
+  'when',
+  'where',
+  'which',
+  'who',
+  'why',
+  'with'
+])
+
+function lexicalTerms(query: string): string[] {
+  const terms: string[] = []
+  const seen = new Set<string>()
+  for (const match of query.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const raw = match[0]
+    const characters = Array.from(raw)
+    const candidates = characters.every((character) => /\p{Script=Han}/u.test(character))
+      ? characters.length <= 3
+        ? [raw]
+        : characters.slice(0, -2).map((_, index) => characters.slice(index, index + 3).join(''))
+      : [raw.toLocaleLowerCase()]
+    for (const candidate of candidates) {
+      if (
+        seen.has(candidate) ||
+        QUESTION_STOP_WORDS.has(candidate) ||
+        (/^\p{N}+$/u.test(candidate) && candidate.length < 4) ||
+        Array.from(candidate).length < 2
+      ) {
+        continue
+      }
+      seen.add(candidate)
+      terms.push(candidate)
+      if (terms.length === 24) return terms
+    }
+  }
+  return terms.length === 0 ? [query] : terms
 }
 
 function isShortHanQuery(query: string): boolean {

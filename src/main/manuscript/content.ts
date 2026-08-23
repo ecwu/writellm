@@ -52,6 +52,7 @@ function extractInline(value: unknown): string {
   if (Array.isArray(value)) return value.map(extractInline).join('')
   if (value === null || typeof value !== 'object') return ''
   const record = value as Record<string, unknown>
+  if (record.type === 'math' && typeof record.content === 'string') return '\n'
   if (typeof record.text === 'string') return record.text
   if (typeof record.content === 'string') return record.content
   if (Array.isArray(record.content)) return extractInline(record.content)
@@ -101,6 +102,33 @@ export function extractSectionText(content: readonly unknown[]): string {
 }
 
 export function extractSectionAgentText(content: readonly unknown[]): string {
+  const extractAgentTableCell = (value: unknown): string => {
+    if (Array.isArray(value)) {
+      const hasBlocks = value.some(
+        (item) => item !== null && typeof item === 'object' && 'children' in item
+      )
+      return hasBlocks ? value.map(extract).join('\n') : extractAgentInline(value)
+    }
+    return extractAgentInline(value)
+  }
+  const extractAgentTableRow = (value: unknown): string => {
+    if (value === null || typeof value !== 'object') return ''
+    const cells = (value as Record<string, unknown>).cells
+    return Array.isArray(cells) ? cells.map(extractAgentTableCell).join('\n') : ''
+  }
+  const extractAgentInline = (value: unknown): string => {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.map(extractAgentInline).join('')
+    if (value === null || typeof value !== 'object') return ''
+    const record = value as Record<string, unknown>
+    if (record.type === 'math' && typeof record.content === 'string') {
+      return `$${record.content.slice(0, 8_192)}$`
+    }
+    if (typeof record.text === 'string') return record.text
+    if (Array.isArray(record.content)) return extractAgentInline(record.content)
+    if (Array.isArray(record.rows)) return record.rows.map(extractAgentTableRow).join('\n')
+    return ''
+  }
   const extract = (value: unknown): string => {
     if (value === null || typeof value !== 'object') return ''
     const block = value as Record<string, unknown>
@@ -118,7 +146,10 @@ export function extractSectionAgentText(content: readonly unknown[]): string {
         .filter((item): item is string => typeof item === 'string' && item.length > 0)
         .join('\n')
     } else {
-      body = extractBlock({ ...block, children: [] })
+      body =
+        block.content !== undefined
+          ? extractAgentInline(block.content)
+          : extractBlock({ ...block, children: [] })
     }
     const children = Array.isArray(block.children) ? block.children.map(extract).join('\n') : ''
     return body && children ? `${body}\n${children}` : body || children

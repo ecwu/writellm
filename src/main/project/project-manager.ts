@@ -18,6 +18,7 @@ import { KnowledgeImportService } from '../knowledge/knowledge-import-service'
 import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
 import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
 import type { KnowledgeMappingService } from '../knowledge/knowledge-mapping-service'
+import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import {
@@ -313,6 +314,7 @@ export interface ProjectManagerOptions {
     manuscript: ManuscriptService
     editorPersistence: EditorPersistenceService
     manuscriptAssets: ManuscriptAssetService
+    knowledgeImports: KnowledgeImportService
     log: Pick<Logger, 'info' | 'warn' | 'error'>
   }) => {
     mineruWorkflow: MineruWorkflowService
@@ -320,6 +322,7 @@ export interface ProjectManagerOptions {
     knowledgeMapping?: KnowledgeMappingService
     projectIndex?: ProjectIndexService
     retrieval?: RetrievalService
+    knowledgeChat?: KnowledgeChatService
     agentSessions?: AgentSessionService
     agentMutations?: MutationProposalService
     agentChangeSets?: ChangeSetBatchService
@@ -1636,7 +1639,35 @@ export class ProjectManager {
         log: this.#logger
       })
       await editorPersistence.repairAll()
-      const knowledgeRuntime = this.#createKnowledgeRuntime?.({
+      let knowledgeRuntime:
+        | ReturnType<NonNullable<ProjectManagerOptions['createKnowledgeRuntime']>>
+        | undefined
+      const knowledgeImports = new KnowledgeImportService({
+        projectRoot: canonicalRoot,
+        filesystem,
+        projectId: manifest.projectId,
+        database,
+        log: this.#logger,
+        onStored: async (item) => {
+          if (knowledgeRuntime === undefined) return
+          try {
+            await knowledgeRuntime.mineruWorkflow.start(item.knowledgeItemId)
+          } catch (err) {
+            this.#logger.error(
+              {
+                event: 'mineru.parse.auto_queue_failed',
+                err,
+                projectId: manifest.projectId,
+                knowledgeItemId: item.knowledgeItemId
+              },
+              'Failed to queue MinerU parse after knowledge import'
+            )
+          }
+        },
+        onDeleted: async (knowledgeItemId) =>
+          knowledgeRuntime?.projectIndex?.requestItemDelete(knowledgeItemId)
+      })
+      knowledgeRuntime = this.#createKnowledgeRuntime?.({
         projectRoot: canonicalRoot,
         filesystem,
         projectId: manifest.projectId,
@@ -1646,38 +1677,10 @@ export class ProjectManager {
         manuscript,
         editorPersistence,
         manuscriptAssets,
+        knowledgeImports,
         log: this.#logger
       })
       const projectIndex = knowledgeRuntime?.projectIndex
-      const knowledgeImports = new KnowledgeImportService({
-        projectRoot: canonicalRoot,
-        filesystem,
-        projectId: manifest.projectId,
-        database,
-        log: this.#logger,
-        onStored:
-          knowledgeRuntime === undefined
-            ? undefined
-            : async (item) => {
-                try {
-                  await knowledgeRuntime.mineruWorkflow.start(item.knowledgeItemId)
-                } catch (err) {
-                  this.#logger.error(
-                    {
-                      event: 'mineru.parse.auto_queue_failed',
-                      err,
-                      projectId: manifest.projectId,
-                      knowledgeItemId: item.knowledgeItemId
-                    },
-                    'Failed to queue MinerU parse after knowledge import'
-                  )
-                }
-              },
-        onDeleted:
-          projectIndex === undefined
-            ? undefined
-            : async (knowledgeItemId) => projectIndex.requestItemDelete(knowledgeItemId)
-      })
       runtime = this.#createRuntime({
         projectId: manifest.projectId,
         projectSessionId,
@@ -1705,6 +1708,7 @@ export class ProjectManager {
         knowledgeMapping: knowledgeRuntime?.knowledgeMapping ?? null,
         projectIndex: projectIndex ?? null,
         retrieval: knowledgeRuntime?.retrieval ?? null,
+        knowledgeChat: knowledgeRuntime?.knowledgeChat ?? null,
         agentSessions: knowledgeRuntime?.agentSessions ?? null,
         agentMutations: knowledgeRuntime?.agentMutations ?? null,
         agentChangeSets: knowledgeRuntime?.agentChangeSets ?? null,

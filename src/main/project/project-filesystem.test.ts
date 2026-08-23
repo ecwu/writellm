@@ -63,25 +63,28 @@ describe('ProjectFilesystem', () => {
       'knowledge/parsed/revision-1/raw/extracted',
       'fresh'
     ]
-  ] as const)('rejects a linked %s boundary', async (_label, linkedPath, operationPath, operation) => {
-    const root = await mkdtemp(join(tmpdir(), 'writellm-project-filesystem-'))
-    const outside = await mkdtemp(join(tmpdir(), 'writellm-project-filesystem-outside-'))
-    directories.push(root, outside)
-    await writeFile(join(outside, 'sentinel.txt'), 'outside')
-    const parentSegments = linkedPath.split('/').slice(0, -1)
-    if (parentSegments.length > 0) {
-      await mkdir(join(root, ...parentSegments), { recursive: true })
-    }
-    await symlink(outside, join(root, ...linkedPath.split('/')))
-    const filesystem = new ProjectFilesystem(root)
+  ] as const)(
+    'rejects a linked %s boundary',
+    async (_label, linkedPath, operationPath, operation) => {
+      const root = await mkdtemp(join(tmpdir(), 'writellm-project-filesystem-'))
+      const outside = await mkdtemp(join(tmpdir(), 'writellm-project-filesystem-outside-'))
+      directories.push(root, outside)
+      await writeFile(join(outside, 'sentinel.txt'), 'outside')
+      const parentSegments = linkedPath.split('/').slice(0, -1)
+      if (parentSegments.length > 0) {
+        await mkdir(join(root, ...parentSegments), { recursive: true })
+      }
+      await symlink(outside, join(root, ...linkedPath.split('/')))
+      const filesystem = new ProjectFilesystem(root)
 
-    const action =
-      operation === 'ensure'
-        ? filesystem.ensureDirectory(operationPath)
-        : operation === 'remove'
-          ? filesystem.removeTree(operationPath)
-          : filesystem.createFreshDirectory(operationPath)
-    await expect(action).rejects.toMatchObject({ code: 'path_symbolic_link' })
-    expect(await readFile(join(outside, 'sentinel.txt'), 'utf8')).toBe('outside')
-  })
+      const action =
+        operation === 'ensure'
+          ? filesystem.ensureDirectory(operationPath)
+          : operation === 'remove'
+            ? filesystem.removeTree(operationPath)
+            : filesystem.createFreshDirectory(operationPath)
+      await expect(action).rejects.toMatchObject({ code: 'path_symbolic_link' })
+      expect(await readFile(join(outside, 'sentinel.txt'), 'utf8')).toBe('outside')
+    }
+  )
 })

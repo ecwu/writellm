@@ -229,6 +229,17 @@ function renderInline(
       if (node.type === 'link') {
         return `[${node.content.map((child) => renderStyledText(child, block, sectionId, losses)).join('')}](${node.href})`
       }
+      if (node.type === 'math') {
+        if (isMarkdownInlineMathSafe(node.content)) return `$${node.content}$`
+        addLoss(
+          losses,
+          'math_text_fallback',
+          sectionId,
+          block.id,
+          'Inline mathematics that could not round-trip through Markdown was emitted as code text.'
+        )
+        return renderCodeSpan(`$${node.content}$`)
+      }
       return renderStyledText(node, block, sectionId, losses)
     })
     .join('')
@@ -304,6 +315,11 @@ function numberInlineCitations(
     if (node.type === 'text') {
       const next = transformText(node)
       if (next !== null) transformed.push(next)
+      continue
+    }
+    if (node.type === 'math') {
+      offset += 1
+      transformed.push(node)
       continue
     }
     const children = node.content
@@ -529,9 +545,18 @@ function escapeInline(value: string): string {
 function inlinePlainText(content: readonly BlockNoteInlineContent[]): string {
   return content
     .map((node) =>
-      node.type === 'link' ? node.content.map((child) => child.text).join('') : node.text
+      node.type === 'link'
+        ? node.content.map((child) => child.text).join('')
+        : node.type === 'math'
+          ? '\uFFFC'
+          : node.text
     )
     .join('')
+}
+
+function isMarkdownInlineMathSafe(source: string): boolean {
+  if (source.length === 0 || /[\r\n\0]/u.test(source)) return false
+  return !/(^|[^\\])(?:\\\\)*\$/u.test(source)
 }
 
 function textContent(block: Block): readonly BlockNoteInlineContent[] {

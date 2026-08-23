@@ -4,31 +4,6 @@ Completed checkpoint details remain in the Phase files under
 `docs/implementation-todo/`. This chronology records cross-phase transitions and documentation
 maintenance without turning the active tracker back into a historical log.
 
-## 2026-08-13
-
-- Completed the remaining Phase 11 sequence (CP41A PDF, CP41B presets, CP36 Markdown import,
-  CP37A/37B LaTeX import, CP44 annotations, CP46 clone, and CP47A/47B templates) and the cumulative
-  final gate: `check:fast`, 178 Electron-hosted files / 904 tests plus the production build, all 25
-  recovery fixtures from 23 sources, clean scoped Impeccable and diff checks, and 38/38 fresh
-  Real-Electron scenarios. The no-identity macOS arm64 package gate produced the 0.2026.8.16 App,
-  DMG, and ZIP. A structured-lifecycle-logging pass over every Phase 11 module was then committed,
-  and local packaging was verified on Windows, macOS x64, and Linux through the added per-target
-  package commands.
-- Completed Checkpoint 40 under ADR 030. The shared publication assembly now emits a deterministic,
-  injection-bounded XeLaTeX/ctexart project with contained assets, readable non-fabricated
-  references, source hash, and explicit losses. Independent unified-latex parsing, 166 files /
-  860 tests, and the production build passed. Checkpoint 41A started next.
-- Completed Checkpoints 38 and 39. A deterministic non-authoritative publication assembly now
-  drives exact preflight navigation and fail-closed format conversion. The global export surface
-  produces editable canonicalized DOCX packages through the existing snapshot/asset/atomic
-  boundary, with independent OOXML and semantic reopen validation. `check:electron` passed 165
-  files / 857 tests plus the production build. Checkpoint 40 started next.
-- Completed Checkpoint 43B image iteration under ADR 029. Exact generated-figure targets now use
-  the ordinary Agent image tool and existing provider gateway; immutable candidates retain explicit
-  parent/model/Agent/tool lineage and become normal section proposals, preserving figure metadata
-  and revision undo. Focused coverage plus `check:electron` passed 164 files / 853 tests and the
-  production build. Checkpoint 38 started next in the authorized Phase 11 order.
-
 ## 2026-07-16
 
 - Started Checkpoint 19.5 to converge Checkpoint 11–19 implementation with
@@ -216,6 +191,20 @@ maintenance without turning the active tracker back into a historical log.
   recovery fixtures, scoped Impeccable detection, and diff checks.
 - Started Checkpoint 43B to iterate existing figures through the ordinary Agent image tool,
   immutable candidate lineage, and the existing exact proposal review/application authority.
+- Completed Checkpoint 43B image iteration under ADR 029. Exact generated-figure targets use the
+  ordinary Agent image tool and existing provider gateway; immutable candidates retain explicit
+  parent/model/Agent/tool lineage and become normal section proposals, preserving figure metadata
+  and revision undo. Focused coverage plus `check:electron` passed 164 files / 853 tests and the
+  production build.
+- Completed Checkpoints 38 and 39. A deterministic non-authoritative publication assembly drives
+  exact preflight navigation and fail-closed format conversion. The global export surface produces
+  editable canonicalized DOCX packages through the existing snapshot/asset/atomic boundary, with
+  independent OOXML and semantic reopen validation. `check:electron` passed 165 files / 857 tests
+  plus the production build.
+- Completed Checkpoint 40 under ADR 030. The shared publication assembly emits a deterministic,
+  injection-bounded XeLaTeX/ctexart project with contained assets, readable non-fabricated
+  references, source hash, and explicit losses. Independent unified-latex parsing, 166 files /
+  860 tests, and the production build passed.
 - Completed Checkpoint 41A PDF publication under accepted ADR 031. One Main-owned hidden,
   sandboxed Chromium renderer now produces tagged PDFs with mixed CJK/Latin text, figures,
   formulas, References, bookmarks, links, headers/footers, and bounded stabilized TOC page numbers
@@ -527,3 +516,86 @@ maintenance without turning the active tracker back into a historical log.
   commit received the annotated `v0.2026.8.18` tag. The App, DMG, and ZIP were rebuilt from that
   tagged revision. No push, hosted CI, Apple Developer ID signing, notarization, GitHub Release,
   promotion, or publication ran.
+- Reconciled the documentation after Checkpoints 48–61. The active plan and tracker now contain
+  only current state and compact routing; the former CP27–28 tracker evidence moved intact to
+  `implementation-todo/phase-agent-writing.md`; Phase 11 and Phase 12 completion markers, the
+  architecture amendment status through ADR 055, and the CP48 intermediate closure note now match
+  the implemented baseline. The chronology was restored to date order and Phase 12 gained a
+  complete checkpoint index. No architecture decision, product code, package, release, hosted CI,
+  commit, push, signing, notarization, promotion, or publication boundary changed.
+
+## 2026-08-20
+
+- Built the separately authorized Checkpoint 62 hands-on macOS arm64 App from the current dirty
+  worktree. The no-identity package gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
+  ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios, then produced
+  the unpacked App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag, push, hosted
+  CI, Apple Developer ID signature, notarization, release, promotion, or publication ran.
+- Completed Checkpoint 62. The global Settings Command remains one flat ordered peer list; General
+  now reads as Appearance, Writing, and Agent defaults, while Keyboard Shortcuts and About &
+  Diagnostics expose the actual fixed commands, application version, explicit credential-backend
+  security state and warning, logs directory action, and sanitized diagnostic export. Existing
+  Renderer-safe APIs and persistence paths were reused unchanged. Five focused Renderer tests,
+  `check:fast`, 188 Electron-hosted files / 1048 tests with three benchmark skips plus production
+  build, and the fresh 41/41 Real-Electron suite passed. Desktop and 620 px narrow screenshots,
+  preference persistence, mobile back navigation, focus return, axe, overflow, scoped Impeccable,
+  and diff checks passed. No ADR, shared contract, IPC, persistence, migration, dependency,
+  package/release action, hosted CI, commit, push, signing, notarization, promotion, or publication
+  ran.
+- Completed Checkpoint 63. The Agent sidebar now uses exact-pinned, reduced-motion-aware thinking
+  orbs for typed work states and a short one-shot border beam when review becomes actionable.
+  Brief fields, ordered Outline operations, Writing Rule actions, section text, and generated
+  images now render through one reusable semantic Proposal dispatcher in both the timeline and
+  Writing Task change set; legacy proposals retain their diff fallback, and presentation data
+  remains optional derived review data with no apply authority. Focused coverage passed 61 tests;
+  `check:fast`, 189 Electron-hosted files / 1054 tests with three benchmark skips plus production
+  build, and the fresh 41/41 Real-Electron suite passed. Full-width and 640 px screenshots,
+  dependency/reduced-motion review, frozen install, scoped Impeccable, and diff checks passed. A
+  mobile References E2E selector race found during the full gate was narrowed to the correct
+  responsive sidebar without changing product behavior. No package/release, hosted CI, commit,
+  push, signing, notarization, promotion, or publication action ran.
+- Built the separately authorized Checkpoint 63 hands-on macOS arm64 artifacts from the current
+  dirty worktree. The no-identity package gate verified Electron 43.1.0 / ABI 148, arm64 native
+  modules, ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios, then
+  produced the no-Team-ID App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag,
+  push, hosted CI, Apple Developer ID signing, notarization, release, promotion, or publication
+  ran.
+
+## 2026-08-23
+
+- Accepted ADR 056 and completed Checkpoint 64. The bounded dependency refresh upgraded Electron
+  43, BlockNote, PDF.js, Mermaid, Kysely, provider, Renderer, data, formatting, and test packages
+  without crossing the deferred toolchain, native-database, or Agent-runtime major boundaries.
+  Frozen installation passed; both production and complete audits report zero advisories; focused
+  coverage passed 5 files / 58 tests; `check:fast`, 192 Electron-hosted files / 1062 tests with
+  three benchmark skips plus production build, 25 recovery fixtures, and the fresh 42/42
+  Real-Electron suite passed. The no-identity macOS arm64 package gate verified Electron 43.4.1 /
+  ABI 148, arm64 native modules, 53,145 ASAR entries, 12/12 runtime smoke and 29/29 packaged E2E
+  scenarios, and DMG/ZIP structure. No candidate, release gate, hosted CI, commit, tag, push, Apple
+  Developer ID signing, notarization, promotion, or publication ran.
+- Built the separately authorized Checkpoint 64 hands-on macOS arm64 App for local trial from the
+  current dirty worktree. The unpacked-only no-identity package gate verified Electron 43.4.1 /
+  ABI 148, arm64 native modules, 53,145 ASAR entries, 12/12 packaged smoke scenarios, and 29/29
+  packaged E2E scenarios, then produced `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP,
+  candidate, release gate, hosted CI, commit, tag, push, Apple Developer ID signing, notarization,
+  promotion, or publication ran.
+- Accepted ADR 058 and completed Checkpoint 66. Knowledge remains the independent source-management
+  and exact-search workspace; the adjacent Notebook workspace now provides transient,
+  project-session-scoped, selected-source multi-turn chat with bounded hybrid retrieval, streamed
+  source-only answers, per-message validated citations, in-place citation preview, and metadata-only
+  model-request accounting. Focused coverage, `check:fast`, 198 Electron-hosted files / 1097 tests
+  with three benchmark skips plus production build, and the fresh 44/44 Real-Electron suite passed
+  with no flaky or skipped scenario. Database and diagnostic assertions found no question, answer,
+  evidence body, external response ID, or content-derived fingerprint. Checkpoint 65 returns as the
+  current incomplete checkpoint; no migration, dependency, package/release action, hosted CI,
+  commit, push, signing, notarization, promotion, or publication ran.
+- Completed the separately authorized `0.2026.8.21` candidate snapshot. Release metadata advanced;
+  the recovery fixture manifest was refreshed for the intentionally extended Knowledge/Notebook
+  scenario; and the packaged reopen smoke was aligned with the accepted schema-v4 migration. The
+  no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native
+  modules, 53,287 ASAR entries, all 26 recovery fixtures from 24 sources, 12/12 packaged smoke
+  scenarios, and 31/31 packaged E2E scenarios before producing
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean candidate commit receives the annotated
+  `v0.2026.8.21` tag, and both `main` and the tag are pushed under explicit user authorization.
+  Checkpoint 65 remains incomplete. No DMG, ZIP, hosted CI run, Apple Developer ID signing,
+  notarization, GitHub Release, promotion, or publication ran.

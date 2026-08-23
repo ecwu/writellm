@@ -275,6 +275,48 @@ $$
       expect.objectContaining({ code: 'citation_numbering', blockId: 'citation-2' })
     ])
   })
+
+  it('exports native inline math and reports delimiter-unsafe source fallback', () => {
+    const manuscript = manuscriptAssemblySchema.parse({
+      manuscriptId: 'manuscript-1',
+      outlineVersion: 1,
+      brief: {
+        manuscriptBriefId: 'brief-1',
+        manuscriptId: 'manuscript-1',
+        version: 1,
+        schemaVersion: 1,
+        title: 'Inline math export',
+        description: '',
+        topic: '',
+        targetAudience: '',
+        language: 'en',
+        styleTone: '',
+        scopeExclusions: '',
+        targetLength: '',
+        citationRequirements: '',
+        additionalInstructions: '',
+        extensible: {},
+        createdAt
+      },
+      sections: [
+        section('section-1', null, 1, 'Formula', [
+          textBlock('paragraph', 'inline-math', [
+            { type: 'text', text: 'Valid ', styles: {} },
+            { type: 'math', content: 'E = mc^2' },
+            { type: 'text', text: ' invalid ', styles: {} },
+            { type: 'math', content: 'x$y' }
+          ])
+        ])
+      ],
+      wordCount: 2,
+      characterCount: 12
+    })
+    const result = manuscriptToMarkdown(manuscript, (value) => value)
+    expect(result.markdown).toContain('Valid $E = mc^2$ invalid `$x$y$`')
+    expect(result.lossReport.losses).toContainEqual(
+      expect.objectContaining({ code: 'math_text_fallback', blockId: 'inline-math' })
+    )
+  })
 })
 
 function textBlock(
@@ -325,7 +367,7 @@ function section(
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       content,
-      contentSchemaVersion: 3,
+      contentSchemaVersion: 4,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 1,

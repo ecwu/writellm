@@ -5,6 +5,7 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
+import { isMathSourceStructurallySafe } from './math-source-safety'
 
 export interface LatexPublicationLoss {
   code:
@@ -130,25 +131,25 @@ function convertNode(
   switch (node.type) {
     case 'heading':
       return [
-        `\\${headingCommand(node.level)}{${inlineLatex(node.content)}}`,
+        `\\${headingCommand(node.level)}{${inlineLatex(node.content, node.target, losses)}}`,
         `\\label{${safeLabel('sec', node.target.sectionId, node.target.blockId)}}`,
         ''
       ]
     case 'paragraph':
-      return [inlineLatex(node.content), '']
+      return [inlineLatex(node.content, node.target, losses), '']
     case 'list_item': {
       const environment = node.kind === 'numbered' ? 'enumerate' : 'itemize'
       const marker =
         node.kind === 'check' ? `[${node.checked ? '$\\boxtimes$' : '$\\square$'}] ` : ''
       return [
         `\\begin{${environment}}`,
-        `  \\item ${marker}${inlineLatex(node.content)}`,
+        `  \\item ${marker}${inlineLatex(node.content, node.target, losses)}`,
         `\\end{${environment}}`,
         ''
       ]
     }
     case 'quote':
-      return ['\\begin{quote}', inlineLatex(node.content), '\\end{quote}', '']
+      return ['\\begin{quote}', inlineLatex(node.content, node.target, losses), '\\end{quote}', '']
     case 'code': {
       const content = safeListing(node.content)
       if (content.changed) recordListingLoss(node, losses)
@@ -174,7 +175,7 @@ function convertNode(
                   message: 'A row-spanning table cell was emitted without its row span.'
                 })
               }
-              const content = inlineLatex(cell.content)
+              const content = inlineLatex(cell.content, node.target, losses)
               return cell.colspan > 1 ? `\\multicolumn{${cell.colspan}}{l}{${content}}` : content
             })
             .join(' & ')} \\\\`
@@ -235,12 +236,26 @@ function convertNode(
   }
 }
 
-function inlineLatex(nodes: PublicationInlineNode[]): string {
+function inlineLatex(
+  nodes: PublicationInlineNode[],
+  target: { sectionId: string; blockId: string | null },
+  losses: LatexPublicationLoss[]
+): string {
   return nodes
     .map((node) => {
       if (node.type === 'citation') return `\\textsuperscript{[${node.number}]}`
       if (node.type === 'link') {
         return `\\href{${escapeUrl(node.href)}}{${node.children.map(styledText).join('')}}`
+      }
+      if (node.type === 'math') {
+        if (safeMath(node.source, false)) return `\\(${node.source}\\)`
+        losses.push({
+          code: 'math_text_fallback',
+          sectionId: target.sectionId,
+          blockId: target.blockId ?? '',
+          message: 'Unsafe or unsupported inline formula source was emitted as readable text.'
+        })
+        return `\\texttt{${escapeLatex(`$${node.source}$`)}}`
       }
       return styledText(node)
     })
@@ -321,21 +336,17 @@ function recordListingLoss(
   })
 }
 
-function safeMath(source: string): boolean {
-  if (
-    /\\(?:begin|end|input|include|write|openout|read|usepackage|documentclass|newcommand|renewcommand|def|edef|gdef|xdef|catcode|special|immediate|csname)\b/iu.test(
-      source
-    )
-  ) {
-    return false
-  }
+function safeMath(source: string, displayMode = true): boolean {
+  if (!isMathSourceStructurallySafe(source)) return false
   return !katex
     .renderToString(source, {
-      displayMode: true,
+      displayMode,
       output: 'mathml',
       throwOnError: false,
       strict: 'ignore',
-      trust: false
+      trust: false,
+      maxExpand: 1_000,
+      maxSize: 50
     })
     .includes('katex-error')
 }

@@ -11,6 +11,7 @@ import type {
   ReadableCitationResolutionResult
 } from '../../../../shared/contracts/search'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
+import { getMathSlashMenuItems } from '@blocknote/math-block'
 import {
   FormattingToolbar,
   FormattingToolbarController,
@@ -59,8 +60,15 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useTheme } from '@/theme-provider'
+import { notifyActionError } from '@/lib/notifications'
 import { CitationCandidatePicker, ExpandedCitationPreview } from '../knowledge/citation-preview'
-import { approvedEditorSchema, type ApprovedEditorBlock } from './editor-schema'
+import {
+  approvedEditorSchema,
+  nativeInlineMathExtensions,
+  toApprovedEditorDocument,
+  toCanonicalDocument
+} from './editor-schema'
+import { inlineMathGuardExtension, selectionContainsInlineMath } from './inline-math-guard'
 import { resolveProjectAssetUrl } from './project-asset-url'
 import {
   readableCitationExtension,
@@ -171,12 +179,17 @@ export const SectionEditor = forwardRef<
             children: []
           }
         ]
-      : (props.revision.content as ApprovedEditorBlock[])
+      : toApprovedEditorDocument(props.revision.content)
   const editor = useCreateBlockNote(
     {
       schema: approvedEditorSchema,
       initialContent,
       extensions: [
+        ...nativeInlineMathExtensions,
+        inlineMathGuardExtension({
+          onReject: () =>
+            notifyActionError('Inline formulas must be a single line and no larger than 8 KiB.')
+        }),
         readableCitationExtension({
           onActivate: (activation) => citationActivationHandlerRef.current(activation),
           getPresentation: () => citationPresentationRef.current
@@ -258,6 +271,19 @@ export const SectionEditor = forwardRef<
 
   const requestQuickAction = useCallback(
     (action: AgentQuickActionId): void => {
+      const proseMirrorSelection = editor.prosemirrorView.state.selection
+      if (
+        selectionContainsInlineMath(
+          editor.prosemirrorView.state.doc,
+          proseMirrorSelection.from,
+          proseMirrorSelection.to
+        )
+      ) {
+        props.onQuickActionError?.(
+          'Quick actions cannot include inline formulas. Select prose only, or ask the Agent to edit the whole block.'
+        )
+        return
+      }
       const selection = captureSelection()
       if (selection === null) {
         props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
@@ -271,7 +297,7 @@ export const SectionEditor = forwardRef<
       }
       props.onQuickActionRequest?.({ action }, selection)
     },
-    [captureSelection, props.onQuickActionError, props.onQuickActionRequest]
+    [captureSelection, editor, props.onQuickActionError, props.onQuickActionRequest]
   )
 
   useEffect(() => {
@@ -281,6 +307,19 @@ export const SectionEditor = forwardRef<
       if (!editor.prosemirrorView.hasFocus()) return
       event.preventDefault()
       event.stopPropagation()
+      const proseMirrorSelection = editor.prosemirrorView.state.selection
+      if (
+        selectionContainsInlineMath(
+          editor.prosemirrorView.state.doc,
+          proseMirrorSelection.from,
+          proseMirrorSelection.to
+        )
+      ) {
+        props.onQuickActionError?.(
+          'Quick actions cannot include inline formulas. Select prose only, or ask the Agent to edit the whole block.'
+        )
+        return
+      }
       if (captureSelection() === null) {
         props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
         return
@@ -363,7 +402,7 @@ export const SectionEditor = forwardRef<
           sectionId: base.sectionId,
           baseRevisionId: base.sectionRevisionId,
           baseContentHash: base.contentHash,
-          document: JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument,
+          document: toCanonicalDocument(editor.document),
           revisionSource
         }
         let conflict = false
@@ -523,9 +562,7 @@ export const SectionEditor = forwardRef<
         editable={!readOnly && saveState !== 'conflict'}
         onChange={() => {
           lastExactSelectionRef.current = null
-          props.onCitationDocumentChange?.(
-            JSON.parse(JSON.stringify(editor.document)) as BlockNoteDocument
-          )
+          props.onCitationDocumentChange?.(toCanonicalDocument(editor.document))
           if (replacingImportedDocumentRef.current) {
             replacingImportedDocumentRef.current = false
             return
@@ -557,6 +594,7 @@ export const SectionEditor = forwardRef<
             filterSuggestionItems(
               [
                 ...getDefaultReactSlashMenuItems(editor),
+                ...getMathSlashMenuItems(editor),
                 {
                   title: 'Mermaid',
                   subtext: 'Insert an editable Mermaid diagram',
@@ -577,7 +615,7 @@ export const SectionEditor = forwardRef<
                   icon: <Sigma className='size-4' />,
                   onItemClick: () =>
                     insertOrUpdateBlockForSlashMenu(editor, {
-                      type: 'math',
+                      type: 'displayMath',
                       props: { source: '', caption: '', textAlignment: 'center', previewWidth: 720 }
                     })
                 }
@@ -630,7 +668,7 @@ export const SectionEditor = forwardRef<
                             children: []
                           }
                         ]
-                      : (current.revision.content as ApprovedEditorBlock[])
+                      : toApprovedEditorDocument(current.revision.content)
                   replacingImportedDocumentRef.current = true
                   editor.replaceBlocks(editor.document, replacement)
                   baseRef.current = current.revision

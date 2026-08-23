@@ -8,10 +8,11 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
+import { isMathSourceStructurallySafe } from './math-source-safety'
 import { PDF_ASSET_SCHEME } from '../bootstrap/protocol'
 
 export interface PdfPublicationLoss {
-  code: 'mermaid_source_fallback' | 'pdf_toc_page_unavailable'
+  code: 'math_text_fallback' | 'mermaid_source_fallback' | 'pdf_toc_page_unavailable'
   sectionId: string
   blockId: string
   message: string
@@ -295,6 +296,7 @@ figure { margin: 1.2em 0; break-inside: avoid; text-align: center; }
 figure img { max-width: 100%; max-height: 65vh; object-fit: contain; }
 figcaption { margin-top: .45em; font-style: italic; }
 .math { overflow-wrap: anywhere; text-align: center; margin: 1em 0; break-inside: avoid; }
+.inline-math { display: inline-block; max-width: 100%; overflow-wrap: anywhere; vertical-align: -0.15em; }
 .references { break-before: page; }
 </style>
 </head>
@@ -317,16 +319,16 @@ function htmlNode(
 ): string {
   switch (node.type) {
     case 'heading':
-      return `<h${Math.min(node.level, 6)} id="${headingId(node)}">${inlineHtml(node.content)}</h${Math.min(node.level, 6)}>`
+      return `<h${Math.min(node.level, 6)} id="${headingId(node)}">${inlineHtml(node.content, node.target, losses)}</h${Math.min(node.level, 6)}>`
     case 'paragraph':
-      return `<p>${inlineHtml(node.content)}</p>`
+      return `<p>${inlineHtml(node.content, node.target, losses)}</p>`
     case 'list_item': {
       const tag = node.kind === 'numbered' ? 'ol' : 'ul'
       const marker = node.kind === 'check' ? `${node.checked ? '☒' : '☐'} ` : ''
-      return `<${tag}><li>${marker}${inlineHtml(node.content)}</li></${tag}>`
+      return `<${tag}><li>${marker}${inlineHtml(node.content, node.target, losses)}</li></${tag}>`
     }
     case 'quote':
-      return `<blockquote>${inlineHtml(node.content)}</blockquote>`
+      return `<blockquote>${inlineHtml(node.content, node.target, losses)}</blockquote>`
     case 'code':
       return `<pre><code>${escapeHtml(node.content)}</code></pre>`
     case 'table':
@@ -336,7 +338,7 @@ function htmlNode(
             `<tr>${row
               .map((cell) => {
                 const tag = rowIndex < node.headerRows ? 'th' : 'td'
-                return `<${tag} colspan="${cell.colspan}" rowspan="${cell.rowspan}">${inlineHtml(cell.content)}</${tag}>`
+                return `<${tag} colspan="${cell.colspan}" rowspan="${cell.rowspan}">${inlineHtml(cell.content, node.target, losses)}</${tag}>`
               })
               .join('')}</tr>`
         )
@@ -346,14 +348,15 @@ function htmlNode(
         input.resolveAssetUrl(node.assetId)
       )}" alt="${escapeHtmlAttribute(node.altText)}"><figcaption>${escapeHtml(`${node.label}. ${node.caption}`)}</figcaption></figure>`
     case 'math': {
-      const rendered = katex.renderToString(node.source, {
-        displayMode: true,
-        output: 'html',
-        throwOnError: false,
-        strict: 'ignore',
-        trust: false
+      const rendered = safeKatexHtml(node.source, true)
+      if (rendered !== null) return `<div class="math">${rendered}</div>`
+      losses.push({
+        code: 'math_text_fallback',
+        sectionId: node.target.sectionId,
+        blockId: node.target.blockId ?? '',
+        message: 'Unsafe or invalid display mathematics was emitted as readable source text.'
       })
-      return `<div class="math">${rendered}</div>`
+      return `<pre><code>${escapeHtml(node.source)}</code></pre>`
     }
     case 'mermaid':
       losses.push({
@@ -370,16 +373,45 @@ function htmlNode(
   }
 }
 
-function inlineHtml(nodes: PublicationInlineNode[]): string {
+function inlineHtml(
+  nodes: PublicationInlineNode[],
+  target: { sectionId: string; blockId: string | null },
+  losses: PdfPublicationLoss[]
+): string {
   return nodes
     .map((node) => {
       if (node.type === 'citation') return `<sup>[${node.number}]</sup>`
       if (node.type === 'link') {
         return `<a href="${escapeHtmlAttribute(node.href)}">${node.children.map(styledHtml).join('')}</a>`
       }
+      if (node.type === 'math') {
+        const rendered = safeKatexHtml(node.source, false)
+        if (rendered !== null) return `<span class="inline-math">${rendered}</span>`
+        losses.push({
+          code: 'math_text_fallback',
+          sectionId: target.sectionId,
+          blockId: target.blockId ?? '',
+          message: 'Invalid inline mathematics was emitted as readable source text.'
+        })
+        return `<code>${escapeHtml(`$${node.source}$`)}</code>`
+      }
       return styledHtml(node)
     })
     .join('')
+}
+
+function safeKatexHtml(source: string, displayMode: boolean): string | null {
+  if (!isMathSourceStructurallySafe(source)) return null
+  const rendered = katex.renderToString(source, {
+    displayMode,
+    output: 'html',
+    throwOnError: false,
+    strict: 'ignore',
+    trust: false,
+    maxExpand: 1_000,
+    maxSize: 50
+  })
+  return rendered.includes('katex-error') ? null : rendered
 }
 
 function styledHtml(node: {
@@ -427,7 +459,9 @@ function plainInline(nodes: PublicationInlineNode[]): string {
         ? `[${node.number}]`
         : node.type === 'link'
           ? node.children.map((child) => child.text).join('')
-          : node.text
+          : node.type === 'math'
+            ? `$${node.source}$`
+            : node.text
     )
     .join('')
 }

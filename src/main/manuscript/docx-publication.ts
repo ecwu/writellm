@@ -35,6 +35,7 @@ import type {
   PublicationInlineNode,
   PublicationNode
 } from '../../shared/contracts/publication'
+import { isMathSourceStructurallySafe } from './math-source-safety'
 
 export interface DocxPublicationLoss {
   code: 'mermaid_source_fallback' | 'math_text_fallback' | 'webp_unsupported'
@@ -180,12 +181,15 @@ async function convertNode(
         new Paragraph({
           heading: headingLevel(node.level),
           children: [
-            new Bookmark({ id: bookmarkId(node.target), children: inlineChildren(node.content) })
+            new Bookmark({
+              id: bookmarkId(node.target),
+              children: inlineChildren(node.content, node.target, losses)
+            })
           ]
         })
       ]
     case 'paragraph':
-      return [new Paragraph({ children: inlineChildren(node.content) })]
+      return [new Paragraph({ children: inlineChildren(node.content, node.target, losses) })]
     case 'list_item':
       return [
         new Paragraph({
@@ -197,7 +201,7 @@ async function convertNode(
               : node.kind === 'check'
                 ? [new TextRun(node.checked ? '☑ ' : '☐ ')]
                 : []),
-            ...inlineChildren(node.content)
+            ...inlineChildren(node.content, node.target, losses)
           ]
         })
       ]
@@ -206,7 +210,7 @@ async function convertNode(
         new Paragraph({
           style: 'Intense Quote',
           indent: { left: convertMillimetersToTwip(8) },
-          children: inlineChildren(node.content)
+          children: inlineChildren(node.content, node.target, losses)
         })
       ]
     case 'code':
@@ -223,7 +227,11 @@ async function convertNode(
                     new TableCell({
                       columnSpan: cell.colspan,
                       rowSpan: cell.rowspan,
-                      children: [new Paragraph({ children: inlineChildren(cell.content) })]
+                      children: [
+                        new Paragraph({
+                          children: inlineChildren(cell.content, node.target, losses)
+                        })
+                      ]
                     })
                 )
               })
@@ -266,7 +274,7 @@ async function convertNode(
       ]
     }
     case 'math': {
-      const components = mathComponents(node.source)
+      const components = mathComponents(node.source, true)
       if (components === null) {
         losses.push({
           code: 'math_text_fallback',
@@ -302,14 +310,18 @@ async function convertNode(
 
 type OrderedXmlNode = Record<string, unknown>
 
-function mathComponents(source: string): MathComponent[] | null {
+function mathComponents(source: string, displayMode: boolean): MathComponent[] | null {
+  if (!isMathSourceStructurallySafe(source)) return null
   const markup = katex.renderToString(source, {
-    displayMode: true,
+    displayMode,
     output: 'mathml',
     throwOnError: false,
     strict: 'ignore',
-    trust: false
+    trust: false,
+    maxExpand: 1_000,
+    maxSize: 50
   })
+  if (markup.includes('katex-error')) return null
   const parsed = new XMLParser({
     preserveOrder: true,
     ignoreAttributes: false,
@@ -406,7 +418,11 @@ function findOrderedElement(nodes: OrderedXmlNode[], name: string): OrderedXmlNo
   return null
 }
 
-function inlineChildren(nodes: PublicationInlineNode[]): ParagraphChild[] {
+function inlineChildren(
+  nodes: PublicationInlineNode[],
+  target: { sectionId: string; blockId: string | null },
+  losses: DocxPublicationLoss[]
+): ParagraphChild[] {
   const result: ParagraphChild[] = []
   for (const node of nodes) {
     if (node.type === 'citation') {
@@ -420,6 +436,19 @@ function inlineChildren(nodes: PublicationInlineNode[]): ParagraphChild[] {
           children: node.children.map((child) => textRun(child.text, child.style, true))
         })
       )
+      continue
+    }
+    if (node.type === 'math') {
+      const components = mathComponents(node.source, false)
+      if (components === null) {
+        losses.push({
+          code: 'math_text_fallback',
+          sectionId: target.sectionId,
+          blockId: target.blockId ?? '',
+          message: 'Inline mathematics outside the bounded MathML mapper was emitted as OMML text.'
+        })
+      }
+      result.push(new DocxMath({ children: components ?? [new MathRun(node.source)] }))
       continue
     }
     result.push(textRun(node.text, node.style, false))

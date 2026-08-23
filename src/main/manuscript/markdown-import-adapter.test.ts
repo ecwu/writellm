@@ -78,6 +78,35 @@ Final paragraph.
     expect(empty.sections).toEqual([])
   })
 
+  it('maps bounded inline mathematics to native atomic content without a loss', async () => {
+    const mapped = await parseMarkdownImport({
+      bytes: Buffer.from('# Formula\n\nEnergy is $E = mc^2$.'),
+      displayName: 'formula.md',
+      createId: sequentialIds(),
+      resolveImage: vi.fn()
+    })
+    expect(mapped.sections[0]?.document[0]?.content).toEqual([
+      { type: 'text', text: 'Energy is ', styles: {} },
+      { type: 'math', content: 'E = mc^2' },
+      { type: 'text', text: '.', styles: {} }
+    ])
+    expect(mapped.losses.map((finding) => finding.code)).not.toContain('inline_math_text_fallback')
+  })
+
+  it('retains oversized inline mathematics as code-styled literal text with an exact loss', async () => {
+    const source = '界'.repeat(2_731)
+    const mapped = await parseMarkdownImport({
+      bytes: Buffer.from(`# Formula\n\n$${source}$`),
+      displayName: 'oversized-formula.md',
+      createId: sequentialIds(),
+      resolveImage: vi.fn()
+    })
+    expect(mapped.sections[0]?.document[0]?.content).toEqual([
+      { type: 'text', text: `$${source}$`, styles: { code: true } }
+    ])
+    expect(mapped.losses.map((finding) => finding.code)).toContain('inline_math_size_fallback')
+  })
+
   it('logs parse lifecycle and omitted-image failures through the injected logger', async () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const failure = new Error('capture failed')

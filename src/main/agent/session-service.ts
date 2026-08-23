@@ -68,13 +68,14 @@ import {
 } from '../../shared/contracts/providers'
 import { skillRunSnapshotSchema, type SkillRunSnapshot } from '../../shared/contracts/skills'
 import type { AgentRunInput, AgentRunResult } from '../../shared/contracts/model-runtime'
-import { providerConfigSchema } from '../../shared/contracts/providers'
 import { withLogContext } from '../observability/log-context'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProviderService } from '../providers/provider-service'
 import {
+  agentCredentialFromResolved,
+  agentProviderConfigFromResolved,
   clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService,
   type ResolvedAgentCatalogModel
@@ -114,6 +115,7 @@ import {
   AgentCurrentTurnTooLargeError,
   type AgentCompactionBudgets
 } from './context-planner'
+import type { ProjectInteractiveModelLimiter } from './project-interactive-model-limiter'
 import {
   buildNextCompactionMaterial,
   latestSuccessfulCheckpoint,
@@ -245,6 +247,7 @@ export interface AgentSessionServiceOptions {
     config: Extract<ProviderConfig, { role: 'agent' }>,
     signal: AbortSignal
   ) => Promise<AgentModelLimits>
+  interactiveModelLimiter?: ProjectInteractiveModelLimiter
 }
 
 export class AgentSessionService {
@@ -3120,14 +3123,8 @@ export class AgentSessionService {
     if (selection !== null && this.options.agentCatalog !== undefined) {
       const resolved = await this.options.agentCatalog.resolve(selection)
       return operation(
-        configFromCatalog(resolved),
-        JSON.stringify({
-          ...(resolved.auth.auth.apiKey === undefined ? {} : { apiKey: resolved.auth.auth.apiKey }),
-          ...(resolved.auth.auth.headers === undefined
-            ? {}
-            : { headers: resolved.auth.auth.headers }),
-          ...(resolved.auth.env === undefined ? {} : { env: resolved.auth.env })
-        }),
+        agentProviderConfigFromResolved(resolved),
+        agentCredentialFromResolved(resolved),
         resolved
       )
     }
@@ -3742,6 +3739,12 @@ export class AgentSessionService {
       )
     }
     controller.signal.throwIfAborted()
+    this.options.interactiveModelLimiter?.acquire({
+      workId,
+      ownerId: agentSessionId,
+      kind: kind === 'run' ? 'agent_run' : 'agent_compaction',
+      signal: controller.signal
+    })
     this.#workBySession.set(agentSessionId, workId)
     this.options.log.info(
       {
@@ -3767,6 +3770,7 @@ export class AgentSessionService {
   ): void {
     if (this.#workBySession.get(agentSessionId) !== workId) return
     this.#workBySession.delete(agentSessionId)
+    this.options.interactiveModelLimiter?.release(workId)
     void this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -3925,27 +3929,6 @@ function insertEvent(
 
 function fingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
-
-function configFromCatalog(
-  resolved: ResolvedAgentCatalogModel
-): Extract<ProviderConfig, { role: 'agent' }> {
-  return providerConfigSchema.parse({
-    role: 'agent',
-    providerId: resolved.providerId,
-    presetId: resolved.presetId,
-    providerName: resolved.presetName,
-    model: resolved.model.id,
-    modelName: resolved.model.name,
-    api: resolved.model.api,
-    baseUrl: resolved.auth.auth.baseUrl ?? resolved.model.baseUrl,
-    modelRevision: `pi-0.80.10:${resolved.model.api}`.slice(0, 256),
-    contextWindowTokens: resolved.model.contextWindow,
-    timeoutMs: resolved.timeoutMs,
-    batchLimit: 1,
-    embeddingDimension: null,
-    fileSizeLimitMb: null
-  }) as Extract<ProviderConfig, { role: 'agent' }>
 }
 
 function safeErrorCode(value: string | null): string | null {

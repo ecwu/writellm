@@ -1,7 +1,7 @@
 # Phase 12: Use And Fix
 
-Status: Checkpoint 61 is complete under accepted ADR 055
-Recorded: 2026-08-19
+Status: Checkpoint 62 is complete
+Recorded: 2026-08-20
 
 ## Purpose
 
@@ -9,6 +9,118 @@ Phase 12 is an evidence-driven refinement phase after the complete Phase 11 feat
 turns hands-on use into small, reviewable fixes and persists each material interaction decision
 before implementation. It is not a pre-authorized feature backlog: one checkpoint is agreed,
 implemented, and verified at a time, and later work requires fresh user direction.
+
+## Operating Boundary
+
+- Preserve the accepted local-first, Renderer-sandbox, proposal-review, project capability, and
+  three-worker architecture.
+- Prefer presentation and composition changes over new persistence or process boundaries.
+- Record a new ADR before changing an accepted interaction decision; never rewrite completed ADRs
+  to hide the change.
+- Reuse official shadcn/ui `new-york` components and the established workspace shell.
+- Keep provider, model, approval, and Writing Skill truth in their existing Main/project/app
+  authorities; UI state must not become a second source of truth.
+- Add no later checkpoint until concrete use evidence and explicit user approval define it.
+
+## Checkpoint index
+
+- [Checkpoint 48](#checkpoint-48-agent-composer-progressive-disclosure): Agent composer
+  progressive disclosure and hands-on refinements.
+- [Checkpoint 49](#checkpoint-49-agent-pending-follow-up-queue): pending Follow-up queue.
+- [Checkpoint 50](#checkpoint-50-agent-tool-contract-reliability-and-scope-discipline): Agent tool
+  contract reliability and scope discipline.
+- [ADR 043 refinement](#adr-043-refinement-write-auto-and-yolo-approval-semantics): Write Auto and
+  YOLO approval semantics.
+- [ADR 044 refinement](#adr-044-refinement-live-approval-mode-reads-at-proposal-time): live
+  approval-mode reads at proposal time.
+- [Checkpoint 51](#checkpoint-51-pi-active-tool-loop-context-recovery): Pi active tool-loop context
+  recovery.
+- [Checkpoint 52](#checkpoint-52-knowledge-citation-coverage-checks): Knowledge citation coverage.
+- [Checkpoint 53](#checkpoint-53-existing-image-cross-section-relocation): existing-image
+  cross-section relocation.
+- [Checkpoint 54](#checkpoint-54-harness-style-writing-context-compaction): writing context
+  compaction.
+- [Checkpoint 55](#checkpoint-55-agent-composer-context-usage-indicator): context-usage indicator.
+- [Checkpoint 56](#checkpoint-56-agent-plan-bottom-progress-capsule): bottom progress capsule.
+- [Checkpoint 57](#checkpoint-57-fixed-multi-provider-image-generation): fixed multi-provider
+  image generation.
+- [Checkpoint 58](#checkpoint-58-independent-markdown-preview-workspace): independent Markdown
+  Preview workspace.
+- [Checkpoint 59](#checkpoint-59-google-cloud-vertex-ai-nano-banana-image-source): Google Vertex AI
+  Nano Banana source and hands-on repair.
+- [Checkpoint 60](#checkpoint-60-observable-dynamic-writing-skills): observable dynamic Writing
+  Skills.
+- [Checkpoint 61](#checkpoint-61-textual-writing-skill-mentions): textual Writing Skill mentions.
+- [Checkpoint 62](#checkpoint-62-flat-settings-reorganization): flat Settings reorganization and
+  missing read-only support surfaces.
+
+The completed CP62 record and newest CP60/61 handoff records are kept first below; CP48–59 then
+retain their original delivery order. All listed checkpoints and refinements are complete.
+
+## Checkpoint 62: Flat Settings Reorganization
+
+Decision: user-approved bounded refinement under the existing ADR 009 Settings boundary;
+implementation complete.
+
+### User outcome
+
+- Settings keeps one flat peer navigation list with no labeled group hierarchy or nested settings
+  navigation.
+- General reads in the order Appearance, Writing, and Agent defaults.
+- Keyboard Shortcuts and About & Diagnostics make existing commands, application version,
+  credential security, and sanitized support actions discoverable without adding new authority.
+
+### Scope and implementation
+
+- [x] Reorder the existing flat peer list, reorganize General, and remove duplicated security and
+  diagnostic content from General.
+- [x] Add read-only Keyboard Shortcuts and About & Diagnostics peer surfaces using existing
+  Renderer-safe application/provider/diagnostics projections.
+- [x] Add focused Renderer and Real-Electron coverage, inspect desktop and narrow layouts, and pass
+  the authorized static, Electron, E2E, Impeccable, and diff gates.
+
+### Local evidence
+
+- The Settings Command contains one unlabeled ordered peer list. General uses Appearance, Writing,
+  and Agent defaults fieldsets; credential security and diagnostics exist only on About &
+  Diagnostics.
+- Focused Renderer coverage passed five tests for navigation order, General composition, the fixed
+  shortcut guide, secure credential state, and unsafe-backend warnings. The focused Real-Electron
+  flow verified preference persistence, both new peers, narrow back navigation, overflow bounds,
+  focus return, and WCAG axe checks.
+- `pnpm check:fast` passed. `pnpm check:electron` passed 188 files / 1048 tests with three
+  intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all
+  41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
+- Desktop and 620 px narrow screenshots of Keyboard Shortcuts and About & Diagnostics were
+  inspected. The scoped Impeccable detector returned no findings, and `git diff --check` passed.
+  No shared contract, IPC, persistence, migration, dependency, package/release, hosted CI, commit,
+  push, signing, notarization, promotion, or publication action ran as part of checkpoint
+  completion.
+- A later separately authorized hands-on build passed the no-identity macOS arm64 package gate from
+  the current dirty worktree. Native/ASAR inventory, 12/12 packaged smoke scenarios, and 28/28
+  packaged E2E scenarios passed before the gate produced the unpacked App, DMG, and ZIP. No
+  candidate, commit, tag, push, Apple Developer ID signature, notarization, release, promotion, or
+  publication ran.
+
+### Acceptance gate
+
+- The Settings list remains one unlabeled flat level in the approved order; provider readiness
+  badges, mobile back navigation, close behavior, and focus return remain intact.
+- The shortcut guide names only commands that current keyboard handlers implement and clearly
+  states their availability context; shortcuts remain read-only.
+- About shows bounded application name/version and credential-backend status. An unsafe backend
+  preserves the existing warning, and diagnostics expose only opening logs and exporting the
+  existing sanitized bundle.
+- Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete Real-Electron coverage,
+  desktop/narrow inspection, scoped Impeccable, and `git diff --check` pass. No package gate is
+  required for this Renderer-only checkpoint.
+
+### Explicit exclusions
+
+No editor typography, content-width or retrieval preference, localization, shortcut customization,
+automatic update, project-template or recent-project management, shared contract, IPC channel,
+database migration, provider/worker change, dependency, package/release action, hosted CI, commit,
+push, signing, notarization, promotion, or publication is authorized.
 
 ## Checkpoint 61: Textual Writing Skill Mentions
 
@@ -75,7 +187,7 @@ authorized.
 ## Checkpoint 60: Observable Dynamic Writing Skills
 
 Decision: accepted ADR 054, superseding ADR 053's session-selection interaction; implementation
-authorized.
+complete.
 
 ### User outcome
 
@@ -136,21 +248,9 @@ skill-authored tool, route model, embedding classifier, marketplace, automatic u
 mode, multi-agent workflow, package/release action, hosted CI, commit, push, signing,
 notarization, promotion, or publication is authorized.
 
-## Operating Boundary
-
-- Preserve the accepted local-first, Renderer-sandbox, proposal-review, project capability, and
-  three-worker architecture.
-- Prefer presentation and composition changes over new persistence or process boundaries.
-- Record a new ADR before changing an accepted interaction decision; never rewrite completed ADRs
-  to hide the change.
-- Reuse official shadcn/ui `new-york` components and the established workspace shell.
-- Keep provider, model, approval, and Writing Skill truth in their existing Main/project/app
-  authorities; UI state must not become a second source of truth.
-- Add no later checkpoint until concrete use evidence and explicit user approval define it.
-
 ## Checkpoint 48: Agent Composer Progressive Disclosure
 
-Decision: accepted ADR 038.
+Decision: accepted ADR 038; implementation and hands-on refinements complete.
 
 ### User outcome
 
@@ -176,7 +276,7 @@ available from both Add and a leading slash.
   primary circular upward-arrow button while preserving its accessible name and existing behavior.
 - [x] Implement one shared Add/slash command catalog for context scope and Writing Skill, with
   keyboard navigation, IME-safe behavior, disabled states, and no hidden prompt mutation.
-- [~] Add focused Renderer coverage, update affected Real-Electron expectations, run the smallest
+- [x] Add focused Renderer coverage, update affected Real-Electron expectations, run the smallest
   applicable static/Electron/UI/diff gates, and record exact evidence.
 
 ### Acceptance gate
@@ -213,11 +313,12 @@ and model/effort popovers. The scoped Biome pass covered all seven changed TypeS
 the full 594-file Biome pass succeeded with JSON formatting disabled, the Impeccable detector
 returned no findings, and `git diff --check` passed.
 
-Formal checkpoint closure remains pending only because ordinary `pnpm check:fast` also formats the
-user-owned concurrent `.vscode/settings.json` edit and reports its multiline `cSpell.words` array.
-That unrelated file was intentionally preserved. TypeScript, all code formatting/lint rules, full
-Electron tests/build, focused E2E, UI inspection, and diff checks passed; no package or release gate
-is required for this Renderer-only checkpoint.
+At this intermediate verification point, ordinary `pnpm check:fast` also reported formatting in a
+user-owned concurrent `.vscode/settings.json` edit, which was intentionally preserved. TypeScript,
+all scoped code formatting/lint rules, full Electron tests/build, focused E2E, UI inspection, and
+diff checks passed. The subsequent ADR 039/040 refinements, final hands-on rebuild and commit, and
+later repository-wide green gates closed Checkpoint 48; no package or release gate was required for
+the Renderer-only implementation itself.
 
 ### Hands-on App build authorization
 
@@ -289,7 +390,7 @@ signing, notarization, hosted CI, release, or promotion was performed.
 
 ## Checkpoint 49: Agent Pending Follow-up Queue
 
-Decision: accepted ADR 041; implementation authorized.
+Decision: accepted ADR 041; implementation complete.
 
 ### User outcome
 
@@ -352,7 +453,7 @@ hosted CI, push, or publication work is authorized.
 
 ## Checkpoint 50: Agent Tool Contract Reliability And Scope Discipline
 
-Decision: accepted ADR 042; implementation authorized after independent Checkpoint 49 closure.
+Decision: accepted ADR 042; implementation complete after independent Checkpoint 49 closure.
 
 ### Hands-on evidence
 
@@ -638,6 +739,8 @@ signing, notarization, publication, or release action was authorized or performe
 
 ## Checkpoint 51: Pi Active Tool-Loop Context Recovery
 
+Decision: accepted ADR 046; implementation and authorized delivery complete.
+
 ### User outcome
 
 - A long editing request keeps its newest readable section body and concurrency identifiers in the
@@ -699,7 +802,7 @@ intentional commit fast-forwarded directly to `origin/main`; force push is prohi
 
 ## Checkpoint 52: Knowledge Citation Coverage Checks
 
-Decision: accepted ADR 047.
+Decision: accepted ADR 047; implementation complete.
 
 ### User outcome
 
@@ -769,7 +872,7 @@ publication. The existing `check_draft.unused_resources` semantics remain unchan
 
 ## Checkpoint 53: Existing Image Cross-Section Relocation
 
-Decision: accepted ADR 048.
+Decision: accepted ADR 048; implementation complete.
 
 ### User outcome
 
@@ -837,7 +940,7 @@ transaction, package/release, hosted CI, commit, push, signing, notarization, or
 
 ## Checkpoint 54: Harness-Style Writing Context Compaction
 
-Decision: accepted ADR 049; implementation authorized.
+Decision: accepted ADR 049; implementation complete.
 
 ### User outcome
 
@@ -911,7 +1014,7 @@ cross-conversation memory.
 
 ## Checkpoint 55: Agent Composer Context Usage Indicator
 
-Decision: accepted ADR 050; implementation authorized.
+Decision: accepted ADR 050; implementation complete.
 
 ### User outcome
 
@@ -974,7 +1077,7 @@ change to the existing context-compaction policy.
 
 ## Checkpoint 56: Agent Plan Bottom Progress Capsule
 
-Decision: user-approved plan; implementation authorized. No new ADR is required because the
+Decision: user-approved plan; implementation complete. No new ADR is required because the
 refinement preserves ADR 025's task identity, state machine, persistence, and Renderer authority.
 
 ### User outcome
@@ -1045,7 +1148,7 @@ signing, notarization, publication, or application-wide visual redesign.
 
 ## Checkpoint 57: Fixed Multi-Provider Image Generation
 
-Decision: accepted ADR 051; implementation authorized.
+Decision: accepted ADR 051; implementation complete.
 
 ### User outcome
 
@@ -1119,7 +1222,7 @@ publication action is authorized.
 
 ## Checkpoint 58: Independent Markdown Preview Workspace
 
-Decision: user-approved plan; implementation authorized. No new ADR is required because the
+Decision: user-approved plan; implementation complete. No new ADR is required because the
 refinement preserves the accepted workspace shell, Markdown conversion boundary, Renderer
 sandbox, and project-session capability authority.
 

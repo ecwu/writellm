@@ -199,9 +199,11 @@ test(
         .fill('Update only the manuscript Brief and outline. Do not draft or edit section bodies.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
+      await expect(panel.getByTestId('brief-proposal-view')).toBeVisible()
       await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(panel.getByText('Review required', { exact: true }).last()).toBeVisible()
       await expect.poll(() => agentCall).toBeGreaterThanOrEqual(2)
+      await expect(panel.getByTestId('outline-proposal-view')).toBeVisible()
       await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(
         panel.getByText(

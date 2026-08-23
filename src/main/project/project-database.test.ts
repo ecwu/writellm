@@ -586,11 +586,11 @@ describe('project database', () => {
     })
     expect(currentRevision).toMatchObject({
       section_id: originalSection.section_id,
-      revision_number: 2,
+      revision_number: 3,
       source: 'import',
       content_json: '[]',
-      content_schema_version: 3,
-      prior_revision_id: `${originalSection.section_id}:revision:1`,
+      content_schema_version: 4,
+      prior_revision_id: revisions[1]?.section_revision_id,
       word_count: 0,
       character_count: 0
     })

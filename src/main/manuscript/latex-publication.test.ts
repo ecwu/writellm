@@ -29,6 +29,7 @@ describe('LaTeX publication renderer', () => {
     expect(first.tex).toContain('\\href{https://example.com/a\\#b}')
     expect(first.tex).toContain('\\includegraphics')
     expect(first.tex).toContain('\\frac{x}{y}')
+    expect(first.tex).toContain('\\(E = mc^2\\)')
     expect(first.tex).not.toContain('\\input{/private/secret}')
     expect(first.tex).toContain('＼end{lstlisting}')
     expect(first.losses).toEqual(
@@ -105,6 +106,7 @@ function fixtureAssembly(): PublicationAssembly {
         content: [
           { type: 'text', text: 'Reserved # $ % & _ ', style: { ...style(), bold: true } },
           { type: 'citation', number: 1, title: 'Source', raw: '[Source]' },
+          { type: 'math', source: 'E = mc^2' },
           {
             type: 'link',
             href: 'https://example.com/a#b',

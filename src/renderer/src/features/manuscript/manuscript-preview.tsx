@@ -53,6 +53,7 @@ const previewMarkdownSanitizeSchema = {
 interface PreviewNavigationProps {
   onOpenManuscript(): void
   onOpenKnowledge(): void
+  onOpenNotebook?(): void
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
@@ -107,6 +108,7 @@ export function ManuscriptPreviewWorkspace(
           onOpenPreview={() => undefined}
           onOpenManuscript={props.onOpenManuscript}
           onOpenKnowledge={props.onOpenKnowledge}
+          onOpenNotebook={props.onOpenNotebook}
           onOpenChecks={props.onOpenChecks}
           onOpenAssets={props.onOpenAssets}
           onOpenReferences={props.onOpenReferences}

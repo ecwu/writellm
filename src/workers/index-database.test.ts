@@ -423,6 +423,10 @@ describe('IndexDatabase and deterministic chunking', () => {
     })
     database.activate(generationId)
     expect(database.searchFts('Heading', 10).some((item) => item.strategy === 'trigram')).toBe(true)
+    expect(database.searchFts('What does the Heading explain?', 10)).toEqual([])
+    expect(
+      database.searchFts('What does the Heading explain?', 10, undefined, 'terms')
+    ).not.toEqual([])
     expect(database.searchFts('人工', 10).some((item) => item.strategy === 'substring')).toBe(true)
     expect(database.searchFts('工智', 10).some((item) => item.strategy === 'substring')).toBe(true)
     expect(database.searchFts('工', 10).some((item) => item.strategy === 'substring')).toBe(true)

@@ -43,6 +43,29 @@ describe('readable citation utilities', () => {
       'alpha beta 中文'
     )
   })
+
+  it('does not form readable citations across an inline math boundary', () => {
+    const index = buildManuscriptReferenceIndex([
+      {
+        sectionId: 'section',
+        sectionRevisionId: 'revision',
+        content: [
+          {
+            id: 'paragraph',
+            type: 'paragraph',
+            props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+            content: [
+              { type: 'text', text: '[Source: Re', styles: {} },
+              { type: 'math', content: 'x' },
+              { type: 'text', text: 'search]', styles: {} }
+            ],
+            children: []
+          }
+        ]
+      }
+    ])
+    expect(index.entries).toEqual([])
+  })
 })
 
 function document(sectionId: string, sectionRevisionId: string, text: string) {

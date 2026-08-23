@@ -219,7 +219,7 @@ describe('runAuxiliaryModelRequest', () => {
       expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions')
       expect(sdkRequest.headers.get('x-goog-api-key')).toBe('gemini-secret')
       expect(sdkRequest.headers.get('content-type')).toContain('application/json')
-      expect(sdkRequest.headers.get('x-goog-api-client')).toContain('google-genai-sdk/2.13.0')
+      expect(sdkRequest.headers.get('x-goog-api-client')).toContain('google-genai-sdk/2.18.0')
       expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
         model: 'gemini-3.1-flash-image',
         input: imageRequest.input.prompt,
@@ -434,84 +434,84 @@ describe('runAuxiliaryModelRequest', () => {
     expect(generateContent).toHaveBeenCalledTimes(1)
   })
 
-  it.each([
-    'gemini-3.1-flash-image',
-    'gemini-3-pro-image'
-  ] as const)('omits an auto aspect ratio and preserves selectable 1K/2K sizes for %s', async (model) => {
-    const data = Buffer.from(`generated-${model}`).toString('base64')
-    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const sdkRequest = input instanceof Request ? input : new Request(input, init)
-      expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
-        model,
-        input: imageRequest.input.prompt,
-        response_format: {
-          type: 'image',
-          mime_type: 'image/jpeg',
-          image_size: '1K'
-        }
-      })
-      return new Response(
-        JSON.stringify(interactionResponse([{ type: 'image', mime_type: 'image/png', data }])),
-        {
-          headers: { 'content-type': 'application/json' }
-        }
-      )
-    })
-
-    await expect(
-      withSdkFetch(fetchMock, () =>
-        runAuxiliaryModelRequest({
-          ...imageRequest,
-          config: { ...imageRequest.config, model, modelRevision: model },
-          input: { ...imageRequest.input, aspectRatio: 'auto', imageSize: '1K' }
+  it.each(['gemini-3.1-flash-image', 'gemini-3-pro-image'] as const)(
+    'omits an auto aspect ratio and preserves selectable 1K/2K sizes for %s',
+    async (model) => {
+      const data = Buffer.from(`generated-${model}`).toString('base64')
+      const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+        const sdkRequest = input instanceof Request ? input : new Request(input, init)
+        expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
+          model,
+          input: imageRequest.input.prompt,
+          response_format: {
+            type: 'image',
+            mime_type: 'image/jpeg',
+            image_size: '1K'
+          }
         })
-      )
-    ).resolves.toMatchObject({
-      type: 'image-result',
-      result: { dataBase64: data, mimeType: 'image/png', effectiveImageSize: '1K' }
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it.each([
-    'gemini-3.1-flash-lite-image',
-    'gemini-2.5-flash-image'
-  ] as const)('downgrades unsupported 2K to an explicit 1K request for %s', async (model) => {
-    const data = Buffer.from(`generated-${model}`).toString('base64')
-    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const sdkRequest = input instanceof Request ? input : new Request(input, init)
-      expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
-        model,
-        input: imageRequest.input.prompt,
-        response_format: {
-          type: 'image',
-          mime_type: 'image/jpeg',
-          aspect_ratio: '1:1',
-          image_size: '1K'
-        }
+        return new Response(
+          JSON.stringify(interactionResponse([{ type: 'image', mime_type: 'image/png', data }])),
+          {
+            headers: { 'content-type': 'application/json' }
+          }
+        )
       })
-      return new Response(
-        JSON.stringify(interactionResponse([{ type: 'image', mime_type: 'image/png', data }])),
-        {
-          headers: { 'content-type': 'application/json' }
-        }
-      )
-    })
 
-    await expect(
-      withSdkFetch(fetchMock, () =>
-        runAuxiliaryModelRequest({
-          ...imageRequest,
-          config: { ...imageRequest.config, model, modelRevision: model },
-          input: { ...imageRequest.input, aspectRatio: '1:1', imageSize: '2K' }
+      await expect(
+        withSdkFetch(fetchMock, () =>
+          runAuxiliaryModelRequest({
+            ...imageRequest,
+            config: { ...imageRequest.config, model, modelRevision: model },
+            input: { ...imageRequest.input, aspectRatio: 'auto', imageSize: '1K' }
+          })
+        )
+      ).resolves.toMatchObject({
+        type: 'image-result',
+        result: { dataBase64: data, mimeType: 'image/png', effectiveImageSize: '1K' }
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it.each(['gemini-3.1-flash-lite-image', 'gemini-2.5-flash-image'] as const)(
+    'downgrades unsupported 2K to an explicit 1K request for %s',
+    async (model) => {
+      const data = Buffer.from(`generated-${model}`).toString('base64')
+      const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+        const sdkRequest = input instanceof Request ? input : new Request(input, init)
+        expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
+          model,
+          input: imageRequest.input.prompt,
+          response_format: {
+            type: 'image',
+            mime_type: 'image/jpeg',
+            aspect_ratio: '1:1',
+            image_size: '1K'
+          }
         })
-      )
-    ).resolves.toMatchObject({
-      type: 'image-result',
-      result: { dataBase64: data, mimeType: 'image/png', effectiveImageSize: '1K' }
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
+        return new Response(
+          JSON.stringify(interactionResponse([{ type: 'image', mime_type: 'image/png', data }])),
+          {
+            headers: { 'content-type': 'application/json' }
+          }
+        )
+      })
+
+      await expect(
+        withSdkFetch(fetchMock, () =>
+          runAuxiliaryModelRequest({
+            ...imageRequest,
+            config: { ...imageRequest.config, model, modelRevision: model },
+            input: { ...imageRequest.input, aspectRatio: '1:1', imageSize: '2K' }
+          })
+        )
+      ).resolves.toMatchObject({
+        type: 'image-result',
+        result: { dataBase64: data, mimeType: 'image/png', effectiveImageSize: '1K' }
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
 
   it('accepts a valid PNG response even though JPEG was requested', async () => {
     const data = Buffer.from('generated-png').toString('base64')
@@ -539,72 +539,75 @@ describe('runAuxiliaryModelRequest', () => {
     ['16:9', '1K', '1280x720', '1K'],
     ['16:9', '2K', '2048x1152', '2K'],
     ['auto', '2K', 'auto', null]
-  ] as const)('serializes OpenAI gpt-image-2 %s %s as size %s', async (aspectRatio, imageSize, expectedSize, effectiveImageSize) => {
-    const data = Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      Buffer.from('fixture')
-    ]).toString('base64')
-    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const sdkRequest = input instanceof Request ? input : new Request(input, init)
-      expect(sdkRequest.url).toBe('https://api.openai.com/v1/images/generations')
-      expect(sdkRequest.headers.get('authorization')).toBe('Bearer openai-secret')
-      expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
-        model: 'gpt-image-2',
-        prompt: imageRequest.input.prompt,
-        n: 1,
-        quality: 'auto',
-        output_format: 'png',
-        size: expectedSize
+  ] as const)(
+    'serializes OpenAI gpt-image-2 %s %s as size %s',
+    async (aspectRatio, imageSize, expectedSize, effectiveImageSize) => {
+      const data = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('fixture')
+      ]).toString('base64')
+      const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+        const sdkRequest = input instanceof Request ? input : new Request(input, init)
+        expect(sdkRequest.url).toBe('https://api.openai.com/v1/images/generations')
+        expect(sdkRequest.headers.get('authorization')).toBe('Bearer openai-secret')
+        expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
+          model: 'gpt-image-2',
+          prompt: imageRequest.input.prompt,
+          n: 1,
+          quality: 'auto',
+          output_format: 'png',
+          size: expectedSize
+        })
+        return new Response(
+          JSON.stringify({
+            created: 1,
+            data: [{ b64_json: data }],
+            usage: { input_tokens: 12, output_tokens: 34, total_tokens: 46 }
+          }),
+          {
+            headers: {
+              'content-type': 'application/json',
+              'x-request-id': 'openai-request-1'
+            }
+          }
+        )
       })
-      return new Response(
-        JSON.stringify({
-          created: 1,
-          data: [{ b64_json: data }],
-          usage: { input_tokens: 12, output_tokens: 34, total_tokens: 46 }
-        }),
+
+      const response = await runAuxiliaryModelRequest(
         {
-          headers: {
-            'content-type': 'application/json',
-            'x-request-id': 'openai-request-1'
+          ...imageRequest,
+          config: {
+            role: 'image',
+            providerId: 'openai',
+            model: 'gpt-image-2',
+            timeoutMs: 5_000,
+            embeddingDimension: null,
+            batchLimit: 1,
+            fileSizeLimitMb: null,
+            defaultAspectRatio: 'auto',
+            defaultImageSize: '1K'
+          },
+          credential: 'openai-secret',
+          input: { ...imageRequest.input, aspectRatio, imageSize }
+        },
+        fetchMock
+      )
+      expect(response).toMatchObject({
+        type: 'image-result',
+        result: {
+          dataBase64: data,
+          mimeType: 'image/png',
+          effectiveImageSize,
+          metadata: {
+            usage: { inputTokens: 12, outputTokens: 34 },
+            responseIds: ['openai-request-1'],
+            retryCount: 0
           }
         }
-      )
-    })
-
-    const response = await runAuxiliaryModelRequest(
-      {
-        ...imageRequest,
-        config: {
-          role: 'image',
-          providerId: 'openai',
-          model: 'gpt-image-2',
-          timeoutMs: 5_000,
-          embeddingDimension: null,
-          batchLimit: 1,
-          fileSizeLimitMb: null,
-          defaultAspectRatio: 'auto',
-          defaultImageSize: '1K'
-        },
-        credential: 'openai-secret',
-        input: { ...imageRequest.input, aspectRatio, imageSize }
-      },
-      fetchMock
-    )
-    expect(response).toMatchObject({
-      type: 'image-result',
-      result: {
-        dataBase64: data,
-        mimeType: 'image/png',
-        effectiveImageSize,
-        metadata: {
-          usage: { inputTokens: 12, outputTokens: 34 },
-          responseIds: ['openai-request-1'],
-          retryCount: 0
-        }
-      }
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
 
   it('serializes xAI image generation with base64, aspect ratio, and lowercase resolution', async () => {
     const data = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('fixture')]).toString(
@@ -673,36 +676,39 @@ describe('runAuxiliaryModelRequest', () => {
       429,
       'RATE_LIMIT_EXCEEDED'
     ]
-  ] as const)('projects safe %s SDK errors without retries or private response text', async (providerId, model, body, status, providerCode) => {
-    const fetchMock = vi.fn<typeof fetch>(
-      async () =>
-        new Response(JSON.stringify(body), {
-          status,
-          headers: { 'content-type': 'application/json' }
-        })
-    )
-    const pending = runAuxiliaryModelRequest(
-      {
-        ...imageRequest,
-        config: {
-          role: 'image',
-          providerId,
-          model,
-          timeoutMs: 5_000,
-          embeddingDimension: null,
-          batchLimit: 1,
-          fileSizeLimitMb: null,
-          defaultAspectRatio: 'auto',
-          defaultImageSize: '1K'
+  ] as const)(
+    'projects safe %s SDK errors without retries or private response text',
+    async (providerId, model, body, status, providerCode) => {
+      const fetchMock = vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { 'content-type': 'application/json' }
+          })
+      )
+      const pending = runAuxiliaryModelRequest(
+        {
+          ...imageRequest,
+          config: {
+            role: 'image',
+            providerId,
+            model,
+            timeoutMs: 5_000,
+            embeddingDimension: null,
+            batchLimit: 1,
+            fileSizeLimitMb: null,
+            defaultAspectRatio: 'auto',
+            defaultImageSize: '1K'
+          },
+          credential: `${providerId}-secret`
         },
-        credential: `${providerId}-secret`
-      },
-      fetchMock
-    )
-    await expect(pending).rejects.toMatchObject({ status, providerCode })
-    await expect(pending).rejects.not.toThrow('PRIVATE')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
+        fetchMock
+      )
+      await expect(pending).rejects.toMatchObject({ status, providerCode })
+      await expect(pending).rejects.not.toThrow('PRIVATE')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
 
   it('rejects malformed xAI base64 before projecting bytes to Main', async () => {
     const fetchMock = vi.fn<typeof fetch>(

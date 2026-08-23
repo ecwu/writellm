@@ -405,6 +405,25 @@ import {
   type ReadableCitationResolutionInput,
   type ReadableCitationResolutionResult
 } from '../shared/contracts/search'
+import {
+  notebookChatClearInputSchema,
+  notebookChatCommandResultSchema,
+  notebookChatEventSchema,
+  notebookChatSetModelInputSchema,
+  notebookChatSetSourcesInputSchema,
+  notebookChatSnapshotInputSchema,
+  notebookChatSnapshotSchema,
+  notebookChatStartTurnInputSchema,
+  notebookChatStartTurnResultSchema,
+  notebookChatStopTurnInputSchema,
+  notebookChatSubscribeInputSchema,
+  notebookChatSubscribeResultSchema,
+  notebookChatUnsubscribeInputSchema,
+  type NotebookChatEvent,
+  type NotebookChatSnapshot,
+  type NotebookChatStartTurnResult,
+  type NotebookSourceScope
+} from '../shared/contracts/notebook'
 
 export interface DesktopApi {
   app: {
@@ -786,6 +805,27 @@ export interface DesktopApi {
     resolveReadableCitation(
       input: ReadableCitationResolutionInput
     ): Promise<ReadableCitationResolutionResult>
+  }
+  notebook: {
+    snapshot(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    startTurn(input: {
+      projectSessionId: string
+      content: string
+    }): Promise<NotebookChatStartTurnResult>
+    stopTurn(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    clear(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    setSources(input: {
+      projectSessionId: string
+      sourceScope: NotebookSourceScope
+    }): Promise<NotebookChatSnapshot>
+    setModel(input: {
+      projectSessionId: string
+      modelSelection: AgentModelSelection
+    }): Promise<NotebookChatSnapshot>
+    subscribe(
+      input: { projectSessionId: string },
+      listener: (event: NotebookChatEvent) => void
+    ): Promise<{ snapshot: NotebookChatSnapshot; unsubscribe: () => void }>
   }
   providers: {
     snapshot(): Promise<ProviderSettingsSnapshot>
@@ -2118,6 +2158,84 @@ const desktopApi: DesktopApi = {
           readableCitationResolutionInputSchema.parse(input)
         )
       )
+    }
+  },
+  notebook: {
+    async snapshot(input) {
+      return notebookChatSnapshotSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatSnapshot,
+          notebookChatSnapshotInputSchema.parse(input)
+        )
+      )
+    },
+    async startTurn(input) {
+      return notebookChatStartTurnResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatStartTurn,
+          notebookChatStartTurnInputSchema.parse(input)
+        )
+      )
+    },
+    async stopTurn(input) {
+      return notebookChatCommandResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatStopTurn,
+          notebookChatStopTurnInputSchema.parse(input)
+        )
+      )
+    },
+    async clear(input) {
+      return notebookChatCommandResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatClear,
+          notebookChatClearInputSchema.parse(input)
+        )
+      )
+    },
+    async setSources(input) {
+      return notebookChatCommandResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatSetSources,
+          notebookChatSetSourcesInputSchema.parse(input)
+        )
+      )
+    },
+    async setModel(input) {
+      return notebookChatCommandResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatSetModel,
+          notebookChatSetModelInputSchema.parse(input)
+        )
+      )
+    },
+    async subscribe(input, listener) {
+      const parsedInput = notebookChatSubscribeInputSchema.parse(input)
+      const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+        const notebookEvent = notebookChatEventSchema.parse(value)
+        if (notebookEvent.projectSessionId === parsedInput.projectSessionId) {
+          listener(notebookEvent)
+        }
+      }
+      ipcRenderer.on(IPC_CHANNELS.notebookChatEvent, handler)
+      try {
+        const result = notebookChatSubscribeResultSchema.parse(
+          await ipcRenderer.invoke(IPC_CHANNELS.notebookChatSubscribe, parsedInput)
+        )
+        return {
+          snapshot: result.snapshot,
+          unsubscribe: () => {
+            ipcRenderer.removeListener(IPC_CHANNELS.notebookChatEvent, handler)
+            void ipcRenderer.invoke(
+              IPC_CHANNELS.notebookChatUnsubscribe,
+              notebookChatUnsubscribeInputSchema.parse(parsedInput)
+            )
+          }
+        }
+      } catch (err) {
+        ipcRenderer.removeListener(IPC_CHANNELS.notebookChatEvent, handler)
+        throw err
+      }
     }
   },
   providers: {

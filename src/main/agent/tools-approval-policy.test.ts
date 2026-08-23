@@ -18,15 +18,14 @@ describe('Agent approval policy', () => {
     )
   })
 
-  it.each([
-    'outline_patch',
-    'section_patch',
-    'generated_image_insert'
-  ])('write auto mode applies every %s proposal without size or operation limits', (kind) => {
-    expect(
-      toolsWithProposal(kind).shouldAutoApprove('session-1', 'proposal-1', 'section_auto')
-    ).toBe(true)
-  })
+  it.each(['outline_patch', 'section_patch', 'generated_image_insert'])(
+    'write auto mode applies every %s proposal without size or operation limits',
+    (kind) => {
+      expect(
+        toolsWithProposal(kind).shouldAutoApprove('session-1', 'proposal-1', 'section_auto')
+      ).toBe(true)
+    }
+  )
 
   it('write auto mode still reviews Brief and Writing Rules proposals', () => {
     expect(
@@ -38,13 +37,12 @@ describe('Agent approval policy', () => {
     expect(toolsWithProposal(kind).shouldAutoApprove('session-1', 'proposal-1', 'yolo')).toBe(true)
   })
 
-  it.each([
-    'manual',
-    'section_auto',
-    'yolo'
-  ] satisfies AgentApprovalMode[])('never auto-approves an unknown proposal in %s mode', (mode) => {
-    expect(toolsWithProposal('section_patch').shouldAutoApprove('session-1', 'missing', mode)).toBe(
-      false
-    )
-  })
+  it.each(['manual', 'section_auto', 'yolo'] satisfies AgentApprovalMode[])(
+    'never auto-approves an unknown proposal in %s mode',
+    (mode) => {
+      expect(
+        toolsWithProposal('section_patch').shouldAutoApprove('session-1', 'missing', mode)
+      ).toBe(false)
+    }
+  )
 })

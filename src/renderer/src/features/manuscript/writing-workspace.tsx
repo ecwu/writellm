@@ -78,6 +78,7 @@ import {
   ExpandedCitationPreview
 } from '@/features/knowledge/citation-preview'
 import { KnowledgeManager } from '@/features/knowledge/knowledge-manager'
+import { NotebookWorkspace } from '@/features/notebook/notebook-workspace'
 import { KnowledgeCitationCoverageWorkspace } from '@/features/checks/knowledge-citation-coverage-workspace'
 import { ReviewCenterPanel } from '@/features/review/review-center-panel'
 import { WritingRulesPanel } from '@/features/review/writing-rules-panel'
@@ -1144,6 +1145,7 @@ export function WritingWorkspace(props: {
   const activeIndex = activeSectionId === null ? -1 : orderedIds.indexOf(activeSectionId)
   const openFind = useCallback((): void => {
     props.onAgentOpenChange(false)
+    setEditorAutoFocus(false)
     setActiveWorkspace('find')
   }, [props.onAgentOpenChange])
   const closeFind = useCallback((): void => {
@@ -1152,6 +1154,7 @@ export function WritingWorkspace(props: {
     setPendingSearchTarget(null)
     setReplaceOpen(false)
     invalidateReplacementReview()
+    setEditorAutoFocus(true)
     setActiveWorkspace('manuscript')
   }, [invalidateReplacementReview])
 
@@ -1495,9 +1498,30 @@ export function WritingWorkspace(props: {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}
+        onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenChecks={() => setActiveWorkspace('checks')}
+        onOpenReferences={() => setActiveWorkspace('references')}
+        onOpenIssues={() => setActiveWorkspace('issues')}
+        onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
+        onOpenFind={openFind}
+        onOpenSettings={props.onOpenSettings}
+        onError={props.onError}
+      />
+    )
+  }
+
+  if (activeWorkspace === 'notebook') {
+    return (
+      <NotebookWorkspace
+        projectSessionId={props.projectSessionId}
+        projectName={props.projectName}
+        onOpenManuscript={closeFind}
+        onOpenPreview={() => setActiveWorkspace('preview')}
+        onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenChecks={() => setActiveWorkspace('checks')}
+        onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
         onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
@@ -1515,6 +1539,7 @@ export function WritingWorkspace(props: {
         projectName={props.projectName}
         workspace={workspace}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
@@ -1543,6 +1568,7 @@ export function WritingWorkspace(props: {
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
         onOpenIssues={() => setActiveWorkspace('issues')}
@@ -1565,6 +1591,7 @@ export function WritingWorkspace(props: {
         onRetry={() => void previewQuery.refetch()}
         onOpenManuscript={closeFind}
         onOpenKnowledge={() => setActiveWorkspace('knowledge')}
+        onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
@@ -1597,6 +1624,10 @@ export function WritingWorkspace(props: {
         onOpenKnowledge={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('knowledge')
+        }}
+        onOpenNotebook={() => {
+          props.onAgentOpenChange(false)
+          setActiveWorkspace('notebook')
         }}
         onOpenChecks={() => void openChecksFromManuscript()}
         onOpenAssets={() => {

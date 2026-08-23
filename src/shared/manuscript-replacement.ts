@@ -228,7 +228,11 @@ function flattenInline(inline: readonly BlockNoteInlineContent[]): { text: strin
   return {
     text: inline
       .map((node) =>
-        node.type === 'text' ? node.text : node.content.map((child) => child.text).join('')
+        node.type === 'text'
+          ? node.text
+          : node.type === 'link'
+            ? node.content.map((child) => child.text).join('')
+            : '\uFFFC'
       )
       .join('')
   }

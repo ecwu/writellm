@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended by the 2026-07-31 CP26.8S security gate, the 2026-08 Phase 11 ADRs (021-037), ADR 038, ADR 047, ADR 048, ADR 049, ADR 051, ADR 052, ADR 053, and ADR 054
-Recorded: 2026-07-31; amended through 2026-08-19
+Status: accepted implementation baseline, amended through accepted ADR 058
+Recorded: 2026-07-31; amended through 2026-08-23
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -15,7 +15,9 @@ complexity-reduction and Agent-boundary audit is recorded in
 The following rules are now the current target. Any older section in this document or in a Phase file that contradicts them is historical and marked superseded below; it must not guide new implementation.
 
 - Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
-- Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns use request-scoped cancellation and concurrency limits, not `jobs` leases or restart recovery.
+- Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves,
+  brief/outline mutations, Agent turns, and transient Notebook turns use request-scoped cancellation
+  and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
 - Agent Harness Protocol v6 uses bounded snapshot read/inspection tools, Review Issue and Writing Task fixture tools, typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one bounded `generate_image` effect/proposal tool. ADRs 024 and 025 add no special Agent session/run, hidden model request, generic network/file/SQL authority, scheduler, or direct manuscript write.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
@@ -58,6 +60,10 @@ WriteLLM v2 is a local-first desktop AI writing application with three product d
 1. A block-based manuscript editor built on BlockNote.
 2. A project knowledge base populated from local documents and MinerU parsing.
 3. A Pi-based writing agent that reads project context, retrieves evidence, and proposes structured manuscript changes.
+
+The project shell additionally exposes a transient Notebook workspace over the Knowledge domain.
+It selects existing indexed sources and performs read-only, cited question answering; it is not a
+fourth persistence domain and does not duplicate Knowledge management or indexing.
 
 The initial product has these fixed invariants:
 
@@ -202,27 +208,27 @@ search becomes available.
 
 | Area                    | Choice                                                                        |
 | ----------------------- | ----------------------------------------------------------------------------- |
-| Desktop runtime         | Electron 43                                                                   |
+| Desktop runtime         | Electron 43; 43.4.1 maintenance baseline                                      |
 | Build and development   | electron-vite 5                                                               |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
-| PDF preview rendering   | `pdfjs-dist` 6.1.200 with a bundled Vite worker and Main-owned stream    |
-| Block editor            | BlockNote React with the shadcn-compatible UI integration                     |
-| Rich media rendering    | Native BlockNote image, Mermaid 11.16.0, and KaTeX 0.16.47 custom blocks      |
+| PDF preview rendering   | `pdfjs-dist` 6.2.108 with a bundled Vite worker and Main-owned stream          |
+| Block editor            | BlockNote React 0.54.0 with the shadcn-compatible UI integration               |
+| Rich media rendering    | Native BlockNote image/inline Math plus application Mermaid and display Math  |
 | Renderer server state   | TanStack Query                                                                |
 | Local UI state          | React state first; Zustand only when justified                                |
 | IPC                     | `contextBridge`, narrow business APIs, `ipcMain.handle`, Zod                  |
 | Structured logging      | Pino                                                                          |
 | Correlation context     | Pino child loggers and Node.js `AsyncLocalStorage`                            |
 | Log rotation            | pino-roll with application retention cleanup                                  |
-| Application database    | `app.sqlite`, better-sqlite3 with Kysely                                      |
-| Project database        | per-project `project.sqlite`, better-sqlite3 with Kysely                      |
+| Application database    | `app.sqlite`, better-sqlite3 with Kysely 0.28.17                              |
+| Project database        | per-project `project.sqlite`, better-sqlite3 with Kysely 0.28.17              |
 | Durable jobs            | project-local SQLite jobs table with p-queue runtime scheduling               |
 | Full-text search        | project-local SQLite FTS5                                                     |
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
 | Hybrid retrieval        | FTS5, sqlite-vec, RRF, optional API reranking                                 |
 | Files                   | `node:fs/promises` plus one tested atomic-publication implementation            |
-| Project version history | exact-pinned `isomorphic-git@1.40.0` behind a Main-only adapter                 |
+| Project version history | exact-pinned `isomorphic-git@1.41.8` behind a Main-only adapter                 |
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
@@ -277,11 +283,13 @@ only request-scoped Pi loops. One project may have at most three Agent work rese
 different conversations, while each conversation remains single-line. A reservation is a run or a
 manual context compaction; automatic compaction reuses its run reservation. Slot reservation in
 Main precedes asynchronous preparation and covers routing, compaction, model, and tool work. The
-older single-shot `AgentModelRuntime` remains the request-scoped auxiliary model boundary for
-bounded conversation-title generation and rolling compaction; interactive Agent turns use
-`AgentSessionRuntime`. The low-level `Agent` class is used directly; the Pi harness's JSONL session
-storage is an explicit non-choice because durable agent history must live in the project database.
-See ADR 018 and ADR 019.
+older single-shot `AgentModelRuntime` remains the request-scoped model boundary for bounded
+conversation-title generation, rolling compaction, and ADR 058's read-only transient Notebook
+answers; interactive tool-using Agent turns use `AgentSessionRuntime`. Notebook, Agent runs, and
+manual Agent compaction share one project-level maximum of three active interactive model work
+reservations. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage
+is an explicit non-choice because durable Agent history must live in the project database. See
+ADRs 018, 019, and 058.
 
 Pin the package manager in `package.json`. Pin exact Pi package versions and major versions for Electron, electron-vite, AI SDK, BlockNote, and native dependencies. Pi and BlockNote API changes must be reviewed rather than accepted through broad version ranges.
 
@@ -499,7 +507,10 @@ Never log:
 - embedding vectors;
 - credentials, signed URLs, or private absolute paths.
 
-Persist agent messages, tool calls, proposals, accepted mutations, job state, and model request metadata in `project.sqlite`; do not attempt to reconstruct them from logs.
+Persist Agent messages, tool calls, proposals, accepted mutations, job state, and model request
+metadata in `project.sqlite`; do not attempt to reconstruct them from logs. Notebook questions,
+answers, source-boundary state, and citation registries are project-session memory only and must
+never enter SQLite or logs.
 
 ## Database Boundaries
 
@@ -642,12 +653,19 @@ BlockNote's native block JSON is the lossless manuscript representation. Each bl
 
 Section content schema v3 admits native `image` blocks only with
 `writellm-asset:<assetId>` references and adds application-owned `figureId` plus independent
-`altText`, alongside source-backed `mermaid` and display-only `math` blocks. Readers remain
-compatible with schema v1/v2 revisions and deterministically supply legacy figure metadata in
-memory. Migration appends a v3 current revision rather than rewriting immutable historical JSON or
-hashes. Mermaid renders lazily with strict security and sanitized SVG-as-image output; KaTeX uses
-display mode with trust disabled and bounded expansion/size. Syntax errors stay local to the block
-and never prevent persistence. See ADR 027.
+`altText`, alongside source-backed `mermaid` and display-only `math` blocks. Schema v4 adds native
+atomic inline formulas shaped exactly as `{ type: "math", content: string }`, bounded to one line,
+8,192 characters, and 8 KiB UTF-8 with no styles, props, or NUL. Readers remain compatible with
+v1-v3 revisions and deterministically supply legacy figure metadata in memory. Forward migrations
+append a new current revision rather than rewriting immutable historical JSON or hashes.
+
+The mathematical model is deliberately two-layered: BlockNote native inline Math handles formulas
+inside prose, while WriteLLM retains its application-owned display Math block. Renderer internally
+aliases the display block as `displayMath` to avoid BlockNote's shared block/inline ProseMirror name
+collision, but the canonical persisted block remains `type: "math"`. Mermaid renders lazily with
+strict security and sanitized SVG-as-image output; KaTeX trust stays disabled and publication
+rendering bounds expansion and size. Syntax errors stay local to the formula and never prevent
+persistence. See ADRs 027 and 057.
 
 The canonical current and historical section JSON lives in `section_revisions.content_json` in `project.sqlite` so revision changes, accepted agent lineage, and optimistic concurrency are transactional. After a revision commits, a durable materialization step atomically writes:
 
@@ -659,8 +677,8 @@ The materialized file contains the current native BlockNote JSON plus a small sc
 
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
-Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, block math uses
-`$$...$$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
+Markdown import/export is explicitly lossy. Mermaid uses a `mermaid` fence, display math uses
+`$$...$$`, inline math uses `$...$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
 remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
 `manuscript/exports/` and never silently replaces native BlockNote JSON. The completed Checkpoint
 24 whole-manuscript packages reuse this conversion boundary and add verified asset portability,
@@ -1004,6 +1022,14 @@ interface KnowledgeSearchHit {
 
 Agent tools receive the same citation IDs as the UI. A separate read tool may expand selected citations; the initial search tool must not dump whole documents into model context.
 
+ADR 058's Notebook chat reuses this pipeline without copying source or index data. Each turn forms
+one bounded retrieval query from the current question and at most two recent user questions after
+the latest source boundary, restricts retrieval to at most 50 selected active sources, expands at
+most 12 results, and admits at most 64 KiB of evidence. No expandable evidence means a deterministic
+insufficient-evidence response and no answer-model call. Otherwise one single-shot provider request
+receives bounded current-boundary history and explicitly untrusted evidence. Per-message citation
+registries bind only that turn's `[[cite:n]]` markers to retrieved citation IDs.
+
 For mixed Chinese and English corpora, evaluate `unicode61` and `trigram` FTS behavior with representative fixtures. Short-query fallback is mandatory.
 
 ### Citation coverage checks
@@ -1066,6 +1092,12 @@ It is not manuscript or proposal authority and cannot become a generic transacti
 Compaction
 lifecycle records and rolling checkpoints are ordinary
 `agent_events` rows; raw events and current project business rows remain authoritative.
+
+Notebook calls still create the required `model_requests` row, but use metadata-only retention.
+The row may retain an internal request ID, provider/model identity, state, timings, attempts, and
+usage; its fingerprint derives only from that internal ID and external response IDs are discarded.
+Questions, answers, evidence text, and content-derived fingerprints are forbidden. No Notebook
+session, message, citation, scope, or recovery table is added.
 
 ### Context construction
 
@@ -1169,6 +1201,10 @@ Main-authored review continuations. Full prompts, Skill bodies, manuscript conte
 conversation content are never logged. Tests freeze layer order, escape behavior, task-template
 invariants, and the 65,536-byte system-prompt budget. See ADR 017.
 
+Notebook prompt composition follows the same application-owned block encoding. Its system policy is
+provider-neutral, permits answers only from the supplied evidence, treats every source block as
+untrusted data that cannot redefine instructions, and requires registered `[[cite:n]]` markers.
+
 ### Agent Harness Protocol v6 tools
 
 ```text
@@ -1266,7 +1302,7 @@ remain deferred.
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
 the active image provider, source revision, block ID, and asset ID; the background worker performs
 one typed request through the fixed catalog in ADRs 051 and 052. Google Gemini retains exact-pinned
-`@google/genai@2.13.0`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
+`@google/genai@2.18.0`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
 Application Default Credentials and the three fixed Nano Banana model IDs; OpenAI
 `gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned `openai@7.5.0`, with xAI's client
 fixed to `https://api.x.ai/v1`. SDKs and provider transports are confined to that worker
@@ -1424,7 +1460,7 @@ Handlers are idempotent and deduplicated by stable content/operation keys. Job p
 
 `jobs` is the sole current-state and recovery authority. `job_transitions` durably audits material state transitions and control events in the same transaction as each mutation; it does not participate in scheduling or recovery. Audit history intentionally excludes high-frequency heartbeat and progress updates.
 
-The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, and Agent turns are request-scoped work; they use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
+The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, Agent turns, and transient Notebook turns are request-scoped work; they use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
 
 Agent provider generation has no WriteLLM wall-clock deadline. Each authorized model request may
 make at most five logical attempts for transient failures before any assistant content is
@@ -1695,6 +1731,7 @@ Do not use in the current architecture:
 - MinerU Python/PyTorch inside Electron Main;
 - subsystem-owned log files alongside the centralized Pino stream;
 - logs as authoritative agent, job, import, or mutation history.
+- persisted Notebook conversations, questions, answers, citation registries, or source-scope state.
 
 ## Historical Transition Into This Baseline
 

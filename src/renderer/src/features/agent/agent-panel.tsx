@@ -152,6 +152,7 @@ import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
   aggregateAgentUsage,
+  agentThinkingVisualState,
   agentToolActivityLabel,
   agentTerminalDetail,
   agentTerminalLabel,
@@ -173,7 +174,8 @@ import {
   type AgentToolActivity,
   toolWasStopped
 } from './agent-view-model'
-import { ProposalDiff } from './proposal-diff'
+import { AgentAttentionBeam, AgentThinkingIndicator } from './agent-motion'
+import { ProposalPresentation } from './proposal-presentation'
 import {
   MAX_WRITING_TASK_STEPS,
   type WritingTaskProgressState,
@@ -780,6 +782,13 @@ export function AgentPanel(props: {
     [clockNow, events, proposals, runs]
   )
   const currentActivity = currentAgentActivitySummary(timeline, activeRun?.agentRunId ?? null)
+  const thinkingVisualState = agentThinkingVisualState({
+    timeline,
+    runId: activeRun?.agentRunId ?? null,
+    workflowState,
+    choosingSkill,
+    hasStreamingRun
+  })
 
   const createSession = async (): Promise<AgentSessionRecord> => {
     const created = await window.desktop.agent.createSession({
@@ -1584,7 +1593,11 @@ export function AgentPanel(props: {
           role='status'
         >
           {activeSessionArchived ? <Archive className='size-3.5' /> : null}
-          {workflowState === 'running' || workflowState === 'compacting' ? <Spinner /> : null}
+          {workflowState === 'running' ||
+          workflowState === 'compacting' ||
+          workflowState === 'generating' ? (
+            <AgentThinkingIndicator state={thinkingVisualState} />
+          ) : null}
           {workflowState === 'awaiting_review' ? (
             <AlertCircle className='size-3.5 text-warning' />
           ) : null}
@@ -1624,6 +1637,7 @@ export function AgentPanel(props: {
           ) : (
             <EventTimeline
               timeline={timeline}
+              projectSessionId={props.projectSessionId}
               proposals={proposals}
               runs={runs}
               streaming={streaming}
@@ -1639,6 +1653,7 @@ export function AgentPanel(props: {
           <WritingTaskProgressDock
             key={`${activeSession.agentSessionId}:${activeSession.writingTask.taskId}:${activeSessionArchived}`}
             task={activeSession.writingTask}
+            projectSessionId={props.projectSessionId}
             proposals={proposals}
             currentRevisionIds={effectiveRevisionIds}
             sectionTitles={props.sectionTitles}
@@ -1694,14 +1709,16 @@ export function AgentPanel(props: {
               </MarkerContent>
             </Marker>
           ) : waitingProposal !== undefined ? (
-            <ReviewBar
-              proposal={waitingProposal}
-              feedback={reviewFeedback}
-              busy={busy}
-              outdated={isSectionProposalOutdated(waitingProposal, effectiveRevisionIds)}
-              onFeedbackChange={setReviewFeedback}
-              onAction={proposalAction}
-            />
+            <AgentAttentionBeam attentionKey={waitingProposal.proposalId} paused={busy}>
+              <ReviewBar
+                proposal={waitingProposal}
+                feedback={reviewFeedback}
+                busy={busy}
+                outdated={isSectionProposalOutdated(waitingProposal, effectiveRevisionIds)}
+                onFeedbackChange={setReviewFeedback}
+                onAction={proposalAction}
+              />
+            </AgentAttentionBeam>
           ) : workflowState === 'generating' ? (
             <Marker role='status'>
               <MarkerIcon>
@@ -3183,6 +3200,7 @@ const CHANGE_SET_STATUSES: MutationProposalRecord['status'][] = [
 
 function WritingTaskProgressDock(props: {
   task: WritingTaskView
+  projectSessionId: string
   proposals: MutationProposalRecord[]
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
@@ -3334,6 +3352,7 @@ function WritingTaskProgressDock(props: {
             </section>
             <WritingTaskChangeSetPanel
               task={props.task}
+              projectSessionId={props.projectSessionId}
               proposals={props.proposals}
               currentRevisionIds={props.currentRevisionIds}
               sectionTitles={props.sectionTitles}
@@ -3414,6 +3433,7 @@ export function writingTaskDockSummary(task: WritingTaskView): {
 
 function WritingTaskChangeSetPanel(props: {
   task: WritingTaskView
+  projectSessionId: string
   proposals: MutationProposalRecord[]
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
@@ -3618,12 +3638,12 @@ function WritingTaskChangeSetPanel(props: {
                       </Button>
                     </div>
                     <CollapsibleContent className='pt-3'>
-                      <ProposalDiff
-                        beforeText={preview.beforeText}
-                        afterText={preview.afterText}
-                        beforeTextTruncated={preview.beforeTextTruncated}
-                        afterTextTruncated={preview.afterTextTruncated}
+                      <ProposalPresentation
+                        proposal={entry.proposal}
+                        projectSessionId={props.projectSessionId}
+                        sectionTitles={props.sectionTitles}
                         dark={resolvedTheme === 'dark'}
+                        compact
                       />
                     </CollapsibleContent>
                   </Collapsible>
@@ -3685,6 +3705,7 @@ function WritingTaskChangeSetPanel(props: {
 
 function EventTimeline(props: {
   timeline: AgentTimelineItem[]
+  projectSessionId: string
   proposals: MutationProposalRecord[]
   runs: AgentRunRecord[]
   streaming: Record<string, string>
@@ -3726,6 +3747,7 @@ function EventTimeline(props: {
               >
                 <TimelineItem
                   item={item}
+                  projectSessionId={props.projectSessionId}
                   proposals={props.proposals}
                   runs={props.runs}
                   citationsById={citationsById}
@@ -3747,7 +3769,10 @@ function EventTimeline(props: {
                         </BubbleContent>
                       </Bubble>
                       <MessageFooter className='gap-2'>
-                        <Spinner />
+                        <AgentThinkingIndicator
+                          state='composing'
+                          testId='agent-streaming-thinking-indicator'
+                        />
                         <span className='shimmer'>Streaming…</span>
                       </MessageFooter>
                     </MessageContent>
@@ -3765,6 +3790,7 @@ function EventTimeline(props: {
 
 function TimelineItem(props: {
   item: AgentTimelineItem
+  projectSessionId: string
   proposals: MutationProposalRecord[]
   runs: AgentRunRecord[]
   citationsById: Map<string, AgentCitationDisplay>
@@ -3872,6 +3898,7 @@ function TimelineItem(props: {
     return (
       <ProposalMessage
         item={item}
+        projectSessionId={props.projectSessionId}
         citationsById={props.citationsById}
         busy={props.busy}
         currentRevisionIds={props.currentRevisionIds}
@@ -4121,6 +4148,7 @@ function BoundedJsonDetails(props: { label: string; value: unknown }): React.JSX
 
 function ProposalMessage(props: {
   item: Extract<AgentTimelineItem, { type: 'proposal' }>
+  projectSessionId: string
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   currentRevisionIds: Readonly<Record<string, string>>
@@ -4176,11 +4204,10 @@ function ProposalMessage(props: {
           </Badge>
         ))}
       </div>
-      <ProposalDiff
-        beforeText={preview.beforeText}
-        afterText={preview.afterText}
-        beforeTextTruncated={preview.beforeTextTruncated}
-        afterTextTruncated={preview.afterTextTruncated}
+      <ProposalPresentation
+        proposal={proposal}
+        projectSessionId={props.projectSessionId}
+        sectionTitles={props.sectionTitles}
         dark={resolvedTheme === 'dark'}
       />
       {sources.length > 0 ? <CitationAttachments citations={sources} /> : null}

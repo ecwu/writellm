@@ -7,6 +7,7 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import {
   blockNoteDocumentSchema,
+  inlineMathSourceSchema,
   type BlockNoteBlockValue,
   type BlockNoteDocument,
   type BlockNoteInlineContent
@@ -393,18 +394,42 @@ function inline(
         output.push(text(node.value ?? '', { ...inherited, code: true }))
         break
       case 'inlineMath':
-        output.push(text(`$${node.value ?? ''}$`, { ...inherited, code: true }))
-        context.losses.push(
-          finding('inline_math_text_fallback', 'Inline math remains editable LaTeX text', node)
-        )
+        if (inlineMathSourceSchema.safeParse(node.value ?? '').success) {
+          output.push({ type: 'math', content: node.value ?? '' })
+        } else {
+          output.push(
+            text(`$${(node.value ?? '').slice(0, 99_998)}$`, { ...inherited, code: true })
+          )
+          context.losses.push(
+            finding(
+              'inline_math_size_fallback',
+              'Inline math exceeded the bounded single-line formula contract and became literal text',
+              node
+            )
+          )
+        }
         break
       case 'break':
         output.push(text('\n', inherited))
         break
       case 'link': {
-        const content = inline(node.children ?? [], inherited, context).flatMap((part) =>
-          part.type === 'text' ? [part] : part.content
-        )
+        const content: Extract<BlockNoteInlineContent, { type: 'link' }>['content'] = []
+        for (const part of inline(node.children ?? [], inherited, context)) {
+          if (part.type === 'text') content.push(part)
+          else if (part.type === 'link') content.push(...part.content)
+          else {
+            context.losses.push(
+              finding(
+                'inline_math_link_fallback',
+                'Inline mathematics inside a link became literal linked text',
+                node
+              )
+            )
+            content.push(
+              text(`$${part.content}$`, { ...inherited, code: true }) as (typeof content)[number]
+            )
+          }
+        }
         if (isSafeLink(node.url ?? '')) {
           output.push({ type: 'link', href: node.url as string, content })
         } else {

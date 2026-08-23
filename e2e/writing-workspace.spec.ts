@@ -94,6 +94,185 @@ async function closeProject(page: Page): Promise<void> {
 }
 
 test(
+  'keeps BlockNote formatting and slash menus keyboard-usable at narrow widths',
+  scenario('manuscript.blocknote-054-controls', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'BlockNote controls')
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+
+      const editor = sectionEditor(launched.page)
+      await editor.click()
+      await launched.page.keyboard.type('Toolbar')
+      for (let index = 0; index < 7; index += 1) {
+        await launched.page.keyboard.press('Shift+ArrowLeft')
+      }
+      const bold = launched.page.getByRole('button', { name: 'Bold', exact: true })
+      await expect(bold).toBeVisible()
+      await expect(
+        launched.page.getByRole('button', { name: 'Open Agent quick actions' })
+      ).toBeVisible()
+      await bold.click()
+
+      await editor.click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type('/merm')
+      const slashMenu = launched.page.getByRole('listbox')
+      await expect(slashMenu).toBeVisible()
+      await expect(slashMenu.getByRole('option', { name: /Mermaid/u })).toBeVisible()
+      const menuBox = await slashMenu.boundingBox()
+      expect(menuBox).not.toBeNull()
+      expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(620)
+      await launched.page.keyboard.press('Enter')
+      await expect(launched.page.getByLabel('Mermaid source')).toBeVisible()
+      await launched.page.getByLabel('Mermaid source').fill('flowchart LR\nA --> B')
+      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
+      await expect(launched.page.getByRole('img', { name: 'Mermaid diagram' })).toBeVisible()
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'creates, edits, isolates, and reloads native inline mathematics',
+  scenario('manuscript.native-inline-math', ['@critical', '@packaged']),
+  async ({ testRoot }) => {
+    const projectName = 'Inline mathematics'
+    const projectRoot = join(testRoot, `${projectName}.writellm`)
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, projectRoot]
+    })
+    try {
+      await createProject(launched.page, projectName)
+      const editor = sectionEditor(launched.page)
+      await editor.click()
+      await launched.page.keyboard.type('Before $E=mc^2$ after')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type(String.raw`Second \(a+b\) rule`)
+
+      const formulas = launched.page.locator('[data-inline-content-type="math"]')
+      await expect(formulas).toHaveCount(2)
+
+      const firstFormula = formulas.first()
+      await firstFormula.locator('.bn-preview-container').click()
+      await expect(firstFormula.locator('.bn-preview-with-source-popup')).toHaveAttribute(
+        'data-open',
+        'true'
+      )
+      await launched.page.keyboard.press('Escape')
+      await expect(firstFormula.locator('.bn-preview-with-source-popup')).toHaveAttribute(
+        'data-open',
+        'false'
+      )
+
+      await editor.click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type('/inline eq')
+      const slashMenu = launched.page.getByRole('listbox')
+      await expect(slashMenu.getByRole('option', { name: /Inline Equation/u })).toBeVisible()
+      await launched.page.keyboard.press('Enter')
+      await expect(formulas).toHaveCount(3)
+      const slashFormula = formulas.last()
+      await slashFormula.locator('.bn-preview-container').click()
+      await expect(slashFormula.locator('.bn-preview-with-source-popup')).toHaveAttribute(
+        'data-open',
+        'true'
+      )
+      await launched.page.keyboard.type(String.raw`\frac{x}{y}`)
+      await launched.page.keyboard.press('Enter')
+      await expect(slashFormula.locator('.bn-preview-with-source-popup')).toHaveAttribute(
+        'data-open',
+        'false'
+      )
+
+      const hostileRequests: string[] = []
+      launched.page.on('request', (request) => {
+        if (request.url().includes('evil.example')) hostileRequests.push(request.url())
+      })
+      await editor.click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type(String.raw`Unsafe $\href{https://evil.example}{x}$`)
+      await expect(formulas).toHaveCount(4)
+      await expect(formulas.last().locator('a')).toHaveCount(0)
+      expect(hostileRequests).toEqual([])
+
+      await editor.click()
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type(String.raw`Invalid $\badcommand{$`)
+      await expect(formulas).toHaveCount(5)
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(formulas).toHaveCount(4)
+      await launched.page.keyboard.press('ControlOrMeta+Shift+z')
+      await expect(formulas).toHaveCount(5)
+      const invalidFormula = launched.page.getByRole('button', {
+        name: /Invalid equation/u
+      })
+      await expect(invalidFormula).toBeVisible()
+      await invalidFormula.click()
+      await expect(formulas.last().locator('.bn-preview-with-source-popup')).toHaveAttribute(
+        'data-open',
+        'true'
+      )
+      await launched.page.keyboard.press('ControlOrMeta+a')
+      await launched.page.keyboard.type('z^2')
+      await launched.page.keyboard.press('Enter')
+      await expect(invalidFormula).not.toBeVisible()
+
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+
+      await launched.page.keyboard.press('ControlOrMeta+f')
+      await launched.page.getByTestId('manuscript-find-input').fill('E=mc^2')
+      await expect(launched.page.getByText('0 results', { exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Close Find' }).click()
+
+      await closeProject(launched.page)
+      await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
+      await expectActiveProject(launched.page, projectName)
+      await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(5)
+
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect
+        .poll(() =>
+          launched.page
+            .getByTestId('section-editor')
+            .evaluate((element) => element.scrollWidth <= element.clientWidth)
+        )
+        .toBe(true)
+
+      await launched.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: /Settings/u }).click()
+      const settings = launched.page.getByRole('dialog', { name: 'Settings' })
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
+      await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await expect
+        .poll(() => launched.page.evaluate(() => document.documentElement.dataset.theme))
+        .toBe('dark')
+      await launched.page.keyboard.press('Escape')
+      await expect(settings).not.toBeVisible()
+      await expect(formulas.first().locator('math')).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
   'finds current manuscript text and preserves exact navigation across window sizes',
   scenario('manuscript.find-navigation'),
   async ({ testRoot }) => {
@@ -303,13 +482,15 @@ Hello \textbf{reviewed} import with $x^2$.
       await expect(dialog.getByText('LATEX', { exact: true })).toBeVisible()
       await expect(dialog.getByText('Imported opening', { exact: true }).first()).toBeVisible()
       await expect(dialog.getByText('Imported evidence', { exact: true })).toBeVisible()
-      await expect(
-        dialog.getByText(/Inline math remains editable literal LaTeX text/u)
-      ).toBeVisible()
       await expect(dialog.getByText(/missing-key/u)).toBeVisible()
 
       await dialog.getByRole('button', { name: 'Apply reviewed import' }).click()
       await expect(dialog).not.toBeVisible()
+      const opening = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported opening'
+      })
+      await opening.click()
+      await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(1)
       const evidence = launched.page.getByTestId(/^outline-section-/).filter({
         hasText: 'Imported evidence'
       })
@@ -320,6 +501,11 @@ Hello \textbf{reviewed} import with $x^2$.
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
+      const reopenedOpening = launched.page.getByTestId(/^outline-section-/).filter({
+        hasText: 'Imported opening'
+      })
+      await reopenedOpening.click()
+      await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(1)
       const reopenedEvidence = launched.page.getByTestId(/^outline-section-/).filter({
         hasText: 'Imported evidence'
       })
@@ -1623,10 +1809,10 @@ test(
       await expect
         .poll(() => launched.page.evaluate(() => window.matchMedia('(max-width: 767px)').matches))
         .toBe(true)
-      const mobileSidebar = launched.page.locator('[data-mobile="true"]')
-      if (!(await mobileSidebar.isVisible())) {
-        await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
-      }
+      const mobileSidebar = launched.page.locator('[data-mobile="true"]').filter({
+        has: launched.page.locator('[aria-label="Manuscript references"]')
+      })
+      await expect(mobileSidebar).toBeVisible()
       await expect(
         mobileSidebar
           .locator('[aria-label="Manuscript references"]')

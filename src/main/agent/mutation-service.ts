@@ -29,6 +29,8 @@ import {
   type MutationProposalChanged,
   type OutlineMutationOperation,
   type OutlinePatch,
+  type ProposalPresentation,
+  type ProposalPresentationText,
   type SectionPatch
 } from '../../shared/contracts/agent-mutations'
 import {
@@ -147,6 +149,7 @@ interface OutlineSimulation {
   affectedSectionIds: string[]
   beforeText: string
   afterText: string
+  presentation: ProposalPresentation
 }
 
 interface ApplyTransactionResult {
@@ -852,7 +855,13 @@ export class MutationProposalService {
             afterText: writingRulesChange
               ? formatWritingRulesPreview(readWritingRules(after.extensible))
               : JSON.stringify(after, null, 2),
-            citedSources
+            citedSources,
+            presentation: writingRulesChange
+              ? createWritingRulesPresentation(
+                  readWritingRules(before.extensible),
+                  readWritingRules(after.extensible)
+                )
+              : createBriefPresentation(mutation, before, after)
           })
         }
       }
@@ -873,7 +882,8 @@ export class MutationProposalService {
             affectedSectionIds: simulation.affectedSectionIds,
             beforeText: simulation.beforeText,
             afterText: simulation.afterText,
-            citedSources
+            citedSources,
+            presentation: simulation.presentation
           })
         }
       }
@@ -2735,6 +2745,7 @@ function createPreview(input: {
   beforeText: string
   afterText: string
   citedSources: MutationCitedSource[]
+  presentation?: ProposalPresentation
 }): MutationPreview {
   const before = truncateUtf8(input.beforeText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
   const after = truncateUtf8(input.afterText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
@@ -2745,7 +2756,8 @@ function createPreview(input: {
     afterText: after.text,
     beforeTextTruncated: before.truncated,
     afterTextTruncated: after.truncated,
-    citedSources: input.citedSources
+    citedSources: input.citedSources,
+    presentation: input.presentation
   })
 }
 
@@ -2755,13 +2767,161 @@ function truncateUtf8(value: string, maximumBytes: number): { text: string; trun
   return { text: bytes.subarray(0, maximumBytes).toString('utf8'), truncated: true }
 }
 
+const BRIEF_PRESENTATION_FIELDS = [
+  'title',
+  'description',
+  'topic',
+  'targetAudience',
+  'language',
+  'styleTone',
+  'scopeExclusions',
+  'targetLength',
+  'citationRequirements',
+  'additionalInstructions'
+] as const
+
+function presentationText(value: string | null): ProposalPresentationText {
+  if (value === null) return { text: null, truncated: false }
+  const projected = truncateUtf8(value, 4_096)
+  return { text: projected.text, truncated: projected.truncated }
+}
+
+function createBriefPresentation(
+  mutation: BriefUpdate,
+  before: ReturnType<typeof briefFieldsFromRow>,
+  after: ReturnType<typeof briefFieldsFromRow>
+): ProposalPresentation | undefined {
+  const fields = BRIEF_PRESENTATION_FIELDS.flatMap((field) =>
+    Object.hasOwn(mutation.changes, field)
+      ? [
+          {
+            field,
+            before: presentationText(before[field]),
+            after: presentationText(after[field])
+          }
+        ]
+      : []
+  )
+  if (fields.length === 0) return undefined
+  return { schemaVersion: 1, kind: 'brief_fields', fields }
+}
+
+function createWritingRulesPresentation(
+  before: WritingRulesState,
+  after: WritingRulesState
+): ProposalPresentation {
+  const beforeById = new Map(before.rules.map((rule) => [rule.ruleId, rule]))
+  const afterById = new Map(after.rules.map((rule) => [rule.ruleId, rule]))
+  const changes: Extract<ProposalPresentation, { kind: 'writing_rules' }>['changes'] = []
+  for (const rule of after.rules) {
+    const previous = beforeById.get(rule.ruleId)
+    if (previous === undefined) {
+      changes.push({ action: 'add', ruleId: rule.ruleId, before: null, after: rule })
+      continue
+    }
+    if (JSON.stringify(previous) === JSON.stringify(rule)) continue
+    const activeOnly =
+      previous.active !== rule.active &&
+      JSON.stringify({ ...previous, active: rule.active }) === JSON.stringify(rule)
+    changes.push({
+      action: activeOnly ? (rule.active ? 'enable' : 'disable') : 'update',
+      ruleId: rule.ruleId,
+      before: previous,
+      after: rule
+    })
+  }
+  for (const rule of before.rules) {
+    if (!afterById.has(rule.ruleId)) {
+      changes.push({ action: 'remove', ruleId: rule.ruleId, before: rule, after: null })
+    }
+  }
+  return { schemaVersion: 1, kind: 'writing_rules', changes }
+}
+
+type OutlinePresentationOperation = Extract<
+  ProposalPresentation,
+  { kind: 'outline_operations' }
+>['operations'][number]
+
+function outlineLocation(node: OutlineNode, nodes: OutlineNode[]) {
+  return {
+    parentSectionId: node.parentSectionId,
+    parentTitle:
+      node.parentSectionId === null
+        ? null
+        : (nodes.find((candidate) => candidate.sectionId === node.parentSectionId)?.title ?? null),
+    position: node.position
+  }
+}
+
+function outlinePresentationSection(node: OutlineNode, nodes: OutlineNode[]) {
+  return {
+    sectionId: node.sectionId,
+    title: node.title,
+    location: outlineLocation(node, nodes),
+    objective: presentationText(node.objective),
+    status: node.status
+  }
+}
+
+function createOutlineOperationPresentation(
+  operation: OutlineMutationOperation,
+  before: OutlineNode[],
+  after: OutlineNode[]
+): OutlinePresentationOperation {
+  if (operation.type === 'createSection') {
+    const created = requireOutlineNode(after, operation.sectionId)
+    return { type: 'create', section: outlinePresentationSection(created, after) }
+  }
+  const previous = requireOutlineNode(before, operation.sectionId)
+  if (operation.type === 'deleteSection') {
+    return { type: 'delete', section: outlinePresentationSection(previous, before) }
+  }
+  const next = requireOutlineNode(after, operation.sectionId)
+  if (operation.type === 'moveSection') {
+    return {
+      type: 'move',
+      sectionId: next.sectionId,
+      title: next.title,
+      before: outlineLocation(previous, before),
+      after: outlineLocation(next, after)
+    }
+  }
+  const changes: Extract<OutlinePresentationOperation, { type: 'update' }>['changes'] = []
+  if (operation.title !== undefined) {
+    changes.push({
+      field: 'title',
+      before: presentationText(previous.title),
+      after: presentationText(next.title)
+    })
+  }
+  if (operation.objective !== undefined) {
+    changes.push({
+      field: 'objective',
+      before: presentationText(previous.objective),
+      after: presentationText(next.objective)
+    })
+  }
+  if (operation.status !== undefined) {
+    changes.push({
+      field: 'status',
+      before: presentationText(previous.status),
+      after: presentationText(next.status)
+    })
+  }
+  return { type: 'update', sectionId: next.sectionId, title: next.title, changes }
+}
+
 function simulateOutline(rows: SectionTable[], patch: OutlinePatch): OutlineSimulation {
   const before = rows.map(outlineNodeFromRow)
   let nodes = before.map((node) => ({ ...node }))
   const affected = new Set<string>()
+  const operations: OutlinePresentationOperation[] = []
   for (const operation of patch.operations) {
+    const operationBefore = nodes.map((node) => ({ ...node }))
     nodes = applyOutlineOperation(nodes, operation, affected)
     normalizeOutline(nodes)
+    operations.push(createOutlineOperationPresentation(operation, operationBefore, nodes))
   }
   if (nodes.length > MAX_MANUSCRIPT_SECTIONS) {
     throw new MutationSimulationError('invalid_result', 'Outline contains too many sections')
@@ -2773,7 +2933,8 @@ function simulateOutline(rows: SectionTable[], patch: OutlinePatch): OutlineSimu
     nodes,
     affectedSectionIds: [...affected],
     beforeText: renderOutline(before),
-    afterText: renderOutline(nodes)
+    afterText: renderOutline(nodes),
+    presentation: { schemaVersion: 1, kind: 'outline_operations', operations }
   }
 }
 

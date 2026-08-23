@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getMermaidRenderConfig,
+  isUnsafeMermaidAttribute,
   isUnsafeMermaidCss,
   renderDisplayMathToString
 } from './rich-media-blocks'
@@ -26,6 +27,16 @@ describe('rich media block safety', () => {
     expect(isUnsafeMermaidCss('width: expression(alert(1))')).toBe(true)
     expect(isUnsafeMermaidCss('fill: url(https://example.com/a.svg)')).toBe(true)
     expect(isUnsafeMermaidCss('fill: url(#local-gradient)')).toBe(false)
+  })
+
+  it('drops executable and remote SVG attributes while retaining local fragment references', () => {
+    expect(isUnsafeMermaidAttribute('onload', 'alert(1)')).toBe(true)
+    expect(isUnsafeMermaidAttribute('SRC', 'data:text/html,unsafe')).toBe(true)
+    expect(isUnsafeMermaidAttribute('href', 'javascript:alert(1)')).toBe(true)
+    expect(isUnsafeMermaidAttribute('xlink:href', 'https://example.com/remote.svg')).toBe(true)
+    expect(isUnsafeMermaidAttribute('style', 'fill: url(https://example.com/a.svg)')).toBe(true)
+    expect(isUnsafeMermaidAttribute('href', '#local-node')).toBe(false)
+    expect(isUnsafeMermaidAttribute('style', 'fill: url(#local-gradient)')).toBe(false)
   })
 
   it('renders display math without enabling trusted HTML or remote resources', () => {

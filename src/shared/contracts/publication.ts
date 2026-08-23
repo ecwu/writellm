@@ -54,6 +54,10 @@ export const publicationInlineNodeSchema = z.discriminatedUnion('type', [
     title: z.string().min(1).max(512),
     pageIndex: z.number().int().nonnegative().optional(),
     raw: z.string().min(1).max(1_024)
+  }),
+  strictObject({
+    type: z.literal('math'),
+    source: z.string().max(8_192)
   })
 ])
 
@@ -556,6 +560,10 @@ function convertInline(
 ): z.infer<typeof publicationInlineNodeSchema>[] {
   const result: z.infer<typeof publicationInlineNodeSchema>[] = []
   for (const node of content) {
+    if (node.type === 'math') {
+      result.push({ type: 'math', source: node.content })
+      continue
+    }
     if (node.type === 'link') {
       result.push({
         type: 'link',
@@ -615,7 +623,11 @@ function convertInline(
 }
 
 function inlineText(node: BlockNoteInlineContent): string {
-  return node.type === 'link' ? node.content.map((child) => child.text).join('') : node.text
+  return node.type === 'link'
+    ? node.content.map((child) => child.text).join('')
+    : node.type === 'math'
+      ? `$${node.content}$`
+      : node.text
 }
 
 function inlineContent(block: BlockNoteDocument[number]): BlockNoteInlineContent[] {

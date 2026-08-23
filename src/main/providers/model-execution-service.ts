@@ -106,7 +106,8 @@ export class ModelExecutionService {
       modelLimits: AgentModelLimits
     },
     signal: AbortSignal,
-    onEvent: (event: AgentStreamEvent) => void = () => undefined
+    onEvent: (event: AgentStreamEvent) => void = () => undefined,
+    options: { retention?: 'standard' | 'metadata_only' } = {}
   ): Promise<{ result: AgentRunResult; modelRequestId: string }> {
     const input = agentRunInputSchema.parse(rawInput)
     const repository = new ModelRequestRepository(database, this.options.log)
@@ -115,6 +116,7 @@ export class ModelExecutionService {
       provider: resolved.config,
       request: input,
       inputItems: 1,
+      ...(options.retention === undefined ? {} : { retention: options.retention }),
       ...correlation
     })
     try {
@@ -127,10 +129,14 @@ export class ModelExecutionService {
         correlation.projectSessionId,
         resolved.modelLimits
       )
-      await repository.succeed(record.modelRequestId, {
-        metadata: result.metadata,
-        outputItems: result.text.length === 0 ? 0 : 1
-      })
+      await repository.succeed(
+        record.modelRequestId,
+        {
+          metadata: result.metadata,
+          outputItems: result.text.length === 0 ? 0 : 1
+        },
+        record.retention
+      )
       return { result, modelRequestId: record.modelRequestId }
     } catch (err) {
       this.options.log.error(
@@ -143,8 +149,16 @@ export class ModelExecutionService {
         'Resolved Agent model execution failed'
       )
       try {
-        if (signal.aborted || isAbortError(err)) await repository.abort(record.modelRequestId)
-        else await repository.fail(record.modelRequestId, classifySafeError(err))
+        if (signal.aborted || isAbortError(err)) {
+          await repository.abort(record.modelRequestId, 'aborted', undefined, record.retention)
+        } else {
+          await repository.fail(
+            record.modelRequestId,
+            classifySafeError(err),
+            undefined,
+            record.retention
+          )
+        }
       } catch (recordErr) {
         this.options.log.error(
           {

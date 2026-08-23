@@ -33,7 +33,8 @@ export interface ManuscriptReferenceIndex {
   entries: ManuscriptReferenceEntry[]
 }
 
-const READABLE_CITATION_PATTERN = /\[Source:\s*([^\]\r\n]+)\]|【来源：\s*([^】\r\n]+)】/gu
+const READABLE_CITATION_PATTERN =
+  /\[Source:\s*([^\]\r\n\uFFFC]+)\]|【来源：\s*([^】\r\n\uFFFC]+)】/gu
 const ENGLISH_PAGE_SUFFIX = /,\s*p\.\s*(\d+)\s*$/u
 const CHINESE_PAGE_SUFFIX = /，\s*第\s*(\d+)\s*页\s*$/u
 
@@ -168,7 +169,11 @@ function blockTextSegments(block: BlockNoteDocument[number]): string[] {
 function inlinePlainText(content: readonly BlockNoteInlineContent[]): string {
   return content
     .map((node) =>
-      node.type === 'link' ? node.content.map((child) => child.text).join('') : node.text
+      node.type === 'link'
+        ? node.content.map((child) => child.text).join('')
+        : node.type === 'math'
+          ? '\uFFFC'
+          : node.text
     )
     .join('')
 }

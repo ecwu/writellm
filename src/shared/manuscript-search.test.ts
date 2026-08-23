@@ -188,4 +188,33 @@ describe('manuscript search surfaces', () => {
       ['block_caption', 'Visible caption']
     ])
   })
+
+  it('hides inline math source and prevents matches from bridging the atomic node', () => {
+    const content = [
+      {
+        id: 'math-paragraph',
+        type: 'paragraph',
+        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+        content: [
+          { type: 'text', text: 'alpha', styles: {} },
+          { type: 'math', content: 'secret_formula' },
+          { type: 'text', text: 'beta', styles: {} }
+        ],
+        children: []
+      }
+    ] as BlockNoteDocument
+    const surface = enumerateManuscriptSearchSurfaces([
+      {
+        sectionId: 'section-1',
+        revisionId: 'revision-1',
+        title: 'Title',
+        objective: null,
+        status: 'drafting',
+        content
+      }
+    ]).find((candidate) => candidate.kind === 'block_inline')
+    expect(surface?.text).toBe('alpha\uFFFCbeta')
+    expect(findProjectionMatches(surface?.text ?? '', 'secret_formula', true).matches).toEqual([])
+    expect(findProjectionMatches(surface?.text ?? '', 'alphabeta', true).matches).toEqual([])
+  })
 })

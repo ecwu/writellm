@@ -849,10 +849,10 @@ async function runPackagedAppScenarios(resources) {
           sectionId
         })
         if (
-          loaded.revision.contentSchemaVersion !== 3 ||
+          loaded.revision.contentSchemaVersion !== 4 ||
           !JSON.stringify(loaded.revision.content).includes('Packaged schema-v2 persisted body.')
         ) {
-          throw new Error('Schema-v3 content did not survive packaged reopen')
+          throw new Error('Schema-v4 content did not survive packaged reopen')
         }
         const resolved = await window.desktop.editor.resolveAsset({
           projectSessionId: active.projectSessionId,

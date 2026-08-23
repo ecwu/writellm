@@ -23,6 +23,7 @@ import { registerAgentIpc } from './ipc/agent-ipc'
 import { registerKnowledgeIpc } from './ipc/knowledge-ipc'
 import { registerProviderIpc } from './ipc/provider-ipc'
 import { registerSearchIpc } from './ipc/search-ipc'
+import { registerNotebookChatIpc } from './ipc/notebook-chat-ipc'
 import { registerReviewIpc } from './ipc/review-ipc'
 import { registerAnnotationIpc } from './ipc/annotation-ipc'
 import { registerSkillIpc } from './ipc/skill-ipc'
@@ -65,6 +66,7 @@ import { ReviewIssueService } from './agent/review-issue-service'
 import { WritingTaskService } from './agent/writing-task-service'
 import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
+import { ProjectInteractiveModelLimiter } from './agent/project-interactive-model-limiter'
 import { MutationEventBroker } from './agent/mutation-event-broker'
 import { ModelMetadataClient } from './providers/model-metadata-client'
 import { ModelMetadataService } from './providers/model-metadata-service'
@@ -78,6 +80,8 @@ import {
   registerNormalizationHandler
 } from './knowledge/knowledge-normalization-service'
 import { KnowledgeMappingService } from './knowledge/knowledge-mapping-service'
+import { KnowledgeChatService } from './knowledge/knowledge-chat-service'
+import { KnowledgeChatEventBroker } from './knowledge/knowledge-chat-event-broker'
 import { IndexClient } from './search/index-client'
 import {
   embeddingContractSha256,
@@ -287,6 +291,9 @@ if (!hasSingleInstanceLock) {
       const mutationEvents = new MutationEventBroker(
         loggerSystem.createModuleLogger('agent', 'mutation-event-broker')
       )
+      const notebookEvents = new KnowledgeChatEventBroker(
+        loggerSystem.createModuleLogger('knowledge', 'notebook-event-broker')
+      )
       let flushForAgentMutation = async (
         _projectSessionId: string,
         _affectedSectionIds: readonly string[]
@@ -322,6 +329,7 @@ if (!hasSingleInstanceLock) {
           manuscript,
           editorPersistence,
           manuscriptAssets,
+          knowledgeImports,
           log
         }) => {
           modelExecution.recoverRunning(database)
@@ -409,6 +417,23 @@ if (!hasSingleInstanceLock) {
               ),
             log: loggerSystem.createModuleLogger('search', 'retrieval')
           })
+          const interactiveModelLimiter = new ProjectInteractiveModelLimiter(
+            projectId,
+            loggerSystem.createModuleLogger('agent', 'interactive-model-limiter')
+          )
+          const knowledgeChat = new KnowledgeChatService({
+            projectId,
+            projectSessionId,
+            database,
+            retrieval,
+            projectIndex,
+            listKnowledgeItems: () => knowledgeImports.list(),
+            agentCatalog: agentProviderCatalog,
+            modelExecution,
+            limiter: interactiveModelLimiter,
+            log: loggerSystem.createModuleLogger('knowledge', 'notebook-chat'),
+            publish: (event) => notebookEvents.publish(event)
+          })
           const agentReadTools = new MainAgentReadTools({
             projectSessionId,
             manuscript,
@@ -459,6 +484,7 @@ if (!hasSingleInstanceLock) {
             writingTasks,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
+            interactiveModelLimiter,
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
             publishSession: (event) => agentEvents.publishSession(projectSessionId, event),
@@ -539,6 +565,7 @@ if (!hasSingleInstanceLock) {
             knowledgeMapping,
             projectIndex,
             retrieval,
+            knowledgeChat,
             agentSessions,
             agentMutations,
             agentChangeSets,
@@ -547,6 +574,7 @@ if (!hasSingleInstanceLock) {
             registry,
             terminateWorkers: async () => {
               await agentMutations.cancelAllImageGenerations()
+              await knowledgeChat.close()
               await agentSessions.close()
               projectIndex.terminate()
             }
@@ -690,16 +718,27 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      const notebookIpc = registerNotebookChatIpc({
+        manager: projectManager,
+        broker: notebookEvents,
+        logger: loggerSystem.createModuleLogger('ipc', 'notebook-chat'),
+        developmentUrl,
+        ipc
+      })
       projectManager.setCloseParticipants({
         ...editorIpc.closeParticipants,
         stopJobClaims: async (context) => context.knowledgeImports.cancelAll(),
-        stopWorkersAndIndex: async (context) => context.projectIndex?.close(),
+        stopWorkersAndIndex: async (context) => {
+          await context.knowledgeChat?.close()
+          await context.projectIndex?.close()
+        },
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
           unregisterManuscriptIpc.revokeSession(projectSessionId)
           agentMutationIpc.revokeSession(projectSessionId)
           agentIpc.revokeSession(projectSessionId)
+          notebookIpc.revokeSession(projectSessionId)
           pdfPreview.revokeSession(projectSessionId)
           assetPreview.revokeSession(projectSessionId)
         }
@@ -753,6 +792,7 @@ if (!hasSingleInstanceLock) {
           unregisterSkillIpc()
           unregisterProviderIpc()
           unregisterSearchIpc()
+          notebookIpc.unregister()
           unregisterKnowledgeIpc()
           unregisterManuscriptIpc.unregister()
           agentMutationIpc.unregister()

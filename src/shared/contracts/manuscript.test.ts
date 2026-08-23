@@ -111,6 +111,35 @@ describe('approved BlockNote document contract', () => {
     ).toBe(false)
   })
 
+  it('accepts bounded atomic inline math and rejects props, line breaks, and oversized UTF-8', () => {
+    const document = [
+      {
+        ...paragraph('inline-math'),
+        content: [
+          { type: 'text' as const, text: 'Energy ', styles: {} },
+          { type: 'math' as const, content: 'E = mc^2' },
+          { type: 'text' as const, text: ' is conserved.', styles: {} }
+        ]
+      }
+    ]
+    expect(blockNoteDocumentSchema.parse(document)).toEqual(document)
+    expect(
+      blockNoteDocumentSchema.safeParse([
+        { ...document[0], content: [{ type: 'math', content: 'x', props: {} }] }
+      ]).success
+    ).toBe(false)
+    expect(
+      blockNoteDocumentSchema.safeParse([
+        { ...document[0], content: [{ type: 'math', content: 'x\ny' }] }
+      ]).success
+    ).toBe(false)
+    expect(
+      blockNoteDocumentSchema.safeParse([
+        { ...document[0], content: [{ type: 'math', content: '界'.repeat(2_731) }] }
+      ]).success
+    ).toBe(false)
+  })
+
   it.each([
     ['missing ID', [{ ...paragraph('remove'), id: undefined }]],
     ['duplicate ID', [paragraph('same'), paragraph('same')]],

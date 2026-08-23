@@ -22,6 +22,7 @@ import type { ReviewIssueService } from '../agent/review-issue-service'
 import type { WritingTaskService } from '../agent/writing-task-service'
 import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
 import type { AnnotationService } from '../manuscript/annotation-service'
+import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
@@ -44,6 +45,7 @@ export interface ProjectContext {
   readonly knowledgeMapping?: KnowledgeMappingService | null
   readonly projectIndex: ProjectIndexService | null
   readonly retrieval: RetrievalService | null
+  readonly knowledgeChat: KnowledgeChatService | null
   readonly agentSessions: AgentSessionService | null
   readonly agentMutations: MutationProposalService | null
   readonly agentChangeSets: ChangeSetBatchService | null

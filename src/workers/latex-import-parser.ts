@@ -13,6 +13,7 @@ import {
   type LatexImportWorkerRequest,
   type LatexImportWorkerResult
 } from '../shared/contracts/latex-import'
+import { inlineMathSourceSchema } from '../shared/contracts/manuscript'
 
 interface LatexNode {
   type: string
@@ -25,6 +26,7 @@ interface LatexNode {
 
 type Finding = LatexImportWorkerResult['losses'][number]
 type Inline = Extract<LatexImportNode, { type: 'paragraph' }>['content'][number]
+type TextInline = Extract<Inline, { type: 'text' }>
 type CslItem = z.infer<typeof cslItemSchema>
 interface MappingState {
   warnings: Finding[]
@@ -310,7 +312,7 @@ function mapSequence(nodes: LatexNode[], state: MappingState): LatexImportNode[]
       output.push({
         type: 'heading',
         level: Math.min(6, Math.max(1, sectionLevel - 2)),
-        content: [{ text: argumentText(node), styles: {} }]
+        content: [{ type: 'text', text: argumentText(node), styles: {} }]
       })
       continue
     }
@@ -588,16 +590,24 @@ function mapInlineSequence(nodes: LatexNode[], state: MappingState): Inline[] {
 
 function mapInline(
   node: LatexNode,
-  inherited: Inline['styles'],
+  inherited: TextInline['styles'],
   state: MappingState
 ): Inline[] | null {
   if (node.type === 'string') return chunks(String(node.content ?? ''), inherited)
-  if (node.type === 'whitespace') return [{ text: ' ', styles: inherited }]
+  if (node.type === 'whitespace') return [{ type: 'text', text: ' ', styles: inherited }]
   if (node.type === 'inlinemath') {
+    const source = rawContent(node)
+    if (inlineMathSourceSchema.safeParse(source).success) {
+      return [{ type: 'math', source }]
+    }
     state.losses.push(
-      finding('inline_math_text_fallback', 'Inline math remains editable literal LaTeX text', node)
+      finding(
+        'inline_math_size_fallback',
+        'Inline math exceeded the bounded single-line formula contract and became literal text',
+        node
+      )
     )
-    return chunks(`$${rawContent(node)}$`, { ...inherited, code: true })
+    return chunks(`$${source.slice(0, 99_998)}$`, { ...inherited, code: true })
   }
   if (node.type === 'verb') return chunks(rawContent(node), { ...inherited, code: true })
   if (node.type !== 'macro') return null
@@ -669,9 +679,9 @@ function mapInline(
   }
   if (name === 'label') return []
   if (name === '\\' || name === 'newline' || name === 'linebreak')
-    return [{ text: '\n', styles: inherited }]
+    return [{ type: 'text', text: '\n', styles: inherited }]
   if (name === '%' || name === '#' || name === '&' || name === '_' || name === '$') {
-    return [{ text: name, styles: inherited }]
+    return [{ type: 'text', text: name, styles: inherited }]
   }
   return null
 }
@@ -689,10 +699,10 @@ function literalInline(node: LatexNode): Inline[] {
   return chunks(safePrint(node), { code: true })
 }
 
-function chunks(value: string, styles: Inline['styles']): Inline[] {
+function chunks(value: string, styles: TextInline['styles']): Inline[] {
   const output: Inline[] = []
   for (let offset = 0; offset < value.length; offset += 100_000) {
-    output.push({ text: value.slice(offset, offset + 100_000), styles })
+    output.push({ type: 'text', text: value.slice(offset, offset + 100_000), styles })
   }
   return output
 }
@@ -701,16 +711,22 @@ function trimInline(content: Inline[]): Inline[] {
   const merged: Inline[] = []
   for (const part of content) {
     const previous = merged.at(-1)
-    if (previous !== undefined && JSON.stringify(previous.styles) === JSON.stringify(part.styles)) {
+    if (
+      part.type === 'text' &&
+      previous?.type === 'text' &&
+      JSON.stringify(previous.styles) === JSON.stringify(part.styles)
+    ) {
       previous.text += part.text
-    } else merged.push({ ...part })
+    } else merged.push(structuredClone(part))
   }
-  if (merged[0] !== undefined) merged[0].text = merged[0].text.trimStart()
-  if (merged.at(-1) !== undefined)
-    (merged.at(-1) as Inline).text = (merged.at(-1) as Inline).text.trimEnd()
-  return merged
-    .filter((part) => part.text.length > 0)
-    .flatMap((part) => chunks(part.text, part.styles))
+  const first = merged[0]
+  if (first?.type === 'text') first.text = first.text.trimStart()
+  const last = merged.at(-1)
+  if (last?.type === 'text') last.text = last.text.trimEnd()
+  return merged.flatMap((part) => {
+    if (part.type === 'math') return [part]
+    return part.text.length === 0 ? [] : chunks(part.text, part.styles)
+  })
 }
 
 function metadataValue(nodes: LatexNode[], name: string): string | null {

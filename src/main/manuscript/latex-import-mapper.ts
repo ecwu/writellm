@@ -95,7 +95,7 @@ function mapNode(
         : [
             textBlock(
               'paragraph',
-              [{ text: `Table: ${node.caption}`, styles: { italic: true } }],
+              [{ type: 'text', text: `Table: ${node.caption}`, styles: { italic: true } }],
               createId
             ),
             table
@@ -176,7 +176,11 @@ function textBlock(
 function inline(
   content: Extract<LatexImportNode, { type: 'paragraph' }>['content']
 ): BlockNoteInlineContent[] {
-  return content.map((part) => ({ type: 'text', text: part.text, styles: part.styles }))
+  return content.map((part) =>
+    part.type === 'math'
+      ? { type: 'math', content: part.source }
+      : { type: 'text', text: part.text, styles: part.styles }
+  )
 }
 
 function textProps(): Record<string, string> {

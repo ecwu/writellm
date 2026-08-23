@@ -1,4 +1,4 @@
-import { createServer } from 'node:http'
+import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -37,6 +37,77 @@ async function configureMineruProvider(page: Page, port: number): Promise<void> 
   await provider.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(provider.getByLabel('API key or token')).toHaveAttribute('placeholder', /Stored/)
   await page.keyboard.press('Escape')
+}
+
+async function configureNotebookAgentProvider(page: Page, baseUrl: string): Promise<void> {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('option', { name: /^Agent API/ }).click()
+  await settings.getByRole('button', { name: 'Add provider' }).click()
+  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
+  await addProvider.getByLabel('Provider name').fill('Notebook Agent')
+  await addProvider.getByRole('button', { name: 'Continue' }).click()
+  await settings.getByLabel('Base URL').fill(baseUrl)
+  await settings.getByLabel('API key').fill('notebook-e2e-secret')
+  await settings.getByRole('button', { name: 'Save provider' }).click()
+  await settings.getByRole('button', { name: 'Fetch Notebook Agent models' }).click()
+  await expect(settings.getByText(/1 models · current/)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
+function sendNotebookCompletion(response: ServerResponse, text: string): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    'x-request-id': 'notebook-external-response-id'
+  })
+  for (const chunk of [
+    {
+      id: 'notebook-external-response-id',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'notebook-model',
+      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
+    },
+    {
+      id: 'notebook-external-response-id',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'notebook-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 }
+    }
+  ]) {
+    response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+  }
+  response.end('data: [DONE]\n\n')
+}
+
+async function startNotebookAgentServer() {
+  const requestBodies: unknown[] = []
+  const server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end('{"data":[{"id":"notebook-model","displayName":"Notebook model"}]}')
+      return
+    }
+    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+      response.writeHead(404)
+      response.end()
+      return
+    }
+    const chunks: Buffer[] = []
+    request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+    request.on('end', () => {
+      requestBodies.push(JSON.parse(Buffer.concat(chunks).toString()) as unknown)
+      sendNotebookCompletion(response, 'The source says Normalized body from MinerU. [[cite:1]]')
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  return { server, port: (server.address() as AddressInfo).port, requestBodies }
 }
 
 async function createProject(page: Page, name: string): Promise<void> {
@@ -154,6 +225,7 @@ test(
     const source = join(testRoot, 'parsed source.pdf')
     await writeFile(source, makeMinimalPdf())
     const mineru = await startSuccessfulMineruServer(await resultZip())
+    const notebookAgent = await startNotebookAgentServer()
     const projectName = 'Parsed knowledge viewer'
     const launched = await launchApp({
       userData: join(testRoot, 'user-data'),
@@ -162,6 +234,10 @@ test(
     })
     try {
       await configureMineruProvider(launched.page, mineru.port)
+      await configureNotebookAgentProvider(
+        launched.page,
+        `http://127.0.0.1:${notebookAgent.port}/v1`
+      )
       await createProject(launched.page, projectName)
 
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
@@ -307,12 +383,63 @@ test(
       await expect(
         knowledge.getByText('rerank: skipped-no-candidates', { exact: true })
       ).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Notebook', exact: true }).click()
+      const notebook = launched.page.getByTestId('notebook-workspace')
+      await expect(notebook.getByText('1/1', { exact: true })).toBeVisible()
+      await notebook.getByTestId('agent-model-selector').click()
+      const modelPicker = launched.page.getByTestId('agent-model-picker')
+      await modelPicker.getByRole('option', { name: /Notebook Agent/ }).click()
+      await modelPicker.getByRole('option', { name: /Notebook model/ }).click()
+      const privateQuestion = 'What exact phrase appears in the normalized body? notebook-q-66'
+      const privateAnswer = 'The source says Normalized body from MinerU.'
+      await notebook.getByLabel('Ask selected Knowledge sources').fill(privateQuestion)
+      const askNotebook = notebook.getByRole('button', { name: 'Ask Notebook' })
+      await expect(askNotebook).toBeEnabled()
+      await askNotebook.click()
+      await expect(notebook.getByText(privateAnswer, { exact: false })).toBeVisible({
+        timeout: 20_000
+      })
+      await notebook.getByRole('button', { name: 'Open citation 1' }).click()
+      const notebookCitation = launched.page.getByRole('dialog', { name: 'parsed source.pdf' })
+      await expect(notebookCitation.getByText(/Normalized body from MinerU/)).toBeVisible()
+      await notebookCitation.getByRole('button', { name: 'Close', exact: true }).click()
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await expect(launched.page.getByTestId('knowledge-workspace')).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Notebook', exact: true }).click()
+      await expect(
+        launched.page.getByTestId('notebook-workspace').getByText(privateAnswer, { exact: false })
+      ).toBeVisible()
+      expect(notebookAgent.requestBodies).toHaveLength(1)
+      const providerRequest = JSON.stringify(notebookAgent.requestBodies[0])
+      expect(providerRequest).toContain(privateQuestion)
+      expect(providerRequest).toContain('Normalized body from MinerU')
+
+      const projectDatabasePath = join(
+        testRoot,
+        `${projectName}.writellm`,
+        '.writellm',
+        'project.sqlite'
+      )
+      const databaseBytes = Buffer.concat([
+        await readFile(projectDatabasePath),
+        await readFile(`${projectDatabasePath}-wal`).catch(() => Buffer.alloc(0))
+      ]).toString('utf8')
+      expect(databaseBytes).not.toContain(privateQuestion)
+      expect(databaseBytes).not.toContain(privateAnswer)
+      expect(databaseBytes).not.toContain('notebook-external-response-id')
+      const diagnostics = await launched.page.evaluate(() => window.desktop.diagnostics.snapshot())
+      const diagnosticText = JSON.stringify(diagnostics)
+      expect(diagnosticText).not.toContain(privateQuestion)
+      expect(diagnosticText).not.toContain(privateAnswer)
       expect(mineru.stats.uploadedBytes).toBeGreaterThan(0)
       expect(mineru.stats.parseTaskId).not.toBe('')
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>
         mineru.server.close((error) => (error ? reject(error) : resolve()))
+      )
+      await new Promise<void>((resolve, reject) =>
+        notebookAgent.server.close((error) => (error ? reject(error) : resolve()))
       )
     }
   }

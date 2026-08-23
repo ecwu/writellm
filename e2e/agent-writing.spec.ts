@@ -729,6 +729,7 @@ test(
       }, sourceSectionId)
       expect(sourceTruth).toContain('Unsaved before Agent follow.')
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible()
+      await expect(panel.getByTestId('agent-review-attention')).toBeVisible()
       await expect(panel.getByText('pending', { exact: true })).toBeVisible({ timeout: 20_000 })
       await expect(panel.getByText('Ready for review', { exact: true }).first()).toBeVisible()
       await expect(panel.getByText('Run failed', { exact: true })).toHaveCount(0)

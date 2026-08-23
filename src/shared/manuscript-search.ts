@@ -378,6 +378,11 @@ function flattenInline(content: readonly BlockNoteInlineContent[]): {
       append(node.text, { inlineIndex })
       return
     }
+    if (node.type === 'math') {
+      chunks.push('\uFFFC')
+      offset += 1
+      return
+    }
     node.content.forEach((child, linkTextIndex) => {
       append(child.text, { inlineIndex, linkTextIndex })
     })

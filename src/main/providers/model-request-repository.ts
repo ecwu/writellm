@@ -20,7 +20,10 @@ export interface StartModelRequestInput extends ModelRequestCorrelation {
   attemptCount?: number
   delivery?: 'skill_route'
   thinkingLevel?: AgentThinkingLevel
+  retention?: ModelRequestRetention
 }
+
+export type ModelRequestRetention = 'standard' | 'metadata_only'
 
 export interface SafeModelRequestError {
   code: string
@@ -36,6 +39,7 @@ export interface CompleteModelRequestInput {
 export interface ModelRequestRecord {
   modelRequestId: string
   status: ModelRequestStatus
+  retention: ModelRequestRetention
 }
 
 export class ModelRequestRepository {
@@ -70,7 +74,10 @@ export class ModelRequestRepository {
       model: input.provider.model,
       role: input.provider.role
     })
-    const requestFingerprint = fingerprint(input.request)
+    const retention = input.retention ?? 'standard'
+    const requestFingerprint = fingerprint(
+      retention === 'metadata_only' ? { modelRequestId } : input.request
+    )
     await this.database.kysely
       .insertInto('model_requests')
       .values({
@@ -116,11 +123,12 @@ export class ModelRequestRepository {
         operationId: input.operationId,
         jobId: input.jobId,
         agentRunId: input.agentRunId,
-        thinkingLevel: input.thinkingLevel
+        thinkingLevel: input.thinkingLevel,
+        retention
       },
       'Model request started'
     )
-    return { modelRequestId, status: 'running' }
+    return { modelRequestId, status: 'running', retention }
   }
 
   recoverRunning(): number {
@@ -145,7 +153,8 @@ export class ModelRequestRepository {
 
   async succeed(
     modelRequestId: string,
-    input: CompleteModelRequestInput
+    input: CompleteModelRequestInput,
+    retention: ModelRequestRetention = 'standard'
   ): Promise<ModelRequestRecord> {
     const completedAt = this.now()
     const durationMs = await this.durationMs(modelRequestId, completedAt)
@@ -161,7 +170,9 @@ export class ModelRequestRepository {
         output_items: input.outputItems,
         estimated_cost_usd_micros: input.metadata.usage.estimatedCostUsdMicros,
         usage_json: JSON.stringify(input.metadata.usage),
-        response_ids_json: JSON.stringify(input.metadata.responseIds),
+        response_ids_json: JSON.stringify(
+          retention === 'metadata_only' ? [] : input.metadata.responseIds
+        ),
         completed_at: completedAt.toISOString(),
         duration_ms: durationMs,
         updated_at: completedAt.toISOString()
@@ -179,30 +190,33 @@ export class ModelRequestRepository {
       },
       'Model request succeeded'
     )
-    return { modelRequestId, status: 'succeeded' }
+    return { modelRequestId, status: 'succeeded', retention }
   }
 
   async fail(
     modelRequestId: string,
     error: SafeModelRequestError,
-    metadata?: ModelExecutionMetadata
+    metadata?: ModelExecutionMetadata,
+    retention: ModelRequestRetention = 'standard'
   ): Promise<ModelRequestRecord> {
-    return this.finish(modelRequestId, 'failed', error, metadata)
+    return this.finish(modelRequestId, 'failed', error, metadata, retention)
   }
 
   async abort(
     modelRequestId: string,
     code = 'aborted',
-    metadata?: ModelExecutionMetadata
+    metadata?: ModelExecutionMetadata,
+    retention: ModelRequestRetention = 'standard'
   ): Promise<ModelRequestRecord> {
-    return this.finish(modelRequestId, 'aborted', { code, retryable: false }, metadata)
+    return this.finish(modelRequestId, 'aborted', { code, retryable: false }, metadata, retention)
   }
 
   private async finish(
     modelRequestId: string,
     status: 'failed' | 'aborted',
     error: SafeModelRequestError,
-    metadata?: ModelExecutionMetadata
+    metadata: ModelExecutionMetadata | undefined,
+    retention: ModelRequestRetention
   ): Promise<ModelRequestRecord> {
     const completedAt = this.now()
     const safeError = parseSafeError(error)
@@ -222,7 +236,9 @@ export class ModelRequestRepository {
               cache_write_tokens: metadata.usage.cacheWriteTokens,
               estimated_cost_usd_micros: metadata.usage.estimatedCostUsdMicros,
               usage_json: JSON.stringify(metadata.usage),
-              response_ids_json: JSON.stringify(metadata.responseIds)
+              response_ids_json: JSON.stringify(
+                retention === 'metadata_only' ? [] : metadata.responseIds
+              )
             }),
         completed_at: completedAt.toISOString(),
         duration_ms: durationMs,
@@ -241,7 +257,7 @@ export class ModelRequestRepository {
       },
       `Model request ${status}`
     )
-    return { modelRequestId, status }
+    return { modelRequestId, status, retention }
   }
 
   private async durationMs(modelRequestId: string, completedAt: Date): Promise<number> {

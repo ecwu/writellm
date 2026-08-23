@@ -1,4 +1,5 @@
 import axe from 'axe-core'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, launchApp, scenario, test } from './fixtures'
 
@@ -17,6 +18,75 @@ test(
       await expect(dialog).toBeVisible()
       await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
 
+      const expectedSections = [
+        'general',
+        'agent',
+        'skills',
+        'embedding',
+        'rerank',
+        'mineru',
+        'image',
+        'publication',
+        'shortcuts',
+        'about'
+      ]
+      expect(
+        await dialog
+          .locator('[data-settings-section]')
+          .evaluateAll((elements) =>
+            elements.map((element) => element.getAttribute('data-settings-section'))
+          )
+      ).toEqual(expectedSections)
+      const screenshotDirectory = process.env.WRITELLM_CP62_SCREENSHOT_DIR
+      if (screenshotDirectory !== undefined) {
+        await mkdir(screenshotDirectory, { recursive: true })
+      }
+
+      await dialog.getByRole('radio', { name: 'Light', exact: true }).click()
+      await dialog.getByRole('radio', { name: 'Blue', exact: true }).click()
+      await dialog.getByRole('radio', { name: '[1]', exact: true }).click()
+      await dialog.getByRole('radio', { name: 'Write Auto', exact: true }).click()
+      await expect
+        .poll(() =>
+          launched.page.evaluate(async () => ({
+            theme: await window.desktop.app.getThemePreference(),
+            accent: await window.desktop.app.getAccentPreference(),
+            citation: await window.desktop.app.getCitationDisplayMode(),
+            approval: await window.desktop.app.getDefaultAgentApprovalMode()
+          }))
+        )
+        .toEqual({
+          theme: 'light',
+          accent: 'blue',
+          citation: 'numbered',
+          approval: 'section_auto'
+        })
+
+      await dialog.locator('[data-settings-section="shortcuts"]').click()
+      await expect(
+        dialog.getByRole('heading', { name: 'Keyboard Shortcuts', exact: true })
+      ).toBeVisible()
+      await expect(dialog.getByRole('table')).toBeVisible()
+      await expect(dialog.getByRole('row')).toHaveCount(11)
+      await expect(dialog.getByText('⌘ / Ctrl + N', { exact: true })).toBeVisible()
+      await expect(dialog.getByText('⇧ + ⌘ / Ctrl + K', { exact: true })).toBeVisible()
+      await expect(dialog.getByText('⌘ / Ctrl + ⌥ / Alt + ↓', { exact: true })).toBeVisible()
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp62-settings-shortcuts-desktop.png'),
+          animations: 'disabled'
+        })
+      }
+
+      await dialog.locator('[data-settings-section="about"]').click()
+      await expect(
+        dialog.getByRole('heading', { name: 'About & Diagnostics', exact: true })
+      ).toBeVisible()
+      await expect(dialog.getByText('Credential security', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(/^Version /u)).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Open logs' })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Export diagnostics' })).toBeVisible()
+
       await launched.page.evaluate(axe.source)
       const results = await launched.page.evaluate(async () => {
         const axeRuntime = (globalThis as typeof globalThis & { axe: typeof axe }).axe
@@ -34,6 +104,54 @@ test(
         })
       }
       expect(results.violations).toEqual([])
+
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp62-settings-desktop.png'),
+          animations: 'disabled'
+        })
+      }
+
+      const browserWindow = await launched.app.browserWindow(launched.page)
+      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
+      await expect(
+        dialog.getByRole('button', { name: 'Back to settings categories' })
+      ).toBeVisible()
+      const dialogWidth = await dialog.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth
+      }))
+      expect(dialogWidth.scrollWidth).toBeLessThanOrEqual(dialogWidth.clientWidth + 1)
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp62-settings-narrow.png'),
+          animations: 'disabled'
+        })
+      }
+
+      await dialog.getByRole('button', { name: 'Back to settings categories' }).click()
+      await expect(dialog.locator('[data-settings-section="shortcuts"]')).toBeVisible()
+      await dialog.locator('[data-settings-section="shortcuts"]').click()
+      await expect(
+        dialog.getByRole('heading', { name: 'Keyboard Shortcuts', exact: true })
+      ).toBeVisible()
+      const shortcutDialogWidth = await dialog.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth
+      }))
+      expect(shortcutDialogWidth.scrollWidth).toBeLessThanOrEqual(
+        shortcutDialogWidth.clientWidth + 1
+      )
+      if (screenshotDirectory !== undefined) {
+        await launched.page.screenshot({
+          path: join(screenshotDirectory, 'cp62-settings-shortcuts-narrow.png'),
+          animations: 'disabled'
+        })
+      }
+      await dialog.getByRole('button', { name: 'Back to settings categories' }).click()
+      await dialog.locator('[data-settings-section="general"]').click()
+      await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
 
       await launched.page.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)

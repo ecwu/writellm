@@ -22,7 +22,10 @@ const mermaidConfig = {
 } as const
 
 const mathConfig = {
-  type: 'math',
+  // BlockNote uses a single ProseMirror node namespace for blocks and inline content. The native
+  // inline formula spec owns `math`, so the editor uses an internal-only alias for the existing
+  // display formula block. The persistence boundary maps this back to canonical `type: "math"`.
+  type: 'displayMath',
   propSchema: sharedPropSchema,
   content: 'none'
 } as const
@@ -48,7 +51,7 @@ export const mermaidBlockSpec = createReactBlockSpec(mermaidConfig, {
   )
 })()
 
-export const mathBlockSpec = createReactBlockSpec(mathConfig, {
+export const displayMathBlockSpec = createReactBlockSpec(mathConfig, {
   render: MathBlock,
   toExternalHTML: ({ block }) => (
     <div data-rich-block='math'>
@@ -295,12 +298,7 @@ export function sanitizeMermaidSvg(source: string): string {
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase()
       const value = attribute.value.trim().toLowerCase()
-      if (
-        name.startsWith('on') ||
-        name === 'src' ||
-        ((name === 'href' || name === 'xlink:href') && !value.startsWith('#')) ||
-        (name === 'style' && isUnsafeMermaidCss(value))
-      ) {
+      if (isUnsafeMermaidAttribute(name, value)) {
         element.removeAttribute(attribute.name)
       }
     }
@@ -314,6 +312,18 @@ export function isUnsafeMermaidCss(value: string): boolean {
     const target = match[1]?.trim().replace(/^['"]|['"]$/g, '') ?? ''
     return !target.startsWith('#')
   })
+}
+
+export function isUnsafeMermaidAttribute(name: string, value: string): boolean {
+  const normalizedName = name.trim().toLowerCase()
+  const normalizedValue = value.trim().toLowerCase()
+  return (
+    normalizedName.startsWith('on') ||
+    normalizedName === 'src' ||
+    ((normalizedName === 'href' || normalizedName === 'xlink:href') &&
+      !normalizedValue.startsWith('#')) ||
+    (normalizedName === 'style' && isUnsafeMermaidCss(normalizedValue))
+  )
 }
 
 function svgDataUrl(svg: string): string {

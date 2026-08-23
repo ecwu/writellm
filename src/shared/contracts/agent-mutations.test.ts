@@ -4,6 +4,7 @@ import {
   briefUpdateSchema,
   generateImageArgsSchema,
   modelSubmitSectionChangeArgsSchema,
+  mutationPreviewSchema,
   outlinePatchSchema,
   rejectMutationProposalInputSchema,
   sectionPatchSchema
@@ -46,6 +47,35 @@ describe('Agent mutation contracts', () => {
     ).toBe(false)
     expect(
       briefUpdateSchema.safeParse({ manuscriptId, baseBriefVersion: 1, changes: {} }).success
+    ).toBe(false)
+  })
+
+  it('keeps semantic presentation optional and bounds projected field text', () => {
+    const legacyPreview = {
+      summary: 'Legacy preview',
+      affectedSectionIds: [],
+      beforeText: 'Before',
+      afterText: 'After',
+      beforeTextTruncated: false,
+      afterTextTruncated: false,
+      citedSources: []
+    }
+    expect(mutationPreviewSchema.parse(legacyPreview).presentation).toBeUndefined()
+    expect(
+      mutationPreviewSchema.safeParse({
+        ...legacyPreview,
+        presentation: {
+          schemaVersion: 1,
+          kind: 'brief_fields',
+          fields: [
+            {
+              field: 'title',
+              before: { text: null, truncated: false },
+              after: { text: 'x'.repeat(4_097), truncated: false }
+            }
+          ]
+        }
+      }).success
     ).toBe(false)
   })
 
@@ -104,6 +134,37 @@ describe('Agent mutation contracts', () => {
             anchorBlockId: null,
             placement: 'before',
             blocks: []
+          }
+        ]
+      }).success
+    ).toBe(false)
+  })
+
+  it('allows Agent canonical block replacement to preserve or create inline math', () => {
+    const operation = {
+      type: 'replaceCanonicalBlock' as const,
+      target: { blockId: 'paragraph', expectedBlockHash: 'a'.repeat(64) },
+      block: {
+        id: 'paragraph',
+        type: 'paragraph' as const,
+        props: { textAlignment: 'left', backgroundColor: 'default', textColor: 'default' },
+        content: [
+          { type: 'text' as const, text: 'Energy ', styles: {} },
+          { type: 'math' as const, content: 'E = mc^2' }
+        ],
+        children: []
+      }
+    }
+    expect(
+      modelSubmitSectionChangeArgsSchema.parse({ sectionId, operations: [operation] }).operations[0]
+    ).toMatchObject(operation)
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          {
+            ...operation,
+            block: { ...operation.block, content: [{ type: 'math', content: 'x\ny' }] }
           }
         ]
       }).success

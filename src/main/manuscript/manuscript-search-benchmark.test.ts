@@ -159,7 +159,7 @@ function benchmarkAssembly(): ManuscriptAssembly {
             children: []
           }
         ],
-        contentSchemaVersion: 3,
+        contentSchemaVersion: 4,
         contentHash: createHash('sha256').update(text).digest('hex'),
         priorRevisionId: null,
         wordCount: 1_000,

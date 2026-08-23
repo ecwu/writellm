@@ -49,7 +49,7 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
         revisionNumber: 1,
         source: 'manual',
         content: [],
-        contentSchemaVersion: 3,
+        contentSchemaVersion: 4,
         contentHash: 'a'.repeat(64),
         priorRevisionId: null,
         wordCount: 0,
@@ -453,7 +453,7 @@ function citationAssembly() {
           children: []
         }
       ],
-      contentSchemaVersion: 3,
+      contentSchemaVersion: 4,
       contentHash: 'a'.repeat(64),
       priorRevisionId: null,
       wordCount: 0,

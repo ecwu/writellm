@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "<img>",
+        "createdAt": "2026-08-23T15:16:57.533Z",
+        "reason": "Codex review: this literal appears only in a security assertion that rejects unsafe KaTeX image output; it is not rendered UI markup."
+      }
+    ]
+  }
+}

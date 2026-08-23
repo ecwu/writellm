@@ -13,6 +13,7 @@ import {
   CircleDot,
   FileText,
   LibraryBig,
+  NotebookPen,
   ListChecks,
   Images,
   ClipboardList,
@@ -44,6 +45,7 @@ export type WorkspaceKind =
   | 'manuscript'
   | 'preview'
   | 'knowledge'
+  | 'notebook'
   | 'checks'
   | 'assets'
   | 'references'
@@ -65,6 +67,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenOutlineEditor(): void
   onOpenPreview(): void
   onOpenKnowledge(): void
+  onOpenNotebook?(): void
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
@@ -94,6 +97,7 @@ export function AppSidebar({
   onOpenOutlineEditor,
   onOpenPreview,
   onOpenKnowledge,
+  onOpenNotebook,
   onOpenChecks,
   onOpenAssets,
   onOpenReferences,
@@ -138,6 +142,7 @@ export function AppSidebar({
           activeWorkspace={activeWorkspace}
           onOpenPreview={onOpenPreview}
           onOpenKnowledge={onOpenKnowledge}
+          onOpenNotebook={onOpenNotebook}
           onOpenChecks={onOpenChecks}
           onOpenAssets={onOpenAssets}
           onOpenReferences={() => {
@@ -373,6 +378,7 @@ export function WorkspaceRail(props: {
   activeWorkspace: WorkspaceKind
   onOpenPreview(): void
   onOpenKnowledge(): void
+  onOpenNotebook?(): void
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenManuscript(): void
@@ -462,6 +468,18 @@ export function WorkspaceRail(props: {
                 >
                   <LibraryBig />
                   <span>Knowledge</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Notebook'
+                  tooltip={{ children: 'Notebook', hidden: false }}
+                  isActive={props.activeWorkspace === 'notebook'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenNotebook}
+                >
+                  <NotebookPen />
+                  <span>Notebook</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

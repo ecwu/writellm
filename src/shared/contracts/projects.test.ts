@@ -21,16 +21,12 @@ const activeProject = {
 }
 
 describe('project contracts', () => {
-  it.each([
-    'closed',
-    'creating',
-    'opening',
-    'open',
-    'closing',
-    'recovery-required'
-  ])('accepts the %s lifecycle state', (state) => {
-    expect(projectLifecycleStateSchema.parse(state)).toBe(state)
-  })
+  it.each(['closed', 'creating', 'opening', 'open', 'closing', 'recovery-required'])(
+    'accepts the %s lifecycle state',
+    (state) => {
+      expect(projectLifecycleStateSchema.parse(state)).toBe(state)
+    }
+  )
 
   it('accepts bounded renderer-safe active project metadata', () => {
     expect(activeProjectSchema.parse(activeProject)).toEqual(activeProject)

@@ -2161,70 +2161,73 @@ describe('AgentSessionService', () => {
     ['section_auto', 'section_patch', false, true],
     ['section_auto', 'brief_update', true, false],
     ['yolo', 'brief_update', false, true]
-  ] as const)('enforces approval mode %s for %s proposals', async (mode, kind, blocks, autoApproves) => {
-    const database = await createDatabase()
-    const runtime = new FakeAgentRuntime()
-    const approveProposalAutomatically = vi.fn(async () => proposalOutcome(kind, 'applied'))
-    const execute = vi.fn(async () => proposalToolResult(kind))
-    const shouldAutoApprove = vi.fn(() => autoApproves)
-    const service = createService(database, runtime, undefined, {
-      tools: { execute, shouldAutoApprove, approveProposalAutomatically } as never
-    })
-    const session = service.createSession('Approval matrix', mode)
-    const started = await service.startRun({
-      agentSessionId: session.agentSessionId,
-      prompt: 'Propose a change.',
-      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
-    })
-    const active = runtime.active()
-    await active.emit({
-      type: 'model_call_finished',
-      modelRequestId: active.input.modelRequestId,
-      outcome: 'succeeded',
-      metadata: metadata('proposal-call')
-    })
-    const responsePromise = active.requestTool({
-      type: 'tool_request',
-      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc490',
-      projectSessionId: active.input.projectSessionId,
-      agentSessionId: active.input.agentSessionId,
-      agentRunId: active.input.agentRunId,
-      toolCallId: 'proposal-tool-call',
-      modelRequestId: active.input.modelRequestId,
-      toolName:
-        kind === 'brief_update'
-          ? 'submit_brief_change'
-          : kind === 'outline_patch'
-            ? 'submit_outline_change'
-            : 'submit_section_change',
-      args: {}
-    } as never)
-    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
-    expect(shouldAutoApprove).toHaveBeenCalledOnce()
-    expect(approveProposalAutomatically).toHaveBeenCalledTimes(autoApproves ? 1 : 0)
-    await expect(responsePromise).resolves.toMatchObject({
-      ok: true,
-      data: { continuation: blocks ? 'pause_for_review' : 'continue' }
-    })
-    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
-      'user_message',
-      'tool_call',
-      'tool_result'
-    ])
-    active.resolve(blocks ? 'awaiting_review' : 'finished')
-    await started.completion
-    expect(service.requireRun(started.agentRunId)).toMatchObject({
-      status: 'completed',
-      errorCode: null
-    })
-    expect(service.listEvents(session.agentSessionId).at(-1)).toMatchObject({
-      type: 'run_completed',
-      payload: {
-        outcome: blocks ? 'awaiting_review' : 'finished'
-      }
-    })
-    database.close()
-  })
+  ] as const)(
+    'enforces approval mode %s for %s proposals',
+    async (mode, kind, blocks, autoApproves) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const approveProposalAutomatically = vi.fn(async () => proposalOutcome(kind, 'applied'))
+      const execute = vi.fn(async () => proposalToolResult(kind))
+      const shouldAutoApprove = vi.fn(() => autoApproves)
+      const service = createService(database, runtime, undefined, {
+        tools: { execute, shouldAutoApprove, approveProposalAutomatically } as never
+      })
+      const session = service.createSession('Approval matrix', mode)
+      const started = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Propose a change.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      const active = runtime.active()
+      await active.emit({
+        type: 'model_call_finished',
+        modelRequestId: active.input.modelRequestId,
+        outcome: 'succeeded',
+        metadata: metadata('proposal-call')
+      })
+      const responsePromise = active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc490',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'proposal-tool-call',
+        modelRequestId: active.input.modelRequestId,
+        toolName:
+          kind === 'brief_update'
+            ? 'submit_brief_change'
+            : kind === 'outline_patch'
+              ? 'submit_outline_change'
+              : 'submit_section_change',
+        args: {}
+      } as never)
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+      expect(shouldAutoApprove).toHaveBeenCalledOnce()
+      expect(approveProposalAutomatically).toHaveBeenCalledTimes(autoApproves ? 1 : 0)
+      await expect(responsePromise).resolves.toMatchObject({
+        ok: true,
+        data: { continuation: blocks ? 'pause_for_review' : 'continue' }
+      })
+      expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+        'user_message',
+        'tool_call',
+        'tool_result'
+      ])
+      active.resolve(blocks ? 'awaiting_review' : 'finished')
+      await started.completion
+      expect(service.requireRun(started.agentRunId)).toMatchObject({
+        status: 'completed',
+        errorCode: null
+      })
+      expect(service.listEvents(session.agentSessionId).at(-1)).toMatchObject({
+        type: 'run_completed',
+        payload: {
+          outcome: blocks ? 'awaiting_review' : 'finished'
+        }
+      })
+      database.close()
+    }
+  )
 
   it('applies approval mode changes made during an active run to proposal decisions', async () => {
     const database = await createDatabase()

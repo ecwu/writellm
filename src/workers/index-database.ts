@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import {
   INDEX_SCHEMA_VERSION,
+  type FtsSearchMode,
   type IndexCandidate,
   type IndexSnapshot,
   type IndexSource,
@@ -142,10 +143,11 @@ export class IndexDatabase {
   searchFts(
     query: string,
     limit: number,
-    filters: KnowledgeSearchFilters = emptyFilters()
+    filters: KnowledgeSearchFilters = emptyFilters(),
+    mode: FtsSearchMode = 'phrase'
   ): FtsCandidate[] {
     const active = this.inspect().activeGenerationId
-    return active === null ? [] : this.#fts.search(active, query, limit, filters)
+    return active === null ? [] : this.#fts.search(active, query, limit, filters, mode)
   }
 
   retrievalState(): {

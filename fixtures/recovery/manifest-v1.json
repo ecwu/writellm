@@ -43,6 +43,13 @@
       ]
     },
     {
+      "id": "inline-math-schema-v4-history",
+      "category": "migration",
+      "source": "src/main/project/migrations/0037-inline-math-schema-v4.test.ts",
+      "sourceSha256": "af7c35aadc5b996f3516b6f52fd011fa2c1cc214d9619b95737186b7334b8439",
+      "tests": ["appends an identical v4 current revision and preserves the current relation graph"]
+    },
+    {
       "id": "wal-online-backup-and-restore",
       "category": "database-backup",
       "source": "src/main/db/backup.test.ts",
@@ -107,7 +114,7 @@
       "id": "missing-materializations",
       "category": "materialization",
       "source": "src/main/manuscript/editor-persistence-service.test.ts",
-      "sourceSha256": "026d23016c32ab1510844924db8eff6d23d942adee3f84ae2cfc397b66011dc0",
+      "sourceSha256": "23484d629abef34fd7487036af56210748f67a261eb9589477b19fb73d192e9a",
       "tests": [
         "reports a pending mirror after rename failure and repairs missing, corrupt, and stale metadata from DB",
         "repairs a file published before its materialization metadata commit"
@@ -127,7 +134,7 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "6ba9d2aa1e605411a0a0b3236618361006116ccfaf8627e38aafeb54b650f0fa",
+      "sourceSha256": "aca2158953432c3921bc20e67b030a866b16eab784e06d23fc7e2545dc335090",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",
@@ -149,7 +156,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "bc963ff33e5f2af1821605280420f720eea9e92007a070aec807245608c9021b",
+      "sourceSha256": "ecf1c40761a7658f4e53920608fba7660646771c6509e2a09d6d635b2c40a113",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",

@@ -73,6 +73,13 @@ export interface WritingTaskChangeSet {
 }
 
 export type AgentActivityStatus = 'running' | 'partial' | 'error' | 'complete' | 'stopped'
+export type AgentThinkingVisualState =
+  | 'working'
+  | 'searching'
+  | 'solving'
+  | 'connecting'
+  | 'composing'
+  | 'shaping'
 
 export type AgentRunTerminal = {
   runId: string | null
@@ -966,6 +973,55 @@ export function currentAgentActivitySummary(
     }
   }
   return null
+}
+
+export function agentThinkingVisualState(input: {
+  timeline: AgentTimelineItem[]
+  runId: string | null
+  workflowState: 'idle' | 'running' | 'compacting' | 'generating' | 'awaiting_review'
+  choosingSkill: boolean
+  hasStreamingRun: boolean
+}): AgentThinkingVisualState {
+  if (input.workflowState === 'generating') return 'shaping'
+  if (input.workflowState === 'compacting') return 'composing'
+  if (input.hasStreamingRun) return 'composing'
+  if (input.choosingSkill) return 'connecting'
+  if (input.runId === null) return 'working'
+  for (const item of [...input.timeline].reverse()) {
+    const tool =
+      item.type === 'activity' && item.runId === input.runId && item.status === 'running'
+        ? [...item.tools].reverse().find((candidate) => candidate.result === null)
+        : item.type === 'proposal' && item.tool.runId === input.runId && item.tool.result === null
+          ? item.tool
+          : undefined
+    if (tool === undefined) continue
+    const name = tool.call.toolName
+    if (name === 'generate_image') return 'shaping'
+    if (name === 'inspect_change' || name === 'check_draft') return 'solving'
+    if (
+      name === 'get_writing_context' ||
+      name === 'read_outline' ||
+      name === 'read_section' ||
+      name === 'search_manuscript' ||
+      name === 'search_knowledge' ||
+      name === 'read_citations' ||
+      name === 'read_writing_skill' ||
+      name === 'list_review_issues' ||
+      name === 'get_writing_task'
+    ) {
+      return 'searching'
+    }
+    if (
+      name === 'submit_brief_change' ||
+      name === 'submit_writing_rules_change' ||
+      name === 'submit_outline_change' ||
+      name === 'submit_section_change'
+    ) {
+      return 'composing'
+    }
+    return 'working'
+  }
+  return 'working'
 }
 
 function dedupeCitationDisplays(citations: AgentCitationDisplay[]): AgentCitationDisplay[] {

@@ -159,6 +159,34 @@ describe('manuscript replacement core', () => {
       )
     ).toThrow(ReplacementPreconditionError)
   })
+
+  it('preserves atomic inline math byte-semantically while replacing adjacent prose', () => {
+    const document: BlockNoteDocument = [
+      {
+        ...paragraph('alpha'),
+        content: [
+          { type: 'text', text: 'alpha', styles: {} },
+          { type: 'math', content: String.raw`\\frac{x}{y}` },
+          { type: 'text', text: 'beta', styles: {} }
+        ]
+      }
+    ]
+    const next = applyReplacementOperations(
+      document,
+      [
+        {
+          target: inlineTarget([{ inlineIndex: 0, range: { from: 0, to: 5 } }], 0, 5),
+          sourceSliceHash: hash('alpha')
+        }
+      ],
+      'next'
+    )
+    expect(next[0]?.content).toEqual([
+      { type: 'text', text: 'next', styles: {} },
+      { type: 'math', content: String.raw`\\frac{x}{y}` },
+      { type: 'text', text: 'beta', styles: {} }
+    ])
+  })
 })
 
 function paragraph(text: string, styles: Record<string, boolean> = {}): BlockNoteDocument[number] {
