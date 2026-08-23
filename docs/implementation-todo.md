@@ -108,7 +108,8 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 ## Completed delivery milestones
 
 - [x] Local no-identity candidate `v0.2026.8.22` for the completed Checkpoints 67–68 baseline;
-  unpacked macOS arm64 App only, with no DMG, ZIP, push, signing, notarization, or release.
+  structurally verified macOS arm64 App, DMG, and ZIP with no push, Developer ID signing,
+  notarization, or release.
 - [x] Checkpoint 64 hands-on no-Team-ID macOS arm64 App build from the current dirty worktree; no
   DMG, ZIP, candidate, commit, tag, push, or release was created.
 - [x] Checkpoint 63 hands-on no-Team-ID macOS arm64 App, DMG, and ZIP build from the current dirty

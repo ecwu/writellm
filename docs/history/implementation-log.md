@@ -634,9 +634,12 @@ maintenance without turning the active tracker back into a historical log.
   signing, notarization, promotion, or publication ran.
 - Built and prepared the separately authorized local `0.2026.8.22` candidate for the completed
   Checkpoints 67–68 baseline. Release metadata advanced, and the packaged smoke was aligned with
-  the accepted first-run onboarding and schema-v5 reopen contracts. The unpacked-only no-identity
-  macOS arm64 package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR
-  entries, all 27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 32/32
-  packaged E2E scenarios before producing `dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean
-  candidate commit receives the annotated `v0.2026.8.22` tag locally. No DMG, ZIP, push, hosted CI,
-  Apple Developer ID signing, notarization, GitHub Release, promotion, or publication ran.
+  the accepted first-run onboarding and schema-v5 reopen contracts. The no-identity macOS arm64
+  package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all
+  27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 32/32 packaged E2E
+  scenarios. It produced the unpacked App, a structurally verified 239,631,663-byte DMG with
+  SHA-256 `3b1065b49ac8ba8441a6806af2913f8cac6afe09d33623cbf0e51b30925db5f6`, and a
+  237,780,129-byte ZIP with SHA-256
+  `e2540db54181abeef67c3effddebb5b86a39a54ed62e323fcafb2c60b9173101` from the clean annotated
+  `v0.2026.8.22` source commit. No push, hosted CI, Apple Developer ID signing, notarization,
+  GitHub Release, promotion, or publication ran.

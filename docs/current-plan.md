@@ -152,12 +152,13 @@ hosted CI run, Apple Developer ID signing, notarization, GitHub Release, promoti
 ran.
 
 The separately authorized local `0.2026.8.22` candidate snapshots the completed Checkpoints 67–68
-on top of the existing baseline. Its unpacked-only no-identity macOS arm64 package gate verified
-Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from
-25 sources, all 12 packaged smoke scenarios, and 32/32 packaged E2E scenarios, then produced
-`dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean candidate commit receives the annotated
-`v0.2026.8.22` tag locally. No DMG, ZIP, push, hosted CI run, Apple Developer ID signing,
-notarization, GitHub Release, promotion, or publication ran.
+on top of the existing baseline. Its no-identity macOS arm64 package gate verified Electron 43.4.1
+/ ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25 sources, all
+12 packaged smoke scenarios, and 32/32 packaged E2E scenarios. It produced the unpacked App plus
+the structurally verified `WriteLLM-0.2026.8.22-arm64.dmg` and
+`WriteLLM-0.2026.8.22-arm64.zip` from the clean annotated `v0.2026.8.22` source commit. No push,
+hosted CI run, Apple Developer ID signing, notarization, GitHub Release, promotion, or publication
+ran.
 
 ## Current authorized work
 
@@ -165,9 +166,9 @@ No further feature delivery is authorized after Checkpoint 68 completion. BlockN
 Diagram, BlockNote XL publication, ODT/email export, new IPC or Agent tools, signing,
 notarization, and release work remain outside the accepted checkpoint.
 
-The local `v0.2026.8.22` candidate commit, annotated tag, and unpacked App build are the only newly
-authorized release actions. Push, DMG/ZIP creation, hosted CI, Apple Developer ID signing,
-notarization, GitHub Release, promotion, and publication remain unauthorized.
+The local `v0.2026.8.22` candidate commit, annotated tag, App, DMG, and ZIP build are the only newly
+authorized release actions. Push, hosted CI, Apple Developer ID signing, notarization, GitHub
+Release, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
