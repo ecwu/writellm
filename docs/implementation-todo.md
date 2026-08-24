@@ -118,8 +118,8 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 
 ## Completed delivery milestones
 
-- [~] Local no-identity candidate `v0.2026.8.23` for the completed Checkpoint 69 baseline; the
-  candidate commit, annotated tag, and unpacked macOS arm64 App build are authorized locally.
+- [x] Local no-identity candidate `v0.2026.8.23` for the completed Checkpoint 69 baseline; the
+  annotated tag and verified unpacked macOS arm64 App remain local with no push or release.
 - [x] Local no-identity candidate `v0.2026.8.22` for the completed Checkpoints 67–68 baseline;
   structurally verified macOS arm64 App, DMG, and ZIP with no push, Developer ID signing,
   notarization, or release.

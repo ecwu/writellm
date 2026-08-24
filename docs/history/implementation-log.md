@@ -657,8 +657,12 @@ maintenance without turning the active tracker back into a historical log.
   fresh 46/46 Real-Electron manifest passed with no flaky, skipped, or failed scenario, including
   Stop and restart-only historical recovery. No package/release action, hosted CI, commit, tag,
   push, signing, notarization, promotion, or publication ran.
-- Prepared the separately authorized local `0.2026.8.23` candidate for the completed Checkpoint 69
-  baseline. Release metadata advances in the clean candidate commit, which receives the annotated
-  `v0.2026.8.23` tag. The no-identity macOS arm64 unpacked App build remains pending. DMG, ZIP,
-  push, hosted CI, Apple Developer ID signing, notarization, GitHub Release, promotion, and
-  publication remain unauthorized.
+- Built and prepared the separately authorized local `0.2026.8.23` candidate for the completed
+  Checkpoint 69 baseline. The first package attempt correctly stopped before packaging because the
+  changed Agent recovery source needed a refreshed protected-fixture digest; all 27 fixtures from
+  25 sources then passed before the annotated tag was moved to the clean fix commit `ecfca0b`.
+  The no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64
+  native modules, 53,287 ASAR entries, all 12 packaged smoke scenarios, and 33/33 packaged E2E
+  scenarios with no flaky, skipped, or failed scenario. It produced
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP, push, hosted CI, Apple Developer ID
+  signing, notarization, GitHub Release, promotion, or publication ran.
