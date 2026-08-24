@@ -1,5 +1,6 @@
 import type { TSchema } from 'typebox'
 import { z } from 'zod'
+import type { AgentToolProfile } from './contracts/agent'
 import {
   generateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
@@ -316,3 +317,21 @@ export const AGENT_MODEL_VISIBLE_TOOL_ENVELOPE = AGENT_MODEL_VISIBLE_TOOL_SPECS.
   description: tool.description,
   parameters: tool.parameters
 }))
+
+const NOTEBOOK_KNOWLEDGE_TOOL_NAMES = new Set<AgentToolName>(['search_knowledge', 'read_citations'])
+
+export function agentModelVisibleToolSpecs(
+  profile: AgentToolProfile
+): readonly AgentModelVisibleToolSpec[] {
+  if (profile === 'writing') return AGENT_MODEL_VISIBLE_TOOL_SPECS
+  return AGENT_MODEL_VISIBLE_TOOL_SPECS.filter((tool) =>
+    NOTEBOOK_KNOWLEDGE_TOOL_NAMES.has(tool.name)
+  )
+}
+
+export function agentToolProfileAllows(
+  profile: AgentToolProfile,
+  toolName: AgentToolName
+): boolean {
+  return agentModelVisibleToolSpecs(profile).some((tool) => tool.name === toolName)
+}

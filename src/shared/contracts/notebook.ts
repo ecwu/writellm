@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { agentModelSelectionSchema } from './providers'
+import { agentModelSelectionSchema, agentThinkingLevelSchema } from './providers'
 import { projectSessionIdSchema, projectSessionInputSchema } from './projects'
 import { citationIdSchema } from './search'
 
@@ -113,12 +113,13 @@ export const notebookChatSnapshotSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,
     revision: z.number().int().nonnegative(),
-    phase: z.enum(['idle', 'retrieving', 'generating', 'stopping']),
+    phase: z.enum(['idle', 'thinking', 'retrieving', 'generating', 'stopping']),
     activeTurnId: z.uuid().nullable(),
     sourceScope: notebookSourceScopeSchema,
     sourceReadiness: z.enum(['preparing', 'ready', 'unavailable']),
     availableKnowledgeItemIds: z.array(z.uuid()).max(NOTEBOOK_MAX_SOURCES),
     modelSelection: agentModelSelectionSchema.nullable(),
+    thinkingLevel: agentThinkingLevelSchema,
     contextEpoch: z.number().int().nonnegative(),
     messages: z.array(notebookChatMessageSchema).max(NOTEBOOK_MAX_MESSAGES),
     lastError: z.string().min(1).max(1_000).nullable()
@@ -156,6 +157,9 @@ export const notebookChatSetSourcesInputSchema = projectSessionInputSchema
   .strict()
 export const notebookChatSetModelInputSchema = projectSessionInputSchema
   .extend({ modelSelection: agentModelSelectionSchema })
+  .strict()
+export const notebookChatSetThinkingLevelInputSchema = projectSessionInputSchema
+  .extend({ level: agentThinkingLevelSchema })
   .strict()
 export const notebookChatSubscribeInputSchema = projectSessionInputSchema
 export const notebookChatUnsubscribeInputSchema = projectSessionInputSchema

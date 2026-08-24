@@ -644,6 +644,7 @@ export const checkDraftResultSchema = strictObject({
 })
 
 const knowledgeHitSchema = strictObject({
+  citationOrdinal: z.number().int().min(1).max(12).optional(),
   citationId: z.string().regex(/^citation-[a-f0-9]{40}$/),
   knowledgeItemId: z.uuid(),
   parseRevisionId: z.uuid(),
@@ -668,6 +669,7 @@ export const searchKnowledgeResultSchema = strictObject({
 })
 
 const citationResultSchema = strictObject({
+  citationOrdinal: z.number().int().min(1).max(12).optional(),
   citationId: z.string().regex(/^citation-[a-f0-9]{40}$/),
   knowledgeItemId: z.uuid(),
   parseRevisionId: z.uuid(),

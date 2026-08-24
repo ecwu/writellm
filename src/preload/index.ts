@@ -416,6 +416,7 @@ import {
   notebookChatCommandResultSchema,
   notebookChatEventSchema,
   notebookChatSetModelInputSchema,
+  notebookChatSetThinkingLevelInputSchema,
   notebookChatSetSourcesInputSchema,
   notebookChatSnapshotInputSchema,
   notebookChatSnapshotSchema,
@@ -832,6 +833,10 @@ export interface DesktopApi {
     setModel(input: {
       projectSessionId: string
       modelSelection: AgentModelSelection
+    }): Promise<NotebookChatSnapshot>
+    setThinkingLevel(input: {
+      projectSessionId: string
+      level: AgentThinkingLevel
     }): Promise<NotebookChatSnapshot>
     subscribe(
       input: { projectSessionId: string },
@@ -2238,6 +2243,14 @@ const desktopApi: DesktopApi = {
         await ipcRenderer.invoke(
           IPC_CHANNELS.notebookChatSetModel,
           notebookChatSetModelInputSchema.parse(input)
+        )
+      )
+    },
+    async setThinkingLevel(input) {
+      return notebookChatCommandResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.notebookChatSetThinkingLevel,
+          notebookChatSetThinkingLevelInputSchema.parse(input)
         )
       )
     },

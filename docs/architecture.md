@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 061
+Status: accepted implementation baseline, amended through accepted ADR 062
 Recorded: 2026-07-31; amended through 2026-08-24
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -69,6 +69,11 @@ WriteLLM v2 is a local-first desktop AI writing application with three product d
 The project shell additionally exposes a transient Notebook workspace over the Knowledge domain.
 It selects existing indexed sources and performs read-only, cited question answering; it is not a
 fourth persistence domain and does not duplicate Knowledge management or indexing.
+
+ADR 062 classifies that workspace as a transient read-only Agent. It reuses the Pi session runtime,
+model capability mapping, and Thinking controls while exposing only selected-source Knowledge search
+and citation expansion. It has no manuscript, fixture, proposal, image, clarification, or mutation
+authority and creates no durable Agent session/run/event history.
 
 The initial product has these fixed invariants:
 

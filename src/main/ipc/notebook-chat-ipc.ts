@@ -5,6 +5,7 @@ import {
   notebookChatClearInputSchema,
   notebookChatCommandResultSchema,
   notebookChatSetModelInputSchema,
+  notebookChatSetThinkingLevelInputSchema,
   notebookChatSetSourcesInputSchema,
   notebookChatSnapshotInputSchema,
   notebookChatSnapshotSchema,
@@ -98,6 +99,15 @@ export function registerNotebookChatIpc(options: {
       )
     )
   })
+  ipc.handle(IPC_CHANNELS.notebookChatSetThinkingLevel, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = notebookChatSetThinkingLevelInputSchema.parse(raw)
+    return lifecycle('knowledge.notebook.set_thinking_level', async () =>
+      notebookChatCommandResultSchema.parse(
+        await service(input.projectSessionId).setThinkingLevel(input.level)
+      )
+    )
+  })
   ipc.handle(IPC_CHANNELS.notebookChatSubscribe, async (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatSubscribeInputSchema.parse(raw)
@@ -138,6 +148,7 @@ export function registerNotebookChatIpc(options: {
         IPC_CHANNELS.notebookChatClear,
         IPC_CHANNELS.notebookChatSetSources,
         IPC_CHANNELS.notebookChatSetModel,
+        IPC_CHANNELS.notebookChatSetThinkingLevel,
         IPC_CHANNELS.notebookChatSubscribe,
         IPC_CHANNELS.notebookChatUnsubscribe
       ]) {

@@ -18,7 +18,8 @@ import {
   type AgentToolResponse
 } from '../shared/contracts/agent-tools'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from '../shared/contracts/knowledge'
-import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
+import { agentModelVisibleToolSpecs } from '../shared/agent-tool-specs'
+import type { AgentToolProfile } from '../shared/contracts/agent'
 
 const strict = { additionalProperties: false } as const
 const uuid = () => Type.String({ format: 'uuid' })
@@ -785,7 +786,8 @@ export class AgentToolBridge {
       agentSessionId: string
       agentRunId: string
     },
-    private readonly modelRequestIdForToolCall: (toolCallId: string) => string
+    private readonly modelRequestIdForToolCall: (toolCallId: string) => string,
+    private readonly toolProfile: AgentToolProfile = 'writing'
   ) {
     port.on('message', this.#onMessage)
     port.once('close', this.#onClose)
@@ -793,7 +795,7 @@ export class AgentToolBridge {
   }
 
   tools(): AgentTool[] {
-    return AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => ({
+    return agentModelVisibleToolSpecs(this.toolProfile).map((tool) => ({
       ...tool,
       execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
     })) as AgentTool[]

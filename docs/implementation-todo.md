@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 18 Checkpoint 69 Agent user clarification is complete. Checkpoint 26.9 remains paused
+Status: Phase 19 Checkpoint 70 Notebook read-only Agent alignment is complete. Checkpoint 26.9 remains paused
 and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-24
 
@@ -17,6 +17,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 70: align transient Notebook with the shared Pi session runtime, selected-source
+  read-only tools, and Agent model/Thinking controls under ADR 062.
 - [x] Checkpoint 69: add Protocol v10 `ask_user`, Main-owned in-run waiting, exact answer IPC, and
   the inline shadcn Questionnaire experience under ADR 061.
 - [x] Checkpoint 68: adopt native Block Math and converge application-owned Diagram on plain
@@ -45,6 +47,15 @@ Checkpoint 67 detail: [`implementation-todo/phase-16.md`](implementation-todo/ph
 Checkpoint 68 detail: [`implementation-todo/phase-17.md`](implementation-todo/phase-17.md).
 
 Checkpoint 69 detail: [`implementation-todo/phase-18.md`](implementation-todo/phase-18.md).
+
+Checkpoint 70 detail: [`implementation-todo/phase-19.md`](implementation-todo/phase-19.md).
+
+## Phase 19: Notebook Read-Only Agent Alignment
+
+- [x] Checkpoint 70: reuse the Pi session runtime with selected-source-only Knowledge tools and
+  transient model/Thinking selection.
+
+Authoritative detail: [`implementation-todo/phase-19.md`](implementation-todo/phase-19.md).
 
 ## Phase 18: Agent User Clarification
 
@@ -152,6 +163,8 @@ Exact verification and artifact boundaries are recorded in
 - [x] Phase 15 Checkpoint 66 under ADR 058.
 - [x] Phase 16 Checkpoint 67 under ADR 059.
 - [x] Phase 17 Checkpoint 68 under ADR 060.
+- [x] Phase 18 Checkpoint 69 under ADR 061.
+- [x] Phase 19 Checkpoint 70 under ADR 062.
 
 ## Plan and evidence routing
 
@@ -175,4 +188,5 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 16](implementation-todo/phase-16.md)
 - [Phase 17](implementation-todo/phase-17.md)
 - [Phase 18](implementation-todo/phase-18.md)
+- [Phase 19](implementation-todo/phase-19.md)
 - [Implementation history](history/implementation-log.md)

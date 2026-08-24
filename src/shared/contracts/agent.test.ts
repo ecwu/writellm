@@ -38,18 +38,21 @@ describe('Agent contracts', () => {
   })
 
   it('validates a capability-bound session run and queue command', () => {
+    const writingRun = agentRunStartSchema.parse({
+      operation: 'run_start',
+      ...ids,
+      config,
+      credential: { apiKey: 'secret' },
+      systemPrompt: 'system',
+      history: [],
+      prompt: 'draft',
+      maxOutputTokens: 100
+    })
+    expect(writingRun).toMatchObject({ ...ids, toolProfile: 'writing' })
     expect(
-      agentRunStartSchema.parse({
-        operation: 'run_start',
-        ...ids,
-        config,
-        credential: { apiKey: 'secret' },
-        systemPrompt: 'system',
-        history: [],
-        prompt: 'draft',
-        maxOutputTokens: 100
-      })
-    ).toMatchObject(ids)
+      agentRunStartSchema.parse({ ...writingRun, toolProfile: 'notebook_knowledge' })
+    ).toMatchObject({ toolProfile: 'notebook_knowledge' })
+    expect(() => agentRunStartSchema.parse({ ...writingRun, toolProfile: 'unknown' })).toThrow()
     expect(
       agentQueueCommandSchema.parse({
         operation: 'follow_up',

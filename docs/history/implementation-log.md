@@ -646,6 +646,18 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-24
 
+- Accepted ADR 062 and completed Checkpoint 70. Notebook now uses the shared Pi Agent session
+  runtime as a transient selected-source read-only Agent with exact `search_knowledge` and
+  `read_citations` authority, Worker/Main profile enforcement, autonomous multi-continuation tool
+  use, bounded registered citations, source-epoch in-memory history, and metadata-only model
+  requests. The Renderer reuses the writing Agent's two-level model/effort picker and capability
+  clamping while keeping Notebook choices project-session-local. Forty-four focused tests,
+  `check:fast`, 200 Electron-hosted files / 1123 tests with three benchmark skips plus production
+  build, and the fresh 46/46 Real-Electron manifest passed with no flaky, skipped, or failed
+  scenario. The real Notebook fixture proved `search_knowledge` → `read_citations` → cited answer,
+  exact tool exposure, no `temperature`, citation preview, and project-reopen cleanup. No migration,
+  dependency, package/release action, hosted CI, commit, tag, push, signing, notarization, promotion,
+  or publication ran.
 - Accepted ADR 061 and completed Checkpoint 69. Agent Harness Protocol v10 adds the isolated
   `ask_user` tool, Main-owned indefinite waiting within the original Pi run, exact capability and
   answer validation, cancellation, trusted user-decision delivery, bounded compaction, and

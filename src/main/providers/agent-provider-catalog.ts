@@ -36,7 +36,11 @@ import {
   type AgentProviderCatalog,
   type AgentProviderPresetSummary
 } from '../../shared/contracts/providers'
-import type { AgentModelLimits } from '../../shared/contracts/agent'
+import {
+  agentRuntimeModelSchema,
+  type AgentModelLimits,
+  type AgentRuntimeModel
+} from '../../shared/contracts/agent'
 import { resolveModelsDevProviderLogoId } from '../../shared/models-dev-provider-logos'
 import type { AppDatabase } from '../app-db/connection'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
@@ -154,6 +158,29 @@ export function agentModelLimitsFromResolved(
     catalogModelKey: `${resolved.providerId}:${resolved.model.id}`.slice(0, 500),
     resolvedAt: resolvedAt.toISOString()
   }
+}
+
+export function agentRuntimeModelFromResolved(
+  resolved: ResolvedAgentCatalogModel
+): AgentRuntimeModel {
+  const model = resolved.model
+  const compat =
+    model.compat === undefined
+      ? undefined
+      : (JSON.parse(JSON.stringify(model.compat)) as Record<string, unknown>)
+  return agentRuntimeModelSchema.parse({
+    id: model.id,
+    name: model.name,
+    api: model.api,
+    provider: model.provider,
+    baseUrl: resolved.auth.auth.baseUrl ?? model.baseUrl,
+    reasoning: model.reasoning,
+    ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
+    input: model.input,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    ...(compat === undefined ? {} : { compat })
+  })
 }
 
 export function clampResolvedAgentThinkingLevel(

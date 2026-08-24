@@ -176,6 +176,7 @@ export const IPC_CHANNELS = {
   notebookChatClear: 'notebook-chat:clear',
   notebookChatSetSources: 'notebook-chat:set-sources',
   notebookChatSetModel: 'notebook-chat:set-model',
+  notebookChatSetThinkingLevel: 'notebook-chat:set-thinking-level',
   notebookChatSubscribe: 'notebook-chat:subscribe',
   notebookChatUnsubscribe: 'notebook-chat:unsubscribe',
   notebookChatEvent: 'notebook-chat:event',

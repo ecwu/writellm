@@ -3,7 +3,7 @@ import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import { Value } from 'typebox/value'
-import { AGENT_MODEL_VISIBLE_TOOL_SPECS } from '../shared/agent-tool-specs'
+import { agentModelVisibleToolSpecs } from '../shared/agent-tool-specs'
 import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
@@ -157,7 +157,8 @@ export async function runAgentSession(
         throw new Error('Agent tool call has no authorized source model request')
       }
       return modelRequestId
-    }
+    },
+    request.toolProfile
   )
 
   const agent = new AgentClass({
@@ -408,6 +409,7 @@ export async function runAgentSession(
         throw new Error('Agent tool preflight failure has no authorized source model request')
       }
       const diagnostic = safePreflightDiagnostic(
+        request.toolProfile,
         event.toolName,
         rawArgumentsByToolCallId.get(event.toolCallId)
       )
@@ -832,6 +834,7 @@ function describeArgumentShape(value: unknown, depth = 0): string {
 }
 
 function safePreflightDiagnostic(
+  toolProfile: AgentRunStart['toolProfile'],
   requestedToolName: string,
   rawArguments: unknown
 ): {
@@ -839,7 +842,7 @@ function safePreflightDiagnostic(
   message: string
   paths: string[]
 } {
-  const tool = AGENT_MODEL_VISIBLE_TOOL_SPECS.find(
+  const tool = agentModelVisibleToolSpecs(toolProfile).find(
     (candidate) => candidate.name === requestedToolName
   )
   if (tool === undefined) {

@@ -18,7 +18,8 @@ import type {
   AgentQueueActionCommand,
   AgentQueueCommand,
   AgentRuntimeEvent,
-  AgentSessionRunResult
+  AgentSessionRunResult,
+  AgentToolProfile
 } from '../../shared/contracts/agent'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
@@ -48,6 +49,7 @@ export interface AgentSessionRunInput {
   prompt: string
   maxOutputTokens: number
   modelLimits?: AgentModelLimits
+  toolProfile?: AgentToolProfile
   thinkingLevel?: AgentThinkingLevel
   runtimeModel?: AgentRuntimeModel
   temperature?: number

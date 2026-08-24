@@ -8,12 +8,8 @@ import {
   getWritingContextArgsSchema,
   readOutlineArgsSchema,
   readOutlineResultSchema,
-  readCitationsArgsSchema,
-  readCitationsResultSchema,
   readSectionArgsSchema,
   readSectionResultSchema,
-  searchKnowledgeArgsSchema,
-  searchKnowledgeResultSchema,
   searchManuscriptArgsSchema,
   searchManuscriptResultSchema,
   type AgentReadToolName,
@@ -33,6 +29,7 @@ import type { ProjectDatabase } from '../project/project-database'
 import { AgentContextBuilder } from './context'
 import type { ReviewResourceSnapshot, WritingSnapshot } from './context'
 import { runDraftChecks } from './draft-checker'
+import { executeCitationRead, executeKnowledgeSearch } from './knowledge-tools'
 
 interface AgentReadToolResultMap {
   get_writing_context: WritingContextResult
@@ -159,89 +156,18 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       case 'search_manuscript':
         return this.#searchManuscript(searchManuscriptArgsSchema.parse(rawArgs), snapshot)
       case 'search_knowledge': {
-        const args = searchKnowledgeArgsSchema.parse(rawArgs)
-        const retrieval = this.#requireRetrieval()
-        const result = await retrieval.search(
-          {
-            projectSessionId: this.options.projectSessionId,
-            query: args.query,
-            filters: {
-              knowledgeItemIds: args.knowledgeItemIds,
-              fileExtensions: args.fileExtensions,
-              parseRevisionIds: args.parseRevisionIds,
-              ...(args.pageFrom === undefined ? {} : { pageFrom: args.pageFrom }),
-              ...(args.pageTo === undefined ? {} : { pageTo: args.pageTo }),
-              ...(args.heading === undefined ? {} : { heading: args.heading })
-            },
-            limits: { fts: 100, vector: 100, fused: 50, results: args.limit },
-            rerank: args.rerank
-          },
+        return executeKnowledgeSearch({
+          retrieval: this.#requireRetrieval(),
+          projectSessionId: this.options.projectSessionId,
+          args: rawArgs,
           signal
-        )
-        return searchKnowledgeResultSchema.parse({
-          mode: result.mode,
-          rerankStatus: result.rerankStatus,
-          hits: result.hits.map((hit) => ({
-            citationId: hit.citationId,
-            knowledgeItemId: hit.knowledgeItemId,
-            parseRevisionId: hit.parseRevisionId,
-            chunkId: hit.chunkId,
-            title: hit.title,
-            snippet: hit.snippet,
-            ...(hit.page === undefined ? {} : { page: hit.page }),
-            headingPath: hit.headingPath,
-            sourceBlockIds: hit.sourceBlockIds
-          }))
         })
       }
       case 'read_citations': {
-        const args = readCitationsArgsSchema.parse(rawArgs)
-        const retrieval = this.#requireRetrieval()
-        const requests = [
-          ...args.citationIds.map((citationId) => ({ citationId, offset: 0, maxChars: 65_536 })),
-          ...args.requests
-        ]
-        const requestedIds = [...new Set(requests.map((request) => request.citationId))]
-        const expanded = await retrieval.expand(requestedIds, signal)
-        const found = new Set(expanded.map((citation) => citation.citationId))
-        const byId = new Map(expanded.map((citation) => [citation.citationId, citation]))
-        let remainingBudget = 131_072
-        let truncated = false
-        return readCitationsResultSchema.parse({
-          citations: requests.flatMap((request) => {
-            const citation = byId.get(request.citationId)
-            if (citation === undefined || remainingBudget <= 0) {
-              if (citation !== undefined) truncated = true
-              return []
-            }
-            const available = Math.min(request.maxChars, remainingBudget)
-            const text = citation.text.slice(request.offset, request.offset + available)
-            remainingBudget -= text.length
-            const nextOffset =
-              request.offset + text.length < citation.text.length
-                ? request.offset + text.length
-                : null
-            if (nextOffset !== null) truncated = true
-            return [
-              {
-                citationId: citation.citationId,
-                knowledgeItemId: citation.knowledgeItemId,
-                parseRevisionId: citation.parseRevisionId,
-                chunkId: citation.chunkId,
-                title: citation.title,
-                text,
-                contentHash: createHash('sha256').update(citation.text).digest('hex'),
-                offset: request.offset,
-                totalChars: citation.text.length,
-                nextOffset,
-                ...(citation.page === undefined ? {} : { page: citation.page }),
-                headingPath: citation.headingPath,
-                sourceBlockIds: citation.sourceBlockIds
-              }
-            ]
-          }),
-          missingCitationIds: requestedIds.filter((citationId) => !found.has(citationId)),
-          truncated
+        return executeCitationRead({
+          retrieval: this.#requireRetrieval(),
+          args: rawArgs,
+          signal
         })
       }
       case 'check_draft':

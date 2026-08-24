@@ -77,7 +77,7 @@ import {
 } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
 import { AgentMarkdown } from '@/features/agent/agent-markdown'
-import { AgentModelPicker } from '@/features/agent/agent-model-picker'
+import { AgentModelEffortPicker } from '@/features/agent/agent-model-effort-picker'
 import { ExpandedCitationPreview } from '@/features/knowledge/citation-preview'
 
 const EMPTY_CATALOG: AgentProviderCatalog = {
@@ -139,6 +139,16 @@ export function NotebookWorkspace(
         .filter((preset) => preset.models.length > 0),
     [providerCatalog]
   )
+  const selectedModel = useMemo(() => {
+    const selection = snapshot?.modelSelection
+    if (selection === null || selection === undefined) return null
+    return (
+      availableModelPresets
+        .find((preset) => preset.presetId === selection.presetId)
+        ?.models.find((model) => model.id === selection.modelId) ?? null
+    )
+  }, [availableModelPresets, snapshot?.modelSelection])
+  const supportedThinkingLevels = selectedModel?.supportedThinkingLevels ?? ['off']
 
   const applySnapshot = useCallback((candidate: NotebookChatSnapshot): void => {
     if ((snapshotRef.current?.revision ?? -1) > candidate.revision) return
@@ -354,12 +364,13 @@ export function NotebookWorkspace(
             <Badge variant='secondary' className='shrink-0 tabular-nums'>
               {selectedIds.size} {selectedIds.size === 1 ? 'source' : 'sources'}
             </Badge>
-            <AgentModelPicker
+            <AgentModelEffortPicker
               presets={availableModelPresets}
               selection={snapshot?.modelSelection ?? null}
+              levels={supportedThinkingLevels}
+              effort={snapshot?.thinkingLevel ?? 'off'}
               disabled={snapshot === null || active || commandBusy}
-              compact
-              onSelect={(modelSelection) =>
+              onModelSelect={(modelSelection) =>
                 runCommand(
                   () =>
                     window.desktop.notebook.setModel({
@@ -367,6 +378,16 @@ export function NotebookWorkspace(
                       modelSelection
                     }),
                   'Notebook model could not be changed.'
+                )
+              }
+              onEffortSelect={(level) =>
+                runCommand(
+                  () =>
+                    window.desktop.notebook.setThinkingLevel({
+                      projectSessionId: props.projectSessionId,
+                      level
+                    }),
+                  'Notebook Thinking level could not be changed.'
                 )
               }
             />
@@ -723,9 +744,11 @@ function NotebookConversation(props: {
                           {message.content.length === 0 && message.status === 'streaming' ? (
                             <span className='flex items-center gap-2 text-muted-foreground'>
                               <Spinner />
-                              {snapshot.phase === 'retrieving'
-                                ? 'Searching selected sources…'
-                                : 'Writing an evidence-grounded answer…'}
+                              {snapshot.phase === 'thinking'
+                                ? 'Thinking…'
+                                : snapshot.phase === 'retrieving'
+                                  ? 'Searching selected sources…'
+                                  : 'Writing an evidence-grounded answer…'}
                             </span>
                           ) : (
                             <AgentMarkdown

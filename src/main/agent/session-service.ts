@@ -12,7 +12,6 @@ import {
   agentCompactionStartedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
-  agentRuntimeModelSchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
   type AgentApprovalMode,
@@ -80,6 +79,7 @@ import type { ProviderService } from '../providers/provider-service'
 import {
   agentCredentialFromResolved,
   agentProviderConfigFromResolved,
+  agentRuntimeModelFromResolved,
   clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService,
   type ResolvedAgentCatalogModel
@@ -899,7 +899,7 @@ export class AgentSessionService {
             this.#reconcileThinkingLevel(input.agentSessionId, storedThinkingLevel, thinkingLevel)
           }
           const runtimeModel =
-            resolved === undefined ? undefined : runtimeModelFromCatalog(resolved)
+            resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved)
           const now = this.#now()
           const automaticTitle = this.#insertRunAndUserEvent({
             agentSessionId: input.agentSessionId,
@@ -1164,6 +1164,7 @@ export class AgentSessionService {
         prompt: currentRequest,
         maxOutputTokens: input.maxOutputTokens,
         modelLimits: active.modelLimits,
+        toolProfile: 'writing',
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(input.temperature === undefined ? {} : { temperature: input.temperature })
@@ -2863,6 +2864,7 @@ export class AgentSessionService {
         prompt: active.currentRequest,
         maxOutputTokens: active.maxOutputTokens,
         modelLimits: active.modelLimits,
+        toolProfile: 'writing',
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(active.temperature === undefined ? {} : { temperature: active.temperature })
@@ -4049,27 +4051,6 @@ function legacyModelLimits(): AgentModelLimits {
     catalogModelKey: null,
     resolvedAt: null
   }
-}
-
-function runtimeModelFromCatalog(resolved: ResolvedAgentCatalogModel): AgentRuntimeModel {
-  const model = resolved.model
-  const compat =
-    model.compat === undefined
-      ? undefined
-      : (JSON.parse(JSON.stringify(model.compat)) as Record<string, unknown>)
-  return agentRuntimeModelSchema.parse({
-    id: model.id,
-    name: model.name,
-    api: model.api,
-    provider: model.provider,
-    baseUrl: resolved.auth.auth.baseUrl ?? model.baseUrl,
-    reasoning: model.reasoning,
-    ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
-    input: model.input,
-    contextWindow: model.contextWindow,
-    maxTokens: model.maxTokens,
-    ...(compat === undefined ? {} : { compat })
-  })
 }
 
 function pendingSkillSnapshot(): SkillRunSnapshot {

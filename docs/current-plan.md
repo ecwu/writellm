@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 18 Checkpoint 69 Agent user clarification is complete under ADR 061. The newest
-user-authorized local candidate is `v0.2026.8.23`; Checkpoint 26.9 remains paused and all
+Status: Phase 19 Checkpoint 70 Notebook read-only Agent alignment is complete under ADR 062. The
+user-authorized `v0.2026.8.24` local App candidate is being prepared; Checkpoint 26.9 remains paused and all
 GitHub Actions workflows are disabled.
 Recorded: 2026-08-24
 
@@ -12,6 +12,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 70 is complete. It moves transient Notebook turns onto the shared Pi session runtime,
+  adds selected-source-only Knowledge tool authority, and reuses Agent model/Thinking controls without
+  persisting chat content or granting writing authority.
 - Checkpoint 69 is complete. It adds a bounded Protocol v10 `ask_user` tool whose original Pi
   run waits for an exact user answer, plus a project-session-scoped answer IPC and an inline
   shadcn Questionnaire interaction. It adds no database table, event type, durable job, generic
@@ -150,6 +153,17 @@ multi-step option and custom answers, same-run continuation, conversation attent
 history after restart, and Stop interruption. No package/release action, hosted CI, commit, tag,
 push, signing, notarization, promotion, or publication ran.
 
+Checkpoint 70 passed 44 focused shared-contract, Worker, Main, IPC, prompt, and Notebook service
+tests; `check:fast`; the complete Electron-hosted gate (200 passing files / 1123 passing tests with
+three intentional benchmark skips) and production build; and the fresh 46/46 Real-Electron
+manifest with no flaky, skipped, or failed scenario. Verification covered strict writing and
+Notebook tool profiles, Worker/Main double authorization, multiple tool continuations, frozen
+selected-source scope, citation registration and twelve-citation capping, transient model/Thinking
+selection, source-epoch history cleanup, metadata-only requests without external response IDs, and
+the real `search_knowledge` → `read_citations` → cited-answer flow without `temperature`. No
+migration, dependency, package/release action, hosted CI, commit, tag, push, signing, notarization,
+promotion, or publication ran.
+
 The separately authorized local `0.2026.8.20` candidate advanced release metadata, created the
 clean local release commit and annotated `v0.2026.8.20` tag, and passed the no-identity macOS arm64
 unpacked package gate. The gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
@@ -186,14 +200,15 @@ signing, notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
-Checkpoint 69 Agent clarification delivery and scoped verification are complete under ADR 061.
-No additional checkpoint work is authorized. BlockNote native Diagram, BlockNote XL publication,
+Checkpoint 70 Notebook read-only Agent alignment is complete under ADR 062. No additional
+checkpoint is authorized.
+BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The local `v0.2026.8.23` candidate commit, annotated tag, and unpacked App build are complete. No
-further package or release action is authorized. DMG/ZIP creation, push, hosted CI, Apple Developer
-ID signing, notarization, GitHub Release, promotion, and publication remain unauthorized.
+The `v0.2026.8.24` candidate commit, annotated tag, no-identity macOS arm64 App build, and push of
+`main` plus the tag are authorized and in progress. DMG/ZIP creation, hosted CI, Apple Developer ID
+signing, notarization, GitHub Release, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
@@ -216,6 +231,7 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 16 Checkpoint 67 is implemented and verified under ADR 059.
 - Phase 17 Checkpoint 68 is implemented and verified under ADR 060.
 - Phase 18 Checkpoint 69 is implemented and verified under ADR 061.
+- Phase 19 Checkpoint 70 is implemented and verified under ADR 062.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

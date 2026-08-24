@@ -341,6 +341,38 @@ describe('AgentModelClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
+  it('rejects a valid writing tool at the Main bridge for a Notebook run', async () => {
+    const child = new ToolBridgeUtilityProcess(false, false, 'read_outline')
+    const channel = createFakeMessageChannel()
+    const handler = vi.fn()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => channel as never
+    )
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      { ...sessionInput(), toolProfile: 'notebook_knowledge' },
+      new AbortController().signal,
+      () => undefined,
+      handler
+    )
+
+    await handle.completion
+
+    expect(handler).not.toHaveBeenCalled()
+    expect(child.toolResponse).toMatchObject({
+      type: 'tool_response',
+      toolName: 'read_outline',
+      ok: false,
+      error: { code: 'unauthorized', category: 'authorization' }
+    })
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
   it('terminates the worker when a tool-bridge message uses a stale project capability', async () => {
     const child = new ToolBridgeUtilityProcess(true)
     const channel = createFakeMessageChannel()
@@ -549,7 +581,8 @@ class ToolBridgeUtilityProcess extends EventEmitter {
 
   constructor(
     private readonly staleProjectCapability = false,
-    private readonly invalidArguments = false
+    private readonly invalidArguments = false,
+    private readonly toolName: 'search_knowledge' | 'read_outline' = 'search_knowledge'
   ) {
     super()
   }
@@ -581,15 +614,18 @@ class ToolBridgeUtilityProcess extends EventEmitter {
         agentRunId: request.agentRunId,
         toolCallId: 'tool-search',
         modelRequestId: request.modelRequestId,
-        toolName: 'search_knowledge',
-        args: {
-          query: this.invalidArguments ? '' : 'evidence',
-          knowledgeItemIds: [],
-          fileExtensions: [],
-          parseRevisionIds: [],
-          limit: 10,
-          rerank: true
-        }
+        toolName: this.toolName,
+        args:
+          this.toolName === 'read_outline'
+            ? { maxDepth: 8, limit: 20 }
+            : {
+                query: this.invalidArguments ? '' : 'evidence',
+                knowledgeItemIds: [],
+                fileExtensions: [],
+                parseRevisionIds: [],
+                limit: 10,
+                rerank: true
+              }
       })
     )
   })

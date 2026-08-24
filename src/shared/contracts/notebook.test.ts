@@ -21,6 +21,7 @@ describe('Notebook chat contracts', () => {
         sourceReadiness: 'ready',
         availableKnowledgeItemIds: ['019d0000-0000-7000-8000-000000000402'],
         modelSelection: { presetId: 'builtin:openai', modelId: 'gpt-test' },
+        thinkingLevel: 'medium',
         contextEpoch: 0,
         messages: [],
         lastError: null
@@ -39,6 +40,7 @@ describe('Notebook chat contracts', () => {
         sourceReadiness: 'ready',
         availableKnowledgeItemIds: [],
         modelSelection: null,
+        thinkingLevel: 'off',
         contextEpoch: 0,
         messages: [],
         lastError: null

@@ -40,6 +40,7 @@ import {
 } from '../workers/persistent-utility-process'
 import type { LogCollector } from '../observability/log-collector'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
+import { agentToolProfileAllows } from '../../shared/agent-tool-specs'
 
 export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime {
   readonly #worker: PersistentUtilityProcess
@@ -311,10 +312,24 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
           response = invalidArgumentsToolResponse(envelope.data)
         } else {
           try {
-            response =
-              onToolRequest === undefined
-                ? unavailableToolResponse(parsed.data)
-                : await onToolRequest(parsed.data, controller.signal)
+            if (!agentToolProfileAllows(request.toolProfile, parsed.data.toolName)) {
+              this.log.warn(
+                {
+                  event: 'agent_tool_bridge.profile_rejected',
+                  agentRunId: request.agentRunId,
+                  toolCallId: parsed.data.toolCallId,
+                  toolName: parsed.data.toolName,
+                  toolProfile: request.toolProfile
+                },
+                'Agent tool bridge rejected a tool outside the run profile'
+              )
+              response = unauthorizedToolResponse(parsed.data)
+            } else {
+              response =
+                onToolRequest === undefined
+                  ? unavailableToolResponse(parsed.data)
+                  : await onToolRequest(parsed.data, controller.signal)
+            }
           } catch (err) {
             this.log.error(
               {
@@ -596,6 +611,27 @@ function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
       category: 'transient',
       message: 'Agent read tools are unavailable',
       recovery: { action: 'retry', maxAttempts: 1 }
+    }
+  }
+}
+
+function unauthorizedToolResponse(request: AgentToolRequest): AgentToolResponse {
+  return {
+    type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+    requestId: request.requestId,
+    projectSessionId: request.projectSessionId,
+    agentSessionId: request.agentSessionId,
+    agentRunId: request.agentRunId,
+    toolCallId: request.toolCallId,
+    modelRequestId: request.modelRequestId,
+    toolName: request.toolName,
+    ok: false,
+    error: {
+      code: 'unauthorized',
+      category: 'authorization',
+      message: 'Agent tool is not authorized for this run',
+      recovery: { action: 'do_not_retry' }
     }
   }
 }

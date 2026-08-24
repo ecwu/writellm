@@ -13,6 +13,7 @@ const snapshot = {
   sourceReadiness: 'ready',
   availableKnowledgeItemIds: [],
   modelSelection: null,
+  thinkingLevel: 'off',
   contextEpoch: 0,
   messages: [],
   lastError: null
@@ -30,7 +31,8 @@ describe('Notebook chat IPC', () => {
       stopTurn: vi.fn(async () => snapshot),
       clear: vi.fn(async () => snapshot),
       setSources: vi.fn(async () => snapshot),
-      setModel: vi.fn(async () => snapshot)
+      setModel: vi.fn(async () => snapshot),
+      setThinkingLevel: vi.fn(async () => snapshot)
     }
     const manager = {
       assertActiveSession: vi.fn((sessionId: string) => {
@@ -76,6 +78,13 @@ describe('Notebook chat IPC', () => {
         sourceScope: { mode: 'selected', knowledgeItemIds: [] }
       })
     ).resolves.toEqual(snapshot)
+    await expect(
+      invoke(IPC_CHANNELS.notebookChatSetThinkingLevel, {
+        projectSessionId,
+        level: 'high'
+      })
+    ).resolves.toEqual(snapshot)
+    expect(service.setThinkingLevel).toHaveBeenCalledWith('high')
 
     const untrusted = {
       senderFrame: { url: 'https://attacker.invalid/' },

@@ -26,6 +26,8 @@ export const AGENT_PENDING_MESSAGE_LIMIT = 20
 export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
 
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
+export const agentToolProfileSchema = z.enum(['writing', 'notebook_knowledge'])
+export type AgentToolProfile = z.infer<typeof agentToolProfileSchema>
 
 export const agentToolPreflightDiagnosticSchema = z
   .object({
@@ -172,6 +174,7 @@ export const agentRunStartSchema = z
     history: agentHistorySchema,
     prompt: z.string().min(1).max(262_144),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
+    toolProfile: agentToolProfileSchema.default('writing'),
     thinkingLevel: agentThinkingLevelSchema.default('off'),
     runtimeModel: agentRuntimeModelSchema.optional(),
     maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),

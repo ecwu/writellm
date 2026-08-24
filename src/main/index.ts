@@ -429,7 +429,7 @@ if (!hasSingleInstanceLock) {
             projectIndex,
             listKnowledgeItems: () => knowledgeImports.list(),
             agentCatalog: agentProviderCatalog,
-            modelExecution,
+            runtime: agentModel,
             limiter: interactiveModelLimiter,
             log: loggerSystem.createModuleLogger('knowledge', 'notebook-chat'),
             publish: (event) => notebookEvents.publish(event)

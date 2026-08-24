@@ -278,6 +278,23 @@ describe('Pi Agent tool TypeBox schemas', () => {
     bridge.close()
   })
 
+  it('exposes exactly the selected-source Knowledge tools for Notebook runs', () => {
+    const { port1 } = createFakeMessageChannel()
+    const bridge = new AgentReadToolBridge(
+      port1 as never,
+      {
+        projectSessionId: UUIDS.project,
+        agentSessionId: UUIDS.session,
+        agentRunId: UUIDS.run
+      },
+      () => UUIDS.model,
+      'notebook_knowledge'
+    )
+
+    expect(bridge.tools().map((tool) => tool.name)).toEqual(['search_knowledge', 'read_citations'])
+    bridge.close()
+  })
+
   it('keeps concurrent responses correlated and delimits knowledge as untrusted data', async () => {
     const { port1, port2 } = createFakeMessageChannel()
     const bridge = new AgentReadToolBridge(

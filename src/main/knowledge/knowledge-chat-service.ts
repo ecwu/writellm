@@ -3,7 +3,6 @@ import type { Logger } from 'pino'
 import {
   NOTEBOOK_MAX_CHAT_BYTES,
   NOTEBOOK_MAX_CITATIONS,
-  NOTEBOOK_MAX_EVIDENCE_BYTES,
   NOTEBOOK_MAX_MESSAGES,
   NOTEBOOK_MAX_SOURCES,
   notebookChatEventSchema,
@@ -18,30 +17,47 @@ import {
   type NotebookChatStartTurnResult,
   type NotebookSourceScope
 } from '../../shared/contracts/notebook'
+import {
+  agentHistorySchema,
+  type AgentAssistantMessagePayload,
+  type AgentHistoryMessage,
+  type AgentRuntimeEvent
+} from '../../shared/contracts/agent'
+import {
+  AGENT_TOOL_RESULT_SCHEMA_VERSION,
+  agentToolResponseSchema,
+  type AgentToolRequest,
+  type AgentToolResponse
+} from '../../shared/contracts/agent-tools'
 import type { KnowledgeItem } from '../../shared/contracts/knowledge'
-import type { AgentModelSelection } from '../../shared/contracts/providers'
-import type { AgentStreamEvent } from '../../shared/contracts/model-runtime'
-import type { ExpandedCitation } from '../../shared/contracts/search'
+import type {
+  AgentModelSelection,
+  AgentThinkingLevel,
+  ProviderConfig
+} from '../../shared/contracts/providers'
 import type { ProjectDatabase } from '../project/project-database'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ProjectIndexService } from '../search/index-service'
-import type { ModelExecutionService } from '../providers/model-execution-service'
 import {
   agentCredentialFromResolved,
   agentModelLimitsFromResolved,
   agentProviderConfigFromResolved,
+  agentRuntimeModelFromResolved,
+  clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService,
   type ResolvedAgentCatalogModel
 } from '../providers/agent-provider-catalog'
+import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
+import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProjectInteractiveModelLimiter } from '../agent/project-interactive-model-limiter'
 import {
   formatNotebookChatPrompt,
   NOTEBOOK_CHAT_SYSTEM_PROMPT
 } from '../agent/prompts/notebook-chat'
+import { executeCitationRead, executeKnowledgeSearch } from '../agent/knowledge-tools'
 
 const NO_EVIDENCE_MESSAGE = '选中的资料中没有足够信息。'
 const STOP_TIMEOUT_MS = 5_000
-const RETRIEVAL_QUERY_MAX_CHARS = 2_000
 const HISTORY_MAX_BYTES = 64 * 1024
 const CITATION_MARKER = /\[\[cite:(\d{1,3})\]\]/gu
 
@@ -52,6 +68,16 @@ interface ActiveNotebookTurn {
   controller: AbortController
   completion: Promise<void>
   detached: boolean
+  operationId: string
+  agentRunId: string
+  sourceIds: string[]
+  config: Extract<ProviderConfig, { role: 'agent' }>
+  thinkingLevel: AgentThinkingLevel
+  handle: AgentSessionRunHandle | null
+  authorizedModelRequestIds: Set<string>
+  pendingModelRequestIds: Set<string>
+  citationsById: Map<string, NotebookChatCitation>
+  finalMessage: AgentAssistantMessagePayload | null
 }
 
 export interface KnowledgeChatServiceOptions {
@@ -62,7 +88,7 @@ export interface KnowledgeChatServiceOptions {
   projectIndex: Pick<ProjectIndexService, 'currentIndexedSources'>
   listKnowledgeItems: () => KnowledgeItem[]
   agentCatalog: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve'>
-  modelExecution: Pick<ModelExecutionService, 'runAgentWithResolvedProvider'>
+  runtime: AgentSessionRuntime
   limiter: ProjectInteractiveModelLimiter
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publish?: (event: NotebookChatEvent) => void | Promise<void>
@@ -89,6 +115,9 @@ export class KnowledgeChatService {
   #effectiveSourceIds: string[] | null = null
   #contextEpoch = 0
   #modelSelection: AgentModelSelection | null = null
+  #thinkingLevel: AgentThinkingLevel = 'off'
+  #assistantHistory = new Map<string, AgentAssistantMessagePayload>()
+  #agentSessionId: string
   #lastError: string | null = null
   #activeTurn: ActiveNotebookTurn | null = null
   #initialized = false
@@ -97,6 +126,7 @@ export class KnowledgeChatService {
   constructor(private readonly options: KnowledgeChatServiceOptions) {
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
+    this.#agentSessionId = this.#createId()
   }
 
   async snapshot(): Promise<NotebookChatSnapshot> {
@@ -145,8 +175,25 @@ export class KnowledgeChatService {
     this.#assertOpen()
     await this.#initialize()
     if (this.#activeTurn !== null) throw new Error('Stop the active Notebook answer first')
-    await this.options.agentCatalog.resolve(modelSelection)
+    const resolved = await this.options.agentCatalog.resolve(modelSelection)
     this.#modelSelection = modelSelection
+    this.#thinkingLevel = clampResolvedAgentThinkingLevel(resolved, this.#thinkingLevel)
+    this.#lastError = null
+    this.#bumpRevision()
+    await this.#publishSnapshot()
+    return this.#snapshot()
+  }
+
+  async setThinkingLevel(level: AgentThinkingLevel): Promise<NotebookChatSnapshot> {
+    this.#assertOpen()
+    await this.#initialize()
+    if (this.#activeTurn !== null) throw new Error('Stop the active Notebook answer first')
+    if (this.#modelSelection === null) throw new Error('Choose an Agent model first')
+    const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+    if (clampResolvedAgentThinkingLevel(resolved, level) !== level) {
+      throw new Error('Selected Thinking level is unavailable for this Agent model')
+    }
+    this.#thinkingLevel = level
     this.#lastError = null
     this.#bumpRevision()
     await this.#publishSnapshot()
@@ -168,6 +215,9 @@ export class KnowledgeChatService {
     const sourceIds = this.#resolveEffectiveSourceIds()
     if (sourceIds.length === 0) throw new Error('Select at least one indexed Knowledge source')
     this.#assertCapacityFor(question)
+    const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+    const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, this.#thinkingLevel)
+    const config = agentProviderConfigFromResolved(resolved)
 
     const turnId = this.#createId()
     const userMessageId = this.#createId()
@@ -198,7 +248,8 @@ export class KnowledgeChatService {
         createdAt
       }
     )
-    this.#phase = 'retrieving'
+    this.#thinkingLevel = thinkingLevel
+    this.#phase = 'thinking'
     this.#lastError = null
     const active: ActiveNotebookTurn = {
       turnId,
@@ -206,12 +257,22 @@ export class KnowledgeChatService {
       assistantMessageId,
       controller,
       completion: Promise.resolve(),
-      detached: false
+      detached: false,
+      operationId: this.#createId(),
+      agentRunId: this.#createId(),
+      sourceIds,
+      config,
+      thinkingLevel,
+      handle: null,
+      authorizedModelRequestIds: new Set(),
+      pendingModelRequestIds: new Set(),
+      citationsById: new Map(),
+      finalMessage: null
     }
     this.#activeTurn = active
     this.#bumpRevision()
     await this.#publishSnapshot()
-    active.completion = this.#runTurn(active, question, sourceIds, this.#modelSelection)
+    active.completion = this.#runTurn(active, question, resolved)
     void active.completion.catch(() => undefined)
     return notebookChatStartTurnResultSchema.parse({ turnId, snapshot: this.#snapshot() })
   }
@@ -226,6 +287,7 @@ export class KnowledgeChatService {
     this.#assertOpen()
     await this.#cancelActive('clear', false)
     this.#messages = []
+    this.#assistantHistory.clear()
     this.#contextEpoch = 0
     this.#lastError = null
     this.#phase = 'idle'
@@ -251,6 +313,8 @@ export class KnowledgeChatService {
     this.#availableKnowledgeItemIds = []
     this.#effectiveSourceIds = null
     this.#modelSelection = null
+    this.#thinkingLevel = 'off'
+    this.#assistantHistory.clear()
     this.#lastError = null
     this.options.log.info(
       {
@@ -266,7 +330,15 @@ export class KnowledgeChatService {
     if (this.#initialized) return
     this.#initialized = true
     try {
-      this.#modelSelection = (await this.options.agentCatalog.snapshot()).defaultSelection
+      const catalog = await this.options.agentCatalog.snapshot()
+      this.#modelSelection = catalog.defaultSelection
+      if (this.#modelSelection !== null) {
+        const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+        this.#thinkingLevel = clampResolvedAgentThinkingLevel(
+          resolved,
+          catalog.defaultThinkingLevel ?? 'medium'
+        )
+      }
     } catch (err) {
       this.options.log.error(
         {
@@ -337,91 +409,67 @@ export class KnowledgeChatService {
   async #runTurn(
     active: ActiveNotebookTurn,
     question: string,
-    sourceIds: string[],
-    modelSelection: AgentModelSelection
+    resolved: ResolvedAgentCatalogModel
   ): Promise<void> {
     const startedAt = Date.now()
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
     try {
-      const query = this.#retrievalQuery(question)
-      const search = await this.options.retrieval.search(
+      active.controller.signal.throwIfAborted()
+      const initialModelRequestId = (
+        await repository.start({
+          operation: 'agent',
+          provider: active.config,
+          request: { delivery: 'prompt' },
+          thinkingLevel: active.thinkingLevel,
+          inputItems: 1,
+          operationId: active.operationId,
+          agentRunId: active.agentRunId,
+          projectSessionId: this.options.projectSessionId,
+          retention: 'metadata_only'
+        })
+      ).modelRequestId
+      active.authorizedModelRequestIds.add(initialModelRequestId)
+      active.pendingModelRequestIds.add(initialModelRequestId)
+      active.handle = this.options.runtime.beginSessionRun(
+        active.config,
+        agentCredentialFromResolved(resolved),
         {
           projectSessionId: this.options.projectSessionId,
-          query,
-          filters: {
-            knowledgeItemIds: sourceIds,
-            fileExtensions: [],
-            parseRevisionIds: []
-          },
-          limits: { fts: 100, vector: 100, fused: 50, results: NOTEBOOK_MAX_CITATIONS },
-          rerank: true
-        },
-        active.controller.signal,
-        { ftsMode: 'terms' }
-      )
-      active.controller.signal.throwIfAborted()
-      const expanded =
-        search.hits.length === 0
-          ? []
-          : await this.options.retrieval.expand(
-              search.hits.map((hit) => hit.citationId),
-              active.controller.signal
-            )
-      active.controller.signal.throwIfAborted()
-      const evidence = boundedEvidence(expanded)
-      if (evidence.length === 0) {
-        this.#completeAssistant(active, NO_EVIDENCE_MESSAGE, [])
-        this.options.log.info(
-          {
-            event: 'knowledge.notebook.turn_no_evidence',
-            projectId: this.options.projectId,
-            projectSessionId: this.options.projectSessionId,
-            turnId: active.turnId,
-            sourceCount: sourceIds.length,
-            resultCount: search.hits.length,
-            durationMs: Date.now() - startedAt
-          },
-          'Notebook turn completed without answer-model execution'
-        )
-        return
-      }
-
-      const resolved = await this.options.agentCatalog.resolve(modelSelection)
-      active.controller.signal.throwIfAborted()
-      this.#phase = 'generating'
-      this.#bumpRevision()
-      await this.#publishSnapshot()
-      const citations = citationRegistry(evidence)
-      const request = {
-        systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
-        prompt: formatNotebookChatPrompt({
-          question,
-          history: boundedHistory(
+          agentSessionId: this.#agentSessionId,
+          agentRunId: active.agentRunId,
+          modelRequestId: initialModelRequestId,
+          systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
+          history: boundedAgentHistory(
             this.#messages,
+            this.#assistantHistory,
             this.#contextEpoch,
             active.userMessageId,
             active.assistantMessageId
           ),
-          evidence
-        }),
-        maxOutputTokens: Math.min(8_192, resolved.model.maxTokens),
-        temperature: 0.2
-      }
-      const operationId = this.#createId()
-      const { result } = await this.options.modelExecution.runAgentWithResolvedProvider(
-        this.options.database,
-        request,
-        {
-          operationId,
-          projectSessionId: this.options.projectSessionId
+          prompt: formatNotebookChatPrompt({ question }),
+          maxOutputTokens: Math.min(8_192, resolved.model.maxTokens),
+          modelLimits: agentModelLimitsFromResolved(resolved, this.#now()),
+          toolProfile: 'notebook_knowledge',
+          thinkingLevel: active.thinkingLevel,
+          runtimeModel: agentRuntimeModelFromResolved(resolved)
         },
-        resolvedModelRuntime(resolved, this.#now()),
         active.controller.signal,
-        (event) => this.#applyDelta(active, event),
-        { retention: 'metadata_only' }
+        (event) => this.#handleRuntimeEvent(active, event),
+        (request, signal) => this.#handleToolRequest(active, request, signal)
       )
+      await active.handle.completion
       active.controller.signal.throwIfAborted()
-      const text = result.text.trim()
+      const finalMessage = active.finalMessage
+      if (finalMessage === null) throw new Error('Notebook Agent completed without an answer')
+      const text = finalMessage.content.trim()
+      const citations = [...active.citationsById.values()].sort((a, b) => a.ordinal - b.ordinal)
       this.#completeAssistant(active, text.length === 0 ? NO_EVIDENCE_MESSAGE : text, citations)
+      this.#assistantHistory.set(active.assistantMessageId, finalMessage)
       this.#logCitationWarnings(active, text, citations)
       this.options.log.info(
         {
@@ -429,8 +477,7 @@ export class KnowledgeChatService {
           projectId: this.options.projectId,
           projectSessionId: this.options.projectSessionId,
           turnId: active.turnId,
-          sourceCount: sourceIds.length,
-          evidenceCount: evidence.length,
+          sourceCount: active.sourceIds.length,
           citationCount: citations.length,
           durationMs: Date.now() - startedAt
         },
@@ -455,6 +502,17 @@ export class KnowledgeChatService {
         this.#failAssistant(active)
       }
     } finally {
+      for (const modelRequestId of active.pendingModelRequestIds) {
+        await repository
+          .abort(modelRequestId, active.controller.signal.aborted ? 'aborted' : 'runtime_ended')
+          .catch((err) =>
+            this.options.log.error(
+              { event: 'knowledge.notebook.model_request_cleanup_failed', err, modelRequestId },
+              'Notebook model request cleanup failed'
+            )
+          )
+      }
+      active.pendingModelRequestIds.clear()
       this.options.limiter.release(active.turnId)
       if (this.#activeTurn === active) {
         this.#activeTurn = null
@@ -465,10 +523,287 @@ export class KnowledgeChatService {
     }
   }
 
-  #applyDelta(active: ActiveNotebookTurn, event: AgentStreamEvent): void {
+  async #handleRuntimeEvent(active: ActiveNotebookTurn, event: AgentRuntimeEvent): Promise<void> {
+    if (active.detached || this.#activeTurn !== active) return
+    if (event.type === 'assistant_delta') {
+      if (this.#phase !== 'generating') {
+        this.#phase = 'generating'
+        this.#bumpRevision()
+        await this.#publishSnapshot()
+      }
+      this.#applyDelta(active, event.delta)
+      return
+    }
+    if (event.type === 'model_call_requested') {
+      await this.#authorizeToolContinuation(active, event.continuationId)
+      return
+    }
+    if (event.type === 'model_call_retrying') {
+      this.options.log.warn(
+        {
+          event: 'knowledge.notebook.provider_retry_scheduled',
+          turnId: active.turnId,
+          modelRequestId: event.modelRequestId,
+          completedAttempts: event.completedAttempts,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reasonCode: event.reasonCode
+        },
+        'Notebook Agent provider retry scheduled'
+      )
+      return
+    }
+    if (event.type === 'tool_attempted' || event.type === 'tool_preflight_failed') {
+      if (this.#phase !== 'retrieving') {
+        this.#phase = 'retrieving'
+        this.#bumpRevision()
+        await this.#publishSnapshot()
+      }
+      if (event.type === 'tool_preflight_failed') {
+        this.options.log.warn(
+          {
+            event: 'knowledge.notebook.tool_preflight_failed',
+            turnId: active.turnId,
+            modelRequestId: event.modelRequestId,
+            toolName: event.requestedToolName,
+            code: event.diagnostic?.code
+          },
+          'Notebook Agent tool failed before Main dispatch'
+        )
+      }
+      return
+    }
+    if (event.type === 'queue_updated' || event.type === 'queue_action_completed') return
+    if (event.type === 'follow_up_consumption_requested') {
+      throw new Error('Notebook Agent does not accept queued messages')
+    }
+    if (!active.authorizedModelRequestIds.has(event.modelRequestId)) {
+      throw new Error('Notebook Agent event refers to an unauthorized model request')
+    }
+    if (event.type === 'model_call_finished') {
+      const repository = new ModelRequestRepository(
+        this.options.database,
+        this.options.log,
+        this.#now,
+        this.#createId
+      )
+      if (event.outcome === 'succeeded') {
+        await repository.succeed(
+          event.modelRequestId,
+          { metadata: event.metadata, outputItems: 1 },
+          'metadata_only'
+        )
+      } else if (event.outcome === 'aborted') {
+        await repository.abort(event.modelRequestId, 'aborted', event.metadata, 'metadata_only')
+      } else {
+        await repository.fail(
+          event.modelRequestId,
+          {
+            code:
+              event.outcome === 'timed_out'
+                ? 'provider_timeout'
+                : (event.failureCode ?? 'provider_request_failed'),
+            retryable:
+              event.outcome === 'timed_out' ||
+              event.retryable === true ||
+              event.httpStatus === 429 ||
+              (event.httpStatus ?? 0) >= 500,
+            ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus })
+          },
+          event.metadata,
+          'metadata_only'
+        )
+      }
+      active.pendingModelRequestIds.delete(event.modelRequestId)
+      return
+    }
+    if (event.message.stopReason === 'toolUse') return
+    const { responseId: _responseId, ...message } = event.message
+    active.finalMessage = {
+      ...message,
+      metadata: { ...message.metadata, responseIds: [] }
+    }
+  }
+
+  async #authorizeToolContinuation(
+    active: ActiveNotebookTurn,
+    continuationId: string
+  ): Promise<void> {
+    if (active.handle === null) throw new Error('Notebook Agent runtime is unavailable')
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    const modelRequestId = (
+      await repository.start({
+        operation: 'agent',
+        provider: active.config,
+        request: { delivery: 'tool_continuation' },
+        thinkingLevel: active.thinkingLevel,
+        inputItems: 1,
+        operationId: active.operationId,
+        agentRunId: active.agentRunId,
+        projectSessionId: this.options.projectSessionId,
+        retention: 'metadata_only'
+      })
+    ).modelRequestId
+    active.authorizedModelRequestIds.add(modelRequestId)
+    active.pendingModelRequestIds.add(modelRequestId)
+    try {
+      active.handle.authorizeModelCall({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: this.#agentSessionId,
+        agentRunId: active.agentRunId,
+        continuationId,
+        modelRequestId,
+        systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT
+      })
+    } catch (err) {
+      await repository.abort(modelRequestId, 'authorization_delivery_failed')
+      active.pendingModelRequestIds.delete(modelRequestId)
+      throw err
+    }
+  }
+
+  async #handleToolRequest(
+    active: ActiveNotebookTurn,
+    request: AgentToolRequest,
+    signal: AbortSignal
+  ): Promise<AgentToolResponse> {
+    if (
+      this.#activeTurn !== active ||
+      request.projectSessionId !== this.options.projectSessionId ||
+      request.agentSessionId !== this.#agentSessionId ||
+      request.agentRunId !== active.agentRunId ||
+      !active.authorizedModelRequestIds.has(request.modelRequestId)
+    ) {
+      this.options.log.error(
+        {
+          event: 'knowledge.notebook.tool_unauthorized',
+          err: new Error('Notebook Agent tool capability mismatch'),
+          turnId: active.turnId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName
+        },
+        'Rejected an unauthorized Notebook Agent tool request'
+      )
+      return notebookToolError(request, 'unauthorized', 'Notebook tool request is unauthorized')
+    }
+    if (signal.aborted) return notebookToolError(request, 'aborted', 'Notebook tool was aborted')
+    if (request.toolName !== 'search_knowledge' && request.toolName !== 'read_citations') {
+      return notebookToolError(
+        request,
+        'unauthorized',
+        'Notebook Agent can only search and read selected Knowledge sources'
+      )
+    }
+    const startedAt = Date.now()
+    try {
+      if (request.toolName === 'search_knowledge') {
+        const allowed = new Set(active.sourceIds)
+        const requestedIds = request.args.knowledgeItemIds
+        if (requestedIds.some((id) => !allowed.has(id))) {
+          return notebookToolError(
+            request,
+            'unauthorized',
+            'Notebook search is outside the selected source scope'
+          )
+        }
+        const result = await executeKnowledgeSearch({
+          retrieval: this.options.retrieval,
+          projectSessionId: this.options.projectSessionId,
+          args: request.args,
+          signal,
+          forcedKnowledgeItemIds: requestedIds.length === 0 ? active.sourceIds : requestedIds
+        })
+        const hits = result.hits.map((hit) => {
+          let citation = active.citationsById.get(hit.citationId)
+          if (citation === undefined && active.citationsById.size < NOTEBOOK_MAX_CITATIONS) {
+            citation = {
+              ordinal: active.citationsById.size + 1,
+              citationId: hit.citationId,
+              knowledgeItemId: hit.knowledgeItemId,
+              title: hit.title,
+              page: hit.page ?? null,
+              headingPath: hit.headingPath
+            }
+            active.citationsById.set(hit.citationId, citation)
+          }
+          return {
+            ...hit,
+            ...(citation === undefined ? {} : { citationOrdinal: citation.ordinal })
+          }
+        })
+        this.options.log.info(
+          {
+            event: 'knowledge.notebook.tool_completed',
+            turnId: active.turnId,
+            toolName: request.toolName,
+            resultCount: hits.length,
+            citationCount: active.citationsById.size,
+            durationMs: Date.now() - startedAt
+          },
+          'Notebook Agent Knowledge search completed'
+        )
+        return notebookToolSuccess(request, { ...result, hits })
+      }
+
+      const requestedIds = [
+        ...request.args.citationIds,
+        ...request.args.requests.map((item) => item.citationId)
+      ]
+      if (requestedIds.some((citationId) => !active.citationsById.has(citationId))) {
+        return notebookToolError(
+          request,
+          'unauthorized',
+          'Notebook citation was not returned by this turn search'
+        )
+      }
+      const result = await executeCitationRead({
+        retrieval: this.options.retrieval,
+        args: request.args,
+        signal
+      })
+      const allowed = new Set(active.sourceIds)
+      if (result.citations.some((citation) => !allowed.has(citation.knowledgeItemId))) {
+        throw new Error('Notebook citation expansion crossed the selected source scope')
+      }
+      const citations = result.citations.map((citation) => ({
+        ...citation,
+        citationOrdinal: active.citationsById.get(citation.citationId)?.ordinal
+      }))
+      this.options.log.info(
+        {
+          event: 'knowledge.notebook.tool_completed',
+          turnId: active.turnId,
+          toolName: request.toolName,
+          resultCount: citations.length,
+          durationMs: Date.now() - startedAt
+        },
+        'Notebook Agent citation read completed'
+      )
+      return notebookToolSuccess(request, { ...result, citations })
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'knowledge.notebook.tool_failed',
+          err,
+          turnId: active.turnId,
+          toolName: request.toolName,
+          durationMs: Date.now() - startedAt
+        },
+        'Notebook Agent Knowledge tool failed'
+      )
+      return notebookToolError(request, 'internal', 'Notebook Knowledge tool failed')
+    }
+  }
+
+  #applyDelta(active: ActiveNotebookTurn, delta: string): void {
     if (active.detached || this.#activeTurn !== active || active.controller.signal.aborted) return
     const message = this.#assistant(active.assistantMessageId)
-    const nextContent = `${message.content}${event.delta}`
+    const nextContent = `${message.content}${delta}`
     if (this.#chatBytes(nextContent.length - message.content.length) > NOTEBOOK_MAX_CHAT_BYTES) {
       active.controller.abort('notebook_capacity')
       throw new NotebookChatCapacityError()
@@ -482,7 +817,7 @@ export class KnowledgeChatService {
         revision: this.#revision,
         turnId: active.turnId,
         messageId: active.assistantMessageId,
-        delta: event.delta
+        delta
       })
     )
   }
@@ -554,6 +889,7 @@ export class KnowledgeChatService {
     if (this.#messages.length === 0) return
     if (this.#messages.length >= NOTEBOOK_MAX_MESSAGES) throw new NotebookChatCapacityError()
     this.#contextEpoch += 1
+    this.#assistantHistory.clear()
     this.#messages.push({
       messageId: this.#createId(),
       role: 'source_boundary',
@@ -561,20 +897,6 @@ export class KnowledgeChatService {
       contextEpoch: this.#contextEpoch,
       createdAt: this.#now().toISOString()
     })
-  }
-
-  #retrievalQuery(question: string): string {
-    const activeUserMessageId = this.#activeTurn?.userMessageId
-    const recent = this.#messages
-      .filter(
-        (message): message is Extract<NotebookChatMessage, { role: 'user' }> =>
-          message.role === 'user' &&
-          message.contextEpoch === this.#contextEpoch &&
-          message.messageId !== activeUserMessageId
-      )
-      .slice(-2)
-      .map((message) => message.content)
-    return [question, ...recent.reverse()].join('\n').slice(0, RETRIEVAL_QUERY_MAX_CHARS)
   }
 
   #assistant(messageId: string): Extract<NotebookChatMessage, { role: 'assistant' }> {
@@ -645,6 +967,7 @@ export class KnowledgeChatService {
       sourceReadiness: this.#sourceReadiness,
       availableKnowledgeItemIds: this.#availableKnowledgeItemIds,
       modelSelection: this.#modelSelection,
+      thinkingLevel: this.#thinkingLevel,
       contextEpoch: this.#contextEpoch,
       messages: this.#messages,
       lastError: this.#lastError
@@ -686,76 +1009,89 @@ export class KnowledgeChatService {
   }
 }
 
-function resolvedModelRuntime(resolved: ResolvedAgentCatalogModel, now: Date) {
-  return {
-    config: agentProviderConfigFromResolved(resolved),
-    credential: agentCredentialFromResolved(resolved),
-    modelLimits: agentModelLimitsFromResolved(resolved, now)
-  }
-}
-
-function boundedEvidence(
-  citations: ExpandedCitation[]
-): Array<{ ordinal: number; citation: ExpandedCitation; text: string }> {
-  const result: Array<{ ordinal: number; citation: ExpandedCitation; text: string }> = []
-  let remaining = NOTEBOOK_MAX_EVIDENCE_BYTES
-  for (const citation of citations.slice(0, NOTEBOOK_MAX_CITATIONS)) {
-    if (remaining <= 0) break
-    const text = truncateUtf8(citation.text.trim(), remaining)
-    if (text.length === 0) continue
-    result.push({ ordinal: result.length + 1, citation, text })
-    remaining -= new TextEncoder().encode(text).byteLength
-  }
-  return result
-}
-
-function citationRegistry(
-  evidence: Array<{ ordinal: number; citation: ExpandedCitation }>
-): NotebookChatCitation[] {
-  return evidence.map(({ ordinal, citation }) => ({
-    ordinal,
-    citationId: citation.citationId,
-    knowledgeItemId: citation.knowledgeItemId,
-    title: citation.title,
-    page: citation.page ?? null,
-    headingPath: citation.headingPath
-  }))
-}
-
-function boundedHistory(
+function boundedAgentHistory(
   messages: NotebookChatMessage[],
+  assistantHistory: ReadonlyMap<string, AgentAssistantMessagePayload>,
   contextEpoch: number,
   activeUserMessageId: string,
   activeAssistantMessageId: string
-): NotebookChatMessage[] {
+): AgentHistoryMessage[] {
   const eligible = messages.filter(
     (message) =>
       message.contextEpoch === contextEpoch &&
       message.messageId !== activeUserMessageId &&
       message.messageId !== activeAssistantMessageId &&
-      (message.role !== 'assistant' || message.status === 'complete')
+      message.role !== 'source_boundary'
   )
-  const result: NotebookChatMessage[] = []
-  let bytes = 0
-  for (const message of eligible.reverse()) {
-    const next = new TextEncoder().encode(message.content).byteLength
-    if (bytes + next > HISTORY_MAX_BYTES) break
-    result.unshift(message)
-    bytes += next
+  const pairs: AgentHistoryMessage[][] = []
+  for (let index = 0; index < eligible.length - 1; index += 1) {
+    const user = eligible[index]
+    const assistant = eligible[index + 1]
+    if (
+      user?.role !== 'user' ||
+      assistant?.role !== 'assistant' ||
+      assistant.status !== 'complete'
+    ) {
+      continue
+    }
+    const payload = assistantHistory.get(assistant.messageId)
+    if (payload === undefined) continue
+    const { interrupted: _interrupted, ...message } = payload
+    pairs.push([
+      { role: 'user', content: user.content, timestamp: new Date(user.createdAt).getTime() },
+      { role: 'assistant', message }
+    ])
+    index += 1
   }
-  return result
+  const result: AgentHistoryMessage[] = []
+  for (const pair of pairs.reverse()) {
+    const candidate = [...pair, ...result]
+    if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > HISTORY_MAX_BYTES) break
+    result.unshift(...pair)
+  }
+  return agentHistorySchema.parse(result)
 }
 
-function truncateUtf8(value: string, limit: number): string {
-  if (new TextEncoder().encode(value).byteLength <= limit) return value
-  let low = 0
-  let high = value.length
-  while (low < high) {
-    const midpoint = Math.ceil((low + high) / 2)
-    if (new TextEncoder().encode(value.slice(0, midpoint)).byteLength <= limit) low = midpoint
-    else high = midpoint - 1
-  }
-  return value.slice(0, low).trimEnd()
+function notebookToolSuccess(request: AgentToolRequest, data: unknown): AgentToolResponse {
+  return agentToolResponseSchema.parse({
+    type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+    requestId: request.requestId,
+    projectSessionId: request.projectSessionId,
+    agentSessionId: request.agentSessionId,
+    agentRunId: request.agentRunId,
+    toolCallId: request.toolCallId,
+    modelRequestId: request.modelRequestId,
+    toolName: request.toolName,
+    ok: true,
+    data
+  })
+}
+
+function notebookToolError(
+  request: AgentToolRequest,
+  code: 'unauthorized' | 'aborted' | 'internal',
+  message: string
+): AgentToolResponse {
+  return agentToolResponseSchema.parse({
+    type: 'tool_response',
+    schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+    requestId: request.requestId,
+    projectSessionId: request.projectSessionId,
+    agentSessionId: request.agentSessionId,
+    agentRunId: request.agentRunId,
+    toolCallId: request.toolCallId,
+    modelRequestId: request.modelRequestId,
+    toolName: request.toolName,
+    ok: false,
+    error: {
+      code,
+      category:
+        code === 'unauthorized' ? 'authorization' : code === 'aborted' ? 'cancelled' : 'internal',
+      message,
+      recovery: { action: 'do_not_retry' }
+    }
+  })
 }
 
 function sameScope(left: NotebookSourceScope, right: NotebookSourceScope): boolean {

@@ -83,6 +83,53 @@ function sendNotebookCompletion(response: ServerResponse, text: string): void {
   response.end('data: [DONE]\n\n')
 }
 
+function sendNotebookToolCall(
+  response: ServerResponse,
+  input: { id: string; name: string; arguments: Record<string, unknown> }
+): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    'x-request-id': `notebook-${input.id}`
+  })
+  for (const chunk of [
+    {
+      id: `notebook-${input.id}`,
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'notebook-model',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: [
+              {
+                index: 0,
+                id: input.id,
+                type: 'function',
+                function: { name: input.name, arguments: JSON.stringify(input.arguments) }
+              }
+            ]
+          },
+          finish_reason: null
+        }
+      ]
+    },
+    {
+      id: `notebook-${input.id}`,
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'notebook-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 30, completion_tokens: 6, total_tokens: 36 }
+    }
+  ]) {
+    response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+  }
+  response.end('data: [DONE]\n\n')
+}
+
 async function startNotebookAgentServer() {
   const requestBodies: unknown[] = []
   const server = createServer((request, response) => {
@@ -99,7 +146,33 @@ async function startNotebookAgentServer() {
     const chunks: Buffer[] = []
     request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
     request.on('end', () => {
-      requestBodies.push(JSON.parse(Buffer.concat(chunks).toString()) as unknown)
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+        messages?: Array<{ role?: string; content?: string }>
+      }
+      requestBodies.push(body)
+      const toolResults = body.messages?.filter((message) => message.role === 'tool') ?? []
+      if (toolResults.length === 0) {
+        sendNotebookToolCall(response, {
+          id: 'notebook-search',
+          name: 'search_knowledge',
+          arguments: { query: 'Normalized body from MinerU', limit: 10, rerank: true }
+        })
+        return
+      }
+      if (toolResults.length === 1) {
+        const citationId = toolResults[0]?.content?.match(/citation-[a-f0-9]{40}/u)?.[0]
+        if (citationId === undefined) {
+          response.writeHead(500)
+          response.end('missing citation')
+          return
+        }
+        sendNotebookToolCall(response, {
+          id: 'notebook-read',
+          name: 'read_citations',
+          arguments: { citationIds: [citationId] }
+        })
+        return
+      }
       sendNotebookCompletion(response, 'The source says Normalized body from MinerU. [[cite:1]]')
     })
   })
@@ -387,8 +460,8 @@ test(
       const notebook = launched.page.getByTestId('notebook-workspace')
       await expect(notebook.getByText('1/1', { exact: true })).toBeVisible()
       await notebook.getByTestId('agent-model-selector').click()
-      const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /Notebook Agent/ }).click()
+      const modelPicker = launched.page.getByTestId('agent-model-effort-picker')
+      await modelPicker.getByRole('option', { name: /Model/ }).click()
       await modelPicker.getByRole('option', { name: /Notebook model/ }).click()
       const privateQuestion = 'What exact phrase appears in the normalized body? notebook-q-66'
       const privateAnswer = 'The source says Normalized body from MinerU.'
@@ -409,10 +482,18 @@ test(
       await expect(
         launched.page.getByTestId('notebook-workspace').getByText(privateAnswer, { exact: false })
       ).toBeVisible()
-      expect(notebookAgent.requestBodies).toHaveLength(1)
-      const providerRequest = JSON.stringify(notebookAgent.requestBodies[0])
+      expect(notebookAgent.requestBodies).toHaveLength(3)
+      const providerRequest = JSON.stringify(notebookAgent.requestBodies)
       expect(providerRequest).toContain(privateQuestion)
       expect(providerRequest).toContain('Normalized body from MinerU')
+      expect(providerRequest).not.toContain('"temperature"')
+      expect(
+        (
+          notebookAgent.requestBodies[0] as { tools?: Array<{ function?: { name?: string } }> }
+        ).tools
+          ?.map((tool) => tool.function?.name)
+          .sort()
+      ).toEqual(['read_citations', 'search_knowledge'])
 
       const projectDatabasePath = join(
         testRoot,
