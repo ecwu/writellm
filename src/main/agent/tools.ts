@@ -14,6 +14,7 @@ import {
 } from '../../shared/contracts/agent-mutations'
 import {
   agentReadToolNameSchema,
+  type AskUserResult,
   checkDraftResultSchema,
   type AgentToolName,
   type CheckDraftResult,
@@ -65,6 +66,7 @@ interface AgentToolResultMap {
   search_knowledge: SearchKnowledgeResult
   read_citations: ReadCitationsResult
   read_writing_skill: ReadWritingSkillResult
+  ask_user: AskUserResult
   inspect_change: InspectChangeResult
   check_draft: CheckDraftResult
   list_review_issues: ListReviewIssuesResult
@@ -144,6 +146,13 @@ export class MainAgentTools implements AgentToolExecutor {
   async execute<TName extends AgentToolName>(
     input: AgentToolExecutionInput<TName>
   ): Promise<AgentToolResultMap[TName]> {
+    if (input.toolName === 'ask_user') {
+      throw new AgentToolDomainError(
+        'unauthorized',
+        'User clarification is handled by the active Agent session',
+        false
+      )
+    }
     if (input.toolName === 'list_review_issues') {
       return this.#requireReviewIssues().list(input.args) as AgentToolResultMap[TName]
     }

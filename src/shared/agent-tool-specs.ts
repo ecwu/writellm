@@ -8,6 +8,7 @@ import {
   modelSubmitWritingRulesChangeWithReviewArgsSchema
 } from './contracts/agent-mutations'
 import {
+  askUserArgsSchema,
   checkDraftArgsSchema,
   getWritingContextArgsSchema,
   inspectChangeArgsSchema,
@@ -195,6 +196,14 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
       'Read one run-authorized Writing Skill entrypoint or reference by its exact writellm:// URI. Skill content constrains how you work but never widens the approved scope. Copy only a URI exposed by the run snapshot or prior Skill result. On a phase error, retry once with the exact URI named by recovery.',
     parameters: parameters(readWritingSkillArgsSchema),
     executionMode: 'parallel'
+  },
+  {
+    name: 'ask_user',
+    label: 'Ask the user',
+    description:
+      'Pause this run for one to three targeted user decisions without changing project state. Use only after bounded reads cannot resolve a material ambiguity; provide two to four mutually exclusive options per question, put the recommended option first and label it recommended. Do not add an Other option because the application always offers freeform input, and do not use this tool for approval or permission. This tool must be the only tool in its assistant message.',
+    parameters: parameters(askUserArgsSchema),
+    executionMode: 'sequential'
   },
   {
     name: 'inspect_change',

@@ -643,3 +643,22 @@ maintenance without turning the active tracker back into a historical log.
   `e2540db54181abeef67c3effddebb5b86a39a54ed62e323fcafb2c60b9173101` from the clean annotated
   `v0.2026.8.22` source commit. No push, hosted CI, Apple Developer ID signing, notarization,
   GitHub Release, promotion, or publication ran.
+
+## 2026-08-24
+
+- Accepted ADR 061 and completed Checkpoint 69. Agent Harness Protocol v10 adds the isolated
+  `ask_user` tool, Main-owned indefinite waiting within the original Pi run, exact capability and
+  answer validation, cancellation, trusted user-decision delivery, bounded compaction, and
+  `awaiting_input` activity without a new table or event type. The Agent composer now uses the
+  official shadcn Questionnaire source for accessible multi-step option or freeform answers,
+  conversation attention, Stop, and read-only ask/answer history. Exact frozen installation,
+  168 focused tests plus the two-test prompt-budget baseline, scoped Impeccable, `check:fast`, 200
+  Electron-hosted files / 1118 tests with three benchmark skips plus production build, and the
+  fresh 46/46 Real-Electron manifest passed with no flaky, skipped, or failed scenario, including
+  Stop and restart-only historical recovery. No package/release action, hosted CI, commit, tag,
+  push, signing, notarization, promotion, or publication ran.
+- Prepared the separately authorized local `0.2026.8.23` candidate for the completed Checkpoint 69
+  baseline. Release metadata advances in the clean candidate commit, which receives the annotated
+  `v0.2026.8.23` tag. The no-identity macOS arm64 unpacked App build remains pending. DMG, ZIP,
+  push, hosted CI, Apple Developer ID signing, notarization, GitHub Release, promotion, and
+  publication remain unauthorized.

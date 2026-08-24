@@ -4,6 +4,8 @@ import type { AgentUserMessagePayload } from '../../shared/contracts/agent'
 import {
   agentArchiveSessionInputSchema,
   agentArchiveSessionResultSchema,
+  agentAnswerUserQuestionInputSchema,
+  agentAnswerUserQuestionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentCompactSessionInputSchema,
@@ -481,6 +483,16 @@ export function registerAgentIpc(options: {
       mutationContext(input.projectSessionId).agentSessions?.abort(input.agentRunId)
     )
   })
+  ipc.handle(IPC_CHANNELS.agentAnswerUserQuestion, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentAnswerUserQuestionInputSchema.parse(raw)
+    return lifecycle('agent.question.answer', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      await service.answerUserQuestion(input)
+      return agentAnswerUserQuestionResultSchema.parse({})
+    })
+  })
   ipc.handle(IPC_CHANNELS.agentCompactSession, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentCompactSessionInputSchema.parse(raw)
@@ -579,6 +591,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentSteerPendingFollowUp,
     IPC_CHANNELS.agentDeletePendingFollowUp,
     IPC_CHANNELS.agentAbortRun,
+    IPC_CHANNELS.agentAnswerUserQuestion,
     IPC_CHANNELS.agentCompactSession,
     IPC_CHANNELS.agentStopCompaction,
     IPC_CHANNELS.agentSubscribeEvents,

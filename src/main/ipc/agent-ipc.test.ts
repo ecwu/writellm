@@ -458,6 +458,36 @@ describe('Agent session IPC', () => {
     ).rejects.toThrow('stale')
     expect(value.sessions.deletePendingFollowUp).toHaveBeenCalledOnce()
   })
+
+  it('validates and routes clarification answers through the mutation capability', async () => {
+    const value = harness()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentAnswerUserQuestion, {
+        projectSessionId,
+        agentSessionId,
+        agentRunId,
+        toolCallId: 'tool-question',
+        answers: [{ questionId: 'scope', kind: 'option', value: 'Section (Recommended)' }]
+      })
+    ).resolves.toEqual({})
+    expect(value.sessions.answerUserQuestion).toHaveBeenCalledWith({
+      projectSessionId,
+      agentSessionId,
+      agentRunId,
+      toolCallId: 'tool-question',
+      answers: [{ questionId: 'scope', kind: 'option', value: 'Section (Recommended)' }]
+    })
+    await expect(
+      value.invoke(IPC_CHANNELS.agentAnswerUserQuestion, {
+        projectSessionId,
+        agentSessionId,
+        agentRunId,
+        toolCallId: 'tool-question',
+        answers: [{ questionId: 'scope', kind: 'custom', value: '' }]
+      })
+    ).rejects.toThrow()
+    expect(value.sessions.answerUserQuestion).toHaveBeenCalledOnce()
+  })
 })
 
 function harness() {
@@ -523,6 +553,7 @@ function harness() {
     steerPendingFollowUp: vi.fn(),
     deletePendingFollowUp: vi.fn(),
     abort: vi.fn(),
+    answerUserQuestion: vi.fn(),
     compactSession: vi.fn(),
     stopCompaction: vi.fn(),
     projectActivitySnapshot: vi.fn(() => {

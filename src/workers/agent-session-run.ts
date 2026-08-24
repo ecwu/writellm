@@ -202,6 +202,16 @@ export async function runAgentSession(
       const calls = assistantMessage.content
         .filter((part) => part.type === 'toolCall')
         .map((part) => ({ id: part.id, name: part.name }))
+      const clarificationCalls = calls.filter((call) => call.name === 'ask_user')
+      if (
+        clarificationCalls.length > 0 &&
+        (clarificationCalls.length !== 1 || calls.length !== 1)
+      ) {
+        return {
+          block: true,
+          reason: 'User clarification must be the only tool in an assistant message'
+        }
+      }
       const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')
       if (skillCalls.length > 0 && calls.some((call) => call.name !== 'read_writing_skill')) {
         return {

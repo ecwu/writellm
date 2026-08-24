@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 17 Checkpoint 68 native Block Math and application-owned Diagram convergence is
-complete. Checkpoint 26.9 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-23
+Status: Phase 18 Checkpoint 69 Agent user clarification is complete. Checkpoint 26.9 remains paused
+and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-24
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -17,6 +17,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 69: add Protocol v10 `ask_user`, Main-owned in-run waiting, exact answer IPC, and
+  the inline shadcn Questionnaire experience under ADR 061.
 - [x] Checkpoint 68: adopt native Block Math and converge application-owned Diagram on plain
   content, schema v5, and shared cross-system semantics under ADR 060.
 - [x] Checkpoint 67: skippable first-run Agent, Embedding, Reranking, MinerU, and project-creation
@@ -41,6 +43,15 @@ Checkpoint 66 detail: [`implementation-todo/phase-15.md`](implementation-todo/ph
 Checkpoint 67 detail: [`implementation-todo/phase-16.md`](implementation-todo/phase-16.md).
 
 Checkpoint 68 detail: [`implementation-todo/phase-17.md`](implementation-todo/phase-17.md).
+
+Checkpoint 69 detail: [`implementation-todo/phase-18.md`](implementation-todo/phase-18.md).
+
+## Phase 18: Agent User Clarification
+
+- [x] Checkpoint 69: keep the original Agent run waiting for one bounded clarification tool call,
+  authorize an exact answer, and resume the same Pi loop.
+
+Authoritative detail: [`implementation-todo/phase-18.md`](implementation-todo/phase-18.md).
 
 ## Phase 17: Native Block Math And Diagram Experience Convergence
 
@@ -107,6 +118,8 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 
 ## Completed delivery milestones
 
+- [~] Local no-identity candidate `v0.2026.8.23` for the completed Checkpoint 69 baseline; the
+  candidate commit, annotated tag, and unpacked macOS arm64 App build are authorized locally.
 - [x] Local no-identity candidate `v0.2026.8.22` for the completed Checkpoints 67–68 baseline;
   structurally verified macOS arm64 App, DMG, and ZIP with no push, Developer ID signing,
   notarization, or release.
@@ -161,4 +174,5 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 15](implementation-todo/phase-15.md)
 - [Phase 16](implementation-todo/phase-16.md)
 - [Phase 17](implementation-todo/phase-17.md)
+- [Phase 18](implementation-todo/phase-18.md)
 - [Implementation history](history/implementation-log.md)

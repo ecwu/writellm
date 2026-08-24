@@ -4,6 +4,8 @@ import {
   agentToolCallPayloadSchema,
   agentToolRequestSchema,
   agentToolResultPayloadSchema,
+  askUserAnswersSchema,
+  askUserArgsSchema,
   getWritingContextArgsSchema,
   readCitationsArgsSchema,
   readWritingSkillResultSchema,
@@ -24,9 +26,9 @@ const capability = {
 }
 
 describe('Agent read-tool contracts', () => {
-  it('writes contract v9 while retaining v2-v8 event replay compatibility', () => {
-    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(9)
-    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9]) {
+  it('writes contract v10 while retaining v2-v9 event replay compatibility', () => {
+    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(10)
+    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       expect(
         toolResultMetaSchema.parse({
           contractVersion,
@@ -157,6 +159,89 @@ describe('Agent read-tool contracts', () => {
       toolName: 'read_citations',
       args: { citationIds: [], requests: [{ offset: 0, maxChars: 16_384 }] }
     })
+  })
+
+  it('validates bounded clarification questions and exact answer kinds', () => {
+    const args = askUserArgsSchema.parse({
+      questions: [
+        {
+          id: 'document_scope',
+          header: 'Scope',
+          question: 'Which part should the revision cover?',
+          options: [
+            { label: 'Current section (Recommended)', description: 'Keep the change focused.' },
+            { label: 'Entire document', description: 'Apply the decision throughout.' }
+          ]
+        },
+        {
+          id: 'tone',
+          header: 'Tone',
+          question: 'Which tone should the revision use?',
+          options: [
+            { label: 'Formal', description: 'Use a restrained professional voice.' },
+            { label: 'Conversational', description: 'Use a more approachable voice.' }
+          ]
+        }
+      ]
+    })
+    expect(args.questions.map((question) => question.id)).toEqual(['document_scope', 'tone'])
+    expect(
+      agentToolRequestSchema.parse({ ...capability, toolName: 'ask_user', args }).toolName
+    ).toBe('ask_user')
+    expect(
+      askUserAnswersSchema.parse([
+        { questionId: 'document_scope', kind: 'option', value: 'Current section (Recommended)' },
+        { questionId: 'tone', kind: 'custom', value: 'Precise but approachable' }
+      ])
+    ).toHaveLength(2)
+
+    expect(
+      askUserArgsSchema.safeParse({
+        questions: [{ ...args.questions[0], id: 'Not-Snake' }]
+      }).success
+    ).toBe(false)
+    expect(
+      askUserArgsSchema.safeParse({
+        questions: [args.questions[0], { ...args.questions[1], id: 'document_scope' }]
+      }).success
+    ).toBe(false)
+    expect(
+      askUserArgsSchema.safeParse({
+        questions: [
+          {
+            ...args.questions[0],
+            options: [
+              { label: 'Same', description: 'First.' },
+              { label: 'Same', description: 'Second.' }
+            ]
+          }
+        ]
+      }).success
+    ).toBe(false)
+    expect(
+      askUserArgsSchema.safeParse({
+        questions: Array.from({ length: 4 }, (_, index) => ({
+          ...args.questions[0],
+          id: `question_${index}`
+        }))
+      }).success
+    ).toBe(false)
+    expect(askUserAnswersSchema.safeParse([]).success).toBe(false)
+    expect(
+      askUserAnswersSchema.safeParse([
+        { questionId: 'tone', kind: 'option', value: 'Formal' },
+        { questionId: 'tone', kind: 'custom', value: 'Friendly' }
+      ]).success
+    ).toBe(false)
+    expect(
+      askUserAnswersSchema.safeParse([{ questionId: 'tone', kind: 'custom', value: ' '.repeat(2) }])
+        .success
+    ).toBe(false)
+    expect(
+      askUserAnswersSchema.safeParse([
+        { questionId: 'tone', kind: 'custom', value: 'x'.repeat(4_097) }
+      ]).success
+    ).toBe(false)
   })
 
   it('rejects unknown tools and argument payloads beyond the bridge bound', () => {

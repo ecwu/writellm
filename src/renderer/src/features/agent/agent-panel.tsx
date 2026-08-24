@@ -2,6 +2,7 @@ import {
   MAX_CONCURRENT_AGENT_RUNS,
   type AgentEventRecord,
   type AgentLiveCompactionSnapshot,
+  type AgentPendingQuestion,
   type AgentLiveRunSnapshot,
   type AgentRendererEvent,
   type AgentRunRecord,
@@ -19,7 +20,12 @@ import {
   agentCompactionSummaryPayloadSchema,
   type AgentApprovalMode
 } from '../../../../shared/contracts/agent'
-import { agentToolCallPayloadSchema } from '../../../../shared/contracts/agent-tools'
+import {
+  agentToolCallPayloadSchema,
+  askUserArgsSchema,
+  askUserResultSchema,
+  type AskUserAnswer
+} from '../../../../shared/contracts/agent-tools'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
 import type {
   AgentModelSelection,
@@ -41,6 +47,7 @@ import {
   Circle,
   CircleCheck,
   CircleDotDashed,
+  CircleHelp,
   CircleMinus,
   CircleStop,
   Clock3,
@@ -131,6 +138,22 @@ import {
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
 import { Progress } from '@/components/ui/progress'
+import {
+  Questionnaire,
+  QuestionnaireActions,
+  QuestionnaireChoice,
+  QuestionnaireChoiceDescription,
+  QuestionnaireChoices,
+  QuestionnaireDescription,
+  QuestionnaireError,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireNext,
+  QuestionnairePrevious,
+  QuestionnaireProgress,
+  QuestionnaireSubmit,
+  QuestionnaireTitle
+} from '@/components/ui/questionnaire'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
@@ -682,8 +705,9 @@ export function AgentPanel(props: {
     sessions.find((session) => session.agentSessionId === activeSessionId) ?? null
   const activeSessionArchived = activeSession?.status === 'archived'
   const activeRun = runs.find((run) => run.status === 'running') ?? null
-  const pendingMessages =
-    liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId)?.pendingMessages ?? []
+  const liveRun = liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId) ?? null
+  const pendingQuestion = liveRun?.pendingQuestion ?? null
+  const pendingMessages = liveRun?.pendingMessages ?? []
   const activeCompaction =
     activeCompactions.find((item) => item.agentSessionId === activeSessionId) ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
@@ -718,7 +742,9 @@ export function AgentPanel(props: {
   const generatingProposal = proposals.find((proposal) => proposal.status === 'generating')
   const workflowState =
     activeRun !== null
-      ? 'running'
+      ? pendingQuestion === null
+        ? 'running'
+        : 'awaiting_input'
       : activeCompaction !== null
         ? 'compacting'
         : generatingProposal !== undefined
@@ -728,6 +754,7 @@ export function AgentPanel(props: {
             : (activeSession?.workflowState ?? 'idle')
   const conversationLocked =
     workflowState === 'awaiting_review' ||
+    workflowState === 'awaiting_input' ||
     workflowState === 'generating' ||
     workflowState === 'compacting'
   const scope = effectiveScope(scopePreference, selectionIsAvailable, props.activeSectionId)
@@ -743,7 +770,9 @@ export function AgentPanel(props: {
     sessions.find(
       (session) =>
         session.status === 'active' &&
-        (session.workflowState === 'running' || session.workflowState === 'compacting')
+        (session.workflowState === 'running' ||
+          session.workflowState === 'awaiting_input' ||
+          session.workflowState === 'compacting')
     ) ?? null
   const selectedModel = useMemo(
     () =>
@@ -1155,6 +1184,27 @@ export function AgentPanel(props: {
         const message = errorMessage(cause)
         setError(message)
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const answerUserQuestion = async (answers: AskUserAnswer[]): Promise<void> => {
+    if (activeSessionId === null || activeRun === null || pendingQuestion === null || busy) return
+    const agentRunId = activeRun.agentRunId
+    setBusy(true)
+    setError(null)
+    try {
+      await window.desktop.agent.answerUserQuestion({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: activeSessionId,
+        agentRunId,
+        toolCallId: pendingQuestion.toolCallId,
+        answers
+      })
+      await refreshSessionTruth(activeSessionId)
+    } catch (cause) {
+      if (!(await reconcileInactiveRun(agentRunId))) setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -1601,6 +1651,9 @@ export function AgentPanel(props: {
           {workflowState === 'awaiting_review' ? (
             <AlertCircle className='size-3.5 text-warning' />
           ) : null}
+          {workflowState === 'awaiting_input' ? (
+            <CircleHelp className='size-3.5 text-warning' />
+          ) : null}
           <span
             className={
               workflowState === 'running' || workflowState === 'compacting' ? 'shimmer' : undefined
@@ -1612,13 +1665,15 @@ export function AgentPanel(props: {
                 ? choosingSkill
                   ? 'Loading writing guidance'
                   : `${currentActivity ?? (hasStreamingRun ? 'Writing an update' : 'Preparing the next step')} · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
-                : workflowState === 'compacting'
-                  ? 'Summarizing earlier conversation…'
-                  : workflowState === 'generating'
-                    ? 'Generating an image'
-                    : workflowState === 'awaiting_review'
-                      ? 'Ready for review'
-                      : 'Ready'}
+                : workflowState === 'awaiting_input'
+                  ? 'Waiting for your answer'
+                  : workflowState === 'compacting'
+                    ? 'Summarizing earlier conversation…'
+                    : workflowState === 'generating'
+                      ? 'Generating an image'
+                      : workflowState === 'awaiting_review'
+                        ? 'Ready for review'
+                        : 'Ready'}
           </span>
         </div>
 
@@ -1708,6 +1763,14 @@ export function AgentPanel(props: {
                 </Button>
               </MarkerContent>
             </Marker>
+          ) : pendingQuestion !== null ? (
+            <AgentQuestionnaireDock
+              key={pendingQuestion.toolCallId}
+              pending={pendingQuestion}
+              busy={busy || pendingQuestion.submitting}
+              onSubmit={answerUserQuestion}
+              onStop={stopRun}
+            />
           ) : waitingProposal !== undefined ? (
             <AgentAttentionBeam attentionKey={waitingProposal.proposalId} paused={busy}>
               <ReviewBar
@@ -2172,6 +2235,119 @@ export function AgentPanel(props: {
   )
 }
 
+function AgentQuestionnaireDock(props: {
+  pending: AgentPendingQuestion
+  busy: boolean
+  onSubmit(answers: AskUserAnswer[]): Promise<void>
+  onStop(): Promise<void>
+}): React.JSX.Element {
+  const items = props.pending.questions.map((question) => ({
+    name: question.id,
+    required: true,
+    choices: question.options.map((option) => ({ value: option.label }))
+  }))
+  const firstQuestion = props.pending.questions[0]
+  if (firstQuestion === undefined) throw new Error('Agent clarification has no questions')
+
+  const submit = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    if (props.busy) return
+    const formData = new FormData(event.currentTarget)
+    const answers = props.pending.questions.flatMap((question): AskUserAnswer[] => {
+      const raw = formData.get(question.id)
+      if (typeof raw !== 'string' || raw.trim().length === 0) return []
+      const value = raw.trim()
+      return [
+        {
+          questionId: question.id,
+          kind: question.options.some((option) => option.label === value) ? 'option' : 'custom',
+          value
+        }
+      ]
+    })
+    if (answers.length !== props.pending.questions.length) return
+    void props.onSubmit(answers)
+  }
+
+  return (
+    <section
+      className='min-w-0 rounded-lg border bg-background p-3 shadow-xs'
+      aria-label='Agent clarification'
+      data-testid='agent-questionnaire'
+    >
+      <Questionnaire
+        defaultItem={firstQuestion.id}
+        items={items}
+        shortcuts='letters'
+        onSubmit={submit}
+      >
+        <div className='flex min-w-0 items-center justify-between gap-3'>
+          <Badge variant='secondary'>Your input is needed</Badge>
+          <QuestionnaireProgress
+            render={(progressProps, state) => (
+              <span {...progressProps}>
+                Question {state.current} of {state.total}
+              </span>
+            )}
+          />
+        </div>
+        {props.pending.questions.map((question) => (
+          <QuestionnaireItem key={question.id} name={question.id} required>
+            <div className='flex min-w-0 flex-col gap-1'>
+              <Badge variant='outline' className='w-fit max-w-full truncate'>
+                {question.header}
+              </Badge>
+              <QuestionnaireTitle className='wrap-anywhere'>{question.question}</QuestionnaireTitle>
+              <QuestionnaireDescription>
+                Choose one option or type your own answer.
+              </QuestionnaireDescription>
+            </div>
+            <QuestionnaireChoices>
+              {question.options.map((option) => (
+                <QuestionnaireChoice key={option.label} value={option.label} disabled={props.busy}>
+                  <span className='wrap-anywhere font-medium'>{option.label}</span>
+                  <QuestionnaireChoiceDescription className='wrap-anywhere'>
+                    {option.description}
+                  </QuestionnaireChoiceDescription>
+                </QuestionnaireChoice>
+              ))}
+              <QuestionnaireInput
+                aria-label={`Another answer for ${question.header}`}
+                placeholder='Type another answer…'
+                maxLength={4_096}
+                disabled={props.busy}
+              />
+            </QuestionnaireChoices>
+            <QuestionnaireError>Choose an option or enter an answer.</QuestionnaireError>
+          </QuestionnaireItem>
+        ))}
+        <QuestionnaireActions className='grid-cols-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]'>
+          <QuestionnairePrevious disabled={props.busy} />
+          <Button
+            type='button'
+            variant='outline'
+            className='col-span-2 col-start-1 row-start-2 min-h-11 justify-self-start sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:min-h-0 sm:justify-self-end'
+            disabled={props.busy}
+            onClick={() => void props.onStop()}
+          >
+            {props.busy ? (
+              <Spinner data-icon='inline-start' />
+            ) : (
+              <CircleStop data-icon='inline-start' />
+            )}
+            Stop
+          </Button>
+          <QuestionnaireNext className='col-start-2 sm:col-start-3' disabled={props.busy} />
+          <QuestionnaireSubmit className='col-start-2 sm:col-start-3' disabled={props.busy}>
+            {props.busy ? <Spinner data-icon='inline-start' /> : <Check data-icon='inline-start' />}
+            Answer
+          </QuestionnaireSubmit>
+        </QuestionnaireActions>
+      </Questionnaire>
+    </section>
+  )
+}
+
 function ConversationSwitcher(props: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -2272,6 +2448,8 @@ function ConversationCommandGroup(props: {
             session.workflowState === 'generating' ||
             session.workflowState === 'compacting' ? (
               <Spinner />
+            ) : session.workflowState === 'awaiting_input' ? (
+              <CircleHelp className='text-warning' />
             ) : session.workflowState === 'awaiting_review' ? (
               <AlertCircle className='text-warning' />
             ) : session.status === 'archived' ? (
@@ -2987,7 +3165,11 @@ function AgentDetailsDialog(props: {
     [props.events, props.latestRun, props.proposals]
   )
   const tools = timeline.flatMap((item) =>
-    item.type === 'activity' ? item.tools : item.type === 'proposal' ? [item.tool] : []
+    item.type === 'activity'
+      ? item.tools
+      : item.type === 'proposal' || item.type === 'question'
+        ? [item.tool]
+        : []
   )
   const readonly =
     props.busy || props.session?.status === 'archived' || props.session?.compatible === false
@@ -3852,6 +4034,7 @@ function TimelineItem(props: {
       </Message>
     )
   }
+  if (item.type === 'question') return <QuestionHistoryMessage item={item} />
   if (item.type === 'activity') return <ActivityGroup item={item} />
   if (item.type === 'preflight_failure') {
     return (
@@ -3962,6 +4145,86 @@ function TimelineItem(props: {
     )
   }
   return <CompactionCheckpointMarker payload={item.payload} />
+}
+
+function QuestionHistoryMessage(props: {
+  item: Extract<AgentTimelineItem, { type: 'question' }>
+}): React.JSX.Element {
+  const args = askUserArgsSchema.safeParse(props.item.tool.call.args)
+  const result = askUserResultSchema.safeParse(props.item.tool.result?.result)
+  if (!args.success) {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <CircleHelp />
+        </MarkerIcon>
+        <MarkerContent>Agent requested clarification</MarkerContent>
+      </Marker>
+    )
+  }
+  if (props.item.tool.result === null && props.item.tool.stopped) {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <CircleStop className='text-destructive' />
+        </MarkerIcon>
+        <MarkerContent>Clarification ended without an answer</MarkerContent>
+      </Marker>
+    )
+  }
+  if (props.item.tool.result === null) {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <CircleHelp className='text-warning' />
+        </MarkerIcon>
+        <MarkerContent>
+          Agent asked {args.data.questions.length} clarification question
+          {args.data.questions.length === 1 ? '' : 's'}
+        </MarkerContent>
+      </Marker>
+    )
+  }
+  if (props.item.tool.result.isError || !result.success) {
+    return (
+      <Marker role='status'>
+        <MarkerIcon>
+          <CircleStop className='text-destructive' />
+        </MarkerIcon>
+        <MarkerContent>Clarification ended without an answer</MarkerContent>
+      </Marker>
+    )
+  }
+  const answers = new Map(result.data.answers.map((answer) => [answer.questionId, answer]))
+  return (
+    <Message>
+      <MessageContent>
+        <MessageHeader>Agent asked · You answered</MessageHeader>
+        <Bubble variant='ghost'>
+          <BubbleContent>
+            <ol className='flex min-w-0 list-none flex-col gap-4'>
+              {args.data.questions.map((question) => {
+                const answer = answers.get(question.id)
+                return (
+                  <li key={question.id} className='flex min-w-0 flex-col gap-1.5'>
+                    <p className='wrap-anywhere text-sm font-medium'>{question.question}</p>
+                    {answer === undefined ? null : (
+                      <div className='flex min-w-0 items-start gap-2 text-sm'>
+                        <Badge variant='secondary' className='shrink-0'>
+                          {answer.kind === 'option' ? 'Selected' : 'Custom'}
+                        </Badge>
+                        <span className='wrap-anywhere min-w-0'>{answer.value}</span>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
+  )
 }
 
 function CompactionCheckpointMarker(props: {
@@ -4470,9 +4733,10 @@ function editorContextForScope(
   }
 }
 
-function deliveryLabel(delivery: 'prompt' | 'steer' | 'follow_up'): string {
+function deliveryLabel(delivery: 'prompt' | 'steer' | 'follow_up' | 'clarification'): string {
   if (delivery === 'steer') return 'Steered'
   if (delivery === 'follow_up') return 'Queued'
+  if (delivery === 'clarification') return 'Clarified'
   return 'You'
 }
 
@@ -4539,6 +4803,7 @@ function approvalModeDescription(mode: AgentApprovalMode): string {
 
 export function selectAttentionSession(active: AgentSessionRecord[]): AgentSessionRecord | null {
   return (
+    active.find((session) => session.workflowState === 'awaiting_input') ??
     active.find(
       (session) => session.workflowState === 'running' || session.workflowState === 'compacting'
     ) ??
@@ -4637,6 +4902,7 @@ function sessionStatusLabel(session: AgentSessionRecord): string {
     session.workflowState === 'compacting'
   )
     return 'Working'
+  if (session.workflowState === 'awaiting_input') return 'Needs answer'
   if (session.workflowState === 'awaiting_review') return 'Review'
   return 'Ready'
 }

@@ -748,6 +748,73 @@ describe('runAgentSession', () => {
     expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
   })
 
+  it('requires ask_user to be the only tool in its assistant response', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallsResponse([
+              {
+                id: 'tool-question',
+                name: 'ask_user',
+                args: {
+                  questions: [
+                    {
+                      id: 'scope',
+                      header: 'Scope',
+                      question: 'Which scope should be used?',
+                      options: [
+                        {
+                          label: 'Section (Recommended)',
+                          description: 'Limit the revision.'
+                        },
+                        { label: 'Document', description: 'Revise the full manuscript.' }
+                      ]
+                    }
+                  ]
+                }
+              },
+              { id: 'tool-search', name: 'search_knowledge', args: { query: 'evidence' } }
+            ])
+          : completionResponse('Recovered after isolated question.', 'response-after-question')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    const toolRequests: unknown[] = []
+    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_call_requested') {
+          control?.authorizeModelCall({
+            operation: 'authorize_model_call',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            continuationId: event.continuationId,
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc497',
+            systemPrompt: request.systemPrompt
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(toolRequests).toEqual([])
+    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
+  })
+
   it('ends at a manual-review barrier without requesting a continuation model call', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(

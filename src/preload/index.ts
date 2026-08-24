@@ -57,6 +57,8 @@ import {
 import {
   agentArchiveSessionInputSchema,
   agentArchiveSessionResultSchema,
+  agentAnswerUserQuestionInputSchema,
+  agentAnswerUserQuestionResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentCompactSessionInputSchema,
@@ -707,6 +709,9 @@ export interface DesktopApi {
       pendingMessageId: string
     }): Promise<void>
     abortRun(input: { projectSessionId: string; agentRunId: string }): Promise<void>
+    answerUserQuestion(
+      input: ReturnType<typeof agentAnswerUserQuestionInputSchema.parse>
+    ): Promise<void>
     compactSession(input: {
       projectSessionId: string
       agentSessionId: string
@@ -1801,6 +1806,14 @@ const desktopApi: DesktopApi = {
     },
     async abortRun(input) {
       await ipcRenderer.invoke(IPC_CHANNELS.agentAbortRun, agentRunInputSchema.parse(input))
+    },
+    async answerUserQuestion(input) {
+      agentAnswerUserQuestionResultSchema.parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentAnswerUserQuestion,
+          agentAnswerUserQuestionInputSchema.parse(input)
+        )
+      )
     },
     async compactSession(input) {
       return agentCompactSessionResultSchema.parse(

@@ -50,7 +50,8 @@ export const toolResultMetaSchema = z
       z.literal(6),
       z.literal(7),
       z.literal(8),
-      z.literal(9)
+      z.literal(9),
+      z.literal(10)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -76,6 +77,7 @@ export const agentToolNameSchema = z.enum([
   'search_knowledge',
   'read_citations',
   'read_writing_skill',
+  'ask_user',
   'inspect_change',
   'check_draft',
   'list_review_issues',
@@ -110,6 +112,16 @@ export const AGENT_TOOL_DESCRIPTORS = {
   search_knowledge: descriptor('parallel', 'knowledge', 30_000, true),
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
+  ask_user: {
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
+    effects: ['read'],
+    executionMode: 'sequential',
+    consistency: 'snapshot',
+    lockScope: 'user',
+    deadlineMs: 0,
+    supportsProgress: false,
+    maxOutputBytes: AGENT_TOOL_RESULT_BYTES
+  },
   inspect_change: descriptor('parallel', 'proposal', 5_000, false),
   check_draft: descriptor('parallel', 'manuscript', 30_000, true),
   list_review_issues: descriptor('parallel', 'review', 5_000, false),
@@ -123,7 +135,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 9,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -135,7 +147,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -147,6 +159,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
       | 'knowledge'
       | 'proposal'
       | 'skill'
+      | 'user'
       | 'review'
       | 'task'
     deadlineMs: number
@@ -165,13 +178,14 @@ function descriptor(
     | 'knowledge'
     | 'proposal'
     | 'skill'
+    | 'user'
     | 'review'
     | 'task',
   deadlineMs: number,
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 9,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -185,7 +199,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 9,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -197,6 +211,67 @@ function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'ta
 }
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
+
+export const askUserQuestionOptionSchema = strictObject({
+  label: z.string().trim().min(1).max(100),
+  description: z.string().trim().min(1).max(500)
+})
+
+export const askUserQuestionSchema = strictObject({
+  id: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u),
+  header: z.string().trim().min(1).max(12),
+  question: z.string().trim().min(1).max(1_000),
+  options: z.array(askUserQuestionOptionSchema).min(2).max(4)
+}).superRefine((question, context) => {
+  if (new Set(question.options.map((option) => option.label)).size !== question.options.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['options'],
+      message: 'Question option labels must be unique'
+    })
+  }
+})
+
+export const askUserArgsSchema = strictObject({
+  questions: z.array(askUserQuestionSchema).min(1).max(3)
+}).superRefine((args, context) => {
+  if (new Set(args.questions.map((question) => question.id)).size !== args.questions.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['questions'],
+      message: 'Question IDs must be unique'
+    })
+  }
+})
+
+export const askUserAnswerSchema = z.discriminatedUnion('kind', [
+  strictObject({
+    questionId: z.string().min(1).max(64),
+    kind: z.literal('option'),
+    value: z.string().trim().min(1).max(100)
+  }),
+  strictObject({
+    questionId: z.string().min(1).max(64),
+    kind: z.literal('custom'),
+    value: z.string().trim().min(1).max(4_096)
+  })
+])
+
+export const askUserAnswersSchema = z
+  .array(askUserAnswerSchema)
+  .min(1)
+  .max(3)
+  .superRefine((answers, context) => {
+    if (new Set(answers.map((answer) => answer.questionId)).size !== answers.length) {
+      context.addIssue({ code: 'custom', message: 'Question answers must be unique' })
+    }
+  })
+
+export const askUserResultSchema = strictObject({ answers: askUserAnswersSchema })
 
 export const readWritingSkillArgsSchema = strictObject({
   uri: z
@@ -671,6 +746,11 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
+      toolName: z.literal('ask_user'),
+      args: askUserArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
       toolName: z.literal('inspect_change'),
       args: inspectChangeArgsSchema
     }),
@@ -790,6 +870,12 @@ const successResponses = z.discriminatedUnion('toolName', [
     ok: z.literal(true),
     toolName: z.literal('read_writing_skill'),
     data: readWritingSkillResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('ask_user'),
+    data: askUserResultSchema
   }),
   strictObject({
     ...toolResponseBase,
@@ -972,6 +1058,9 @@ export type AgentProposalToolName = z.infer<typeof agentProposalToolNameSchema>
 export type AgentToolRequestEnvelope = z.infer<typeof agentToolRequestEnvelopeSchema>
 export type AgentToolRequest = z.infer<typeof agentToolRequestSchema>
 export type AgentToolResponse = z.infer<typeof agentToolResponseSchema>
+export type AskUserArgs = z.infer<typeof askUserArgsSchema>
+export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>
+export type AskUserResult = z.infer<typeof askUserResultSchema>
 export type GetWritingContextArgs = z.infer<typeof getWritingContextArgsSchema>
 export type ReadSectionArgs = z.infer<typeof readSectionArgsSchema>
 export type ReadOutlineArgs = z.infer<typeof readOutlineArgsSchema>

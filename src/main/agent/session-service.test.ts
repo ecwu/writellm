@@ -1735,6 +1735,211 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('persists and publishes a clarification before waiting, then resumes the same run once', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const info = vi.fn()
+    const questionLog = {
+      info,
+      warn: vi.fn(),
+      error: vi.fn()
+    } as unknown as typeof log
+    const service = createService(database, runtime, undefined, { log: questionLog })
+    const session = service.createSession('Clarification')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Revise the ending.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    const toolCallId = 'tool-question-1'
+    const responsePromise = active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc480',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId,
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'ask_user',
+      args: {
+        questions: [
+          {
+            id: 'scope',
+            header: 'Scope',
+            question: 'Which scope should the revision use?',
+            options: [
+              { label: 'Conclusion (Recommended)', description: 'Revise only the ending.' },
+              { label: 'Document', description: 'Revise the full manuscript.' }
+            ]
+          }
+        ]
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(service.projectActivitySnapshot().runs[0]).toMatchObject({
+        agentRunId: started.agentRunId,
+        phase: 'awaiting_input',
+        pendingQuestion: { toolCallId, submitting: false }
+      })
+    })
+    expect(service.listSessions()[0]).toMatchObject({ workflowState: 'awaiting_input' })
+    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+      'user_message',
+      'tool_call'
+    ])
+    const parallelSession = service.createSession('Parallel while waiting')
+    const parallelRun = await service.startRun({
+      agentSessionId: parallelSession.agentSessionId,
+      prompt: 'Continue independent work.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(service.projectActivitySnapshot().activeCount).toBe(2)
+    runtime.active(parallelRun.agentRunId).resolve()
+    await parallelRun.completion
+    expect(service.projectActivitySnapshot().runs[0]).toMatchObject({
+      agentRunId: started.agentRunId,
+      phase: 'awaiting_input'
+    })
+    await expect(
+      service.answerUserQuestion({
+        agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc499',
+        agentRunId: started.agentRunId,
+        toolCallId,
+        answers: [{ questionId: 'scope', kind: 'option', value: 'Document' }]
+      })
+    ).rejects.toThrow('capability mismatch')
+    await expect(
+      service.answerUserQuestion({
+        agentSessionId: session.agentSessionId,
+        agentRunId: started.agentRunId,
+        toolCallId,
+        answers: [{ questionId: 'scope', kind: 'option', value: 'Unavailable choice' }]
+      })
+    ).rejects.toThrow('not available')
+
+    const answerPromise = service.answerUserQuestion({
+      agentSessionId: session.agentSessionId,
+      agentRunId: started.agentRunId,
+      toolCallId,
+      answers: [{ questionId: 'scope', kind: 'custom', value: 'Only the final two paragraphs' }]
+    })
+    const response = await responsePromise
+    await answerPromise
+    expect(response).toMatchObject({
+      ok: true,
+      toolName: 'ask_user',
+      data: {
+        answers: [{ questionId: 'scope', kind: 'custom', value: 'Only the final two paragraphs' }]
+      }
+    })
+    expect(service.projectActivitySnapshot().runs[0]).toMatchObject({
+      phase: 'running',
+      pendingQuestion: null
+    })
+    expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+      'user_message',
+      'tool_call',
+      'user_message',
+      'tool_result'
+    ])
+    const clarification = service.listEvents(session.agentSessionId)[2]
+    expect(clarification).toMatchObject({
+      type: 'user_message',
+      payload: {
+        delivery: 'clarification',
+        presentation: { kind: 'clarification_answer', toolCallId }
+      }
+    })
+
+    await expect(
+      service.answerUserQuestion({
+        agentSessionId: session.agentSessionId,
+        agentRunId: started.agentRunId,
+        toolCallId,
+        answers: [{ questionId: 'scope', kind: 'option', value: 'Document' }]
+      })
+    ).rejects.toThrow('no longer pending')
+    const continuationId = '019c6a5c-8d34-7a8e-a602-3d37a52dc481'
+    await active.emit({ type: 'model_call_requested', continuationId, reason: 'tool_continuation' })
+    expect(active.authorizations).toHaveLength(1)
+    const logs = JSON.stringify(info.mock.calls)
+    expect(logs).toContain('agent.question.wait_started')
+    expect(logs).toContain('agent.question.answer_received')
+    expect(logs).not.toContain('Which scope should the revision use?')
+    expect(logs).not.toContain('Only the final two paragraphs')
+
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
+  it('cancels an unanswered clarification with the run instead of fabricating an answer', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Cancelled clarification')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Choose a direction.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    const responsePromise = active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc482',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-question-stop',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'ask_user',
+      args: {
+        questions: [
+          {
+            id: 'direction',
+            header: 'Direction',
+            question: 'Which direction should be used?',
+            options: [
+              { label: 'A (Recommended)', description: 'Use direction A.' },
+              { label: 'B', description: 'Use direction B.' }
+            ]
+          }
+        ]
+      }
+    })
+    await vi.waitFor(() =>
+      expect(service.projectActivitySnapshot().runs[0]?.phase).toBe('awaiting_input')
+    )
+
+    const stopping = service.abort(started.agentRunId)
+    await expect(responsePromise).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'aborted' }
+    })
+    await stopping
+    await started.completion
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'interrupted',
+      errorCode: 'user_stopped'
+    })
+    expect(service.projectActivitySnapshot().runs).toEqual([])
+    const events = service.listEvents(session.agentSessionId)
+    expect(events.map((event) => event.type)).toEqual([
+      'user_message',
+      'tool_call',
+      'tool_result',
+      'run_interrupted'
+    ])
+    expect(
+      events.some((event) => {
+        return event.type === 'user_message' && event.payload.delivery === 'clarification'
+      })
+    ).toBe(false)
+    database.close()
+  })
+
   it('persists a selected Skill snapshot before returning guidance without storing its body', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

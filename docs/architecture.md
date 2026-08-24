@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 060
-Recorded: 2026-07-31; amended through 2026-08-23
+Status: accepted implementation baseline, amended through accepted ADR 061
+Recorded: 2026-07-31; amended through 2026-08-24
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -20,6 +20,11 @@ The following rules are now the current target. Any older section in this docume
   and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
 - Agent Harness Protocol v6 uses bounded snapshot read/inspection tools, Review Issue and Writing Task fixture tools, typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one bounded `generate_image` effect/proposal tool. ADRs 024 and 025 add no special Agent session/run, hidden model request, generic network/file/SQL authority, scheduler, or direct manuscript write.
+- Agent Harness Protocol v10 adds one bounded `ask_user` clarification tool under ADR 061. Main
+  may keep the original active Pi tool call waiting without a deadline, expose only its exact
+  project/session/run/tool capability through live activity and answer IPC, and resume that same
+  run after a validated answer. Clarification is not approval or permission, and restart retains
+  interrupted-run recovery rather than reconstructing a live waiter.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.

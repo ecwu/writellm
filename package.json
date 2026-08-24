@@ -2,7 +2,7 @@
   "name": "writellm",
   "version": "0.2026.8",
   "release": {
-    "version": "0.2026.8.22"
+    "version": "0.2026.8.23"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.17.0",
@@ -72,7 +72,7 @@
     "@earendil-works/pi-ai": "0.80.10",
     "@electron-toolkit/utils": "^4.0.0",
     "@google/genai": "2.18.0",
-    "@shadcn/react": "^0.2.1",
+    "@shadcn/react": "0.3.0",
     "@tanstack/react-query": "5.101.4",
     "@unified-latex/unified-latex-util-parse": "1.8.4",
     "@unified-latex/unified-latex-util-print-raw": "1.8.4",

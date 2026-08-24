@@ -1,10 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 17 Checkpoint 68 native Block Math and application-owned Diagram convergence is
-complete under ADR 060. No further feature work is authorized. The newest user-authorized local
-candidate is `v0.2026.8.22`; Checkpoint 26.9 remains paused and all GitHub Actions workflows are
-disabled.
-Recorded: 2026-08-23
+Status: Phase 18 Checkpoint 69 Agent user clarification is complete under ADR 061. The newest
+user-authorized local candidate is `v0.2026.8.23`; Checkpoint 26.9 remains paused and all
+GitHub Actions workflows are disabled.
+Recorded: 2026-08-24
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -13,6 +12,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 69 is complete. It adds a bounded Protocol v10 `ask_user` tool whose original Pi
+  run waits for an exact user answer, plus a project-session-scoped answer IPC and an inline
+  shadcn Questionnaire interaction. It adds no database table, event type, durable job, generic
+  permission surface, or cross-restart active-run recovery.
 - Phase 11 is complete under ADRs 021–037. Its full Checkpoint 29–47B roadmap and acceptance
   evidence live in [`implementation-todo/phase-11.md`](implementation-todo/phase-11.md).
 - Phase 12 is an evidence-driven Use And Fix phase and is complete through Checkpoint 62. CP48–56
@@ -51,6 +54,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   `mathBlock`, moves the application-owned Mermaid block to a plain-content `diagram` contract,
   advances active section content to schema v5, and preserves application-owned Diagram metadata,
   safety, Agent, interchange, and publication semantics under ADR 060.
+- Checkpoint 69 is complete. It adds exact Protocol v10 clarification contracts, Main-owned
+  indefinite in-run waiting and answer authority, bounded compaction, trusted user-decision
+  delivery, and an accessible inline shadcn Questionnaire without new durable schema or Renderer
+  authority.
 
 Checkpoint 61 passed focused shared/Main/Renderer/Real-Electron coverage, `check:fast`, the complete
 Electron-hosted gate (187 files / 1043 tests with three intentional benchmark skips), the production
@@ -134,6 +141,15 @@ source safety and recovery, metadata, dynamic theme rendering, sanitized isolate
 layout, persistence, reopen, Agent contract v9, and Markdown export. No package/release action,
 hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
 
+Checkpoint 69 passed exact frozen dependency installation; 168 focused shared, Worker, Main, IPC,
+Renderer, and Questionnaire tests plus the explicit two-test prompt-budget baseline; scoped
+Impeccable with no findings; `check:fast`; the complete Electron-hosted gate (200 passing files /
+1118 passing tests with three intentional benchmark skips) and production build; and the fresh
+46/46 Real-Electron manifest with no flaky, skipped, or failed scenario. The dedicated E2E proved
+multi-step option and custom answers, same-run continuation, conversation attention, read-only
+history after restart, and Stop interruption. No package/release action, hosted CI, commit, tag,
+push, signing, notarization, promotion, or publication ran.
+
 The separately authorized local `0.2026.8.20` candidate advanced release metadata, created the
 clean local release commit and annotated `v0.2026.8.20` tag, and passed the no-identity macOS arm64
 unpacked package gate. The gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
@@ -160,15 +176,22 @@ the structurally verified `WriteLLM-0.2026.8.22-arm64.dmg` and
 hosted CI run, Apple Developer ID signing, notarization, GitHub Release, promotion, or publication
 ran.
 
+The separately authorized local `0.2026.8.23` candidate snapshots the completed Checkpoint 69 on
+top of the existing baseline. Release metadata advances in the clean candidate commit, which
+receives the annotated `v0.2026.8.23` tag. Its no-identity macOS arm64 unpacked App build remains
+the pending release action. No DMG, ZIP, push, hosted CI run, Apple Developer ID signing,
+notarization, GitHub Release, promotion, or publication is authorized.
+
 ## Current authorized work
 
-No further feature delivery is authorized after Checkpoint 68 completion. BlockNote native
-Diagram, BlockNote XL publication, ODT/email export, new IPC or Agent tools, signing,
-notarization, and release work remain outside the accepted checkpoint.
+Checkpoint 69 Agent clarification delivery and scoped verification are complete under ADR 061.
+No additional checkpoint work is authorized. BlockNote native Diagram, BlockNote XL publication,
+ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
+outside the accepted checkpoint.
 
-The local `v0.2026.8.22` candidate commit, annotated tag, App, DMG, and ZIP build are the only newly
-authorized release actions. Push, hosted CI, Apple Developer ID signing, notarization, GitHub
-Release, promotion, and publication remain unauthorized.
+The local `v0.2026.8.23` candidate commit, annotated tag, and unpacked App build are the only newly
+authorized release actions. DMG/ZIP creation, push, hosted CI, Apple Developer ID signing,
+notarization, GitHub Release, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
@@ -190,6 +213,7 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 15 Checkpoint 66 is implemented and verified under ADR 058.
 - Phase 16 Checkpoint 67 is implemented and verified under ADR 059.
 - Phase 17 Checkpoint 68 is implemented and verified under ADR 060.
+- Phase 18 Checkpoint 69 is implemented and verified under ADR 061.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

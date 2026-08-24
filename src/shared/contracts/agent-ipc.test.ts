@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_PENDING_MESSAGE_LIMIT, AGENT_PENDING_MESSAGE_MAX_BYTES } from './agent'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
+  agentAnswerUserQuestionInputSchema,
   agentEventPageInputSchema,
   agentListSessionsInputSchema,
   agentRendererEventSchema,
@@ -232,6 +233,72 @@ describe('Agent IPC contracts', () => {
         ]
       })
     ).toThrow('Pending Agent messages exceed 1 MiB')
+  })
+
+  it('carries one bounded pending clarification and requires the complete capability to answer', () => {
+    const pendingQuestion = {
+      toolCallId: 'tool-question-1',
+      questions: [
+        {
+          id: 'scope',
+          header: 'Scope',
+          question: 'Which scope should be used?',
+          options: [
+            { label: 'Section (Recommended)', description: 'Limit the revision.' },
+            { label: 'Document', description: 'Revise the full manuscript.' }
+          ]
+        }
+      ],
+      submitting: false,
+      startedAt: '2026-08-24T10:00:00.000Z'
+    }
+    const snapshot = agentProjectActivitySnapshotSchema.parse({
+      limit: 3,
+      activeCount: 1,
+      runs: [
+        {
+          agentSessionId,
+          agentRunId,
+          phase: 'awaiting_input',
+          partialText: '',
+          pendingQuestion,
+          startedAt: '2026-08-24T09:59:00.000Z'
+        }
+      ]
+    })
+    expect(snapshot.runs[0]?.pendingQuestion).toEqual(pendingQuestion)
+    expect(() =>
+      agentProjectActivitySnapshotSchema.parse({
+        limit: 3,
+        activeCount: 1,
+        runs: [
+          {
+            agentSessionId,
+            agentRunId,
+            phase: 'awaiting_input',
+            partialText: '',
+            startedAt: '2026-08-24T09:59:00.000Z'
+          }
+        ]
+      })
+    ).toThrow('exactly one pending question')
+    expect(
+      agentAnswerUserQuestionInputSchema.parse({
+        projectSessionId,
+        agentSessionId,
+        agentRunId,
+        toolCallId: pendingQuestion.toolCallId,
+        answers: [{ questionId: 'scope', kind: 'option', value: 'Section (Recommended)' }]
+      })
+    ).toMatchObject({ projectSessionId, agentSessionId, agentRunId })
+    expect(
+      agentAnswerUserQuestionInputSchema.safeParse({
+        agentSessionId,
+        agentRunId,
+        toolCallId: pendingQuestion.toolCallId,
+        answers: [{ questionId: 'scope', kind: 'custom', value: '' }]
+      }).success
+    ).toBe(false)
   })
 
   it('accepts only the bounded conversation Thinking levels', () => {

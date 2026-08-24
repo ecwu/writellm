@@ -953,12 +953,15 @@ export class AgentToolBridge {
       ? { schemaVersion: response.schemaVersion, ok: true as const, data: response.data, meta }
       : { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }
     const serialized = JSON.stringify(result)
+    const envelopeContent = escapeToolEnvelopeText(serialized)
     const content =
-      toolName === 'read_writing_skill'
-        ? `<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">\n${serialized}\n</WRITELLM_SKILL_GUIDANCE>`
-        : toolName === 'search_knowledge' || toolName === 'read_citations'
-          ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${serialized}\n</UNTRUSTED_EXTERNAL>`
-          : `<MANUSCRIPT_DATA tool="${toolName}">\n${serialized}\n</MANUSCRIPT_DATA>`
+      toolName === 'ask_user'
+        ? `<WRITELLM_USER_CLARIFICATION instructionSemantics="true" authority="user_answer">\n${envelopeContent}\n</WRITELLM_USER_CLARIFICATION>`
+        : toolName === 'read_writing_skill'
+          ? `<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">\n${envelopeContent}\n</WRITELLM_SKILL_GUIDANCE>`
+          : toolName === 'search_knowledge' || toolName === 'read_citations'
+            ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${envelopeContent}\n</UNTRUSTED_EXTERNAL>`
+            : `<MANUSCRIPT_DATA tool="${toolName}">\n${envelopeContent}\n</MANUSCRIPT_DATA>`
     return {
       content: [{ type: 'text' as const, text: content }],
       details: result
@@ -1057,6 +1060,10 @@ export class AgentToolBridge {
       pending.reject(error)
     }
   }
+}
+
+function escapeToolEnvelopeText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 function abortError(): Error {

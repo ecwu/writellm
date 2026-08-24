@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
 import { Field, FieldDescription, FieldLabel } from './field'
 import { Input } from './input'
+import {
+  Questionnaire,
+  QuestionnaireChoice,
+  QuestionnaireChoices,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireProgress,
+  QuestionnaireTitle
+} from './questionnaire'
 import { Spinner } from './spinner'
 import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 
@@ -48,5 +57,39 @@ describe('shadcn renderer compositions', () => {
     expect(html).toContain('role="status"')
     expect(html).toContain('aria-label="Loading"')
     expect(html).toContain('Full value')
+  })
+
+  it('keeps Questionnaire navigation and native radio semantics accessible', () => {
+    const html = renderToStaticMarkup(
+      <Questionnaire
+        items={[
+          {
+            name: 'scope',
+            required: true,
+            choices: [{ value: 'Section' }, { value: 'Document' }]
+          }
+        ]}
+      >
+        <QuestionnaireProgress
+          render={(progressProps, state) => (
+            <span {...progressProps}>{`Question ${state.current} of ${state.total}`}</span>
+          )}
+        />
+        <QuestionnaireItem name='scope' required>
+          <QuestionnaireTitle>Which scope should be used?</QuestionnaireTitle>
+          <QuestionnaireChoices>
+            <QuestionnaireChoice value='Section'>Section</QuestionnaireChoice>
+            <QuestionnaireChoice value='Document'>Document</QuestionnaireChoice>
+            <QuestionnaireInput placeholder='Enter another answer' />
+          </QuestionnaireChoices>
+        </QuestionnaireItem>
+      </Questionnaire>
+    )
+
+    expect(html).toContain('<fieldset')
+    expect(html).toContain('<legend')
+    expect(html).toContain('type="radio"')
+    expect(html).toContain('Question 1 of 1')
+    expect(html).toContain('Enter another answer')
   })
 })

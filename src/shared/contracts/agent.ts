@@ -50,11 +50,17 @@ export const agentEditorContextSchema = z
 export const agentUserMessagePayloadSchema = z
   .object({
     content: z.string().min(1).max(262_144),
-    delivery: z.enum(['prompt', 'steer', 'follow_up']),
+    delivery: z.enum(['prompt', 'steer', 'follow_up', 'clarification']),
     timestamp: z.number().int().nonnegative(),
     presentation: z
       .discriminatedUnion('kind', [
         z.object({ kind: z.literal('approval_continuation') }).strict(),
+        z
+          .object({
+            kind: z.literal('clarification_answer'),
+            toolCallId: z.string().min(1).max(256)
+          })
+          .strict(),
         z
           .object({
             kind: z.literal('review_feedback'),

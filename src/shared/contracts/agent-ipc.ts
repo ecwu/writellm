@@ -21,6 +21,7 @@ import { skillRunSnapshotSchema } from './skills'
 import { agentQuickActionRequestSchema } from './agent-quick-actions'
 import { writingTaskIdSchema, writingTaskStepIdSchema, writingTaskViewSchema } from './writing-task'
 import { annotationSelectionSchema } from './annotations'
+import { askUserAnswersSchema, askUserQuestionSchema } from './agent-tools'
 
 export const AGENT_EVENT_PAGE_LIMIT = 50
 export const AGENT_EVENT_PAGE_MAX_BYTES = 4 * 1024 * 1024
@@ -34,6 +35,7 @@ const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).stri
 export const agentSessionWorkflowStateSchema = z.enum([
   'idle',
   'running',
+  'awaiting_input',
   'compacting',
   'awaiting_review',
   'generating'
@@ -317,6 +319,14 @@ export const agentRunInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentRunId: agentRunIdSchema
 })
+export const agentAnswerUserQuestionInputSchema = strictObject({
+  projectSessionId: projectSessionIdSchema,
+  agentSessionId: agentSessionIdSchema,
+  agentRunId: agentRunIdSchema,
+  toolCallId: z.string().min(1).max(256),
+  answers: askUserAnswersSchema
+})
+export const agentAnswerUserQuestionResultSchema = strictObject({})
 export const agentQueueInputSchema = agentRunInputSchema.extend({
   content: z.string().trim().min(1).max(262_144)
 })
@@ -365,12 +375,20 @@ export const agentPendingMessagesSchema = z
     }
   })
 
+export const agentPendingQuestionSchema = strictObject({
+  toolCallId: z.string().min(1).max(256),
+  questions: z.array(askUserQuestionSchema).min(1).max(3),
+  submitting: z.boolean(),
+  startedAt: z.iso.datetime()
+})
+
 export const agentLiveRunSnapshotSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   agentRunId: agentRunIdSchema,
-  phase: z.enum(['routing', 'compacting', 'running']),
+  phase: z.enum(['routing', 'compacting', 'running', 'awaiting_input']),
   partialText: z.string(),
   pendingMessages: agentPendingMessagesSchema.default([]),
+  pendingQuestion: agentPendingQuestionSchema.nullable().default(null),
   startedAt: z.iso.datetime()
 }).superRefine((snapshot, context) => {
   if (new TextEncoder().encode(snapshot.partialText).byteLength > AGENT_LIVE_PARTIAL_MAX_BYTES) {
@@ -378,6 +396,13 @@ export const agentLiveRunSnapshotSchema = strictObject({
       code: 'custom',
       path: ['partialText'],
       message: 'Live Agent output is too large'
+    })
+  }
+  if ((snapshot.phase === 'awaiting_input') !== (snapshot.pendingQuestion !== null)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['pendingQuestion'],
+      message: 'Awaiting-input activity must carry exactly one pending question'
     })
   }
 })
@@ -469,5 +494,6 @@ export type AgentStartScope = z.infer<typeof agentStartScopeSchema>
 export type AgentRendererEvent = z.infer<typeof agentRendererEventSchema>
 export type AgentLiveRunSnapshot = z.infer<typeof agentLiveRunSnapshotSchema>
 export type AgentPendingMessage = z.infer<typeof agentPendingMessageSchema>
+export type AgentPendingQuestion = z.infer<typeof agentPendingQuestionSchema>
 export type AgentLiveCompactionSnapshot = z.infer<typeof agentLiveCompactionSnapshotSchema>
 export type AgentProjectActivitySnapshot = z.infer<typeof agentProjectActivitySnapshotSchema>

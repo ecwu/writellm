@@ -52,6 +52,10 @@ import {
   agentToolCallPayloadSchema,
   agentToolResponseSchema,
   agentToolResultPayloadSchema,
+  askUserResultSchema,
+  type AskUserAnswer,
+  type AskUserArgs,
+  type AskUserResult,
   type AgentToolRequest,
   type AgentToolResponse
 } from '../../shared/contracts/agent-tools'
@@ -139,7 +143,7 @@ interface ActiveRun {
   readonly operationId: string
   readonly controller: AbortController
   handle: AgentSessionRunHandle | null
-  phase: 'routing' | 'compacting' | 'running'
+  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
@@ -160,8 +164,21 @@ interface ActiveRun {
   systemPrompt: string
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
+  pendingQuestion: PendingUserQuestion | null
   overflowRetryAttempted: boolean
   completion: Promise<void>
+}
+
+interface PendingUserQuestion {
+  readonly toolCallId: string
+  readonly modelRequestId: string
+  readonly args: AskUserArgs
+  readonly startedAt: string
+  submitting: boolean
+  readonly resolveAnswers: (result: AskUserResult) => void
+  readonly rejectAnswers: (error: Error) => void
+  readonly completion: Promise<{ ok: boolean }>
+  readonly complete: (result: { ok: boolean }) => void
 }
 
 interface PendingFollowUpMessage {
@@ -395,9 +412,11 @@ export class AgentSessionService {
             row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
-          workflowState: this.#sessionIsCompacting(row.agent_session_id)
-            ? 'compacting'
-            : row.workflow_state,
+          workflowState: this.#sessionIsAwaitingInput(row.agent_session_id)
+            ? 'awaiting_input'
+            : this.#sessionIsCompacting(row.agent_session_id)
+              ? 'compacting'
+              : row.workflow_state,
           modelSelection:
             row.provider_preset_id === null || row.selected_model_id === null
               ? null
@@ -921,6 +940,7 @@ export class AgentSessionService {
             systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
             partialText: '',
             reviewPause: null,
+            pendingQuestion: null,
             overflowRetryAttempted: false,
             completion: Promise.resolve()
           }
@@ -1446,6 +1466,77 @@ export class AgentSessionService {
     await active.completion
   }
 
+  async answerUserQuestion(input: {
+    agentSessionId: string
+    agentRunId: string
+    toolCallId: string
+    answers: AskUserAnswer[]
+  }): Promise<void> {
+    const active = this.#requireActive(input.agentRunId)
+    if (active.agentSessionId !== input.agentSessionId) {
+      throw new Error('Agent clarification capability mismatch')
+    }
+    const pending = active.pendingQuestion
+    if (pending === null || pending.toolCallId !== input.toolCallId) {
+      throw new Error('Agent clarification is no longer pending')
+    }
+    if (pending.submitting) throw new Error('Agent clarification answer is already being submitted')
+    const result = askUserResultSchema.parse({ answers: input.answers })
+    if (result.answers.length !== pending.args.questions.length) {
+      throw new Error('Every pending Agent question must be answered exactly once')
+    }
+    for (const [index, question] of pending.args.questions.entries()) {
+      const answer = result.answers[index]
+      if (answer?.questionId !== question.id) {
+        throw new Error('Agent clarification answers must preserve question order and identity')
+      }
+      if (
+        answer.kind === 'option' &&
+        !question.options.some((option) => option.label === answer.value)
+      ) {
+        throw new Error('Agent clarification option is not available')
+      }
+    }
+    pending.submitting = true
+    await this.#publishActivitySnapshot()
+    try {
+      await this.#appendAndPublishEvent({
+        sessionId: active.agentSessionId,
+        runId: active.agentRunId,
+        type: 'user_message',
+        payload: agentUserMessagePayloadSchema.parse({
+          content: clarificationHistoryMessage(result),
+          delivery: 'clarification',
+          timestamp: this.#now().getTime(),
+          presentation: {
+            kind: 'clarification_answer',
+            toolCallId: pending.toolCallId
+          }
+        }),
+        modelRequestId: pending.modelRequestId
+      })
+    } catch (err) {
+      pending.submitting = false
+      await this.#publishActivitySnapshot()
+      throw err
+    }
+    this.options.log.info(
+      {
+        event: 'agent.question.answer_received',
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        toolCallId: pending.toolCallId,
+        questionCount: pending.args.questions.length,
+        answerKinds: result.answers.map((answer) => answer.kind),
+        durationMs: Math.max(0, this.#now().getTime() - Date.parse(pending.startedAt))
+      },
+      'Received a bounded Agent clarification answer'
+    )
+    pending.resolveAnswers(result)
+    const completion = await pending.completion
+    if (!completion.ok) throw new Error('Agent clarification answer could not be delivered')
+  }
+
   async compactSession(agentSessionId: string): Promise<{ compactionId: string }> {
     this.#assertCompatibleSession(agentSessionId)
     this.#assertSessionIdle(agentSessionId, 'compressing earlier conversation')
@@ -1590,6 +1681,15 @@ export class AgentSessionService {
           content: message.content,
           queuedAt: message.queuedAt
         })),
+        pendingQuestion:
+          active.pendingQuestion === null
+            ? null
+            : {
+                toolCallId: active.pendingQuestion.toolCallId,
+                questions: active.pendingQuestion.args.questions,
+                submitting: active.pendingQuestion.submitting,
+                startedAt: active.pendingQuestion.startedAt
+              },
         startedAt: persisted.startedAt
       }
     })
@@ -2169,11 +2269,16 @@ export class AgentSessionService {
       payload: callPayload,
       modelRequestId: request.modelRequestId
     })
-    const deadlineSignal = AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
-    const toolSignal = AbortSignal.any([signal, deadlineSignal])
+    const deadlineSignal =
+      request.toolName === 'ask_user'
+        ? null
+        : AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
+    const toolSignal = deadlineSignal === null ? signal : AbortSignal.any([signal, deadlineSignal])
     try {
       let data: unknown
-      if (request.toolName === 'read_writing_skill') {
+      if (request.toolName === 'ask_user') {
+        data = await this.#waitForUserAnswer(active, request, toolSignal)
+      } else if (request.toolName === 'read_writing_skill') {
         if (
           this.options.skillRouter === undefined ||
           this.options.skillRouter.read === undefined ||
@@ -2305,12 +2410,16 @@ export class AgentSessionService {
         payload: resultPayload,
         modelRequestId: request.modelRequestId
       })
-      return agentToolResponseSchema.parse({
+      const response = agentToolResponseSchema.parse({
         ...toolResponseCapability(request),
         schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
         ok: true,
         data
       })
+      if (request.toolName === 'ask_user') {
+        this.#completePendingUserQuestion(active, request.toolCallId, true)
+      }
+      return response
     } catch (err) {
       this.options.log.error(
         {
@@ -2365,15 +2474,109 @@ export class AgentSessionService {
         parseRevisionIds: [],
         timestamp: this.#now().getTime()
       })
-      await this.#appendAndPublishEvent({
-        sessionId: active.agentSessionId,
-        runId: active.agentRunId,
-        type: 'tool_result',
-        payload: resultPayload,
-        modelRequestId: request.modelRequestId
-      })
-      return toolErrorResponse(request, safe.code, safe.message, safe.retryable, safe.recoveryUri)
+      try {
+        await this.#appendAndPublishEvent({
+          sessionId: active.agentSessionId,
+          runId: active.agentRunId,
+          type: 'tool_result',
+          payload: resultPayload,
+          modelRequestId: request.modelRequestId
+        })
+        return toolErrorResponse(request, safe.code, safe.message, safe.retryable, safe.recoveryUri)
+      } finally {
+        if (request.toolName === 'ask_user') {
+          this.#completePendingUserQuestion(active, request.toolCallId, false)
+        }
+      }
     }
+  }
+
+  async #waitForUserAnswer(
+    active: ActiveRun,
+    request: Extract<AgentToolRequest, { toolName: 'ask_user' }>,
+    signal: AbortSignal
+  ): Promise<AskUserResult> {
+    if (active.pendingQuestion !== null) {
+      throw new AgentToolDomainError(
+        'conflict',
+        'Another Agent clarification is already pending',
+        false
+      )
+    }
+    let resolveAnswers: (result: AskUserResult) => void = () => undefined
+    let rejectAnswers: (error: Error) => void = () => undefined
+    const answers = new Promise<AskUserResult>((resolve, reject) => {
+      resolveAnswers = resolve
+      rejectAnswers = reject
+    })
+    let complete: (result: { ok: boolean }) => void = () => undefined
+    const completion = new Promise<{ ok: boolean }>((resolve) => {
+      complete = resolve
+    })
+    const pending: PendingUserQuestion = {
+      toolCallId: request.toolCallId,
+      modelRequestId: request.modelRequestId,
+      args: request.args,
+      startedAt: this.#now().toISOString(),
+      submitting: false,
+      resolveAnswers,
+      rejectAnswers,
+      completion,
+      complete
+    }
+    const onAbort = (): void => {
+      const error = new Error('Agent clarification wait was aborted', {
+        cause: signal.reason
+      })
+      error.name = 'AbortError'
+      pending.rejectAnswers(error)
+    }
+    active.pendingQuestion = pending
+    active.phase = 'awaiting_input'
+    signal.addEventListener('abort', onAbort, { once: true })
+    await this.#publishActivitySnapshot()
+    void this.#publishSession(active.agentSessionId, false)
+    this.options.log.info(
+      {
+        event: 'agent.question.wait_started',
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        modelRequestId: request.modelRequestId,
+        toolCallId: request.toolCallId,
+        questionCount: request.args.questions.length
+      },
+      'Agent run is waiting for user clarification'
+    )
+    if (signal.aborted) onAbort()
+    try {
+      return await answers
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  #completePendingUserQuestion(active: ActiveRun, toolCallId: string, ok: boolean): void {
+    const pending = active.pendingQuestion
+    if (pending === null || pending.toolCallId !== toolCallId) return
+    active.pendingQuestion = null
+    if (!active.controller.signal.aborted) active.phase = 'running'
+    pending.complete({ ok })
+    void this.#publishActivitySnapshot()
+    void this.#publishSession(active.agentSessionId, false)
+    this.options.log.info(
+      {
+        event: ok ? 'agent.question.wait_completed' : 'agent.question.wait_cancelled',
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        modelRequestId: pending.modelRequestId,
+        toolCallId: pending.toolCallId,
+        questionCount: pending.args.questions.length,
+        durationMs: Math.max(0, this.#now().getTime() - Date.parse(pending.startedAt))
+      },
+      ok
+        ? 'Agent clarification resumed the run'
+        : 'Agent clarification wait ended without an answer'
+    )
   }
 
   async #settleRun(active: ActiveRun): Promise<void> {
@@ -3817,6 +4020,12 @@ export class AgentSessionService {
     )
   }
 
+  #sessionIsAwaitingInput(agentSessionId: string): boolean {
+    return [...this.#activeRuns.values()].some(
+      (run) => run.agentSessionId === agentSessionId && run.pendingQuestion !== null
+    )
+  }
+
   #sessionApprovalMode(agentSessionId: string): AgentApprovalMode {
     const mode = this.options.database.immediate((database) =>
       database
@@ -4116,18 +4325,22 @@ function toolErrorResponse(
   })
 }
 
+function clarificationHistoryMessage(result: AskUserResult): string {
+  return `The user supplied these clarification answers. Treat them as user decisions for the requested task:\n${JSON.stringify(result.answers)}`
+}
+
 function safeToolError(
   err: unknown,
   toolName: AgentToolRequest['toolName'],
   signal: AbortSignal,
-  deadlineSignal: AbortSignal
+  deadlineSignal: AbortSignal | null
 ): {
   code: Extract<AgentToolResponse, { ok: false }>['error']['code']
   message: string
   retryable: boolean
   recoveryUri?: string
 } {
-  if (deadlineSignal.aborted && !signal.aborted) {
+  if (deadlineSignal?.aborted && !signal.aborted) {
     return { code: 'deadline_exceeded', message: 'Agent tool deadline exceeded', retryable: true }
   }
   if (signal.aborted) {

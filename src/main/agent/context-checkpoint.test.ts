@@ -175,6 +175,67 @@ describe('Agent context checkpoints', () => {
     database.close()
   })
 
+  it('preserves bounded clarification questions and final user decisions in compaction material', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    insertEvent(database, 1, 'user_message', {
+      content: 'Revise the ending.',
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'tool_call', {
+      toolCallId: 'tool-question',
+      toolName: 'ask_user',
+      contractVersion: 10,
+      args: {
+        questions: [
+          {
+            id: 'scope',
+            header: 'Scope',
+            question: 'Which scope should the revision use?',
+            options: [
+              { label: 'Conclusion (Recommended)', description: 'Revise only the ending.' },
+              { label: 'Document', description: 'Revise the full manuscript.' }
+            ]
+          }
+        ]
+      },
+      timestamp: 2
+    })
+    insertEvent(database, 3, 'user_message', {
+      content:
+        'The user supplied these clarification answers. Treat them as user decisions for the requested task:\n[{"questionId":"scope","kind":"custom","value":"Only the final two paragraphs"}]',
+      delivery: 'clarification',
+      timestamp: 3,
+      presentation: { kind: 'clarification_answer', toolCallId: 'tool-question' }
+    })
+    insertEvent(database, 4, 'tool_result', {
+      toolCallId: 'tool-question',
+      toolName: 'ask_user',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        answers: [{ questionId: 'scope', kind: 'custom', value: 'Only the final two paragraphs' }]
+      },
+      error: null,
+      citationIds: [],
+      knowledgeItemIds: [],
+      parseRevisionIds: [],
+      timestamp: 4
+    })
+    insertEvent(database, 5, 'assistant_message', assistantPayload('Revised the ending.', 5))
+    insertEvent(database, 6, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 7, 'user_message', { content: 'Recent turn', timestamp: 7 })
+    insertEvent(database, 8, 'run_completed', { outcome: 'finished' })
+
+    const material = buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
+    const source = material?.sourcePayloadJson ?? ''
+    expect(source).toContain('Which scope should the revision use?')
+    expect(source).toContain('Only the final two paragraphs')
+    expect(source).toContain('"toolName":"ask_user"')
+    database.close()
+  })
+
   it('loads only v3 checkpoints as bounded conversation memory', async () => {
     const database = await createDatabase()
     insertSession(database)

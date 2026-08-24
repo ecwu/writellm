@@ -238,9 +238,9 @@ test(
       expect(truth.workflowState).toBe('idle')
       expect(truth.preflightFailures).toEqual([])
       expect(truth.calls).toEqual([
-        { toolName: 'submit_brief_change', contractVersion: 9 },
-        { toolName: 'submit_outline_change', contractVersion: 9 },
-        { toolName: 'check_draft', contractVersion: 9 }
+        { toolName: 'submit_brief_change', contractVersion: 10 },
+        { toolName: 'submit_outline_change', contractVersion: 10 },
+        { toolName: 'check_draft', contractVersion: 10 }
       ])
       expect(truth.calls.some((call) => call.toolName === 'submit_section_change')).toBe(false)
       expect(JSON.stringify(providerBodies)).not.toContain('cp50-e2e-secret')

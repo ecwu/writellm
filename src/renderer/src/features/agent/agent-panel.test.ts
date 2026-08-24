@@ -64,7 +64,9 @@ describe('Agent panel flow selection', () => {
     const review = session('019c6a5c-8d34-7a8e-a602-3d37a52dc502', 'awaiting_review')
     const generating = session('019c6a5c-8d34-7a8e-a602-3d37a52dc503', 'generating')
     const running = session('019c6a5c-8d34-7a8e-a602-3d37a52dc504', 'running')
+    const question = session('019c6a5c-8d34-7a8e-a602-3d37a52dc507', 'awaiting_input')
 
+    expect(selectAttentionSession([ready, review, generating, running, question])).toBe(question)
     expect(selectAttentionSession([ready, review, generating, running])).toBe(running)
     expect(selectAttentionSession([ready, generating, review])).toBe(generating)
     expect(selectAttentionSession([ready])).toBe(ready)

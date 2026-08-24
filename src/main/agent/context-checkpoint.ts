@@ -11,7 +11,9 @@ import {
 import { estimateAgentTokens } from '../../shared/agent-context-budget'
 import {
   agentToolCallPayloadSchema,
-  agentToolResultPayloadSchema
+  agentToolResultPayloadSchema,
+  askUserArgsSchema,
+  askUserResultSchema
 } from '../../shared/contracts/agent-tools'
 import type { ProjectDatabase } from '../project/project-database'
 import { formatPromptBlock } from './prompts/prompt-block'
@@ -329,7 +331,7 @@ function createCompactionMaterial(
           type: row.type,
           toolCallId: parsed.toolCallId,
           toolName: parsed.toolName,
-          args: projectSafeObject(parsed.args)
+          args: projectToolPayload(parsed.toolName, parsed.args)
         }
       }
       case 'tool_result': {
@@ -342,7 +344,7 @@ function createCompactionMaterial(
           citationIds: parsed.citationIds,
           knowledgeItemIds: parsed.knowledgeItemIds,
           parseRevisionIds: parsed.parseRevisionIds,
-          result: projectSafeObject(parsed.result),
+          result: projectToolPayload(parsed.toolName, parsed.result),
           error:
             parsed.error === null
               ? null
@@ -539,6 +541,16 @@ function authoritativeProposalOutcomes(
       replacesProposalId: row['replaces_proposal_id'],
       reasonCode: safeReasonCode(row['rejected_reason'])
     }))
+}
+
+function projectToolPayload(toolName: string, value: unknown): unknown {
+  if (toolName === 'ask_user') {
+    const args = askUserArgsSchema.safeParse(value)
+    if (args.success) return args.data
+    const result = askUserResultSchema.safeParse(value)
+    if (result.success) return result.data
+  }
+  return projectSafeObject(value)
 }
 
 function projectSafeObject(value: unknown, depth = 0): unknown {

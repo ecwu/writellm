@@ -12,6 +12,7 @@
     { "id": "agent.selection-quick-actions", "tiers": [] },
     { "id": "agent.refreshes-outdated-proposal", "tiers": ["packaged"] },
     { "id": "agent.thinking-level-memory", "tiers": [] },
+    { "id": "agent.user-clarification", "tiers": ["critical", "packaged"] },
     { "id": "agent.writing-task-identity", "tiers": ["critical", "packaged"] },
     { "id": "annotations.durable-todos", "tiers": ["critical", "packaged"] },
     { "id": "app.provider-settings-persist-without-secret", "tiers": [] },

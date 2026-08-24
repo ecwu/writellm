@@ -508,6 +508,73 @@ describe('Agent renderer view model', () => {
     expect(agentToolActivityLabel(search)).toBe('Searching sources')
   })
 
+  it('projects ask_user as a dedicated question record and hides its duplicate answer event', () => {
+    const timeline = projectAgentTimeline([
+      toolCallRecord(1, 'tool-question', 'ask_user', {
+        questions: [
+          {
+            id: 'scope',
+            header: 'Scope',
+            question: 'Which scope should be used?',
+            options: [
+              { label: 'Section (Recommended)', description: 'Limit the revision.' },
+              { label: 'Document', description: 'Revise the full manuscript.' }
+            ]
+          }
+        ]
+      }),
+      record(2, 'user_message', {
+        content: 'Trusted clarification decision',
+        delivery: 'clarification',
+        timestamp: 2,
+        presentation: { kind: 'clarification_answer', toolCallId: 'tool-question' }
+      }),
+      toolResultRecord(3, 'tool-question', 'ask_user', {
+        result: {
+          answers: [{ questionId: 'scope', kind: 'option', value: 'Section (Recommended)' }]
+        }
+      })
+    ])
+
+    expect(timeline).toHaveLength(1)
+    expect(timeline[0]).toMatchObject({
+      type: 'question',
+      tool: {
+        call: { toolName: 'ask_user' },
+        result: {
+          result: {
+            answers: [{ questionId: 'scope', kind: 'option', value: 'Section (Recommended)' }]
+          }
+        }
+      }
+    })
+  })
+
+  it('keeps an unanswered clarification as stopped, non-actionable history after interruption', () => {
+    const timeline = projectAgentTimeline([
+      toolCallRecord(1, 'tool-question', 'ask_user', {
+        questions: [
+          {
+            id: 'scope',
+            header: 'Scope',
+            question: 'Which scope should be used?',
+            options: [
+              { label: 'Section (Recommended)', description: 'Limit the revision.' },
+              { label: 'Document', description: 'Revise the full manuscript.' }
+            ]
+          }
+        ]
+      }),
+      record(2, 'run_interrupted', { status: 'interrupted', code: 'process_restarted' })
+    ])
+
+    expect(timeline[0]).toMatchObject({
+      type: 'question',
+      tool: { result: null, stopped: true }
+    })
+    expect(timeline.some((item) => item.type === 'user')).toBe(false)
+  })
+
   it('names visible Writing Skill entrypoint and reference activity from safe projections', () => {
     const timeline = projectAgentTimeline([
       toolCallRecord(1, 'skill-entry', 'read_writing_skill', {

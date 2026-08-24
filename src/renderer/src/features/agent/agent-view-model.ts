@@ -116,6 +116,7 @@ export type AgentTimelineItem =
       tool: AgentToolActivity
       proposal: MutationProposalRecord | null
     }
+  | { type: 'question'; id: string; tool: AgentToolActivity }
   | { type: 'preflight_failure'; id: string; failure: AgentPreflightFailure }
   | { type: 'approval_decision'; id: string; payload: AgentApprovalDecisionPayload }
   | { type: 'run_interrupted'; id: string; terminal: AgentRunTerminal }
@@ -307,7 +308,11 @@ export function projectAgentTimeline(
       const parsed = agentUserMessagePayloadSchema.safeParse(event.payload)
       if (!parsed.success) continue
       flushTools()
-      if (parsed.data.presentation?.kind === 'approval_continuation') continue
+      if (
+        parsed.data.presentation?.kind === 'approval_continuation' ||
+        parsed.data.presentation?.kind === 'clarification_answer'
+      )
+        continue
       items.push({
         type: 'user',
         id: event.agentEventId,
@@ -343,6 +348,11 @@ export function projectAgentTimeline(
           results.get(parsed.data.toolCallId) === undefined &&
           event.agentRunId !== null &&
           terminalsByRunId.has(event.agentRunId)
+      }
+      if (parsed.data.toolName === 'ask_user') {
+        flushTools()
+        items.push({ type: 'question', id: event.agentEventId, tool })
+        continue
       }
       if (
         parsed.data.toolName.startsWith('propose_') ||
@@ -484,6 +494,7 @@ export function agentReviewState(
 export function agentTimelineScrollAnchorIndex(timeline: AgentTimelineItem[]): number {
   for (let index = timeline.length - 1; index >= 0; index -= 1) {
     const item = timeline[index]
+    if (item?.type === 'question' && item.tool.result === null) return index
     if (
       item?.type === 'proposal' &&
       (item.proposal?.status === 'pending' || item.proposal?.status === 'generating')
@@ -930,6 +941,8 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
       return running ? 'Checking source evidence' : 'Checked source evidence'
     case 'read_writing_skill':
       return writingSkillActivityLabel(tool, running)
+    case 'ask_user':
+      return running ? 'Waiting for your answer' : 'Asked for clarification'
     case 'inspect_change':
       return running ? 'Reviewing the change' : 'Reviewed the change'
     case 'check_draft':
@@ -971,6 +984,9 @@ export function currentAgentActivitySummary(
     if (item.type === 'proposal' && item.tool.runId === runId && item.tool.result === null) {
       return agentToolActivityLabel(item.tool)
     }
+    if (item.type === 'question' && item.tool.runId === runId && item.tool.result === null) {
+      return 'Waiting for your answer'
+    }
   }
   return null
 }
@@ -978,12 +994,19 @@ export function currentAgentActivitySummary(
 export function agentThinkingVisualState(input: {
   timeline: AgentTimelineItem[]
   runId: string | null
-  workflowState: 'idle' | 'running' | 'compacting' | 'generating' | 'awaiting_review'
+  workflowState:
+    | 'idle'
+    | 'running'
+    | 'awaiting_input'
+    | 'compacting'
+    | 'generating'
+    | 'awaiting_review'
   choosingSkill: boolean
   hasStreamingRun: boolean
 }): AgentThinkingVisualState {
   if (input.workflowState === 'generating') return 'shaping'
   if (input.workflowState === 'compacting') return 'composing'
+  if (input.workflowState === 'awaiting_input') return 'connecting'
   if (input.hasStreamingRun) return 'composing'
   if (input.choosingSkill) return 'connecting'
   if (input.runId === null) return 'working'
@@ -993,7 +1016,9 @@ export function agentThinkingVisualState(input: {
         ? [...item.tools].reverse().find((candidate) => candidate.result === null)
         : item.type === 'proposal' && item.tool.runId === input.runId && item.tool.result === null
           ? item.tool
-          : undefined
+          : item.type === 'question' && item.tool.runId === input.runId && item.tool.result === null
+            ? item.tool
+            : undefined
     if (tool === undefined) continue
     const name = tool.call.toolName
     if (name === 'generate_image') return 'shaping'
