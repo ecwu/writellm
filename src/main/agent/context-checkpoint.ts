@@ -19,7 +19,7 @@ import type { ProjectDatabase } from '../project/project-database'
 import { formatPromptBlock } from './prompts/prompt-block'
 
 const PAGE_SIZE = 50
-const SOURCE_EVENT_LIMIT = 240
+export const COMPACTION_SOURCE_EVENT_LIMIT = 2_000
 const SAFE_TOOL_KEYS = new Set([
   'proposalId',
   'effectiveProposalId',
@@ -60,12 +60,37 @@ const SAFE_TOOL_KEYS = new Set([
   'operationId'
 ])
 
-interface EventRow {
+interface StoredEventRow {
   agent_event_id: string
   agent_run_id: string | null
   sequence: number
   type: string
   payload_json: string
+}
+
+interface ProjectedEventRow {
+  agent_event_id: string
+  agent_run_id: string | null
+  sequence: number
+  type: string
+  projectedEvent: Record<string, unknown>
+  approvalDecision: Record<string, unknown> | null
+  citationIds: readonly string[]
+  toolOutcome: Record<string, unknown> | null
+  payloadBytes: number
+}
+
+export class AgentCompactionSourceLimitError extends Error {
+  readonly code = 'compaction_run_too_large'
+
+  constructor(readonly reason: 'event_limit' | 'token_budget') {
+    super(
+      reason === 'event_limit'
+        ? 'A complete Agent run exceeds the compaction source event limit'
+        : 'A complete Agent run exceeds the compaction model input budget'
+    )
+    this.name = 'AgentCompactionSourceLimitError'
+  }
 }
 
 export interface LatestCheckpoint {
@@ -265,12 +290,14 @@ export function buildNextCompactionMaterial(input: {
 }): CompactionMaterial | null {
   const previousCheckpoint = latestSuccessfulCheckpoint(input.database, input.agentSessionId)
   const coveredFromSequence = (previousCheckpoint?.coveredThroughSequence ?? 0) + 1
-  const rows = loadEventChunk(input.database, input.agentSessionId, {
+  const chunk = loadEventChunk(input.database, input.agentSessionId, {
     afterSequence: coveredFromSequence - 1,
     excludeRunId: input.excludeRunId
   })
+  const rows = chunk.rows
   if (rows.length === 0) return null
-  let boundary = compactionBoundary(rows, input.excludeRunId !== undefined)
+  let boundary = compactionBoundary(rows, input.excludeRunId !== undefined || chunk.limitReached)
+  const completeBoundaryFound = boundary >= 0
   while (boundary >= 0) {
     const material = createCompactionMaterial(
       input,
@@ -285,6 +312,8 @@ export function buildNextCompactionMaterial(input: {
     }
     boundary = previousCompactionBoundary(rows, boundary)
   }
+  if (completeBoundaryFound) throw new AgentCompactionSourceLimitError('token_budget')
+  if (chunk.limitReached) throw new AgentCompactionSourceLimitError('event_limit')
   return null
 }
 
@@ -295,7 +324,7 @@ function createCompactionMaterial(
     excludeRunId?: string
   },
   previousCheckpoint: LatestCheckpoint | null,
-  selected: readonly EventRow[]
+  selected: readonly ProjectedEventRow[]
 ): CompactionMaterial {
   const coveredFromSequence = (previousCheckpoint?.coveredThroughSequence ?? 0) + 1
   const remainingTerminalCount = countTerminalEventsAfter(
@@ -304,82 +333,14 @@ function createCompactionMaterial(
     selected.at(-1)?.sequence ?? 0,
     input.excludeRunId
   )
-  const approvalDecisions: Record<string, unknown>[] = []
-  const toolOutcomes: Record<string, unknown>[] = []
-  const citationIds = new Set<string>()
-  const projectedEvents = selected.map((row) => {
-    const payload = JSON.parse(row.payload_json) as unknown
-    switch (row.type) {
-      case 'user_message': {
-        const parsed = agentUserMessagePayloadSchema.parse(payload)
-        return { sequence: row.sequence, type: row.type, content: parsed.content }
-      }
-      case 'assistant_message': {
-        const parsed = agentAssistantMessagePayloadSchema.parse(payload)
-        return {
-          sequence: row.sequence,
-          type: row.type,
-          content: parsed.content,
-          stopReason: parsed.stopReason,
-          interrupted: parsed.interrupted
-        }
-      }
-      case 'tool_call': {
-        const parsed = agentToolCallPayloadSchema.parse(payload)
-        return {
-          sequence: row.sequence,
-          type: row.type,
-          toolCallId: parsed.toolCallId,
-          toolName: parsed.toolName,
-          args: projectToolPayload(parsed.toolName, parsed.args)
-        }
-      }
-      case 'tool_result': {
-        const parsed = agentToolResultPayloadSchema.parse(payload)
-        for (const id of parsed.citationIds) citationIds.add(id)
-        const outcome = {
-          toolCallId: parsed.toolCallId,
-          toolName: parsed.toolName,
-          isError: parsed.isError,
-          citationIds: parsed.citationIds,
-          knowledgeItemIds: parsed.knowledgeItemIds,
-          parseRevisionIds: parsed.parseRevisionIds,
-          result: projectToolPayload(parsed.toolName, parsed.result),
-          error:
-            parsed.error === null
-              ? null
-              : {
-                  code: parsed.error.code,
-                  message: parsed.error.message,
-                  category: parsed.error.category ?? null,
-                  recovery: parsed.error.recovery ?? null,
-                  retryable: parsed.error.retryable ?? false,
-                  operationId: parsed.error.operationId ?? null
-                }
-        }
-        toolOutcomes.push(outcome)
-        return { sequence: row.sequence, type: row.type, ...outcome }
-      }
-      case 'approval_decision': {
-        const parsed = agentApprovalDecisionPayloadSchema.parse(payload)
-        const decision = {
-          proposalId: parsed.proposalId,
-          decision: parsed.decision,
-          continueRequested: parsed.continueRequested
-        }
-        approvalDecisions.push(decision)
-        return { sequence: row.sequence, type: row.type, ...decision }
-      }
-      case 'run_completed':
-      case 'run_interrupted':
-        return { sequence: row.sequence, type: row.type, state: projectSafeObject(payload) }
-      case 'tool_attempted':
-      case 'tool_preflight_failed':
-        return { sequence: row.sequence, type: row.type, state: projectSafeObject(payload) }
-      default:
-        return { sequence: row.sequence, type: row.type }
-    }
-  })
+  const approvalDecisions = selected.flatMap((row) =>
+    row.approvalDecision === null ? [] : [row.approvalDecision]
+  )
+  const toolOutcomes = selected.flatMap((row) =>
+    row.toolOutcome === null ? [] : [row.toolOutcome]
+  )
+  const citationIds = new Set(selected.flatMap((row) => row.citationIds))
+  const projectedEvents = selected.map((row) => row.projectedEvent)
   const proposalOutcomes = authoritativeProposalOutcomes(
     input.database,
     input.agentSessionId,
@@ -407,10 +368,7 @@ function createCompactionMaterial(
     citationIds: [...citationIds],
     toolOutcomes,
     sourceEventCount: selected.length,
-    sourcePayloadBytes: selected.reduce(
-      (total, row) => total + Buffer.byteLength(row.payload_json),
-      0
-    ),
+    sourcePayloadBytes: selected.reduce((total, row) => total + row.payloadBytes, 0),
     hasMoreCompactionCandidate: remainingTerminalCount >= 2
   }
 }
@@ -431,10 +389,10 @@ function loadEventChunk(
   database: ProjectDatabase,
   agentSessionId: string,
   input: { afterSequence: number; excludeRunId?: string }
-): EventRow[] {
-  const selected: EventRow[] = []
+): { rows: ProjectedEventRow[]; limitReached: boolean } {
+  const selected: ProjectedEventRow[] = []
   let after = input.afterSequence
-  while (selected.length < SOURCE_EVENT_LIMIT) {
+  while (selected.length < COMPACTION_SOURCE_EVENT_LIMIT) {
     const rows = database.immediate(
       (native) =>
         native
@@ -453,20 +411,148 @@ function loadEventChunk(
             input.excludeRunId ?? null,
             input.excludeRunId ?? null,
             PAGE_SIZE
-          ) as EventRow[]
+          ) as StoredEventRow[]
     )
     if (rows.length === 0) break
     for (const row of rows) {
-      if (selected.length >= SOURCE_EVENT_LIMIT) return selected
-      selected.push(row)
+      if (selected.length >= COMPACTION_SOURCE_EVENT_LIMIT) {
+        return { rows: selected, limitReached: true }
+      }
+      selected.push(projectEventRow(row))
       after = row.sequence
     }
     if (rows.length < PAGE_SIZE) break
   }
-  return selected
+  return {
+    rows: selected,
+    limitReached:
+      selected.length >= COMPACTION_SOURCE_EVENT_LIMIT &&
+      hasEventAfter(database, agentSessionId, after, input.excludeRunId)
+  }
 }
 
-function compactionBoundary(rows: readonly EventRow[], allowOnlyBoundary: boolean): number {
+function projectEventRow(row: StoredEventRow): ProjectedEventRow {
+  const payload = JSON.parse(row.payload_json) as unknown
+  let approvalDecision: Record<string, unknown> | null = null
+  let citationIds: readonly string[] = []
+  let toolOutcome: Record<string, unknown> | null = null
+  let projectedEvent: Record<string, unknown>
+  switch (row.type) {
+    case 'user_message': {
+      const parsed = agentUserMessagePayloadSchema.parse(payload)
+      projectedEvent = { sequence: row.sequence, type: row.type, content: parsed.content }
+      break
+    }
+    case 'assistant_message': {
+      const parsed = agentAssistantMessagePayloadSchema.parse(payload)
+      projectedEvent = {
+        sequence: row.sequence,
+        type: row.type,
+        content: parsed.content,
+        stopReason: parsed.stopReason,
+        interrupted: parsed.interrupted
+      }
+      break
+    }
+    case 'tool_call': {
+      const parsed = agentToolCallPayloadSchema.parse(payload)
+      projectedEvent = {
+        sequence: row.sequence,
+        type: row.type,
+        toolCallId: parsed.toolCallId,
+        toolName: parsed.toolName,
+        args: projectToolPayload(parsed.toolName, parsed.args)
+      }
+      break
+    }
+    case 'tool_result': {
+      const parsed = agentToolResultPayloadSchema.parse(payload)
+      citationIds = parsed.citationIds
+      toolOutcome = {
+        toolCallId: parsed.toolCallId,
+        toolName: parsed.toolName,
+        isError: parsed.isError,
+        citationIds: parsed.citationIds,
+        knowledgeItemIds: parsed.knowledgeItemIds,
+        parseRevisionIds: parsed.parseRevisionIds,
+        result: projectToolPayload(parsed.toolName, parsed.result),
+        error:
+          parsed.error === null
+            ? null
+            : {
+                code: parsed.error.code,
+                message: parsed.error.message,
+                category: parsed.error.category ?? null,
+                recovery: parsed.error.recovery ?? null,
+                retryable: parsed.error.retryable ?? false,
+                operationId: parsed.error.operationId ?? null
+              }
+      }
+      projectedEvent = { sequence: row.sequence, type: row.type, ...toolOutcome }
+      break
+    }
+    case 'approval_decision': {
+      const parsed = agentApprovalDecisionPayloadSchema.parse(payload)
+      approvalDecision = {
+        proposalId: parsed.proposalId,
+        decision: parsed.decision,
+        continueRequested: parsed.continueRequested
+      }
+      projectedEvent = { sequence: row.sequence, type: row.type, ...approvalDecision }
+      break
+    }
+    case 'run_completed':
+    case 'run_interrupted':
+    case 'tool_attempted':
+    case 'tool_preflight_failed':
+      projectedEvent = {
+        sequence: row.sequence,
+        type: row.type,
+        state: projectSafeObject(payload)
+      }
+      break
+    default:
+      projectedEvent = { sequence: row.sequence, type: row.type }
+  }
+  return {
+    agent_event_id: row.agent_event_id,
+    agent_run_id: row.agent_run_id,
+    sequence: row.sequence,
+    type: row.type,
+    projectedEvent,
+    approvalDecision,
+    citationIds,
+    toolOutcome,
+    payloadBytes: Buffer.byteLength(row.payload_json)
+  }
+}
+
+function hasEventAfter(
+  database: ProjectDatabase,
+  agentSessionId: string,
+  afterSequence: number,
+  excludeRunId?: string
+): boolean {
+  return database.immediate(
+    (native) =>
+      native
+        .prepare(
+          `SELECT 1
+             FROM agent_events
+            WHERE agent_session_id = ? AND sequence > ?
+              AND type NOT IN ('compaction_started', 'compaction_summary', 'compaction_failed')
+              AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
+            LIMIT 1`
+        )
+        .pluck()
+        .get(agentSessionId, afterSequence, excludeRunId ?? null, excludeRunId ?? null) === 1
+  )
+}
+
+function compactionBoundary(
+  rows: readonly ProjectedEventRow[],
+  allowOnlyBoundary: boolean
+): number {
   const boundaries = rows.flatMap((row, index) =>
     row.type === 'run_completed' || row.type === 'run_interrupted' ? [index] : []
   )
@@ -474,7 +560,10 @@ function compactionBoundary(rows: readonly EventRow[], allowOnlyBoundary: boolea
   return allowOnlyBoundary ? (boundaries.at(-1) ?? -1) : -1
 }
 
-function previousCompactionBoundary(rows: readonly EventRow[], beforeIndex: number): number {
+function previousCompactionBoundary(
+  rows: readonly ProjectedEventRow[],
+  beforeIndex: number
+): number {
   for (let index = beforeIndex - 1; index >= 0; index -= 1) {
     const type = rows[index]?.type
     if (type === 'run_completed' || type === 'run_interrupted') return index
@@ -507,7 +596,7 @@ function countTerminalEventsAfter(
 function authoritativeProposalOutcomes(
   database: ProjectDatabase,
   agentSessionId: string,
-  events: readonly EventRow[]
+  events: readonly ProjectedEventRow[]
 ): Record<string, unknown>[] {
   const runIds = [
     ...new Set(events.flatMap((event) => (event.agent_run_id ? [event.agent_run_id] : [])))

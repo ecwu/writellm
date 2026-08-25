@@ -341,14 +341,16 @@ function serializeError(error: Error): {
   message: string
   stack?: string
   httpStatus?: number
-  code?: 'context_overflow' | 'tool_batch_context_exhausted'
+  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
 } {
   const httpStatus = findHttpStatus(error)
-  const code = hasErrorCode(error, 'tool_batch_context_exhausted')
-    ? 'tool_batch_context_exhausted'
-    : isContextOverflowError(error)
-      ? 'context_overflow'
-      : undefined
+  const code = hasErrorCode(error, 'continuation_lost')
+    ? 'continuation_lost'
+    : hasErrorCode(error, 'tool_batch_context_exhausted')
+      ? 'tool_batch_context_exhausted'
+      : isContextOverflowError(error)
+        ? 'context_overflow'
+        : undefined
   const message = safeDiagnosticMessage(error, httpStatus, code)
   const stack = safeStack(error.stack, message)
   return {
@@ -363,12 +365,13 @@ function serializeError(error: Error): {
 function safeDiagnosticMessage(
   error: Error,
   httpStatus?: number,
-  code?: 'context_overflow' | 'tool_batch_context_exhausted'
+  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
 ): string {
   if (code === 'context_overflow') return 'Agent provider context window exceeded'
   if (code === 'tool_batch_context_exhausted') {
     return 'The latest Agent read batch still exceeds context after one smaller-read recovery'
   }
+  if (code === 'continuation_lost') return 'Agent tool continuation could not be resumed safely'
   if (error.name === 'ProviderTimeoutError') return 'Agent provider request timed out'
   if (error.name === 'ProviderRetriesExhaustedError') {
     return 'Agent provider request failed after 5 attempts'

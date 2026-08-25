@@ -533,11 +533,14 @@ function reconstructError(input: {
   message: string
   stack?: string
   httpStatus?: number
-  code?: 'context_overflow' | 'tool_batch_context_exhausted'
-}): Error & { status?: number; code?: 'context_overflow' | 'tool_batch_context_exhausted' } {
+  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
+}): Error & {
+  status?: number
+  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
+} {
   const error: Error & {
     status?: number
-    code?: 'context_overflow' | 'tool_batch_context_exhausted'
+    code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
   } = new Error(input.message)
   error.name = input.name
   if (input.stack !== undefined) error.stack = input.stack

@@ -5,7 +5,9 @@ import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import {
+  type AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
+  COMPACTION_SOURCE_EVENT_LIMIT,
   latestSuccessfulCheckpoint,
   loadContinuousRuntimeHistory
 } from './context-checkpoint'
@@ -71,7 +73,11 @@ describe('Agent context checkpoints', () => {
       )
     )
     insertEvent(database, 5, 'run_completed', { outcome: 'finished' })
-    insertEvent(database, 6, 'user_message', { content: 'Recent turn', timestamp: 6 })
+    insertEvent(database, 6, 'user_message', {
+      content: 'Recent turn',
+      delivery: 'prompt',
+      timestamp: 6
+    })
     insertEvent(database, 7, 'run_completed', { outcome: 'finished' })
 
     const material = buildNextCompactionMaterial({
@@ -225,7 +231,11 @@ describe('Agent context checkpoints', () => {
     })
     insertEvent(database, 5, 'assistant_message', assistantPayload('Revised the ending.', 5))
     insertEvent(database, 6, 'run_completed', { outcome: 'finished' })
-    insertEvent(database, 7, 'user_message', { content: 'Recent turn', timestamp: 7 })
+    insertEvent(database, 7, 'user_message', {
+      content: 'Recent turn',
+      delivery: 'prompt',
+      timestamp: 7
+    })
     insertEvent(database, 8, 'run_completed', { outcome: 'finished' })
 
     const material = buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
@@ -313,7 +323,7 @@ describe('Agent context checkpoints', () => {
       database,
       agentSessionId: 'session-1'
     })
-    expect(material?.sourceEventCount).toBeLessThanOrEqual(240)
+    expect(material?.sourceEventCount).toBeLessThanOrEqual(COMPACTION_SOURCE_EVENT_LIMIT)
     expect(material?.coveredFromSequence).toBe(1)
     expect(material?.coveredThroughSequence).toBeLessThan(10_000)
     expect(material?.hasMoreCompactionCandidate).toBe(true)
@@ -336,13 +346,189 @@ describe('Agent context checkpoints', () => {
     })
     insertEvent(database, 4, 'run_completed', { outcome: 'finished' })
 
-    expect(
+    expect(() =>
       buildNextCompactionMaterial({
         database,
         agentSessionId: 'session-1',
         sourceTokenBudget: 100
       })
-    ).toBeNull()
+    ).toThrowError(
+      expect.objectContaining<Partial<AgentCompactionSourceLimitError>>({
+        code: 'compaction_run_too_large',
+        reason: 'token_budget'
+      })
+    )
+    database.close()
+  })
+
+  it('projects the complete 415-event failed run from the reported regression without changing raw events', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, 'session-1', ?, ?, ?, ?)`
+      )
+      native.transaction(() => {
+        insert.run(
+          'event-1',
+          1,
+          'user_message',
+          JSON.stringify({
+            content: 'Preserve this clarification requirement exactly.',
+            delivery: 'clarification',
+            timestamp: 1
+          }),
+          now
+        )
+        let sequence = 2
+        for (let index = 0; index < 104; index += 1) {
+          const toolCallId = `tool-${index}`
+          insert.run(
+            `event-${sequence}`,
+            sequence,
+            'tool_attempted',
+            JSON.stringify({ requestedToolName: 'search_knowledge' }),
+            now
+          )
+          sequence += 1
+          insert.run(
+            `event-${sequence}`,
+            sequence,
+            'tool_call',
+            JSON.stringify({
+              toolCallId,
+              toolName: 'search_knowledge',
+              contractVersion: 1,
+              args: { query: `private query ${index}` },
+              timestamp: sequence
+            }),
+            now
+          )
+          sequence += 1
+          insert.run(
+            `event-${sequence}`,
+            sequence,
+            'tool_result',
+            JSON.stringify({
+              toolCallId,
+              toolName: 'search_knowledge',
+              contractVersion: 1,
+              isError: false,
+              result: { count: 1, body: `private source ${index}` },
+              error: null,
+              citationIds: [],
+              knowledgeItemIds: [],
+              parseRevisionIds: [],
+              timestamp: sequence
+            }),
+            now
+          )
+          sequence += 1
+        }
+        for (let index = 0; index < 101; index += 1) {
+          insert.run(
+            `event-${sequence}`,
+            sequence,
+            'assistant_message',
+            JSON.stringify(assistantPayload(`Assistant result ${index}`, sequence)),
+            now
+          )
+          sequence += 1
+        }
+        insert.run(
+          `event-${sequence}`,
+          sequence,
+          'run_interrupted',
+          JSON.stringify({ code: 'run_failed' }),
+          now
+        )
+        insert.run(
+          `event-${sequence + 1}`,
+          sequence + 1,
+          'user_message',
+          JSON.stringify({
+            content: 'Recent raw turn',
+            delivery: 'prompt',
+            timestamp: sequence + 1
+          }),
+          now
+        )
+        insert.run(
+          `event-${sequence + 2}`,
+          sequence + 2,
+          'run_completed',
+          JSON.stringify({ outcome: 'finished' }),
+          now
+        )
+      })()
+    })
+    const before = database.immediate((native) =>
+      native.prepare('SELECT type, payload_json FROM agent_events ORDER BY sequence').all()
+    )
+
+    const material = buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
+
+    expect(material).toMatchObject({ sourceEventCount: 415, coveredThroughSequence: 415 })
+    expect(material?.sourcePayloadJson).toContain(
+      'Preserve this clarification requirement exactly.'
+    )
+    expect(material?.sourcePayloadJson).not.toContain('private query')
+    expect(material?.sourcePayloadJson).not.toContain('private source')
+    expect(
+      database.immediate((native) =>
+        native.prepare('SELECT type, payload_json FROM agent_events ORDER BY sequence').all()
+      )
+    ).toEqual(before)
+    database.close()
+  })
+
+  it('rejects a single run beyond the 2,000-event source ceiling without projecting a partial run', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, 'session-1', ?, 'tool_attempted', ?, ?)`
+      )
+      native.transaction(() => {
+        for (let sequence = 1; sequence <= COMPACTION_SOURCE_EVENT_LIMIT; sequence += 1) {
+          insert.run(
+            `event-${sequence}`,
+            sequence,
+            JSON.stringify({ requestedToolName: 'search_knowledge' }),
+            now
+          )
+        }
+        native
+          .prepare(
+            `INSERT INTO agent_events (
+               agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+             ) VALUES (?, 'session-1', ?, 'run_interrupted', ?, ?)`
+          )
+          .run(
+            `event-${COMPACTION_SOURCE_EVENT_LIMIT + 1}`,
+            COMPACTION_SOURCE_EVENT_LIMIT + 1,
+            JSON.stringify({ code: 'run_failed' }),
+            now
+          )
+      })()
+    })
+
+    expect(() =>
+      buildNextCompactionMaterial({
+        database,
+        agentSessionId: 'session-1',
+        excludeRunId: 'active-run'
+      })
+    ).toThrowError(
+      expect.objectContaining<Partial<AgentCompactionSourceLimitError>>({
+        code: 'compaction_run_too_large',
+        reason: 'event_limit'
+      })
+    )
     database.close()
   })
 })

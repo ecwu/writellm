@@ -644,6 +644,20 @@ maintenance without turning the active tracker back into a historical log.
   `v0.2026.8.22` source commit. No push, hosted CI, Apple Developer ID signing, notarization,
   GitHub Release, promotion, or publication ran.
 
+## 2026-08-25
+
+- Accepted ADR 063 and started Checkpoint 71 to replace the fixed 240-event compaction ceiling with
+  bounded complete-run scanning, finalize pathological writing tool loops, and recover exact
+  authorized continuations after early Pi settlement. No migration, release, or hosted action is
+  authorized by this checkpoint.
+- Completed Checkpoint 71 under ADR 063. Compaction now pages safe projections through complete run
+  boundaries with model-budget and 2,000-event fail-closed limits; the 415-event field regression
+  produces continuous v3 material without changing raw history. Runs finalize once without tools
+  after 180 durable events, and Pi continuation loss is recovered once or recorded explicitly.
+  Focused tests, `check:fast`, the 1,131-test full Electron suite, production build, 46/46 fresh
+  E2E, all 27 recovery fixtures, 12/12 packaged smoke, and 33/33 packaged E2E passed. The unsigned
+  local package gate produced structurally verified DMG and ZIP artifacts; no release action ran.
+
 ## 2026-08-24
 
 - Built and prepared the separately authorized local `0.2026.8.24` candidate for the completed

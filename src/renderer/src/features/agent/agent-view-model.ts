@@ -658,6 +658,10 @@ export function agentTerminalLabel(code: string): string {
       return 'Session compaction failed'
     case 'compaction_required':
       return 'Conversation could not be compacted safely'
+    case 'compaction_run_too_large':
+      return 'A conversation run is too large to summarize safely'
+    case 'continuation_lost':
+      return 'Tool continuation could not be resumed safely'
     case 'model_request_start_failed':
       return 'Model request could not be started'
     case 'agent_context_failed':
@@ -683,6 +687,15 @@ export function agentTerminalDetail(code: string): string | null {
       'WriteLLM stopped before dropping an earlier user requirement. Retry Compact, choose a ' +
       'larger-context model, or continue in a new conversation with the requirements you still need.'
     )
+  }
+  if (code === 'compaction_run_too_large') {
+    return (
+      'One complete run exceeds the safe summary limit. Original history was preserved; ' +
+      'start a new conversation and carry forward the requirements you still need.'
+    )
+  }
+  if (code === 'continuation_lost') {
+    return 'WriteLLM stopped instead of marking an authorized but unconsumed model request complete.'
   }
   if (code === 'tool_batch_context_exhausted') {
     return (

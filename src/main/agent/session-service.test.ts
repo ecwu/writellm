@@ -1735,6 +1735,49 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('authorizes exactly one tool-free finalization call after a run reaches 180 events', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const info = vi.fn()
+    const service = createService(database, runtime, undefined, {
+      log: { ...log, info } as never
+    })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Work until the bounded final response.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    for (let index = 0; index < 179; index += 1) {
+      await active.emit({
+        type: 'tool_attempted',
+        modelRequestId: active.input.modelRequestId,
+        toolCallId: `tool-attempt-${index}`,
+        requestedToolName: 'search_knowledge',
+        argsHash: 'a'.repeat(64),
+        argumentShape: 'object',
+        timestamp: index
+      })
+    }
+
+    await active.emit({
+      type: 'model_call_requested',
+      continuationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc474',
+      reason: 'tool_continuation'
+    })
+
+    expect(active.authorizations).toHaveLength(1)
+    expect(active.authorizations[0]).toMatchObject({
+      finalize: true,
+      systemPrompt: expect.stringContaining('final model call')
+    })
+    expect(JSON.stringify(info.mock.calls)).toContain('agent.run.finalization_started')
+    active.reject(workerExitError())
+    await started.completion
+    database.close()
+  })
+
   it('persists and publishes a clarification before waiting, then resumes the same run once', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -2692,6 +2735,82 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('rejects a run above the 2,000-event compaction ceiling without calling the provider', async () => {
+    const database = await createDatabase()
+    const summarizeHistory = vi.fn()
+    const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
+    const session = service.createSession('Oversized source run')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      native.transaction(() => {
+        for (let sequence = 1; sequence <= 2_000; sequence += 1) {
+          insert.run(
+            crypto.randomUUID(),
+            session.agentSessionId,
+            sequence,
+            'tool_attempted',
+            JSON.stringify({ requestedToolName: 'search_knowledge' }),
+            '2026-08-12T00:00:00.000Z'
+          )
+        }
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          2_001,
+          'run_interrupted',
+          JSON.stringify({ code: 'run_failed' }),
+          '2026-08-12T00:00:00.000Z'
+        )
+      })()
+    })
+    const originalCount = database.immediate((native) =>
+      Number(
+        native
+          .prepare('SELECT COUNT(*) FROM agent_events WHERE agent_session_id = ?')
+          .pluck()
+          .get(session.agentSessionId)
+      )
+    )
+
+    await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    const terminal = database.immediate(
+      (native) =>
+        native
+          .prepare(
+            `SELECT type, payload_json
+             FROM agent_events
+            WHERE agent_session_id = ?
+            ORDER BY sequence DESC
+            LIMIT 1`
+          )
+          .get(session.agentSessionId) as { type: string; payload_json: string }
+    )
+    expect(terminal.type).toBe('compaction_failed')
+    expect(JSON.parse(terminal.payload_json)).toMatchObject({
+      code: 'compaction_run_too_large',
+      retryable: false,
+      aborted: false
+    })
+    expect(
+      database.immediate((native) =>
+        Number(
+          native
+            .prepare('SELECT COUNT(*) FROM agent_events WHERE agent_session_id = ?')
+            .pluck()
+            .get(session.agentSessionId)
+        )
+      )
+    ).toBe(originalCount + 2)
+    database.close()
+  })
+
   it('persists every successful rolling step with continuous, non-overlapping coverage', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -2752,10 +2871,10 @@ describe('AgentSessionService', () => {
     const summaries = service
       .listEvents(session.agentSessionId)
       .filter((event) => event.type === 'compaction_summary')
-    expect(summaries).toHaveLength(3)
-    expect(
-      summaries.map((event) => {
-        const payload = event.payload as {
+    expect(summaries).toHaveLength(2)
+    const payloads = summaries.map(
+      (event) =>
+        event.payload as {
           compactionId: string
           coveredFromSequence: number
           coveredThroughSequence: number
@@ -2766,58 +2885,37 @@ describe('AgentSessionService', () => {
           checkpointBudgetTokens: number
           recentTailBudgetTokens: number
         }
-        return {
-          compactionId: payload.compactionId,
-          from: payload.coveredFromSequence,
-          through: payload.coveredThroughSequence,
-          finalStep: payload.finalStep,
-          schemaVersion: payload.schemaVersion,
-          handoffMode: payload.handoffMode,
-          budgets: [
-            payload.postCompactionBudgetTokens,
-            payload.checkpointBudgetTokens,
-            payload.recentTailBudgetTokens
-          ]
-        }
-      })
-    ).toEqual([
-      {
-        compactionId,
-        from: 1,
-        through: 238,
-        finalStep: false,
-        schemaVersion: 3,
-        handoffMode: 'bounded_conversation_memory',
-        budgets: [32_000, 12_000, 20_000]
-      },
-      {
-        compactionId,
-        from: 239,
-        through: 476,
-        finalStep: false,
-        schemaVersion: 3,
-        handoffMode: 'bounded_conversation_memory',
-        budgets: [32_000, 12_000, 20_000]
-      },
-      {
-        compactionId,
-        from: 477,
-        through: 598,
-        finalStep: true,
-        schemaVersion: 3,
-        handoffMode: 'bounded_conversation_memory',
-        budgets: [32_000, 12_000, 20_000]
-      }
-    ])
-    expect(summarizeHistory).toHaveBeenCalledTimes(3)
+    )
+    const firstPayload = payloads[0]
+    const finalPayload = payloads[1]
+    expect(firstPayload).toMatchObject({
+      compactionId,
+      coveredFromSequence: 1,
+      finalStep: false,
+      schemaVersion: 3,
+      handoffMode: 'bounded_conversation_memory',
+      postCompactionBudgetTokens: 32_000,
+      checkpointBudgetTokens: 12_000,
+      recentTailBudgetTokens: 20_000
+    })
+    expect(firstPayload?.coveredThroughSequence).toBeGreaterThan(240)
+    expect(finalPayload).toMatchObject({
+      compactionId,
+      coveredFromSequence: (firstPayload?.coveredThroughSequence ?? 0) + 1,
+      coveredThroughSequence: 598,
+      finalStep: true,
+      schemaVersion: 3,
+      handoffMode: 'bounded_conversation_memory',
+      postCompactionBudgetTokens: 32_000,
+      checkpointBudgetTokens: 12_000,
+      recentTailBudgetTokens: 20_000
+    })
+    expect(summarizeHistory).toHaveBeenCalledTimes(2)
     expect(summarizeHistory.mock.calls.every(([input]) => input.maxOutputTokens === 12_000)).toBe(
       true
     )
     expect(summarizeHistory.mock.calls[1]?.[0].sourcePayloadJson).toContain(
-      'Rolling checkpoint through 238'
-    )
-    expect(summarizeHistory.mock.calls[2]?.[0].sourcePayloadJson).toContain(
-      'Rolling checkpoint through 476'
+      `Rolling checkpoint through ${firstPayload?.coveredThroughSequence}`
     )
     const runtimeHistory = loadContinuousRuntimeHistory(database, session.agentSessionId)
     expect(runtimeHistory[0]).toMatchObject({
@@ -2992,7 +3090,7 @@ describe('AgentSessionService', () => {
           stepIndex: 1,
           finalStep: false,
           coveredFromSequence: 1,
-          coveredThroughSequence: 238
+          coveredThroughSequence: expect.any(Number)
         })
       }),
       expect.objectContaining({
@@ -3000,6 +3098,8 @@ describe('AgentSessionService', () => {
         payload: expect.objectContaining({ compactionId, code: 'compaction_failed' })
       })
     ])
+    const successfulPayload = compactionEvents[0]?.payload as { coveredThroughSequence?: number }
+    expect(successfulPayload.coveredThroughSequence).toBeGreaterThan(240)
     database.close()
   })
 
@@ -3347,7 +3447,12 @@ interface FakeActiveRun {
     modelRequestId: string
     pendingMessageId?: string
   }>
-  authorizations: Array<{ continuationId: string; modelRequestId: string }>
+  authorizations: Array<{
+    continuationId: string
+    modelRequestId: string
+    systemPrompt: string
+    finalize?: boolean
+  }>
   requestTool: (request: AgentToolRequest) => Promise<AgentToolResponse>
   emit: (event: AgentRuntimeEvent) => Promise<void>
   resolve: (outcome?: 'finished' | 'awaiting_review') => void
@@ -3387,7 +3492,7 @@ class FakeAgentRuntime implements AgentSessionRuntime {
       { once: true }
     )
     const commands: FakeActiveRun['commands'] = []
-    const authorizations: Array<{ continuationId: string; modelRequestId: string }> = []
+    const authorizations: FakeActiveRun['authorizations'] = []
     const active = {
       config: _config,
       credential,
@@ -3420,7 +3525,9 @@ class FakeAgentRuntime implements AgentSessionRuntime {
       authorizeModelCall: (command) =>
         authorizations.push({
           continuationId: command.continuationId,
-          modelRequestId: command.modelRequestId
+          modelRequestId: command.modelRequestId,
+          systemPrompt: command.systemPrompt,
+          ...(command.finalize === undefined ? {} : { finalize: command.finalize })
         })
     }
   }

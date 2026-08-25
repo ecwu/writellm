@@ -262,7 +262,8 @@ export const agentModelCallAuthorizationSchema = z
     agentRunId: agentRunIdSchema,
     continuationId: z.uuid(),
     modelRequestId: agentModelRequestIdSchema,
-    systemPrompt: z.string().min(1).max(65_536)
+    systemPrompt: z.string().min(1).max(65_536),
+    finalize: z.boolean().optional()
   })
   .strict()
 
@@ -357,7 +358,9 @@ const agentRuntimeDiagnosticErrorSchema = z
     message: z.string().max(4_096),
     stack: z.string().max(32_768).optional(),
     httpStatus: z.number().int().min(100).max(599).optional(),
-    code: z.enum(['context_overflow', 'tool_batch_context_exhausted']).optional()
+    code: z
+      .enum(['context_overflow', 'tool_batch_context_exhausted', 'continuation_lost'])
+      .optional()
   })
   .strict()
 

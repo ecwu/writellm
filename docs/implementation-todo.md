@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 19 Checkpoint 70 Notebook read-only Agent alignment is complete. Checkpoint 26.9 remains paused
+Status: Phase 20 Checkpoint 71 Agent compaction and tool-loop recovery is complete. Checkpoint 26.9 remains paused
 and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-24
+Recorded: 2026-08-25
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -17,6 +17,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 71: recover complete oversized historical runs, finalize pathological tool loops,
+  and harden model-continuation settlement under ADR 063.
 - [x] Checkpoint 70: align transient Notebook with the shared Pi session runtime, selected-source
   read-only tools, and Agent model/Thinking controls under ADR 062.
 - [x] Checkpoint 69: add Protocol v10 `ask_user`, Main-owned in-run waiting, exact answer IPC, and
@@ -49,6 +51,15 @@ Checkpoint 68 detail: [`implementation-todo/phase-17.md`](implementation-todo/ph
 Checkpoint 69 detail: [`implementation-todo/phase-18.md`](implementation-todo/phase-18.md).
 
 Checkpoint 70 detail: [`implementation-todo/phase-19.md`](implementation-todo/phase-19.md).
+
+Checkpoint 71 detail: [`implementation-todo/phase-20.md`](implementation-todo/phase-20.md).
+
+## Phase 20: Agent Compaction And Tool-Loop Recovery
+
+- [x] Checkpoint 71: bounded complete-run compaction scanning, tool-free finalization, and exact
+  continuation recovery.
+
+Authoritative detail: [`implementation-todo/phase-20.md`](implementation-todo/phase-20.md).
 
 ## Phase 19: Notebook Read-Only Agent Alignment
 
@@ -192,4 +203,5 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 17](implementation-todo/phase-17.md)
 - [Phase 18](implementation-todo/phase-18.md)
 - [Phase 19](implementation-todo/phase-19.md)
+- [Phase 20](implementation-todo/phase-20.md)
 - [Implementation history](history/implementation-log.md)

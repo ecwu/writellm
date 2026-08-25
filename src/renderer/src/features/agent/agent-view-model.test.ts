@@ -1040,6 +1040,12 @@ describe('Agent renderer view model', () => {
     expect(agentTerminalLabel('compaction_required')).toBe(
       'Conversation could not be compacted safely'
     )
+    expect(agentTerminalLabel('compaction_run_too_large')).toBe(
+      'A conversation run is too large to summarize safely'
+    )
+    expect(agentTerminalLabel('continuation_lost')).toBe(
+      'Tool continuation could not be resumed safely'
+    )
     expect(agentTerminalLabel('model_request_start_failed')).toBe(
       'Model request could not be started'
     )
@@ -1062,6 +1068,12 @@ describe('Agent renderer view model', () => {
     )
     expect(agentTerminalDetail('compaction_required')).toBe(
       'WriteLLM stopped before dropping an earlier user requirement. Retry Compact, choose a larger-context model, or continue in a new conversation with the requirements you still need.'
+    )
+    expect(agentTerminalDetail('compaction_run_too_large')).toBe(
+      'One complete run exceeds the safe summary limit. Original history was preserved; start a new conversation and carry forward the requirements you still need.'
+    )
+    expect(agentTerminalDetail('continuation_lost')).toBe(
+      'WriteLLM stopped instead of marking an authorized but unconsumed model request complete.'
     )
     expect(agentTerminalDetail('context_overflow')).toBeNull()
   })

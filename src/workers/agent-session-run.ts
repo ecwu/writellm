@@ -108,6 +108,7 @@ export async function runAgentSession(
     }
   )
   const modelRequestIds = [request.modelRequestId]
+  const authorizedContinuationRequestIds = new Set<string>()
   const systemPromptByModelRequestId = new Map<string, string>()
   interface QueueEntry {
     pendingMessageId: string | null
@@ -193,7 +194,14 @@ export async function runAgentSession(
         pendingModelCallAuthorizations
       )
       modelRequestIds.push(authorization.modelRequestId)
-      return { context: { ...context, systemPrompt: authorization.systemPrompt } }
+      authorizedContinuationRequestIds.add(authorization.modelRequestId)
+      return {
+        context: {
+          ...context,
+          systemPrompt: authorization.systemPrompt,
+          ...(authorization.finalize ? { tools: [] } : {})
+        }
+      }
     },
     beforeToolCall: async ({ assistantMessage, toolCall }) => {
       const allowed = agentToolNameSchema.safeParse(toolCall.name)
@@ -263,6 +271,7 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent provider call has no authorized model request')
       }
+      authorizedContinuationRequestIds.delete(modelRequestId)
       let lastResponseStatus: number | undefined
       let retryAfterMs: number | undefined
       const retrying = createRetryingAgentProviderStream({
@@ -569,6 +578,15 @@ export async function runAgentSession(
   try {
     await agent.prompt(request.prompt)
     await agent.waitForIdle()
+    const promptContextError = contextBudget.terminalError()
+    if (promptContextError !== null) throw promptContextError
+    await recoverAuthorizedContinuation({
+      awaitingReview,
+      pendingAuthorizationCount: () => authorizedContinuationRequestIds.size,
+      continueAgent: () => agent.continue(),
+      waitForIdle: () => agent.waitForIdle(),
+      log
+    })
   } catch (err) {
     runError = err
   } finally {
@@ -710,6 +728,48 @@ class AgentProviderRetriesExhaustedError extends Error {
     super('Agent provider request failed after 5 attempts')
     this.name = 'ProviderRetriesExhaustedError'
     if (status !== undefined) this.status = status
+  }
+}
+
+export class AgentContinuationLostError extends Error {
+  readonly code = 'continuation_lost'
+
+  constructor(cause: unknown) {
+    super('Agent tool continuation could not be consumed', { cause })
+    this.name = 'AgentContinuationLostError'
+  }
+}
+
+export async function recoverAuthorizedContinuation(input: {
+  awaitingReview: boolean
+  pendingAuthorizationCount(): number
+  continueAgent(): Promise<void>
+  waitForIdle(): Promise<void>
+  log?: (
+    level: 'info' | 'warn',
+    event: string,
+    message: string,
+    fields?: Record<string, unknown>
+  ) => void
+}): Promise<void> {
+  const pendingCount = input.pendingAuthorizationCount()
+  if (input.awaitingReview || pendingCount === 0) return
+  input.log?.(
+    'info',
+    'agent.worker.continuation_recovered',
+    'Agent worker resumed a model call whose authorized tool continuation was not consumed',
+    { pendingAuthorizationCount: pendingCount }
+  )
+  try {
+    await input.continueAgent()
+    await input.waitForIdle()
+  } catch (err) {
+    throw new AgentContinuationLostError(err)
+  }
+  if (input.pendingAuthorizationCount() > 0) {
+    throw new AgentContinuationLostError(
+      new Error('Authorized model request remained unconsumed after continuation recovery')
+    )
   }
 }
 

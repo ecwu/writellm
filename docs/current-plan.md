@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 19 Checkpoint 70 Notebook read-only Agent alignment is complete under ADR 062. The
-newest user-authorized local candidate is `v0.2026.8.24`; Checkpoint 26.9 remains paused and all
-GitHub Actions workflows are disabled.
-Recorded: 2026-08-24
+Status: Phase 20 Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. The
+user-authorized `v0.2026.8.25` local App candidate is being prepared; Checkpoint 26.9 remains
+paused and all GitHub Actions workflows are disabled.
+Recorded: 2026-08-25
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -12,6 +12,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 71 is complete. It replaces the fixed compaction event ceiling with bounded
+  complete-run scanning, adds tool-loop finalization and continuation recovery, and preserves raw
+  event authority without a migration.
 - Checkpoint 70 is complete. It moves transient Notebook turns onto the shared Pi session runtime,
   adds selected-source-only Knowledge tool authority, and reuses Agent model/Thinking controls without
   persisting chat content or granting writing authority.
@@ -208,16 +211,15 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
-Checkpoint 70 Notebook read-only Agent alignment is complete under ADR 062. No additional
-checkpoint is authorized.
+Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. No follow-on
+implementation or release work is authorized by that checkpoint.
 BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.24` candidate commit, annotated tag, and no-identity macOS arm64 App build are
-complete. Push of `main` plus the tag is the remaining authorized action. DMG/ZIP creation, hosted
-CI, Apple Developer ID signing, notarization, GitHub Release, promotion, and publication remain
-unauthorized.
+The `v0.2026.8.25` candidate commit, annotated tag, no-identity macOS arm64 App build, and push of
+`main` plus the tag are authorized and in progress. Hosted CI, Apple Developer ID signing,
+notarization, GitHub Release, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
@@ -241,6 +243,7 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 17 Checkpoint 68 is implemented and verified under ADR 060.
 - Phase 18 Checkpoint 69 is implemented and verified under ADR 061.
 - Phase 19 Checkpoint 70 is implemented and verified under ADR 062.
+- Phase 20 Checkpoint 71 is implemented and verified under ADR 063.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

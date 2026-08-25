@@ -1699,6 +1699,7 @@ export function AgentPanel(props: {
               currentRevisionIds={effectiveRevisionIds}
               sectionTitles={props.sectionTitles}
               onProposalAction={proposalAction}
+              onNew={beginNewConversation}
               busy={busy || activeSessionArchived}
             />
           )}
@@ -3894,6 +3895,7 @@ function EventTimeline(props: {
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   busy: boolean
+  onNew(): void
   onProposalAction(
     proposal: MutationProposalRecord,
     action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
@@ -3937,6 +3939,7 @@ function EventTimeline(props: {
                   currentRevisionIds={props.currentRevisionIds}
                   sectionTitles={props.sectionTitles}
                   onProposalAction={props.onProposalAction}
+                  onNew={props.onNew}
                 />
               </MessageScrollerItem>
             ))}
@@ -3977,6 +3980,7 @@ function TimelineItem(props: {
   runs: AgentRunRecord[]
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
+  onNew(): void
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   onProposalAction(
@@ -4132,14 +4136,26 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'compaction_failed') {
+    const sourceTooLarge = item.payload.code === 'compaction_run_too_large'
     return (
       <Marker role='status'>
         <MarkerIcon>
           {item.payload.aborted ? <CircleStop /> : <AlertCircle className='text-destructive' />}
         </MarkerIcon>
-        <MarkerContent>
-          {item.payload.aborted ? 'Conversation summary stopped' : 'Conversation summary failed'}
-          {item.payload.retryable ? ' · original history preserved' : ''}
+        <MarkerContent className='flex flex-col items-start gap-2'>
+          <span>
+            {item.payload.aborted
+              ? 'Conversation summary stopped'
+              : sourceTooLarge
+                ? 'A complete run is too large to summarize safely'
+                : 'Conversation summary failed'}{' '}
+            · original history preserved
+          </span>
+          {sourceTooLarge ? (
+            <Button variant='outline' size='sm' onClick={props.onNew}>
+              <MessageSquarePlus /> New conversation
+            </Button>
+          ) : null}
         </MarkerContent>
       </Marker>
     )

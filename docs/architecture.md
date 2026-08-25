@@ -1140,7 +1140,9 @@ budget is the smaller of 32,000 tokens or half the conversation budget; at its m
 12,000 tokens for a bounded writing handoff and 20,000 tokens for recent complete raw turns.
 User and terminal assistant messages enter compaction verbatim, while tool data remains a safe
 typed projection. Automatic and manual work share this tail-preserving policy and remain limited
-to four and eight steps respectively.
+to four and eight steps respectively. Source selection scans safe projections in bounded pages to
+the next complete run boundary, subject to the calculated provider input budget and a 2,000-event
+absolute ceiling; it does not split a run merely because that run crosses a page boundary.
 
 Payload-v3 handoffs are conversation memory rather than manuscript, evidence, proposal, approval,
 or mutation authority. Application policy preserves their recorded user requirements and
@@ -1159,6 +1161,10 @@ newest read batch alone is too large, the ordinary Pi loop receives one typed re
 sequential read. A second oversized batch terminates as `tool_batch_context_exhausted` before
 another provider call, without replaying any mutation or side effect. The full runtime transcript
 and durable events remain unchanged; successful recovery is structured-log-only. See ADR 046.
+
+A writing run that reaches 180 durable events at a tool-continuation boundary receives one final
+tool-free model call. The Worker must consume every Main-authorized continuation before successful
+settlement and may resume once from the final tool result when Pi settles early. See ADR 063.
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 

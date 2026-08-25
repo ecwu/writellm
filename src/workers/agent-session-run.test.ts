@@ -5,7 +5,11 @@ import {
   AgentCurrentTurnTooLargeError,
   boundAgentContextByTokens
 } from '../shared/agent-context-budget'
-import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
+import {
+  recoverAuthorizedContinuation,
+  runAgentSession,
+  type AgentSessionRunControl
+} from './agent-session-run'
 
 const request: AgentRunStart = {
   operation: 'run_start',
@@ -85,6 +89,37 @@ afterEach(() => {
 })
 
 describe('runAgentSession', () => {
+  it('recovers one authorized continuation or fails explicitly when Pi cannot consume it', async () => {
+    let pending = 1
+    const recoveredLog = vi.fn()
+    await expect(
+      recoverAuthorizedContinuation({
+        awaitingReview: false,
+        pendingAuthorizationCount: () => pending,
+        continueAgent: async () => {
+          pending = 0
+        },
+        waitForIdle: async () => undefined,
+        log: recoveredLog
+      })
+    ).resolves.toBeUndefined()
+    expect(recoveredLog).toHaveBeenCalledWith(
+      'info',
+      'agent.worker.continuation_recovered',
+      expect.any(String),
+      { pendingAuthorizationCount: 1 }
+    )
+
+    await expect(
+      recoverAuthorizedContinuation({
+        awaitingReview: false,
+        pendingAuthorizationCount: () => 1,
+        continueAgent: async () => undefined,
+        waitForIdle: async () => undefined
+      })
+    ).rejects.toMatchObject({ code: 'continuation_lost' })
+  })
+
   it('keeps complete recent turns and rejects an oversized current turn without string truncation', () => {
     const messages = Array.from({ length: 101 }, (_, index) => ({
       role: 'user' as const,
@@ -461,6 +496,67 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies[1])).toContain('<UNTRUSTED_EXTERNAL')
     expect(bodies.map((body) => body.reasoning_effort)).toEqual(['high', 'high'])
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
+  })
+
+  it('removes tools from a finalization authorization and returns a terminal assistant answer', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        fetchAttempt += 1
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-final', 'search_knowledge', { query: 'final evidence' })
+          : completionResponse('Best available final answer', 'response-finalized')
+      })
+    )
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: { mode: 'fts', rerankStatus: 'disabled', hits: [knowledgeHit()] }
+      })
+    })
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type !== 'model_call_requested') return
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
+          systemPrompt: 'Return the best result and unfinished items now.',
+          finalize: true
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(bodies[0]?.tools).toBeDefined()
+    expect(bodies[1]?.tools).toEqual([])
+    expect(JSON.stringify(bodies[1]?.messages)).toContain('final evidence')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        message: expect.objectContaining({ content: 'Best available final answer' })
+      })
+    )
   })
 
   it('uses one Pi tool-loop turn to recover an oversized active read with a smaller read', async () => {

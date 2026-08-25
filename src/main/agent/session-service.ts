@@ -121,6 +121,7 @@ import {
 } from './context-planner'
 import type { ProjectInteractiveModelLimiter } from './project-interactive-model-limiter'
 import {
+  AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
   latestSuccessfulCheckpoint,
   loadContinuousRuntimeHistory,
@@ -131,6 +132,9 @@ import {
 const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 const SESSION_TITLE_OUTPUT_TOKENS = 64
 const SESSION_TITLE_REASONING_OUTPUT_TOKENS = 512
+const AGENT_RUN_FINALIZATION_EVENT_THRESHOLD = 180
+const AGENT_FINALIZATION_INSTRUCTION =
+  'This is the final model call for this run. No tools are available. Return the best complete answer you can now, including the evidence already gathered and any unfinished items. Do not claim unfinished work is complete.'
 
 export interface StartedAgentRun {
   agentRunId: string
@@ -166,6 +170,7 @@ interface ActiveRun {
   reviewPause: { proposalId: string; kind: string } | null
   pendingQuestion: PendingUserQuestion | null
   overflowRetryAttempted: boolean
+  finalizationStarted: boolean
   completion: Promise<void>
 }
 
@@ -942,6 +947,7 @@ export class AgentSessionService {
             reviewPause: null,
             pendingQuestion: null,
             overflowRetryAttempted: false,
+            finalizationStarted: false,
             completion: Promise.resolve()
           }
           let markPrepared: () => void = () => undefined
@@ -1145,7 +1151,7 @@ export class AgentSessionService {
           : err instanceof AgentCurrentTurnTooLargeError
             ? 'current_turn_too_large'
             : err instanceof AgentCompactionRequiredError
-              ? 'compaction_required'
+              ? err.code
               : 'agent_context_failed',
         err
       )
@@ -1542,7 +1548,14 @@ export class AgentSessionService {
     this.#assertCompatibleSession(agentSessionId)
     this.#assertSessionIdle(agentSessionId, 'compressing earlier conversation')
     this.#assertConversationReady(agentSessionId)
-    if (buildNextCompactionMaterial({ database: this.options.database, agentSessionId }) === null) {
+    let hasCompactionCandidate = true
+    try {
+      hasCompactionCandidate =
+        buildNextCompactionMaterial({ database: this.options.database, agentSessionId }) !== null
+    } catch (err) {
+      if (!(err instanceof AgentCompactionSourceLimitError)) throw err
+    }
+    if (!hasCompactionCandidate) {
       throw new Error('This conversation does not yet have an earlier completed turn to compress')
     }
     const compactionId = this.#createId()
@@ -1639,8 +1652,7 @@ export class AgentSessionService {
         agentRunId: null,
         compactionId: active.compactionId,
         trigger: 'manual',
-        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
-        retryable: !active.controller.signal.aborted,
+        ...compactionFailurePayload(err, active.controller.signal.aborted),
         aborted: active.controller.signal.aborted
       })
     }
@@ -2146,6 +2158,20 @@ export class AgentSessionService {
         ? active.controller.signal.reason
         : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
     }
+    if (active.finalizationStarted) {
+      throw new AgentRunContinuationLostError(
+        new Error('Agent requested another tool continuation after finalization started')
+      )
+    }
+    const eventCount = Number(
+      this.options.database.immediate((database) =>
+        database
+          .prepare('SELECT COUNT(*) FROM agent_events WHERE agent_run_id = ?')
+          .pluck()
+          .get(active.agentRunId)
+      )
+    )
+    const finalize = eventCount >= AGENT_RUN_FINALIZATION_EVENT_THRESHOLD
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -2182,13 +2208,31 @@ export class AgentSessionService {
         active.snapshots.set(modelRequestId, refreshedContext.snapshot)
         active.systemPrompt = refreshedContext.systemPrompt
       }
+      const baseSystemPrompt = refreshedContext?.systemPrompt ?? active.systemPrompt
+      const systemPrompt = finalize
+        ? `${baseSystemPrompt.slice(0, 65_536 - AGENT_FINALIZATION_INSTRUCTION.length - 2)}\n\n${AGENT_FINALIZATION_INSTRUCTION}`
+        : baseSystemPrompt
+      if (finalize) {
+        active.finalizationStarted = true
+        this.options.log.info(
+          {
+            event: 'agent.run.finalization_started',
+            agentRunId: active.agentRunId,
+            modelRequestId,
+            continuationId,
+            eventCount
+          },
+          'Agent run reached its event limit and started a final tool-free model call'
+        )
+      }
       handle.authorizeModelCall({
         projectSessionId: this.options.projectSessionId,
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         continuationId,
         modelRequestId,
-        systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
+        systemPrompt,
+        finalize
       })
       this.options.log.info(
         {
@@ -2615,7 +2659,9 @@ export class AgentSessionService {
         return
       }
       if (active.pendingModelRequestIds.size > 0) {
-        throw new Error('Agent run completed with unfinished model requests')
+        throw new AgentRunContinuationLostError(
+          new Error('Agent run completed with authorized model requests that were not consumed')
+        )
       }
       if (
         active.skillState !== null &&
@@ -2812,8 +2858,7 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         compactionId,
         trigger: 'provider_overflow',
-        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
-        retryable: !active.controller.signal.aborted,
+        ...compactionFailurePayload(err, active.controller.signal.aborted),
         aborted: active.controller.signal.aborted
       })
       throw err
@@ -3667,8 +3712,7 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         compactionId,
         trigger: 'auto_threshold',
-        code: active.controller.signal.aborted ? 'aborted' : 'compaction_failed',
-        retryable: !active.controller.signal.aborted,
+        ...compactionFailurePayload(err, active.controller.signal.aborted),
         aborted: active.controller.signal.aborted
       })
       if (active.controller.signal.aborted) throw err
@@ -3725,12 +3769,30 @@ export class AgentSessionService {
     let completedSteps = 0
     for (let stepIndex = 1; stepIndex <= input.maxSteps; stepIndex += 1) {
       input.signal.throwIfAborted()
-      const material = buildNextCompactionMaterial({
-        database: this.options.database,
-        agentSessionId: input.agentSessionId,
-        ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
-        sourceTokenBudget
-      })
+      let material: ReturnType<typeof buildNextCompactionMaterial>
+      try {
+        material = buildNextCompactionMaterial({
+          database: this.options.database,
+          agentSessionId: input.agentSessionId,
+          ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
+          sourceTokenBudget
+        })
+      } catch (err) {
+        if (err instanceof AgentCompactionSourceLimitError) {
+          this.options.log.warn(
+            {
+              event: 'agent.compaction.source_limit_rejected',
+              err,
+              agentRunId: input.agentRunId,
+              compactionId: input.compactionId,
+              reason: err.reason
+            },
+            'Agent compaction rejected a source run that cannot be summarized atomically'
+          )
+          throw new AgentCompactionRequiredError(err)
+        }
+        throw err
+      }
       if (material === null) {
         const remaining = loadContinuousRuntimeHistory(
           this.options.database,
@@ -4155,6 +4217,8 @@ type AgentRunTermination =
         | 'context_overflow'
         | 'context_overflow_after_activity'
         | 'compaction_required'
+        | 'compaction_run_too_large'
+        | 'continuation_lost'
         | 'tool_batch_context_exhausted'
         | 'skill_request_unfulfilled'
         | 'run_failed'
@@ -4202,11 +4266,23 @@ class AgentSkillPreparationError extends Error {
 }
 
 class AgentCompactionRequiredError extends Error {
-  readonly code = 'compaction_required'
+  readonly code: 'compaction_required' | 'compaction_run_too_large'
 
   constructor(cause: unknown) {
     super('Conversation history could not be compacted without losing user requirements', { cause })
     this.name = 'AgentCompactionRequiredError'
+    this.code = hasErrorCode(cause, 'compaction_run_too_large')
+      ? 'compaction_run_too_large'
+      : 'compaction_required'
+  }
+}
+
+class AgentRunContinuationLostError extends Error {
+  readonly code = 'continuation_lost'
+
+  constructor(cause: unknown) {
+    super('Agent tool continuation could not be resumed safely', { cause })
+    this.name = 'AgentRunContinuationLostError'
   }
 }
 
@@ -4225,6 +4301,9 @@ function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRunTermin
   }
   if (error instanceof AgentCompactionRequiredError) {
     return { status: 'failed', code: error.code }
+  }
+  if (error instanceof AgentRunContinuationLostError || hasErrorCode(error, 'continuation_lost')) {
+    return { status: 'failed', code: 'continuation_lost' }
   }
   if (error instanceof AgentSkillPreparationError) {
     return { status: 'failed', code: error.code }
@@ -4250,6 +4329,17 @@ function hasErrorCode(error: unknown, expected: string, depth = 0): boolean {
   if (depth > 6 || error === null || typeof error !== 'object') return false
   const candidate = error as { code?: unknown; cause?: unknown }
   return candidate.code === expected || hasErrorCode(candidate.cause, expected, depth + 1)
+}
+
+function compactionFailurePayload(
+  error: unknown,
+  aborted: boolean
+): { code: string; retryable: boolean } {
+  if (aborted) return { code: 'aborted', retryable: false }
+  if (hasErrorCode(error, 'compaction_run_too_large')) {
+    return { code: 'compaction_run_too_large', retryable: false }
+  }
+  return { code: 'compaction_failed', retryable: true }
 }
 
 function isContextOverflowError(error: unknown, depth = 0): boolean {
