@@ -1,8 +1,8 @@
 # WriteLLM Current Plan
 
 Status: Phase 20 Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. The
-user-authorized `v0.2026.8.25` local App candidate is being prepared; Checkpoint 26.9 remains
-paused and all GitHub Actions workflows are disabled.
+newest user-authorized local candidate is `v0.2026.8.25`; Checkpoint 26.9 remains paused and all
+GitHub Actions workflows are disabled.
 Recorded: 2026-08-25
 
 This file records only active delivery state. Long-lived system rules live in
@@ -209,6 +209,14 @@ or failed scenario. It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from t
 `v0.2026.8.24` source commit `bc6227a`. No DMG, ZIP, hosted CI run, Apple Developer ID signing,
 notarization, GitHub Release, promotion, or publication ran.
 
+The separately authorized local `0.2026.8.25` candidate snapshots the completed Checkpoint 71 on
+top of the existing baseline. Its no-identity macOS arm64 unpacked package gate verified Electron
+43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25
+sources, all 12 packaged smoke scenarios, and 33/33 packaged E2E scenarios with no flaky, skipped,
+or failed scenario. It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
+`v0.2026.8.25` source commit `456e837`. No DMG, ZIP, hosted CI run, Apple Developer ID signing,
+notarization, GitHub Release, promotion, or publication ran.
+
 ## Current authorized work
 
 Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. No follow-on
@@ -217,9 +225,10 @@ BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.25` candidate commit, annotated tag, no-identity macOS arm64 App build, and push of
-`main` plus the tag are authorized and in progress. Hosted CI, Apple Developer ID signing,
-notarization, GitHub Release, promotion, and publication remain unauthorized.
+The `v0.2026.8.25` candidate commit, annotated tag, and no-identity macOS arm64 App build are
+complete. Push of `main` plus the tag is the remaining authorized action. DMG/ZIP creation, hosted
+CI, Apple Developer ID signing, notarization, GitHub Release, promotion, and publication remain
+unauthorized.
 
 ## Paused delivery gate
 

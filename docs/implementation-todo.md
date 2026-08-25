@@ -140,6 +140,9 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 
 ## Completed delivery milestones
 
+- [x] Local no-identity candidate `v0.2026.8.25` for the completed Checkpoint 71 baseline; the
+  annotated tag and verified unpacked macOS arm64 App are prepared for the explicitly authorized
+  push of `main` and the tag.
 - [x] Local no-identity candidate `v0.2026.8.24` for the completed Checkpoint 70 baseline; the
   annotated tag and verified unpacked macOS arm64 App are prepared for the explicitly authorized
   push of `main` and the tag.

@@ -646,6 +646,15 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-25
 
+- Built and prepared the separately authorized local `0.2026.8.25` candidate for the completed
+  Checkpoint 71 baseline. Release metadata advanced, and the protected Agent recovery source digest
+  was refreshed after its compaction and continuation fixture changed. The no-identity macOS arm64
+  unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR
+  entries, all 27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 33/33
+  packaged E2E scenarios with no flaky, skipped, or failed scenario. It produced
+  `dist/macos-arm64/mac-arm64/WriteLLM.app` from clean annotated source commit `456e837`. No DMG,
+  ZIP, hosted CI, Apple Developer ID signing, notarization, GitHub Release, promotion, or
+  publication ran.
 - Accepted ADR 063 and started Checkpoint 71 to replace the fixed 240-event compaction ceiling with
   bounded complete-run scanning, finalize pathological writing tool loops, and recover exact
   authorized continuations after early Pi settlement. No migration, release, or hosted action is
