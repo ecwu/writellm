@@ -646,6 +646,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-25
 
+- Accepted ADR 064 and completed Checkpoint 72. Compaction now treats re-readable writing-tool
+  bodies as disposable observations, retains exhaustive typed continuation facts, deduplicates
+  Knowledge revisions and used citations, and validates the final escaped prompt character and
+  token budgets before provider work. Superseded compaction failures no longer remain active in
+  the Renderer. The 415-event / 1.5 MB field-scale fixture, 104 focused tests, `check:fast`, the
+  1,137-test full Electron suite, production build, and fresh 46/46 Real-Electron E2E manifest
+  passed. Raw events and payload-v3 compatibility remain unchanged; no package, release, commit,
+  tag, push, signing, or publication action ran.
 - Built and prepared the separately authorized local `0.2026.8.25` candidate for the completed
   Checkpoint 71 baseline. Release metadata advanced, and the protected Agent recovery source digest
   was refreshed after its compaction and continuation fixture changed. The no-identity macOS arm64

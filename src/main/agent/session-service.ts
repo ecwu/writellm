@@ -3809,7 +3809,23 @@ export class AgentSessionService {
           new Error('No complete historical turn fits the compaction model input budget')
         )
       }
-      const estimatedTokensBefore = estimateAgentTokens(material.sourcePayloadJson)
+      const estimatedTokensBefore = material.estimatedPromptTokens
+      this.options.log.info(
+        {
+          event: 'agent.compaction.projection_completed',
+          agentRunId: input.agentRunId,
+          compactionId: input.compactionId,
+          stepIndex,
+          sourceEventCount: material.sourceEventCount,
+          rawPayloadBytes: material.sourcePayloadBytes,
+          projectedPromptCharacters: material.projectedPromptCharacters,
+          estimatedPromptTokens: material.estimatedPromptTokens,
+          discardedObservationCharacters: material.discardedObservationCharacters,
+          deduplicatedObservationCount: material.deduplicatedObservationCount,
+          retainedContinuationFactCount: material.retainedContinuationFactCount
+        },
+        'Projected bounded writing continuation facts for Agent compaction'
+      )
       const summarized = await summarize({
         agentSessionId: input.agentSessionId,
         agentRunId: input.agentRunId,

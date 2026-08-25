@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 062
-Recorded: 2026-07-31; amended through 2026-08-24
+Status: accepted implementation baseline, amended through accepted ADR 064
+Recorded: 2026-07-31; amended through 2026-08-25
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -1139,10 +1139,16 @@ run/turn boundaries and persists each successful step immediately. The post-comp
 budget is the smaller of 32,000 tokens or half the conversation budget; at its maximum it reserves
 12,000 tokens for a bounded writing handoff and 20,000 tokens for recent complete raw turns.
 User and terminal assistant messages enter compaction verbatim, while tool data remains a safe
-typed projection. Automatic and manual work share this tail-preserving policy and remain limited
+typed projection. Re-readable Knowledge, manuscript, Writing Skill, review, task, and proposal
+tool bodies are never compaction memory: an exhaustive per-tool policy retains only deduplicated
+identity, freshness, outcome, and safe error facts, while current authority is reread before use.
+Intermediate tool-use narration and duplicate tool outcomes do not enter the summary request.
+Automatic and manual work share this tail-preserving policy and remain limited
 to four and eight steps respectively. Source selection scans safe projections in bounded pages to
 the next complete run boundary, subject to the calculated provider input budget and a 2,000-event
-absolute ceiling; it does not split a run merely because that run crosses a page boundary.
+absolute ceiling; it does not split checkpoint coverage merely because a run crosses a page
+boundary. Final escaped prompt characters and system-plus-prompt tokens are checked before any
+provider call. See ADR 064.
 
 Payload-v3 handoffs are conversation memory rather than manuscript, evidence, proposal, approval,
 or mutation authority. Application policy preserves their recorded user requirements and

@@ -1016,6 +1016,56 @@ describe('Agent renderer view model', () => {
     })
   })
 
+  it('hides a compaction failure after a later successful checkpoint recovers the conversation', () => {
+    const failedCompactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc500'
+    const successfulCompactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc501'
+    const timeline = projectAgentTimeline([
+      {
+        ...record(1, 'compaction_failed', {
+          schemaVersion: 2,
+          compactionId: failedCompactionId,
+          trigger: 'auto_threshold',
+          code: 'compaction_failed',
+          retryable: true,
+          aborted: false,
+          timestamp: 1
+        }),
+        agentRunId: null,
+        modelRequestId: null
+      },
+      {
+        ...record(2, 'compaction_summary', {
+          schemaVersion: 3,
+          handoffMode: 'bounded_conversation_memory',
+          compactionId: successfulCompactionId,
+          trigger: 'auto_threshold',
+          stepIndex: 1,
+          finalStep: true,
+          previousCheckpointEventId: null,
+          coveredFromSequence: 1,
+          coveredThroughSequence: 10,
+          summary: 'Recovered checkpoint.',
+          proposalOutcomes: [],
+          approvalDecisions: [],
+          citationIds: [],
+          toolOutcomes: [],
+          estimatedTokensBefore: 100,
+          estimatedTokensAfter: 20,
+          checkpointTokens: 10,
+          tailTokens: 10,
+          postCompactionBudgetTokens: 32_000,
+          checkpointBudgetTokens: 12_000,
+          recentTailBudgetTokens: 20_000,
+          timestamp: 2
+        }),
+        agentRunId: null,
+        modelRequestId: null
+      }
+    ])
+
+    expect(timeline.map((item) => item.type)).toEqual(['compaction_summary'])
+  })
+
   it('labels every Main-emitted terminal code instead of falling back to interrupted', () => {
     expect(agentTerminalLabel('provider_timeout')).toBe('Provider request timed out')
     expect(agentTerminalLabel('provider_retries_exhausted')).toBe(

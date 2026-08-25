@@ -3,11 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
+import { AGENT_RUN_PROMPT_MAX_CHARACTERS } from '../../shared/contracts/agent'
+import { agentToolNameSchema } from '../../shared/contracts/agent-tools'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import {
   type AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
   COMPACTION_SOURCE_EVENT_LIMIT,
+  COMPACTION_TOOL_POLICIES,
   latestSuccessfulCheckpoint,
   loadContinuousRuntimeHistory
 } from './context-checkpoint'
@@ -52,8 +55,16 @@ describe('Agent context checkpoints', () => {
       contractVersion: 1,
       isError: false,
       result: {
-        title: 'Evidence title',
-        count: 1,
+        mode: 'hybrid',
+        rerankStatus: 'applied',
+        hits: [
+          {
+            citationId,
+            knowledgeItemId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+            parseRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+            title: 'Evidence title'
+          }
+        ],
         body: `source body must not enter checkpoint ${'private source'.repeat(10_000)}`,
         credential: 'agent-secret'
       },
@@ -88,7 +99,7 @@ describe('Agent context checkpoints', () => {
     expect(material).toMatchObject({
       coveredFromSequence: 1,
       coveredThroughSequence: 5,
-      citationIds: [citationId]
+      citationIds: []
     })
     const sourcePayloadJson = material?.sourcePayloadJson ?? ''
     expect(sourcePayloadJson).toContain('"authority":"events-and-current-business-rows"')
@@ -99,14 +110,14 @@ describe('Agent context checkpoints', () => {
     expect(sourcePayloadJson).toContain('Draft & <tag>')
     expect(sourcePayloadJson).toContain(exactMiddleRequirement)
     const source = JSON.parse(sourcePayloadJson) as {
-      events: Array<{ type: string; content?: unknown }>
+      conversation: Array<{ type: string; content?: unknown }>
     }
-    expect(source.events.find((event) => event.type === 'user_message')?.content).toEqual(
+    expect(source.conversation.find((event) => event.type === 'user_message')?.content).toEqual(
       expect.stringContaining(exactMiddleRequirement)
     )
-    expect(source.events.find((event) => event.type === 'assistant_message')?.content).toEqual(
-      expect.stringContaining(exactAssistantMiddle)
-    )
+    expect(
+      source.conversation.find((event) => event.type === 'assistant_message')?.content
+    ).toEqual(expect.stringContaining(exactAssistantMiddle))
     expect(sourcePayloadJson).toContain('Evidence title')
     expect(sourcePayloadJson).not.toContain('source body must not enter checkpoint')
     expect(sourcePayloadJson).not.toContain('private query must not be retained')
@@ -121,6 +132,12 @@ describe('Agent context checkpoints', () => {
     expect(prompt).not.toContain('&amp;amp;')
     expect(prompt).not.toContain('&amp;lt;')
     database.close()
+  })
+
+  it('defines an explicit compaction policy for every current Agent tool', () => {
+    expect(Object.keys(COMPACTION_TOOL_POLICIES).sort()).toEqual(
+      [...agentToolNameSchema.options].sort()
+    )
   })
 
   it('loads the latest successful checkpoint plus every later user and assistant turn continuously', async () => {
@@ -246,6 +263,151 @@ describe('Agent context checkpoints', () => {
     database.close()
   })
 
+  it('drops intermediate narration and re-readable manuscript, section, and Skill bodies', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    insertEvent(database, 1, 'user_message', {
+      content: 'Continue the revision.',
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'assistant_message', {
+      ...assistantPayload('PRIVATE TOOL NARRATION', 2),
+      stopReason: 'toolUse'
+    })
+    insertEvent(database, 3, 'tool_call', {
+      toolCallId: 'section-1',
+      toolName: 'read_section',
+      contractVersion: 10,
+      args: {
+        sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+        view: 'summary'
+      },
+      timestamp: 3
+    })
+    insertEvent(database, 4, 'tool_result', {
+      toolCallId: 'section-1',
+      toolName: 'read_section',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        section: {
+          sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+          title: 'Results',
+          currentRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+        },
+        revisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+        blocks: [
+          {
+            blockId: 'block-1',
+            blockHash: 'a'.repeat(64),
+            blockType: 'paragraph',
+            text: 'PRIVATE SECTION BODY',
+            textTruncated: false
+          }
+        ],
+        canonicalBlock: { content: 'PRIVATE CANONICAL BLOCK' },
+        canonicalFragment: 'PRIVATE SECTION FRAGMENT',
+        totalBlocks: 1,
+        missingBlockIds: [],
+        nextCursor: null,
+        nextFragmentOffset: null
+      },
+      error: null,
+      citationIds: [],
+      knowledgeItemIds: [],
+      parseRevisionIds: [],
+      timestamp: 4
+    })
+    insertEvent(database, 5, 'tool_call', {
+      toolCallId: 'manuscript-1',
+      toolName: 'search_manuscript',
+      contractVersion: 10,
+      args: { query: 'PRIVATE MANUSCRIPT QUERY', sectionIds: [], limit: 20 },
+      timestamp: 5
+    })
+    insertEvent(database, 6, 'tool_result', {
+      toolCallId: 'manuscript-1',
+      toolName: 'search_manuscript',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        snapshotId: '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
+        hits: [
+          {
+            sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+            revisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+            blockId: 'block-1',
+            excerpt: 'PRIVATE MANUSCRIPT EXCERPT'
+          }
+        ],
+        nextCursor: null
+      },
+      error: null,
+      citationIds: [],
+      knowledgeItemIds: [],
+      parseRevisionIds: [],
+      timestamp: 6
+    })
+    insertEvent(database, 7, 'tool_call', {
+      toolCallId: 'skill-1',
+      toolName: 'read_writing_skill',
+      contractVersion: 10,
+      args: { uri: 'writellm://skills/example/SKILL.md' },
+      timestamp: 7
+    })
+    insertEvent(database, 8, 'tool_result', {
+      toolCallId: 'skill-1',
+      toolName: 'read_writing_skill',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        skillId: 'example',
+        displayName: '/Users/private/skill',
+        commit: 'b'.repeat(40),
+        relativePath: 'SKILL.md',
+        sha256: 'c'.repeat(64),
+        byteSize: 100,
+        content: 'PRIVATE SKILL BODY',
+        references: [],
+        dependencies: []
+      },
+      error: null,
+      citationIds: [],
+      knowledgeItemIds: [],
+      parseRevisionIds: [],
+      timestamp: 8
+    })
+    insertEvent(database, 9, 'assistant_message', assistantPayload('Terminal answer.', 9))
+    insertEvent(database, 10, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 11, 'user_message', {
+      content: 'Recent turn',
+      delivery: 'prompt',
+      timestamp: 11
+    })
+    insertEvent(database, 12, 'run_completed', { outcome: 'finished' })
+
+    const source =
+      buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })?.sourcePayloadJson ??
+      ''
+    for (const secret of [
+      'PRIVATE TOOL NARRATION',
+      'PRIVATE SECTION BODY',
+      'PRIVATE CANONICAL BLOCK',
+      'PRIVATE SECTION FRAGMENT',
+      'PRIVATE MANUSCRIPT QUERY',
+      'PRIVATE MANUSCRIPT EXCERPT',
+      'PRIVATE SKILL BODY',
+      '/Users/private/skill'
+    ]) {
+      expect(source).not.toContain(secret)
+    }
+    expect(source).toContain('Terminal answer.')
+    expect(source).toContain('block-1')
+    expect(source).toContain('writellm://skills/example/SKILL.md')
+    database.close()
+  })
+
   it('loads only v3 checkpoints as bounded conversation memory', async () => {
     const database = await createDatabase()
     insertSession(database)
@@ -361,6 +523,33 @@ describe('Agent context checkpoints', () => {
     database.close()
   })
 
+  it('rejects a complete run when the final escaped prompt exceeds the Agent character contract', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    insertEvent(database, 1, 'user_message', {
+      content: `<${'x'.repeat(262_140)}>`,
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 3, 'user_message', {
+      content: 'Keep this recent turn raw.',
+      delivery: 'prompt',
+      timestamp: 3
+    })
+    insertEvent(database, 4, 'run_completed', { outcome: 'finished' })
+
+    expect(() =>
+      buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
+    ).toThrowError(
+      expect.objectContaining<Partial<AgentCompactionSourceLimitError>>({
+        code: 'compaction_run_too_large',
+        reason: 'prompt_character_limit'
+      })
+    )
+    database.close()
+  })
+
   it('projects the complete 415-event failed run from the reported regression without changing raw events', async () => {
     const database = await createDatabase()
     insertSession(database)
@@ -416,7 +605,7 @@ describe('Agent context checkpoints', () => {
               toolName: 'search_knowledge',
               contractVersion: 1,
               isError: false,
-              result: { count: 1, body: `private source ${index}` },
+              result: { count: 1, body: `private source ${index} ${'x'.repeat(16_000)}` },
               error: null,
               citationIds: [],
               knowledgeItemIds: [],
@@ -471,6 +660,8 @@ describe('Agent context checkpoints', () => {
     const material = buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
 
     expect(material).toMatchObject({ sourceEventCount: 415, coveredThroughSequence: 415 })
+    expect(material?.sourcePayloadBytes).toBeGreaterThan(1_500_000)
+    expect(material?.projectedPromptCharacters).toBeLessThanOrEqual(AGENT_RUN_PROMPT_MAX_CHARACTERS)
     expect(material?.sourcePayloadJson).toContain(
       'Preserve this clarification requirement exactly.'
     )
@@ -481,6 +672,110 @@ describe('Agent context checkpoints', () => {
         native.prepare('SELECT type, payload_json FROM agent_events ORDER BY sequence').all()
       )
     ).toEqual(before)
+    database.close()
+  })
+
+  it('deduplicates Knowledge revisions and retains only expanded citation IDs', async () => {
+    const database = await createDatabase()
+    insertSession(database)
+    const knowledgeItemId = '019c6a5c-8d34-7a8e-a602-3d37a52dc421'
+    const parseRevisionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+    const candidateCitationId = `citation-${'b'.repeat(40)}`
+    insertEvent(database, 1, 'user_message', {
+      content: 'Use verified evidence.',
+      delivery: 'prompt',
+      timestamp: 1
+    })
+    insertEvent(database, 2, 'tool_call', {
+      toolCallId: 'search-1',
+      toolName: 'search_knowledge',
+      contractVersion: 10,
+      args: { query: 'PRIVATE QUERY', knowledgeItemIds: [], parseRevisionIds: [], limit: 10 },
+      timestamp: 2
+    })
+    insertEvent(database, 3, 'tool_result', {
+      toolCallId: 'search-1',
+      toolName: 'search_knowledge',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        mode: 'hybrid',
+        rerankStatus: 'applied',
+        hits: [
+          {
+            citationId: candidateCitationId,
+            knowledgeItemId,
+            parseRevisionId,
+            chunkId: `chunk-${'c'.repeat(40)}`,
+            title: 'Canonical source',
+            snippet: 'PRIVATE SNIPPET',
+            headingPath: [],
+            sourceBlockIds: []
+          }
+        ]
+      },
+      error: null,
+      citationIds: [candidateCitationId],
+      knowledgeItemIds: [knowledgeItemId],
+      parseRevisionIds: [parseRevisionId],
+      timestamp: 3
+    })
+    insertEvent(database, 4, 'tool_call', {
+      toolCallId: 'read-1',
+      toolName: 'read_citations',
+      contractVersion: 10,
+      args: { citationIds: [citationId], requests: [] },
+      timestamp: 4
+    })
+    insertEvent(database, 5, 'tool_result', {
+      toolCallId: 'read-1',
+      toolName: 'read_citations',
+      contractVersion: 10,
+      isError: false,
+      result: {
+        citations: [
+          {
+            citationId,
+            knowledgeItemId,
+            parseRevisionId,
+            chunkId: `chunk-${'d'.repeat(40)}`,
+            title: 'Canonical source',
+            text: 'PRIVATE CITATION BODY',
+            contentHash: 'e'.repeat(64),
+            offset: 0,
+            totalChars: 10_000,
+            nextOffset: null,
+            headingPath: [],
+            sourceBlockIds: []
+          }
+        ],
+        missingCitationIds: [],
+        truncated: false
+      },
+      error: null,
+      citationIds: [citationId],
+      knowledgeItemIds: [knowledgeItemId],
+      parseRevisionIds: [parseRevisionId],
+      timestamp: 5
+    })
+    insertEvent(database, 6, 'assistant_message', assistantPayload('Evidence expanded.', 6))
+    insertEvent(database, 7, 'run_completed', { outcome: 'finished' })
+    insertEvent(database, 8, 'user_message', {
+      content: 'Recent turn',
+      delivery: 'prompt',
+      timestamp: 8
+    })
+    insertEvent(database, 9, 'run_completed', { outcome: 'finished' })
+
+    const material = buildNextCompactionMaterial({ database, agentSessionId: 'session-1' })
+    const source = material?.sourcePayloadJson ?? ''
+    expect(material?.citationIds).toEqual([citationId])
+    expect(material?.deduplicatedObservationCount).toBe(1)
+    expect(source).not.toContain(candidateCitationId)
+    expect(source).not.toContain('PRIVATE QUERY')
+    expect(source).not.toContain('PRIVATE SNIPPET')
+    expect(source).not.toContain('PRIVATE CITATION BODY')
+    expect(source.match(/Canonical source/gu)).toHaveLength(1)
     database.close()
   })
 

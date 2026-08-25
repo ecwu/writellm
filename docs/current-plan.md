@@ -1,8 +1,8 @@
 # WriteLLM Current Plan
 
-Status: Phase 20 Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. The
-newest user-authorized local candidate is `v0.2026.8.25`; Checkpoint 26.9 remains paused and all
-GitHub Actions workflows are disabled.
+Status: Phase 21 Checkpoint 72 Writing Harness semantic compaction is complete under ADR 064.
+The newest user-authorized local candidate is `v0.2026.8.25`; Checkpoint 26.9 remains paused and
+all GitHub Actions workflows are disabled.
 Recorded: 2026-08-25
 
 This file records only active delivery state. Long-lived system rules live in
@@ -12,6 +12,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 72 is complete. It replaces generic tool-result projection with exhaustive
+  writing-specific continuation facts, excludes re-readable content, and sizes the final escaped
+  compaction request before provider work without changing payload-v3 or raw event authority.
 - Checkpoint 71 is complete. It replaces the fixed compaction event ceiling with bounded
   complete-run scanning, adds tool-loop finalization and continuation recovery, and preserves raw
   event authority without a migration.
@@ -219,8 +222,9 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
-Checkpoint 71 Agent compaction and tool-loop recovery is complete under ADR 063. No follow-on
-implementation or release work is authorized by that checkpoint.
+Checkpoint 72 Writing Harness semantic compaction is complete under ADR 064. No further
+Checkpoint 72 implementation is authorized. Build, candidate, tag, commit, push, hosted CI,
+signing, notarization, promotion, and publication were not part of this checkpoint.
 BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
@@ -253,6 +257,7 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 18 Checkpoint 69 is implemented and verified under ADR 061.
 - Phase 19 Checkpoint 70 is implemented and verified under ADR 062.
 - Phase 20 Checkpoint 71 is implemented and verified under ADR 063.
+- Phase 21 Checkpoint 72 is implemented and verified under ADR 064.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

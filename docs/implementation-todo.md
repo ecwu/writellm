@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 20 Checkpoint 71 Agent compaction and tool-loop recovery is complete. Checkpoint 26.9 remains paused
-and all GitHub Actions workflows are disabled.
+Status: Phase 21 Checkpoint 72 Writing Harness semantic compaction is complete. Checkpoint 26.9
+remains paused and all GitHub Actions workflows are disabled.
 Recorded: 2026-08-25
 
 This is the short completion and routing index. Active delivery state lives in
@@ -17,6 +17,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 72: discard re-readable tool bodies, retain exhaustive writing continuation
+  facts, and size the final escaped compaction request under ADR 064.
 - [x] Checkpoint 71: recover complete oversized historical runs, finalize pathological tool loops,
   and harden model-continuation settlement under ADR 063.
 - [x] Checkpoint 70: align transient Notebook with the shared Pi session runtime, selected-source
@@ -53,6 +55,15 @@ Checkpoint 69 detail: [`implementation-todo/phase-18.md`](implementation-todo/ph
 Checkpoint 70 detail: [`implementation-todo/phase-19.md`](implementation-todo/phase-19.md).
 
 Checkpoint 71 detail: [`implementation-todo/phase-20.md`](implementation-todo/phase-20.md).
+
+Checkpoint 72 detail: [`implementation-todo/phase-21.md`](implementation-todo/phase-21.md).
+
+## Phase 21: Writing Harness Semantic Compaction
+
+- [x] Checkpoint 72: exhaustive per-tool compaction projection, deterministic continuation facts,
+  final-request budgeting, and recovered-failure presentation.
+
+Authoritative detail: [`implementation-todo/phase-21.md`](implementation-todo/phase-21.md).
 
 ## Phase 20: Agent Compaction And Tool-Loop Recovery
 

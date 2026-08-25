@@ -252,6 +252,12 @@ export function projectAgentTimeline(
   now = Date.now()
 ): AgentTimelineItem[] {
   const orderedEvents = [...events].sort((left, right) => left.sequence - right.sequence)
+  const latestSuccessfulCompactionSequence = orderedEvents.reduce((latest, event) => {
+    if (event.type !== 'compaction_summary') return latest
+    return agentCompactionSummaryPayloadSchema.safeParse(event.payload).success
+      ? Math.max(latest, event.sequence)
+      : latest
+  }, 0)
   const runsById = new Map(runs.map((run) => [run.agentRunId, run] as const))
   const terminalsByRunId = new Map<string, AgentRunTerminal>()
   for (const event of orderedEvents) {
@@ -455,6 +461,7 @@ export function projectAgentTimeline(
       continue
     }
     if (event.type === 'compaction_failed') {
+      if (event.sequence < latestSuccessfulCompactionSequence) continue
       const parsed = agentCompactionFailedPayloadSchema.safeParse(event.payload)
       if (!parsed.success) continue
       flushTools()

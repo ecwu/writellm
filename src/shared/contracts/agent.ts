@@ -24,6 +24,7 @@ export const agentQueueActionIdSchema = z.uuid()
 
 export const AGENT_PENDING_MESSAGE_LIMIT = 20
 export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
+export const AGENT_RUN_PROMPT_MAX_CHARACTERS = 262_144
 
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
 export const agentToolProfileSchema = z.enum(['writing', 'notebook_knowledge'])
@@ -172,7 +173,7 @@ export const agentRunStartSchema = z
     credential: agentRuntimeAuthSchema,
     systemPrompt: z.string().max(65_536),
     history: agentHistorySchema,
-    prompt: z.string().min(1).max(262_144),
+    prompt: z.string().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
     toolProfile: agentToolProfileSchema.default('writing'),
     thinkingLevel: agentThinkingLevelSchema.default('off'),

@@ -2811,6 +2811,70 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('rejects an escaped compaction prompt above the Agent character contract before provider work', async () => {
+    const database = await createDatabase()
+    const summarizeHistory = vi.fn()
+    const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
+    const session = service.createSession('Oversized escaped prompt')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        1,
+        'user_message',
+        JSON.stringify({
+          content: `<${'x'.repeat(262_140)}>`,
+          delivery: 'prompt',
+          timestamp: 1
+        }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        2,
+        'run_completed',
+        JSON.stringify({ outcome: 'finished' }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        3,
+        'user_message',
+        JSON.stringify({ content: 'Recent raw turn', delivery: 'prompt', timestamp: 3 }),
+        '2026-08-12T00:00:00.000Z'
+      )
+      insert.run(
+        crypto.randomUUID(),
+        session.agentSessionId,
+        4,
+        'run_completed',
+        JSON.stringify({ outcome: 'finished' }),
+        '2026-08-12T00:00:00.000Z'
+      )
+    })
+
+    await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    expect(service.listEvents(session.agentSessionId).at(-1)).toMatchObject({
+      type: 'compaction_failed',
+      payload: {
+        code: 'compaction_run_too_large',
+        retryable: false,
+        aborted: false
+      }
+    })
+    database.close()
+  })
+
   it('persists every successful rolling step with continuous, non-overlapping coverage', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -2871,7 +2935,8 @@ describe('AgentSessionService', () => {
     const summaries = service
       .listEvents(session.agentSessionId)
       .filter((event) => event.type === 'compaction_summary')
-    expect(summaries).toHaveLength(2)
+    expect(summaries.length).toBeGreaterThanOrEqual(2)
+    expect(summaries.length).toBeLessThanOrEqual(4)
     const payloads = summaries.map(
       (event) =>
         event.payload as {
@@ -2887,7 +2952,7 @@ describe('AgentSessionService', () => {
         }
     )
     const firstPayload = payloads[0]
-    const finalPayload = payloads[1]
+    const finalPayload = payloads.at(-1)
     expect(firstPayload).toMatchObject({
       compactionId,
       coveredFromSequence: 1,
@@ -2901,7 +2966,6 @@ describe('AgentSessionService', () => {
     expect(firstPayload?.coveredThroughSequence).toBeGreaterThan(240)
     expect(finalPayload).toMatchObject({
       compactionId,
-      coveredFromSequence: (firstPayload?.coveredThroughSequence ?? 0) + 1,
       coveredThroughSequence: 598,
       finalStep: true,
       schemaVersion: 3,
@@ -2910,7 +2974,12 @@ describe('AgentSessionService', () => {
       checkpointBudgetTokens: 12_000,
       recentTailBudgetTokens: 20_000
     })
-    expect(summarizeHistory).toHaveBeenCalledTimes(2)
+    for (let index = 1; index < payloads.length; index += 1) {
+      expect(payloads[index]?.coveredFromSequence).toBe(
+        (payloads[index - 1]?.coveredThroughSequence ?? 0) + 1
+      )
+    }
+    expect(summarizeHistory).toHaveBeenCalledTimes(summaries.length)
     expect(summarizeHistory.mock.calls.every(([input]) => input.maxOutputTokens === 12_000)).toBe(
       true
     )
