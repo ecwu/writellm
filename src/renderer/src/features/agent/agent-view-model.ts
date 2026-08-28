@@ -7,7 +7,11 @@ import {
   agentToolPreflightDiagnosticSchema,
   agentUserMessagePayloadSchema
 } from '../../../../shared/contracts/agent'
-import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
+import type {
+  AgentEventRecord,
+  AgentRunRecord,
+  AgentSessionRecord
+} from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentModelSelection } from '../../../../shared/contracts/providers'
 import {
@@ -97,9 +101,70 @@ export type AgentReviewState =
   | 'undone'
   | 'resolved'
 
+export function agentHeaderStatusLabel(input: {
+  archived: boolean
+  workflowState: AgentSessionRecord['workflowState']
+  choosingSkill: boolean
+  currentActivity: string | null
+  hasStreamingRun: boolean
+  elapsedMs: number
+}): string {
+  if (input.archived) return 'Archived · read only'
+  if (input.workflowState === 'running') {
+    const activity = input.choosingSkill
+      ? 'Loading writing guidance'
+      : (input.currentActivity ??
+        (input.hasStreamingRun ? 'Writing an update' : 'Preparing the next step'))
+    return `${activity} · ${formatAgentDuration(input.elapsedMs)}`
+  }
+  if (input.workflowState === 'awaiting_input') return 'Waiting for your answer'
+  if (input.workflowState === 'compacting') return 'Summarizing earlier conversation…'
+  if (input.workflowState === 'generating') return 'Generating an image'
+  if (input.workflowState === 'awaiting_review') return 'Ready for review'
+  return 'Ready'
+}
+
+export function groupAgentConversations(sessions: readonly AgentSessionRecord[]): {
+  needsInput: AgentSessionRecord[]
+  needsReview: AgentSessionRecord[]
+  working: AgentSessionRecord[]
+  recent: AgentSessionRecord[]
+  archived: AgentSessionRecord[]
+} {
+  const sorted = [...sessions].sort((left, right) =>
+    right.updatedAt === left.updatedAt
+      ? right.agentSessionId.localeCompare(left.agentSessionId)
+      : right.updatedAt.localeCompare(left.updatedAt)
+  )
+  return {
+    needsInput: sorted.filter(
+      (session) => session.status === 'active' && session.workflowState === 'awaiting_input'
+    ),
+    needsReview: sorted.filter(
+      (session) => session.status === 'active' && session.workflowState === 'awaiting_review'
+    ),
+    working: sorted.filter(
+      (session) =>
+        session.status === 'active' &&
+        (session.workflowState === 'running' ||
+          session.workflowState === 'generating' ||
+          session.workflowState === 'compacting')
+    ),
+    recent: sorted.filter(
+      (session) => session.status === 'active' && session.workflowState === 'idle'
+    ),
+    archived: sorted.filter((session) => session.status === 'archived')
+  }
+}
+
 export type AgentTimelineItem =
   | { type: 'user'; id: string; runId: string | null; payload: AgentUserMessagePayload }
-  | { type: 'assistant'; id: string; payload: AgentAssistantMessagePayload }
+  | {
+      type: 'assistant'
+      id: string
+      runId: string | null
+      payload: AgentAssistantMessagePayload
+    }
   | {
       type: 'activity'
       id: string
@@ -335,7 +400,12 @@ export function projectAgentTimeline(
       const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
       if (!parsed.success || parsed.data.content.trim().length === 0) continue
       flushTools()
-      items.push({ type: 'assistant', id: event.agentEventId, payload: parsed.data })
+      items.push({
+        type: 'assistant',
+        id: event.agentEventId,
+        runId: event.agentRunId,
+        payload: parsed.data
+      })
       continue
     }
     if (event.type === 'tool_call') {

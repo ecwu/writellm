@@ -215,6 +215,62 @@ describe('Agent mutation contracts', () => {
     ).toBe(false)
   })
 
+  it('types bounded table insertion and sequential table edits', () => {
+    const parsed = modelSubmitSectionChangeArgsSchema.parse({
+      sectionId,
+      operations: [
+        {
+          type: 'insertTable',
+          placement: 'end',
+          table: {
+            clientRef: 'results-table',
+            headerRows: 1,
+            headerCols: 1,
+            rows: [
+              ['Metric', { content: [{ type: 'math', content: 'R^2' }], textAlignment: 'center' }],
+              [
+                {
+                  content: [
+                    {
+                      type: 'link',
+                      href: 'https://example.com',
+                      content: [{ type: 'text', text: 'Source', styles: {} }]
+                    }
+                  ]
+                },
+                '0.9'
+              ]
+            ]
+          }
+        },
+        {
+          type: 'editTable',
+          target: { blockId: 'table-1', expectedBlockHash: 'a'.repeat(64) },
+          operations: [
+            { type: 'setCell', row: 1, column: 1, cell: '' },
+            { type: 'insertRows', index: 2, rows: [['F1', '0.8']] },
+            { type: 'setColumnAlignment', column: 1, textAlignment: 'right' }
+          ]
+        }
+      ]
+    })
+    expect(parsed.operations).toHaveLength(2)
+    expect(parsed.operations[0]).toMatchObject({ type: 'insertTable', anchor: null })
+    expect(
+      modelSubmitSectionChangeArgsSchema.safeParse({
+        sectionId,
+        operations: [
+          {
+            type: 'insertTable',
+            placement: 'end',
+            table: { headerRows: 1, headerCols: 0, rows: [['javascript:[x]']] },
+            unknown: true
+          }
+        ]
+      }).success
+    ).toBe(false)
+  })
+
   it('defaults root insertion anchors and keeps image insert/iterate modes disjoint', () => {
     expect(
       modelSubmitSectionChangeArgsSchema.parse({

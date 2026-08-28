@@ -115,7 +115,7 @@ describe('whole-manuscript Markdown conversion', () => {
 **Bold** and highlighted[* source*](https://example.com)
 
 | A | B |
-| --- | --- |
+| :--- | :--- |
 | 1 | 2 |
 
 ![Chart](assets/hash.png)
@@ -148,6 +148,73 @@ $$
         })
       ])
     )
+  })
+
+  it('emits GFM alignment markers, escaped pipes, and portable cell line breaks', () => {
+    const manuscript = manuscriptAssemblySchema.parse({
+      manuscriptId: 'manuscript-1',
+      outlineVersion: 1,
+      brief: {
+        manuscriptBriefId: 'brief-1',
+        manuscriptId: 'manuscript-1',
+        version: 1,
+        schemaVersion: 1,
+        title: 'Table export',
+        description: '',
+        topic: '',
+        targetAudience: '',
+        language: 'en',
+        styleTone: '',
+        scopeExclusions: '',
+        targetLength: '',
+        citationRequirements: '',
+        additionalInstructions: '',
+        extensible: {},
+        createdAt
+      },
+      sections: [
+        section('table-section', null, 1, 'Table', [
+          {
+            id: 'table-alignment',
+            type: 'table',
+            props: { textColor: 'default' },
+            content: {
+              type: 'tableContent',
+              columnWidths: [100, 100, 100],
+              headerRows: 1,
+              headerCols: 0,
+              rows: [
+                {
+                  cells: [
+                    tableCell('Left', 'left'),
+                    tableCell('Center', 'center'),
+                    tableCell('Right', 'right')
+                  ]
+                },
+                {
+                  cells: [
+                    tableCell('A | B\nnext', 'left'),
+                    tableCell('1', 'center'),
+                    tableCell('2', 'right')
+                  ]
+                }
+              ]
+            },
+            children: []
+          }
+        ])
+      ],
+      wordCount: 3,
+      characterCount: 15
+    })
+
+    const result = manuscriptToMarkdown(manuscript, () => {
+      throw new Error('No asset expected')
+    })
+    expect(result.markdown).toContain(
+      '| Left | Center | Right |\n| :--- | :---: | ---: |\n| A \\| B<br>next | 1 | 2 |'
+    )
+    expect(result.lossReport.losses.map(({ code }) => code)).not.toContain('text_alignment')
   })
 
   it('reports table spans and preserves nested list indentation', () => {
@@ -336,6 +403,20 @@ function textBlock(
     },
     content,
     children: []
+  }
+}
+
+function tableCell(text: string, textAlignment: 'left' | 'center' | 'right') {
+  return {
+    type: 'tableCell' as const,
+    props: {
+      backgroundColor: 'default',
+      textColor: 'default',
+      textAlignment,
+      colspan: 1,
+      rowspan: 1
+    },
+    content: [{ type: 'text' as const, text, styles: {} }]
   }
 }
 

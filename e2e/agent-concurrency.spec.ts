@@ -196,7 +196,7 @@ test(
       await expect.poll(() => pendingAgentResponses.length).toBe(2)
 
       await panel.getByTestId('agent-conversation-switcher').click()
-      await expect(launched.page.getByText('Working', { exact: true })).toHaveCount(2)
+      await expect(launched.page.getByRole('option').filter({ hasText: 'Working' })).toHaveCount(2)
       await launched.page.getByRole('option', { name: /Parallel conversation 1/ }).click()
 
       const secondResponse = pendingAgentResponses[1]
@@ -235,7 +235,10 @@ test(
       await panel.getByLabel('Agent message').fill('Keep this queued.')
       await expect(panel.getByRole('button', { name: 'Stop', exact: true })).not.toBeVisible()
       await panel.getByRole('button', { name: 'Queue follow-up', exact: true }).click()
-      await expect(panel.getByTestId('agent-pending-messages')).toContainText('Keep this queued.')
+      const waitingMessages = panel.getByTestId('agent-pending-messages')
+      await expect(waitingMessages).toContainText('Waiting follow-ups · 1')
+      await waitingMessages.getByRole('button', { name: /Waiting follow-ups/u }).click()
+      await expect(waitingMessages).toContainText('Keep this queued.')
       await expect(panel.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
 
       await panel.getByLabel('Agent message').fill('Delete this queued message.')

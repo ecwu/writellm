@@ -389,6 +389,7 @@ function renderTable(
   const rows = content.rows
   if (rows.length === 0) return ''
   const width = Math.max(...rows.map((row) => row.cells.length))
+  const alignments = tableColumnAlignments(rows, width, block, sectionId, losses)
   const renderCell = (cell: (typeof rows)[number]['cells'][number]): string => {
     const value = Array.isArray(cell) ? cell : cell.content
     if (!Array.isArray(cell)) {
@@ -410,15 +411,6 @@ function renderTable(
           'Table cell background color is not represented in Markdown.'
         )
       }
-      if (cell.props.textAlignment !== 'left') {
-        addLoss(
-          losses,
-          'text_alignment',
-          sectionId,
-          block.id,
-          'Table cell alignment is not represented in Markdown.'
-        )
-      }
     }
     if (
       !Array.isArray(cell) &&
@@ -432,9 +424,9 @@ function renderTable(
         'Table row or column spans are flattened in Markdown.'
       )
     }
-    return renderInline(value, block, sectionId, losses, citationNumbers)
-      .replace(/\|/g, '\\|')
-      .replace(/\n/g, '<br>')
+    return escapeTablePipes(renderInline(value, block, sectionId, losses, citationNumbers))
+      .replace(/ {2}\n/gu, '<br>')
+      .replace(/\r?\n/gu, '<br>')
   }
   const matrix = rows.map((row) =>
     Array.from({ length: width }, (_, index) => renderCell(row.cells[index] ?? []))
@@ -467,8 +459,65 @@ function renderTable(
     )
   }
   const lines = matrix.map((row) => `| ${row.join(' | ')} |`)
-  lines.splice(1, 0, `| ${Array.from({ length: width }, () => '---').join(' | ')} |`)
+  lines.splice(
+    1,
+    0,
+    `| ${alignments
+      .map((alignment) =>
+        alignment === 'center' ? ':---:' : alignment === 'right' ? '---:' : ':---'
+      )
+      .join(' | ')} |`
+  )
   return lines.join('\n')
+}
+
+type MarkdownTableAlignment = 'left' | 'center' | 'right'
+
+function tableColumnAlignments(
+  rows: BlockNoteTableContent['rows'],
+  width: number,
+  block: Block,
+  sectionId: string,
+  losses: ManuscriptMarkdownLoss[]
+): MarkdownTableAlignment[] {
+  const alignments: MarkdownTableAlignment[] = Array.from({ length: width }, () => 'left')
+  const seen = Array.from({ length: width }, () => false)
+  for (const row of rows) {
+    row.cells.forEach((cell, column) => {
+      if (column >= width) return
+      const alignment = Array.isArray(cell) ? 'left' : cell.props.textAlignment
+      const markdownAlignment: MarkdownTableAlignment =
+        alignment === 'center' || alignment === 'right' ? alignment : 'left'
+      if (!seen[column]) {
+        alignments[column] = markdownAlignment
+        seen[column] = true
+      } else if (alignments[column] !== markdownAlignment) {
+        addLoss(
+          losses,
+          'text_alignment',
+          sectionId,
+          block.id,
+          'Different cell alignments in one column were reduced to the first cell alignment in GFM.'
+        )
+      }
+      if (alignment === 'justify') {
+        addLoss(
+          losses,
+          'text_alignment',
+          sectionId,
+          block.id,
+          'Justified table-cell alignment is not represented in GFM.'
+        )
+      }
+    })
+  }
+  return alignments
+}
+
+function escapeTablePipes(value: string): string {
+  // renderInline already escapes pipes in regular text. Code spans and other future inline
+  // renderers may still contain a raw pipe; escape only pipes that are not already escaped.
+  return value.replace(/(^|[^\\])\|/gu, '$1\\|')
 }
 
 function reportBlockProperties(

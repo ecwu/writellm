@@ -355,8 +355,20 @@ async function mapList(node: MdNode, context: MappingContext): Promise<BlockNote
 }
 
 function tableBlock(node: MdNode, context: MappingContext): BlockNoteBlockValue {
-  const rows = (node.children ?? []).map((row) => ({
-    cells: (row.children ?? []).map((cell) => inline(cell.children ?? [], {}, context))
+  const sourceRows = (node.children ?? []).map((row) =>
+    (row.children ?? []).map((cell) => inline(cell.children ?? [], {}, context))
+  )
+  const width = Math.max(0, ...sourceRows.map((row) => row.length))
+  const rows = sourceRows.map((cells) => ({
+    cells: cells.map((content, column) => ({
+      type: 'tableCell' as const,
+      props: {
+        backgroundColor: 'default',
+        textColor: 'default',
+        textAlignment: node.align?.[column] ?? 'left'
+      },
+      content
+    }))
   }))
   return {
     id: context.createId(),
@@ -364,7 +376,7 @@ function tableBlock(node: MdNode, context: MappingContext): BlockNoteBlockValue 
     props: { textColor: 'default' },
     content: {
       type: 'tableContent',
-      columnWidths: Array.from({ length: rows[0]?.cells.length ?? 0 }, () => null),
+      columnWidths: Array.from({ length: width }, () => null),
       headerRows: rows.length > 0 ? 1 : 0,
       headerCols: 0,
       rows
@@ -415,6 +427,18 @@ function inline(
       case 'break':
         output.push(text('\n', inherited))
         break
+      case 'html': {
+        const value = (node.value ?? '').trim()
+        if (/^<br\s*\/?\s*>$/iu.test(value)) {
+          output.push(text('\n', inherited))
+          break
+        }
+        output.push(text(node.value ?? '', inherited))
+        context.unsupported.push(
+          finding('embedded_html_inert', 'Embedded HTML was preserved as inert text', node)
+        )
+        break
+      }
       case 'link': {
         const content: Extract<BlockNoteInlineContent, { type: 'link' }>['content'] = []
         for (const part of inline(node.children ?? [], inherited, context)) {

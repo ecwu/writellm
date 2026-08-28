@@ -79,8 +79,9 @@ export const publicationFigureNodeSchema = strictObject({
   height: z.number().int().positive().max(8_192).nullable()
 })
 
-const publicationTableCellSchema = strictObject({
+export const publicationTableCellSchema = strictObject({
   content: inlineArraySchema,
+  textAlignment: z.enum(['left', 'center', 'right', 'justify']).default('left'),
   colspan: z.number().int().positive().max(1_000),
   rowspan: z.number().int().positive().max(1_000)
 })
@@ -112,6 +113,7 @@ export const publicationNodeSchema = z.discriminatedUnion('type', [
   strictObject({
     type: z.literal('table'),
     headerRows: z.number().int().nonnegative().max(1_000),
+    headerCols: z.number().int().nonnegative().max(1_000).default(0),
     columnWidths: z.array(z.number().positive().max(100_000).nullable()).max(1_000),
     rows: z.array(z.array(publicationTableCellSchema).max(1_000)).max(1_000),
     ...targetShape
@@ -192,7 +194,7 @@ export const publicationPreflightFindingSchema = strictObject({
 })
 
 export const publicationAssemblySchema = strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   manuscriptId: manuscriptIdSchema,
   outlineVersion: z.number().int().positive(),
   title: z.string().max(500),
@@ -370,6 +372,7 @@ export function buildPublicationAssembly(input: {
             nodes.push({
               type: 'table',
               headerRows: table.headerRows ?? 0,
+              headerCols: table.headerCols ?? 0,
               columnWidths: table.columnWidths,
               rows: table.rows.map((row) =>
                 row.cells.map((cell) => {
@@ -378,6 +381,7 @@ export function buildPublicationAssembly(input: {
                     content: inline(
                       (Array.isArray(cell) ? cell : cell.content) as BlockNoteInlineContent[]
                     ),
+                    textAlignment: value?.props.textAlignment ?? 'left',
                     colspan: value?.props.colspan ?? 1,
                     rowspan: value?.props.rowspan ?? 1
                   }
@@ -487,7 +491,7 @@ export function buildPublicationAssembly(input: {
     })
   )
   return publicationAssemblySchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     manuscriptId: input.manuscript.manuscriptId,
     outlineVersion: input.manuscript.outlineVersion,
     title: input.manuscript.brief.title,

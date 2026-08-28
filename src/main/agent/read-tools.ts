@@ -24,6 +24,8 @@ import {
 import { extractSectionAgentText } from '../manuscript/content'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { findProjectionMatches } from '../../shared/manuscript-search'
+import { blockNoteBlockSchema, type BlockNoteTableContent } from '../../shared/contracts/manuscript'
+import { inspectTableContent, TableTransformError } from '../../shared/manuscript-table'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ProjectDatabase } from '../project/project-database'
 import { AgentContextBuilder } from './context'
@@ -260,6 +262,47 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
         : flattened.find((block) => block.blockId === args.blockId)
     if (args.view !== 'summary' && selected === undefined) missingBlockIds.push(args.blockId)
     const canonicalJson = selected === undefined ? undefined : JSON.stringify(selected.canonical)
+    let table: ReadSectionResult['table'] = null
+    if (args.view === 'table' && selected !== undefined) {
+      const block = blockNoteBlockSchema.safeParse(selected.canonical)
+      if (!block.success || block.data.type !== 'table') {
+        throw new AgentToolDomainError('invalid_arguments', 'Table view requires a table block')
+      }
+      let grid: ReturnType<typeof inspectTableContent>
+      try {
+        grid = inspectTableContent(block.data.content as BlockNoteTableContent)
+      } catch (error) {
+        if (error instanceof TableTransformError) {
+          throw new AgentToolDomainError('invalid_arguments', `${error.code}: ${error.message}`)
+        }
+        throw error
+      }
+      if (args.rowOffset > grid.rowCount) {
+        throw new AgentToolDomainError('invalid_arguments', 'Table rowOffset is out of bounds')
+      }
+      const rowEnd = Math.min(grid.rowCount, args.rowOffset + args.rowLimit)
+      table = {
+        blockId: block.data.id,
+        blockHash: selected.blockHash,
+        rowCount: grid.rowCount,
+        columnCount: grid.columnCount,
+        headerRows: grid.headerRows,
+        headerCols: grid.headerCols,
+        columnWidths: grid.columnWidths,
+        hasSpans: grid.hasSpans,
+        cells: grid.anchors
+          .filter((anchor) => anchor.row >= args.rowOffset && anchor.row < rowEnd)
+          .map((anchor) => ({
+            row: anchor.row,
+            column: anchor.column,
+            rowspan: anchor.rowspan,
+            colspan: anchor.colspan,
+            textAlignment: anchor.cell.props.textAlignment,
+            content: anchor.cell.content
+          })),
+        nextRowOffset: rowEnd < grid.rowCount ? rowEnd : null
+      }
+    }
     return readSectionResultSchema.parse({
       section: {
         sectionId: section.sectionId,
@@ -287,6 +330,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
         args.offset + args.maxChars < canonicalJson.length
           ? args.offset + args.maxChars
           : null,
+      table,
       missingBlockIds,
       nextCursor,
       totalBlocks: flattened.length

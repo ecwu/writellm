@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 21 Checkpoint 72 Writing Harness semantic compaction is complete. Checkpoint 26.9
+Status: Phase 23 Checkpoint 74 Agent table authoring and publication is complete. Checkpoint 26.9
 remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-25
+Recorded: 2026-08-28
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -17,6 +17,11 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 74: add Protocol v11 hash-bound table reads and typed edits, bounded review,
+  native header editing, and portable Markdown/PDF/LaTeX projection under ADR 066.
+- [x] Checkpoint 73: establish a summary-first Agent sidebar hierarchy with compact live status,
+  bounded activity, inline task and attention docks, and a calmer responsive composer under ADR
+  065.
 - [x] Checkpoint 72: discard re-readable tool bodies, retain exhaustive writing continuation
   facts, and size the final escaped compaction request under ADR 064.
 - [x] Checkpoint 71: recover complete oversized historical runs, finalize pathological tool loops,
@@ -57,6 +62,24 @@ Checkpoint 70 detail: [`implementation-todo/phase-19.md`](implementation-todo/ph
 Checkpoint 71 detail: [`implementation-todo/phase-20.md`](implementation-todo/phase-20.md).
 
 Checkpoint 72 detail: [`implementation-todo/phase-21.md`](implementation-todo/phase-21.md).
+
+Checkpoint 73 detail: [`implementation-todo/phase-22.md`](implementation-todo/phase-22.md).
+
+Checkpoint 74 detail: [`implementation-todo/phase-23.md`](implementation-todo/phase-23.md).
+
+## Phase 23: Agent Table Authoring And Publication
+
+- [x] Checkpoint 74: bounded table transformer, Protocol v11 table tools, review UI, editor
+  configuration, and cross-format publication.
+
+Authoritative detail: [`implementation-todo/phase-23.md`](implementation-todo/phase-23.md).
+
+## Phase 22: Agent Sidebar Focus Hierarchy
+
+- [x] Checkpoint 73: summary-first activity, stable task and attention docks, responsive composer,
+  focused conversation navigation, and a verified local no-identity macOS arm64 App build.
+
+Authoritative detail: [`implementation-todo/phase-22.md`](implementation-todo/phase-22.md).
 
 ## Phase 21: Writing Harness Semantic Compaction
 
@@ -151,6 +174,8 @@ Authoritative detail: [`implementation-todo/phase-12.md`](implementation-todo/ph
 
 ## Completed delivery milestones
 
+- [x] Local no-identity candidate `v0.2026.8.26` for the completed Checkpoints 73–74 snapshot;
+  source commit, annotated tag, and push of `main` plus the tag are separately user-authorized.
 - [x] Local no-identity candidate `v0.2026.8.25` for the completed Checkpoint 71 baseline; the
   annotated tag and verified unpacked macOS arm64 App are prepared for the explicitly authorized
   push of `main` and the tag.
@@ -218,4 +243,6 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 18](implementation-todo/phase-18.md)
 - [Phase 19](implementation-todo/phase-19.md)
 - [Phase 20](implementation-todo/phase-20.md)
+- [Phase 21](implementation-todo/phase-21.md)
+- [Phase 22](implementation-todo/phase-22.md)
 - [Implementation history](history/implementation-log.md)

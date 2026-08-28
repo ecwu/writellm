@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 21 Checkpoint 72 Writing Harness semantic compaction is complete under ADR 064.
-The newest user-authorized local candidate is `v0.2026.8.25`; Checkpoint 26.9 remains paused and
+Status: Phase 23 Checkpoint 74 Agent table authoring and publication is complete under ADR 066.
+The newest user-authorized local candidate is `v0.2026.8.26`; Checkpoint 26.9 remains paused and
 all GitHub Actions workflows are disabled.
-Recorded: 2026-08-25
+Recorded: 2026-08-28
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -12,6 +12,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 74 is complete. It adds Protocol v11 hash-bound table inspection and typed table
+  proposals, bounded review presentation, native header editing, and portable Markdown/PDF/LaTeX
+  projections without changing section schema v5 or adding a dependency, migration, worker, or
+  authority boundary.
+- Checkpoint 73 is complete. It applies summary-first AI interaction patterns to the existing
+  Agent sidebar while preserving the shadcn/new-york visual language and every Agent authority
+  boundary. Work is Renderer-only: header status, activity disclosure, task and attention docks,
+  composer context, responsive behavior, and accessibility.
 - Checkpoint 72 is complete. It replaces generic tool-result projection with exhaustive
   writing-specific continuation facts, excludes re-readable content, and sizes the final escaped
   compaction request before provider work without changing payload-v3 or raw event authority.
@@ -159,6 +167,23 @@ multi-step option and custom answers, same-run continuation, conversation attent
 history after restart, and Stop interruption. No package/release action, hosted CI, commit, tag,
 push, signing, notarization, promotion, or publication ran.
 
+Checkpoint 73 passed 46 focused Renderer tests, `check:fast`, the complete Electron-hosted gate
+(200 passing files / 1,140 passing tests with three intentional benchmark skips) and production
+build, and the fresh 46/46 Real-Electron manifest with no flaky, skipped, or failed scenario.
+Runtime visual QA covered 360, 480, and 640 px light-theme layouts plus 480 px dark theme, kept the
+composer and primary action visible with no horizontal overflow, and completed the bounded
+Impeccable review with no findings. No dependency, database, IPC, shared Agent protocol, tool
+permission, persistence, package, release, commit, tag, push, signing, or publication action ran.
+
+The separately authorized Checkpoint 73 hands-on macOS arm64 App build passed from the current
+dirty worktree. The unpacked-only no-identity package gate refreshed and verified the intentionally
+changed protected Agent recovery fixture, passed all 27 recovery cases from 25 sources, verified
+Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 12 packaged smoke
+scenarios, and 33/33 packaged E2E scenarios, then produced
+`dist/macos-arm64/mac-arm64/WriteLLM.app`. It did not produce a DMG or ZIP and did not create a
+candidate, commit, tag, push, hosted CI run, Apple Developer ID signature, notarization, release,
+promotion, or publication.
+
 Checkpoint 70 passed 44 focused shared-contract, Worker, Main, IPC, prompt, and Notebook service
 tests; `check:fast`; the complete Electron-hosted gate (200 passing files / 1123 passing tests with
 three intentional benchmark skips) and production build; and the fresh 46/46 Real-Electron
@@ -222,17 +247,26 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
+Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
+Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.26` source
+commit, annotated tag, and push of `main` plus the tag are the active delivery action. Hosted CI,
+Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
+remain unauthorized.
+
+Checkpoint 73 Agent sidebar focus hierarchy is complete under ADR 065. No further Checkpoint 73
+implementation is authorized. Migrations, IPC, Agent protocol or tool changes, dependency
+installation, package/release work, commit, tag, push, hosted CI, signing, notarization, promotion,
+and publication remain outside this checkpoint.
+
 Checkpoint 72 Writing Harness semantic compaction is complete under ADR 064. No further
-Checkpoint 72 implementation is authorized. Build, candidate, tag, commit, push, hosted CI,
-signing, notarization, promotion, and publication were not part of this checkpoint.
+Checkpoint 72 implementation is authorized.
 BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.25` candidate commit, annotated tag, and no-identity macOS arm64 App build are
-complete. Push of `main` plus the tag is the remaining authorized action. DMG/ZIP creation, hosted
-CI, Apple Developer ID signing, notarization, GitHub Release, promotion, and publication remain
-unauthorized.
+The `v0.2026.8.25` candidate is the previous Checkpoint 71 baseline. The active candidate is
+`v0.2026.8.26` for the completed Checkpoints 73–74 snapshot. Hosted CI, Apple Developer ID
+signing, notarization, GitHub Release creation, promotion, and publication remain unauthorized.
 
 ## Paused delivery gate
 
@@ -258,6 +292,7 @@ promotion, or publication may resume without fresh explicit user approval.
 - Phase 19 Checkpoint 70 is implemented and verified under ADR 062.
 - Phase 20 Checkpoint 71 is implemented and verified under ADR 063.
 - Phase 21 Checkpoint 72 is implemented and verified under ADR 064.
+- Phase 22 Checkpoint 73 is implemented and verified under ADR 065.
 
 The compact completion index is [`implementation-todo.md`](implementation-todo.md); historical
 transitions and local candidate chronology are in

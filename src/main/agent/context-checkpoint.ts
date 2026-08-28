@@ -882,6 +882,8 @@ function projectToolArgs(toolName: string, value: unknown): Record<string, unkno
       blockIds: stringArray(value['blockIds']),
       offset: value['offset'],
       maxChars: value['maxChars'],
+      rowOffset: value['rowOffset'],
+      rowLimit: value['rowLimit'],
       limit: value['limit']
     })
   }
@@ -1019,6 +1021,7 @@ function projectToolResult(
   if (toolName === 'read_section') {
     const section = isRecord(value['section']) ? value['section'] : {}
     const blocks = recordArray(value['blocks'])
+    const table = isRecord(value['table']) ? value['table'] : null
     return {
       outcome: compactRecord({
         sectionId: section['sectionId'],
@@ -1026,7 +1029,10 @@ function projectToolResult(
         totalBlocks: value['totalBlocks'],
         returnedBlocks: blocks.length,
         missingBlockIds: stringArray(value['missingBlockIds']),
-        hasMore: value['nextCursor'] !== null || value['nextFragmentOffset'] !== null
+        hasMore:
+          value['nextCursor'] !== null ||
+          value['nextFragmentOffset'] !== null ||
+          (table !== null && table['nextRowOffset'] !== null)
       }),
       observations: [
         compactRecord({
@@ -1035,6 +1041,21 @@ function projectToolResult(
           revisionId: value['revisionId'],
           title: safeDisplayLabel(section['title'])
         }),
+        ...(table === null
+          ? []
+          : [
+              compactRecord({
+                toolName,
+                sectionId: section['sectionId'],
+                revisionId: value['revisionId'],
+                blockId: table['blockId'],
+                blockHash: table['blockHash'],
+                blockType: 'table',
+                rowCount: table['rowCount'],
+                columnCount: table['columnCount'],
+                hasSpans: table['hasSpans']
+              })
+            ]),
         ...blocks.map((block) =>
           compactRecord({
             toolName,

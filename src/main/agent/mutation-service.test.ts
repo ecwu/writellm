@@ -983,6 +983,87 @@ describe('MutationProposalService', () => {
     value.database.close()
   })
 
+  it('creates a normalized native table through a reviewable section proposal', async () => {
+    const value = await fixture()
+    const section = value.manuscript.listSections()[0]
+    if (section === undefined) throw new Error('Missing section')
+    const contextBuilder = new AgentContextBuilder(value.manuscript)
+    const snapshot = contextBuilder.capture('snapshot-table-create', {
+      activeSectionId: section.sectionId,
+      activeBlockId: null,
+      selectedBlockIds: []
+    })
+    const tools = new MainAgentTools(
+      { contextBuilder: () => contextBuilder, execute: vi.fn() } as never,
+      value.service
+    )
+    const result = await tools.execute({
+      toolName: 'submit_section_change',
+      args: {
+        sectionId: section.sectionId,
+        operations: [
+          {
+            type: 'insertTable',
+            placement: 'end',
+            table: {
+              clientRef: 'results',
+              headerRows: 1,
+              headerCols: 1,
+              rows: [
+                [
+                  'Metric',
+                  { content: [{ type: 'math', content: 'R^2' }], textAlignment: 'center' }
+                ],
+                ['Score', '0.91']
+              ]
+            }
+          }
+        ]
+      },
+      editorContext: snapshot.editorContext,
+      snapshot,
+      ...value.toolCall('submit_section_change')
+    })
+    expect(result.createdBlockRefs).toMatchObject({ results: expect.any(String) })
+    expect(result.preview.presentation).toMatchObject({
+      kind: 'table_diff',
+      tables: [{ beforeRows: 0, afterRows: 2, afterColumns: 2 }]
+    })
+    const applied = await value.service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: result.proposalId
+    })
+    expect(applied).toMatchObject({ outcome: 'applied' })
+    expect(currentContent(value, section.sectionId)).toMatchObject([
+      {
+        id: result.createdBlockRefs?.results,
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          headerRows: 1,
+          headerCols: 1,
+          columnWidths: [null, null],
+          rows: [
+            {
+              cells: [
+                { type: 'tableCell', props: { textAlignment: 'left' } },
+                { type: 'tableCell', props: { textAlignment: 'center' } }
+              ]
+            },
+            {
+              cells: [
+                { type: 'tableCell', props: { textAlignment: 'left' } },
+                { type: 'tableCell', props: { textAlignment: 'left' } }
+              ]
+            }
+          ]
+        }
+      }
+    ])
+    value.database.close()
+  })
+
   it('tombstones a section with accepted Agent lineage and preserves every revision reference', async () => {
     const value = await fixture()
     const root = value.manuscript.listSections()[0]

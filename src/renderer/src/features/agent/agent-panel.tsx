@@ -33,7 +33,11 @@ import type {
   AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
 import type { InstalledSkill, SkillsSnapshot } from '../../../../shared/contracts/skills'
-import { parseLeadingSkillMentions, skillMentionQueryAt } from '../../../../shared/skill-mentions'
+import {
+  parseLeadingSkillMentions,
+  skillMentionQueryAt,
+  type LeadingSkillMention
+} from '../../../../shared/skill-mentions'
 import {
   AlertCircle,
   Archive,
@@ -175,6 +179,7 @@ import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
   aggregateAgentUsage,
+  agentHeaderStatusLabel,
   agentThinkingVisualState,
   agentToolActivityLabel,
   agentTerminalDetail,
@@ -189,10 +194,12 @@ import {
   isSectionProposalOutdated,
   latestAgentContextSnapshot,
   mergeAgentEvents,
+  groupAgentConversations,
   protectTerminalAgentRuns,
   projectAgentTimeline,
   type AgentActivityStatus,
   type AgentCitationDisplay,
+  type AgentThinkingVisualState,
   type AgentTimelineItem,
   type AgentToolActivity,
   toolWasStopped
@@ -264,6 +271,7 @@ export function AgentPanel(props: {
   const [skillMentionDismissed, setSkillMentionDismissed] = useState(false)
   const [skillMentionSelectionIndex, setSkillMentionSelectionIndex] = useState(0)
   const [composerCaret, setComposerCaret] = useState(0)
+  const [waitingMessagesOpen, setWaitingMessagesOpen] = useState(false)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [taskEditorOpen, setTaskEditorOpen] = useState(false)
@@ -320,6 +328,7 @@ export function AgentPanel(props: {
     setActiveRunIds(new Set())
     setLiveRuns([])
     setPendingActionIds(new Set())
+    setWaitingMessagesOpen(false)
     setActiveCompactions([])
     setActiveWorkCount(0)
     setActiveRunLimit(MAX_CONCURRENT_AGENT_RUNS)
@@ -338,6 +347,7 @@ export function AgentPanel(props: {
     setPrompt(next?.prompt ?? '')
     setReviewFeedback(next?.reviewFeedback ?? '')
     setScopePreference(next?.scopePreference ?? 'auto')
+    setWaitingMessagesOpen(false)
     previousDraftKeyRef.current = nextKey
   }, [activeSessionId])
 
@@ -817,6 +827,14 @@ export function AgentPanel(props: {
     workflowState,
     choosingSkill,
     hasStreamingRun
+  })
+  const headerStatus = agentHeaderStatusLabel({
+    archived: activeSessionArchived === true,
+    workflowState,
+    choosingSkill,
+    currentActivity,
+    hasStreamingRun,
+    elapsedMs: elapsedRunMs(activeRun, clockNow)
   })
 
   const createSession = async (): Promise<AgentSessionRecord> => {
@@ -1542,6 +1560,7 @@ export function AgentPanel(props: {
     skillMentionSelectableCandidates[
       skillMentionSelectionIndex % Math.max(1, skillMentionSelectableCandidates.length)
     ] ?? null
+  const leadingSkillMentions = parseLeadingSkillMentions(prompt)
 
   const runComposerCommand = (command: ComposerCommand, clearSlash: boolean): void => {
     if (command.disabled) return
@@ -1567,6 +1586,14 @@ export function AgentPanel(props: {
     setSkillMentionSelectionIndex(0)
   }
 
+  const focusSkillMention = (mention: { start: number; end: number }): void => {
+    const textarea = composerTextareaRef.current
+    if (textarea === null) return
+    textarea.focus()
+    textarea.setSelectionRange(mention.start, mention.end)
+    setComposerCaret(mention.end)
+  }
+
   return (
     <>
       <aside
@@ -1579,7 +1606,7 @@ export function AgentPanel(props: {
         aria-label='Writing agent side chat'
       >
         <header
-          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b px-3 py-2.5'
+          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 border-b px-3 py-2'
           data-testid='agent-conversation-header'
         >
           <ConversationSwitcher
@@ -1589,6 +1616,9 @@ export function AgentPanel(props: {
             activeSession={activeSession}
             titleGeneratingIds={titleGeneratingIds}
             busy={busy}
+            status={headerStatus}
+            workflowState={workflowState}
+            thinkingVisualState={thinkingVisualState}
             onNew={beginNewConversation}
             onOpen={openSession}
             onArchive={archiveSession}
@@ -1637,46 +1667,6 @@ export function AgentPanel(props: {
           </Button>
         </header>
 
-        <div
-          className='flex min-h-9 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground'
-          data-testid='agent-status'
-          role='status'
-        >
-          {activeSessionArchived ? <Archive className='size-3.5' /> : null}
-          {workflowState === 'running' ||
-          workflowState === 'compacting' ||
-          workflowState === 'generating' ? (
-            <AgentThinkingIndicator state={thinkingVisualState} />
-          ) : null}
-          {workflowState === 'awaiting_review' ? (
-            <AlertCircle className='size-3.5 text-warning' />
-          ) : null}
-          {workflowState === 'awaiting_input' ? (
-            <CircleHelp className='size-3.5 text-warning' />
-          ) : null}
-          <span
-            className={
-              workflowState === 'running' || workflowState === 'compacting' ? 'shimmer' : undefined
-            }
-          >
-            {activeSessionArchived
-              ? 'Archived · read only'
-              : workflowState === 'running'
-                ? choosingSkill
-                  ? 'Loading writing guidance'
-                  : `${currentActivity ?? (hasStreamingRun ? 'Writing an update' : 'Preparing the next step')} · ${formatAgentDuration(elapsedRunMs(activeRun, clockNow))}`
-                : workflowState === 'awaiting_input'
-                  ? 'Waiting for your answer'
-                  : workflowState === 'compacting'
-                    ? 'Summarizing earlier conversation…'
-                    : workflowState === 'generating'
-                      ? 'Generating an image'
-                      : workflowState === 'awaiting_review'
-                        ? 'Ready for review'
-                        : 'Ready'}
-          </span>
-        </div>
-
         <div className='min-h-0 flex-1'>
           {loading ? (
             <Marker role='status' className='p-4'>
@@ -1722,138 +1712,156 @@ export function AgentPanel(props: {
         ) : null}
 
         <div
-          className='flex min-w-0 flex-col gap-3 border-t px-4 py-3'
+          className='flex min-w-0 shrink-0 flex-col gap-3 border-t px-4 py-3'
           data-testid='agent-composer'
         >
-          {error ? <AgentErrorAlert message={error} /> : null}
+          {error ? (
+            <AgentAttentionDock label='Agent error'>
+              <AgentErrorAlert message={error} />
+            </AgentAttentionDock>
+          ) : null}
           {agentCapacityReached ? (
-            <Marker role='status'>
-              <MarkerIcon>
-                <TriangleAlert />
-              </MarkerIcon>
-              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                <span>
-                  {activeRunLimit} Agent runs are already working. Your draft is saved; wait for one
-                  to finish or stop one.
-                </span>
-                {workingSession === null ? null : (
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    onClick={() => openSession(workingSession.agentSessionId)}
-                  >
-                    Open working conversation
-                  </Button>
-                )}
-              </MarkerContent>
-            </Marker>
+            <AgentAttentionDock label='Agent capacity reached'>
+              <Marker role='status'>
+                <MarkerIcon>
+                  <TriangleAlert />
+                </MarkerIcon>
+                <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                  <span>
+                    {activeRunLimit} Agent runs are already working. Your draft is saved; wait for
+                    one to finish or stop one.
+                  </span>
+                  {workingSession === null ? null : (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => openSession(workingSession.agentSessionId)}
+                    >
+                      Open working conversation
+                    </Button>
+                  )}
+                </MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
           ) : activeSessionArchived && activeSession ? (
-            <Marker role='status'>
-              <MarkerIcon>
-                <Archive />
-              </MarkerIcon>
-              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                <span>Archived conversations are read only.</span>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={busy}
-                  onClick={() => void restoreSession(activeSession)}
-                >
-                  <ArchiveRestore data-icon='inline-start' /> Restore
-                </Button>
-              </MarkerContent>
-            </Marker>
+            <AgentAttentionDock label='Archived conversation'>
+              <Marker role='status'>
+                <MarkerIcon>
+                  <Archive />
+                </MarkerIcon>
+                <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                  <span>Archived conversations are read only.</span>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={busy}
+                    onClick={() => void restoreSession(activeSession)}
+                  >
+                    <ArchiveRestore data-icon='inline-start' /> Restore
+                  </Button>
+                </MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
           ) : pendingQuestion !== null ? (
-            <AgentQuestionnaireDock
-              key={pendingQuestion.toolCallId}
-              pending={pendingQuestion}
-              busy={busy || pendingQuestion.submitting}
-              onSubmit={answerUserQuestion}
-              onStop={stopRun}
-            />
-          ) : waitingProposal !== undefined ? (
-            <AgentAttentionBeam attentionKey={waitingProposal.proposalId} paused={busy}>
-              <ReviewBar
-                proposal={waitingProposal}
-                feedback={reviewFeedback}
-                busy={busy}
-                outdated={isSectionProposalOutdated(waitingProposal, effectiveRevisionIds)}
-                onFeedbackChange={setReviewFeedback}
-                onAction={proposalAction}
+            <AgentAttentionDock label='Agent clarification'>
+              <AgentQuestionnaireDock
+                key={pendingQuestion.toolCallId}
+                pending={pendingQuestion}
+                busy={busy || pendingQuestion.submitting}
+                onSubmit={answerUserQuestion}
+                onStop={stopRun}
               />
-            </AgentAttentionBeam>
+            </AgentAttentionDock>
+          ) : waitingProposal !== undefined ? (
+            <AgentAttentionDock label='Proposal review'>
+              <AgentAttentionBeam attentionKey={waitingProposal.proposalId} paused={busy}>
+                <ReviewBar
+                  proposal={waitingProposal}
+                  feedback={reviewFeedback}
+                  busy={busy}
+                  outdated={isSectionProposalOutdated(waitingProposal, effectiveRevisionIds)}
+                  onFeedbackChange={setReviewFeedback}
+                  onAction={proposalAction}
+                />
+              </AgentAttentionBeam>
+            </AgentAttentionDock>
           ) : workflowState === 'generating' ? (
-            <Marker role='status'>
-              <MarkerIcon>
-                <Spinner />
-              </MarkerIcon>
-              <MarkerContent>
-                Generating an image. Review will appear here when it is ready.
-              </MarkerContent>
-            </Marker>
+            <AgentAttentionDock label='Image generation'>
+              <Marker role='status'>
+                <MarkerIcon>
+                  <Spinner />
+                </MarkerIcon>
+                <MarkerContent>
+                  Generating an image. Review will appear here when it is ready.
+                </MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
           ) : workflowState === 'compacting' ? (
-            <Marker role='status'>
-              <MarkerIcon>
-                <Spinner />
-              </MarkerIcon>
-              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                <span>Summarizing earlier conversation…</span>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={busy}
-                  onClick={() => void stopCompaction()}
-                >
-                  <CircleStop data-icon='inline-start' /> Stop
-                </Button>
-              </MarkerContent>
-            </Marker>
+            <AgentAttentionDock label='Conversation summary'>
+              <Marker role='status'>
+                <MarkerIcon>
+                  <Spinner />
+                </MarkerIcon>
+                <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                  <span>Summarizing earlier conversation…</span>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={busy}
+                    onClick={() => void stopCompaction()}
+                  >
+                    <CircleStop data-icon='inline-start' /> Stop
+                  </Button>
+                </MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
           ) : continuationFailure !== null && failedContinuationProposal !== null ? (
-            <Marker role='alert'>
-              <MarkerIcon>
-                <AlertCircle className='text-destructive' />
-              </MarkerIcon>
-              <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                <span>
-                  {continuationFailure.kind === 'approval'
-                    ? 'Change applied, continuation failed'
-                    : 'Feedback saved, revision failed'}
-                </span>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={busy}
-                  onClick={() => {
-                    if (continuationFailure.kind === 'approval') {
-                      void startRun(
-                        'Continue the requested writing task from the applied manuscript.',
-                        failedContinuationProposal.proposalId,
-                        false,
-                        true,
-                        failedContinuationProposal.agentRunId
-                      ).then((started) => {
-                        if (started) setContinuationFailure(null)
-                      })
-                    } else {
-                      void startRun(
-                        'Revise the rejected proposal from the stored review feedback.',
-                        undefined,
-                        false,
-                        true,
-                        failedContinuationProposal.agentRunId,
-                        failedContinuationProposal.proposalId
-                      ).then((started) => {
-                        if (started) setContinuationFailure(null)
-                      })
-                    }
-                  }}
-                >
-                  <RotateCcw data-icon='inline-start' />
-                  {continuationFailure.kind === 'approval' ? 'Continue task' : 'Retry revision'}
-                </Button>
-              </MarkerContent>
-            </Marker>
+            <AgentAttentionDock label='Continuation recovery'>
+              <Marker role='alert'>
+                <MarkerIcon>
+                  <AlertCircle className='text-destructive' />
+                </MarkerIcon>
+                <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                  <span>
+                    {continuationFailure.kind === 'approval'
+                      ? 'Change applied, continuation failed'
+                      : 'Feedback saved, revision failed'}
+                  </span>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={busy}
+                    onClick={() => {
+                      if (continuationFailure.kind === 'approval') {
+                        void startRun(
+                          'Continue the requested writing task from the applied manuscript.',
+                          failedContinuationProposal.proposalId,
+                          false,
+                          true,
+                          failedContinuationProposal.agentRunId
+                        ).then((started) => {
+                          if (started) setContinuationFailure(null)
+                        })
+                      } else {
+                        void startRun(
+                          'Revise the rejected proposal from the stored review feedback.',
+                          undefined,
+                          false,
+                          true,
+                          failedContinuationProposal.agentRunId,
+                          failedContinuationProposal.proposalId
+                        ).then((started) => {
+                          if (started) setContinuationFailure(null)
+                        })
+                      }
+                    }}
+                  >
+                    <RotateCcw data-icon='inline-start' />
+                    {continuationFailure.kind === 'approval' ? 'Continue task' : 'Retry revision'}
+                  </Button>
+                </MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
           ) : !modelReady ? (
             <Button variant='outline' className='w-full' onClick={props.onOpenSettings}>
               <Settings2 data-icon='inline-start' /> Set up an Agent model
@@ -1863,67 +1871,78 @@ export function AgentPanel(props: {
               <FieldLabel htmlFor='agent-message' className='sr-only'>
                 Agent message
               </FieldLabel>
-              {props.includedAnnotations.length > 0 ? (
-                <div className='flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-xs'>
-                  <Badge variant='secondary'>
-                    {props.includedAnnotations.length} selected annotations
-                  </Badge>
-                  <span className='min-w-0 flex-1 truncate'>Included in this prompt only</span>
-                  <Button
-                    type='button'
-                    size='icon-xs'
-                    variant='ghost'
-                    aria-label='Remove selected annotations'
-                    onClick={props.onClearIncludedAnnotations}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ) : null}
+              <ComposerContextChips
+                scopePreference={scopePreference}
+                skillMentions={leadingSkillMentions}
+                annotationCount={props.includedAnnotations.length}
+                disabled={composerSettingsDisabled}
+                onScopeClick={() => setComposerAddOpen(true)}
+                onSkillClick={focusSkillMention}
+                onClearAnnotations={props.onClearIncludedAnnotations}
+              />
               {activeRun !== null && pendingMessages.length > 0 ? (
-                <ul
+                <Collapsible
+                  open={waitingMessagesOpen}
+                  onOpenChange={setWaitingMessagesOpen}
                   aria-label='Waiting messages'
-                  className='m-0 max-h-32 list-none overflow-y-auto rounded-lg border bg-muted/30 p-1'
+                  className='group/waiting overflow-hidden rounded-md border bg-muted/20'
                   data-testid='agent-pending-messages'
                 >
-                  {pendingMessages.map((message) => {
-                    const actionPending = pendingActionIds.has(message.pendingMessageId)
-                    return (
-                      <li
-                        key={message.pendingMessageId}
-                        className='flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-sm hover:bg-muted/60'
-                      >
-                        <CornerDownRight className='size-4 shrink-0 text-muted-foreground' />
-                        <span className='min-w-0 flex-1 truncate'>{message.content}</span>
-                        <Button
-                          type='button'
-                          size='sm'
-                          variant='ghost'
-                          className='h-7 shrink-0 px-2 text-muted-foreground'
-                          disabled={actionPending}
-                          onClick={() =>
-                            void actOnPendingMessage(message.pendingMessageId, 'steer')
-                          }
-                        >
-                          <CornerDownRight data-icon='inline-start' /> Steer
-                        </Button>
-                        <Button
-                          type='button'
-                          size='icon-xs'
-                          variant='ghost'
-                          className='shrink-0 text-muted-foreground hover:text-destructive'
-                          aria-label='Delete waiting message'
-                          disabled={actionPending}
-                          onClick={() =>
-                            void actOnPendingMessage(message.pendingMessageId, 'delete')
-                          }
-                        >
-                          <Trash2 />
-                        </Button>
-                      </li>
-                    )
-                  })}
-                </ul>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      className='h-9 w-full justify-start rounded-none px-2 text-muted-foreground'
+                    >
+                      <CornerDownRight />
+                      <span className='min-w-0 flex-1 truncate text-left'>
+                        Waiting follow-ups · {pendingMessages.length}
+                      </span>
+                      <ChevronDown className='transition-transform group-data-[state=open]/waiting:rotate-180 motion-reduce:transition-none' />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ul className='m-0 max-h-32 list-none overflow-y-auto border-t p-1'>
+                      {pendingMessages.map((message) => {
+                        const actionPending = pendingActionIds.has(message.pendingMessageId)
+                        return (
+                          <li
+                            key={message.pendingMessageId}
+                            className='flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-1 text-sm hover:bg-muted/60'
+                          >
+                            <span className='min-w-0 flex-1 truncate'>{message.content}</span>
+                            <Button
+                              type='button'
+                              size='sm'
+                              variant='ghost'
+                              className='h-7 shrink-0 px-2 text-muted-foreground'
+                              disabled={actionPending}
+                              onClick={() =>
+                                void actOnPendingMessage(message.pendingMessageId, 'steer')
+                              }
+                            >
+                              <CornerDownRight data-icon='inline-start' /> Steer
+                            </Button>
+                            <Button
+                              type='button'
+                              size='icon-xs'
+                              variant='ghost'
+                              className='shrink-0 text-muted-foreground hover:text-destructive'
+                              aria-label='Delete waiting message'
+                              disabled={actionPending}
+                              onClick={() =>
+                                void actOnPendingMessage(message.pendingMessageId, 'delete')
+                              }
+                            >
+                              <Trash2 />
+                            </Button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
               ) : null}
               <Popover
                 open={slashCommandOpen || skillMentionOpen}
@@ -1949,7 +1968,8 @@ export function AgentPanel(props: {
                             : 'Queue a follow-up…'
                           : 'Ask the writing agent…'
                       }
-                      rows={3}
+                      rows={2}
+                      className='min-h-20 max-h-48 overflow-y-auto [field-sizing:content]'
                       disabled={busy || choosingSkill || activeSession?.compatible === false}
                       onChange={(event) => {
                         setPrompt(event.target.value)
@@ -2236,6 +2256,21 @@ export function AgentPanel(props: {
   )
 }
 
+function AgentAttentionDock(props: {
+  label: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <section
+      aria-label={props.label}
+      className='min-w-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200'
+      data-testid='agent-attention-dock'
+    >
+      {props.children}
+    </section>
+  )
+}
+
 function AgentQuestionnaireDock(props: {
   pending: AgentPendingQuestion
   busy: boolean
@@ -2349,6 +2384,30 @@ function AgentQuestionnaireDock(props: {
   )
 }
 
+type AgentSidebarWorkflowState = AgentSessionRecord['workflowState']
+
+function ConversationStatusIcon(props: {
+  workflowState: AgentSidebarWorkflowState
+  thinkingVisualState: AgentThinkingVisualState
+  archived?: boolean
+}): React.JSX.Element {
+  if (props.archived) return <Archive className='mt-1 size-4 shrink-0 text-muted-foreground' />
+  if (
+    props.workflowState === 'running' ||
+    props.workflowState === 'compacting' ||
+    props.workflowState === 'generating'
+  ) {
+    return <AgentThinkingIndicator state={props.thinkingVisualState} />
+  }
+  if (props.workflowState === 'awaiting_input') {
+    return <CircleHelp className='mt-1 size-4 shrink-0 text-warning' />
+  }
+  if (props.workflowState === 'awaiting_review') {
+    return <AlertCircle className='mt-1 size-4 shrink-0 text-warning' />
+  }
+  return <Bot className='mt-1 size-4 shrink-0 text-muted-foreground' />
+}
+
 function ConversationSwitcher(props: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -2356,25 +2415,41 @@ function ConversationSwitcher(props: {
   activeSession: AgentSessionRecord | null
   titleGeneratingIds: ReadonlySet<string>
   busy: boolean
+  status: string
+  workflowState: AgentSidebarWorkflowState
+  thinkingVisualState: AgentThinkingVisualState
   onNew(): void
   onOpen(agentSessionId: string): void
   onArchive(session: AgentSessionRecord): Promise<void>
   onRestore(session: AgentSessionRecord): Promise<void>
   onRegenerateTitle(session: AgentSessionRecord): Promise<void>
 }): React.JSX.Element {
-  const active = props.sessions.filter((session) => session.status === 'active')
-  const archived = props.sessions.filter((session) => session.status === 'archived')
+  const groups = groupAgentConversations(props.sessions)
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant='ghost'
-          className='h-8 min-w-0 justify-start gap-2 px-2'
+          className='h-auto min-h-10 min-w-0 justify-start gap-2 px-2 py-1 text-left'
           data-testid='agent-conversation-switcher'
         >
-          <Bot className='shrink-0' />
-          <span className='truncate font-semibold'>
-            {props.activeSession?.title ?? 'New conversation'}
+          <ConversationStatusIcon
+            workflowState={props.workflowState}
+            thinkingVisualState={props.thinkingVisualState}
+            archived={props.activeSession?.status === 'archived'}
+          />
+          <span className='min-w-0 flex-1'>
+            <span className='block truncate font-semibold'>
+              {props.activeSession?.title ?? 'New conversation'}
+            </span>
+            <span
+              className='block truncate text-xs font-normal text-muted-foreground'
+              data-testid='agent-status'
+              role='status'
+              aria-live='polite'
+            >
+              {props.status}
+            </span>
           </span>
           {props.activeSession &&
           props.titleGeneratingIds.has(props.activeSession.agentSessionId) ? (
@@ -2395,8 +2470,38 @@ function ConversationSwitcher(props: {
               </CommandItem>
             </CommandGroup>
             <ConversationCommandGroup
-              heading='Active'
-              sessions={active}
+              heading='Needs an answer'
+              sessions={groups.needsInput}
+              busy={props.busy}
+              titleGeneratingIds={props.titleGeneratingIds}
+              onOpen={props.onOpen}
+              onArchive={props.onArchive}
+              onRestore={props.onRestore}
+              onRegenerateTitle={props.onRegenerateTitle}
+            />
+            <ConversationCommandGroup
+              heading='Needs review'
+              sessions={groups.needsReview}
+              busy={props.busy}
+              titleGeneratingIds={props.titleGeneratingIds}
+              onOpen={props.onOpen}
+              onArchive={props.onArchive}
+              onRestore={props.onRestore}
+              onRegenerateTitle={props.onRegenerateTitle}
+            />
+            <ConversationCommandGroup
+              heading='Working'
+              sessions={groups.working}
+              busy={props.busy}
+              titleGeneratingIds={props.titleGeneratingIds}
+              onOpen={props.onOpen}
+              onArchive={props.onArchive}
+              onRestore={props.onRestore}
+              onRegenerateTitle={props.onRegenerateTitle}
+            />
+            <ConversationCommandGroup
+              heading='Recent'
+              sessions={groups.recent}
               busy={props.busy}
               titleGeneratingIds={props.titleGeneratingIds}
               onOpen={props.onOpen}
@@ -2406,7 +2511,7 @@ function ConversationSwitcher(props: {
             />
             <ConversationCommandGroup
               heading='Archived'
-              sessions={archived}
+              sessions={groups.archived}
               busy={props.busy}
               titleGeneratingIds={props.titleGeneratingIds}
               onOpen={props.onOpen}
@@ -2510,6 +2615,74 @@ type ComposerCommand = {
   disabled: boolean
   selected: boolean
   action: { kind: 'scope'; value: 'auto' | AgentStartScope }
+}
+
+function ComposerContextChips(props: {
+  scopePreference: 'auto' | AgentStartScope
+  skillMentions: readonly LeadingSkillMention[]
+  annotationCount: number
+  disabled: boolean
+  onScopeClick(): void
+  onSkillClick(mention: LeadingSkillMention): void
+  onClearAnnotations(): void
+}): React.JSX.Element | null {
+  const scopeLabel =
+    props.scopePreference === 'selection'
+      ? 'Selected text'
+      : props.scopePreference === 'section'
+        ? 'This section'
+        : props.scopePreference === 'project'
+          ? 'Whole manuscript'
+          : null
+  if (scopeLabel === null && props.skillMentions.length === 0 && props.annotationCount === 0) {
+    return null
+  }
+  return (
+    <fieldset
+      className='m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0'
+      data-testid='agent-composer-context-chips'
+      aria-label='Prompt context'
+    >
+      {scopeLabel === null ? null : (
+        <Button
+          type='button'
+          variant='secondary'
+          size='xs'
+          className='h-6 max-w-full rounded-full px-2 text-xs'
+          disabled={props.disabled}
+          onClick={props.onScopeClick}
+        >
+          <TextCursorInput />
+          <span className='truncate'>{scopeLabel}</span>
+        </Button>
+      )}
+      {props.skillMentions.map((mention) => (
+        <Button
+          key={`${mention.start}-${mention.name}`}
+          type='button'
+          variant='secondary'
+          size='xs'
+          className='h-6 max-w-full rounded-full px-2 font-mono text-xs'
+          onClick={() => props.onSkillClick(mention)}
+        >
+          <span className='truncate'>${mention.name}</span>
+        </Button>
+      ))}
+      {props.annotationCount > 0 ? (
+        <Button
+          type='button'
+          variant='secondary'
+          size='xs'
+          className='h-6 max-w-full rounded-full px-2 text-xs'
+          aria-label={`Remove ${props.annotationCount} selected annotations`}
+          onClick={props.onClearAnnotations}
+        >
+          <span className='truncate'>{props.annotationCount} annotations</span>
+          <X />
+        </Button>
+      ) : null}
+    </fieldset>
+  )
 }
 
 export function buildComposerCommands(input: {
@@ -3399,8 +3572,8 @@ function WritingTaskProgressDock(props: {
     createCheckpoint: boolean
   }): Promise<ChangeSetBatchResult>
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const overlayOpenRef = useRef(false)
+  const needsAttention = writingTaskNeedsAttention(props.task)
+  const [open, setOpen] = useState(needsAttention)
   const proposalNavigationRef = useRef<string | null>(null)
   const summary = writingTaskDockSummary(props.task)
   const titleId = `agent-writing-task-title-${props.task.taskId}`
@@ -3408,57 +3581,54 @@ function WritingTaskProgressDock(props: {
     props.task.progress.steps.find(
       (progress) => progress.stepId === props.task.progress.currentStepId
     ) ?? null
+  const currentStep =
+    props.task.plan.steps.find((step) => step.stepId === props.task.progress.currentStepId) ?? null
 
-  const changeOpen = (nextOpen: boolean): void => {
-    if (!nextOpen && overlayOpenRef.current) return
-    setOpen(nextOpen)
-  }
+  useEffect(() => {
+    if (needsAttention) setOpen(true)
+  }, [needsAttention])
 
   return (
-    <div className='flex shrink-0 justify-center px-4 py-2' data-testid='agent-writing-task'>
-      <Popover open={open} onOpenChange={changeOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant='secondary'
-            size='sm'
-            className='rounded-full tabular-nums'
-            aria-label={summary.ariaLabel}
-            data-testid='agent-writing-task-trigger'
-          >
-            {props.task.progress.hasDisagreement ? (
-              <TriangleAlert data-icon='inline-start' className='text-destructive' />
-            ) : summary.complete ? (
-              <CircleCheck data-icon='inline-start' className='text-success' />
-            ) : currentProgress === null ? (
-              <TriangleAlert data-icon='inline-start' className='text-warning' />
-            ) : (
-              <WritingTaskStateIcon state={currentProgress.state} inButton />
-            )}
-            {summary.label}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          side='top'
-          align='center'
-          sideOffset={8}
-          aria-labelledby={titleId}
-          onCloseAutoFocus={(event) => {
-            const proposalId = proposalNavigationRef.current
-            if (proposalId === null) return
-            event.preventDefault()
-            proposalNavigationRef.current = null
-            requestAnimationFrame(() => {
-              const target = document.querySelector<HTMLElement>(
-                `[data-testid="agent-proposal-${proposalId}"]`
-              )
-              target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-              target?.focus({ preventScroll: true })
-            })
-          }}
-          className='flex max-h-[min(70vh,36rem)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-0 overflow-hidden p-0'
-          data-testid='agent-writing-task-popover'
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className='group/task shrink-0 border-t bg-muted/20'
+      data-testid='agent-writing-task'
+      data-attention={needsAttention ? 'true' : 'false'}
+    >
+      <CollapsibleTrigger asChild>
+        <Button
+          variant='ghost'
+          className='h-auto min-h-11 w-full min-w-0 justify-start rounded-none px-4 py-2 text-left'
+          aria-label={summary.ariaLabel}
+          data-testid='agent-writing-task-trigger'
         >
-          <div className='flex min-w-0 items-start gap-2 px-3 py-3'>
+          {props.task.progress.hasDisagreement ? (
+            <TriangleAlert className='shrink-0 text-destructive' />
+          ) : summary.complete ? (
+            <CircleCheck className='shrink-0 text-success' />
+          ) : currentProgress === null ? (
+            <TriangleAlert className='shrink-0 text-warning' />
+          ) : (
+            <WritingTaskStateIcon state={currentProgress.state} inButton />
+          )}
+          <span className='min-w-0 flex-1'>
+            <span className='block truncate text-sm font-medium'>
+              {currentStep?.title ?? props.task.objective}
+            </span>
+            <span className='block truncate text-xs font-normal text-muted-foreground'>
+              {summary.label} · {props.task.objective}
+            </span>
+          </span>
+          <ChevronDown className='shrink-0 transition-transform group-data-[state=open]/task:rotate-180 motion-reduce:transition-none' />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent
+        className='border-t bg-background'
+        data-testid='agent-writing-task-details'
+      >
+        <div className='max-h-[min(38vh,24rem)] overflow-y-auto overscroll-contain'>
+          <div className='flex min-w-0 items-start gap-2 px-4 py-3'>
             <div className='min-w-0 flex-1'>
               <h3 id={titleId} className='line-clamp-3 text-sm font-medium leading-snug'>
                 {props.task.objective}
@@ -3474,7 +3644,6 @@ function WritingTaskProgressDock(props: {
                 aria-label='Revise writing task plan'
                 disabled={!props.canControl}
                 onClick={() => {
-                  setOpen(false)
                   props.onEdit()
                 }}
               >
@@ -3486,7 +3655,6 @@ function WritingTaskProgressDock(props: {
                 aria-label='Resume writing task'
                 disabled={!props.canControl || props.task.progress.currentStepId === null}
                 onClick={() => {
-                  setOpen(false)
                   void props.onResume()
                 }}
               >
@@ -3494,8 +3662,8 @@ function WritingTaskProgressDock(props: {
               </Button>
             </div>
           </div>
-          <div className='min-h-0 overflow-y-auto'>
-            <section className='px-3 pb-3' aria-label='Plan steps'>
+          <div>
+            <section className='px-4 pb-3' aria-label='Plan steps'>
               <ol className='flex flex-col gap-2'>
                 {props.task.plan.steps.map((step, index) => {
                   const progress = props.task.progress.steps.find(
@@ -3544,15 +3712,21 @@ function WritingTaskProgressDock(props: {
               onNavigate={(proposalId) => {
                 proposalNavigationRef.current = proposalId
                 setOpen(false)
+                requestAnimationFrame(() => {
+                  const target = document.querySelector<HTMLElement>(
+                    `[data-testid="agent-proposal-${proposalId}"]`
+                  )
+                  target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  target?.focus({ preventScroll: true })
+                  proposalNavigationRef.current = null
+                })
               }}
-              onOverlayOpenChange={(nextOpen) => {
-                overlayOpenRef.current = nextOpen
-              }}
+              onOverlayOpenChange={() => {}}
             />
           </div>
-        </PopoverContent>
-      </Popover>
-    </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -3612,6 +3786,22 @@ export function writingTaskDockSummary(task: WritingTaskView): {
     ariaLabel: 'Writing task, plan needs attention, open details',
     complete: false
   }
+}
+
+export function writingTaskNeedsAttention(task: WritingTaskView): boolean {
+  if (task.progress.hasDisagreement) return true
+  if (task.progress.remainingCount === 0) return false
+  const current = task.progress.steps.find(
+    (progress) => progress.stepId === task.progress.currentStepId
+  )
+  if (current === undefined) return true
+  return (
+    current.state === 'awaiting_review' ||
+    current.state === 'blocked' ||
+    current.state === 'stopped' ||
+    current.state === 'failed' ||
+    current.state === 'disagreement'
+  )
 }
 
 function WritingTaskChangeSetPanel(props: {
@@ -3915,6 +4105,18 @@ function EventTimeline(props: {
     return citations
   }, [props.timeline])
   const scrollAnchorIndex = agentTimelineScrollAnchorIndex(props.timeline)
+  const runDurationById = useMemo(() => {
+    const durations = new Map<string, number>()
+    for (const item of props.timeline) {
+      if (
+        (item.type === 'run_completed' || item.type === 'run_interrupted') &&
+        item.terminal.runId !== null
+      ) {
+        durations.set(item.terminal.runId, item.terminal.durationMs)
+      }
+    }
+    return durations
+  }, [props.timeline])
 
   return (
     <MessageScrollerProvider autoScroll>
@@ -3940,6 +4142,7 @@ function EventTimeline(props: {
                   sectionTitles={props.sectionTitles}
                   onProposalAction={props.onProposalAction}
                   onNew={props.onNew}
+                  runDurationById={runDurationById}
                 />
               </MessageScrollerItem>
             ))}
@@ -3953,12 +4156,8 @@ function EventTimeline(props: {
                           <AgentMarkdown content={content} />
                         </BubbleContent>
                       </Bubble>
-                      <MessageFooter className='gap-2'>
-                        <AgentThinkingIndicator
-                          state='composing'
-                          testId='agent-streaming-thinking-indicator'
-                        />
-                        <span className='shimmer'>Streaming…</span>
+                      <MessageFooter>
+                        <span>Writing response…</span>
                       </MessageFooter>
                     </MessageContent>
                   </Message>
@@ -3981,13 +4180,14 @@ function TimelineItem(props: {
   citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   onNew(): void
+  runDurationById: ReadonlyMap<string, number>
   currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   onProposalAction(
     proposal: MutationProposalRecord,
     action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const { item } = props
   if (item.type === 'user') {
     return (
@@ -4026,6 +4226,7 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'assistant') {
+    const durationMs = item.runId === null ? undefined : props.runDurationById.get(item.runId)
     return (
       <Message>
         <MessageContent>
@@ -4034,6 +4235,11 @@ function TimelineItem(props: {
               <AgentMarkdown content={item.payload.content} />
             </BubbleContent>
           </Bubble>
+          {durationMs === undefined ? null : (
+            <MessageFooter className='gap-1.5 tabular-nums'>
+              <Clock3 className='size-3.5' /> Worked for {formatAgentDuration(durationMs)}
+            </MessageFooter>
+          )}
         </MessageContent>
       </Message>
     )
@@ -4096,7 +4302,7 @@ function TimelineItem(props: {
   }
   if (item.type === 'run_interrupted') {
     if (item.terminal.outcome === 'awaiting_review') {
-      return <RunDurationMarker durationMs={item.terminal.durationMs} />
+      return null
     }
     const terminalDetail = agentTerminalDetail(item.terminal.code)
     return (
@@ -4123,7 +4329,7 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'run_completed') {
-    return <RunDurationMarker durationMs={item.terminal.durationMs} />
+    return null
   }
   if (item.type === 'compaction_started') {
     return (
@@ -4292,27 +4498,16 @@ function compactionTriggerLabel(
   return 'context limit'
 }
 
-function RunDurationMarker(props: { durationMs: number }): React.JSX.Element {
-  return (
-    <Marker role='status' variant='border'>
-      <MarkerIcon>
-        <Clock3 />
-      </MarkerIcon>
-      <MarkerContent>Worked for {formatAgentDuration(props.durationMs)}</MarkerContent>
-    </Marker>
-  )
-}
-
 function ActivityGroup(props: {
   item: Extract<AgentTimelineItem, { type: 'activity' }>
 }): React.JSX.Element {
   const { item } = props
+  const durationMs = item.tools.reduce((total, tool) => total + tool.durationMs, 0)
   return (
     <Collapsible
       className='group/activity min-w-0 max-w-full overflow-hidden'
       defaultOpen={
-        (item.status === 'running' &&
-          item.tools.some((tool) => tool.call.toolName === 'read_writing_skill')) ||
+        item.status === 'running' ||
         item.status === 'partial' ||
         item.status === 'error' ||
         item.status === 'stopped'
@@ -4323,17 +4518,20 @@ function ActivityGroup(props: {
       <CollapsibleTrigger className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
         <Marker role='status'>
           <MarkerIcon>{activityIcon(item.status)}</MarkerIcon>
-          <MarkerContent className={item.status === 'running' ? 'shimmer' : undefined}>
-            {item.summary}
+          <MarkerContent className='min-w-0'>
+            <span className='block truncate text-foreground'>{item.summary}</span>
+            <span className='block text-xs text-muted-foreground tabular-nums'>
+              {item.tools.length} {item.tools.length === 1 ? 'action' : 'actions'} ·{' '}
+              {activityStatusLabel(item.status)} · {formatAgentDuration(durationMs)}
+            </span>
             {item.failedCount > 0 ? (
               <Badge
-                className='ml-2 align-middle'
+                className='mt-1'
                 variant={item.status === 'partial' ? 'warning' : 'destructive'}
               >
                 {item.failedCount} of {item.tools.length} failed
               </Badge>
             ) : null}
-            {item.status === 'stopped' ? ' · Stopped' : ''}
           </MarkerContent>
           <ChevronDown className='ml-auto transition-transform group-data-[state=open]/activity:rotate-180' />
         </Marker>
@@ -4612,7 +4810,7 @@ function CitationAttachments(props: { citations: AgentCitationDisplay[] }): Reac
 }
 
 function activityIcon(status: AgentActivityStatus): React.JSX.Element {
-  if (status === 'running') return <Spinner />
+  if (status === 'running') return <CircleDotDashed className='text-muted-foreground' />
   if (status === 'partial')
     return <TriangleAlert className='text-warning-foreground dark:text-warning' />
   if (status === 'error') return <AlertCircle className='text-destructive' />
@@ -4620,10 +4818,18 @@ function activityIcon(status: AgentActivityStatus): React.JSX.Element {
   return <Check className='text-success' />
 }
 
+function activityStatusLabel(status: AgentActivityStatus): string {
+  if (status === 'running') return 'Running'
+  if (status === 'partial') return 'Needs attention'
+  if (status === 'error') return 'Failed'
+  if (status === 'stopped') return 'Stopped'
+  return 'Complete'
+}
+
 function toolResultIcon(tool: AgentToolActivity, stopped: boolean): React.JSX.Element {
   if ((tool.result === null && stopped) || toolWasStopped(tool))
     return <CircleStop className='text-destructive' />
-  if (tool.result === null) return <Spinner />
+  if (tool.result === null) return <CircleDotDashed className='text-muted-foreground' />
   if (tool.result.isError) return <X className='text-destructive' />
   return <Check className='text-success' />
 }

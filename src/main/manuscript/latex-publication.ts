@@ -71,6 +71,7 @@ export function renderLatexPublication(input: {
       '\\usepackage{graphicx}',
       '\\usepackage{booktabs}',
       '\\usepackage{longtable}',
+      '\\usepackage{array}',
       '\\usepackage{enumitem}',
       '\\usepackage{listings}',
       '\\usepackage{caption}',
@@ -161,29 +162,7 @@ function convertNode(
       ]
     }
     case 'table': {
-      const columns = Math.max(1, ...node.rows.map((row) => row.length))
-      const lines = [`\\begin{longtable}{${'l'.repeat(columns)}}`, '\\toprule']
-      node.rows.forEach((row, rowIndex) => {
-        lines.push(
-          `${row
-            .map((cell) => {
-              if (cell.rowspan > 1) {
-                losses.push({
-                  code: 'latex_table_span_fallback',
-                  sectionId: node.target.sectionId,
-                  blockId: node.target.blockId ?? '',
-                  message: 'A row-spanning table cell was emitted without its row span.'
-                })
-              }
-              const content = inlineLatex(cell.content, node.target, losses)
-              return cell.colspan > 1 ? `\\multicolumn{${cell.colspan}}{l}{${content}}` : content
-            })
-            .join(' & ')} \\\\`
-        )
-        if (rowIndex + 1 === node.headerRows) lines.push('\\midrule')
-      })
-      lines.push('\\bottomrule', '\\end{longtable}', '')
-      return lines
+      return renderLatexTable(node, losses)
     }
     case 'figure':
       return [
@@ -235,6 +214,216 @@ function convertNode(
         ''
       ]
   }
+}
+
+type LatexTableNode = Extract<PublicationNode, { type: 'table' }>
+type LatexTableCell = LatexTableNode['rows'][number][number]
+
+interface LatexTableCellPlacement {
+  cell: LatexTableCell
+  column: number
+}
+
+function renderLatexTable(node: LatexTableNode, losses: LatexPublicationLoss[]): string[] {
+  const columns = latexTableColumnCount(node)
+  const columnSpec = latexTableColumnSpec(node, columns)
+  const columnAlignments = latexTableColumnAlignments(node, columns)
+  const placements = latexTableCellPlacements(node)
+  const headerRowCount = Math.min(Math.max(0, node.headerRows), node.rows.length)
+  const lines = [['\\begin{longtable}{', columnSpec, '}'].join(''), '\\toprule']
+  const renderRow = (rowIndex: number): string =>
+    (placements[rowIndex] ?? [])
+      .map(({ cell, column }) => {
+        if (cell.rowspan > 1) recordRowspanLoss(node, losses)
+        let content = inlineLatex(cell.content, node.target, losses)
+        if (column < (node.headerCols ?? 0)) content = ['\\textbf{', content, '}'].join('')
+        if (
+          cell.colspan <= 1 &&
+          latexCellAlignment(cell) === (columnAlignments[column] ?? 'left')
+        ) {
+          return content
+        }
+        return [
+          '\\multicolumn{',
+          cell.colspan,
+          '}{',
+          latexMulticolumnSpec(node, cell, column),
+          '}{',
+          content,
+          '}'
+        ].join('')
+      })
+      .join(' & ')
+      .concat(' \\\\')
+  if (headerRowCount > 0) {
+    for (let rowIndex = 0; rowIndex < headerRowCount; rowIndex += 1) {
+      lines.push(renderRow(rowIndex))
+    }
+    lines.push('\\midrule', '\\endfirsthead', '\\toprule')
+    for (let rowIndex = 0; rowIndex < headerRowCount; rowIndex += 1) {
+      lines.push(renderRow(rowIndex))
+    }
+    lines.push('\\midrule', '\\endhead')
+  }
+  for (let rowIndex = headerRowCount; rowIndex < node.rows.length; rowIndex += 1) {
+    lines.push(renderRow(rowIndex))
+  }
+  lines.push('\\bottomrule', '\\end{longtable}', '')
+  return lines
+}
+
+function latexTableCellPlacements(node: LatexTableNode): LatexTableCellPlacement[][] {
+  const occupied: boolean[][] = []
+  const placements: LatexTableCellPlacement[][] = []
+  node.rows.forEach((row, rowIndex) => {
+    const current: LatexTableCellPlacement[] = []
+    let rowOccupancy = occupied[rowIndex]
+    if (rowOccupancy === undefined) {
+      rowOccupancy = []
+      occupied[rowIndex] = rowOccupancy
+    }
+    let column = 0
+    for (const cell of row) {
+      while (rowOccupancy[column] === true) column += 1
+      current.push({ cell, column })
+      const colspan = Math.max(1, cell.colspan)
+      const rowspan = Math.max(1, cell.rowspan)
+      for (let targetRow = rowIndex; targetRow < rowIndex + rowspan; targetRow += 1) {
+        let targetOccupancy = occupied[targetRow]
+        if (targetOccupancy === undefined) {
+          targetOccupancy = []
+          occupied[targetRow] = targetOccupancy
+        }
+        for (let targetColumn = column; targetColumn < column + colspan; targetColumn += 1) {
+          targetOccupancy[targetColumn] = true
+        }
+      }
+      column += colspan
+    }
+    placements.push(current)
+  })
+  return placements
+}
+
+function latexTableColumnCount(node: LatexTableNode): number {
+  const placements = latexTableCellPlacements(node)
+  return Math.max(
+    1,
+    node.columnWidths.length,
+    ...placements.flatMap((row) =>
+      row.map(({ cell, column }) => column + Math.max(1, cell.colspan))
+    )
+  )
+}
+
+function latexTableColumnSpec(node: LatexTableNode, columns: number): string {
+  const alignments = latexTableColumnAlignments(node, columns)
+  const widths = normalizedLatexTableWidths(node.columnWidths, columns)
+  if (widths === null) return alignments.map(latexAlignmentChar).join('')
+  return widths
+    .map(
+      (width, index) =>
+        latexAlignmentPrefix(alignments[index] ?? 'left') +
+        'p{' +
+        formatLatexFraction(width) +
+        '\\linewidth}'
+    )
+    .join('')
+}
+
+function latexMulticolumnSpec(node: LatexTableNode, cell: LatexTableCell, column: number): string {
+  const alignment = latexCellAlignment(cell)
+  const widths = normalizedLatexTableWidths(node.columnWidths, latexTableColumnCount(node))
+  if (widths === null) return latexAlignmentChar(alignment)
+  const total = widths
+    .slice(column, column + Math.max(1, cell.colspan))
+    .reduce((sum, width) => sum + width, 0)
+  return [latexAlignmentPrefix(alignment), 'p{', formatLatexFraction(total), '\\linewidth}'].join(
+    ''
+  )
+}
+
+function latexTableColumnAlignments(
+  node: LatexTableNode,
+  columns: number
+): Array<'left' | 'center' | 'right' | 'justify'> {
+  const result: Array<'left' | 'center' | 'right' | 'justify'> = Array.from(
+    { length: columns },
+    () => 'left'
+  )
+  const seen = Array.from({ length: columns }, () => false)
+  for (const row of latexTableCellPlacements(node)) {
+    for (const { cell, column } of row) {
+      const alignment = latexCellAlignment(cell)
+      for (let offset = 0; offset < Math.max(1, cell.colspan); offset += 1) {
+        const target = column + offset
+        if (target >= columns || seen[target]) continue
+        result[target] = alignment
+        seen[target] = true
+      }
+    }
+  }
+  return result
+}
+
+function latexCellAlignment(cell: LatexTableCell): 'left' | 'center' | 'right' | 'justify' {
+  return cell.textAlignment ?? 'left'
+}
+
+function latexAlignmentChar(alignment: 'left' | 'center' | 'right' | 'justify'): string {
+  return alignment === 'center' ? 'c' : alignment === 'right' ? 'r' : 'l'
+}
+
+function latexAlignmentPrefix(alignment: 'left' | 'center' | 'right' | 'justify'): string {
+  if (alignment === 'center') return '>{\\centering\\arraybackslash}'
+  if (alignment === 'right') return '>{\\raggedleft\\arraybackslash}'
+  if (alignment === 'justify') return '>{\\arraybackslash}'
+  return '>{\\raggedright\\arraybackslash}'
+}
+
+function normalizedLatexTableWidths(
+  source: readonly (number | null)[],
+  columns: number
+): number[] | null {
+  const values = Array.from({ length: columns }, (_, index) => {
+    const value = source[index]
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+  })
+  const explicit = values.filter((value): value is number => value !== null)
+  if (explicit.length === 0) return null
+  const explicitTotal = explicit.reduce((sum, value) => sum + value, 0)
+  const missing = values.filter((value) => value === null).length
+  if (missing === 0) return values.map((value) => (value ?? 0) / explicitTotal)
+  if (explicitTotal < 100) {
+    const remainder = (1 - explicitTotal / 100) / missing
+    return values.map((value) => (value ?? remainder * 100) / 100)
+  }
+  const fallback = explicitTotal / explicit.length
+  const total = explicitTotal + fallback * missing
+  return values.map((value) => (value ?? fallback) / total)
+}
+
+function formatLatexFraction(value: number): string {
+  return Number(value.toFixed(5)).toString()
+}
+
+function recordRowspanLoss(node: LatexTableNode, losses: LatexPublicationLoss[]): void {
+  if (
+    losses.some(
+      (loss) =>
+        loss.code === 'latex_table_span_fallback' &&
+        loss.sectionId === node.target.sectionId &&
+        loss.blockId === (node.target.blockId ?? '')
+    )
+  ) {
+    return
+  }
+  losses.push({
+    code: 'latex_table_span_fallback',
+    sectionId: node.target.sectionId,
+    blockId: node.target.blockId ?? '',
+    message: 'A row-spanning table cell was emitted without its row span.'
+  })
 }
 
 function inlineLatex(

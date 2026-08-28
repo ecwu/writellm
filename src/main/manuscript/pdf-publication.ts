@@ -290,8 +290,12 @@ a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .toc a { display: flex; text-decoration: none; gap: .4em; } .toc .leader { flex: 1; border-bottom: 1px dotted #a1a1aa; transform: translateY(-.3em); }
 blockquote { border-left: 2px solid #a1a1aa; margin: 1em 0; padding-left: 1em; color: #3f3f46; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f4f5; padding: .8em; break-inside: avoid; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9pt; }
-table { width: 100%; border-collapse: collapse; margin: 1em 0; break-inside: avoid; }
-th, td { border: 1px solid #a1a1aa; padding: .35em .5em; text-align: left; vertical-align: top; }
+table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+.publication-table-fixed { table-layout: fixed; }
+thead { display: table-header-group; }
+tbody { display: table-row-group; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+th, td { border: 1px solid #a1a1aa; padding: .35em .5em; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
 figure { margin: 1.2em 0; break-inside: avoid; text-align: center; }
 figure img { max-width: 100%; max-height: 65vh; object-fit: contain; }
 figcaption { margin-top: .45em; font-style: italic; }
@@ -332,17 +336,7 @@ function htmlNode(
     case 'code':
       return `<pre><code>${escapeHtml(node.content)}</code></pre>`
     case 'table':
-      return `<table>${node.rows
-        .map(
-          (row, rowIndex) =>
-            `<tr>${row
-              .map((cell) => {
-                const tag = rowIndex < node.headerRows ? 'th' : 'td'
-                return `<${tag} colspan="${cell.colspan}" rowspan="${cell.rowspan}">${inlineHtml(cell.content, node.target, losses)}</${tag}>`
-              })
-              .join('')}</tr>`
-        )
-        .join('')}</table>`
+      return renderHtmlTable(node, losses)
     case 'figure':
       return `<figure id="${safeHtmlId(`figure-${node.figureId}`)}"><img src="${escapeHtmlAttribute(
         input.resolveAssetUrl(node.assetId)
@@ -371,6 +365,129 @@ function htmlNode(
         .map((entry) => `<li value="${entry.number}">${escapeHtml(entry.title)}</li>`)
         .join('')}</ol></section>`
   }
+}
+
+interface TableCellPlacement {
+  cell: Extract<PublicationNode, { type: 'table' }>['rows'][number][number]
+  column: number
+}
+
+function renderHtmlTable(
+  node: Extract<PublicationNode, { type: 'table' }>,
+  losses: PdfPublicationLoss[]
+): string {
+  const placements = tableCellPlacements(node)
+  const headerRowCount = Math.min(Math.max(0, node.headerRows), node.rows.length)
+  const rowHtml = (rowIndex: number, row: TableCellPlacement[]): string =>
+    `<tr>${row
+      .map(({ cell, column }) => {
+        const isHeaderRow = rowIndex < headerRowCount
+        const isHeaderColumn = column < (node.headerCols ?? 0)
+        const tag = isHeaderRow || isHeaderColumn ? 'th' : 'td'
+        const scope = isHeaderRow ? 'col' : isHeaderColumn ? 'row' : null
+        const alignment = cell.textAlignment ?? 'left'
+        return `<${tag}${scope === null ? '' : ` scope="${scope}"`} colspan="${cell.colspan}" rowspan="${cell.rowspan}" style="text-align:${alignment}">${inlineHtml(cell.content, node.target, losses)}</${tag}>`
+      })
+      .join('')}</tr>`
+  const head =
+    headerRowCount === 0
+      ? ''
+      : `<thead>${node.rows
+          .slice(0, headerRowCount)
+          .map((_row, rowIndex) => rowHtml(rowIndex, placements[rowIndex] ?? []))
+          .join('')}</thead>`
+  const bodyRows = node.rows
+    .slice(headerRowCount)
+    .map((_row, index) => rowHtml(index + headerRowCount, placements[index + headerRowCount] ?? []))
+    .join('')
+  const body = `<tbody>${bodyRows}</tbody>`
+  const colgroup = tableColgroup(node, tableColumnCount(node))
+  const tableClass = colgroup === '' ? '' : ' class="publication-table-fixed"'
+  return `<table${tableClass}>${colgroup}${head}${body}</table>`
+}
+
+function tableCellPlacements(
+  node: Extract<PublicationNode, { type: 'table' }>
+): TableCellPlacement[][] {
+  const occupied: boolean[][] = []
+  const placements: TableCellPlacement[][] = []
+  node.rows.forEach((row, rowIndex) => {
+    const current: TableCellPlacement[] = []
+    let rowOccupancy = occupied[rowIndex]
+    if (rowOccupancy === undefined) {
+      rowOccupancy = []
+      occupied[rowIndex] = rowOccupancy
+    }
+    let column = 0
+    for (const cell of row) {
+      while (rowOccupancy[column] === true) column += 1
+      current.push({ cell, column })
+      const colspan = Math.max(1, cell.colspan)
+      const rowspan = Math.max(1, cell.rowspan)
+      for (let targetRow = rowIndex; targetRow < rowIndex + rowspan; targetRow += 1) {
+        let targetOccupancy = occupied[targetRow]
+        if (targetOccupancy === undefined) {
+          targetOccupancy = []
+          occupied[targetRow] = targetOccupancy
+        }
+        for (let targetColumn = column; targetColumn < column + colspan; targetColumn += 1) {
+          targetOccupancy[targetColumn] = true
+        }
+      }
+      column += colspan
+    }
+    placements.push(current)
+  })
+  return placements
+}
+
+function tableColumnCount(node: Extract<PublicationNode, { type: 'table' }>): number {
+  const placements = tableCellPlacements(node)
+  return Math.max(
+    1,
+    node.columnWidths.length,
+    ...placements.flatMap((row) =>
+      row.map(({ cell, column }) => column + Math.max(1, cell.colspan))
+    )
+  )
+}
+
+function tableColgroup(
+  node: Extract<PublicationNode, { type: 'table' }>,
+  columnCount: number
+): string {
+  const widths = normalizedTableWidths(node.columnWidths, columnCount)
+  if (widths === null) return ''
+  return `<colgroup>${widths.map((width) => `<col style="width:${formatPercent(width)}">`).join('')}</colgroup>`
+}
+
+function normalizedTableWidths(
+  source: readonly (number | null)[],
+  columnCount: number
+): number[] | null {
+  const values = Array.from({ length: columnCount }, (_, index) => {
+    const value = source[index]
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+  })
+  const explicit = values.filter((value): value is number => value !== null)
+  if (explicit.length === 0) return null
+  const explicitTotal = explicit.reduce((sum, value) => sum + value, 0)
+  const missing = values.filter((value) => value === null).length
+  if (missing === 0) return values.map((value) => ((value ?? 0) / explicitTotal) * 100)
+  if (explicitTotal < 100) {
+    const remainder = (100 - explicitTotal) / missing
+    return values.map((value) => value ?? remainder)
+  }
+  // BlockNote widths are relative measurements, commonly pixels. When they already consume the
+  // available percentage range, give each unspecified column the mean explicit share and then
+  // normalize every column together.
+  const fallback = explicitTotal / explicit.length
+  const total = explicitTotal + fallback * missing
+  return values.map((value) => ((value ?? fallback) / total) * 100)
+}
+
+function formatPercent(value: number): string {
+  return `${Number(value.toFixed(4))}%`
 }
 
 function inlineHtml(

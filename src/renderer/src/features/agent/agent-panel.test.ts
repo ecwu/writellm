@@ -17,8 +17,10 @@ import {
   sectionFollowTargetForAgentEvent,
   selectAttentionSession,
   slashCommandQuery,
-  writingTaskDockSummary
+  writingTaskDockSummary,
+  writingTaskNeedsAttention
 } from './agent-panel'
+import { agentHeaderStatusLabel, groupAgentConversations } from './agent-view-model'
 
 const activeSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc521'
 const backgroundSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc522'
@@ -57,6 +59,72 @@ describe('Agent panel flow selection', () => {
       ariaLabel: 'Writing task, plan needs attention, open details',
       complete: false
     })
+  })
+
+  it('opens task details only when progress needs attention', () => {
+    const task = writingTaskView()
+    expect(writingTaskNeedsAttention(task)).toBe(false)
+    expect(
+      writingTaskNeedsAttention({
+        ...task,
+        progress: {
+          ...task.progress,
+          hasDisagreement: true
+        }
+      })
+    ).toBe(true)
+    expect(
+      writingTaskNeedsAttention({
+        ...task,
+        progress: {
+          ...task.progress,
+          steps: task.progress.steps.map((step) =>
+            step.stepId === task.progress.currentStepId ? { ...step, state: 'blocked' } : step
+          )
+        }
+      })
+    ).toBe(true)
+  })
+
+  it('groups conversations by required attention before recent and archived work', () => {
+    const input = session('019c6a5c-8d34-7a8e-a602-3d37a52dc541', 'awaiting_input')
+    const review = session('019c6a5c-8d34-7a8e-a602-3d37a52dc542', 'awaiting_review')
+    const working = session('019c6a5c-8d34-7a8e-a602-3d37a52dc543', 'running')
+    const recent = session('019c6a5c-8d34-7a8e-a602-3d37a52dc544', 'idle')
+    const archived = {
+      ...session('019c6a5c-8d34-7a8e-a602-3d37a52dc545', 'idle'),
+      status: 'archived' as const
+    }
+    const groups = groupAgentConversations([recent, archived, working, review, input])
+
+    expect(groups.needsInput).toEqual([input])
+    expect(groups.needsReview).toEqual([review])
+    expect(groups.working).toEqual([working])
+    expect(groups.recent).toEqual([recent])
+    expect(groups.archived).toEqual([archived])
+  })
+
+  it('keeps one compact status sentence in the conversation header', () => {
+    expect(
+      agentHeaderStatusLabel({
+        archived: false,
+        workflowState: 'running',
+        choosingSkill: false,
+        currentActivity: 'Reading the active section',
+        hasStreamingRun: false,
+        elapsedMs: 2_400
+      })
+    ).toBe('Reading the active section · 2s')
+    expect(
+      agentHeaderStatusLabel({
+        archived: false,
+        workflowState: 'awaiting_input',
+        choosingSkill: false,
+        currentActivity: null,
+        hasStreamingRun: false,
+        elapsedMs: 0
+      })
+    ).toBe('Waiting for your answer')
   })
 
   it('restores running work before review attention and the latest ready conversation', () => {

@@ -14,6 +14,7 @@ import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import { projectSessionIdSchema } from './projects'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
 import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
+import { blockNoteInlineContentSchema } from './manuscript'
 import {
   listReviewIssuesArgsSchema,
   listReviewIssuesResultSchema,
@@ -51,7 +52,8 @@ export const toolResultMetaSchema = z
       z.literal(7),
       z.literal(8),
       z.literal(9),
-      z.literal(10)
+      z.literal(10),
+      z.literal(11)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -113,7 +115,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   ask_user: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -135,7 +137,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -147,7 +149,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -185,7 +187,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -199,7 +201,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 10,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -371,10 +373,18 @@ const readSectionFragmentArgsSchema = strictObject({
   offset: z.number().int().nonnegative().default(0),
   maxChars: z.number().int().min(256).max(65_536).default(16_384)
 })
+const readSectionTableArgsSchema = strictObject({
+  sectionId: readSectionIdSchema,
+  view: z.literal('table'),
+  blockId: readSectionBlockIdSchema,
+  rowOffset: z.number().int().nonnegative().default(0),
+  rowLimit: z.number().int().min(1).max(20).default(20)
+})
 export const readSectionArgsSchema = z.union([
   readSectionSummaryArgsSchema,
   readSectionCanonicalArgsSchema,
-  readSectionFragmentArgsSchema
+  readSectionFragmentArgsSchema,
+  readSectionTableArgsSchema
 ])
 
 export const searchKnowledgeArgsSchema = strictObject({
@@ -543,6 +553,30 @@ const sectionBlockSchema = strictObject({
   hasRichContent: z.boolean()
 })
 
+const readSectionTableSchema = strictObject({
+  blockId: z.string().min(1).max(256),
+  blockHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  rowCount: z.number().int().min(1).max(100),
+  columnCount: z.number().int().min(1).max(30),
+  headerRows: z.number().int().nonnegative().max(100),
+  headerCols: z.number().int().nonnegative().max(30),
+  columnWidths: z.array(z.number().positive().nullable()).max(30),
+  hasSpans: z.boolean(),
+  cells: z
+    .array(
+      strictObject({
+        row: z.number().int().nonnegative(),
+        column: z.number().int().nonnegative(),
+        rowspan: z.number().int().positive(),
+        colspan: z.number().int().positive(),
+        textAlignment: z.enum(['left', 'center', 'right', 'justify']),
+        content: z.array(blockNoteInlineContentSchema).max(10_000)
+      })
+    )
+    .max(1_000),
+  nextRowOffset: z.number().int().nonnegative().nullable()
+})
+
 export const readSectionResultSchema = strictObject({
   section: sectionSummarySchema,
   revisionId: z.uuid(),
@@ -551,6 +585,7 @@ export const readSectionResultSchema = strictObject({
   canonicalFragment: z.string().max(65_536).nullable(),
   fragmentOffset: z.number().int().nonnegative().nullable(),
   nextFragmentOffset: z.number().int().nonnegative().nullable(),
+  table: readSectionTableSchema.nullable().default(null),
   missingBlockIds: z.array(z.string().min(1).max(256)).max(100),
   nextCursor: z.string().min(1).max(512).nullable(),
   totalBlocks: z.number().int().nonnegative()

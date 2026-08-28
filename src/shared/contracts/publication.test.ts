@@ -121,6 +121,13 @@ describe('publication figure nodes', () => {
       'figure',
       'references'
     ])
+    expect(first.schemaVersion).toBe(2)
+    expect(first.nodes.find((node) => node.type === 'table')).toMatchObject({
+      headerRows: 1,
+      headerCols: 0,
+      columnWidths: [100],
+      rows: [[{ textAlignment: 'left', colspan: 1, rowspan: 1 }]]
+    })
     expect(
       first.nodes[1]?.type === 'paragraph'
         ? first.nodes[1].content.find((node) => node.type === 'citation')

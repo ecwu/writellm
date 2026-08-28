@@ -28,6 +28,10 @@ describe('LaTeX publication renderer', () => {
     expect(first.tex).toContain('\\textbackslash{}end\\{document\\}')
     expect(first.tex).toContain('\\href{https://example.com/a\\#b}')
     expect(first.tex).toContain('\\includegraphics')
+    expect(first.tex).toContain('\\usepackage{array}')
+    expect(first.tex).toContain('\\endfirsthead')
+    expect(first.tex).toContain('\\endhead')
+    expect(first.tex).toContain('p{1\\linewidth}')
     expect(first.tex).toContain('\\frac{x}{y}')
     expect(first.tex).toContain('\\(E = mc^2\\)')
     expect(first.tex).not.toContain('\\input{/private/secret}')
@@ -76,11 +80,38 @@ describe('LaTeX publication renderer', () => {
       '\\textbackslash{}\\{\\}\\#\\$\\%\\&\\_ \\textasciicircum{}\\textasciitilde{}'
     )
   })
+
+  it('uses alignment columns and bold header columns without explicit widths', () => {
+    const assembly = fixtureAssembly()
+    const table = assembly.nodes.find((node) => node.type === 'table')
+    if (table?.type !== 'table') throw new Error('Fixture table is missing')
+    table.headerCols = 1
+    table.columnWidths = [null, null]
+    table.rows = [
+      [
+        {
+          content: [{ type: 'text', text: 'Metric', style: style() }],
+          textAlignment: 'left',
+          colspan: 1,
+          rowspan: 1
+        },
+        {
+          content: [{ type: 'text', text: 'Value', style: style() }],
+          textAlignment: 'right',
+          colspan: 1,
+          rowspan: 1
+        }
+      ]
+    ]
+    const result = renderLatexPublication({ assembly, assetRelativePath: () => 'assets/abc.png' })
+    expect(result.tex).toContain('\\begin{longtable}{lr}')
+    expect(result.tex).toContain('\\textbf{Metric}')
+  })
 })
 
 function fixtureAssembly(): PublicationAssembly {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     manuscriptId: 'manuscript',
     outlineVersion: 1,
     title: 'Title # { \\end{document}',
@@ -124,11 +155,13 @@ function fixtureAssembly(): PublicationAssembly {
       {
         type: 'table',
         headerRows: 1,
+        headerCols: 0,
         columnWidths: [100],
         rows: [
           [
             {
               content: [{ type: 'text', text: 'Cell', style: style() }],
+              textAlignment: 'left',
               colspan: 1,
               rowspan: 2
             }

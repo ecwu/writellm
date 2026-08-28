@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
 import {
   blockNoteBlockSchema,
+  blockNoteInlineContentSchema,
   blockMathSourceSchema,
   diagramSourceSchema,
   manuscriptAssetIdSchema,
@@ -11,13 +12,14 @@ import {
   sectionRevisionIdSchema,
   sectionStatusSchema
 } from './manuscript'
+import { TABLE_MAX_CELL_TEXT, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS } from '../manuscript-table'
 import { projectSessionIdSchema } from './projects'
 import { writingTaskIdSchema, writingTaskStepIdSchema } from './writing-task'
 import { resolvesReviewIssueSchema } from './review'
 import { modelSubmitWritingRulesChangeArgsSchema, writingRuleSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 10
+export const AGENT_TOOL_CONTRACT_VERSION = 11
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -342,6 +344,104 @@ const textBlockTypeSchema = z.enum([
   'quote',
   'codeBlock'
 ])
+const tableAlignmentSchema = z.enum(['left', 'center', 'right', 'justify'])
+export const modelTableCellInputSchema = z.union([
+  z.string().max(TABLE_MAX_CELL_TEXT),
+  strictObject({
+    content: z.array(blockNoteInlineContentSchema).max(10_000),
+    textAlignment: tableAlignmentSchema.optional()
+  })
+])
+export const modelTableEditOperationSchema = z.discriminatedUnion('type', [
+  strictObject({
+    type: z.literal('setCell'),
+    row: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_ROWS - 1),
+    column: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_COLUMNS - 1),
+    cell: modelTableCellInputSchema
+  }),
+  strictObject({
+    type: z.literal('insertRows'),
+    index: z.number().int().min(0).max(TABLE_MAX_ROWS),
+    rows: z
+      .array(z.array(modelTableCellInputSchema).min(1).max(TABLE_MAX_COLUMNS))
+      .min(1)
+      .max(TABLE_MAX_ROWS)
+  }),
+  strictObject({
+    type: z.literal('deleteRows'),
+    index: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_ROWS - 1),
+    count: z.number().int().min(1).max(TABLE_MAX_ROWS)
+  }),
+  strictObject({
+    type: z.literal('insertColumns'),
+    index: z.number().int().min(0).max(TABLE_MAX_COLUMNS),
+    columns: z
+      .array(z.array(modelTableCellInputSchema).min(1).max(TABLE_MAX_ROWS))
+      .min(1)
+      .max(TABLE_MAX_COLUMNS)
+  }),
+  strictObject({
+    type: z.literal('deleteColumns'),
+    index: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_COLUMNS - 1),
+    count: z.number().int().min(1).max(TABLE_MAX_COLUMNS)
+  }),
+  strictObject({
+    type: z.literal('moveRow'),
+    from: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_ROWS - 1),
+    to: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_ROWS - 1)
+  }),
+  strictObject({
+    type: z.literal('moveColumn'),
+    from: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_COLUMNS - 1),
+    to: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_COLUMNS - 1)
+  }),
+  strictObject({
+    type: z.literal('setHeaders'),
+    headerRows: z.union([z.literal(0), z.literal(1)]),
+    headerCols: z.union([z.literal(0), z.literal(1)])
+  }),
+  strictObject({
+    type: z.literal('setColumnAlignment'),
+    column: z
+      .number()
+      .int()
+      .min(0)
+      .max(TABLE_MAX_COLUMNS - 1),
+    textAlignment: tableAlignmentSchema
+  })
+])
 const modelSectionOperationSchema = z.discriminatedUnion('type', [
   strictObject({
     type: z.literal('replaceBlockText'),
@@ -429,6 +529,31 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
         : placement === 'before' || placement === 'after',
     'Existing image insertion expected start/end without an anchor or before/after with one'
   ),
+  strictObject({
+    type: z.literal('insertTable'),
+    anchor: blockPreconditionSchema.nullable().default(null),
+    placement: z.enum(['before', 'after', 'start', 'end']),
+    table: strictObject({
+      clientRef: z.string().min(1).max(256).optional(),
+      headerRows: z.union([z.literal(0), z.literal(1)]),
+      headerCols: z.union([z.literal(0), z.literal(1)]),
+      rows: z
+        .array(z.array(modelTableCellInputSchema).min(1).max(TABLE_MAX_COLUMNS))
+        .min(1)
+        .max(TABLE_MAX_ROWS)
+    })
+  }).refine(
+    ({ anchor, placement }) =>
+      anchor === null
+        ? placement === 'start' || placement === 'end'
+        : placement === 'before' || placement === 'after',
+    'Table insertion expected start/end without an anchor or before/after with one'
+  ),
+  strictObject({
+    type: z.literal('editTable'),
+    target: blockPreconditionSchema,
+    operations: z.array(modelTableEditOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT)
+  }),
   strictObject({
     type: z.literal('replaceCanonicalBlock'),
     target: blockPreconditionSchema,
@@ -562,10 +687,48 @@ const writingRulesPresentationSchema = strictObject({
   changes: z.array(writingRulePresentationChangeSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT)
 })
 
+const tableDiffPresentationSchema = strictObject({
+  schemaVersion: z.literal(1),
+  kind: z.literal('table_diff'),
+  tables: z
+    .array(
+      strictObject({
+        blockId: z.string().min(1).max(256),
+        beforeRows: z.number().int().nonnegative().max(TABLE_MAX_ROWS),
+        beforeColumns: z.number().int().nonnegative().max(TABLE_MAX_COLUMNS),
+        afterRows: z.number().int().nonnegative().max(TABLE_MAX_ROWS),
+        afterColumns: z.number().int().nonnegative().max(TABLE_MAX_COLUMNS),
+        structuralChanges: z.array(z.string().max(256)).max(50),
+        changedCells: z
+          .array(
+            strictObject({
+              row: z
+                .number()
+                .int()
+                .nonnegative()
+                .max(TABLE_MAX_ROWS - 1),
+              column: z
+                .number()
+                .int()
+                .nonnegative()
+                .max(TABLE_MAX_COLUMNS - 1),
+              before: proposalPresentationTextSchema,
+              after: proposalPresentationTextSchema
+            })
+          )
+          .max(100),
+        truncated: z.boolean()
+      })
+    )
+    .min(1)
+    .max(50)
+})
+
 export const proposalPresentationSchema = z.discriminatedUnion('kind', [
   briefPresentationSchema,
   outlinePresentationSchema,
-  writingRulesPresentationSchema
+  writingRulesPresentationSchema,
+  tableDiffPresentationSchema
 ])
 
 export const mutationPreviewSchema = strictObject({

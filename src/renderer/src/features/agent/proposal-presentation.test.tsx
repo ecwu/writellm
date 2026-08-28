@@ -90,6 +90,41 @@ describe('ProposalPresentation', () => {
     expect(html).toContain('Remove')
   })
 
+  it('renders a bounded table diff with structure and changed cells', () => {
+    const html = render(
+      briefProposal({
+        schemaVersion: 1,
+        kind: 'table_diff',
+        tables: [
+          {
+            blockId: 'table-1',
+            beforeRows: 2,
+            beforeColumns: 2,
+            afterRows: 3,
+            afterColumns: 2,
+            structuralChanges: ['Rows: 2 → 3'],
+            changedCells: [
+              {
+                row: 1,
+                column: 0,
+                before: { text: 'Old', truncated: false },
+                after: { text: 'New', truncated: false }
+              }
+            ],
+            truncated: true
+          }
+        ]
+      })
+    )
+
+    expect(html).toContain('data-testid="table-diff-view"')
+    expect(html).toContain('2×2 → 3×2')
+    expect(html).toContain('R2C1')
+    expect(html).toContain('Old')
+    expect(html).toContain('New')
+    expect(html).toContain('Table preview truncated')
+  })
+
   it('falls back to the existing diff for proposals created before semantic presentations', () => {
     const html = render(briefProposal())
 

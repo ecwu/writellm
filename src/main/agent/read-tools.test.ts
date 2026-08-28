@@ -214,6 +214,86 @@ describe('Agent context and Main read tools', () => {
     database.close()
   })
 
+  it('reads table anchors by logical row with a complete block hash', async () => {
+    const { database, manuscript } = await createManuscript()
+    const section = manuscript.listSections()[0]
+    if (section === undefined) throw new Error('Missing root section')
+    const current = manuscript.getRevision(section.currentRevisionId)
+    manuscript.appendRevision({
+      sectionId: section.sectionId,
+      baseRevisionId: current.sectionRevisionId,
+      baseContentHash: current.contentHash,
+      content: [
+        {
+          id: 'table-1',
+          type: 'table',
+          props: { textColor: 'default' },
+          content: {
+            type: 'tableContent',
+            columnWidths: [120, null],
+            headerRows: 1,
+            headerCols: 1,
+            rows: [
+              {
+                cells: [
+                  [{ type: 'text', text: 'Name', styles: {} }],
+                  [{ type: 'text', text: 'Value', styles: {} }]
+                ]
+              },
+              {
+                cells: [
+                  [{ type: 'text', text: 'A', styles: {} }],
+                  [{ type: 'text', text: '1', styles: {} }]
+                ]
+              },
+              {
+                cells: [
+                  [{ type: 'text', text: 'B', styles: {} }],
+                  [{ type: 'text', text: '2', styles: {} }]
+                ]
+              }
+            ]
+          },
+          children: []
+        }
+      ],
+      source: 'manual',
+      sourceClass: 'manual_checkpoint',
+      agentRunId: null,
+      agentToolCallId: null,
+      agentProposalId: null
+    })
+    const result = await createTools(manuscript).execute({
+      toolName: 'read_section',
+      args: {
+        sectionId: section.sectionId,
+        view: 'table',
+        blockId: 'table-1',
+        rowOffset: 1,
+        rowLimit: 1
+      },
+      editorContext: emptyEditorContext(),
+      signal: new AbortController().signal
+    })
+    expect(result.table).toMatchObject({
+      blockId: 'table-1',
+      rowCount: 3,
+      columnCount: 2,
+      headerRows: 1,
+      headerCols: 1,
+      columnWidths: [120, null],
+      hasSpans: false,
+      nextRowOffset: 2,
+      cells: [
+        { row: 1, column: 0 },
+        { row: 1, column: 1 }
+      ]
+    })
+    expect(result.table?.blockHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.blocks).toEqual([])
+    database.close()
+  })
+
   it('returns Agent manuscript ranges in original UTF-16 coordinates', async () => {
     const { database, manuscript } = await createManuscript()
     const section = manuscript.listSections()[0]

@@ -133,6 +133,7 @@ function createTools() {
     {
       propose,
       assertCanonicalBlockRead: vi.fn(),
+      assertTableBlockRead: vi.fn(),
       list: vi.fn(() => [])
     } as never
   )

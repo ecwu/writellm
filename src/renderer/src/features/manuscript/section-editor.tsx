@@ -183,6 +183,12 @@ export const SectionEditor = forwardRef<
     {
       schema: approvedEditorSchema,
       initialContent,
+      tables: {
+        headers: true,
+        splitCells: false,
+        cellBackgroundColor: false,
+        cellTextColor: false
+      },
       extensions: [
         ...nativeInlineMathExtensions,
         inlineMathGuardExtension({

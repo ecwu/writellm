@@ -52,8 +52,15 @@ import { AgentToolDomainError } from './read-tools'
 import { extractSectionAgentText } from '../manuscript/content'
 import {
   blockNoteDocumentSchema,
+  blockNoteBlockSchema,
+  type BlockNoteTableContent,
   plainTextContentFromSource
 } from '../../shared/contracts/manuscript'
+import {
+  createTableContent,
+  editTableContent,
+  TableTransformError
+} from '../../shared/manuscript-table'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
@@ -300,13 +307,31 @@ export class MainAgentTools implements AgentToolExecutor {
       this.#linkReviewIssues(result.proposalId, reviewResolutions, input)
       return result as AgentToolResultMap[TName]
     }
+    let tableOperationKinds: string[] | undefined
     if (proposalName === 'submit_section_change') {
       const args = modelSubmitSectionChangeArgsSchema.parse(input.args)
+      tableOperationKinds = args.operations.flatMap((operation) =>
+        operation.type === 'insertTable'
+          ? ['insertTable']
+          : operation.type === 'editTable'
+            ? operation.operations.map((tableOperation) => tableOperation.type)
+            : []
+      )
+      if (tableOperationKinds.length === 0) tableOperationKinds = undefined
       for (const operation of args.operations) {
         if (operation.type === 'replaceCanonicalBlock') {
           this.mutations.assertCanonicalBlockRead(
             input.agentSessionId,
             input.agentRunId,
+            operation.target.blockId,
+            operation.target.expectedBlockHash
+          )
+        }
+        if (operation.type === 'editTable') {
+          this.mutations.assertTableBlockRead(
+            input.agentSessionId,
+            input.agentRunId,
+            args.sectionId,
             operation.target.blockId,
             operation.target.expectedBlockHash
           )
@@ -333,6 +358,7 @@ export class MainAgentTools implements AgentToolExecutor {
       modelRequestId: input.modelRequestId,
       resolvesReviewIssues: normalized.resolvesReviewIssues,
       ...normalized.idMapping,
+      ...(tableOperationKinds === undefined ? {} : { tableOperationKinds }),
       signal: input.signal
     })
     this.#linkReviewIssues(result.proposalId, normalized.resolvesReviewIssues, input)
@@ -687,7 +713,7 @@ function normalizeSectionArguments(
       if (block.type === 'table' || !isPlainInlineContent(block.content)) {
         throw new AgentToolDomainError(
           'invalid_arguments',
-          'replaceBlockText requires a plain-text inline block; use canonical replacement instead'
+          'replaceBlockText requires a plain-text inline block; use editTable for tables or canonical replacement for other rich blocks'
         )
       }
       return {
@@ -735,6 +761,69 @@ function normalizeSectionArguments(
         anchorBlockId: operation.anchor?.blockId ?? null,
         placement: operation.placement,
         blocks: [created]
+      }
+    }
+    if (operation.type === 'insertTable') {
+      if (operation.anchor !== null) verify(operation.anchor)
+      let tableContent: BlockNoteTableContent
+      try {
+        tableContent = createTableContent(operation.table)
+      } catch (error) {
+        if (error instanceof TableTransformError) {
+          throw new AgentToolDomainError('invalid_arguments', `${error.code}: ${error.message}`)
+        }
+        throw error
+      }
+      assertCitationText(extractSectionAgentText([{ type: 'table', content: tableContent }]))
+      const id = randomUUID()
+      if (operation.table.clientRef !== undefined) {
+        if (createdBlockRefs.has(operation.table.clientRef)) {
+          throw new AgentToolDomainError(
+            'invalid_arguments',
+            'Section block clientRef values must be unique'
+          )
+        }
+        createdBlockRefs.set(operation.table.clientRef, id)
+      }
+      return {
+        type: 'insertBlocks',
+        anchorBlockId: operation.anchor?.blockId ?? null,
+        placement: operation.placement,
+        blocks: [
+          {
+            id,
+            type: 'table',
+            props: { textColor: 'default' },
+            content: tableContent,
+            children: []
+          }
+        ]
+      }
+    }
+    if (operation.type === 'editTable') {
+      const current = blockNoteBlockSchema.safeParse(verify(operation.target))
+      if (!current.success || current.data.type !== 'table') {
+        throw new AgentToolDomainError(
+          'invalid_arguments',
+          'editTable requires an existing table block'
+        )
+      }
+      try {
+        const updated = editTableContent(
+          current.data.content as BlockNoteTableContent,
+          operation.operations
+        )
+        assertCitationText(extractSectionAgentText([{ ...current.data, content: updated }]))
+        return {
+          type: 'updateBlock',
+          blockId: current.data.id,
+          update: { content: updated }
+        }
+      } catch (error) {
+        if (error instanceof TableTransformError) {
+          throw new AgentToolDomainError('invalid_arguments', `${error.code}: ${error.message}`)
+        }
+        throw error
       }
     }
     if (operation.type === 'removeBlocks') {

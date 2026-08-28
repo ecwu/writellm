@@ -108,7 +108,7 @@ async function requiredEntry(zip: JSZip, name: string): Promise<string> {
 
 function fixtureAssembly(): PublicationAssembly {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     manuscriptId: 'manuscript',
     outlineVersion: 1,
     title: 'Publication fixture 文档',
@@ -156,11 +156,13 @@ function fixtureAssembly(): PublicationAssembly {
       {
         type: 'table',
         headerRows: 1,
+        headerCols: 0,
         columnWidths: [100],
         rows: [
           [
             {
               content: [{ type: 'text', text: 'Header', style: emptyStyle() }],
+              textAlignment: 'left',
               colspan: 1,
               rowspan: 1
             }

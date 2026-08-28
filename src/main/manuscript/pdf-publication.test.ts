@@ -34,6 +34,59 @@ describe('PDF publication', () => {
     )
   })
 
+  it('renders semantic paged tables with normalized widths, headers and alignment', () => {
+    const assembly = fixtureAssembly()
+    const table = assembly.nodes.find((node) => node.type === 'table')
+    if (table?.type !== 'table') throw new Error('Fixture table is missing')
+    table.headerCols = 1
+    table.columnWidths = [120, null]
+    table.rows = [
+      [
+        {
+          content: [{ type: 'text', text: 'Metric', style: style() }],
+          textAlignment: 'left',
+          colspan: 1,
+          rowspan: 1
+        },
+        {
+          content: [{ type: 'text', text: 'Value', style: style() }],
+          textAlignment: 'right',
+          colspan: 1,
+          rowspan: 1
+        }
+      ],
+      [
+        {
+          content: [{ type: 'text', text: 'Score', style: style() }],
+          textAlignment: 'left',
+          colspan: 1,
+          rowspan: 1
+        },
+        {
+          content: [{ type: 'text', text: '0.91', style: style() }],
+          textAlignment: 'right',
+          colspan: 1,
+          rowspan: 1
+        }
+      ]
+    ]
+    const result = renderPublicationHtml({
+      assembly,
+      resolveAssetUrl: (id) => `writellm-pdf-asset://asset/${id}`,
+      tableOfContents: false
+    })
+    expect(result.html).toContain('<colgroup>')
+    expect(result.html).toContain('<thead>')
+    expect(result.html).toContain('<tbody>')
+    expect(result.html).toContain('scope="col"')
+    expect(result.html).toContain('scope="row"')
+    expect(result.html).toContain('style="text-align:right"')
+    expect(result.html).toContain('thead { display: table-header-group; }')
+    expect(result.html).not.toContain(
+      'table { width: 100%; border-collapse: collapse; margin: 1em 0; break-inside: avoid; }'
+    )
+  })
+
   it('never turns hostile inline math into links, remote resources, HTML, or extreme layout', () => {
     const assembly = fixtureAssembly()
     const paragraph = assembly.nodes.find((node) => node.type === 'paragraph')
@@ -308,7 +361,7 @@ describe('PDF publication', () => {
 
 function fixtureAssembly(): PublicationAssembly {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     manuscriptId: 'manuscript',
     outlineVersion: 1,
     title: 'PDF Publication',
@@ -347,11 +400,13 @@ function fixtureAssembly(): PublicationAssembly {
       {
         type: 'table',
         headerRows: 1,
+        headerCols: 0,
         columnWidths: [100],
         rows: [
           [
             {
               content: [{ type: 'text', text: 'Header', style: style() }],
+              textAlignment: 'left',
               colspan: 1,
               rowspan: 1
             }

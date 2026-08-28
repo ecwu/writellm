@@ -43,8 +43,10 @@ import {
   manuscriptBriefFieldsSchema,
   MAX_MANUSCRIPT_OUTLINE_DEPTH,
   MAX_MANUSCRIPT_SECTIONS,
-  type BlockNoteDocument
+  type BlockNoteDocument,
+  type BlockNoteTableContent
 } from '../../shared/contracts/manuscript'
+import { summarizeTableChange } from '../../shared/manuscript-table'
 import { readWritingRules, type WritingRulesState } from '../../shared/contracts/writing-rules'
 import type {
   ManuscriptBriefTable,
@@ -88,6 +90,7 @@ export interface ProposalToolExecutionContext {
   modelRequestId: string
   createdSectionRefs?: Record<string, string>
   createdBlockRefs?: Record<string, string>
+  tableOperationKinds?: string[]
   resolvesReviewIssues?: Array<{
     issueId: string
     expectedVersion: number
@@ -300,6 +303,48 @@ export class MutationProposalService {
     }
   }
 
+  assertTableBlockRead(
+    agentSessionId: string,
+    agentRunId: string,
+    sectionId: string,
+    blockId: string,
+    expectedBlockHash: string
+  ): void {
+    const rows = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `SELECT payload_json FROM agent_events
+             WHERE agent_session_id = ? AND agent_run_id = ? AND type = 'tool_result'
+             ORDER BY sequence DESC`
+          )
+          .all(agentSessionId, agentRunId) as Array<{ payload_json: string }>
+    )
+    const found = rows.some((row) => {
+      const event = agentToolResultPayloadSchema.safeParse(JSON.parse(row.payload_json))
+      if (
+        !event.success ||
+        event.data.toolName !== 'read_section' ||
+        event.data.isError ||
+        event.data.result === null
+      )
+        return false
+      const read = readSectionResultSchema.safeParse(event.data.result)
+      return (
+        read.success &&
+        read.data.section.sectionId === sectionId &&
+        read.data.table?.blockId === blockId &&
+        read.data.table.blockHash === expectedBlockHash
+      )
+    })
+    if (!found) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'editTable requires a matching table view and block hash from the current Agent run'
+      )
+    }
+  }
+
   assertExistingImageRead(
     agentSessionId: string,
     agentRunId: string,
@@ -494,6 +539,22 @@ export class MutationProposalService {
           agentRunId: context.agentRunId,
           toolCallId: context.toolCallId,
           kind: result.kind,
+          ...(context.tableOperationKinds === undefined
+            ? {}
+            : { tableOperationKinds: context.tableOperationKinds }),
+          ...(result.preview.presentation?.kind === 'table_diff'
+            ? {
+                tables: result.preview.presentation.tables.map((table) => ({
+                  blockId: table.blockId,
+                  beforeRows: table.beforeRows,
+                  beforeColumns: table.beforeColumns,
+                  afterRows: table.afterRows,
+                  afterColumns: table.afterColumns,
+                  changedCellCount: table.changedCells.length,
+                  truncated: table.truncated
+                }))
+              }
+            : {}),
           durationMs: Date.now() - startedAt
         },
         'Agent mutation proposal persisted'
@@ -902,13 +963,16 @@ export class MutationProposalService {
         ) {
           throw new AgentToolDomainError('not_found', 'Section base revision is unavailable')
         }
-        const simulation = simulateSectionPatch(
-          decodeStoredSectionContent(
-            revision.content_json,
-            revision.content_schema_version,
-            revision.section_id
-          ),
-          mutation
+        const sourceDocument = decodeStoredSectionContent(
+          revision.content_json,
+          revision.content_schema_version,
+          revision.section_id
+        )
+        const simulation = simulateSectionPatch(sourceDocument, mutation)
+        const tablePresentation = createTableDiffPresentation(
+          sourceDocument,
+          simulation.document,
+          simulation.affectedBlockIds
         )
         return {
           kind: 'section_patch',
@@ -918,7 +982,8 @@ export class MutationProposalService {
             affectedSectionIds: [mutation.sectionId],
             beforeText: simulation.beforeText,
             afterText: simulation.afterText,
-            citedSources
+            citedSources,
+            presentation: tablePresentation
           })
         }
       }
@@ -2799,6 +2864,66 @@ function createPreview(input: {
     citedSources: input.citedSources,
     presentation: input.presentation
   })
+}
+
+function createTableDiffPresentation(
+  beforeDocument: BlockNoteDocument,
+  afterDocument: BlockNoteDocument,
+  affectedBlockIds: readonly string[]
+): ProposalPresentation | undefined {
+  const beforeTables = indexTableBlocks(beforeDocument)
+  const afterTables = indexTableBlocks(afterDocument)
+  const affected = new Set(affectedBlockIds)
+  const ids = [...new Set([...beforeTables.keys(), ...afterTables.keys()])].filter(
+    (id) => affected.has(id) && (beforeTables.has(id) || afterTables.has(id))
+  )
+  const tables = ids.flatMap((blockId) => {
+    const before = beforeTables.get(blockId)
+    const after = afterTables.get(blockId)
+    if (before === undefined && after === undefined) return []
+    const summary = summarizeTableChange(before?.content ?? null, after?.content ?? null, 101)
+    const allChanged = summary.changedCells.map((cell) => ({
+      row: cell.row,
+      column: cell.column,
+      before: boundedPresentationText(cell.before),
+      after: boundedPresentationText(cell.after)
+    }))
+    return [
+      {
+        blockId,
+        beforeRows: summary.beforeRows,
+        beforeColumns: summary.beforeColumns,
+        afterRows: summary.afterRows,
+        afterColumns: summary.afterColumns,
+        structuralChanges: summary.structuralChanges,
+        changedCells: allChanged.slice(0, 100),
+        truncated:
+          summary.truncated ||
+          allChanged.length > 100 ||
+          allChanged.some((cell) => cell.before.truncated || cell.after.truncated)
+      }
+    ]
+  })
+  return tables.length === 0 ? undefined : { schemaVersion: 1, kind: 'table_diff', tables }
+}
+
+function indexTableBlocks(document: BlockNoteDocument) {
+  const result = new Map<string, { id: string; content: BlockNoteTableContent }>()
+  const visit = (blocks: BlockNoteDocument): void => {
+    for (const block of blocks) {
+      if (block.type === 'table')
+        result.set(block.id, { id: block.id, content: block.content as BlockNoteTableContent })
+      if (block.children.length > 0) visit(block.children)
+    }
+  }
+  visit(document)
+  return result
+}
+
+function boundedPresentationText(value: string | null): ProposalPresentationText {
+  if (value === null) return { text: null, truncated: false }
+  const maximum = 512
+  return { text: value.slice(0, maximum), truncated: value.length > maximum }
 }
 
 function truncateUtf8(value: string, maximumBytes: number): { text: string; truncated: boolean } {

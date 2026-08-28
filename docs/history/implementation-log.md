@@ -718,3 +718,46 @@ maintenance without turning the active tracker back into a historical log.
   scenarios with no flaky, skipped, or failed scenario. It produced
   `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP, push, hosted CI, Apple Developer ID
   signing, notarization, GitHub Release, promotion, or publication ran.
+
+## 2026-08-26
+
+- Accepted ADR 065 and completed Checkpoint 73. The Agent sidebar now presents conversation status
+  in its searchable header, groups sessions by attention, collapses successful activity into
+  human-readable summaries, keeps a bounded inline Writing Task row and one prioritized attention
+  dock above the composer, exposes only non-default composer context, and progressively discloses
+  waiting follow-ups. Forty-six focused Renderer tests, `check:fast`, 200 Electron-hosted files /
+  1,140 tests with three intentional benchmark skips plus production build, and the fresh 46/46
+  Real-Electron manifest passed. Runtime inspection covered 360, 480, and 640 px light layouts and
+  480 px dark theme with no horizontal overflow and a continuously visible composer after one
+  bounded correction; scoped Impeccable and `git diff --check` also passed. No dependency,
+  database, IPC, Agent protocol, permission, persistence, package/release, commit, tag, push,
+  signing, or publication action ran.
+- Built the separately authorized local Checkpoint 73 macOS arm64 App from the current dirty
+  worktree. The initial gate correctly stopped because CP72 had changed a protected Agent recovery
+  source; its single manifest digest was refreshed and all 27 recovery cases from 25 sources then
+  passed. The unpacked-only no-identity gate verified Electron 43.4.1 / ABI 148, arm64 native
+  modules, 53,287 ASAR entries, 12/12 packaged smoke scenarios, and 33/33 packaged E2E scenarios,
+  and produced `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP, candidate, commit, tag, push,
+  hosted CI, Apple Developer ID signing, notarization, release, promotion, or publication ran.
+
+## 2026-08-28
+
+- Accepted ADR 066 and completed Checkpoint 74. Agent Harness Protocol v11 now exposes paged,
+  complete-hash-bound table reads plus typed table insertion and ordered edits through a pure
+  occupancy transformer and the existing section-proposal revision path. Proposal review derives
+  bounded table diffs, and native BlockNote headers remain available without merge/split or color
+  controls. Publication assembly v2 preserves header-column, alignment, width, and span semantics;
+  Markdown reports GFM losses, PDF emits semantic paged tables, and inert LaTeX emits aligned
+  `longtable` output with explicit rowspan fallback. A dedicated Agent scenario also caught and
+  fixed unit-span default drift across the BlockNote mutation barrier. Focused tests, `pnpm check`,
+  1,152 full Electron tests with three intentional benchmark skips plus production build, fresh
+  47/47 E2E, all 27 recovery fixtures, 12/12 packaged smoke scenarios, and 34/34 packaged E2E
+  passed. The no-identity macOS arm64 package gate structurally verified local DMG and ZIP
+  artifacts. No
+  dependency, migration, new authority, release gate, commit, tag, push, hosted CI, Apple signing,
+  notarization, promotion, or publication ran.
+- Advanced the separately authorized source candidate to `0.2026.8.26` for the completed
+  Checkpoints 73–74 snapshot. The user separately authorized committing the pending source,
+  creating the matching annotated tag, and pushing `main` plus that tag. Hosted CI, Apple
+  Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
+  outside this action.

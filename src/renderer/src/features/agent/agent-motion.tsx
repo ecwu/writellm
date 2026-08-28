@@ -37,7 +37,7 @@ export function AgentAttentionBeam(props: {
       return
     }
     setActive(true)
-    const timer = window.setTimeout(() => setActive(false), 4_600)
+    const timer = window.setTimeout(() => setActive(false), 2_400)
     return () => window.clearTimeout(timer)
   }, [props.attentionKey, props.paused])
 

@@ -94,37 +94,36 @@ test(
       const task = panel.getByTestId('agent-writing-task')
       const taskTrigger = task.getByTestId('agent-writing-task-trigger')
       await expect(taskTrigger).toHaveAccessibleName('Writing task, Step 1 of 2, open details')
-      const screenshotDirectory = process.env.WRITELLM_CP56_SCREENSHOT_DIR
+      const screenshotDirectory = process.env.WRITELLM_CP73_SCREENSHOT_DIR
       if (screenshotDirectory !== undefined) {
         await mkdir(screenshotDirectory, { recursive: true })
         const browserWindow = await first.app.browserWindow(first.page)
         await browserWindow.evaluate((window) => window.setContentSize(480, 900))
         await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(480)
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp56-agent-plan-collapsed-480.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-collapsed-480.png'),
           animations: 'disabled'
         })
       }
       await taskTrigger.press('Enter')
-      const taskPopover = first.page.getByTestId('agent-writing-task-popover')
+      const taskDetails = task.getByTestId('agent-writing-task-details')
       await expect(
-        taskPopover.getByText('Revise two manuscript sections coherently.')
+        taskDetails.getByText('Revise two manuscript sections coherently.')
       ).toBeVisible()
-      await expect(taskPopover).toHaveAccessibleName('Revise two manuscript sections coherently.')
-      await expect(taskPopover.getByText('Plan v1', { exact: true })).toBeVisible()
-      await expect(taskPopover.getByText(/Inspect the manuscript structure/u)).toBeVisible()
-      await expect(taskPopover.getByText(/Revise and verify both sections/u)).toBeVisible()
+      await expect(taskDetails.getByText('Plan v1', { exact: true })).toBeVisible()
+      await expect(taskDetails.getByText(/Inspect the manuscript structure/u)).toBeVisible()
+      await expect(taskDetails.getByText(/Revise and verify both sections/u)).toBeVisible()
       if (screenshotDirectory !== undefined) {
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp56-agent-plan-open-480.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-open-480.png'),
           animations: 'disabled'
         })
         const browserWindow = await first.app.browserWindow(first.page)
         await browserWindow.evaluate((window) => window.setContentSize(360, 900))
         await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(360)
-        await expectPopoverInsidePanel(panel, taskPopover)
+        await expectElementInsidePanel(panel, taskDetails)
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp56-agent-plan-open-360.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-open-360.png'),
           animations: 'disabled'
         })
         await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
@@ -132,22 +131,38 @@ test(
         const resizeHandle = first.page.getByRole('separator')
         await expect(resizeHandle).toBeVisible()
         await resizeAgentPanel(panel, resizeHandle, 640)
-        if (!(await taskPopover.isVisible())) await taskTrigger.click()
-        await expect(taskPopover).toBeVisible()
-        await expectPopoverInsidePanel(panel, taskPopover)
+        if (!(await taskDetails.isVisible())) await taskTrigger.click()
+        await expect(taskDetails).toBeVisible()
+        await expectElementInsidePanel(panel, taskDetails)
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp56-agent-plan-open-640.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-open-640.png'),
+          animations: 'disabled'
+        })
+        await first.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
+        await first.page.getByRole('menuitem', { name: /Settings/u }).click()
+        const settings = first.page.getByRole('dialog', { name: 'Settings' })
+        await settings.getByRole('option', { name: 'General', exact: true }).click()
+        await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
+        await expect
+          .poll(() => first.page.evaluate(() => document.documentElement.dataset.theme))
+          .toBe('dark')
+        await first.page.keyboard.press('Escape')
+        await expect(settings).not.toBeVisible()
+        await browserWindow.evaluate((window) => window.setContentSize(480, 900))
+        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(480)
+        await first.page.screenshot({
+          path: join(screenshotDirectory, 'cp73-agent-task-open-dark-480.png'),
           animations: 'disabled'
         })
         await browserWindow.evaluate((window) => window.setContentSize(900, 670))
         await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(900)
       }
-      await first.page.keyboard.press('Escape')
-      await expect(taskPopover).not.toBeVisible()
+      await taskTrigger.press('Space')
+      await expect(taskDetails).not.toBeVisible()
       await expect(taskTrigger).toBeFocused()
       await taskTrigger.press('Space')
 
-      await taskPopover.getByRole('button', { name: 'Revise writing task plan' }).click()
+      await taskDetails.getByRole('button', { name: 'Revise writing task plan' }).click()
       const taskDialog = first.page.getByRole('dialog', { name: 'Revise writing task' })
       await taskDialog.getByLabel('Objective').fill('Revise and verify the manuscript coherently.')
       await taskDialog.getByLabel('Step 1', { exact: true }).fill('Inspect structure and evidence')
@@ -157,19 +172,18 @@ test(
         .fill('Confirm the final manuscript state')
       await taskDialog.getByRole('button', { name: 'Save plan' }).click()
       await expect(taskDialog).not.toBeVisible()
-      await taskTrigger.click()
-      await expect(taskPopover.getByText('Plan v2', { exact: true })).toBeVisible()
+      await expect(taskDetails.getByText('Plan v2', { exact: true })).toBeVisible()
       await expect(
-        taskPopover.getByText('Revise and verify the manuscript coherently.')
+        taskDetails.getByText('Revise and verify the manuscript coherently.')
       ).toBeVisible()
-      await expect(taskPopover.getByText(/Confirm the final manuscript state/u)).toBeVisible()
+      await expect(taskDetails.getByText(/Confirm the final manuscript state/u)).toBeVisible()
 
-      await taskPopover.getByRole('button', { name: 'Resume writing task' }).click()
+      await taskDetails.getByRole('button', { name: 'Resume writing task' }).click()
       await expect(panel.getByText('Review required', { exact: true })).toBeVisible({
         timeout: 20_000
       })
-      await taskTrigger.click()
-      const changeSet = taskPopover.getByTestId('agent-writing-change-set')
+      if (!(await taskDetails.isVisible())) await taskTrigger.click()
+      const changeSet = taskDetails.getByTestId('agent-writing-change-set')
       await expect(changeSet).toBeVisible()
       await changeSet.getByText('Task change set', { exact: true }).click()
       await expect(changeSet.getByText('Project brief', { exact: true })).toBeVisible()
@@ -178,7 +192,7 @@ test(
         changeSet.getByText('Update the manuscript brief', { exact: true })
       ).toBeVisible()
       await changeSet.getByRole('button', { name: 'Review', exact: true }).click()
-      await expect(taskPopover).not.toBeVisible()
+      await expect(taskDetails).not.toBeVisible()
       await first.page.evaluate(
         () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       )
@@ -272,10 +286,12 @@ test(
       })
       await restarted.page.getByTestId('agent-menubar-trigger').click()
       const restoredTask = restarted.page.getByTestId('agent-writing-task')
-      await restoredTask.getByTestId('agent-writing-task-trigger').click()
-      const restoredPopover = restarted.page.getByTestId('agent-writing-task-popover')
-      await expect(restoredPopover).toContainText('Revise and verify the manuscript coherently.')
-      const restoredChangeSet = restoredPopover.getByTestId('agent-writing-change-set')
+      const restoredDetails = restoredTask.getByTestId('agent-writing-task-details')
+      if (!(await restoredDetails.isVisible())) {
+        await restoredTask.getByTestId('agent-writing-task-trigger').click()
+      }
+      await expect(restoredDetails).toContainText('Revise and verify the manuscript coherently.')
+      const restoredChangeSet = restoredDetails.getByTestId('agent-writing-change-set')
       await expect(restoredChangeSet).toBeVisible()
       await restoredChangeSet.getByText('Task change set', { exact: true }).click()
       await expect(restoredChangeSet.getByText('rejected 1', { exact: true })).toBeVisible()
@@ -301,12 +317,12 @@ async function resizeAgentPanel(
     .toBeLessThanOrEqual(targetWidth + 4)
 }
 
-async function expectPopoverInsidePanel(panel: Locator, popover: Locator): Promise<void> {
-  const [panelBox, popoverBox] = await Promise.all([panel.boundingBox(), popover.boundingBox()])
-  if (panelBox === null || popoverBox === null)
-    throw new Error('Agent Popover bounds are unavailable')
-  expect(popoverBox.x).toBeGreaterThanOrEqual(panelBox.x)
-  expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width)
+async function expectElementInsidePanel(panel: Locator, element: Locator): Promise<void> {
+  const [panelBox, elementBox] = await Promise.all([panel.boundingBox(), element.boundingBox()])
+  if (panelBox === null || elementBox === null)
+    throw new Error('Agent element bounds are unavailable')
+  expect(elementBox.x).toBeGreaterThanOrEqual(panelBox.x)
+  expect(elementBox.x + elementBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width)
 }
 
 function sendToolCall(response: ServerResponse, input: { name: string; args: unknown }): void {

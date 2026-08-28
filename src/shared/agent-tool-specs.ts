@@ -95,10 +95,81 @@ function makeCanonicalBlocksOpaque(value: unknown): unknown {
         additionalProperties: false,
         description: 'mathBlock uses source; diagram may also include caption and altText.'
       }
+    } else if (
+      type &&
+      typeof type === 'object' &&
+      !Array.isArray(type) &&
+      ((type as Record<string, unknown>).const === 'insertTable' ||
+        ((type as Record<string, unknown>).enum as unknown[])?.[0] === 'insertTable')
+    ) {
+      propertyRecord.table = {
+        type: 'object',
+        properties: {
+          clientRef: { type: 'string', maxLength: 256 },
+          headerRows: { type: 'integer', enum: [0, 1] },
+          headerCols: { type: 'integer', enum: [0, 1] },
+          rows: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            items: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 30,
+              items: {
+                anyOf: [
+                  { type: 'string', maxLength: 8_192 },
+                  {
+                    type: 'object',
+                    maxProperties: 2,
+                    additionalProperties: true,
+                    description: 'Use content for approved inline nodes and optional textAlignment.'
+                  }
+                ]
+              }
+            }
+          }
+        },
+        required: ['headerRows', 'headerCols', 'rows'],
+        additionalProperties: false
+      }
+    } else if (
+      type &&
+      typeof type === 'object' &&
+      !Array.isArray(type) &&
+      ((type as Record<string, unknown>).const === 'editTable' ||
+        ((type as Record<string, unknown>).enum as unknown[])?.[0] === 'editTable')
+    ) {
+      propertyRecord.operations = {
+        type: 'array',
+        minItems: 1,
+        maxItems: 50,
+        items: {
+          type: 'object',
+          maxProperties: 4,
+          additionalProperties: true,
+          description:
+            'One of setCell, insertRows, deleteRows, insertColumns, deleteColumns, moveRow, moveColumn, setHeaders, or setColumnAlignment.'
+        }
+      }
     }
   }
   delete record.definitions
   return record
+}
+
+function stripSchemaDescriptions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSchemaDescriptions)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, entry]) =>
+      key === 'description' ? [] : [[key, stripSchemaDescriptions(entry)]]
+    )
+  )
+}
+
+function compactSectionChange(value: unknown): unknown {
+  return stripSchemaDescriptions(makeCanonicalBlocksOpaque(value))
 }
 
 function normalizeModelToolSchema(value: unknown): unknown {
@@ -162,7 +233,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'read_section',
     label: 'Read section',
     description:
-      'Read bounded summary, canonical, or canonical-fragment data for one section without changing it. Empty blocks or a missing canonical block are explicit results. Copy blockId, blockHash, and revisionId exactly from this run before section or image mutation. Continue summary with nextCursor or fragment with nextFragmentOffset; restart once after a stale cursor.',
+      'Read bounded summary, canonical, canonical-fragment, or paged table data for one section without changing it. Empty blocks or a missing canonical/table block are explicit results. Table coordinates are zero-based and bound to the complete returned blockHash. Continue summary, fragment, or table rows with the matching returned cursor/offset; restart once after stale data.',
     parameters: parameters(readSectionArgsSchema),
     executionMode: 'parallel'
   },
@@ -299,7 +370,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     label: 'Propose section patch',
     description:
       'Propose a block-hash-guarded change to one section without directly editing it. Every block precondition must copy blockId and blockHash from read_section in this run; insertExistingImage copies one Main-authoritative image from a different source section, while an empty-section insertion omits anchor and uses start or end. Main binds the revision and inserted IDs, and only an applied or satisfied result means the manuscript changed. For an image relocation, remove the original only after insertion applies; never refresh and retry a conflicting source deletion.',
-    parameters: parameters(modelSubmitSectionChangeArgsSchema, makeCanonicalBlocksOpaque),
+    parameters: parameters(modelSubmitSectionChangeArgsSchema, compactSectionChange),
     executionMode: 'sequential'
   },
   {

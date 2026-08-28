@@ -26,9 +26,9 @@ const capability = {
 }
 
 describe('Agent read-tool contracts', () => {
-  it('writes contract v10 while retaining v2-v9 event replay compatibility', () => {
-    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(10)
-    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  it('writes contract v11 while retaining v2-v10 event replay compatibility', () => {
+    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(11)
+    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
       expect(
         toolResultMetaSchema.parse({
           contractVersion,
@@ -70,6 +70,13 @@ describe('Agent read-tool contracts', () => {
     expect(readSectionArgsSchema.parse({ sectionId: capability.agentSessionId })).toMatchObject({
       limit: 20
     })
+    expect(
+      readSectionArgsSchema.parse({
+        sectionId: capability.agentSessionId,
+        view: 'table',
+        blockId: 'table-1'
+      })
+    ).toMatchObject({ rowOffset: 0, rowLimit: 20 })
     expect(searchKnowledgeArgsSchema.parse({ query: 'evidence' })).toMatchObject({
       limit: 10,
       rerank: true

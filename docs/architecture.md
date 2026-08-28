@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 064
-Recorded: 2026-07-31; amended through 2026-08-25
+Status: accepted implementation baseline, amended through accepted ADR 066
+Recorded: 2026-07-31; amended through 2026-08-27
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -25,6 +25,11 @@ The following rules are now the current target. Any older section in this docume
   project/session/run/tool capability through live activity and answer IPC, and resume that same
   run after a validated answer. Clarification is not approval or permission, and restart retains
   interrupted-run recovery rather than reconstructing a live waiter.
+- Agent Harness Protocol v11 adds hash-bound paged table inspection and typed rectangular table
+  insert/edit proposals under ADR 066. Zero-based occupancy coordinates never outlive the complete
+  table-block hash; Main alone normalizes cells, creates IDs, simulates changes, and commits the
+  accepted proposal through the existing single section-revision authority. Existing spans are
+  preserved, covered cells and span geometry changes fail closed, and no cell identifier exists.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
@@ -736,6 +741,12 @@ Main-owned snapshot barrier, asset capture, create-only staging, hash inventory,
 atomic publication. Binary variance from library-generated relationship/drawing identifiers,
 metadata dates, and ZIP metadata is removed by a deterministic canonicalization post-pass before
 the content hash is recorded.
+
+Publication assembly schema v2 retains table header rows and columns, cell alignment, widths, and
+spans. GFM Markdown records all non-portable table losses; semantic Chromium HTML provides paged
+headers and normalized widths for PDF; inert LaTeX `longtable` repeats headers, retains colspan,
+and records rowspan fallback. These are projections of native BlockNote section schema v5, never a
+second table authority.
 
 LaTeX publication uses the same assembly and export boundary with the single XeLaTeX/ctexart
 profile fixed by ADR 030. The application owns the complete preamble and context-specific escaping;

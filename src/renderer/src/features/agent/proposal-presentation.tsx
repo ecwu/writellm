@@ -12,6 +12,14 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type {
   MutationProposalRecord,
@@ -45,6 +53,9 @@ export function ProposalPresentation(props: {
   compact?: boolean
 }): React.JSX.Element {
   const presentation = props.proposal.payload.preview.presentation
+  if (presentation?.kind === 'table_diff') {
+    return <TableDiffProposalView presentation={presentation} />
+  }
   if (presentation?.kind === 'brief_fields') {
     return <BriefProposalView presentation={presentation} compact={props.compact} />
   }
@@ -68,6 +79,71 @@ export function ProposalPresentation(props: {
     return <SectionProposalView proposal={props.proposal} dark={props.dark} />
   }
   return <LegacyProposalView proposal={props.proposal} dark={props.dark} />
+}
+
+function TableDiffProposalView(props: {
+  presentation: Extract<ProposalPresentationData, { kind: 'table_diff' }>
+}): React.JSX.Element {
+  return (
+    <section
+      className='grid min-w-0 gap-3'
+      aria-label='Table changes'
+      data-testid='table-diff-view'
+    >
+      {props.presentation.tables.map((table) => (
+        <div key={table.blockId} className='grid min-w-0 gap-2'>
+          <div className='flex flex-wrap items-center gap-2 text-xs'>
+            <Badge variant='outline'>Table</Badge>
+            <span className='font-medium tabular-nums'>
+              {table.beforeRows}×{table.beforeColumns} → {table.afterRows}×{table.afterColumns}
+            </span>
+          </div>
+          {table.structuralChanges.length > 0 ? (
+            <ul className='flex flex-wrap gap-1' aria-label='Structural table changes'>
+              {table.structuralChanges.map((change) => (
+                <li key={change}>
+                  <Badge variant='secondary'>{change}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {table.changedCells.length > 0 ? (
+            <div className='max-h-80 min-w-0 overflow-auto rounded-md border'>
+              <Table className='min-w-[32rem] table-fixed'>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className='w-20'>Cell</TableHead>
+                    <TableHead>Before</TableHead>
+                    <TableHead>After</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {table.changedCells.map((cell) => (
+                    <TableRow key={`${cell.row}:${cell.column}`}>
+                      <TableCell className='font-mono text-xs tabular-nums'>
+                        R{cell.row + 1}C{cell.column + 1}
+                      </TableCell>
+                      <TableCell className='bg-red-500/10 align-top'>
+                        <PresentationText value={cell.before} />
+                      </TableCell>
+                      <TableCell className='bg-green-500/10 align-top'>
+                        <PresentationText value={cell.after} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : null}
+          {table.truncated ? (
+            <p className='text-xs text-muted-foreground'>
+              Table preview truncated to its safe display limit.
+            </p>
+          ) : null}
+        </div>
+      ))}
+    </section>
+  )
 }
 
 function BriefProposalView(props: {
