@@ -1,0 +1,37 @@
+diff --git a/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js b/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js
+--- a/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js
++++ b/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js
+@@ -80 +80 @@ var z = (e) => {
+-	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]);
++	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]), P = o.setReference, U = o.setPositionReference;
+@@ -84 +84 @@ var z = (e) => {
+-			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && o.setReference(n);
++			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && P(n);
+@@ -86 +86 @@ var z = (e) => {
+-			o.setPositionReference({
++			U({
+@@ -94 +94,2 @@ var z = (e) => {
+-		o,
++		P,
++		U,
+diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popovers/GenericPopover.tsx
+--- a/src/components/Popovers/GenericPopover.tsx
++++ b/src/components/Popovers/GenericPopover.tsx
+@@ -167,0 +168,2 @@ export const GenericPopover = (
++  const setReference = refs.setReference;
++  const setPositionReference = refs.setPositionReference;
+@@ -185 +187 @@ export const GenericPopover = (
+-        refs.setReference(element);
++        setReference(element);
+@@ -196 +198 @@ export const GenericPopover = (
+-      refs.setPositionReference({
++      setPositionReference({
+@@ -204 +206,7 @@ export const GenericPopover = (
+-  }, [props.reference, refs, props.focusManagerProps?.disabled, editor]);
++  }, [
++    props.reference,
++    setReference,
++    setPositionReference,
++    props.focusManagerProps?.disabled,
++    editor,
++  ]);

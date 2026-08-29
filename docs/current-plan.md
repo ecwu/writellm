@@ -1,11 +1,11 @@
 # WriteLLM Current Plan
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. Immutable tag-only candidates `.28`–`.30` exposed portable fixture, hosted timing,
-recovery-manifest, CRLF, Windows timing, floating-control, and Linux credential-process boundaries.
-Candidate `.33` passed both macOS rows and narrowed Windows to three stress-test budgets; Linux
-proved that a standalone Electron probe can pass while later application processes select
-`basic_text`. Both are locally corrected for candidate `v0.2026.8.34`.
+ADR 067. Immutable tag-only candidates `.28`–`.34` exposed portable fixture, hosted timing,
+recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
+Candidate `.34` confirmed the Windows stress budgets and real Linux process guard, then exposed
+the final hosted UI, macOS test-budget, and Linux desktop-discovery boundaries. Candidate
+`v0.2026.8.35` contains their focused remediation.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -34,6 +34,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   60-second budgets. Linux passed 30 credential-free scenarios but failed all 17 credential-backed
   scenarios because the pre-E2E Electron probe and actual application did not share the selected
   secure backend. Candidate `.34` removes that cross-process assumption.
+- Candidate `.34` passed static, Linux credential preflight, and macOS arm64. Windows passed all
+  1,160 Electron tests, then its E2E passed 44 of 47 scenarios, retried one strict-locator scenario,
+  and failed selection portability plus a BlockNote/Floating UI reference loop. macOS x64 passed
+  1,159 of 1,160 tests before one compaction stress case reached Vitest's five-second default.
+  Linux's real-process backend guard rejected every application launch; repeated 90-second worker
+  teardowns exhausted the 45-minute job before Playwright could print its deferred summary.
+- Candidate `.35` gives the macOS stress case a 60-second budget, uses Playwright's cross-platform
+  text selection, patches BlockNote 0.54.0 to depend on Floating UI's stable setters instead of its
+  changing aggregate refs object, advertises the supported GNOME desktop identity in the hosted
+  Secret Service session, and emits immediate backend metadata with bounded failed-launch cleanup.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while
@@ -347,11 +357,12 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Runs through `33259908430` passed the restored static/fixture and credential
-preflight gates while successively exposing portable test and hosted-runner boundaries before
-packaging. The `.30` remediation passes 79 affected Electron tests, a fresh production build, and
-all seven affected Real-Electron scenarios with no failures or flakes. The authorized corrected
-immutable `.31` tag is required for complete hosted evidence, as recorded in
+remains disabled. Run `33274815298` for `.34` passed static, credential preflight, and macOS arm64;
+it confirmed the Windows unit-test budgets before exposing the remaining Windows Renderer,
+selection, macOS x64 test-budget, and Linux hosted-desktop boundaries. The `.35` remediation passes
+the complete Electron gate (201 files / 1,160 tests), production build, static/type checks, and both
+affected E2E scenarios without retries. The authorized corrected immutable `.35` tag is required
+for complete hosted evidence, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

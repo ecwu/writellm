@@ -1,9 +1,9 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI; `.33` passed both macOS rows and narrowed
-Windows to three stress budgets, while Linux proved the standalone safeStorage probe was a false
-proxy for later application processes. Candidate `.34` corrects both boundaries.
+Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.34` confirmed the Windows
+stress budgets and real Linux process guard, then exposed Windows Renderer/selection, macOS x64
+test-budget, and Linux hosted-desktop discovery boundaries. Candidate `.35` corrects them.
 Recorded: 2026-08-29
 
 This is the short completion and routing index. Active delivery state lives in
@@ -50,10 +50,11 @@ Status markers:
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  validation/package matrix and record its hosted evidence. Candidate `.33` passed static,
-  credential-preflight, and both macOS rows; corrected candidate `.34` gives three Windows stress
-  tests explicit budgets and verifies Linux safeStorage in each real application process. Release
-  promotion remains disabled.
+  validation/package matrix and record its hosted evidence. Candidate `.34` passed static,
+  credential preflight, macOS arm64, and all 1,160 Windows Electron tests; corrected candidate `.35`
+  stabilizes the remaining Windows E2E reference/selection paths, one macOS x64 stress budget, and
+  Linux GNOME Secret Service discovery plus failed-launch cleanup. Release promotion remains
+  disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

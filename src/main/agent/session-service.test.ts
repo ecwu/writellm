@@ -3089,7 +3089,7 @@ describe('AgentSessionService', () => {
       content: expect.stringContaining('turn-599-')
     })
     database.close()
-  })
+  }, 60_000)
 
   it('lets one newest complete turn borrow unused checkpoint budget without truncation', async () => {
     const database = await createDatabase()

@@ -622,6 +622,24 @@ encryption availability, and round trip before returning its renderer. `bash -n`
 focused Real-Electron scenarios, and recovery-fixture verification passed locally. Candidate `.34`
 is required for hosted confirmation of the Linux process boundary.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.34` at
+`b224704f9585fddbc49bc6956b91c8f7461c391f` completed tag-only run `33274815298`. Static, Linux
+credential preflight, and macOS arm64 passed. Windows passed all 1,160 Electron tests, then passed
+44 of 47 E2E scenarios; one duplicate-text locator retried successfully, while explicit selection
+and a BlockNote/Floating UI reference loop failed. macOS x64 passed 1,159 of 1,160 tests before one
+compaction stress case reached the default five-second budget. Linux's real-process credential
+guard rejected launches from the first scenario; repeated worker teardown timeouts exhausted the
+45-minute job before the deferred Playwright failure summary, and package rows were blocked.
+
+Local post-candidate remediation evidence (2026-08-29): the compaction stress test now has a
+60-second budget; quick actions use Playwright's explicit cross-platform text selection; a pnpm
+patch makes BlockNote 0.54.0's popover effect depend on Floating UI's stable setters instead of the
+changing refs aggregate; and the Linux wrapper supplies Electron's documented GNOME desktop
+identity while invalid real-process probes emit immediate metadata and terminate within a bounded
+cleanup. The complete Electron gate passed 201 files and 1,160 tests followed by a production
+build. `check:fast` and both affected E2E scenarios passed without retries. Candidate `.35` is
+required for hosted confirmation.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

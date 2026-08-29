@@ -89,7 +89,10 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       !backend.available ||
       !backend.roundTrip
     ) {
-      await app.close()
+      process.stderr.write(
+        `[writellm-linux-safe-storage] invalid backend ${JSON.stringify(backend)}\n`
+      )
+      await closeInvalidLinuxApp(app)
       throw new Error(
         `Linux Electron E2E secure credential backend is invalid: ${JSON.stringify(backend)}`
       )
@@ -149,6 +152,22 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       .toEqual({ visible: false, focused: false, backgroundThrottling: false })
   }
   return { app, page }
+}
+
+async function closeInvalidLinuxApp(app: ElectronApplication): Promise<void> {
+  const child = app.process()
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      app.close().catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, 5_000)
+      })
+    ])
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }
 }
 
 /**

@@ -802,6 +802,15 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.34` as failed evidence after run `33274815298` passed static,
+  credential preflight, macOS arm64, and all 1,160 Windows Electron tests but exposed two Windows
+  Renderer/selection E2E failures, one macOS x64 five-second stress-test timeout, and Linux
+  real-process credential rejection followed by teardown exhaustion. Added the focused test budget,
+  explicit cross-platform selection, a pinned BlockNote stable-ref patch, hosted GNOME desktop
+  discovery, and immediate bounded Linux probe diagnostics. Passed 1,160 Electron tests, the
+  production build, static/type checks, and both affected E2E scenarios; advanced release metadata
+  to `0.2026.8.35`.
+
 - Retained immutable `v0.2026.8.33` as failed evidence after run `33264429276` passed static,
   credential preflight, and both macOS rows but left three Windows stress-test budgets and 17 Linux
   credential-backed scenarios. Raised only those three Windows budgets to 60 seconds. Separated the

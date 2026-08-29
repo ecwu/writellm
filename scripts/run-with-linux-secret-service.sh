@@ -36,6 +36,11 @@ fi
 eval "$(printf '%s' "$keyring_password" | gnome-keyring-daemon --login --components=secrets)"
 eval "$(gnome-keyring-daemon --start --components=secrets)"
 
+# Electron's Linux password-store discovery also consults the desktop session.
+# Hosted runners do not advertise one, so provide the supported GNOME identity
+# in addition to the explicit --password-store=gnome-libsecret switch.
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}"
+
 probe_secret="writellm-ci-secret-service-probe"
 printf '%s' "$probe_secret" | secret-tool store \
   --label='WriteLLM CI Secret Service probe' \
