@@ -121,7 +121,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm test:e2e
+            pnpm test:e2e
       - name: Retain synthetic failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -181,7 +181,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm run package:linux-x64
+            pnpm run package:linux-x64
       - name: Upload unsigned package evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

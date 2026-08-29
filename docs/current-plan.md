@@ -2,8 +2,9 @@
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.30` exposed portable fixture, hosted timing,
-recovery-manifest, CRLF, and Windows floating-control boundaries. The focused `.30` remediation is
-locally verified, and corrected candidate `v0.2026.8.31` is next.
+recovery-manifest, CRLF, Windows floating-control, and Linux display-session boundaries. Candidate
+`.31` has passed static, credential-preflight, and both macOS rows; its Linux wrapper defect is
+locally corrected and candidate `v0.2026.8.32` is next.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -12,6 +13,13 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Candidate `.31` confirms the `.30` macOS and Windows-focused remediation on both hosted macOS
+  architectures. Linux diagnostics show that its standalone safeStorage probe destroyed its first
+  temporary X server before the actual E2E command, so the application later selected insecure
+  `basic_text` despite the preflight passing. The wrapper now keeps DBus, Xvfb, Secret Service, the
+  Electron probe, and the delegated command in one session; the one genuinely long Linux writing
+  scenario has an explicit per-test 180-second budget.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

@@ -565,6 +565,27 @@ reference. All 79 affected Electron tests passed. A fresh production build and `
 Real-Electron run passed all seven affected scenarios in 15.8 seconds with no failures, retries,
 flakes, or skips. Candidate `.31` is required for complete hosted matrix evidence.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.31` at
+`fe9f21048560b1402c9871555178b8502b7baac7` started tag-only run `33261730182`. The static and
+fixture gate, Linux credential preflight, macOS x64 row, and macOS arm64 row passed without an E2E
+retry. While the Windows and Linux rows were still active, the complete `.30` Linux diagnostics
+established that the shared wrapper launched the safeStorage probe in one temporary Xvfb server,
+destroyed that server, and then delegated E2E to a second nested Xvfb server. The probe therefore
+reported `gnome_libsecret`, but the actual application selected `basic_text`; 17 provider-dependent
+failures were downstream consequences rather than independent UI defects. The same trace showed
+the long workspace-reopen scenario satisfying its assertions until its final interaction reached
+the suite-wide 90-second ceiling.
+
+Local post-candidate remediation evidence (2026-08-29): the Linux wrapper now creates one DBus and
+Xvfb lifetime before starting gnome-keyring, then runs the Secret Service read/write probe,
+Electron safeStorage probe, and delegated E2E or package command inside that same display session.
+Both active and disabled workflow definitions no longer add a nested Xvfb. The long
+workspace-reopen scenario alone has a 180-second Playwright budget. `bash -n`, diff checks,
+`check:fast`, all 27 recovery fixtures, the focused scenario under `CI=true`, and the complete
+Electron gate passed locally: 201 test files and 1,160 tests passed with three intentional
+benchmark skips, followed by a successful production build. Candidate `.32` is required for the
+corrected complete hosted matrix.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

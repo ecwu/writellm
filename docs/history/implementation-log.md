@@ -802,6 +802,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Started immutable `v0.2026.8.31` run `33261730182`; static, Linux credential preflight, and both
+  macOS Electron/E2E rows passed. Correlated the complete `.30` Linux diagnostics with the wrapper:
+  its standalone safeStorage probe destroyed one temporary X server before E2E opened another,
+  causing the application to fall back from `gnome_libsecret` to `basic_text`. Moved probe and
+  delegated commands into one DBus/Xvfb/keyring lifetime, removed nested workflow Xvfb calls, gave
+  only the proven long workspace-reopen scenario a 180-second budget, passed 1,160 Electron tests,
+  production build, focused E2E, static checks, and recovery fixtures, and advanced release metadata
+  to `0.2026.8.32`.
 - Retained immutable `v0.2026.8.30` as failed evidence after run `33259908430` passed static and
   credential preflight gates but exposed two macOS test budgets, one macOS E2E retry, and Windows
   CRLF, floating-control, native layout, rendering-delay, and editor-focus boundaries. Normalized

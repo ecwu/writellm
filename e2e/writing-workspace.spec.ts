@@ -736,6 +736,7 @@ test(
   'edits a brief and nested outline, reorders sections, previews, and reopens identically',
   scenario('manuscript.workspace-survives-reopen', ['@packaged']),
   async ({ testRoot }) => {
+    test.setTimeout(180_000)
     const projectName = 'Writing workspace'
     const manuscriptTitle =
       'From Intent to Control: Language Models for Edge–Cloud Orchestration—Problem Space, Agency, Assurance, and Evidence'

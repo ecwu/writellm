@@ -17,6 +17,11 @@ if [[ "${WRITELLM_CI_SECRET_SERVICE_SESSION:-}" != '1' ]]; then
   exec dbus-run-session -- bash "$0" "$@"
 fi
 
+if [[ "${WRITELLM_CI_XVFB_SESSION:-}" != '1' ]]; then
+  export WRITELLM_CI_XVFB_SESSION=1
+  exec xvfb-run --auto-servernum bash "$0" "$@"
+fi
+
 eval "$(printf '%s' "$keyring_password" | gnome-keyring-daemon --login --components=secrets)"
 eval "$(gnome-keyring-daemon --start --components=secrets)"
 
@@ -40,7 +45,7 @@ if [[ ! -x "$electron_executable" ]]; then
   echo "Linux safeStorage probe could not find Electron at $electron_executable" >&2
   exit 1
 fi
-xvfb-run --auto-servernum "$electron_executable" \
+"$electron_executable" \
   --no-sandbox \
   --password-store=gnome-libsecret \
   "$project_root/scripts/verify-linux-safe-storage.cjs"

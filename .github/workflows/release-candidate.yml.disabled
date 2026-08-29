@@ -172,7 +172,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm test:e2e
+            pnpm test:e2e
       - name: Native-host package, inventory, and packaged smoke
         if: ${{ inputs.mode == 'dry-run' && matrix.target != 'linux-x64' }}
         run: pnpm run ${{ matrix.command }}
@@ -181,7 +181,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm run package:linux-x64
+            pnpm run package:linux-x64
       - name: Signed production package, inventory, and packaged smoke
         if: ${{ inputs.mode == 'production' && matrix.target != 'linux-x64' }}
         env:
@@ -199,7 +199,7 @@ jobs:
           WRITELLM_RELEASE_TAG: ${{ inputs.tag }}
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            xvfb-run --auto-servernum pnpm check:release
+            pnpm check:release
       - name: Upload candidate row
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
