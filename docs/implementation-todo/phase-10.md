@@ -538,6 +538,14 @@ in 21.2 seconds total with no failures, flakes, or skips. `check:fast` also pass
 evidence does not complete Checkpoint 26.9; a new immutable tag must pass the complete hosted
 matrix.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.29` at
+`7cba97223476f163b0adb0d361fcda764b5193ca` started run `33259789028`. Frozen installation
+passed, then recovery-fixture verification correctly rejected the changed manuscript-export test
+because its manifest still held the pre-timeout-change source digest. Electron and package rows
+were skipped. Local verification then identified the same stale digest for the changed Agent
+session test. The tag remains immutable failed evidence; both manifest digests and release
+metadata are corrected for candidate `.30`.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

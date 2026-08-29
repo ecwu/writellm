@@ -154,7 +154,7 @@
       "id": "asset-backed-manuscript-export",
       "category": "export",
       "source": "src/main/manuscript/manuscript-export.test.ts",
-      "sourceSha256": "5e03b4745adfe3d49781ef38fef157d0454932bc9c3fe68491c63987535eaabb",
+      "sourceSha256": "14e844bd3415e68715d711faa8fd7579a2c2503364ee161ca20aa1c9fd06f681",
       "tests": [
         "publishes deterministic native and Markdown packages with verified referenced assets",
         "never overwrites an existing destination and cleans interrupted staging",
@@ -165,7 +165,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "8ad2759a0c7cd0f4171434c5f198d39fb91c037956267f6d4375dcfd258a64ff",
+      "sourceSha256": "ce2a4ee0cb1e656d5176ce8ad78615be9f0adc21d4f1454a755a52f1b6b61dd4",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",

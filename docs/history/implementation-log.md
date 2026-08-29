@@ -802,6 +802,11 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.29` as failed evidence after run `33259789028` rejected the changed
+  manuscript-export test's stale recovery-manifest digest before starting the platform matrix.
+  Local verification also identified the changed Agent session test digest. Updated both manifest
+  entries to their normalized source SHA-256 values, advanced release metadata to
+  `0.2026.8.30`, and prepared a corrected immutable candidate; no failed tag was moved or rerun.
 - Advanced release metadata to `0.2026.8.29` after the user authorized committing and pushing the
   locally verified `.28` portability remediation and publishing a fresh immutable tag. The tag may
   run only the unsigned four-platform build; signing, promotion, and GitHub Release publication

@@ -2,8 +2,8 @@
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. The immutable `v0.2026.8.28` tag-only four-platform candidate failed on portable test
-fixtures and hosted-runner time budgets; the focused remediation is locally verified and is being
-published as the new immutable `v0.2026.8.29` hosted candidate.
+fixtures and hosted-runner time budgets. Its focused remediation is locally verified; immutable
+`.29` exposed stale recovery-fixture digests, and corrected candidate `v0.2026.8.30` is next.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -294,7 +294,7 @@ provider-specific fork, database migration, and release work remain outside this
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
 Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` tag ran the
 unsigned four-platform CI matrix and remains immutable failed evidence. Its focused remediation is
-locally verified and is authorized for the replacement `v0.2026.8.29` commit, push, and tag. Apple
+locally verified and is authorized for the corrected `v0.2026.8.30` commit, push, and tag. Apple
 Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
 unauthorized.
 
@@ -311,7 +311,8 @@ outside the accepted checkpoint.
 
 The `v0.2026.8.27` candidate is retained as failed frozen-install evidence, and `v0.2026.8.28` is
 retained as failed cross-platform test evidence. The `.28` remediation is locally verified and the
-user authorized committing, pushing `main`, and publishing the new immutable `v0.2026.8.29` tag.
+user authorized continuing with corrected immutable tags. Candidate `.29` failed before the matrix
+because its recovery manifest retained pre-timeout-change source digests; `.30` corrects them.
 Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
 remain unauthorized.
 
@@ -323,7 +324,7 @@ and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pu
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
 remains disabled. Run `33247497461` passed the static gate but exposed portable fixture cleanup,
 filesystem-name, and hosted-runner timeout defects before packaging; the local remediation passes
-the affected Electron and E2E scenarios. The authorized fresh immutable `.29` tag is required for complete
+the affected Electron and E2E scenarios. The authorized corrected immutable `.30` tag is required for complete
 hosted evidence, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
