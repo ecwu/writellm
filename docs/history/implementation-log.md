@@ -800,6 +800,17 @@ maintenance without turning the active tracker back into a historical log.
   Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
   outside this action.
 
+## 2026-08-30
+
+- Retained immutable `v0.2026.8.37` as failed evidence after run `33279820297` proved complete
+  independent native packaging and artifact upload on both macOS targets. Windows and Linux
+  reproduced the same repeated BlockNote/Floating UI DOM-reference loop; Windows also exposed a
+  duplicate final-response locator, while Linux traces proved two full scenarios reached their
+  final action at about 88 seconds before the 90-second test budget expired. Deduplicated DOM
+  reference application, selected the final response explicitly, assigned 180-second budgets only
+  to those two long scenarios, refreshed recovery evidence, and advanced release metadata to
+  `0.2026.8.38`.
+
 ## 2026-08-29
 
 - Retained immutable `v0.2026.8.36` as failed evidence after run `33278248512` confirmed the

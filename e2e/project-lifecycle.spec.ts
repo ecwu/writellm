@@ -72,6 +72,7 @@ test(
   'configures provider metadata without returning a credential',
   scenario('app.provider-settings-persist-without-secret'),
   async ({ testRoot }) => {
+    test.setTimeout(180_000)
     let authorizationHeader: string | undefined
     const server = createServer((request, response) => {
       authorizationHeader = request.headers.authorization

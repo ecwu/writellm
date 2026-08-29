@@ -3,10 +3,10 @@ diff --git a/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js b/dist/confirmDiscard
 +++ b/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js
 @@ -80 +80 @@ var z = (e) => {
 -	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]);
-+	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]), P = s(o.setReference), U = s(o.setPositionReference); P.current = o.setReference, U.current = o.setPositionReference;
++	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]), P = s(o.setReference), U = s(o.setPositionReference), V = s(); P.current = o.setReference, U.current = o.setPositionReference;
 @@ -84 +84 @@ var z = (e) => {
 -			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && o.setReference(n);
-+			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && P.current(n);
++			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && V.current !== n && (V.current = n, P.current(n));
 @@ -86 +86 @@ var z = (e) => {
 -			o.setPositionReference({
 +			U.current({
@@ -15,18 +15,33 @@ diff --git a/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js b/dist/confirmDiscard
 diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popovers/GenericPopover.tsx
 --- a/src/components/Popovers/GenericPopover.tsx
 +++ b/src/components/Popovers/GenericPopover.tsx
-@@ -167,0 +168,4 @@ export const GenericPopover = (
+@@ -167,0 +168,5 @@ export const GenericPopover = (
 +  const setReferenceRef = useRef(refs.setReference);
 +  const setPositionReferenceRef = useRef(refs.setPositionReference);
++  const appliedReferenceElementRef = useRef<Element | undefined>(undefined);
 +  setReferenceRef.current = refs.setReference;
 +  setPositionReferenceRef.current = refs.setPositionReference;
-@@ -185 +189 @@ export const GenericPopover = (
+@@ -181,13 +186,15 @@ export const GenericPopover = (
+       if (
+         element !== undefined &&
++        appliedReferenceElementRef.current !== element &&
+         (props.focusManagerProps?.disabled || !editor.isWithinEditor(element))
+       ) {
+         // Only set domReference when FloatingFocusManager is disabled.
+         // When FloatingFocusManager is active (disabled !== false) and the
+         // reference is inside the ProseMirror editor, setting domReference
+         // causes floating-ui to call insertAdjacentElement on the reference,
+         // inserting a focus-return <span> into the PM contenteditable. This
+         // triggers PM's MutationObserver and resets the editor selection.
+         // (issue #2525)
 -        refs.setReference(element);
++        appliedReferenceElementRef.current = element;
 +        setReferenceRef.current(element);
-@@ -196 +200 @@ export const GenericPopover = (
+       }
+@@ -196 +204 @@ export const GenericPopover = (
 -      refs.setPositionReference({
 +      setPositionReferenceRef.current({
-@@ -204 +208,5 @@ export const GenericPopover = (
+@@ -204 +212,5 @@ export const GenericPopover = (
 -  }, [props.reference, refs, props.focusManagerProps?.disabled, editor]);
 +  }, [
 +    props.reference,

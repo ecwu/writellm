@@ -681,6 +681,24 @@ Electron gate, E2E, and native package gate; Linux also owns its secure-backend 
 static/fixture gate remains the sole common prerequisite. Candidate `.37` is required for hosted
 confirmation.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.37` at
+`09eabed264da43e8bdf066eb157c5e8e529613d8` completed tag-only run `33279820297`. The shared
+static gate passed. Both macOS arm64 and macOS x64 independently passed their complete Electron,
+production-build, 47-scenario E2E, native package, and artifact-upload pipelines. Windows passed
+its Electron/build gate but failed E2E when citation coverage reproduced React error 185 and the
+Agent contract used a strict locator for duplicated final response text. Linux passed its real
+Secret Service preflight and Electron/build gate, then failed three E2E scenarios: citation
+coverage reproduced the same React loop, while the grounded Agent and provider-settings traces
+reached their final clicks at about 88 seconds and hit the 90-second total test budget. Packaging
+was skipped only on the two failed platforms, proving the four pipelines are isolated.
+
+Local post-candidate remediation evidence (2026-08-30): the BlockNote patch now records the last
+DOM reference before invoking Floating UI and skips an identical reference on later effect turns;
+the Agent contract selects the final matching response; and only the two Linux-proven long
+scenarios receive 180-second budgets. The recovery manifest records the resulting project lifecycle
+source digest, and release metadata advances to `0.2026.8.38`. Hosted confirmation remains required
+before Checkpoint 26.9 can complete.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

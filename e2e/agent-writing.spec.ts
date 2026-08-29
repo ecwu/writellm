@@ -168,6 +168,7 @@ test(
   'completes a grounded Agent proposal workflow and recovers it across reopen',
   scenario('agent.grounded-proposal-workflow', ['@critical', '@packaged']),
   async ({ testRoot }) => {
+    test.setTimeout(180_000)
     const source = join(testRoot, 'agent evidence.pdf')
     await writeFile(source, makeMinimalPdf())
     const zipBytes = await evidenceZip()

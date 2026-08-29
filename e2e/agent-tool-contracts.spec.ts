@@ -233,10 +233,12 @@ test(
       await expect(panel.getByTestId('outline-proposal-view')).toBeVisible()
       await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(
-        panel.getByText(
-          'The requested Brief and outline changes are applied. No section prose was added.',
-          { exact: true }
-        )
+        panel
+          .getByText(
+            'The requested Brief and outline changes are applied. No section prose was added.',
+            { exact: true }
+          )
+          .last()
       ).toBeVisible({ timeout: 20_000 })
 
       const truth = await launched.page.evaluate(async () => {

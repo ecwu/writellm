@@ -3,11 +3,12 @@
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
-Candidate `.35` passed both macOS rows and exposed Windows patch-EOL and Playwright Electron
-password-store boundaries. Candidate `.36` confirmed those fixes, then exposed a remaining Windows
-Floating UI setter loop and one macOS arm64 conflict-test race. Candidate `v0.2026.8.37` contains
-their focused remediation and four independent platform pipelines.
-Recorded: 2026-08-29
+Candidate `.36` confirmed the Windows patch-EOL and Linux password-store fixes, then exposed a
+remaining Windows Floating UI setter loop and one macOS arm64 conflict-test race. Candidate `.37`
+proved both independent macOS pipelines through artifact upload, while Windows and Linux exposed
+one repeated-reference loop, one duplicate final-response locator, and two Linux 90-second scenario
+budgets. Candidate `v0.2026.8.38` contains the focused remediation.
+Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -66,6 +67,13 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Electron gate, E2E, and native package gate; one failure stops only that platform. Linux's real
   credential preflight is part of the Linux pipeline, while the shared static/fixture gate still
   runs once before all four.
+- Candidate `.37` completed successfully through native packaging and artifact upload on macOS
+  arm64 and macOS x64. Windows and Linux both reproduced React error 185 because the stable setter
+  still received the same DOM reference on every effect turn; Windows also found an ambiguous
+  repeated final-response locator. Linux additionally showed that two credential-backed scenarios
+  reached their final action at about 88 seconds and hit the 90-second total budget rather than
+  hanging inside Secret Service. Candidate `.38` deduplicates reference application, selects the
+  final response explicitly, and gives only those two proven long scenarios 180-second budgets.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

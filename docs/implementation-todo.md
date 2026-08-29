@@ -53,10 +53,10 @@ Status markers:
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
   pipelines and record their hosted evidence. Candidate `.36` confirmed LF pnpm patches on Windows
   and the explicit hosted Linux Secret Service backend, then exposed one Windows Floating UI setter
-  loop and one macOS arm64 conflict-test race. Candidate `.37` stabilizes both and makes each
-  platform independently run Electron tests, E2E, and packaging after the shared static gate, so a
-  failure cannot suppress the other platforms' package evidence. Release promotion remains
-  disabled.
+  loop and one macOS arm64 conflict-test race. Candidate `.37` proved independent native packaging
+  and artifact upload on both macOS targets while Windows and Linux exposed the remaining repeated
+  DOM-reference loop, one ambiguous Windows locator, and two Linux scenario budgets. Candidate
+  `.38` contains those focused fixes. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
