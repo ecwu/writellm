@@ -635,7 +635,7 @@ test(
       await launched.page.keyboard.type(
         '[Source: unique source.pdf, p. 1] [Source: duplicate source.pdf] [Source: Missing source.pdf]'
       )
-      await editor.blur()
+      await launched.page.getByLabel('Section title').focus()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
 
       const checks = launched.page.getByTestId('checks-workspace')
@@ -660,7 +660,7 @@ test(
       await launched.page.keyboard.press('End')
       await launched.page.keyboard.type(' [Source: unused source.pdf]')
       await expect(sectionEditor(launched.page)).toContainText('[Source: unused source.pdf]')
-      await editor.blur()
+      await launched.page.getByLabel('Section title').focus()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
       await expect(summary.getByText('50%', { exact: true }).first()).toBeVisible()
       await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()

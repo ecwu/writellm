@@ -143,7 +143,7 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "ffd0a6646fb4a7899a4c1f69104e418001ac5adf1546aac1c5e4ca1965b6d68a",
+      "sourceSha256": "f0cfd58e62dc2d8465d467e1ea6d874d94aa98dc2c392d5748694add1bf38439",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",

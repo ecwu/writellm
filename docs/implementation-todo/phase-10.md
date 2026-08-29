@@ -586,6 +586,24 @@ Electron gate passed locally: 201 test files and 1,160 tests passed with three i
 benchmark skips, followed by a successful production build. Candidate `.32` is required for the
 corrected complete hosted matrix.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.32` at
+`299d048546aed7362a8e7132f3eac2f534aec8b4` started tag-only run `33262923466`. Static, Linux
+credential preflight, and macOS x64 passed. Windows completed 1,152 of 1,160 tests over 299 seconds;
+eight database-heavy tests exceeded five- or fifteen-second budgets and their interrupted cleanup
+produced secondary SQLite `EBUSY` messages. macOS arm64 completed its Electron gate and failed only
+the selection quick-action E2E because `Control/Command+A` left a collapsed BlockNote cursor. Linux
+continued through the single-session Secret Service E2E while the independently actionable
+remediation was prepared; package rows remained blocked by the failed Electron matrix.
+
+Local post-candidate remediation evidence (2026-08-29): hosted Windows Vitest receives a bounded
+30-second default while other environments retain five seconds, and the retention-heavy mutation
+test carries the matching explicit budget. The six affected Electron files passed all 159 tests.
+Quick-action selection now uses `End` plus `Shift+Home`; its complete focused E2E passed without a
+retry. The prior `.31` Windows citation scenario no longer calls `blur()` on a remounting BlockNote
+locator and instead focuses the stable section-title input before navigation; its focused E2E also
+passed. `check:fast`, all 27 recovery fixtures, and diff checks passed. Candidate `.33` is required
+for hosted confirmation.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

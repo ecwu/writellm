@@ -67,7 +67,8 @@ test(
       await panel.getByRole('button', { name: 'Close writing agent' }).click()
 
       await editor.click()
-      await launched.page.keyboard.press('ControlOrMeta+a')
+      await launched.page.keyboard.press('End')
+      await launched.page.keyboard.press('Shift+Home')
       await expect(
         launched.page.getByRole('button', { name: 'Open Agent quick actions' })
       ).toBeVisible()

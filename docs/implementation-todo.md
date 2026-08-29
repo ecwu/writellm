@@ -1,8 +1,9 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI; `.31` passed both hosted macOS rows and
-its Linux display-session defect is locally corrected for candidate `.32`.
+Checkpoint 26.9 has resumed with tag-only four-platform CI; `.32` passed macOS x64 and Linux
+credential preflight, and its hosted Windows timing plus macOS selection failures are corrected for
+candidate `.33`.
 Recorded: 2026-08-29
 
 This is the short completion and routing index. Active delivery state lives in
@@ -49,9 +50,9 @@ Status markers:
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  validation/package matrix and record its hosted evidence. Candidate `.31` passed static,
-  credential-preflight, and both macOS rows; corrected candidate `.32` owns one Linux DBus/Xvfb/
-  Secret Service session across probe and E2E. Release promotion remains disabled.
+  validation/package matrix and record its hosted evidence. Candidate `.32` passed static,
+  credential-preflight, and macOS x64; corrected candidate `.33` adds a hosted Windows Vitest budget
+  and stable keyboard focus/selection transitions. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

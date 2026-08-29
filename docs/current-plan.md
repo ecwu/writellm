@@ -2,9 +2,9 @@
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.30` exposed portable fixture, hosted timing,
-recovery-manifest, CRLF, Windows floating-control, and Linux display-session boundaries. Candidate
-`.31` has passed static, credential-preflight, and both macOS rows; its Linux wrapper defect is
-locally corrected and candidate `v0.2026.8.32` is next.
+recovery-manifest, CRLF, Windows timing, floating-control, and Linux display-session boundaries.
+Candidate `.32` confirmed macOS x64 and the Linux credential preflight; its Windows timing and
+macOS arm64 selection failures are locally corrected for candidate `v0.2026.8.33`.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -20,6 +20,13 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   `basic_text` despite the preflight passing. The wrapper now keeps DBus, Xvfb, Secret Service, the
   Electron probe, and the delegated command in one session; the one genuinely long Linux writing
   scenario has an explicit per-test 180-second budget.
+- Candidate `.32` passed static, Linux credential preflight, and macOS x64. Its Windows Electron
+  gate ran 1,160 tests for 299 seconds and exposed eight hosted-runner timeouts rather than failed
+  assertions; its macOS arm64 row exposed one BlockNote select-all interaction that left a collapsed
+  cursor. Hosted Windows now receives a bounded 30-second Vitest budget, the retention-heavy test
+  matches it, and quick actions create an explicit keyboard range. The prior `.31` Windows citation
+  failure is also corrected by moving focus to the stable section-title input before workspace
+  navigation instead of asking the remounting editor locator to blur.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

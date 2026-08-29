@@ -802,6 +802,13 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.32` as failed evidence after run `33262923466` passed static, Linux
+  credential preflight, and macOS x64 but exposed systemic hosted Windows Vitest budgets and one
+  collapsed BlockNote quick-action selection on macOS arm64. Added a Windows-CI-only 30-second test
+  budget, matched the retention-heavy mutation test, made the quick-action keyboard range explicit,
+  and replaced a remounting editor `blur()` with stable title-input focus in the prior Windows
+  citation failure. Passed 159 focused Electron tests, both focused E2E scenarios, static checks,
+  and recovery fixtures; advanced release metadata to `0.2026.8.33`.
 - Started immutable `v0.2026.8.31` run `33261730182`; static, Linux credential preflight, and both
   macOS Electron/E2E rows passed. Correlated the complete `.30` Linux diagnostics with the wrapper:
   its standalone safeStorage probe destroyed one temporary X server before E2E opened another,
