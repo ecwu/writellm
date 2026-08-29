@@ -802,6 +802,10 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.27` as failed hosted evidence after run `33247388140` stopped at
+  the static frozen install: pnpm 12 correctly required its new package-manager dependency lock
+  metadata. Regenerated the lockfile with pnpm 12, advanced release metadata to `0.2026.8.28`, and
+  prepared a new immutable tag rather than moving `.27`.
 - Advanced release metadata to `0.2026.8.27` for the completed Checkpoint 75 and tag-only
   cross-platform CI restoration snapshot. The user authorized committing the pending source,
   creating the annotated `v0.2026.8.27` tag, and pushing `main` plus that tag. The tag may start

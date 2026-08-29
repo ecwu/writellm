@@ -511,6 +511,13 @@ macOS arm64, macOS x64, and Linux x64. `release-candidate.yml.disabled` remains 
 this resumption grants no signing, promotion, or GitHub Release authority. No hosted result is
 claimed until a new tag is pushed and the matrix completes.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.27` at
+`f594575b99bde500352c5cc32dada6aad302cfda` started tag-only run `33247388140`. Checkout, pnpm 12,
+and Node setup passed, then the frozen install failed because the upgraded package-manager pin had
+not yet been represented in pnpm 12's package-manager dependency lock metadata. All dependent rows
+were correctly skipped. The tag remains immutable failed evidence; the generated lock metadata and
+new `v0.2026.8.28` candidate address this exact failure without rerunning or moving `.27`.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

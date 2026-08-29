@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. The user-authorized `v0.2026.8.27` candidate is being prepared with the restored tag-only
+ADR 067. The user-authorized `v0.2026.8.28` candidate is being prepared with the restored tag-only
 four-platform GitHub Actions build definition. Hosted evidence is still pending.
 Recorded: 2026-08-29
 
@@ -291,7 +291,7 @@ authorized. A user-visible profile selector, classifier request, durable activat
 provider-specific fork, database migration, and release work remain outside this checkpoint.
 
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
-Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.27` source
+Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` source
 commit, annotated tag, and push of `main` plus the tag are the active delivery action. The pushed
 tag may run the unsigned four-platform CI matrix. Apple Developer ID signing, notarization, GitHub
 Release creation, promotion, and publication remain unauthorized.
@@ -307,10 +307,10 @@ BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.26` candidate is the previous Checkpoints 73–74 baseline. The active candidate is
-`v0.2026.8.27` for the completed Checkpoint 75 and CI-restoration snapshot. Tag-only unsigned
-hosted CI is authorized; Apple Developer ID signing, notarization, GitHub Release creation,
-promotion, and publication remain unauthorized.
+The `v0.2026.8.27` candidate is retained as failed frozen-install evidence. The active candidate is
+`v0.2026.8.28` for the completed Checkpoint 75 and corrected pnpm 12 CI-restoration snapshot.
+Tag-only unsigned hosted CI is authorized; Apple Developer ID signing, notarization, GitHub Release
+creation, promotion, and publication remain unauthorized.
 
 ## Active delivery gate
 
