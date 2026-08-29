@@ -2,9 +2,10 @@
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.30` exposed portable fixture, hosted timing,
-recovery-manifest, CRLF, Windows timing, floating-control, and Linux display-session boundaries.
-Candidate `.32` confirmed macOS x64 and the Linux credential preflight; its Windows timing and
-macOS arm64 selection failures are locally corrected for candidate `v0.2026.8.33`.
+recovery-manifest, CRLF, Windows timing, floating-control, and Linux credential-process boundaries.
+Candidate `.33` passed both macOS rows and narrowed Windows to three stress-test budgets; Linux
+proved that a standalone Electron probe can pass while later application processes select
+`basic_text`. Both are locally corrected for candidate `v0.2026.8.34`.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -14,12 +15,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Candidate `.31` confirms the `.30` macOS and Windows-focused remediation on both hosted macOS
-  architectures. Linux diagnostics show that its standalone safeStorage probe destroyed its first
-  temporary X server before the actual E2E command, so the application later selected insecure
-  `basic_text` despite the preflight passing. The wrapper now keeps DBus, Xvfb, Secret Service, the
-  Electron probe, and the delegated command in one session; the one genuinely long Linux writing
-  scenario has an explicit per-test 180-second budget.
+- Candidates `.31`–`.33` show that a standalone Linux Electron safeStorage probe is not evidence
+  for the later application process: the probe selected `gnome_libsecret`, while every provider
+  scenario later observed `basic_text`. The wrapper now reserves standalone Electron probing for
+  the isolated preflight job. E2E and package commands start no sacrificial Electron process, and
+  each real Playwright application verifies its requested switch, selected backend, availability,
+  and encrypted round trip before exposing a renderer.
 - Candidate `.32` passed static, Linux credential preflight, and macOS x64. Its Windows Electron
   gate ran 1,160 tests for 299 seconds and exposed eight hosted-runner timeouts rather than failed
   assertions; its macOS arm64 row exposed one BlockNote select-all interaction that left a collapsed
@@ -27,6 +28,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   matches it, and quick actions create an explicit keyboard range. The prior `.31` Windows citation
   failure is also corrected by moving focus to the stable section-title input before workspace
   navigation instead of asking the remounting editor locator to blur.
+- Candidate `.33` passed static, credential preflight, macOS x64, and macOS arm64. Windows reduced
+  from eight timeouts to three: two tests still carried explicit 15-second overrides and one
+  revision-retention stress test reached its 30-second override; all three now have explicit
+  60-second budgets. Linux passed 30 credential-free scenarios but failed all 17 credential-backed
+  scenarios because the pre-E2E Electron probe and actual application did not share the selected
+  secure backend. Candidate `.34` removes that cross-process assumption.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

@@ -802,6 +802,13 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.33` as failed evidence after run `33264429276` passed static,
+  credential preflight, and both macOS rows but left three Windows stress-test budgets and 17 Linux
+  credential-backed scenarios. Raised only those three Windows budgets to 60 seconds. Separated the
+  isolated Linux Electron preflight from delegated E2E/package commands and made every real
+  Playwright process validate its own switch, backend, availability, and encrypted round trip.
+  Passed 39 focused Electron tests, two focused E2E scenarios, static/type checks, and recovery
+  fixtures; advanced release metadata to `0.2026.8.34`.
 - Retained immutable `v0.2026.8.32` as failed evidence after run `33262923466` passed static, Linux
   credential preflight, and macOS x64 but exposed systemic hosted Windows Vitest budgets and one
   collapsed BlockNote quick-action selection on macOS arm64. Added a Windows-CI-only 30-second test

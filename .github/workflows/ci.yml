@@ -69,7 +69,7 @@ jobs:
           sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
       - name: Verify real Electron secure credential backend
         shell: bash
-        run: bash scripts/run-with-linux-secret-service.sh true
+        run: bash scripts/run-with-linux-secret-service.sh --verify-only
 
   electron:
     name: Electron ${{ matrix.target }}

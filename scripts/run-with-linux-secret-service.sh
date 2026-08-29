@@ -2,8 +2,19 @@
 
 set -euo pipefail
 
-if [[ "$#" -eq 0 ]]; then
-  echo "usage: run-with-linux-secret-service.sh <command> [args...]" >&2
+verify_only="${WRITELLM_CI_VERIFY_ONLY:-0}"
+if [[ "${1:-}" == '--verify-only' ]]; then
+  verify_only='1'
+  export WRITELLM_CI_VERIFY_ONLY=1
+  shift
+fi
+
+if [[ "$verify_only" == '1' && "$#" -ne 0 ]]; then
+  echo 'run-with-linux-secret-service.sh --verify-only accepts no command' >&2
+  exit 64
+fi
+if [[ "$verify_only" == '0' && "$#" -eq 0 ]]; then
+  echo "usage: run-with-linux-secret-service.sh [--verify-only | <command> [args...]]" >&2
   exit 64
 fi
 
@@ -39,15 +50,18 @@ secret-tool clear service writellm-ci account probe
 
 export WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret
 
-project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-electron_executable="$project_root/node_modules/.bin/electron"
-if [[ ! -x "$electron_executable" ]]; then
-  echo "Linux safeStorage probe could not find Electron at $electron_executable" >&2
-  exit 1
+if [[ "$verify_only" == '1' ]]; then
+  project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+  electron_executable="$project_root/node_modules/.bin/electron"
+  if [[ ! -x "$electron_executable" ]]; then
+    echo "Linux safeStorage probe could not find Electron at $electron_executable" >&2
+    exit 1
+  fi
+  "$electron_executable" \
+    --no-sandbox \
+    --password-store=gnome-libsecret \
+    "$project_root/scripts/verify-linux-safe-storage.cjs"
+  exit 0
 fi
-"$electron_executable" \
-  --no-sandbox \
-  --password-store=gnome-libsecret \
-  "$project_root/scripts/verify-linux-safe-storage.cjs"
 
 exec "$@"

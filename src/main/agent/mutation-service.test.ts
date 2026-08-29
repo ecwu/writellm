@@ -642,7 +642,7 @@ describe('MutationProposalService', () => {
     })
     expect(bodyRetained()).toBe(0)
     value.database.close()
-  }, 30_000)
+  }, 60_000)
 
   it('keeps persisted proposals recoverable after service recreation and rejects stale project capabilities', async () => {
     const value = await fixture()

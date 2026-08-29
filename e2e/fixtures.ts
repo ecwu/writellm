@@ -70,6 +70,31 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? [])
     }
   })
+  if (process.platform === 'linux') {
+    const backend = await app.evaluate(async ({ app, safeStorage }) => {
+      await app.whenReady()
+      const probe = 'writellm-playwright-safe-storage-probe'
+      const available = safeStorage.isEncryptionAvailable()
+      const encrypted = available ? safeStorage.encryptString(probe) : undefined
+      return {
+        requested: app.commandLine.getSwitchValue('password-store'),
+        selected: safeStorage.getSelectedStorageBackend(),
+        available,
+        roundTrip: encrypted === undefined ? false : safeStorage.decryptString(encrypted) === probe
+      }
+    })
+    if (
+      backend.requested !== 'gnome-libsecret' ||
+      backend.selected !== 'gnome_libsecret' ||
+      !backend.available ||
+      !backend.roundTrip
+    ) {
+      await app.close()
+      throw new Error(
+        `Linux Electron E2E secure credential backend is invalid: ${JSON.stringify(backend)}`
+      )
+    }
+  }
   const page = await app.firstWindow()
   const rendererErrors = rendererErrorsForCurrentTest()
   page.on('pageerror', (error) => {

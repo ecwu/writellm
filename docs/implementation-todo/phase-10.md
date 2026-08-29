@@ -604,6 +604,24 @@ locator and instead focuses the stable section-title input before navigation; it
 passed. `check:fast`, all 27 recovery fixtures, and diff checks passed. Candidate `.33` is required
 for hosted confirmation.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.33` at
+`408229c93e8c28c5a92a263fcd412ddbc557f3f3` completed tag-only run `33264429276`. Static, Linux
+credential preflight, macOS x64, and macOS arm64 passed. Windows passed 1,157 of 1,160 tests; two
+revision-retention tests still overrode the hosted default with 15 seconds, and the mutation
+retention stress test reached its explicit 30-second limit. Linux passed 30 of 47 scenarios. Every
+credential-free scenario passed, while all 17 credential-backed scenarios observed `basic_text`
+after the standalone Electron probe had reported `gnome_libsecret`; package rows were correctly
+blocked.
+
+Local post-candidate remediation evidence (2026-08-29): the three proven Windows stress tests now
+have explicit 60-second budgets, and their complete two-file run passed 39 tests. The Linux wrapper
+uses standalone Electron only for the isolated `--verify-only` preflight. E2E and package paths
+start the delegated command directly after the Secret Service probe; each real Playwright Electron
+process validates the requested password-store switch, selected `gnome_libsecret` backend,
+encryption availability, and round trip before returning its renderer. `bash -n`, `check:fast`, two
+focused Real-Electron scenarios, and recovery-fixture verification passed locally. Candidate `.34`
+is required for hosted confirmation of the Linux process boundary.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

@@ -348,7 +348,7 @@ describe('EditorPersistenceService', () => {
       )
     ).toBe(true)
     database.close()
-  }, 15_000)
+  }, 60_000)
 
   it('preserves a manual autosave that is the direct parent of an accepted agent revision', async () => {
     const { database, persistence } = await fixture()
@@ -414,7 +414,7 @@ describe('EditorPersistenceService', () => {
       )
     ).toBe(1)
     database.close()
-  }, 15_000)
+  }, 60_000)
 
   it('rejects renderer-supplied source classes that do not match the save channel', async () => {
     const { projectRoot, database, manuscript, persistence, manifest } = await fixture()
