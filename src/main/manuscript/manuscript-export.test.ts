@@ -379,7 +379,7 @@ describe('whole-manuscript export', () => {
     await writeFile(join(destination, 'manuscript.json'), '{}\n')
     await expect(validateStagedExport(destination)).rejects.toThrow()
     malformed.database.close()
-  })
+  }, 15_000)
 })
 
 function recordingBarrier(events: string[]): SnapshotBarrier {

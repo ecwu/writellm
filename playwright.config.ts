@@ -16,7 +16,7 @@ const usesLinuxHeadlessRunner =
 const testTimeout =
   usesPackagedValidation || (process.platform === 'win32' && usesHostedRunner)
     ? 180_000
-    : usesLinuxHeadlessRunner
+    : usesHostedRunner || usesLinuxHeadlessRunner
       ? 90_000
       : 45_000
 
@@ -24,9 +24,9 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   workers: requiresSerialWorkers ? 1 : 2,
-  // Windows packaged runs can spend about two seconds per native Electron interaction,
-  // while headless Linux runs serially. Keep assertions bounded while allowing the longest
-  // complete settings and editor scenarios to finish on slower package-validation hosts.
+  // Windows packaged runs can spend about two seconds per native Electron interaction, while
+  // hosted runners and headless Linux need more time for complete settings and Agent scenarios.
+  // Keep local development bounded without making runner speed a functional test failure.
   timeout: testTimeout,
   expect: { timeout: 10_000 },
   forbidOnly: Boolean(process.env['CI']),

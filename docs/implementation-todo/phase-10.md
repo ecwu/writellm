@@ -518,6 +518,26 @@ not yet been represented in pnpm 12's package-manager dependency lock metadata. 
 were correctly skipped. The tag remains immutable failed evidence; the generated lock metadata and
 new `v0.2026.8.28` candidate address this exact failure without rerunning or moving `.27`.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.28` at
+`f0b131e5b022fc13e1df6b4f63591cab70d2a6c0` started tag-only run `33247497461`. The static and
+fixture gate, frozen pnpm 12 install, and Linux credential preflight passed. Native Electron rows
+then exposed four portability classes before packaging: a Unicode fixture exceeded ext4's
+per-component byte limit; two Windows tests removed projects while SQLite handles remained open;
+two bounded Windows tests exceeded Vitest's default five-second budget; and the complete Agent and
+provider-settings Electron scenarios exceeded the hosted macOS 45-second budget while still
+making functional progress. No product assertion failed in those macOS traces, every package row
+was correctly skipped, and the immutable tag remains failed evidence.
+
+Local post-candidate remediation evidence (2026-08-29): the Unicode fixture remains deliberately
+long but fits portable component limits; change-set batch fixtures close their tracked databases
+before directory removal; the two intentionally heavy Vitest cases have explicit 15-second test
+budgets; and hosted Electron runners receive 90 seconds while local macOS development remains at
+45 seconds. Across focused canonical Electron runs, all 71 affected-file tests passed. A fresh
+production build and `CI=true` focused Real-Electron run passed both previously timed-out scenarios
+in 21.2 seconds total with no failures, flakes, or skips. `check:fast` also passed. This local
+evidence does not complete Checkpoint 26.9; a new immutable tag must pass the complete hosted
+matrix.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

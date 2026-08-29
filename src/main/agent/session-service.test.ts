@@ -1777,7 +1777,7 @@ describe('AgentSessionService', () => {
     active.reject(workerExitError())
     await started.completion
     database.close()
-  })
+  }, 15_000)
 
   it('persists and publishes a clarification before waiting, then resumes the same run once', async () => {
     const database = await createDatabase()

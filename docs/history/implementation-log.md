@@ -802,6 +802,17 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Advanced release metadata to `0.2026.8.29` after the user authorized committing and pushing the
+  locally verified `.28` portability remediation and publishing a fresh immutable tag. The tag may
+  run only the unsigned four-platform build; signing, promotion, and GitHub Release publication
+  remain excluded.
+- Diagnosed immutable `v0.2026.8.28` run `33247497461`: static verification passed, then Linux
+  exposed an overlong multibyte filename, Windows exposed retained SQLite test handles and two
+  five-second test-budget overruns, and hosted macOS exposed two 45-second complete-scenario
+  overruns before packaging. Remediated only those portability boundaries. All 71 focused
+  Electron tests, both affected Real-Electron scenarios under `CI=true`, a fresh production build,
+  `check:fast`, and diff checks passed locally. No replacement commit, tag, push, signing,
+  promotion, or publication was performed.
 - Retained immutable `v0.2026.8.27` as failed hosted evidence after run `33247388140` stopped at
   the static frozen install: pnpm 12 correctly required its new package-manager dependency lock
   metadata. Regenerated the lockfile with pnpm 12, advanced release metadata to `0.2026.8.28`, and

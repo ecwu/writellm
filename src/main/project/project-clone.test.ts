@@ -31,7 +31,7 @@ afterEach(async () => {
 
 describe('project clone', () => {
   it('publishes an independent Unicode clone from live WAL state and omits derived/transient authority', async () => {
-    const fixture = await sourceFixture(`研究项目-${'长'.repeat(80)}`)
+    const fixture = await sourceFixture(`研究项目-${'长'.repeat(60)}`)
     fixture.database.immediate((database) =>
       database.prepare('UPDATE manuscript_briefs SET title = ?').run('WAL-visible title')
     )

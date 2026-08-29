@@ -1,7 +1,8 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI; hosted evidence remains pending.
+Checkpoint 26.9 has resumed with tag-only four-platform CI; `v0.2026.8.28` remediation is locally
+verified and is being published as immutable candidate `v0.2026.8.29`.
 Recorded: 2026-08-29
 
 This is the short completion and routing index. Active delivery state lives in
@@ -48,7 +49,8 @@ Status markers:
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  validation/package matrix and record its hosted evidence. Release promotion remains disabled.
+  validation/package matrix and record its hosted evidence. The `.28` failures are remediated
+  locally and candidate `.29` is authorized. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

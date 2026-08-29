@@ -1,8 +1,9 @@
 # WriteLLM Current Plan
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. The user-authorized `v0.2026.8.28` candidate is being prepared with the restored tag-only
-four-platform GitHub Actions build definition. Hosted evidence is still pending.
+ADR 067. The immutable `v0.2026.8.28` tag-only four-platform candidate failed on portable test
+fixtures and hosted-runner time budgets; the focused remediation is locally verified and is being
+published as the new immutable `v0.2026.8.29` hosted candidate.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -291,10 +292,11 @@ authorized. A user-visible profile selector, classifier request, durable activat
 provider-specific fork, database migration, and release work remain outside this checkpoint.
 
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
-Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` source
-commit, annotated tag, and push of `main` plus the tag are the active delivery action. The pushed
-tag may run the unsigned four-platform CI matrix. Apple Developer ID signing, notarization, GitHub
-Release creation, promotion, and publication remain unauthorized.
+Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` tag ran the
+unsigned four-platform CI matrix and remains immutable failed evidence. Its focused remediation is
+locally verified and is authorized for the replacement `v0.2026.8.29` commit, push, and tag. Apple
+Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
+unauthorized.
 
 Checkpoint 73 Agent sidebar focus hierarchy is complete under ADR 065. No further Checkpoint 73
 implementation is authorized. Migrations, IPC, Agent protocol or tool changes, dependency
@@ -307,10 +309,11 @@ BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.27` candidate is retained as failed frozen-install evidence. The active candidate is
-`v0.2026.8.28` for the completed Checkpoint 75 and corrected pnpm 12 CI-restoration snapshot.
-Tag-only unsigned hosted CI is authorized; Apple Developer ID signing, notarization, GitHub Release
-creation, promotion, and publication remain unauthorized.
+The `v0.2026.8.27` candidate is retained as failed frozen-install evidence, and `v0.2026.8.28` is
+retained as failed cross-platform test evidence. The `.28` remediation is locally verified and the
+user authorized committing, pushing `main`, and publishing the new immutable `v0.2026.8.29` tag.
+Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
+remain unauthorized.
 
 ## Active delivery gate
 
@@ -318,8 +321,10 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled, and the hosted matrix has not yet run from this local change. Remaining evidence
-is recorded in
+remains disabled. Run `33247497461` passed the static gate but exposed portable fixture cleanup,
+filesystem-name, and hosted-runner timeout defects before packaging; the local remediation passes
+the affected Electron and E2E scenarios. The authorized fresh immutable `.29` tag is required for complete
+hosted evidence, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

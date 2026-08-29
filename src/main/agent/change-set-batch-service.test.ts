@@ -12,6 +12,7 @@ import { WritingTaskService } from './writing-task-service'
 import { ChangeSetBatchService } from './change-set-batch-service'
 
 const directories: string[] = []
+const databases: ProjectDatabase[] = []
 const log = pino({ level: 'silent' })
 const projectId = '019d0000-0000-7000-8000-000000000500'
 const projectSessionId = '019d0000-0000-7000-8000-000000000501'
@@ -21,6 +22,7 @@ const stepRef = '019d0000-0000-7000-8000-000000000504'
 const commandId = '019d0000-0000-7000-8000-000000000505'
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) database.close()
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })))
 })
 
@@ -199,7 +201,7 @@ async function createProject(): Promise<ProjectDatabase> {
   directories.push(parent)
   const projectRoot = join(parent, 'Change set.writellm')
   await mkdir(projectRoot)
-  return initializeProjectDatabase({
+  const database = await initializeProjectDatabase({
     projectRoot,
     manifest: {
       format: 'writellm-project',
@@ -210,6 +212,8 @@ async function createProject(): Promise<ProjectDatabase> {
     applicationVersion: 'test',
     log
   })
+  databases.push(database)
+  return database
 }
 
 function seedActor(database: ProjectDatabase): void {
