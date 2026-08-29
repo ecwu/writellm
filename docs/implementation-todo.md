@@ -49,8 +49,8 @@ Status markers:
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  validation/package matrix and record its hosted evidence. The `.28` failures are remediated
-  locally and corrected candidate `.30` is authorized. Release promotion remains disabled.
+  validation/package matrix and record its hosted evidence. The `.30` failures are remediated
+  locally and corrected candidate `.31` is authorized. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

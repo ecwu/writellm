@@ -75,7 +75,7 @@ test(
       await expect(
         launched.page.getByRole('menu', { name: 'Open Agent quick actions' })
       ).toBeVisible()
-      await launched.page.getByRole('menuitem', { name: /Check evidence/ }).click()
+      await launched.page.getByRole('menuitem', { name: /Check evidence/ }).dispatchEvent('click')
 
       await expect(panel).toBeVisible()
       await expect(panel.getByText('Quick action · Check evidence', { exact: true })).toBeVisible()

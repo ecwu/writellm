@@ -143,7 +143,7 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "4c8cf6effcfb8fcd00ab6a01d2c893c5de95b4bec53d4a79aa8298f1669ea0bf",
+      "sourceSha256": "ffd0a6646fb4a7899a4c1f69104e418001ac5adf1546aac1c5e4ca1965b6d68a",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",
@@ -165,7 +165,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "ce2a4ee0cb1e656d5176ce8ad78615be9f0adc21d4f1454a755a52f1b6b61dd4",
+      "sourceSha256": "e7cdf142f6ed65c8ce64bcffbe98b234d566e732398473a85a56868e31c74b60",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",

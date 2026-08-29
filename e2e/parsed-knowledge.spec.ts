@@ -554,7 +554,7 @@ test(
       const knowledge = launched.page.getByTestId('knowledge-workspace')
       await knowledge.getByTestId('knowledge-upload-button').click()
       await expect(knowledge.getByTestId('knowledge-stat-indexed')).toContainText(/Yes\s*Indexed/, {
-        timeout: 30_000
+        timeout: 60_000
       })
       await expect(readFile(crashMarker)).resolves.toHaveLength(0)
       const publishCountBeforeDelete = await succeededBuildCount(launched.page)
@@ -635,6 +635,7 @@ test(
       await launched.page.keyboard.type(
         '[Source: unique source.pdf, p. 1] [Source: duplicate source.pdf] [Source: Missing source.pdf]'
       )
+      await editor.blur()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
 
       const checks = launched.page.getByTestId('checks-workspace')
@@ -659,6 +660,7 @@ test(
       await launched.page.keyboard.press('End')
       await launched.page.keyboard.type(' [Source: unused source.pdf]')
       await expect(sectionEditor(launched.page)).toContainText('[Source: unused source.pdf]')
+      await editor.blur()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
       await expect(summary.getByText('50%', { exact: true }).first()).toBeVisible()
       await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()

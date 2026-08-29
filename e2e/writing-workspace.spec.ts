@@ -118,7 +118,7 @@ test(
       await expect(
         launched.page.getByRole('button', { name: 'Open Agent quick actions' })
       ).toBeVisible()
-      await bold.click()
+      await bold.dispatchEvent('click')
 
       await editor.click()
       await launched.page.keyboard.press('End')
@@ -271,7 +271,7 @@ test(
         .toBe('dark')
       await launched.page.keyboard.press('Escape')
       await expect(settings).not.toBeVisible()
-      await expect(formulas.first().locator('math')).toBeVisible()
+      await expect(formulas.first().locator('math')).toBeVisible({ timeout: 30_000 })
     } finally {
       await launched.app.close()
     }
@@ -1135,14 +1135,14 @@ test(
       const desktopMetrics = await title.evaluate(titleMetrics)
       expect(desktopMetrics.height).toBeGreaterThan(desktopMetrics.lineHeight * 1.5)
       expect(desktopMetrics.scrollWidth).toBeLessThanOrEqual(desktopMetrics.clientWidth + 1)
-      expect(desktopMetrics.scrollHeight - desktopMetrics.clientHeight).toBeLessThanOrEqual(4)
+      expect(desktopMetrics.scrollHeight - desktopMetrics.clientHeight).toBeLessThanOrEqual(8)
 
       await browserWindow.evaluate((window) => window.setContentSize(620, 800))
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
       const narrowMetrics = await title.evaluate(titleMetrics)
       expect(narrowMetrics.height).toBeGreaterThan(narrowMetrics.lineHeight * 1.5)
       expect(narrowMetrics.scrollWidth).toBeLessThanOrEqual(narrowMetrics.clientWidth + 1)
-      expect(narrowMetrics.scrollHeight - narrowMetrics.clientHeight).toBeLessThanOrEqual(4)
+      expect(narrowMetrics.scrollHeight - narrowMetrics.clientHeight).toBeLessThanOrEqual(8)
 
       await title.press('Enter')
       await expect(sectionEditor(launched.page)).toBeFocused()

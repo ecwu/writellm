@@ -30,7 +30,7 @@ describe('SkillService', () => {
         {
           path: 'SKILL.md',
           bytes: Buffer.from(
-            '---\nname: e2e-writing\ndescription: Deterministic fixture.\n---\nFixture body.'
+            '---\r\nname: e2e-writing\r\ndescription: Deterministic fixture.\r\n---\r\nFixture body.'
           )
         }
       ]

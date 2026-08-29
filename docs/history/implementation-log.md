@@ -802,6 +802,12 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.30` as failed evidence after run `33259908430` passed static and
+  credential preflight gates but exposed two macOS test budgets, one macOS E2E retry, and Windows
+  CRLF, floating-control, native layout, rendering-delay, and editor-focus boundaries. Normalized
+  Writing Skill CRLF bodies before Pi comparison, hardened only the affected tests/interactions,
+  passed 79 focused Electron tests, a fresh build, and seven focused E2E scenarios without flakes,
+  advanced release metadata to `0.2026.8.31`, and prepared the next immutable candidate.
 - Retained immutable `v0.2026.8.29` as failed evidence after run `33259789028` rejected the changed
   manuscript-export test's stale recovery-manifest digest before starting the platform matrix.
   Local verification also identified the changed Agent session test digest. Updated both manifest

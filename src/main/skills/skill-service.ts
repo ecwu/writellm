@@ -1167,7 +1167,7 @@ export function parseSkillDocument(
   document: string,
   expectedDirectoryName: string
 ): { name: string; description: string; body: string; disableModelInvocation: boolean } {
-  const normalized = document.replace(/^\uFEFF/, '')
+  const normalized = document.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(normalized)
   if (match === null)
     throw new SkillServiceError('skill_frontmatter_missing', 'SKILL.md requires YAML frontmatter')

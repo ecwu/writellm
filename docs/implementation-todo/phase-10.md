@@ -546,6 +546,25 @@ were skipped. Local verification then identified the same stale digest for the c
 session test. The tag remains immutable failed evidence; both manifest digests and release
 metadata are corrected for candidate `.30`.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.30` at
+`77c8d53675042c3781a4300f14c4985d45485545` started tag-only run `33259908430`. The corrected
+static/fixture gate and Linux credential preflight passed. macOS x64 then exposed two intentionally
+heavy tests still using Vitest's five-second default. macOS arm64 completed Electron tests and the
+full E2E suite with one index-recovery retry, which the no-flake gate correctly rejected. Windows
+completed Electron tests and exposed CRLF-sensitive Writing Skill body comparison, two floating
+control clicks against remounting nodes, an eight-pixel native textarea metric difference, one
+inline-math render delay, and a BlockNote floating-reference loop when leaving a focused editor.
+Package rows were correctly blocked and the tag remains immutable failed evidence.
+
+Local post-candidate remediation evidence (2026-08-29): the two heavy tests now carry explicit
+15-second budgets; SKILL.md parsing normalizes CRLF before comparison with Pi's normalized body;
+floating menu controls use their semantic click events without Playwright stability waits; title
+overflow accepts the observed native eight-pixel rounding; math and recovery waits retain bounded
+hosted budgets; and citation navigation first blurs the editor to close BlockNote's floating
+reference. All 79 affected Electron tests passed. A fresh production build and `CI=true` focused
+Real-Electron run passed all seven affected scenarios in 15.8 seconds with no failures, retries,
+flakes, or skips. Candidate `.31` is required for complete hosted matrix evidence.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

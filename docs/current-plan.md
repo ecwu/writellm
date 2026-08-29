@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. The immutable `v0.2026.8.28` tag-only four-platform candidate failed on portable test
-fixtures and hosted-runner time budgets. Its focused remediation is locally verified; immutable
-`.29` exposed stale recovery-fixture digests, and corrected candidate `v0.2026.8.30` is next.
+ADR 067. Immutable tag-only candidates `.28`–`.30` exposed portable fixture, hosted timing,
+recovery-manifest, CRLF, and Windows floating-control boundaries. The focused `.30` remediation is
+locally verified, and corrected candidate `v0.2026.8.31` is next.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -293,8 +293,8 @@ provider-specific fork, database migration, and release work remain outside this
 
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
 Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` tag ran the
-unsigned four-platform CI matrix and remains immutable failed evidence. Its focused remediation is
-locally verified and is authorized for the corrected `v0.2026.8.30` commit, push, and tag. Apple
+unsigned four-platform CI matrix and remains immutable failed evidence. The later `.30` failures
+are locally remediated and the user authorized continuing with corrected immutable `.31`. Apple
 Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
 unauthorized.
 
@@ -312,7 +312,10 @@ outside the accepted checkpoint.
 The `v0.2026.8.27` candidate is retained as failed frozen-install evidence, and `v0.2026.8.28` is
 retained as failed cross-platform test evidence. The `.28` remediation is locally verified and the
 user authorized continuing with corrected immutable tags. Candidate `.29` failed before the matrix
-because its recovery manifest retained pre-timeout-change source digests; `.30` corrects them.
+because its recovery manifest retained pre-timeout-change source digests. Candidate `.30` passed
+the corrected static gate but exposed two slow macOS tests, a CRLF-sensitive Writing Skill parser
+comparison, Windows floating-control interaction instability, one Windows textarea metric
+tolerance, and two hosted E2E timing/focus races; `.31` contains their focused remediation.
 Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
 remain unauthorized.
 
@@ -322,10 +325,11 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Run `33247497461` passed the static gate but exposed portable fixture cleanup,
-filesystem-name, and hosted-runner timeout defects before packaging; the local remediation passes
-the affected Electron and E2E scenarios. The authorized corrected immutable `.30` tag is required for complete
-hosted evidence, as recorded in
+remains disabled. Runs through `33259908430` passed the restored static/fixture and credential
+preflight gates while successively exposing portable test and hosted-runner boundaries before
+packaging. The `.30` remediation passes 79 affected Electron tests, a fresh production build, and
+all seven affected Real-Electron scenarios with no failures or flakes. The authorized corrected
+immutable `.31` tag is required for complete hosted evidence, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

@@ -314,7 +314,7 @@ Evidence from \cite{garcia2025}.
         mode: 'create_sections'
       })
     ).rejects.toThrow('does not exist')
-  })
+  }, 15_000)
 
   it('logs staging and apply-failure lifecycle events with safe fields', async () => {
     const importLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }

@@ -3312,7 +3312,7 @@ describe('AgentSessionService', () => {
     expect(second.hasMore).toBe(true)
     expect(second.events[0]?.agentEventId).not.toBe(first.events[0]?.agentEventId)
     database.close()
-  })
+  }, 15_000)
 
   it('paginates 200 events at the row limit without duplicates or omissions', async () => {
     const database = await createDatabase()
