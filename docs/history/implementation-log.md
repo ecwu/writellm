@@ -802,6 +802,16 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.36` as failed evidence after run `33278248512` confirmed the
+  Windows patch-EOL and Linux real-process credential fixes, passed macOS x64, and exposed one
+  Windows Floating UI setter loop plus one macOS arm64 conflict-test race. Stored current setters
+  in stable React refs, made the conflict stimulus deterministic, and passed the affected E2E
+  scenarios repeatedly after a fresh frozen install and build. The final gate passed 1,160 Electron
+  tests, the production build, and all 47 E2E scenarios without retries. Replaced the globally
+  coupled validation/package matrices with four independent per-platform pipelines after one
+  shared static gate, so a platform failure no longer suppresses package work on the others;
+  advanced release metadata to `0.2026.8.37`.
+
 - Retained immutable `v0.2026.8.35` as failed evidence after run `33277302371` passed static,
   credential preflight, both macOS rows, and the Linux Electron/build gate but exposed Windows
   patch CRLF conversion and Playwright 1.62.1 overriding Linux E2E with

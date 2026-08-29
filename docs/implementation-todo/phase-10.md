@@ -658,6 +658,29 @@ and Git reports both patch paths as `text eol=lf`. Static/type gates, fixture ve
 syntax, and the two affected Real-Electron scenarios passed without retries. Candidate `.36` is
 required for hosted confirmation.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.36` at
+`bf8506577474ff5b248956c363893829374f0e2f` started tag-only run `33278248512`. Static, Linux
+credential preflight, and macOS x64 passed. Windows frozen installation applied the LF patch and
+all 1,160 Electron tests plus the production build passed; 46 of 47 E2E scenarios passed, while
+the citation-coverage scenario reproduced React error 185 because the BlockNote effect's captured
+Floating UI setter callbacks were themselves unstable. macOS arm64 passed its complete Electron
+gate and all scenarios after one retry, but the evidence reporter correctly rejected the flaky
+outline-conflict result. Linux passed its Electron/build gate and entered normal complete E2E with
+the real Secret Service backend instead of failing the launch guard. The globally coupled package
+matrix remained blocked by the failed Electron matrix.
+
+Local post-candidate remediation evidence (2026-08-29): BlockNote's popover effect now stores the
+latest Floating UI setters in stable React refs, so setter identity changes cannot retrigger the
+reference effect while calls still reach the current functions. The citation-coverage E2E passed
+twice independently after a fresh frozen install and production build. The outline-conflict test
+now establishes its local draft before the external mutation; it passed four independent focused
+runs without retries. The final complete local gate passed 201 Electron-hosted files / 1,160 tests,
+the production build, all 47 E2E scenarios without retries, static/type checks, all 27 recovery
+fixtures, and diff checks. Tag-only CI now has four independent platform pipelines, each owning its
+Electron gate, E2E, and native package gate; Linux also owns its secure-backend preflight. A shared
+static/fixture gate remains the sole common prerequisite. Candidate `.37` is required for hosted
+confirmation.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

@@ -1,9 +1,10 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.35` passed both macOS rows
-and exposed the final Windows patch-EOL and Playwright Electron password-store boundaries.
-Candidate `.36` corrects them.
+Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.36` confirmed Windows
+patch-EOL and Linux password-store fixes, then exposed one Windows Floating UI setter loop and one
+macOS arm64 conflict-test race. Candidate `.37` corrects them and isolates each platform's complete
+validation/package pipeline.
 Recorded: 2026-08-29
 
 This is the short completion and routing index. Active delivery state lives in
@@ -50,10 +51,12 @@ Status markers:
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
 - [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  validation/package matrix and record its hosted evidence. Candidate `.35` passed static,
-  credential preflight, both macOS rows, and the Linux Electron/build gate; corrected candidate
-  `.36` enforces LF pnpm patches on Windows and prevents Playwright's Electron loader from
-  overriding the explicit hosted Linux Secret Service backend. Release promotion remains disabled.
+  pipelines and record their hosted evidence. Candidate `.36` confirmed LF pnpm patches on Windows
+  and the explicit hosted Linux Secret Service backend, then exposed one Windows Floating UI setter
+  loop and one macOS arm64 conflict-test race. Candidate `.37` stabilizes both and makes each
+  platform independently run Electron tests, E2E, and packaging after the shared static gate, so a
+  failure cannot suppress the other platforms' package evidence. Release promotion remains
+  disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

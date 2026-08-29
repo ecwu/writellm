@@ -3,8 +3,10 @@
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
-Candidate `.35` passed both macOS rows and exposed the final Windows patch-EOL and Playwright
-Electron password-store boundaries. Candidate `v0.2026.8.36` contains their focused remediation.
+Candidate `.35` passed both macOS rows and exposed Windows patch-EOL and Playwright Electron
+password-store boundaries. Candidate `.36` confirmed those fixes, then exposed a remaining Windows
+Floating UI setter loop and one macOS arm64 conflict-test race. Candidate `v0.2026.8.37` contains
+their focused remediation and four independent platform pipelines.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -50,6 +52,20 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   `--password-store=basic` after the requested `gnome-libsecret` switch. Candidate `.36` enforces
   LF for repository patches and suppresses that Playwright default only for the explicit hosted
   `gnome-libsecret` E2E session.
+- Candidate `.36` passed static, Linux credential preflight, macOS x64, Windows frozen install plus
+  all 1,160 Electron tests, and Linux's Electron/build gate. Linux proceeded through normal E2E
+  launches with the real secure backend instead of being rejected at startup. Windows E2E passed
+  46 of 47 scenarios before the citation-coverage editor reproduced React error 185: BlockNote's
+  effect no longer depended on the aggregate refs object, but the captured Floating UI setter
+  callbacks themselves were still unstable. macOS arm64 passed its complete Electron gate and all
+  scenarios after one retry, but the evidence policy correctly rejected the outline-conflict
+  scenario as flaky.
+- Candidate `.37` stores the latest Floating UI setters in stable React refs, orders the outline
+  test's local draft before its external mutation, and replaces the globally coupled validation and
+  package matrices with four independent platform pipelines. Each platform now performs its own
+  Electron gate, E2E, and native package gate; one failure stops only that platform. Linux's real
+  credential preflight is part of the Linux pipeline, while the shared static/fixture gate still
+  runs once before all four.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

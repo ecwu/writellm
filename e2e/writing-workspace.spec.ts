@@ -1008,6 +1008,7 @@ test(
       await expect(outline.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
 
       const title = outline.getByLabel('Title', { exact: true })
+      await title.fill('Local outline draft')
       await launched.page.evaluate(async () => {
         const lifecycle = await window.desktop.projects.lifecycle()
         const projectSessionId = lifecycle.activeProject?.projectSessionId
@@ -1024,7 +1025,6 @@ test(
           }
         })
       })
-      await title.fill('Local outline draft')
       await title.press('Tab')
       await expect(outline.getByText(/Outline changed elsewhere|Changes not saved/)).toBeVisible()
       await expect(title).toHaveValue('Local outline draft')
