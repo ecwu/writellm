@@ -1,0 +1,8 @@
+diff --git a/lib/server/electron/loader.js b/lib/server/electron/loader.js
+--- a/lib/server/electron/loader.js
++++ b/lib/server/electron/loader.js
+@@ -72 +72,3 @@ var defaultElectronSwitches = [
+-  "--password-store=basic",
++  process.platform === "linux" && process.env.WRITELLM_E2E_PASSWORD_STORE === "gnome-libsecret"
++    ? ""
++    : "--password-store=basic",

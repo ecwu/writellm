@@ -115,6 +115,7 @@ overrides:
 
 patchedDependencies:
   '@blocknote/react@0.54.0': 08140d878c3c9eee2b236ec7ecb4f72690f13f376e0cc89539ba262721688c18
+  playwright-core@1.62.1: 7cefcf874b8508b9c254655514713a043a4fd0813656f5d5b24243a54f61321b
 
 importers:
 
@@ -10981,11 +10982,11 @@ snapshots:
       pvutils: 1.1.5
       tslib: 2.8.1
 
-  playwright-core@1.62.1: {}
+  playwright-core@1.62.1(patch_hash=7cefcf874b8508b9c254655514713a043a4fd0813656f5d5b24243a54f61321b): {}
 
   playwright@1.62.1:
     dependencies:
-      playwright-core: 1.62.1
+      playwright-core: 1.62.1(patch_hash=7cefcf874b8508b9c254655514713a043a4fd0813656f5d5b24243a54f61321b)
     optionalDependencies:
       fsevents: 2.3.2
 

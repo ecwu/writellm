@@ -640,6 +640,24 @@ cleanup. The complete Electron gate passed 201 files and 1,160 tests followed by
 build. `check:fast` and both affected E2E scenarios passed without retries. Candidate `.35` is
 required for hosted confirmation.
 
+Hosted candidate evidence (2026-08-29): immutable `v0.2026.8.35` at
+`141b19a708e8180c33b6dd90ae8db9bd234b351a` completed tag-only run `33277302371`. Static, Linux
+credential preflight, macOS arm64, and macOS x64 passed. Windows stopped during frozen dependency
+installation because checkout converted the pnpm patch to CRLF and pnpm rejected the resulting
+header. Linux passed all 1,160 Electron tests and its production build, then all 47 E2E scenarios
+failed the immediate real-process guard with `requested=basic`, `selected=basic_text`, and no
+encrypted round trip. The bounded cleanup completed the row in 13 minutes instead of exhausting
+its 45-minute budget. Playwright 1.62.1's Electron loader was the source: it unconditionally
+appended `--password-store=basic` after the explicit `gnome-libsecret` launch argument.
+
+Local post-candidate remediation evidence (2026-08-29): repository attributes now force LF for
+all pnpm patch files. A pinned Playwright 1.62.1 patch omits its `basic` password-store default only
+when Linux E2E explicitly requests `WRITELLM_E2E_PASSWORD_STORE=gnome-libsecret`; all other
+Playwright launch behavior is unchanged. A fresh frozen install applied both dependency patches,
+and Git reports both patch paths as `text eol=lf`. Static/type gates, fixture verification, loader
+syntax, and the two affected Real-Electron scenarios passed without retries. Candidate `.36` is
+required for hosted confirmation.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

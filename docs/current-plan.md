@@ -1,11 +1,10 @@
 # WriteLLM Current Plan
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. Immutable tag-only candidates `.28`–`.34` exposed portable fixture, hosted timing,
+ADR 067. Immutable tag-only candidates `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
-Candidate `.34` confirmed the Windows stress budgets and real Linux process guard, then exposed
-the final hosted UI, macOS test-budget, and Linux desktop-discovery boundaries. Candidate
-`v0.2026.8.35` contains their focused remediation.
+Candidate `.35` passed both macOS rows and exposed the final Windows patch-EOL and Playwright
+Electron password-store boundaries. Candidate `v0.2026.8.36` contains their focused remediation.
 Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
@@ -44,6 +43,13 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   text selection, patches BlockNote 0.54.0 to depend on Floating UI's stable setters instead of its
   changing aggregate refs object, advertises the supported GNOME desktop identity in the hosted
   Secret Service session, and emits immediate backend metadata with bounded failed-launch cleanup.
+- Candidate `.35` passed static, Linux credential preflight, and both macOS rows. Windows stopped
+  during frozen installation because its checkout converted the pnpm patch to CRLF. Linux passed
+  all 1,160 tests and the production build, then every E2E launch reported
+  `requested=basic`, `selected=basic_text`: Playwright 1.62.1's Electron loader appended its own
+  `--password-store=basic` after the requested `gnome-libsecret` switch. Candidate `.36` enforces
+  LF for repository patches and suppresses that Playwright default only for the explicit hosted
+  `gnome-libsecret` E2E session.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while
@@ -357,12 +363,12 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Run `33274815298` for `.34` passed static, credential preflight, and macOS arm64;
-it confirmed the Windows unit-test budgets before exposing the remaining Windows Renderer,
-selection, macOS x64 test-budget, and Linux hosted-desktop boundaries. The `.35` remediation passes
-the complete Electron gate (201 files / 1,160 tests), production build, static/type checks, and both
-affected E2E scenarios without retries. The authorized corrected immutable `.35` tag is required
-for complete hosted evidence, as recorded in
+remains disabled. Run `33277302371` for `.35` passed static, credential preflight, both macOS rows,
+and the Linux Electron/build gate before isolating Windows patch EOL and Playwright's injected Linux
+password-store default. The `.36` remediation enforces LF checkout for pnpm patches and removes
+that default only from the explicit hosted `gnome-libsecret` session. Its frozen install,
+static/type gates, fixture verification, and both affected E2E scenarios pass locally. The
+authorized corrected immutable `.36` tag is required for complete hosted evidence, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

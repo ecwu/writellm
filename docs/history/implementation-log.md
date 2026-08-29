@@ -802,6 +802,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-29
 
+- Retained immutable `v0.2026.8.35` as failed evidence after run `33277302371` passed static,
+  credential preflight, both macOS rows, and the Linux Electron/build gate but exposed Windows
+  patch CRLF conversion and Playwright 1.62.1 overriding Linux E2E with
+  `--password-store=basic`. Forced LF checkout for dependency patches and pinned Playwright's
+  default off only for the explicit hosted `gnome-libsecret` session. A fresh frozen install
+  applied both patches; static/type, fixture, loader syntax, and affected E2E checks passed; advanced
+  release metadata to `0.2026.8.36`.
+
 - Retained immutable `v0.2026.8.34` as failed evidence after run `33274815298` passed static,
   credential preflight, macOS arm64, and all 1,160 Windows Electron tests but exposed two Windows
   Renderer/selection E2E failures, one macOS x64 five-second stress-test timeout, and Linux
