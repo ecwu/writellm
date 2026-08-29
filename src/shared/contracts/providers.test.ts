@@ -115,7 +115,7 @@ describe('provider contracts', () => {
     ).toBe(false)
   })
 
-  it('accepts HTTPS and loopback HTTP but rejects embedded credentials and remote HTTP', () => {
+  it('accepts HTTPS and configured local-network HTTP prefixes', () => {
     const base = {
       role: 'agent' as const,
       providerId: 'openai-compatible' as const,
@@ -129,11 +129,36 @@ describe('provider contracts', () => {
     expect(
       providerConfigSchema.parse({ ...base, baseUrl: 'https://api.example.test/v1/' }).baseUrl
     ).toBe('https://api.example.test/v1')
-    expect(
-      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://localhost:8080/v1' }).success
-    ).toBe(true)
+    for (const baseUrl of [
+      'http://localhost:8080/v1',
+      'http://127.0.0.1:1234/v1',
+      'http://192.168.1.20:1234/v1',
+      'http://100.96.1.104:1234/v1',
+      'http://10.0.0.8:1234/v1'
+    ]) {
+      expect(providerConfigSchema.safeParse({ ...base, baseUrl }).success).toBe(true)
+    }
+  })
+
+  it('rejects other remote HTTP endpoints and embedded credentials', () => {
+    const base = {
+      role: 'agent' as const,
+      providerId: 'openai-compatible' as const,
+      model: 'writer',
+      modelRevision: 'writer-rev-1',
+      timeoutMs: 30_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null
+    }
     expect(
       providerConfigSchema.safeParse({ ...base, baseUrl: 'http://api.example.test' }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://100-api.example.test' }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://172.16.0.2:1234/v1' }).success
     ).toBe(false)
     expect(
       providerConfigSchema.safeParse({ ...base, baseUrl: 'https://key@example.test' }).success

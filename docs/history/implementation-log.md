@@ -742,6 +742,44 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-28
 
+- Completed the authorized Checkpoint 75 LM Studio union-schema compatibility maintenance after a
+  real run exposed 370 empty `read_section` calls from the earlier empty object-root wrapper. Root
+  unions now project their complete property vocabulary, common required fields, and merged literal
+  discriminators at the model-visible object root while retaining exact branches under `allOf`.
+  The change passed 44 focused tests, `check:fast`, 201 Electron-hosted files / 1,160 tests with
+  three intentional benchmark skips, the fresh 47/47 E2E manifest, and the complete no-identity
+  package gate with 27 recovery cases from 25 sources, 53,287 ASAR entries, 12 packaged smoke
+  scenarios, and 34/34 packaged E2E scenarios. The gate produced a trial App, DMG, and ZIP under
+  `dist/macos-arm64`; no commit, tag, push, hosted CI, signing, notarization, release, promotion, or
+  publication ran.
+- Built the current dirty macOS arm64 maintenance source through the complete no-identity package
+  gate after expanding Provider HTTP endpoint support. Electron 43.4.1 / ABI 148, arm64 native
+  modules, 53,287 ASAR entries, all 27 recovery cases from 25 sources, all 12 packaged smoke
+  scenarios, and 34/34 packaged E2E scenarios passed with no flaky, skipped, or failed scenario.
+  The gate produced the App, DMG, and ZIP under `dist/macos-arm64`; no commit, tag, push, hosted CI,
+  Apple Developer ID signing, notarization, promotion, release, or publication ran.
+- Expanded the shared Provider Base URL contract so localhost and numeric IPv4 endpoints beginning
+  with `10`, `100`, `127`, or `192` may use HTTP. Other remote hosts still require HTTPS, embedded
+  URL credentials remain rejected, and the Settings guidance now states the accepted prefixes.
+  Focused Provider contract tests cover each accepted prefix and rejection of other HTTP hosts.
+- Built the separately authorized local Checkpoint 75 macOS arm64 App from the current dirty
+  worktree. The first gate correctly stopped because CP75 had intentionally changed a protected
+  Agent recovery source; its manifest digest was refreshed and all 27 cases from 25 sources then
+  verified. The no-identity package gate verified Electron 43.4.1 / ABI 148, arm64 native modules,
+  53,287 ASAR entries, 12/12 packaged smoke scenarios, and 34/34 packaged E2E scenarios, and
+  produced the App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag, push, hosted
+  CI, Apple Developer ID signing, notarization, release, promotion, or publication ran.
+- Accepted ADR 067 and completed Checkpoint 75. Agent Harness Protocol v12 centralizes shared
+  operating rules, shortens model-visible descriptions, starts writing runs with nine core tools,
+  and adds seven run-local capability groups activated through the isolated
+  `activate_tool_groups` contract. Main and Worker enforce the same active set, exact tool-envelope
+  budgets follow every continuation and recovery path, and all OpenAI-compatible parameter schemas
+  now expose object roots while retaining union constraints. The strict loopback Harness covered
+  LM Studio-style schema validation. 153 focused tests plus the prompt-budget baseline,
+  `check:fast`, 201 Electron-hosted files / 1,158 tests with three intentional benchmark skips and
+  production build, and the fresh 47/47 E2E manifest passed. No dependency, migration, UI mode,
+  package/release action, commit, tag, push, hosted CI, signing, notarization, promotion, or
+  publication ran.
 - Accepted ADR 066 and completed Checkpoint 74. Agent Harness Protocol v11 now exposes paged,
   complete-hash-bound table reads plus typed table insertion and ordered edits through a pure
   occupancy transformer and the existing section-proposal revision path. Proposal review derives
@@ -761,3 +799,16 @@ maintenance without turning the active tracker back into a historical log.
   creating the matching annotated tag, and pushing `main` plus that tag. Hosted CI, Apple
   Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
   outside this action.
+
+## 2026-08-29
+
+- Advanced release metadata to `0.2026.8.27` for the completed Checkpoint 75 and tag-only
+  cross-platform CI restoration snapshot. The user authorized committing the pending source,
+  creating the annotated `v0.2026.8.27` tag, and pushing `main` plus that tag. The tag may start
+  the unsigned four-platform build; signing, release promotion, and publication remain excluded.
+- Resumed Checkpoint 26.9 under explicit user authorization after the repository became public.
+  Restored the unsigned cross-platform CI definition with Windows x64, macOS arm64, macOS x64, and
+  Linux x64 native test, E2E, and package rows, and constrained the entire workflow to pushed tags.
+  Pull requests, branch pushes, schedules, and manual dispatches do not trigger it. The protected
+  release-candidate workflow remains disabled; no hosted run, signing, promotion, or publication
+  result is claimed by the local configuration change.

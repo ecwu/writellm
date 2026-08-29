@@ -83,6 +83,32 @@ export function agentMessageBudget(
   return budget
 }
 
+export function agentRuntimeMessageBudget(input: {
+  maxOutputTokens: number
+  limits: AgentModelLimits
+  systemPrompt: string
+  advertisedTools: unknown
+}): number {
+  const outputReserve = agentOutputLimit(input.maxOutputTokens, input.limits)
+  const effectiveInputLimit = Math.floor(
+    Math.min(
+      input.limits.inputLimitTokens ?? Number.POSITIVE_INFINITY,
+      input.limits.contextWindowTokens - outputReserve
+    )
+  )
+  const safetyBuffer = Math.min(16_384, Math.max(4_096, Math.floor(effectiveInputLimit * 0.05)))
+  const budget = Math.floor(
+    effectiveInputLimit -
+      safetyBuffer -
+      estimateAgentTokens(input.systemPrompt) -
+      estimateAgentTokens(input.advertisedTools)
+  )
+  if (budget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
+    throw new AgentModelCapacityError(input.limits.contextWindowTokens, budget)
+  }
+  return budget
+}
+
 export class AgentModelCapacityError extends Error {
   constructor(
     readonly contextWindowTokens: number,
@@ -160,9 +186,16 @@ export class AgentContextBudgetController {
   #terminalError: AgentToolBatchContextExhaustedError | null = null
 
   constructor(
-    private readonly tokenBudget: number,
+    private tokenBudget: number,
     private readonly onProjection?: (event: AgentContextProjectionEvent) => void
   ) {}
+
+  setTokenBudget(tokenBudget: number): void {
+    if (tokenBudget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
+      throw new AgentModelCapacityError(0, tokenBudget)
+    }
+    this.tokenBudget = Math.floor(tokenBudget)
+  }
 
   transform(messages: AgentMessage[]): AgentMessage[] {
     if (this.#terminalError !== null) throw this.#terminalError

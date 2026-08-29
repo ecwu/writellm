@@ -2,8 +2,12 @@ import { EventEmitter } from 'node:events'
 import { validateToolArguments } from '@earendil-works/pi-ai/compat'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AGENT_INITIAL_WRITING_TOOL_ENVELOPE,
+  AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES,
   AGENT_MODEL_VISIBLE_TOOL_ENVELOPE,
-  AGENT_MODEL_VISIBLE_TOOL_SPECS
+  AGENT_MODEL_VISIBLE_TOOL_SPECS,
+  WRITING_CORE_TOOL_NAMES,
+  WRITING_TOOL_GROUP_TOOL_NAMES
 } from '../shared/agent-tool-specs'
 import {
   agentToolRequestSchema,
@@ -28,8 +32,19 @@ import {
 } from './agent-tools'
 
 describe('Pi Agent tool TypeBox schemas', () => {
-  it('keeps all 21 Pi-style contracts compact and one-way compatible with Main defaults', () => {
-    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(21)
+  it('partitions writing tools into one bounded core and disjoint capability groups', () => {
+    const grouped = Object.values(WRITING_TOOL_GROUP_TOOL_NAMES).flat()
+    expect(new Set(grouped).size).toBe(grouped.length)
+    expect(new Set([...WRITING_CORE_TOOL_NAMES, ...grouped]).size).toBe(
+      AGENT_MODEL_VISIBLE_TOOL_SPECS.length
+    )
+    expect(
+      Buffer.byteLength(JSON.stringify(AGENT_INITIAL_WRITING_TOOL_ENVELOPE))
+    ).toBeLessThanOrEqual(AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES)
+  })
+
+  it('keeps all 22 Pi-style contracts compact and one-way compatible with Main defaults', () => {
+    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(22)
     const sizes = Object.fromEntries(
       AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => [
         tool.name,
@@ -58,6 +73,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
         tool.name
       ).toBeLessThanOrEqual(8 * 1_024)
       expect(sentenceCount(tool.description), tool.name).toBeLessThanOrEqual(4)
+      expect(tool.description.length, tool.name).toBeLessThanOrEqual(240)
+      expect(tool.parameters, tool.name).toMatchObject({ type: 'object', properties: {} })
       expect(tool.description, tool.name).not.toMatch(/\{\s*"?\w+/u)
       expect(tool).not.toHaveProperty('guidance')
     }
@@ -81,6 +98,79 @@ describe('Pi Agent tool TypeBox schemas', () => {
       expect(() => piValidate(tool, args), `${toolName} minimal`).not.toThrow()
       expect(() => piValidate(tool, request.args), `${toolName} defaulted boundary`).not.toThrow()
     }
+  })
+
+  it('projects root-union fields for grammar samplers while retaining exact branches', () => {
+    const readSection = AGENT_MODEL_VISIBLE_TOOL_SPECS.find((tool) => tool.name === 'read_section')
+    const generateImage = AGENT_MODEL_VISIBLE_TOOL_SPECS.find(
+      (tool) => tool.name === 'generate_image'
+    )
+    if (readSection === undefined || generateImage === undefined) {
+      throw new Error('Missing root-union tool schemas')
+    }
+
+    expect(Object.keys(readSection.parameters.properties).sort()).toEqual([
+      'blockId',
+      'blockIds',
+      'cursor',
+      'limit',
+      'maxChars',
+      'offset',
+      'rowLimit',
+      'rowOffset',
+      'sectionId',
+      'view'
+    ])
+    expect(readSection.parameters.required).toEqual(['sectionId'])
+    expect(readSection.parameters.properties.view).toMatchObject({
+      type: 'string',
+      enum: ['summary', 'canonical', 'fragment', 'table']
+    })
+    expect(readSection.parameters.allOf).toHaveLength(1)
+
+    expect(generateImage.parameters.properties).toMatchObject({
+      mode: { type: 'string', enum: ['insert', 'iterate'] },
+      sectionId: { type: 'string' },
+      prompt: { type: 'string' }
+    })
+    expect(generateImage.parameters.required).toEqual(
+      expect.arrayContaining([
+        'mode',
+        'sectionId',
+        'prompt',
+        'altText',
+        'caption',
+        'aspectRatio',
+        'imageSize'
+      ])
+    )
+    expect(generateImage.parameters.allOf).toHaveLength(1)
+
+    for (const args of [
+      { sectionId: UUIDS.section },
+      { sectionId: UUIDS.section, view: 'canonical', blockId: 'block-1' },
+      { sectionId: UUIDS.section, view: 'fragment', blockId: 'block-1' },
+      { sectionId: UUIDS.section, view: 'table', blockId: 'block-1' }
+    ]) {
+      expect(() => piValidate(readSection, args)).not.toThrow()
+    }
+    expect(() => piValidate(readSection, {})).toThrow()
+
+    expect(() =>
+      piValidate(generateImage, {
+        mode: 'iterate',
+        sectionId: UUIDS.section,
+        prompt: 'Refine the diagram',
+        altText: 'Refined architecture diagram',
+        caption: '',
+        aspectRatio: '16:9',
+        imageSize: '2K',
+        iteration: {
+          sourceBlock: { blockId: 'block-1', expectedBlockHash: 'a'.repeat(64) },
+          disposition: 'replace'
+        }
+      })
+    ).not.toThrow()
   })
 
   it('matches the authoritative Zod field and bound surface', () => {
@@ -233,7 +323,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
         data: proposalResult()
       })
     })
-    const tools = bridge.tools()
+    const tools = bridge.tools(Object.keys(WRITING_TOOL_GROUP_TOOL_NAMES) as never)
     expect(tools.map((tool) => tool.name)).toEqual([
       'get_writing_context',
       'read_outline',
@@ -243,6 +333,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'read_citations',
       'read_writing_skill',
       'ask_user',
+      'activate_tool_groups',
       'inspect_change',
       'check_draft',
       'list_review_issues',
@@ -259,7 +350,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ])
     const question = tools.find((tool) => tool.name === 'ask_user')
     expect(question?.executionMode).toBe('sequential')
-    expect(question?.description).toContain('only tool in its assistant message')
+    expect(question?.description).toContain('only tool call in the message')
     expect(tools).toHaveLength(AGENT_MODEL_VISIBLE_TOOL_SPECS.length)
     tools.forEach((tool, index) => {
       const shared = AGENT_MODEL_VISIBLE_TOOL_SPECS[index]
@@ -268,8 +359,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
       expect(tool.parameters).toBe(shared?.parameters)
     })
     const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
-    expect(skillReader?.description).toContain('never widens the approved scope')
-    expect(skillReader?.description).toContain('exact URI named by recovery')
+    expect(skillReader?.description).toContain('run-authorized')
     expect(tools.every((tool) => tool.prepareArguments === undefined)).toBe(true)
     const proposal = tools.find((tool) => tool.name === 'submit_brief_change')
     if (proposal === undefined) throw new Error('Missing proposal tool')
@@ -513,6 +603,7 @@ function minimalValidToolArguments(): Record<AgentToolName, Record<string, unkno
         }
       ]
     },
+    activate_tool_groups: { groups: ['section'] },
     inspect_change: { proposalId: UUIDS.proposal },
     check_draft: { scope: { type: 'manuscript' } },
     list_review_issues: {},

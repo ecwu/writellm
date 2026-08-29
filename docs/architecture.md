@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 066
-Recorded: 2026-07-31; amended through 2026-08-27
+Status: accepted implementation baseline, amended through accepted ADR 067
+Recorded: 2026-07-31; amended through 2026-08-28
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -30,6 +30,13 @@ The following rules are now the current target. Any older section in this docume
   table-block hash; Main alone normalizes cells, creates IDs, simulates changes, and commits the
   accepted proposal through the existing single section-revision authority. Existing spans are
   preserved, covered cells and span geometry changes fail closed, and no cell identifier exists.
+- Agent Harness Protocol v12 keeps writing and Notebook as outer authority profiles, starts writing
+  runs with nine core tools, and lets the model explicitly activate bounded run-local review,
+  task, proposal, or image groups. Worker advertises only the active set, Main rejects inactive
+  calls, and exact active schemas drive initial, continuation, compaction, and overflow budgets.
+  Shared behavior lives once in application policy; short tool descriptions and object-root JSON
+  schemas remain provider-neutral under ADR 067. Root object unions project their complete field
+  vocabulary and common required fields at the root while retaining exact branches under `allOf`.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
@@ -1453,13 +1460,16 @@ Main:
 
 Tool errors are thrown and preserved as structured errors. They are not returned as successful text content.
 
-Under ADR 042, model-visible tool schemas are compact Pi preflight shapes rather than replicas of
+Under ADRs 042 and 067, model-visible tool schemas are compact Pi preflight shapes rather than replicas of
 every Main domain invariant. Every standard call accepted by Main must pass preflight; Main remains
 authoritative and may reject a broader preflight-valid call with a self-contained safe error and
-one bounded recovery. Tool descriptions remain at most four sentences, cross-tool sequencing stays
-in the application policy, and the complete 20-tool envelope is limited to 48 KiB with no tool over
-8 KiB. Contract v8 preserves v1-v7 event replay because persisted arguments and results are opaque
-records, not reparsed through current per-tool schemas.
+one bounded recovery. Shared sequencing and recovery stay in application policy and structured
+results; tool descriptions contain only local purpose and unique boundaries. Writing begins with a
+20 KiB nine-tool core envelope and explicitly accumulates run-local capability groups, while the
+complete 22-tool envelope remains limited to 48 KiB with no tool over 8 KiB. Every parameter root
+is an object; root unions remain under `allOf`. Contract v12 and event schema v3 preserve historical
+replay because persisted arguments and results are opaque records, not reparsed through current
+per-tool schemas.
 
 The tool bridge carries tool requests and results only. Provider-call authorization remains on the capability-bound Agent run protocol: initial, steering, and follow-up calls use pre-authorized `model_requests` IDs, while a post-tool continuation must request a new ID from Main and wait until Main has durably created the linked row. The worker never invents a model-request ID and never starts an unrecorded provider call.
 

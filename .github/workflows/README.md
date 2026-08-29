@@ -1,12 +1,12 @@
-# GitHub Actions disabled
+# GitHub Actions policy
 
-All WriteLLM GitHub Actions workflows are intentionally disabled to prevent any runner usage.
-Their preserved definitions use the `.yml.disabled` suffix, which GitHub does not recognize as a
-workflow file.
+`ci.yml` is the only enabled workflow. It runs the complete Windows x64, macOS arm64, macOS x64,
+and Linux x64 validation and unsigned-package matrix only when a tag is pushed. Pull requests,
+branch pushes, schedules, and manual dispatches do not trigger it.
 
-Restoring CI requires explicit user approval and both of these actions:
+`release-candidate.yml.disabled` remains intentionally disabled. GitHub does not recognize its
+`.yml.disabled` suffix as a workflow file, so signing, promotion, and GitHub Release publication
+cannot be started from that definition.
 
-1. Rename the required definition back to a `.yml` file under this directory.
-2. Explicitly enable that workflow in the GitHub repository.
-
-Do not restore event triggers or enable a workflow merely as part of unrelated maintenance.
+Do not add branch, pull-request, scheduled, or manual triggers, and do not restore the release
+candidate workflow without fresh explicit user approval.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_TOOL_ARGUMENT_BYTES,
+  activateToolGroupsArgsSchema,
   agentToolCallPayloadSchema,
   agentToolRequestSchema,
   agentToolResultPayloadSchema,
@@ -26,9 +27,23 @@ const capability = {
 }
 
 describe('Agent read-tool contracts', () => {
-  it('writes contract v11 while retaining v2-v10 event replay compatibility', () => {
-    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(11)
-    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+  it('accepts one to three distinct writing capability groups', () => {
+    expect(activateToolGroupsArgsSchema.parse({ groups: ['section', 'review'] })).toEqual({
+      groups: ['section', 'review']
+    })
+    for (const groups of [
+      [],
+      ['section', 'section'],
+      ['brief', 'outline', 'section', 'image'],
+      ['shell']
+    ]) {
+      expect(() => activateToolGroupsArgsSchema.parse({ groups })).toThrow()
+    }
+  })
+
+  it('writes contract v12 while retaining v2-v11 event replay compatibility', () => {
+    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(12)
+    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
       expect(
         toolResultMetaSchema.parse({
           contractVersion,

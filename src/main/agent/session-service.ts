@@ -22,13 +22,20 @@ import {
   type AgentRuntimeModel,
   type AgentRuntimeEvent,
   type AgentModelLimits,
-  type AgentUserMessagePayload
+  type AgentUserMessagePayload,
+  type WritingToolGroup
 } from '../../shared/contracts/agent'
 import {
   agentMessageBudget,
   agentOutputLimit,
+  agentRuntimeMessageBudget,
   estimateAgentTokens
 } from '../../shared/agent-context-budget'
+import {
+  activeAgentToolSetAllows,
+  agentModelVisibleToolSpecs,
+  agentToolEnvelope
+} from '../../shared/agent-tool-specs'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
@@ -161,6 +168,7 @@ interface ActiveRun {
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
   readonly pendingMessages: PendingFollowUpMessage[]
+  activeToolGroups: WritingToolGroup[]
   readonly snapshots: Map<string, WritingSnapshot>
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
@@ -893,7 +901,6 @@ export class AgentSessionService {
             (await this.options.resolveModelLimits?.(config, input.controller.signal)) ??
             legacyModelLimits()
           const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
-          agentMessageBudget(maxOutputTokens, modelLimits)
           const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
           const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
           const thinkingLevel =
@@ -938,6 +945,7 @@ export class AgentSessionService {
             authorizedModelRequestIds: new Set(),
             pendingModelRequestIds: new Set(),
             pendingMessages: [],
+            activeToolGroups: [],
             snapshots: new Map(),
             skillSnapshot: pendingSkillSnapshot(),
             skillState: null,
@@ -1171,6 +1179,12 @@ export class AgentSessionService {
         maxOutputTokens: input.maxOutputTokens,
         modelLimits: active.modelLimits,
         toolProfile: 'writing',
+        activeToolGroups: active.activeToolGroups,
+        runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
+          active,
+          active.systemPrompt,
+          active.activeToolGroups
+        ),
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(input.temperature === undefined ? {} : { temperature: input.temperature })
@@ -2232,6 +2246,13 @@ export class AgentSessionService {
         continuationId,
         modelRequestId,
         systemPrompt,
+        activeToolGroups: active.activeToolGroups,
+        runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
+          active,
+          systemPrompt,
+          active.activeToolGroups,
+          finalize
+        ),
         finalize
       })
       this.options.log.info(
@@ -2289,6 +2310,24 @@ export class AgentSessionService {
     if (signal.aborted) {
       return toolErrorResponse(request, 'aborted', 'Agent tool request was aborted', true)
     }
+    if (!activeAgentToolSetAllows('writing', active.activeToolGroups, request.toolName)) {
+      this.options.log.warn(
+        {
+          event: 'agent.tool.inactive_group_rejected',
+          agentRunId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          activeToolGroups: active.activeToolGroups
+        },
+        'Rejected an Agent tool outside the active writing tool groups'
+      )
+      return toolErrorResponse(
+        request,
+        'unauthorized',
+        'Agent tool is not active for this run',
+        false
+      )
+    }
     const toolStartedAt = this.#now().getTime()
     const skillDisplayName =
       request.toolName === 'read_writing_skill' &&
@@ -2323,6 +2362,33 @@ export class AgentSessionService {
       let data: unknown
       if (request.toolName === 'ask_user') {
         data = await this.#waitForUserAnswer(active, request, toolSignal)
+      } else if (request.toolName === 'activate_tool_groups') {
+        const requested = request.args.groups
+        const alreadyActive = requested.filter((group) => active.activeToolGroups.includes(group))
+        const activated = requested.filter((group) => !active.activeToolGroups.includes(group))
+        const activeGroups = [...active.activeToolGroups, ...activated]
+        try {
+          this.#runtimeMessageBudget(active, active.systemPrompt, activeGroups)
+        } catch (err) {
+          throw new AgentToolDomainError(
+            'unavailable',
+            'The selected model cannot safely fit the requested writing tool groups',
+            false,
+            { cause: err }
+          )
+        }
+        active.activeToolGroups = activeGroups
+        data = { activated, alreadyActive, activeGroups }
+        this.options.log.info(
+          {
+            event: 'agent.tool_groups.activated',
+            agentRunId: active.agentRunId,
+            activated,
+            alreadyActive,
+            activeToolGroups: activeGroups
+          },
+          'Activated writing tool groups for the current Agent run'
+        )
       } else if (request.toolName === 'read_writing_skill') {
         if (
           this.options.skillRouter === undefined ||
@@ -2824,7 +2890,8 @@ export class AgentSessionService {
       history: historyBefore,
       currentRequest: active.currentRequest,
       uncheckpointedEventCount: envelope.eventCount,
-      uncheckpointedPayloadBytes: envelope.payloadBytes
+      uncheckpointedPayloadBytes: envelope.payloadBytes,
+      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups)
     })
     const compactionId = this.#createId()
     active.phase = 'compacting'
@@ -2910,6 +2977,12 @@ export class AgentSessionService {
         maxOutputTokens: active.maxOutputTokens,
         modelLimits: active.modelLimits,
         toolProfile: 'writing',
+        activeToolGroups: active.activeToolGroups,
+        runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
+          active,
+          active.systemPrompt,
+          active.activeToolGroups
+        ),
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(active.temperature === undefined ? {} : { temperature: active.temperature })
@@ -3658,7 +3731,8 @@ export class AgentSessionService {
       history,
       currentRequest: input.currentRequest,
       uncheckpointedEventCount: envelope.eventCount,
-      uncheckpointedPayloadBytes: envelope.payloadBytes
+      uncheckpointedPayloadBytes: envelope.payloadBytes,
+      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups)
     })
     if (this.options.messageTokenBudget !== undefined) {
       const conversationBudgetTokens = Math.min(
@@ -3743,6 +3817,24 @@ export class AgentSessionService {
       throw err
     }
     return agentHistorySchema.parse(history)
+  }
+
+  #activeToolEnvelope(activeToolGroups: readonly WritingToolGroup[]): unknown[] {
+    return agentToolEnvelope(agentModelVisibleToolSpecs('writing', activeToolGroups))
+  }
+
+  #runtimeMessageBudget(
+    active: Pick<ActiveRun, 'maxOutputTokens' | 'modelLimits'>,
+    systemPrompt: string,
+    activeToolGroups: readonly WritingToolGroup[],
+    finalize = false
+  ): number {
+    return agentRuntimeMessageBudget({
+      maxOutputTokens: active.maxOutputTokens,
+      limits: active.modelLimits,
+      systemPrompt,
+      advertisedTools: finalize ? [] : this.#activeToolEnvelope(activeToolGroups)
+    })
   }
 
   async #runRollingCompaction(

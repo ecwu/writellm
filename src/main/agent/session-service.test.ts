@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AGENT_PENDING_MESSAGE_LIMIT,
   AGENT_PENDING_MESSAGE_MAX_BYTES,
-  type AgentRuntimeEvent
+  type AgentRuntimeEvent,
+  type WritingToolGroup
 } from '../../shared/contracts/agent'
 import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
@@ -2131,6 +2132,86 @@ describe('AgentSessionService', () => {
     database.close()
   })
 
+  it('rejects inactive capabilities and accumulates bounded tool-group activation', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn()
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Prepare a section review.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4a1',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'tool-inactive-section',
+        modelRequestId: active.input.modelRequestId,
+        toolName: 'submit_section_change',
+        args: {
+          sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
+          citationIds: [],
+          operations: [
+            {
+              type: 'insertTextBlocks',
+              anchor: null,
+              placement: 'end',
+              blocks: [{ blockType: 'paragraph', text: 'Body.' }]
+            }
+          ]
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'unauthorized', recovery: { action: 'do_not_retry' } }
+    })
+    expect(execute).not.toHaveBeenCalled()
+
+    await activateToolGroups(active, ['section'])
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4a2',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'tool-activate-more-groups',
+        modelRequestId: active.input.modelRequestId,
+        toolName: 'activate_tool_groups',
+        args: { groups: ['section', 'review'] }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      data: {
+        activated: ['review'],
+        alreadyActive: ['section'],
+        activeGroups: ['section', 'review']
+      }
+    })
+
+    await active.emit({
+      type: 'model_call_requested',
+      continuationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4a3',
+      reason: 'tool_continuation'
+    })
+    expect(active.authorizations.at(-1)).toMatchObject({
+      activeToolGroups: ['section', 'review'],
+      runtimeMessageBudgetTokens: expect.any(Number)
+    })
+    expect(active.authorizations.at(-1)?.runtimeMessageBudgetTokens).toBeLessThan(
+      active.input.runtimeMessageBudgetTokens ?? Number.POSITIVE_INFINITY
+    )
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it('returns tool-aware recovery for conflicts, stale cursors, and citation provenance', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -2176,6 +2257,9 @@ describe('AgentSessionService', () => {
         editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
       })
       const active = runtime.active()
+      if (fixture.toolName === 'submit_section_change') {
+        await activateToolGroups(active, ['section'])
+      }
       const response = await active.requestTool({
         type: 'tool_request',
         requestId: `019c6a5c-8d34-7a8e-a602-3d37a52dc48${index}`,
@@ -2218,6 +2302,7 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     const active = runtime.active()
+    await activateToolGroups(active, ['image'])
     const response = await active.requestTool({
       type: 'tool_request',
       requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc475',
@@ -2304,6 +2389,7 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     const active = runtime.active()
+    await activateToolGroups(active, ['brief'])
     await active.emit({
       type: 'model_call_finished',
       modelRequestId: active.input.modelRequestId,
@@ -2427,6 +2513,9 @@ describe('AgentSessionService', () => {
         editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
       })
       const active = runtime.active()
+      await activateToolGroups(active, [
+        kind === 'brief_update' ? 'brief' : kind === 'outline_patch' ? 'outline' : 'section'
+      ])
       await active.emit({
         type: 'model_call_finished',
         modelRequestId: active.input.modelRequestId,
@@ -2458,6 +2547,8 @@ describe('AgentSessionService', () => {
       })
       expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
         'user_message',
+        'tool_call',
+        'tool_result',
         'tool_call',
         'tool_result'
       ])
@@ -2495,6 +2586,7 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     const active = runtime.active()
+    await activateToolGroups(active, ['section'])
     await active.emit({
       type: 'model_call_finished',
       modelRequestId: active.input.modelRequestId,
@@ -2543,6 +2635,7 @@ describe('AgentSessionService', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     const active = runtime.active()
+    await activateToolGroups(active, ['section'])
     await active.emit({
       type: 'model_call_finished',
       modelRequestId: active.input.modelRequestId,
@@ -3520,12 +3613,36 @@ interface FakeActiveRun {
     continuationId: string
     modelRequestId: string
     systemPrompt: string
+    activeToolGroups?: WritingToolGroup[]
+    runtimeMessageBudgetTokens?: number
     finalize?: boolean
   }>
   requestTool: (request: AgentToolRequest) => Promise<AgentToolResponse>
   emit: (event: AgentRuntimeEvent) => Promise<void>
   resolve: (outcome?: 'finished' | 'awaiting_review') => void
   reject: (error: Error) => void
+}
+
+async function activateToolGroups(
+  active: FakeActiveRun,
+  groups: readonly WritingToolGroup[]
+): Promise<void> {
+  await expect(
+    active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4a0',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-activate-groups',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'activate_tool_groups',
+      args: { groups: [...groups] }
+    })
+  ).resolves.toMatchObject({
+    ok: true,
+    data: { activeGroups: groups }
+  })
 }
 
 class FakeAgentRuntime implements AgentSessionRuntime {
@@ -3596,6 +3713,12 @@ class FakeAgentRuntime implements AgentSessionRuntime {
           continuationId: command.continuationId,
           modelRequestId: command.modelRequestId,
           systemPrompt: command.systemPrompt,
+          ...(command.activeToolGroups === undefined
+            ? {}
+            : { activeToolGroups: command.activeToolGroups }),
+          ...(command.runtimeMessageBudgetTokens === undefined
+            ? {}
+            : { runtimeMessageBudgetTokens: command.runtimeMessageBudgetTokens }),
           ...(command.finalize === undefined ? {} : { finalize: command.finalize })
         })
     }

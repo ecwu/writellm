@@ -5,7 +5,8 @@
 - Purpose: deliver a portable whole-manuscript export, finish reproducible native packaging on
   every supported target, and establish cross-platform CI and controlled release promotion.
 - Checkpoints: 24–26.
-- Current status: Checkpoint 26.9 is paused; all GitHub Actions workflows are disabled.
+- Current status: Checkpoint 26.9 has resumed with tag-only four-platform CI; hosted evidence is
+  pending and the release-candidate workflow remains disabled.
 - Implementation state: plan realigned with the verified 2026-07-31 codebase; Checkpoint 24 passed
   its acceptance gate, Checkpoint 25 passed its acceptance gate, and Checkpoint 26.1–26.8 are
   implemented and locally verified under the user's approval to implement Phase 10.
@@ -221,24 +222,22 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   release notes. Live billable provider checks remain separately authorized manual probes against
   non-production fixtures; deterministic loopback providers are the release gate and no provider
   secret is embedded in an artifact.
-- [~] 26.9 Pass the macOS arm64 and macOS x64 rows on their real target architectures, install or
-  launch every produced macOS artifact in its supported form, verify uploaded checksums and
-  retention metadata, perform one protected macOS-only dry-run promotion without publishing a
-  production release, and record the exact commands, runner images, test counts, artifact names,
-  hashes, signatures, and any intentionally unsigned status in the completion evidence. Windows
-  x64 and Linux x64 distribution evidence is deferred by the 2026-08-10 scope amendment.
+- [~] 26.9 Pass the Windows x64, macOS arm64, macOS x64, and Linux x64 rows on their real target
+  architectures, verify uploaded checksums and retention metadata, and record the exact commands,
+  runner images, test counts, artifact names, hashes, and intentionally unsigned status in the
+  completion evidence. Protected promotion and production publication remain outside the resumed
+  build authorization.
 
   Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including
   the required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion.
   Production release publication remains out of scope. Local macOS arm64 evidence cannot
   substitute for either hosted macOS architecture.
 
-Acceptance criteria: the protected release candidate is built and tested on both real macOS target
-rows; the current migration, recovery, export, native runtime, Agent, security, and logging
-boundaries pass in packaged artifacts; artifacts and diagnostics have explicit retention and
-provenance; secrets are confined to approved promotion jobs; and no release can be created from a
-missing macOS row, an extra deferred row, unsigned-when-required, unnotarized-when-required, or
-mismatched evidence set.
+Acceptance criteria: the tagged source is built and tested on the real Windows x64, macOS arm64,
+macOS x64, and Linux x64 target rows; the current migration, recovery, export, native runtime,
+Agent, security, and logging boundaries pass in packaged artifacts; and artifacts and diagnostics
+have explicit retention and provenance. Signing and release promotion remain separately gated and
+cannot reuse a missing, skipped, failed, mismatched, or intentionally unsigned production row.
 
 Implementation evidence (2026-07-31): pinned least-privilege CI and release-candidate workflows
 now use `windows-2022`, `macos-15`, `macos-15-intel`, and `ubuntu-24.04`, immutable action SHAs,
@@ -503,6 +502,14 @@ dry-run or production promotion was started. The user then directed that CI neve
 condition. Both GitHub workflows were manually disabled, and their definitions were retained only
 with `.yml.disabled` suffixes so GitHub cannot recognize them as executable workflows. Checkpoint
 26.9 remains incomplete and may resume only after new explicit approval.
+
+Resumption authorization (2026-08-29): the repository is now public and the user explicitly
+authorized restoring the complete cross-platform build. `ci.yml` is executable again and accepts
+only pushed tag refs; it has no pull-request, branch-push, schedule, or manual-dispatch trigger.
+The static/fixture gate precedes native Electron/E2E and unsigned packaging rows on Windows x64,
+macOS arm64, macOS x64, and Linux x64. `release-candidate.yml.disabled` remains non-executable, so
+this resumption grants no signing, promotion, or GitHub Release authority. No hosted result is
+claimed until a new tag is pushed and the matrix completes.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate

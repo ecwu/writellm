@@ -2,16 +2,16 @@
   "name": "writellm",
   "version": "0.2026.8",
   "release": {
-    "version": "0.2026.8.26"
+    "version": "0.2026.8.27"
   },
   "description": "A local-first AI-assisted writing workspace",
-  "packageManager": "pnpm@11.17.0",
+  "packageManager": "pnpm@12.0.0",
   "main": "./out/main/index.js",
   "author": "WriteLLM contributors",
   "homepage": "https://github.com/ecwu/writellm",
   "engines": {
     "node": ">=24.15.0 <25",
-    "pnpm": "11.17.0"
+    "pnpm": "12.0.0"
   },
   "scripts": {
     "check": "biome check .",

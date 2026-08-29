@@ -127,6 +127,15 @@ test(
         agentCall += 1
         if (agentCall === 1) {
           sendToolCall(response, {
+            responseId: 'cp50-activate-response',
+            toolCallId: 'cp50-activate-tool',
+            name: 'activate_tool_groups',
+            args: { groups: ['brief'] }
+          })
+          return
+        }
+        if (agentCall === 2) {
+          sendToolCall(response, {
             responseId: 'cp50-brief-response',
             toolCallId: 'cp50-brief-tool',
             name: 'submit_brief_change',
@@ -134,7 +143,16 @@ test(
           })
           return
         }
-        if (agentCall === 2) {
+        if (agentCall === 3) {
+          sendToolCall(response, {
+            responseId: 'cp50-outline-activate-response',
+            toolCallId: 'cp50-outline-activate-tool',
+            name: 'activate_tool_groups',
+            args: { groups: ['outline'] }
+          })
+          return
+        }
+        if (agentCall === 4) {
           sendToolCall(response, {
             responseId: 'cp50-outline-response',
             toolCallId: 'cp50-outline-tool',
@@ -155,7 +173,16 @@ test(
           })
           return
         }
-        if (agentCall === 3) {
+        if (agentCall === 5) {
+          sendToolCall(response, {
+            responseId: 'cp50-review-activate-response',
+            toolCallId: 'cp50-review-activate-tool',
+            name: 'activate_tool_groups',
+            args: { groups: ['review'] }
+          })
+          return
+        }
+        if (agentCall === 6) {
           sendToolCall(response, {
             responseId: 'cp50-check-response',
             toolCallId: 'cp50-check-tool',
@@ -238,9 +265,12 @@ test(
       expect(truth.workflowState).toBe('idle')
       expect(truth.preflightFailures).toEqual([])
       expect(truth.calls).toEqual([
-        { toolName: 'submit_brief_change', contractVersion: 11 },
-        { toolName: 'submit_outline_change', contractVersion: 11 },
-        { toolName: 'check_draft', contractVersion: 11 }
+        { toolName: 'activate_tool_groups', contractVersion: 12 },
+        { toolName: 'submit_brief_change', contractVersion: 12 },
+        { toolName: 'activate_tool_groups', contractVersion: 12 },
+        { toolName: 'submit_outline_change', contractVersion: 12 },
+        { toolName: 'activate_tool_groups', contractVersion: 12 },
+        { toolName: 'check_draft', contractVersion: 12 }
       ])
       expect(truth.calls.some((call) => call.toolName === 'submit_section_change')).toBe(false)
       expect(JSON.stringify(providerBodies)).not.toContain('cp50-e2e-secret')

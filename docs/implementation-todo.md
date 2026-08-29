@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 23 Checkpoint 74 Agent table authoring and publication is complete. Checkpoint 26.9
-remains paused and all GitHub Actions workflows are disabled.
-Recorded: 2026-08-28
+Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
+Checkpoint 26.9 has resumed with tag-only four-platform CI; hosted evidence remains pending.
+Recorded: 2026-08-29
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -17,6 +17,15 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 75 maintenance: project root-union properties into the model-visible object root,
+  retain exact branch constraints, verify OpenAI-compatible and LM Studio behavior, and produce a
+  fresh no-identity macOS trial build.
+- [x] Maintenance build: verify the current dirty macOS arm64 App through the complete no-identity
+  package gate and produce structurally checked DMG and ZIP artifacts.
+- [x] Maintenance: allow custom Provider HTTP Base URLs for localhost and numeric `10.*`, `100.*`,
+  `127.*`, and `192.*` IPv4 endpoints while retaining HTTPS for other remote hosts.
+- [x] Checkpoint 75: add Protocol v12 layered tool descriptions, run-local capability groups,
+  exact active-envelope budgets, and provider-neutral object-root schemas under ADR 067.
 - [x] Checkpoint 74: add Protocol v11 hash-bound table reads and typed edits, bounded review,
   native header editing, and portable Markdown/PDF/LaTeX projection under ADR 066.
 - [x] Checkpoint 73: establish a summary-first Agent sidebar hierarchy with compact live status,
@@ -38,9 +47,8 @@ Status markers:
   multi-turn source-only answers, validated citations, and project-session lifecycle cleanup.
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
-- [!] Checkpoint 26.9: complete the remaining host-install and protected macOS dry-run promotion
-  evidence. Work is paused, both GitHub Actions workflow definitions are disabled, and no hosted
-  action may resume without fresh explicit user approval.
+- [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
+  validation/package matrix and record its hosted evidence. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
@@ -66,6 +74,15 @@ Checkpoint 72 detail: [`implementation-todo/phase-21.md`](implementation-todo/ph
 Checkpoint 73 detail: [`implementation-todo/phase-22.md`](implementation-todo/phase-22.md).
 
 Checkpoint 74 detail: [`implementation-todo/phase-23.md`](implementation-todo/phase-23.md).
+
+Checkpoint 75 detail: [`implementation-todo/phase-24.md`](implementation-todo/phase-24.md).
+
+## Phase 24: Agent Tool Layering And Demand Profiles
+
+- [x] Checkpoint 75: layered descriptions, explicit run-local activation, dual active-set
+  enforcement, exact budgets, and strict OpenAI-compatible schema roots.
+
+Authoritative detail: [`implementation-todo/phase-24.md`](implementation-todo/phase-24.md).
 
 ## Phase 23: Agent Table Authoring And Publication
 
@@ -206,7 +223,7 @@ Exact verification and artifact boundaries are recorded in
 ## Completed baseline
 
 - [x] Phases 0–9 and Checkpoints 23M/23V.
-- [x] Phase 10 Checkpoints 24–26.8S; Checkpoint 26.9 is the sole paused remainder.
+- [x] Phase 10 Checkpoints 24–26.8S; Checkpoint 26.9 is the sole in-progress remainder.
 - [x] Checkpoints 27–28.x and related maintenance under ADRs 012–020. Detailed evidence:
   [`implementation-todo/phase-agent-writing.md`](implementation-todo/phase-agent-writing.md).
 - [x] Phase 11 Checkpoints 29–47B under ADRs 021–037.

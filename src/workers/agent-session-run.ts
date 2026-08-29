@@ -3,7 +3,7 @@ import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import { Value } from 'typebox/value'
-import { agentModelVisibleToolSpecs } from '../shared/agent-tool-specs'
+import { agentModelVisibleToolSpecs, agentToolEnvelope } from '../shared/agent-tool-specs'
 import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
@@ -28,7 +28,7 @@ import {
 } from './agent-provider-stream'
 import {
   AgentContextBudgetController,
-  agentMessageBudget,
+  agentRuntimeMessageBudget,
   estimateAgentTokens
 } from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
@@ -81,8 +81,16 @@ export async function runAgentSession(
     modelLimits,
     maxOutputTokens: request.maxOutputTokens
   })
+  const initialTools = agentModelVisibleToolSpecs(request.toolProfile, request.activeToolGroups)
+  let activeToolGroups = request.activeToolGroups ?? []
   const contextBudget = new AgentContextBudgetController(
-    agentMessageBudget(request.maxOutputTokens, modelLimits),
+    request.runtimeMessageBudgetTokens ??
+      agentRuntimeMessageBudget({
+        maxOutputTokens: request.maxOutputTokens,
+        limits: modelLimits,
+        systemPrompt: request.systemPrompt,
+        advertisedTools: agentToolEnvelope(initialTools)
+      }),
     (event) => {
       const batchHash = createHash('sha256').update(event.batchKey).digest('hex')
       if (event.type === 'active_batch_retry') {
@@ -167,7 +175,7 @@ export async function runAgentSession(
       systemPrompt: request.systemPrompt,
       model,
       thinkingLevel: request.thinkingLevel ?? 'off',
-      tools: toolBridge.tools(),
+      tools: toolBridge.tools(request.activeToolGroups),
       messages: request.history.map(toPiMessage)
     },
     getApiKey: (providerId) =>
@@ -180,11 +188,33 @@ export async function runAgentSession(
         const systemPrompt = systemPromptByModelRequestId.get(queuedModelRequestId)
         if (systemPrompt !== undefined) {
           systemPromptByModelRequestId.delete(queuedModelRequestId)
+          contextBudget.setTokenBudget(
+            agentRuntimeMessageBudget({
+              maxOutputTokens: request.maxOutputTokens,
+              limits: modelLimits,
+              systemPrompt,
+              advertisedTools: agentToolEnvelope(
+                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups)
+              )
+            })
+          )
           return { context: { ...context, systemPrompt } }
         }
       }
       if (toolResults.length === 0) {
         const followUp = followUpEntries[0]
+        if (followUp !== undefined) {
+          contextBudget.setTokenBudget(
+            agentRuntimeMessageBudget({
+              maxOutputTokens: request.maxOutputTokens,
+              limits: modelLimits,
+              systemPrompt: followUp.systemPrompt,
+              advertisedTools: agentToolEnvelope(
+                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups)
+              )
+            })
+          )
+        }
         return followUp === undefined
           ? undefined
           : { context: { ...context, systemPrompt: followUp.systemPrompt } }
@@ -195,11 +225,23 @@ export async function runAgentSession(
       )
       modelRequestIds.push(authorization.modelRequestId)
       authorizedContinuationRequestIds.add(authorization.modelRequestId)
+      activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
+      contextBudget.setTokenBudget(
+        authorization.runtimeMessageBudgetTokens ??
+          agentRuntimeMessageBudget({
+            maxOutputTokens: request.maxOutputTokens,
+            limits: modelLimits,
+            systemPrompt: authorization.systemPrompt,
+            advertisedTools: authorization.finalize
+              ? []
+              : agentToolEnvelope(agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups))
+          })
+      )
       return {
         context: {
           ...context,
           systemPrompt: authorization.systemPrompt,
-          ...(authorization.finalize ? { tools: [] } : {})
+          tools: authorization.finalize ? [] : toolBridge.tools(activeToolGroups)
         }
       }
     },
@@ -219,6 +261,13 @@ export async function runAgentSession(
         return {
           block: true,
           reason: 'User clarification must be the only tool in an assistant message'
+        }
+      }
+      const activationCalls = calls.filter((call) => call.name === 'activate_tool_groups')
+      if (activationCalls.length > 0 && (activationCalls.length !== 1 || calls.length !== 1)) {
+        return {
+          block: true,
+          reason: 'Tool-group activation must be the only tool in an assistant message'
         }
       }
       const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')

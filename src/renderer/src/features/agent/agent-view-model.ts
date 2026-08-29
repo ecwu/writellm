@@ -991,6 +991,8 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
   if (issueCount > 0) summaries.push('Updating review issues')
   const skillCount = counts.get('read_writing_skill') ?? 0
   if (skillCount > 0) summaries.push(summarizeWritingSkillActivity(tools))
+  const activationCount = counts.get('activate_tool_groups') ?? 0
+  if (activationCount > 0) summaries.push('Prepared writing tools')
   const taskCount =
     (counts.get('get_writing_task') ?? 0) +
     (counts.get('create_writing_task') ?? 0) +
@@ -1006,6 +1008,7 @@ export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
     checkCount +
     issueCount +
     skillCount +
+    activationCount +
     taskCount
   if (tools.length > knownCount) {
     const otherCount = tools.length - knownCount
@@ -1033,6 +1036,8 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
       return writingSkillActivityLabel(tool, running)
     case 'ask_user':
       return running ? 'Waiting for your answer' : 'Asked for clarification'
+    case 'activate_tool_groups':
+      return running ? 'Preparing writing tools' : 'Prepared writing tools'
     case 'inspect_change':
       return running ? 'Reviewing the change' : 'Reviewed the change'
     case 'check_draft':

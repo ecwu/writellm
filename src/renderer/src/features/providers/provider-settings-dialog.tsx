@@ -1311,7 +1311,7 @@ function AgentProviderWorkspace({
                       </ConfigField>
                       <ConfigField
                         label='Base URL'
-                        description='Use HTTPS, or HTTP only for a loopback endpoint.'
+                        description='Use HTTPS, or HTTP for localhost and 10.*, 100.*, 127.*, or 192.* IPv4 endpoints.'
                       >
                         <Input
                           value={draft.baseUrl}

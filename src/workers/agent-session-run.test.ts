@@ -498,6 +498,75 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
+  it('replaces the next-turn tool set after one exclusive capability activation', async () => {
+    const bodies: Array<{
+      tools?: Array<{
+        function?: { name?: string; parameters?: { type?: string; properties?: unknown } }
+      }>
+    }> = []
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        fetchAttempt += 1
+        bodies.push(JSON.parse(String(init?.body)))
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-activate', 'activate_tool_groups', { groups: ['section'] })
+          : completionResponse('Section tools are ready.', 'response-after-activation')
+      })
+    )
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: { activated: ['section'], alreadyActive: [], activeGroups: ['section'] }
+      })
+    })
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        if (event.type !== 'model_call_requested') return
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc41a',
+          systemPrompt: request.systemPrompt,
+          activeToolGroups: ['section']
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    const toolNames = (body: (typeof bodies)[number]) =>
+      body.tools?.map((tool) => tool.function?.name) ?? []
+    expect(toolNames(bodies[0] ?? {})).toContain('activate_tool_groups')
+    expect(toolNames(bodies[0] ?? {})).not.toContain('submit_section_change')
+    expect(toolNames(bodies[1] ?? {})).toContain('submit_section_change')
+    expect(toolNames(bodies[1] ?? {})).not.toContain('generate_image')
+    for (const body of bodies) {
+      for (const tool of body.tools ?? []) {
+        expect(tool.function?.parameters?.type).toBe('object')
+        expect(tool.function?.parameters?.properties).toEqual(expect.any(Object))
+      }
+      const readSection = body.tools?.find((tool) => tool.function?.name === 'read_section')
+      expect(readSection?.function?.parameters?.properties).toMatchObject({
+        sectionId: { type: 'string' },
+        view: { type: 'string', enum: ['summary', 'canonical', 'fragment', 'table'] }
+      })
+    }
+  })
+
   it('removes tools from a finalization authorization and returns a terminal assistant answer', async () => {
     const bodies: Array<Record<string, unknown>> = []
     let fetchAttempt = 0
@@ -844,72 +913,78 @@ describe('runAgentSession', () => {
     expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
   })
 
-  it('requires ask_user to be the only tool in its assistant response', async () => {
-    let fetchAttempt = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async () => {
-        fetchAttempt += 1
-        return fetchAttempt === 1
-          ? toolCallsResponse([
-              {
-                id: 'tool-question',
-                name: 'ask_user',
-                args: {
-                  questions: [
-                    {
-                      id: 'scope',
-                      header: 'Scope',
-                      question: 'Which scope should be used?',
-                      options: [
-                        {
-                          label: 'Section (Recommended)',
-                          description: 'Limit the revision.'
-                        },
-                        { label: 'Document', description: 'Revise the full manuscript.' }
-                      ]
-                    }
-                  ]
-                }
-              },
-              { id: 'tool-search', name: 'search_knowledge', args: { query: 'evidence' } }
-            ])
-          : completionResponse('Recovered after isolated question.', 'response-after-question')
-      })
-    )
-    const events: AgentRuntimeEvent[] = []
-    const { port1, port2 } = createFakeMessageChannel()
-    const toolRequests: unknown[] = []
-    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
-    let control: AgentSessionRunControl | undefined
-    await runAgentSession(
-      request,
-      (event) => {
-        events.push(event)
-        if (event.type === 'model_call_requested') {
-          control?.authorizeModelCall({
-            operation: 'authorize_model_call',
-            requestId: request.requestId,
-            projectSessionId: request.projectSessionId,
-            agentSessionId: request.agentSessionId,
-            agentRunId: request.agentRunId,
-            continuationId: event.continuationId,
-            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc497',
-            systemPrompt: request.systemPrompt
-          })
-        }
-      },
-      (value) => {
-        control = value
-      },
-      undefined,
-      port1 as never
-    )
+  it.each(['ask_user', 'activate_tool_groups'] as const)(
+    'requires %s to be the only tool in its assistant response',
+    async (toolName) => {
+      let fetchAttempt = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(async () => {
+          fetchAttempt += 1
+          return fetchAttempt === 1
+            ? toolCallsResponse([
+                {
+                  id: 'tool-question',
+                  name: toolName,
+                  args:
+                    toolName === 'activate_tool_groups'
+                      ? { groups: ['section'] }
+                      : {
+                          questions: [
+                            {
+                              id: 'scope',
+                              header: 'Scope',
+                              question: 'Which scope should be used?',
+                              options: [
+                                {
+                                  label: 'Section (Recommended)',
+                                  description: 'Limit the revision.'
+                                },
+                                { label: 'Document', description: 'Revise the full manuscript.' }
+                              ]
+                            }
+                          ]
+                        }
+                },
+                { id: 'tool-search', name: 'search_knowledge', args: { query: 'evidence' } }
+              ])
+            : completionResponse('Recovered after isolated question.', 'response-after-question')
+        })
+      )
+      const events: AgentRuntimeEvent[] = []
+      const { port1, port2 } = createFakeMessageChannel()
+      const toolRequests: unknown[] = []
+      port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+      let control: AgentSessionRunControl | undefined
+      await runAgentSession(
+        request,
+        (event) => {
+          events.push(event)
+          if (event.type === 'model_call_requested') {
+            control?.authorizeModelCall({
+              operation: 'authorize_model_call',
+              requestId: request.requestId,
+              projectSessionId: request.projectSessionId,
+              agentSessionId: request.agentSessionId,
+              agentRunId: request.agentRunId,
+              continuationId: event.continuationId,
+              modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc497',
+              systemPrompt: request.systemPrompt
+            })
+          }
+        },
+        (value) => {
+          control = value
+        },
+        undefined,
+        port1 as never
+      )
 
-    expect(fetchAttempt).toBe(2)
-    expect(toolRequests).toEqual([])
-    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
-  })
+      expect(fetchAttempt).toBe(2)
+      expect(toolRequests).toEqual([])
+      expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
+    }
+  )
 
   it('ends at a manual-review barrier without requesting a continuation model call', async () => {
     let fetchAttempt = 0
@@ -944,7 +1019,7 @@ describe('runAgentSession', () => {
     })
 
     const result = await runAgentSession(
-      request,
+      { ...request, activeToolGroups: ['brief'] },
       (event) => events.push(event),
       () => undefined,
       undefined,

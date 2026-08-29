@@ -33,6 +33,15 @@ test(
           agentCall += 1
           if (agentCall === 1) {
             sendToolCall(response, {
+              responseId: 'review-activate-response',
+              toolCallId: 'review-activate-call',
+              name: 'activate_tool_groups',
+              args: { groups: ['review'] }
+            })
+            return
+          }
+          if (agentCall === 2) {
+            sendToolCall(response, {
               responseId: 'review-check-response',
               toolCallId: 'review-check-call',
               name: 'check_draft',
@@ -43,7 +52,7 @@ test(
             })
             return
           }
-          if (agentCall === 2) {
+          if (agentCall === 3) {
             sendToolCall(response, {
               responseId: 'review-list-response',
               toolCallId: 'review-list-call',
@@ -57,7 +66,7 @@ test(
             })
             return
           }
-          if (agentCall === 3) {
+          if (agentCall === 4) {
             sendToolCall(response, {
               responseId: 'review-record-response',
               toolCallId: 'review-record-call',
@@ -132,7 +141,7 @@ test(
         panel.getByText('Recorded one P2 review issue in the durable Problem Set.', { exact: true })
       ).toBeVisible({ timeout: 20_000 })
       await expect(panel.getByTestId('agent-status')).toContainText('Ready')
-      expect(agentRequests).toHaveLength(4)
+      expect(agentRequests).toHaveLength(5)
       expect(JSON.stringify(agentRequests[0])).toContain('REVIEW_POLICY')
 
       await panel.getByRole('button', { name: 'Close writing agent' }).click()

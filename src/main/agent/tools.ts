@@ -14,6 +14,7 @@ import {
 } from '../../shared/contracts/agent-mutations'
 import {
   agentReadToolNameSchema,
+  type ActivateToolGroupsResult,
   type AskUserResult,
   checkDraftResultSchema,
   type AgentToolName,
@@ -74,6 +75,7 @@ interface AgentToolResultMap {
   read_citations: ReadCitationsResult
   read_writing_skill: ReadWritingSkillResult
   ask_user: AskUserResult
+  activate_tool_groups: ActivateToolGroupsResult
   inspect_change: InspectChangeResult
   check_draft: CheckDraftResult
   list_review_issues: ListReviewIssuesResult

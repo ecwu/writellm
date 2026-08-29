@@ -317,6 +317,15 @@ test(
             return
           }
           if (agentCall === 4) {
+            sendToolCall(response, {
+              responseId: 'agent-section-activation-response',
+              toolCallId: 'agent-section-activation-tool',
+              name: 'activate_tool_groups',
+              args: { groups: ['section'] }
+            })
+            return
+          }
+          if (agentCall === 5) {
             const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
             if (citationId === undefined || sectionId === '') {
               response.writeHead(500, { 'content-type': 'application/json' })
@@ -353,7 +362,7 @@ test(
             )
             return
           }
-          if (agentCall === 5) {
+          if (agentCall === 6) {
             sendToolCall(response, {
               responseId: 'agent-revision-search-response',
               toolCallId: 'agent-revision-search-tool',
@@ -370,7 +379,7 @@ test(
             })
             return
           }
-          if (agentCall === 6) {
+          if (agentCall === 7) {
             const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
             if (citationId === undefined || sectionId === '') {
               response.writeHead(500, { 'content-type': 'application/json' })
@@ -386,7 +395,16 @@ test(
             })
             return
           }
-          if (agentCall === 7) {
+          if (agentCall === 8) {
+            sendToolCall(response, {
+              responseId: 'agent-revision-section-activation-response',
+              toolCallId: 'agent-revision-section-activation-tool',
+              name: 'activate_tool_groups',
+              args: { groups: ['section'] }
+            })
+            return
+          }
+          if (agentCall === 9) {
             const citationId = JSON.stringify(body).match(/citation-[a-f0-9]{40}/)?.[0]
             if (citationId === undefined || sectionId === '') {
               response.writeHead(500, { 'content-type': 'application/json' })
@@ -419,7 +437,7 @@ test(
             })
             return
           }
-          if (agentCall === 8) {
+          if (agentCall === 10) {
             sendCompletion(response, 'I found **evidence** and prepared a reviewable proposal.')
             return
           }
@@ -735,7 +753,7 @@ test(
       await expect(panel.getByText('Run failed', { exact: true })).toHaveCount(0)
       await expect(panel.getByLabel('Agent message')).toHaveCount(0)
       await expect(panel.getByLabel('Review feedback')).toBeVisible()
-      await expect.poll(() => requestBodies.length).toBe(4)
+      await expect.poll(() => requestBodies.length).toBe(5)
       expect(JSON.stringify(requestBodies[0])).toContain('Before the first substantial tool phase')
       const waitingTruth = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -788,7 +806,7 @@ test(
         panel.getByText('Keep the wording restrained and concise.', { exact: true })
       ).toBeVisible()
       await expect(panel.getByText('Review required', { exact: true }).last()).toBeVisible()
-      await expect.poll(() => requestBodies.length).toBe(7)
+      await expect.poll(() => requestBodies.length).toBe(9)
       await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(panel.getByText('applied', { exact: true })).toBeVisible()
       await expect(panel.getByText('Applied · continuing', { exact: true })).toBeVisible()
@@ -921,8 +939,8 @@ Continue only the original user request that remains unresolved after this appro
       expect(appliedTruth.userMessages.at(-1)).toBe(approvalContinuation)
       expect(appliedTruth.userMessages.at(-1)).not.toContain(appliedTruth.proposal.proposalId)
       expect(appliedTruth.userMessages.at(-1)).not.toContain('{')
-      expect(JSON.stringify(requestBodies[4])).toContain('Keep the wording restrained and concise.')
-      expect(JSON.stringify(requestBodies[4])).not.toContain(
+      expect(JSON.stringify(requestBodies[5])).toContain('Keep the wording restrained and concise.')
+      expect(JSON.stringify(requestBodies[5])).not.toContain(
         'Revise the rejected proposal from the stored review feedback.'
       )
       expect(appliedTruth.proposal.payload.preview.citedSources).toHaveLength(1)
@@ -1024,7 +1042,7 @@ Continue only the original user request that remains unresolved after this appro
         agentProposalId: null
       })
 
-      expect(requestBodies).toHaveLength(8)
+      expect(requestBodies).toHaveLength(10)
       expect(JSON.stringify(requestBodies)).not.toContain('e2e-secret')
 
       await panel.getByTestId('agent-conversation-switcher').click()

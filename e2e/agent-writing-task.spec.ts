@@ -30,6 +30,13 @@ test(
           agentCall += 1
           if (agentCall === 1) {
             sendToolCall(response, {
+              name: 'activate_tool_groups',
+              args: { groups: ['writing_task'] }
+            })
+            return
+          }
+          if (agentCall === 2) {
+            sendToolCall(response, {
               name: 'create_writing_task',
               args: {
                 objective: 'Revise two manuscript sections coherently.',
@@ -41,11 +48,18 @@ test(
             })
             return
           }
-          if (agentCall === 3) {
+          if (agentCall === 4) {
+            sendToolCall(response, {
+              name: 'activate_tool_groups',
+              args: { groups: ['writing_task', 'brief'] }
+            })
+            return
+          }
+          if (agentCall === 5) {
             sendToolCall(response, { name: 'get_writing_task', args: {} })
             return
           }
-          if (agentCall === 4) {
+          if (agentCall === 6) {
             sendToolCall(response, {
               name: 'submit_brief_change',
               args: {
@@ -59,7 +73,7 @@ test(
           }
           sendCompletion(
             response,
-            agentCall === 2
+            agentCall === 3
               ? 'The durable writing task is ready with two bounded steps.'
               : 'The existing writing task resumed in the same conversation.'
           )

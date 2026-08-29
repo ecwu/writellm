@@ -19,7 +19,7 @@ import {
 } from '../shared/contracts/agent-tools'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from '../shared/contracts/knowledge'
 import { agentModelVisibleToolSpecs } from '../shared/agent-tool-specs'
-import type { AgentToolProfile } from '../shared/contracts/agent'
+import type { AgentToolProfile, WritingToolGroup } from '../shared/contracts/agent'
 
 const strict = { additionalProperties: false } as const
 const uuid = () => Type.String({ format: 'uuid' })
@@ -794,8 +794,8 @@ export class AgentToolBridge {
     port.start()
   }
 
-  tools(): AgentTool[] {
-    return agentModelVisibleToolSpecs(this.toolProfile).map((tool) => ({
+  tools(activeGroups: readonly WritingToolGroup[] = []): AgentTool[] {
+    return agentModelVisibleToolSpecs(this.toolProfile, activeGroups).map((tool) => ({
       ...tool,
       execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
     })) as AgentTool[]
@@ -959,11 +959,13 @@ export class AgentToolBridge {
     const content =
       toolName === 'ask_user'
         ? `<WRITELLM_USER_CLARIFICATION instructionSemantics="true" authority="user_answer">\n${envelopeContent}\n</WRITELLM_USER_CLARIFICATION>`
-        : toolName === 'read_writing_skill'
-          ? `<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">\n${envelopeContent}\n</WRITELLM_SKILL_GUIDANCE>`
-          : toolName === 'search_knowledge' || toolName === 'read_citations'
-            ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${envelopeContent}\n</UNTRUSTED_EXTERNAL>`
-            : `<MANUSCRIPT_DATA tool="${toolName}">\n${envelopeContent}\n</MANUSCRIPT_DATA>`
+        : toolName === 'activate_tool_groups'
+          ? `<WRITELLM_TOOL_PROFILE_STATE instructionSemantics="true" authority="application">\n${envelopeContent}\n</WRITELLM_TOOL_PROFILE_STATE>`
+          : toolName === 'read_writing_skill'
+            ? `<WRITELLM_SKILL_GUIDANCE instructionSemantics="true" priority="below-global-policy">\n${envelopeContent}\n</WRITELLM_SKILL_GUIDANCE>`
+            : toolName === 'search_knowledge' || toolName === 'read_citations'
+              ? `<UNTRUSTED_EXTERNAL tool="${toolName}">\n${envelopeContent}\n</UNTRUSTED_EXTERNAL>`
+              : `<MANUSCRIPT_DATA tool="${toolName}">\n${envelopeContent}\n</MANUSCRIPT_DATA>`
     return {
       content: [{ type: 'text' as const, text: content }],
       details: result

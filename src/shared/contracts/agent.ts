@@ -29,6 +29,24 @@ export const AGENT_RUN_PROMPT_MAX_CHARACTERS = 262_144
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
 export const agentToolProfileSchema = z.enum(['writing', 'notebook_knowledge'])
 export type AgentToolProfile = z.infer<typeof agentToolProfileSchema>
+export const writingToolGroupSchema = z.enum([
+  'review',
+  'writing_task',
+  'brief',
+  'writing_rules',
+  'outline',
+  'section',
+  'image'
+])
+export type WritingToolGroup = z.infer<typeof writingToolGroupSchema>
+export const activeWritingToolGroupsSchema = z
+  .array(writingToolGroupSchema)
+  .max(writingToolGroupSchema.options.length)
+  .superRefine((groups, context) => {
+    if (new Set(groups).size !== groups.length) {
+      context.addIssue({ code: 'custom', message: 'Active writing tool groups must be unique' })
+    }
+  })
 
 export const agentToolPreflightDiagnosticSchema = z
   .object({
@@ -176,6 +194,8 @@ export const agentRunStartSchema = z
     prompt: z.string().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
     toolProfile: agentToolProfileSchema.default('writing'),
+    activeToolGroups: activeWritingToolGroupsSchema.default([]),
+    runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
     thinkingLevel: agentThinkingLevelSchema.default('off'),
     runtimeModel: agentRuntimeModelSchema.optional(),
     maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),
@@ -264,6 +284,8 @@ export const agentModelCallAuthorizationSchema = z
     continuationId: z.uuid(),
     modelRequestId: agentModelRequestIdSchema,
     systemPrompt: z.string().min(1).max(65_536),
+    activeToolGroups: activeWritingToolGroupsSchema.optional(),
+    runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
     finalize: z.boolean().optional()
   })
   .strict()

@@ -45,6 +45,7 @@ export const COMPACTION_TOOL_POLICIES = {
   read_citations: 'citation_observation',
   read_writing_skill: 'observation',
   ask_user: 'question',
+  activate_tool_groups: 'observation',
   inspect_change: 'authoritative_read',
   check_draft: 'observation',
   list_review_issues: 'authoritative_read',

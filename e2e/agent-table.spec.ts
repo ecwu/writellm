@@ -260,6 +260,15 @@ test(
         }
         if (agentCall === 2) {
           sendToolCall(response, {
+            responseId: 'table-activate-insert',
+            toolCallId: 'table-activate-insert-tool',
+            name: 'activate_tool_groups',
+            args: { groups: ['section'] }
+          })
+          return
+        }
+        if (agentCall === 3) {
+          sendToolCall(response, {
             responseId: 'table-insert',
             toolCallId: 'table-insert-tool',
             name: 'submit_section_change',
@@ -292,7 +301,7 @@ test(
           })
           return
         }
-        if (agentCall === 3 || agentCall === 5) {
+        if (agentCall === 4 || agentCall === 7) {
           sendToolCall(response, {
             responseId: `table-read-${agentCall}`,
             toolCallId: `table-read-tool-${agentCall}`,
@@ -301,7 +310,16 @@ test(
           })
           return
         }
-        if (agentCall === 4) {
+        if (agentCall === 5 || agentCall === 8) {
+          sendToolCall(response, {
+            responseId: `table-activate-${agentCall}`,
+            toolCallId: `table-activate-tool-${agentCall}`,
+            name: 'activate_tool_groups',
+            args: { groups: ['section'] }
+          })
+          return
+        }
+        if (agentCall === 6) {
           sendToolCall(response, {
             responseId: 'table-edit',
             toolCallId: 'table-edit-tool',
@@ -327,7 +345,7 @@ test(
           })
           return
         }
-        if (agentCall === 6) {
+        if (agentCall === 9) {
           sendToolCall(response, {
             responseId: 'table-stale-edit',
             toolCallId: 'table-stale-edit-tool',
@@ -534,7 +552,7 @@ test(
       expect(pdfText).toContain('manual value')
       expect(pdfText).toContain('12 ms')
       await pdfLoadingTask.destroy()
-      expect(agentCall).toBe(6)
+      expect(agentCall).toBe(9)
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>

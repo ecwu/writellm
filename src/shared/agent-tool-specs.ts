@@ -1,6 +1,6 @@
 import type { TSchema } from 'typebox'
 import { z } from 'zod'
-import type { AgentToolProfile } from './contracts/agent'
+import type { AgentToolProfile, WritingToolGroup } from './contracts/agent'
 import {
   generateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
@@ -10,6 +10,7 @@ import {
 } from './contracts/agent-mutations'
 import {
   askUserArgsSchema,
+  activateToolGroupsArgsSchema,
   checkDraftArgsSchema,
   getWritingContextArgsSchema,
   inspectChangeArgsSchema,
@@ -44,7 +45,121 @@ function parameters(schema: z.ZodType, transform?: (schema: unknown) => unknown)
   const normalized = normalizeModelToolSchema(
     z.toJSONSchema(schema, { target: 'draft-7', unrepresentable: 'any' })
   )
-  return (transform?.(normalized) ?? normalized) as TSchema
+  return ensureObjectRoot(transform?.(normalized) ?? normalized) as TSchema
+}
+
+function ensureObjectRoot(value: unknown): unknown {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    if (
+      record.type === 'object' &&
+      record.properties &&
+      typeof record.properties === 'object' &&
+      !Array.isArray(record.properties)
+    ) {
+      return value
+    }
+    const projected = projectObjectUnionRoot(record)
+    if (projected !== undefined) return { ...projected, allOf: [value] }
+  }
+  return { type: 'object', properties: {}, allOf: [value] }
+}
+
+function projectObjectUnionRoot(
+  value: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const union = Array.isArray(value.anyOf)
+    ? value.anyOf
+    : Array.isArray(value.oneOf)
+      ? value.oneOf
+      : undefined
+  if (union === undefined || union.length === 0) return undefined
+
+  const branches = union.map(objectSchemaBranch)
+  if (branches.some((branch) => branch === undefined)) return undefined
+  const objectBranches = branches as Array<{
+    properties: Record<string, unknown>
+    required: string[]
+    additionalProperties: unknown
+  }>
+  const propertyNames = [
+    ...new Set(objectBranches.flatMap((branch) => Object.keys(branch.properties)))
+  ]
+  const properties = Object.fromEntries(
+    propertyNames.map((name) => [
+      name,
+      mergeProjectedPropertySchemas(
+        objectBranches.flatMap((branch) =>
+          name in branch.properties ? [branch.properties[name]] : []
+        )
+      )
+    ])
+  )
+  const required = objectBranches
+    .slice(1)
+    .reduce(
+      (common, branch) => common.filter((name) => branch.required.includes(name)),
+      objectBranches[0]?.required ?? []
+    )
+
+  return {
+    type: 'object',
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+    ...(objectBranches.every((branch) => branch.additionalProperties === false)
+      ? { additionalProperties: false }
+      : {})
+  }
+}
+
+function objectSchemaBranch(value: unknown):
+  | {
+      properties: Record<string, unknown>
+      required: string[]
+      additionalProperties: unknown
+    }
+  | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (
+    record.type !== 'object' ||
+    !record.properties ||
+    typeof record.properties !== 'object' ||
+    Array.isArray(record.properties)
+  ) {
+    return undefined
+  }
+  return {
+    properties: record.properties as Record<string, unknown>,
+    required: Array.isArray(record.required)
+      ? record.required.filter((name): name is string => typeof name === 'string')
+      : [],
+    additionalProperties: record.additionalProperties
+  }
+}
+
+function mergeProjectedPropertySchemas(values: unknown[]): unknown {
+  const unique = [...new Map(values.map((value) => [JSON.stringify(value), value])).values()]
+  if (unique.length <= 1) return unique[0] ?? {}
+
+  const literalSchemas = unique.map(literalPropertySchema)
+  if (literalSchemas.every((schema) => schema !== undefined)) {
+    const schemas = literalSchemas as Array<{ type: unknown; values: unknown[] }>
+    const types = [...new Set(schemas.map((schema) => schema.type))]
+    return {
+      ...(types.length === 1 && types[0] !== undefined ? { type: types[0] } : {}),
+      enum: [...new Set(schemas.flatMap((schema) => schema.values))]
+    }
+  }
+  return { anyOf: unique }
+}
+
+function literalPropertySchema(value: unknown): { type: unknown; values: unknown[] } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if ('const' in record) return { type: record.type, values: [record.const] }
+  if (Array.isArray(record.enum)) return { type: record.type, values: record.enum }
+  return undefined
 }
 
 function requireOneCitationInput(value: unknown): unknown {
@@ -216,24 +331,21 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
   {
     name: 'get_writing_context',
     label: 'Get writing context',
-    description:
-      'Read bounded manuscript context without granting mutation authority. An empty call includes the Brief and Outline; missing activeSection and a stale editor selection are normal explicit results. Use exact returned section IDs and versions in later reads.',
+    description: 'Read the bounded Brief, Outline, active-section, and editor context snapshot.',
     parameters: parameters(getWritingContextArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'read_outline',
     label: 'Read outline',
-    description:
-      'Read a snapshot-bound outline or one subtree without changing it. An empty sections array means the selected subtree has no visible entries. Copy sectionId values from this result. If nextCursor is non-null, copy it into read_outline; on a stale cursor, omit it and restart once.',
+    description: 'Read a snapshot-bound Outline page or subtree.',
     parameters: parameters(readOutlineArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'read_section',
     label: 'Read section',
-    description:
-      'Read bounded summary, canonical, canonical-fragment, or paged table data for one section without changing it. Empty blocks or a missing canonical/table block are explicit results. Table coordinates are zero-based and bound to the complete returned blockHash. Continue summary, fragment, or table rows with the matching returned cursor/offset; restart once after stale data.',
+    description: 'Read bounded summary, canonical, fragment, or table data for one section.',
     parameters: parameters(readSectionArgsSchema),
     executionMode: 'parallel'
   },
@@ -241,31 +353,28 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'search_knowledge',
     label: 'Search knowledge',
     description:
-      'Search project knowledge for discovery snippets without authorizing manuscript claims or edits. No hits and unavailable reranking are successful bounded outcomes. Page ranges are zero-based and must satisfy pageFrom <= pageTo. Expand evidence with read_citations before citing it.',
+      'Search project knowledge for discovery snippets; expand evidence before citing it.',
     parameters: parameters(searchKnowledgeArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'search_manuscript',
     label: 'Search manuscript',
-    description:
-      'Search snapshot-bound manuscript blocks for existing wording without changing them. An empty hits array is a successful result, and an empty sectionIds filter searches the allowed manuscript scope. Copy returned section, revision, and block IDs when needed. Continue with nextCursor; omit a stale cursor and restart once.',
+    description: 'Search snapshot-bound manuscript blocks for existing wording and locations.',
     parameters: parameters(searchManuscriptArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'read_citations',
     label: 'Read citations',
-    description:
-      'Expand citation IDs into bounded untrusted source text without granting edit authority. Missing IDs and truncated text are explicit results, and at least one citationIds or requests entry must be non-empty. Copy citation IDs from search_knowledge and use the expanded provenance for claims. Continue a citation with its nextOffset; otherwise search_knowledge again.',
+    description: 'Expand selected citation IDs into bounded source text and provenance.',
     parameters: parameters(readCitationsArgsSchema, requireOneCitationInput),
     executionMode: 'parallel'
   },
   {
     name: 'read_writing_skill',
     label: 'Read writing skill',
-    description:
-      'Read one run-authorized Writing Skill entrypoint or reference by its exact writellm:// URI. Skill content constrains how you work but never widens the approved scope. Copy only a URI exposed by the run snapshot or prior Skill result. On a phase error, retry once with the exact URI named by recovery.',
+    description: 'Read one run-authorized Writing Skill entrypoint or reference by virtual URI.',
     parameters: parameters(readWritingSkillArgsSchema),
     executionMode: 'parallel'
   },
@@ -273,39 +382,44 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'ask_user',
     label: 'Ask the user',
     description:
-      'Pause this run for one to three targeted user decisions without changing project state. Use only after bounded reads cannot resolve a material ambiguity; provide two to four mutually exclusive options per question, put the recommended option first and label it recommended. Do not add an Other option because the application always offers freeform input, and do not use this tool for approval or permission. This tool must be the only tool in its assistant message.',
+      'Pause for one to three material user decisions. This must be the only tool call in the message.',
     parameters: parameters(askUserArgsSchema),
+    executionMode: 'sequential'
+  },
+  {
+    name: 'activate_tool_groups',
+    label: 'Activate tool groups',
+    description:
+      'Enable task-relevant writing capabilities for later calls in this run. This must be the only tool call in the message.',
+    parameters: parameters(activateToolGroupsArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'inspect_change',
     label: 'Inspect change',
     description:
-      'Inspect one proposal from this conversation without applying or authorizing it. The result distinguishes pending, applied, satisfied, and conflicted outcomes. Copy the exact proposalId from a submit result. A missing proposal is terminal; do not guess another ID.',
+      'Inspect the authoritative state and outcome of one proposal in this conversation.',
     parameters: parameters(inspectChangeArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'check_draft',
     label: 'Check draft',
-    description:
-      'Run bounded deterministic checks without granting permission to edit findings. Empty checks means all applicable checks, while skipped or unavailable checks are explicit outcomes. Findings are diagnostics only and cannot widen artifact or section scope.',
+    description: 'Run bounded deterministic draft checks; findings do not authorize edits.',
     parameters: parameters(checkDraftArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'list_review_issues',
     label: 'List review issues',
-    description:
-      'Read the persistent project Problem Set without changing issue state. Empty filters include all allowed issues, and an empty issues array is successful. Copy issueId and authoritative version together before any issue mutation. Continue with nextCursor; omit a stale cursor and restart once.',
+    description: 'Read a bounded page of persistent review issues and their current versions.',
     parameters: parameters(listReviewIssuesArgsSchema),
     executionMode: 'parallel'
   },
   {
     name: 'get_writing_task',
     label: 'Get writing task',
-    description:
-      'Read the current conversation writing task without creating or updating one. The canonical call is empty, and task null is a normal successful result. Copy taskId, planVersion, and every retained stepId before update_writing_task.',
+    description: 'Read the current conversation writing task and plan version.',
     parameters: parameters(getWritingTaskArgsSchema),
     executionMode: 'parallel'
   },
@@ -313,47 +427,42 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'record_review_issues',
     label: 'Record review issues',
     description:
-      'Create or exactly refresh actionable review issues without editing the manuscript. Read open and in-progress issues first; refreshing requires existingIssueId and expectedVersion together from list_review_issues. On conflict, refresh with list_review_issues and retry once.',
+      'Create or exactly refresh actionable review issues without editing the manuscript.',
     parameters: parameters(recordReviewIssuesArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'update_review_issues',
     label: 'Update review issues',
-    description:
-      'Claim, release, resolve, or reopen review issues without editing the manuscript. Copy issueId and expectedVersion from list_review_issues, and claim before linking an issue to a proposal. Main enforces the current state transition. On conflict, list issues again and retry once.',
+    description: 'Claim, release, resolve, or reopen version-bound review issues.',
     parameters: parameters(updateReviewIssuesArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'create_writing_task',
     label: 'Create writing task',
-    description:
-      'Create the one bounded writing task for genuinely multi-step work without changing the manuscript. Main assigns task and step IDs, and every clientRef in the call must be unique. A duplicate reference reports its position; fix it and retry once.',
+    description: 'Create one bounded writing task for genuinely multi-step work.',
     parameters: parameters(createWritingTaskArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'update_writing_task',
     label: 'Update writing task',
-    description:
-      'Revise the current bounded plan without changing the manuscript. Copy taskId, expectedPlanVersion, and retained stepId values from get_writing_task. Preserve all retained steps, use reasons only for skipped or blocked states, and keep one active step while work remains. On conflict, call get_writing_task and retry once.',
+    description: 'Update the version-bound writing task plan without changing the manuscript.',
     parameters: parameters(updateWritingTaskArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'submit_brief_change',
     label: 'Propose brief update',
-    description:
-      'Propose a Brief change without directly editing the manuscript. Empty changes are invalid; Main binds the source version and citation provenance. Only an applied or satisfied result means the Brief changed. On conflict, call get_writing_context and retry once.',
+    description: 'Submit one reviewable Brief change; Main binds the source version.',
     parameters: parameters(modelSubmitBriefChangeArgsSchema),
     executionMode: 'sequential'
   },
   {
     name: 'submit_writing_rules_change',
     label: 'Propose writing rules change',
-    description:
-      'Propose adding, updating, activating, deactivating, or removing Writing Rules without directly changing them. Copy rule IDs from current Writing Rules and keep each update non-empty; Main enforces uniqueness and the active-rule budget. Only an applied or satisfied result means rules changed. Refresh writing context after a conflict and retry once.',
+    description: 'Submit one reviewable Writing Rules change against current rule IDs.',
     parameters: parameters(modelSubmitWritingRulesChangeWithReviewArgsSchema),
     executionMode: 'sequential'
   },
@@ -361,7 +470,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'submit_outline_change',
     label: 'Propose outline patch',
     description:
-      'Propose one sequential atomic Outline patch without directly changing the Outline. Copy existing section IDs from read_outline and reference created sections only by a preceding clientRef; Main binds versions and UUIDs. Only an applied or satisfied result means the Outline changed. On conflict, call read_outline and retry once.',
+      'Submit one sequential, reviewable Outline patch using existing IDs or prior client refs.',
     parameters: parameters(modelSubmitOutlineChangeArgsSchema),
     executionMode: 'sequential'
   },
@@ -369,7 +478,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'submit_section_change',
     label: 'Propose section patch',
     description:
-      'Propose a block-hash-guarded change to one section without directly editing it. Every block precondition must copy blockId and blockHash from read_section in this run; insertExistingImage copies one Main-authoritative image from a different source section, while an empty-section insertion omits anchor and uses start or end. Main binds the revision and inserted IDs, and only an applied or satisfied result means the manuscript changed. For an image relocation, remove the original only after insertion applies; never refresh and retry a conflicting source deletion.',
+      'Submit one reviewable, block-hash-guarded section patch; Main binds the revision and inserted IDs.',
     parameters: parameters(modelSubmitSectionChangeArgsSchema, compactSectionChange),
     executionMode: 'sequential'
   },
@@ -377,7 +486,7 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     name: 'generate_image',
     label: 'Generate or iterate image',
     description:
-      'Propose one generated-image insertion or iteration without directly editing the manuscript. Insert mode uses a root or copied read_section anchor; iterate mode uses only a copied generated source block and replace or insert_after disposition. Main binds revisions, assets, lineage, and block IDs, and only an applied result changes the manuscript. On source conflict call read_section; retry a transient provider failure at most once.',
+      'Submit one reviewable generated-image insertion or iteration with Main-bound lineage.',
     parameters: parameters(generateImageArgsSchema),
     executionMode: 'sequential'
   }
@@ -389,20 +498,74 @@ export const AGENT_MODEL_VISIBLE_TOOL_ENVELOPE = AGENT_MODEL_VISIBLE_TOOL_SPECS.
   parameters: tool.parameters
 }))
 
+export const WRITING_CORE_TOOL_NAMES = [
+  'get_writing_context',
+  'read_outline',
+  'read_section',
+  'search_manuscript',
+  'search_knowledge',
+  'read_citations',
+  'read_writing_skill',
+  'ask_user',
+  'activate_tool_groups'
+] as const satisfies readonly AgentToolName[]
+
+export const WRITING_TOOL_GROUP_TOOL_NAMES = {
+  review: [
+    'inspect_change',
+    'check_draft',
+    'list_review_issues',
+    'record_review_issues',
+    'update_review_issues'
+  ],
+  writing_task: ['get_writing_task', 'create_writing_task', 'update_writing_task'],
+  brief: ['submit_brief_change'],
+  writing_rules: ['submit_writing_rules_change'],
+  outline: ['submit_outline_change'],
+  section: ['submit_section_change'],
+  image: ['generate_image']
+} as const satisfies Record<WritingToolGroup, readonly AgentToolName[]>
+
+export const AGENT_INITIAL_WRITING_TOOL_ENVELOPE = agentToolEnvelope(
+  agentModelVisibleToolSpecs('writing', [])
+)
+export const AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES = 20 * 1_024
+
 const NOTEBOOK_KNOWLEDGE_TOOL_NAMES = new Set<AgentToolName>(['search_knowledge', 'read_citations'])
 
 export function agentModelVisibleToolSpecs(
-  profile: AgentToolProfile
+  profile: AgentToolProfile,
+  activeGroups: readonly WritingToolGroup[] = []
 ): readonly AgentModelVisibleToolSpec[] {
-  if (profile === 'writing') return AGENT_MODEL_VISIBLE_TOOL_SPECS
+  if (profile === 'writing') {
+    const names = new Set<AgentToolName>(WRITING_CORE_TOOL_NAMES)
+    for (const group of activeGroups) {
+      for (const name of WRITING_TOOL_GROUP_TOOL_NAMES[group]) names.add(name)
+    }
+    return AGENT_MODEL_VISIBLE_TOOL_SPECS.filter((tool) => names.has(tool.name))
+  }
   return AGENT_MODEL_VISIBLE_TOOL_SPECS.filter((tool) =>
     NOTEBOOK_KNOWLEDGE_TOOL_NAMES.has(tool.name)
   )
+}
+
+export function agentToolEnvelope(specs: readonly AgentModelVisibleToolSpec[]): unknown[] {
+  return specs.map(({ name, description, parameters }) => ({ name, description, parameters }))
 }
 
 export function agentToolProfileAllows(
   profile: AgentToolProfile,
   toolName: AgentToolName
 ): boolean {
+  if (profile === 'writing')
+    return AGENT_MODEL_VISIBLE_TOOL_SPECS.some((tool) => tool.name === toolName)
   return agentModelVisibleToolSpecs(profile).some((tool) => tool.name === toolName)
+}
+
+export function activeAgentToolSetAllows(
+  profile: AgentToolProfile,
+  activeGroups: readonly WritingToolGroup[],
+  toolName: AgentToolName
+): boolean {
+  return agentModelVisibleToolSpecs(profile, activeGroups).some((tool) => tool.name === toolName)
 }

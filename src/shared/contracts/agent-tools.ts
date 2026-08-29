@@ -12,7 +12,13 @@ import {
 } from './agent-mutations'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from './knowledge'
 import { projectSessionIdSchema } from './projects'
-import { agentModelRequestIdSchema, agentRunIdSchema, agentSessionIdSchema } from './agent'
+import {
+  activeWritingToolGroupsSchema,
+  agentModelRequestIdSchema,
+  agentRunIdSchema,
+  agentSessionIdSchema,
+  writingToolGroupSchema
+} from './agent'
 import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
 import { blockNoteInlineContentSchema } from './manuscript'
 import {
@@ -53,7 +59,8 @@ export const toolResultMetaSchema = z
       z.literal(8),
       z.literal(9),
       z.literal(10),
-      z.literal(11)
+      z.literal(11),
+      z.literal(12)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -80,6 +87,7 @@ export const agentToolNameSchema = z.enum([
   'read_citations',
   'read_writing_skill',
   'ask_user',
+  'activate_tool_groups',
   'inspect_change',
   'check_draft',
   'list_review_issues',
@@ -115,12 +123,22 @@ export const AGENT_TOOL_DESCRIPTORS = {
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   ask_user: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 12,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
     lockScope: 'user',
     deadlineMs: 0,
+    supportsProgress: false,
+    maxOutputBytes: AGENT_TOOL_RESULT_BYTES
+  },
+  activate_tool_groups: {
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 12,
+    effects: ['read'],
+    executionMode: 'sequential',
+    consistency: 'snapshot',
+    lockScope: 'tool_profile',
+    deadlineMs: 5_000,
     supportsProgress: false,
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   },
@@ -137,7 +155,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 12,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -149,7 +167,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -162,6 +180,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
       | 'proposal'
       | 'skill'
       | 'user'
+      | 'tool_profile'
       | 'review'
       | 'task'
     deadlineMs: number
@@ -187,7 +206,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 12,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -201,7 +220,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 11,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 12,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -248,6 +267,20 @@ export const askUserArgsSchema = strictObject({
       message: 'Question IDs must be unique'
     })
   }
+})
+
+export const activateToolGroupsArgsSchema = strictObject({
+  groups: z.array(writingToolGroupSchema).min(1).max(3)
+}).superRefine((args, context) => {
+  if (new Set(args.groups).size !== args.groups.length) {
+    context.addIssue({ code: 'custom', path: ['groups'], message: 'Tool groups must be unique' })
+  }
+})
+
+export const activateToolGroupsResultSchema = strictObject({
+  activated: activeWritingToolGroupsSchema,
+  alreadyActive: activeWritingToolGroupsSchema,
+  activeGroups: activeWritingToolGroupsSchema
 })
 
 export const askUserAnswerSchema = z.discriminatedUnion('kind', [
@@ -788,6 +821,11 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
+      toolName: z.literal('activate_tool_groups'),
+      args: activateToolGroupsArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
       toolName: z.literal('inspect_change'),
       args: inspectChangeArgsSchema
     }),
@@ -913,6 +951,12 @@ const successResponses = z.discriminatedUnion('toolName', [
     ok: z.literal(true),
     toolName: z.literal('ask_user'),
     data: askUserResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('activate_tool_groups'),
+    data: activateToolGroupsResultSchema
   }),
   strictObject({
     ...toolResponseBase,
@@ -1098,6 +1142,8 @@ export type AgentToolResponse = z.infer<typeof agentToolResponseSchema>
 export type AskUserArgs = z.infer<typeof askUserArgsSchema>
 export type AskUserAnswer = z.infer<typeof askUserAnswerSchema>
 export type AskUserResult = z.infer<typeof askUserResultSchema>
+export type ActivateToolGroupsArgs = z.infer<typeof activateToolGroupsArgsSchema>
+export type ActivateToolGroupsResult = z.infer<typeof activateToolGroupsResultSchema>
 export type GetWritingContextArgs = z.infer<typeof getWritingContextArgsSchema>
 export type ReadSectionArgs = z.infer<typeof readSectionArgsSchema>
 export type ReadOutlineArgs = z.infer<typeof readOutlineArgsSchema>

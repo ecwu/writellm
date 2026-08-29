@@ -202,6 +202,16 @@ test(
       const secondResponse = pendingAgentResponses[1]
       if (secondResponse === undefined) throw new Error('Second Agent response was not pending')
       sendToolCall(secondResponse, {
+        responseId: 'parallel-background-activation',
+        toolCallId: 'parallel-background-activation-tool',
+        name: 'activate_tool_groups',
+        args: { groups: ['section'] }
+      })
+      await expect.poll(() => pendingAgentResponses.length).toBe(3)
+      const secondContinuation = pendingAgentResponses[2]
+      if (secondContinuation === undefined)
+        throw new Error('Second Agent continuation was not pending')
+      sendToolCall(secondContinuation, {
         responseId: 'parallel-background-proposal',
         toolCallId: 'parallel-background-tool',
         name: 'submit_section_change',
@@ -258,10 +268,10 @@ test(
       const firstResponse = pendingAgentResponses[0]
       if (firstResponse === undefined) throw new Error('First Agent response was not pending')
       sendCompletion(firstResponse, 'Initial work completed.', 'parallel-first-response')
-      await expect.poll(() => pendingAgentResponses.length).toBe(3)
-      expect(pendingAgentRequestBodies[2]).toContain('Keep this queued.')
-      expect(pendingAgentRequestBodies[2]).not.toContain('Delete this queued message.')
-      const steeredResponse = pendingAgentResponses[2]
+      await expect.poll(() => pendingAgentResponses.length).toBe(4)
+      expect(pendingAgentRequestBodies[3]).toContain('Keep this queued.')
+      expect(pendingAgentRequestBodies[3]).not.toContain('Delete this queued message.')
+      const steeredResponse = pendingAgentResponses[3]
       if (steeredResponse === undefined) throw new Error('Steered Agent response was not pending')
       sendCompletion(steeredResponse, 'Steered work completed.', 'parallel-steered-response')
       await expect(panel.getByTestId('agent-status')).toContainText('Ready')

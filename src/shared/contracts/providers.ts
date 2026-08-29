@@ -94,6 +94,13 @@ export const modelsDevProviderLogoIdSchema = z
   .refine(isModelsDevProviderLogoId, 'Unknown packaged Provider logo')
 
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+const httpIpv4FirstOctets = new Set(['10', '100', '127', '192'])
+
+function supportsProviderHttp(hostname: string): boolean {
+  if (loopbackHosts.has(hostname)) return true
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return false
+  return httpIpv4FirstOctets.has(hostname.split('.')[0] ?? '')
+}
 
 export const GOOGLE_GEMINI_IMAGE_MODELS = [
   'gemini-3.1-flash-lite-image',
@@ -163,7 +170,7 @@ export const providerBaseUrlSchema = z
   .refine((value) => {
     const url = new URL(value)
     const safeProtocol =
-      url.protocol === 'https:' || (url.protocol === 'http:' && loopbackHosts.has(url.hostname))
+      url.protocol === 'https:' || (url.protocol === 'http:' && supportsProviderHttp(url.hostname))
     return (
       safeProtocol &&
       url.username === '' &&
@@ -171,7 +178,7 @@ export const providerBaseUrlSchema = z
       url.search === '' &&
       url.hash === ''
     )
-  }, 'Use HTTPS, or HTTP only for a loopback endpoint')
+  }, 'Use HTTPS, or HTTP for localhost and 10.*, 100.*, 127.*, or 192.* IPv4 endpoints')
 
 export const agentProviderPresetSummarySchema = z.object({
   presetId: agentPresetIdSchema,

@@ -104,6 +104,45 @@ function sendToolCall(
   ])
 }
 
+function sendActivation(response: ServerResponse, index: 1 | 2): void {
+  sendSse(response, [
+    {
+      id: `refresh-e2e-activation-${index}`,
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'refresh-e2e-model',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: [
+              {
+                index: 0,
+                id: `refresh-e2e-activation-tool-${index}`,
+                type: 'function',
+                function: {
+                  name: 'activate_tool_groups',
+                  arguments: JSON.stringify({ groups: ['section'] })
+                }
+              }
+            ]
+          },
+          finish_reason: null
+        }
+      ]
+    },
+    {
+      id: `refresh-e2e-activation-${index}`,
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'refresh-e2e-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+    }
+  ])
+}
+
 function sendCompletion(response: ServerResponse, text: string): void {
   sendSse(response, [
     {
@@ -166,8 +205,12 @@ test(
           return
         }
         agentCall += 1
-        if (agentCall === 1 || agentCall === 2) {
-          const index = agentCall
+        if (agentCall === 1 || agentCall === 3) {
+          sendActivation(response, agentCall === 1 ? 1 : 2)
+          return
+        }
+        if (agentCall === 2 || agentCall === 4) {
+          const index = agentCall === 2 ? 1 : 2
           sendToolCall(response, {
             responseId: `refresh-e2e-proposal-${index}`,
             toolCallId: `refresh-e2e-tool-${index}`,
@@ -410,7 +453,7 @@ test(
       ).toBe('applied')
       expect(JSON.stringify(finalTruth.content)).toContain('First update applied')
       expect(JSON.stringify(finalTruth.content)).toContain('Second update applied')
-      expect(agentCall).toBe(2)
+      expect(agentCall).toBe(4)
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>

@@ -1,9 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 23 Checkpoint 74 Agent table authoring and publication is complete under ADR 066.
-The newest user-authorized local candidate is `v0.2026.8.26`; Checkpoint 26.9 remains paused and
-all GitHub Actions workflows are disabled.
-Recorded: 2026-08-28
+Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
+ADR 067. The user-authorized `v0.2026.8.27` candidate is being prepared with the restored tag-only
+four-platform GitHub Actions build definition. Hosted evidence is still pending.
+Recorded: 2026-08-29
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -12,6 +12,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
+  now expose their complete property vocabulary and common required fields at the object root while
+  retaining exact branch constraints under `allOf`; this fixes the schema shape that led a real LM
+  Studio run to generate 370 empty `read_section` calls.
+- The current dirty macOS arm64 maintenance build passed the complete no-identity package gate and
+  produced a verified App, DMG, and ZIP under `dist/macos-arm64`.
+- Provider Base URLs now permit explicit HTTP access to localhost and numeric IPv4 endpoints whose
+  first octet is `10`, `100`, `127`, or `192`; HTTPS remains required for all other remote hosts.
+- Checkpoint 75 is complete. It adds Protocol v12 short layered descriptions, explicit
+  run-local writing capability groups, exact active-envelope budgeting, and provider-neutral
+  object-root tool schemas without changing outer profile authority or persistence.
 - Checkpoint 74 is complete. It adds Protocol v11 hash-bound table inspection and typed table
   proposals, bounded review presentation, native header editing, and portable Markdown/PDF/LaTeX
   projections without changing section schema v5 or adding a dependency, migration, worker, or
@@ -184,6 +195,33 @@ scenarios, and 33/33 packaged E2E scenarios, then produced
 candidate, commit, tag, push, hosted CI run, Apple Developer ID signature, notarization, release,
 promotion, or publication.
 
+Checkpoint 75 passed 153 focused shared-contract, Worker, Main, and provider tests plus the
+two-test prompt-budget baseline; `check:fast`; the complete Electron-hosted gate (201 passing files
+/ 1,158 passing tests with three intentional benchmark skips) and production build; and the fresh
+47/47 Real-Electron manifest with no flaky, skipped, or failed scenario. Verification covered the
+nine-tool core, all seven demand groups, Worker/Main double authorization, run-local reset and
+monotonic activation, exact active-envelope budgets, capacity rejection, description and envelope
+guards, and strict object-root OpenAI-compatible parameters including union schemas. No dependency,
+migration, UI mode, package/release action, commit, tag, push, hosted CI, signing, notarization,
+promotion, or publication ran.
+
+The separately authorized Checkpoint 75 local macOS arm64 package build passed from the current
+dirty worktree. The no-identity gate refreshed and verified the intentionally changed Agent
+recovery-source digest, verified all 27 recovery cases from 25 sources, Electron 43.4.1 / ABI 148,
+arm64 native modules, 53,287 ASAR entries, all 12 packaged smoke scenarios, and 34/34 packaged E2E
+scenarios. It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` plus the local
+`WriteLLM-0.2026.8.26-arm64.dmg` and ZIP. No candidate, commit, tag, push, hosted CI, Apple Developer
+ID signing, notarization, release, promotion, or publication ran.
+
+The Checkpoint 75 LM Studio compatibility maintenance passed 44 focused schema, Worker, session,
+and budget tests; `check:fast`; the complete Electron-hosted gate (201 passing files / 1,160
+passing tests with three intentional benchmark skips) and production build; and the fresh 47/47
+Real-Electron manifest with no flaky, skipped, or failed scenario. The final no-identity macOS
+arm64 package gate verified all 27 recovery cases from 25 sources, Electron 43.4.1 / ABI 148,
+arm64 native modules, 53,287 ASAR entries, all 12 packaged smoke scenarios, and 34/34 packaged E2E
+scenarios. It produced the trial App, DMG, and ZIP under `dist/macos-arm64`. No commit, tag, push,
+hosted CI, Apple Developer ID signing, notarization, release, promotion, or publication ran.
+
 Checkpoint 70 passed 44 focused shared-contract, Worker, Main, IPC, prompt, and Notebook service
 tests; `check:fast`; the complete Electron-hosted gate (200 passing files / 1123 passing tests with
 three intentional benchmark skips) and production build; and the fresh 46/46 Real-Electron
@@ -247,11 +285,16 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
+Checkpoint 75 Agent tool layering, demand profiles, and the authorized LM Studio union-schema
+compatibility maintenance are complete under ADR 067. No further Checkpoint 75 implementation is
+authorized. A user-visible profile selector, classifier request, durable activation preference,
+provider-specific fork, database migration, and release work remain outside this checkpoint.
+
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
-Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.26` source
-commit, annotated tag, and push of `main` plus the tag are the active delivery action. Hosted CI,
-Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
-remain unauthorized.
+Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.27` source
+commit, annotated tag, and push of `main` plus the tag are the active delivery action. The pushed
+tag may run the unsigned four-platform CI matrix. Apple Developer ID signing, notarization, GitHub
+Release creation, promotion, and publication remain unauthorized.
 
 Checkpoint 73 Agent sidebar focus hierarchy is complete under ADR 065. No further Checkpoint 73
 implementation is authorized. Migrations, IPC, Agent protocol or tool changes, dependency
@@ -264,22 +307,27 @@ BlockNote native Diagram, BlockNote XL publication,
 ODT/email export, other new IPC or Agent tools, signing, notarization, and release work remain
 outside the accepted checkpoint.
 
-The `v0.2026.8.25` candidate is the previous Checkpoint 71 baseline. The active candidate is
-`v0.2026.8.26` for the completed Checkpoints 73–74 snapshot. Hosted CI, Apple Developer ID
-signing, notarization, GitHub Release creation, promotion, and publication remain unauthorized.
+The `v0.2026.8.26` candidate is the previous Checkpoints 73–74 baseline. The active candidate is
+`v0.2026.8.27` for the completed Checkpoint 75 and CI-restoration snapshot. Tag-only unsigned
+hosted CI is authorized; Apple Developer ID signing, notarization, GitHub Release creation,
+promotion, and publication remain unauthorized.
 
-## Paused delivery gate
+## Active delivery gate
 
-Checkpoint 26.9 remains paused. Its remaining host-install and dry-run promotion evidence is
-recorded in
+Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabled CI definition
+accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
+and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
+branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
+remains disabled, and the hosted matrix has not yet run from this local change. Remaining evidence
+is recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
-No hosted CI, Apple Developer ID signing, notarization, push, GitHub Release creation, release
-promotion, or publication may resume without fresh explicit user approval.
+Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
+publication remain outside the authorization.
 
 ## Completed baseline
 
 - Phases 0–9 and Checkpoints 23M/23V are complete.
-- Phase 10 Checkpoints 24–26.8S are complete; only Checkpoint 26.9 remains paused.
+- Phase 10 Checkpoints 24–26.8S are complete; Checkpoint 26.9 is in progress.
 - Checkpoints 27–28.x are complete under ADRs 012–020.
 - Phase 11 is complete under ADRs 021–037.
 - Phase 12 is implemented and verified through Checkpoint 62 under ADRs 038–044 and 046–055.
@@ -308,5 +356,5 @@ transitions and local candidate chronology are in
 - Realtime collaboration, Yjs, cloud sync, and alternative vector backends.
 - DOCX and other non-LaTeX manuscript import formats.
 - True image editing and provider-agnostic image plugins.
-- Auto-updater, additional distribution targets, hosted CI restoration, signing, notarization,
-  release promotion, and publication.
+- Auto-updater, additional distribution targets, signing, notarization, release promotion, and
+  publication.

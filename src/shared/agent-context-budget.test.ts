@@ -7,11 +7,13 @@ import {
   AgentToolBatchContextExhaustedError,
   agentMessageBudget,
   agentOutputLimit,
+  agentRuntimeMessageBudget,
   boundAgentContextByTokens,
   contextWouldTruncate,
   estimateAgentTokens,
   groupAgentTurns
 } from './agent-context-budget'
+import { agentModelVisibleToolSpecs, agentToolEnvelope } from './agent-tool-specs'
 
 const user = (content: string, timestamp: number): AgentMessage => ({
   role: 'user',
@@ -74,6 +76,27 @@ describe('Agent token context budget', () => {
     expect(estimateAgentTokens('abcd')).toBe(1)
     expect(estimateAgentTokens('写作助手')).toBe(4)
     expect(estimateAgentTokens('🙂')).toBe(2)
+  })
+
+  it('gives message history the space released by inactive writing tool groups', () => {
+    const limits = {
+      contextWindowTokens: 32_768,
+      inputLimitTokens: null,
+      outputLimitTokens: 4_096,
+      source: 'manual_override' as const,
+      catalogModelKey: null,
+      resolvedAt: null
+    }
+    const budget = (groups: Parameters<typeof agentModelVisibleToolSpecs>[1]) =>
+      agentRuntimeMessageBudget({
+        maxOutputTokens: 4_096,
+        limits,
+        systemPrompt: 'Write safely.',
+        advertisedTools: agentToolEnvelope(agentModelVisibleToolSpecs('writing', groups))
+      })
+    expect(budget([])).toBeGreaterThan(
+      budget(['review', 'writing_task', 'brief', 'writing_rules', 'outline', 'section', 'image'])
+    )
   })
 
   it('retains the current request and newest complete turn while omitting older completed turns', () => {
