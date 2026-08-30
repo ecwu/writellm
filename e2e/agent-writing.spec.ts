@@ -687,14 +687,23 @@ test(
           animations: 'disabled'
         })
       }
-      await agentMessage.press('Enter')
+      const sectionChip = panel
+        .getByTestId('agent-composer-context-chips')
+        .getByRole('button', { name: 'This section', exact: true })
+      await expect(async () => {
+        if (!(await sectionChip.isVisible())) {
+          if (!(await sectionOption.isVisible())) {
+            await agentMessage.fill('')
+            await agentMessage.fill('/section')
+            await expect(sectionOption).toBeVisible({ timeout: 2_000 })
+          }
+          await sectionOption.click()
+        }
+        await expect(sectionChip).toBeEnabled({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
       await expect(slashMenu).not.toBeVisible()
       await expect(agentMessage).toHaveValue('')
-      await expect(
-        panel
-          .getByTestId('agent-composer-context-chips')
-          .getByRole('button', { name: 'This section', exact: true })
-      ).toBeEnabled({ timeout: 60_000 })
+      await expect(sectionChip).toBeEnabled()
       const addContextButton = panel.getByTestId('agent-add-menu-trigger')
       await expect(addContextButton).toBeEnabled({ timeout: 60_000 })
       const wholeManuscriptChip = panel

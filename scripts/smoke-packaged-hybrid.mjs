@@ -308,6 +308,12 @@ async function runPackagedAppScenarios(resources) {
     })
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
+    const browserWindow = await app.browserWindow(page)
+    await browserWindow.evaluate((window) => {
+      window.unmaximize()
+      window.setContentSize(1400, 900)
+    })
+    await page.waitForFunction(() => window.innerWidth >= 1_280)
     try {
       await page.waitForFunction(() => window.desktop?.providers !== undefined, undefined, {
         timeout: 15_000

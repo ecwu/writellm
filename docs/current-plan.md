@@ -444,12 +444,11 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Run `33277302371` for `.35` passed static, credential preflight, both macOS rows,
-and the Linux Electron/build gate before isolating Windows patch EOL and Playwright's injected Linux
-password-store default. The `.36` remediation enforces LF checkout for pnpm patches and removes
-that default only from the explicit hosted `gnome-libsecret` session. Its frozen install,
-static/type gates, fixture verification, and both affected E2E scenarios pass locally. The
-authorized corrected immutable `.36` tag is required for complete hosted evidence, as recorded in
+remains disabled. Immutable `.43` run `33294758154` completed both macOS rows through artifact
+upload, while Windows timed out navigating a hidden 900-pixel packaged window and Linux retried one
+Agent `/section` keyboard selection before the strict no-flake gate rejected it. Candidate `.44`
+sets a deterministic desktop-sized packaged viewport and confirms section scope through a direct,
+retryable menu selection. It still requires complete local and hosted verification, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

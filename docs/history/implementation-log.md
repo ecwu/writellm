@@ -802,6 +802,16 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.43` as failed evidence after run `33294758154` completed the shared
+  gate and both macOS platform pipelines through artifact upload. Windows passed Electron and full
+  E2E before hidden-window packaged smoke could not expose Knowledge navigation. Linux passed its
+  Electron gate and retried grounded Agent after Enter cleared `/section` without selecting its
+  scope; the no-flake policy rejected the platform. Made packaged viewport size deterministic and
+  changed section-scope selection to a directly confirmed menu action. Three independent focused
+  runs, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, all 12 packaged-smoke categories,
+  34/34 packaged E2E, and structural DMG/ZIP checks passed; advanced release metadata to
+  `0.2026.8.44` pending hosted verification.
+
 - Retained immutable `v0.2026.8.42` as failed evidence after run `33291808264` passed the shared
   gate and every platform's 1,160-test Electron/build gate. Both macOS rows and Linux completed all
   47 E2E scenarios without retries, native packaging, and artifact upload. Windows alone retried

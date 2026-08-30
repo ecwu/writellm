@@ -1,16 +1,12 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.39` passed every platform's
-Electron/build gate and all 47 scenarios on Windows, Linux, and macOS arm64; macOS x64 exposed a
-streaming-response overlap, Windows exposed a packaged-smoke initialization race, and Linux then
-failed packaged E2E while its selected section context was still settling. Candidate `.40`
-proved those remediations, then exposed one model-picker opening race on macOS x64 and one
-KaTeX-internal assertion race on Windows. Linux and macOS arm64 completed their independent package
-pipelines. Candidate `.41` proved those fixes, then exposed three additional hosted interaction
-races and a slow Windows packaged-shell startup. Candidate `.42` completed both macOS rows and
-Linux through artifact upload; Windows alone exposed one title-input hydration race. Candidate
-`.43` waits for initial title hydration, is locally verified, and awaits hosted confirmation.
+Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.42` completed both macOS
+rows and Linux through artifact upload; Windows alone exposed one title-input hydration race.
+Candidate `.43` proved that fix and again completed both macOS rows, then exposed a hidden-window
+layout dependency in Windows packaged smoke and one Linux Agent slash-command selection race.
+Candidate `.44` contains their narrow remediations, passed the complete local verification gate,
+and awaits hosted confirmation.
 Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in
@@ -72,7 +68,9 @@ Status markers:
   native packaging and artifact upload. Candidate `.41` passed every Electron/build gate and
   completed the arm64 pipeline, then exposed clarification keyboard delivery, Agent menu remount,
   slash-menu opening, and packaged-shell startup races across x64, Linux, and Windows. Candidate
-  `.42` contains their narrow remediations. Release promotion remains disabled.
+  `.42` contained their narrow remediations. Candidate `.43` completed both macOS rows but exposed
+  one Windows packaged-window layout dependency and one Linux Agent slash-command selection race;
+  `.44` contains their narrow remediations. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

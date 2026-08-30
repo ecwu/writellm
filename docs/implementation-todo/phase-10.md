@@ -812,6 +812,25 @@ passed all 27 recovery fixtures, all 12 packaged-smoke categories, all 34 packag
 without retries, and structural DMG/ZIP verification. Release metadata advances to
 `0.2026.8.43`; hosted confirmation remains required.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.43` at
+`2a0911add3efff607496fe655aed7dd16d2ae723` completed tag-only run `33294758154` with terminal
+failure. The shared gate and both macOS platform jobs succeeded through native packaging and
+artifact upload. Windows passed its complete Electron and E2E gates, then packaged smoke timed out
+because the hidden default-width window did not expose Knowledge navigation. Linux passed its
+complete Electron gate and all 47 E2E scenarios after one grounded-Agent retry: Enter closed and
+cleared the `/section` menu without mounting the selected scope chip. The strict no-flake policy
+correctly failed that independent platform job.
+
+Local post-candidate remediation evidence (2026-08-30): packaged smoke now sets and verifies a
+deterministic desktop-sized content area before onboarding, removing the hidden-window layout
+dependency. The grounded-Agent scenario selects the visible section option directly and retries
+until the resulting scope chip confirms state. The Agent scenario passed three independent focused
+runs without retries. The final source passed `check:fast`, 201 Electron-hosted files / 1,160 tests
+with three intentional benchmark skips, and a fresh 47/47 full E2E run without retries. The
+complete no-identity macOS arm64 package gate passed all 27 recovery fixtures, all 12 packaged-smoke
+categories, all 34 packaged E2E scenarios without retries, and structural DMG/ZIP verification.
+Release metadata advances to `0.2026.8.44`; hosted confirmation remains required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or
