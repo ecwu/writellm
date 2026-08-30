@@ -271,7 +271,9 @@ test(
         .toBe('dark')
       await launched.page.keyboard.press('Escape')
       await expect(settings).not.toBeVisible()
-      await expect(formulas.first().locator('math')).toBeVisible({ timeout: 30_000 })
+      await expect(formulas.first().locator('.bn-preview-container')).toBeVisible({
+        timeout: 30_000
+      })
     } finally {
       await launched.app.close()
     }

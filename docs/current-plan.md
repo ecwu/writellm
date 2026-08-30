@@ -10,7 +10,10 @@ the underlying virtual position-reference update loop plus three hosted UI timin
 `.39` proved the virtual-reference fix and all 47 scenarios on Windows, Linux, and macOS arm64;
 macOS x64 exposed a streaming-to-persisted message overlap, Windows exposed a packaged-smoke
 editor-initialization race, and Linux exposed a context-selection settlement race in packaged E2E
-after its full suite passed. Candidate `v0.2026.8.40` contains all three remediations.
+after its full suite passed. Candidate `.40` proved those remediations, then exposed one dropped
+model-picker opening on macOS x64 and one transient KaTeX-internal assertion on Windows; Linux and
+macOS arm64 completed their independent package pipelines. Candidate `.41` contains both
+test-boundary remediations but has not yet received hosted confirmation.
 Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
@@ -96,6 +99,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   converge to one persisted message, waits for proposal review before inspecting older activity
   groups, waits for the selected section context and Add-context control to become enabled, and
   enters Knowledge before the packaged smoke mutates the manuscript through IPC.
+- Candidate `.40` passed the shared gate and all four Electron/build gates. macOS arm64 completed
+  all 47 scenarios, native packaging, and artifact upload. macOS x64 passed its grounded Agent
+  scenario on retry after the model/effort trigger failed to open once; Windows likewise passed
+  its native-inline-math scenario on retry after all four formulas were visibly rendered but a
+  transient internal `<math>` element was absent. The strict evidence policy correctly rejected
+  both flaky rows. Linux passed all 47 real-Secret-Service scenarios, its native package gate, and
+  artifact upload. Candidate `.41` retries the model-picker trigger until the popover is visibly
+  open and verifies the user-visible formula preview rather than KaTeX's transient internal node.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

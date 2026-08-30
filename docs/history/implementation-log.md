@@ -802,6 +802,15 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.40` as failed evidence after run `33287098513` passed the shared
+  gate and every platform's 1,160-test Electron/build gate. macOS arm64 and Linux completed all 47
+  scenarios, native packaging, and artifact upload. The strict evidence policy rejected one
+  macOS x64 model-picker opening retry and one Windows assertion against a transient KaTeX internal
+  node despite visibly rendered formulas. Added a bounded popover-open retry and asserted the
+  user-visible formula preview, then passed both focused scenarios, `check:fast`, 1,160 Electron
+  tests, fresh 47/47 full E2E, 12 packaged-smoke categories, 34/34 packaged E2E, and structural
+  local DMG/ZIP checks; advanced release metadata to `0.2026.8.41`.
+
 - Retained immutable `v0.2026.8.39` as failed evidence after run `33283260551` passed the shared
   gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, native
   packaging, and artifact upload; Windows and Linux passed their full 47-scenario suites before

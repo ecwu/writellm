@@ -622,14 +622,19 @@ test(
           animations: 'disabled'
         })
       }
-      await panel.getByTestId('agent-model-selector').click()
       const modelEffortPicker = launched.page.getByTestId('agent-model-effort-picker')
+      await expect(async () => {
+        if (!(await modelEffortPicker.isVisible())) {
+          await modelSelector.click()
+        }
+        await expect(modelEffortPicker).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
       await expect(
         modelEffortPicker.getByRole('option', { name: /Model Writer model/ })
-      ).toBeVisible()
+      ).toBeVisible({ timeout: 60_000 })
       await expect(
         modelEffortPicker.getByRole('option', { name: /Effort Unavailable/ })
-      ).toBeVisible()
+      ).toBeVisible({ timeout: 60_000 })
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
           path: join(screenshotDirectory, 'cp48-agent-model-effort.png'),

@@ -749,6 +749,27 @@ package gate passed all 12 packaged-smoke evidence categories, all 34 packaged E
 without retries, and structural DMG/ZIP verification. Release metadata advances to
 `0.2026.8.40`; hosted confirmation remains required.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.40` at
+`203e13bb3cf95024c7097c3b586c408cdc8fee73` completed tag-only run `33287098513` with terminal
+failure. The shared static/fixture gate and every platform's 1,160-test Electron/build gate passed.
+macOS arm64 and Linux x64 each completed all 47 E2E scenarios, native packaging, and artifact
+upload; Linux used the real Secret Service backend throughout both E2E gates. macOS x64 retried the
+grounded Agent scenario after its model/effort trigger failed to open the popover once. Windows
+retried native inline math after all four formulas were visibly rendered in dark mode but the test
+could not find KaTeX's transient internal `<math>` element. Both retries passed, but the strict
+no-flake evidence policy correctly failed those two independent platform jobs and retained their
+diagnostics.
+
+Local post-candidate remediation evidence (2026-08-30): the grounded Agent scenario now safely
+retries its trigger only while the model/effort popover remains closed, then waits for its visible
+options. The native-inline-math scenario verifies the user-visible formula preview after theme
+rerender instead of depending on KaTeX's internal MathML node. Each affected scenario passed
+focused with retries disabled. The final source passed `check:fast`, 201 Electron-hosted files /
+1,160 tests with three intentional benchmark skips, a fresh 47/47 full E2E run without retries,
+and the complete no-identity macOS arm64 package gate: all 27 recovery fixtures, all 12 packaged
+smoke categories, all 34 packaged E2E scenarios without retries, and structural DMG/ZIP checks.
+Release metadata advances to `0.2026.8.41`; hosted confirmation remains required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or
