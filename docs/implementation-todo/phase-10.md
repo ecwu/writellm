@@ -222,22 +222,25 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   release notes. Live billable provider checks remain separately authorized manual probes against
   non-production fixtures; deterministic loopback providers are the release gate and no provider
   secret is embedded in an artifact.
-- [~] 26.9 Pass the Windows x64, macOS arm64, macOS x64, and Linux x64 rows on their real target
-  architectures, verify uploaded checksums and retention metadata, and record the exact commands,
-  runner images, test counts, artifact names, hashes, and intentionally unsigned status in the
-  completion evidence. Protected promotion and production publication remain outside the resumed
-  build authorization.
+- [~] 26.9 Pass the Windows x64, macOS arm64, macOS x64, and Linux x64 native build rows on their
+  real target architectures, verify uploaded checksums and retention metadata, and record the exact
+  commands, runner images, artifact names, hashes, and intentionally unsigned status in the
+  completion evidence. Hosted execution is limited to the shared static/recovery-fixture gate plus
+  build, inventory verification, and artifact upload. Protected promotion and production
+  publication remain outside the resumed build authorization.
 
   Authorization: on 2026-08-09 the user explicitly approved starting Checkpoint 26.9, including
   the required commit, push, tag, hosted workflow dispatch, and protected dry-run promotion.
   Production release publication remains out of scope. Local macOS arm64 evidence cannot
   substitute for either hosted macOS architecture.
 
-Acceptance criteria: the tagged source is built and tested on the real Windows x64, macOS arm64,
-macOS x64, and Linux x64 target rows; the current migration, recovery, export, native runtime,
-Agent, security, and logging boundaries pass in packaged artifacts; and artifacts and diagnostics
-have explicit retention and provenance. Signing and release promotion remain separately gated and
-cannot reuse a missing, skipped, failed, mismatched, or intentionally unsigned production row.
+Acceptance criteria: the tagged source passes the shared static/recovery-fixture gate, then builds
+on the real Windows x64, macOS arm64, macOS x64, and Linux x64 target rows; each row verifies its
+native packaged inventory and uploads its unsigned installers/archives plus build-only evidence with
+explicit retention and provenance. Complete Electron database tests, E2E, and packaged smoke remain
+mandatory local pre-tag evidence but do not run in hosted CI. Signing and release promotion remain
+separately gated and cannot reuse a missing, skipped, failed, mismatched, or intentionally unsigned
+production row.
 
 Implementation evidence (2026-07-31): pinned least-privilege CI and release-candidate workflows
 now use `windows-2022`, `macos-15`, `macos-15-intel`, and `ubuntu-24.04`, immutable action SHAs,
@@ -830,6 +833,27 @@ with three intentional benchmark skips, and a fresh 47/47 full E2E run without r
 complete no-identity macOS arm64 package gate passed all 27 recovery fixtures, all 12 packaged-smoke
 categories, all 34 packaged E2E scenarios without retries, and structural DMG/ZIP verification.
 Release metadata advances to `0.2026.8.44`; hosted confirmation remains required.
+
+Hosted candidate and authorization update (2026-08-30): immutable `v0.2026.8.44` run
+`33298003843` passed the shared gate, but macOS x64 timed out one 600-event rolling-compaction
+database test at its default five-second budget while the other independent jobs continued. The
+test now carries the same explicit 60-second budget as its adjacent 600-event rolling-compaction
+case and passed three independent focused runs. The user then explicitly narrowed online CI to
+static verification followed by native builds, excluding database-backed Electron tests and E2E.
+Candidate `.45` therefore keeps the full local gates unchanged, adds an explicit build-only package
+mode that still performs native preparation, production build, signature policy and ASAR/native
+inventory verification, installer/archive construction, and evidence emission, and routes four
+independent hosted jobs through that mode. Linux no longer installs or probes Secret Service online
+because no packaged runtime is launched. Release metadata advances to `0.2026.8.45`; local and
+hosted build confirmation remain required.
+
+Local `.45` evidence (2026-08-30): `check:fast` and the 27-case recovery-fixture manifest passed;
+the complete Electron suite passed 201 files / 1,160 tests with three intentional benchmark skips;
+and fresh full E2E passed 47/47 scenarios without retries. The unchanged full local package mode
+passed all 12 packaged-smoke categories, all 34 packaged E2E scenarios without retries, and
+structural DMG/ZIP checks. The new build-only mode separately produced a no-Team-ID macOS arm64
+unpacked app, DMG, ZIP, verified native inventory, and evidence containing no packaged-smoke or E2E
+claim. Hosted four-platform confirmation remains required.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate

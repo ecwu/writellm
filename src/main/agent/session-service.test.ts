@@ -3263,7 +3263,7 @@ describe('AgentSessionService', () => {
     const successfulPayload = compactionEvents[0]?.payload as { coveredThroughSequence?: number }
     expect(successfulPayload.coveredThroughSequence).toBeGreaterThan(240)
     database.close()
-  })
+  }, 60_000)
 
   it('keeps a synthetic 200-event near-limit history within the byte budget before parsing payloads', async () => {
     const database = await createDatabase()

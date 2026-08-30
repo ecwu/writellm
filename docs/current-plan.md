@@ -444,11 +444,13 @@ Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabl
 accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
 and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
 branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Immutable `.43` run `33294758154` completed both macOS rows through artifact
-upload, while Windows timed out navigating a hidden 900-pixel packaged window and Linux retried one
-Agent `/section` keyboard selection before the strict no-flake gate rejected it. Candidate `.44`
-sets a deterministic desktop-sized packaged viewport and confirms section scope through a direct,
-retryable menu selection. It still requires complete local and hosted verification, as recorded in
+remains disabled. Immutable `.44` run `33298003843` exposed another hosted database-test timeout on
+macOS x64 while the other independent platform jobs continued. On 2026-08-30 the user narrowed the
+online gate: static and recovery-fixture checks run once, then Windows x64, macOS arm64, macOS x64,
+and Linux x64 independently build native unsigned packages and upload build evidence. Hosted
+Electron database tests, complete E2E, packaged smoke, signing, and promotion are excluded; the full
+Electron/E2E/package gates remain local pre-tag evidence. Candidate `.45` implements this scope and
+still requires local build verification plus four terminal hosted build successes, as recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.

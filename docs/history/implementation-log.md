@@ -802,6 +802,18 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.44` as failed evidence after run `33298003843` exposed a
+  five-second macOS x64 timeout in a 600-event rolling-compaction database test. Assigned that
+  intentionally heavy test the adjacent case's 60-second budget and passed it independently three
+  times. Under the user's revised authorization, narrowed hosted CI to the shared static/fixture
+  gate followed by four fail-fast-disabled native build and artifact-upload jobs. Added a
+  build-only package mode that retains native preparation, production compilation, signature
+  policy, packaged inventory, installer/archive inspection, and evidence while excluding Electron
+  database tests, E2E, packaged smoke, and Linux Secret Service setup. Advanced release metadata to
+  `0.2026.8.45`. Locally passed `check:fast`, the 27 recovery fixtures, 1,160 Electron tests, fresh
+  47/47 full E2E, the full 12-category smoke plus 34/34 packaged E2E package gate, and the separate
+  build-only macOS arm64 artifact/inventory path. Hosted confirmation remains required.
+
 - Retained immutable `v0.2026.8.43` as failed evidence after run `33294758154` completed the shared
   gate and both macOS platform pipelines through artifact upload. Windows passed Electron and full
   E2E before hidden-window packaged smoke could not expose Knowledge navigation. Linux passed its

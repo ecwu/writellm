@@ -5,8 +5,9 @@ Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.42` comp
 rows and Linux through artifact upload; Windows alone exposed one title-input hydration race.
 Candidate `.43` proved that fix and again completed both macOS rows, then exposed a hidden-window
 layout dependency in Windows packaged smoke and one Linux Agent slash-command selection race.
-Candidate `.44` contains their narrow remediations, passed the complete local verification gate,
-and awaits hosted confirmation.
+Candidate `.44` passed its local gate but exposed another hosted macOS x64 database-test timeout.
+The user then narrowed online CI to one static/fixture gate plus four independent native builds and
+artifact uploads; `.45` implements that scope and passed complete local pre-tag verification.
 Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in
@@ -69,8 +70,10 @@ Status markers:
   completed the arm64 pipeline, then exposed clarification keyboard delivery, Agent menu remount,
   slash-menu opening, and packaged-shell startup races across x64, Linux, and Windows. Candidate
   `.42` contained their narrow remediations. Candidate `.43` completed both macOS rows but exposed
-  one Windows packaged-window layout dependency and one Linux Agent slash-command selection race;
-  `.44` contains their narrow remediations. Release promotion remains disabled.
+  one Windows packaged-window layout dependency and one Linux Agent slash-command selection race.
+  Candidate `.44` fixed those boundaries but exposed another hosted database-test budget. The user
+  narrowed online acceptance to static verification plus four independent native builds and
+  uploads; `.45` implements that scope. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

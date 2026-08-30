@@ -43,10 +43,10 @@ jobs:
         run: pnpm check:fast
 
   platform:
-    name: ${{ matrix.label }} pipeline
+    name: ${{ matrix.label }} build
     needs: static
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 135
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -54,19 +54,19 @@ jobs:
           - target: windows-x64
             label: Windows x64
             runner: windows-2022
-            command: package:windows-x64
+            command: package:ci:windows-x64
           - target: macos-arm64
             label: macOS arm64
             runner: macos-15
-            command: package:macos-arm64
+            command: package:ci:macos-arm64
           - target: macos-x64
             label: macOS x64
             runner: macos-15-intel
-            command: package:macos-x64
+            command: package:ci:macos-x64
           - target: linux-x64
             label: Linux x64
             runner: ubuntu-24.04
-            command: package:linux-x64
+            command: package:ci:linux-x64
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -83,35 +83,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Frozen dependency install
         run: pnpm install --frozen-lockfile
-      - name: Install Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools
-      - name: Verify real Electron secure credential backend
-        if: ${{ matrix.target == 'linux-x64' }}
-        shell: bash
-        run: bash scripts/run-with-linux-secret-service.sh --verify-only
-      - name: Electron tests and production build
-        run: pnpm check:electron
-      - name: Complete silent Electron E2E
-        if: ${{ matrix.target != 'linux-x64' }}
-        run: pnpm test:e2e
-      - name: Complete silent Electron E2E with Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        shell: bash
-        run: |
-          bash scripts/run-with-linux-secret-service.sh \
-            pnpm test:e2e
-      - name: Native-host package gate
-        if: ${{ matrix.target != 'linux-x64' }}
+      - name: Native platform build
         run: pnpm run ${{ matrix.command }}
-      - name: Native-host package gate with Linux Secret Service
-        if: ${{ matrix.target == 'linux-x64' }}
-        shell: bash
-        run: |
-          bash scripts/run-with-linux-secret-service.sh \
-            pnpm run package:linux-x64
       - name: Upload unsigned package evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -125,11 +98,3 @@ jobs:
             dist/${{ matrix.target }}/package-evidence.json
           if-no-files-found: error
           retention-days: 30
-      - name: Retain synthetic failure diagnostics
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: diagnostics-${{ matrix.target }}-${{ github.sha }}
-          path: test-results
-          if-no-files-found: ignore
-          retention-days: 14
