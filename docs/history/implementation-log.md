@@ -1110,8 +1110,10 @@ maintenance without turning the active tracker back into a historical log.
   packaged Electron scenarios without flakes, skips, or failures. It produced a 238,735,121-byte
   DMG (`45e37ea91cb07e945014695d89cbc51cd966570216a925567b664f6cf01b20cc`) and a
   236,883,926-byte ZIP (`3120c4ac9a63c2763f918129de0ee86c9f5a0bf8a74c68828e53c77330d13fd3`).
-  Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
-  outside the authorization.
+  Source commit `1f53c5c` and annotated tag `v0.2026.8.46` passed the exact release-source verifier
+  and were atomically pushed to GitHub; tag-only four-platform run `33341907788` started
+  successfully. Developer ID signing, notarization, GitHub Release creation, promotion, and
+  publication remain outside the authorization.
 - Completed Agent staged-tool preflight and citation-recovery maintenance. The Worker now snapshots
   the exact model-visible tool specifications for each provider request and preserves the concrete
   policy rejection selected before dispatch. Activated tools with malformed arguments therefore

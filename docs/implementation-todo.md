@@ -19,7 +19,7 @@ Status markers:
 
 ## Active and paused work
 
-- [~] Maintenance candidate `v0.2026.8.46`: align tag CI with the accepted pnpm 11.17.0 runtime,
+- [x] Maintenance candidate `v0.2026.8.46`: align tag CI with the accepted pnpm 11.17.0 runtime,
   rebuild and fully verify the no-Team-ID macOS arm64 App, then commit, tag, and push `main` plus
   the immutable tag under explicit user authorization.
 - [x] Maintenance: replace a completed or failed context-compaction start marker with its durable

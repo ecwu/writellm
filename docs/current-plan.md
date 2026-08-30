@@ -28,8 +28,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Local no-Team-ID candidate `v0.2026.8.46` is fully built and verified pending its authorized
-  source commit, annotated tag, and push. The gate verified 31 recovery fixtures from 29 sources,
+- Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit
+  `1f53c5c`; tag-only GitHub Actions run `33341907788` is in progress. The gate verified 31 recovery fixtures from 29 sources,
   53,288 ASAR entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged smoke
   scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
   produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`; tag CI is aligned with the
@@ -482,12 +482,12 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
-The user separately authorized a no-Team-ID macOS arm64 App rebuild, source commit, annotated
-`v0.2026.8.46` tag, and push of `main` plus that tag for the completed maintenance snapshot. The
-local package gate is complete; the source commit, tag, and push remain in progress. The tag-only
-workflow uses the repository's accepted pnpm 11.17.0 pin and will independently build the four
-unsigned platform rows after push. Apple Developer ID signing, notarization, GitHub Release
-creation, promotion, and publication remain outside this authorization.
+The separately authorized no-Team-ID macOS arm64 App rebuild, source commit, annotated
+`v0.2026.8.46` tag, and atomic push of `main` plus that tag are complete for the maintenance
+snapshot. Tag-only GitHub Actions run `33341907788` uses the repository's accepted pnpm 11.17.0
+pin and is independently building the four unsigned platform rows. Apple Developer ID signing,
+notarization, GitHub Release creation, promotion, and publication remain outside this
+authorization.
 
 Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
 immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent
