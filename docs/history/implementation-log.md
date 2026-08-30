@@ -802,6 +802,13 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Completed Checkpoint 26.9 with immutable `v0.2026.8.45` run `33299058552`. The shared static and
+  recovery-fixture gate passed, followed by terminal success for four independent build-only jobs:
+  macOS arm64, Windows x64, Linux x64, and macOS x64. Each platform completed native packaging,
+  inventory verification, and its own unsigned artifact upload. Four non-expired artifacts totaling
+  approximately 1.57 GB are retained through 2026-09-29. Hosted database/E2E tests, signing,
+  notarization, promotion, and publication did not run under the accepted narrowed scope.
+
 - Retained immutable `v0.2026.8.44` as failed evidence after run `33298003843` exposed a
   five-second macOS x64 timeout in a 600-event rolling-compaction database test. Assigned that
   intentionally heavy test the adjacent case's 60-second budget and passed it independently three

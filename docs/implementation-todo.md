@@ -1,13 +1,9 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.42` completed both macOS
-rows and Linux through artifact upload; Windows alone exposed one title-input hydration race.
-Candidate `.43` proved that fix and again completed both macOS rows, then exposed a hidden-window
-layout dependency in Windows packaged smoke and one Linux Agent slash-command selection race.
-Candidate `.44` passed its local gate but exposed another hosted macOS x64 database-test timeout.
-The user then narrowed online CI to one static/fixture gate plus four independent native builds and
-artifact uploads; `.45` implements that scope and passed complete local pre-tag verification.
+Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
+static/fixture gate and all four independent native build/upload jobs under the user's narrowed
+online scope; complete Electron, E2E, and package verification passed locally before the tag.
 Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in
@@ -53,27 +49,9 @@ Status markers:
   multi-turn source-only answers, validated citations, and project-session lifecycle cleanup.
 - [x] Checkpoint 65: bounded native BlockNote inline mathematics with schema-v4 persistence,
   Agent semantics, prose-operation isolation, interchange, and safe publication.
-- [~] Checkpoint 26.9: run the restored tag-only Windows x64, macOS arm64, macOS x64, and Linux x64
-  pipelines and record their hosted evidence. Candidate `.36` confirmed LF pnpm patches on Windows
-  and the explicit hosted Linux Secret Service backend, then exposed one Windows Floating UI setter
-  loop and one macOS arm64 conflict-test race. Candidate `.37` proved independent native packaging
-  and artifact upload on both macOS targets while Windows and Linux exposed the remaining repeated
-  DOM-reference loop, one ambiguous Windows locator, and two Linux scenario budgets. Candidate
-  `.38` confirmed those fixes but exposed the underlying virtual position-reference update loop on
-  all four hosts plus three hosted UI timing boundaries. Candidate `.39` passed every Electron gate
-  and all 47 scenarios on three hosts, then exposed a macOS x64 streaming/persistence overlap and a
-  Windows packaged-smoke initialization race. Linux passed full E2E but later failed packaged E2E
-  in its independent package gate while its selected section context was still settling. Candidate
-  `.40` proved those fixes; its macOS x64 model picker failed to open once, Windows asserted a
-  transient KaTeX internal node despite visible formulas, and Linux plus macOS arm64 completed
-  native packaging and artifact upload. Candidate `.41` passed every Electron/build gate and
-  completed the arm64 pipeline, then exposed clarification keyboard delivery, Agent menu remount,
-  slash-menu opening, and packaged-shell startup races across x64, Linux, and Windows. Candidate
-  `.42` contained their narrow remediations. Candidate `.43` completed both macOS rows but exposed
-  one Windows packaged-window layout dependency and one Linux Agent slash-command selection race.
-  Candidate `.44` fixed those boundaries but exposed another hosted database-test budget. The user
-  narrowed online acceptance to static verification plus four independent native builds and
-  uploads; `.45` implements that scope. Release promotion remains disabled.
+- [x] Checkpoint 26.9: immutable `v0.2026.8.45` passed the shared static/fixture gate and independent
+  Windows x64, macOS arm64, macOS x64, and Linux x64 native build/upload jobs. Release promotion
+  remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
@@ -248,7 +226,7 @@ Exact verification and artifact boundaries are recorded in
 ## Completed baseline
 
 - [x] Phases 0–9 and Checkpoints 23M/23V.
-- [x] Phase 10 Checkpoints 24–26.8S; Checkpoint 26.9 is the sole in-progress remainder.
+- [x] Phase 10 Checkpoints 24–26.9.
 - [x] Checkpoints 27–28.x and related maintenance under ADRs 012–020. Detailed evidence:
   [`implementation-todo/phase-agent-writing.md`](implementation-todo/phase-agent-writing.md).
 - [x] Phase 11 Checkpoints 29–47B under ADRs 021–037.

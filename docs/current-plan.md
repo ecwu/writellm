@@ -438,19 +438,15 @@ tolerance, and two hosted E2E timing/focus races; `.31` contains their focused r
 Apple Developer ID signing, notarization, GitHub Release creation, promotion, and publication
 remain unauthorized.
 
-## Active delivery gate
+## Completed delivery gate
 
-Checkpoint 26.9 has resumed under the user's 2026-08-29 authorization. The enabled CI definition
-accepts only pushed tags and runs static/fixture verification, native Electron tests, complete E2E,
-and unsigned packaging on Windows x64, macOS arm64, macOS x64, and Linux x64. Pull requests,
-branch pushes, schedules, and manual dispatches cannot trigger it. The release-candidate workflow
-remains disabled. Immutable `.44` run `33298003843` exposed another hosted database-test timeout on
-macOS x64 while the other independent platform jobs continued. On 2026-08-30 the user narrowed the
-online gate: static and recovery-fixture checks run once, then Windows x64, macOS arm64, macOS x64,
-and Linux x64 independently build native unsigned packages and upload build evidence. Hosted
-Electron database tests, complete E2E, packaged smoke, signing, and promotion are excluded; the full
-Electron/E2E/package gates remain local pre-tag evidence. Candidate `.45` implements this scope and
-still requires local build verification plus four terminal hosted build successes, as recorded in
+Checkpoint 26.9 completed under the user's narrowed 2026-08-30 authorization. Immutable
+`v0.2026.8.45` run `33299058552` passed the shared static/recovery-fixture gate, then independently
+built Windows x64, macOS arm64, macOS x64, and Linux x64 unsigned packages and uploaded four
+platform artifacts with 30-day retention. Pull requests, branch pushes, schedules, and manual
+dispatches cannot trigger this workflow. Hosted Electron database tests, complete E2E, packaged
+smoke, signing, and promotion are excluded; the full Electron/E2E/package gates passed locally as
+pre-tag evidence. Exact hosted evidence is recorded in
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
 Apple Developer ID signing, notarization, GitHub Release creation, release promotion, and
 publication remain outside the authorization.
@@ -458,7 +454,7 @@ publication remain outside the authorization.
 ## Completed baseline
 
 - Phases 0–9 and Checkpoints 23M/23V are complete.
-- Phase 10 Checkpoints 24–26.8S are complete; Checkpoint 26.9 is in progress.
+- Phase 10 Checkpoints 24–26.9 are complete.
 - Checkpoints 27–28.x are complete under ADRs 012–020.
 - Phase 11 is complete under ADRs 021–037.
 - Phase 12 is implemented and verified through Checkpoint 62 under ADRs 038–044 and 046–055.

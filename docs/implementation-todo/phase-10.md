@@ -5,8 +5,8 @@
 - Purpose: deliver a portable whole-manuscript export, finish reproducible native packaging on
   every supported target, and establish cross-platform CI and controlled release promotion.
 - Checkpoints: 24–26.
-- Current status: Checkpoint 26.9 has resumed with tag-only four-platform CI; hosted evidence is
-  pending and the release-candidate workflow remains disabled.
+- Current status: Checkpoint 26.9 is complete through tag-only four-platform build evidence; the
+  release-candidate workflow remains disabled.
 - Implementation state: plan realigned with the verified 2026-07-31 codebase; Checkpoint 24 passed
   its acceptance gate, Checkpoint 25 passed its acceptance gate, and Checkpoint 26.1–26.8 are
   implemented and locally verified under the user's approval to implement Phase 10.
@@ -222,7 +222,7 @@ the Checkpoint 26 real-runner matrix rather than cross-built on this host.
   release notes. Live billable provider checks remain separately authorized manual probes against
   non-production fixtures; deterministic loopback providers are the release gate and no provider
   secret is embedded in an artifact.
-- [~] 26.9 Pass the Windows x64, macOS arm64, macOS x64, and Linux x64 native build rows on their
+- [x] 26.9 Pass the Windows x64, macOS arm64, macOS x64, and Linux x64 native build rows on their
   real target architectures, verify uploaded checksums and retention metadata, and record the exact
   commands, runner images, artifact names, hashes, and intentionally unsigned status in the
   completion evidence. Hosted execution is limited to the shared static/recovery-fixture gate plus
@@ -853,7 +853,20 @@ and fresh full E2E passed 47/47 scenarios without retries. The unchanged full lo
 passed all 12 packaged-smoke categories, all 34 packaged E2E scenarios without retries, and
 structural DMG/ZIP checks. The new build-only mode separately produced a no-Team-ID macOS arm64
 unpacked app, DMG, ZIP, verified native inventory, and evidence containing no packaged-smoke or E2E
-claim. Hosted four-platform confirmation remains required.
+claim.
+
+Hosted completion evidence (2026-08-30): immutable `v0.2026.8.45` at
+`1c0625b8c867dfd96e3594e87fdc3a913936bd82` completed tag-only run `33299058552` successfully.
+The shared static/recovery-fixture gate passed in 45 seconds. All four independent build jobs passed
+native preparation, production build, unpacked signature policy, ASAR/native inventory,
+installer/archive construction, and artifact upload: macOS arm64 in 6m34s, Linux x64 in 8m06s,
+Windows x64 in 8m46s, and macOS x64 in 11m18s. GitHub retained four non-expired artifacts through
+2026-09-29: `writellm-macos-arm64-1c0625b8c867dfd96e3594e87fdc3a913936bd82`
+(474,500,386 bytes), `writellm-linux-x64-1c0625b8c867dfd96e3594e87fdc3a913936bd82`
+(425,557,570 bytes), `writellm-windows-x64-1c0625b8c867dfd96e3594e87fdc3a913936bd82`
+(189,344,482 bytes), and `writellm-macos-x64-1c0625b8c867dfd96e3594e87fdc3a913936bd82`
+(481,065,749 bytes). Hosted DB/E2E execution, signing, notarization, promotion, and publication did
+not run. Checkpoint 26.9 is complete under the accepted build-only hosted scope.
 
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
