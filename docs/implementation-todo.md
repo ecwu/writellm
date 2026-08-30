@@ -1,11 +1,12 @@
 # WriteLLM Implementation Tracker
 
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.36` confirmed Windows
-patch-EOL and Linux password-store fixes, then exposed one Windows Floating UI setter loop and one
-macOS arm64 conflict-test race. Candidate `.37` corrects them and isolates each platform's complete
-validation/package pipeline.
-Recorded: 2026-08-29
+Checkpoint 26.9 has resumed with tag-only four-platform CI. Candidate `.39` passed every platform's
+Electron/build gate and all 47 scenarios on Windows, Linux, and macOS arm64; macOS x64 exposed a
+streaming-response overlap, Windows exposed a packaged-smoke initialization race, and Linux then
+failed packaged E2E while its selected section context was still settling. Candidate `.40`
+contains all three remediations.
+Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -57,8 +58,11 @@ Status markers:
   and artifact upload on both macOS targets while Windows and Linux exposed the remaining repeated
   DOM-reference loop, one ambiguous Windows locator, and two Linux scenario budgets. Candidate
   `.38` confirmed those fixes but exposed the underlying virtual position-reference update loop on
-  all four hosts plus three hosted UI timing boundaries. Candidate `.39` contains the consolidated
-  remediation. Release promotion remains disabled.
+  all four hosts plus three hosted UI timing boundaries. Candidate `.39` passed every Electron gate
+  and all 47 scenarios on three hosts, then exposed a macOS x64 streaming/persistence overlap and a
+  Windows packaged-smoke initialization race. Linux passed full E2E but later failed packaged E2E
+  in its independent package gate while its selected section context was still settling. Candidate
+  `.40` contains the consolidated remediation. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

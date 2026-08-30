@@ -723,6 +723,32 @@ production build, all 47 E2E scenarios without retries, static/type checks, all 
 fixtures, and diff checks. Release metadata advances to `0.2026.8.39`; hosted confirmation remains
 required.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.39` at
+`6706286dcd1fb91e1532e6b1a57bf43e67e13cd6` completed tag-only run `33283260551` with terminal
+failure. The shared static/fixture gate passed, and every platform passed its frozen install plus
+complete 1,160-test Electron/build gate. macOS arm64 alone completed all 47 E2E scenarios, native
+packaging, and artifact upload. Windows also passed all 47 scenarios before its unpacked packaged
+smoke raced an IPC-created section against the editor's initial load and could no longer locate
+the Knowledge workspace. macOS x64 reached its final Agent answer while streaming and persisted
+renderings briefly overlapped; the retry passed, but the no-flake policy rejected the job. Linux
+passed all 47 real-Secret-Service scenarios, then its packaged Agent scenario clicked Add context
+while the selected section context was still disabled and remounting; the retry passed, but its
+package gate failed and artifact upload was skipped. Each failed platform retained its available
+diagnostics independently.
+
+Local post-candidate remediation evidence (2026-08-30): the active-tool-context scenario now waits
+for its streaming/persisted response overlap to converge to exactly one durable rendering. The
+grounded Agent scenario waits for proposal review before inspecting an earlier activity group and
+waits for both the selected-section chip and Add-context control to become enabled before changing
+scope. The packaged smoke enters Knowledge before writing its manuscript persistence fixture
+through IPC, avoiding a race with the initial editor load. The final active-tool-context and
+packaged grounded-Agent scenarios each passed twice without retries. The current source passed 201
+Electron-hosted files / 1,160 tests plus a production build, a fresh 47/47 full E2E run without
+retries, static/type checks, and all 27 recovery fixtures. The complete no-identity macOS arm64
+package gate passed all 12 packaged-smoke evidence categories, all 34 packaged E2E scenarios
+without retries, and structural DMG/ZIP verification. Release metadata advances to
+`0.2026.8.40`; hosted confirmation remains required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

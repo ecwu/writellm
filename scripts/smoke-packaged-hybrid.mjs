@@ -416,6 +416,13 @@ async function runPackagedAppScenarios(resources) {
       .getByText('Active', { exact: true })
       .waitFor({ timeout: 60_000 })
 
+    // Leave the editor before mutating the manuscript through IPC. On slower
+    // hosted Windows runners the editor can still be loading its initial
+    // section here; creating and saving another section concurrently can tear
+    // down the workspace before the packaged-smoke navigation begins.
+    await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+    await page.getByTestId('knowledge-upload-button').waitFor()
+
     const durableProject = await page.evaluate(async (pngBase64) => {
       const active = (await window.desktop.projects.lifecycle()).activeProject
       if (active === null || active === undefined) throw new Error('Active project missing')
@@ -489,7 +496,6 @@ async function runPackagedAppScenarios(resources) {
       }
     }, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
 
-    await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
     await page.getByTestId('knowledge-upload-button').click()
 
     const importStarted = await pollUntil(

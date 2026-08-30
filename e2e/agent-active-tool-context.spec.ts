@@ -227,11 +227,12 @@ test(
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByLabel('Agent message').fill('Read RQ1, RQ2, and RQ3 in order, then report.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
-      await expect(
-        panel.getByText('RQ3 remained authoritative and the long read sequence completed.', {
-          exact: true
-        })
-      ).toBeVisible({ timeout: 30_000 })
+      const finalResponse = panel.getByText(
+        'RQ3 remained authoritative and the long read sequence completed.',
+        { exact: true }
+      )
+      await expect(finalResponse).toHaveCount(1, { timeout: 30_000 })
+      await expect(finalResponse).toBeVisible()
 
       expect(agentCall).toBe(4)
       const finalBody = JSON.stringify(providerBodies[3])

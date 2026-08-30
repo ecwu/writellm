@@ -678,7 +678,14 @@ test(
       await panel.getByLabel('Agent message').press('Enter')
       await expect(slashMenu).not.toBeVisible()
       await expect(panel.getByLabel('Agent message')).toHaveValue('')
-      await panel.getByTestId('agent-add-menu-trigger').click()
+      await expect(
+        panel
+          .getByTestId('agent-composer-context-chips')
+          .getByRole('button', { name: 'This section', exact: true })
+      ).toBeEnabled({ timeout: 60_000 })
+      const addContextButton = panel.getByTestId('agent-add-menu-trigger')
+      await expect(addContextButton).toBeEnabled({ timeout: 60_000 })
+      await addContextButton.click()
       await launched.page.getByRole('option', { name: /Whole manuscript/ }).click()
       await panel
         .getByLabel('Agent message')
@@ -696,6 +703,11 @@ test(
       await expect(panel.getByTestId('agent-conversation-header')).toContainText(
         'Grounded evidence proposal'
       )
+      // Wait for the run to stop auto-expanding its newest activity group
+      // before opening and inspecting an earlier completed group.
+      await expect(panel.getByText('Review required', { exact: true })).toBeVisible({
+        timeout: 30_000
+      })
       const searchActivity = panel.getByTestId('agent-activity-group').filter({
         hasText: 'Searching sources'
       })

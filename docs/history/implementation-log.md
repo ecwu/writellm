@@ -802,6 +802,15 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.39` as failed evidence after run `33283260551` passed the shared
+  gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, native
+  packaging, and artifact upload; Windows and Linux passed their full 47-scenario suites before
+  separate packaged-smoke and packaged-E2E races, while macOS x64 exposed a transient duplicate
+  during streaming-to-persisted Agent response settlement. Added exact settlement waits at all
+  three boundaries, passed 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged-smoke
+  categories, 34/34 packaged E2E, recovery/static gates, and structural local DMG/ZIP checks, and
+  advanced release metadata to `0.2026.8.40`.
+
 - Retained immutable `v0.2026.8.38` as failed evidence after run `33281622771` passed static and
   every platform's complete Electron/build gate, then reproduced Floating UI's virtual
   position-reference loop on Windows, Linux, and both macOS targets. The independent jobs also

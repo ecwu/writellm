@@ -7,7 +7,10 @@ Candidate `.37` proved both independent macOS pipelines through artifact upload,
 Linux exposed one repeated-reference loop, one duplicate final-response locator, and two Linux
 90-second scenario budgets. Candidate `.38` proved those fixes reached all hosts, then identified
 the underlying virtual position-reference update loop plus three hosted UI timing races. Candidate
-`v0.2026.8.39` contains their consolidated remediation.
+`.39` proved the virtual-reference fix and all 47 scenarios on Windows, Linux, and macOS arm64;
+macOS x64 exposed a streaming-to-persisted message overlap, Windows exposed a packaged-smoke
+editor-initialization race, and Linux exposed a context-selection settlement race in packaged E2E
+after its full suite passed. Candidate `v0.2026.8.40` contains all three remediations.
 Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
@@ -82,6 +85,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   menu detachment; Linux had no additional failure. Candidate `.39` keeps one delegated virtual
   reference object until its element or geometry changes, while refreshing its live callbacks, and
   waits for the specific UI/backend state before the affected assertions.
+- Candidate `.39` passed the shared static gate, all four 1,160-test Electron/build gates, and all
+  47 E2E scenarios on Windows, Linux, and macOS arm64 without a retry. macOS arm64 also completed
+  native packaging and artifact upload. macOS x64 reached the final Agent response while its
+  streaming and persisted renderings briefly overlapped; Windows completed all 47 scenarios and
+  unpacked native packaging, then its packaged smoke raced an IPC-created section against the
+  editor's initial section load. Linux passed its real-Secret-Service E2E, then failed the
+  packaged-E2E portion of its native package gate after 31 minutes; artifact upload was skipped and
+  failure diagnostics were retained. Candidate `.40` waits for the Agent response rendering to
+  converge to one persisted message, waits for proposal review before inspecting older activity
+  groups, waits for the selected section context and Add-context control to become enabled, and
+  enters Knowledge before the packaged smoke mutates the manuscript through IPC.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while
